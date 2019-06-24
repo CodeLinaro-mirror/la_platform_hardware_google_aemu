@@ -126,7 +126,8 @@ message LogMessage {
     // by newer content and the start values will be mismatched.
     int64 start = 2;
     //[Output Only] The position of the next byte of content from the serial
-    //console output. Use this value in the next request as the start parameter.
+    // console output. Use this value in the next request as the start
+    // parameter.
     int64 next = 3;
 }
 
