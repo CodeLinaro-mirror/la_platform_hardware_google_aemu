@@ -1,0 +1,27 @@
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "device_generic_vulkan-cereal_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    //   SPDX-license-identifier-BSD
+    //   SPDX-license-identifier-GPL-2.0
+    //   SPDX-license-identifier-MIT
+    //   legacy_unencumbered
+    default_applicable_licenses: ["device_generic_vulkan-cereal_license"],
+}
+
+cc_library_headers {
+    name: "aemu_common_headers",
+    host_supported: true,
+    export_include_dirs: [
+        ".",
+        "base/include",
+        "host-common/include",
+        "snapshot/include",
+    ],
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.virt",
+    ],
+}
