@@ -14,7 +14,7 @@
 #include "base/SubAllocator.h"
 
 #include "base/ArraySize.h"
-#include "base/MemStream.h"
+#include "base/files/MemStream.h"
 
 #include <gtest/gtest.h>
 

@@ -17,8 +17,8 @@
 #include <sys/stat.h>
 
 #include "base/EintrWrapper.h"
-#include "base/SharedMemory.h"
-#include "base/PathUtils.h"
+#include "base/memory/SharedMemory.h"
+#include "base/files/PathUtils.h"
 #ifndef _MSC_VER
 #include <unistd.h>
 #endif

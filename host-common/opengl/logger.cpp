@@ -14,8 +14,8 @@
 
 #include "logger.h"
 
-#include "base/PathUtils.h"
-#include "base/Lock.h"
+#include "base/files/PathUtils.h"
+#include "base/synchronization/Lock.h"
 
 #include <algorithm>
 #include <fstream>

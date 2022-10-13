@@ -15,7 +15,7 @@
 #pragma once
 
 #include <memory>
-#include "base/Stream.h"
+#include "base/files/Stream.h"
 #include "android_pipe_common.h"
 #include "VmLock.h"
 

@@ -17,7 +17,7 @@
 #include "host-common/vm_operations.h"
 #include "host-common/crash_reporter.h"
 #include "base/AlignedBuf.h"
-#include "base/Lock.h"
+#include "base/synchronization/Lock.h"
 #include <map>
 #include <unordered_set>
 #include <unordered_map>

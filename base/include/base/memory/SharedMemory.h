@@ -22,6 +22,8 @@
 #endif  // _MSC_VER
 #endif  // _WIN32
 
+#include <sys/types.h>
+
 #include <string>
 #include <utility>
 

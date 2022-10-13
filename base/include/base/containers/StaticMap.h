@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #include "base/Optional.h"
-#include "base/Lock.h"
+#include "base/synchronization/Lock.h"
 
 #include <functional>
 #include <unordered_map>

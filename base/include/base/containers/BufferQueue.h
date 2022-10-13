@@ -14,10 +14,10 @@
 #pragma once
 
 #include "base/Compiler.h"
-#include "base/Stream.h"
-#include "base/StreamSerializing.h"
-#include "base/ConditionVariable.h"
-#include "base/Lock.h"
+#include "base/files/Stream.h"
+#include "base/files/StreamSerializing.h"
+#include "base/synchronization/ConditionVariable.h"
+#include "base/synchronization/Lock.h"
 
 #include <iterator>
 #include <vector>

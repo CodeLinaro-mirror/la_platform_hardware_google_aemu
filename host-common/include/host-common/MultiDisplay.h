@@ -16,8 +16,8 @@
 
 #pragma once
 
-#include "base/Lock.h"
-#include "base/Stream.h"
+#include "base/synchronization/Lock.h"
+#include "base/files/Stream.h"
 #include "host-common/record_screen_agent.h"
 #include "host-common/window_agent.h"
 

@@ -14,9 +14,9 @@
 
 #pragma once
 
-#include "base/PathUtils.h"
-#include "base/System.h"
-#include "base/Thread.h"
+#include "base/files/PathUtils.h"
+#include "base/system/System.h"
+#include "base/threads/Thread.h"
 
 #include "TestTempDir.h"
 

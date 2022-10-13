@@ -16,10 +16,10 @@
 
 #pragma once
 
-#include "base/SmallVector.h"
+#include "base/containers/SmallVector.h"
 #include "base/export.h"
-#include "base/StdioStream.h"
-#include "base/System.h"
+#include "base/files/StdioStream.h"
+#include "base/system/System.h"
 #include "snapshot/common.h"
 
 #include <functional>

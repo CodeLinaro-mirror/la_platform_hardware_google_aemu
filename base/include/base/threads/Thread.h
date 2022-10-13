@@ -16,7 +16,7 @@
 
 #include "base/Compiler.h"
 #include "base/ThreadTypes.h"
-#include "base/Lock.h"
+#include "base/synchronization/Lock.h"
 
 #ifdef _WIN32
 #include <windows.h>

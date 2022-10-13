@@ -21,7 +21,7 @@
 #include "host-common/address_space_shared_slots_host_memory_allocator.h"
 #include "host-common/vm_operations.h"
 
-#include "base/Lock.h"
+#include "base/synchronization/Lock.h"
 
 #include <map>
 #include <unordered_map>

@@ -15,7 +15,7 @@
 #pragma once
 
 #include "base/TypeTraits.h"
-#include "base/Thread.h"
+#include "base/threads/Thread.h"
 #include "base/ThreadTypes.h"
 
 #include <utility>

@@ -15,8 +15,8 @@
 #include "gpuinfo.h"
 
 #include "base/ArraySize.h"
-#include "base/System.h"
-#include "base/FunctorThread.h"
+#include "base/system/System.h"
+#include "base/threads/FunctorThread.h"
 #include "gpuinfo.h"
 #include "NativeGpuInfo.h"
 

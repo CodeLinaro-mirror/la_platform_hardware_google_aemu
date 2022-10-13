@@ -15,8 +15,8 @@
 #pragma once
 
 #include "base/Optional.h"
-#include "base/ConditionVariable.h"
-#include "base/Lock.h"
+#include "base/synchronization/ConditionVariable.h"
+#include "base/synchronization/Lock.h"
 
 #include <utility>
 #include <stddef.h>

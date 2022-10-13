@@ -16,8 +16,8 @@
 #include "AddressSpaceService.h"
 
 #include "base/ring_buffer.h"
-#include "base/MessageChannel.h"
-#include "base/FunctorThread.h"
+#include "base/synchronization/MessageChannel.h"
+#include "base/threads/FunctorThread.h"
 #include "address_space_device.h"
 #include "address_space_graphics_types.h"
 

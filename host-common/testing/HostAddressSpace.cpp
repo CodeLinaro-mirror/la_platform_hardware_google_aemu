@@ -15,7 +15,7 @@
 #include "HostAddressSpace.h"
 
 #include "base/SubAllocator.h"
-#include "base/Lock.h"
+#include "base/synchronization/Lock.h"
 #include "host-common/address_space_device.h"
 #include "host-common/address_space_device.hpp"
 

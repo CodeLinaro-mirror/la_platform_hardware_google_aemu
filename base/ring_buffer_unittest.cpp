@@ -13,8 +13,8 @@
 // limitations under the License.
 #include "base/ring_buffer.h"
 
-#include "base/System.h"
-#include "base/FunctorThread.h"
+#include "base/system/System.h"
+#include "base/threads/FunctorThread.h"
 
 #include <gtest/gtest.h>
 

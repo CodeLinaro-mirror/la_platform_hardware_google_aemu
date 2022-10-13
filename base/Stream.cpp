@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "base/Stream.h"
+#include "base/files/Stream.h"
 
 #include <assert.h>
 #include <string.h>

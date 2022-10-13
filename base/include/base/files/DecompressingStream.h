@@ -1,4 +1,4 @@
-// Copyright 2019 The Android Open Source Project
+// Copyright 2020 The Android Open Source Project
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,44 +14,27 @@
 
 #pragma once
 
-#include "base/CppMacros.h"
-#include "base/Stream.h"
-
-#include <vector>
+#include "base/Compiler.h"
+#include "base/containers/SmallVector.h"
+#include "base/files/Stream.h"
 
 namespace android {
 namespace base {
 
-// An implementation of the Stream interface on top of a vector.
-class MemStream : public Stream {
+class DecompressingStream : public Stream {
+    DISALLOW_COPY_AND_ASSIGN(DecompressingStream);
+
 public:
-    using Buffer = std::vector<char>;
+    DecompressingStream(Stream& input);
+    ~DecompressingStream();
 
-    MemStream(int reserveSize = 512);
-    MemStream(Buffer&& data);
-
-    MemStream(MemStream&& other) = default;
-    MemStream& operator=(MemStream&& other) = default;
-
-    int writtenSize() const;
-    int readPos() const;
-    int readSize() const;
-
-    // Stream interface implementation.
     ssize_t read(void* buffer, size_t size) override;
     ssize_t write(const void* buffer, size_t size) override;
 
-    // Snapshot support.
-    void save(Stream* stream) const;
-    void load(Stream* stream);
-
-    const Buffer& buffer() const { return mData; }
-
 private:
-    DISALLOW_COPY_AND_ASSIGN(MemStream);
-
-    Buffer mData;
-    int mReadPos = 0;
+    void* mLzStream;
+    SmallFixedVector<char, 512> mBuffer;
+    int mBufferPos = 0;
 };
 
 }  // namespace base
