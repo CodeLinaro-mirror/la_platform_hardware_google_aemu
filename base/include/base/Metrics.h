@@ -22,7 +22,7 @@
 #include <unordered_map>
 #include <variant>
 
-#include "base/Thread.h"
+#include "base/threads/Thread.h"
 
 // Library to log metrics.
 namespace android {
@@ -43,7 +43,7 @@ struct EventHangMetadata {
     // TODO: willho@ replace this enum with a generic string field embedded in the
     // proto and replace the individual event codes with a general hang event
     // Requires a new callback to be passed from the vm to gfxstream_backend_init
-    enum class HangType { kRenderThread, kSyncThread };
+    enum class HangType { kRenderThread, kSyncThread, kOther };
     HangType hangType;
 
     EventHangMetadata(const char* file, const char* function, const char* msg, int line,
@@ -68,6 +68,12 @@ struct EventHangMetadata {
 };
 
 // Events that can be logged.
+struct MetricEventBadPacketLength {
+    int64_t len;
+};
+struct MetricEventDuplicateSequenceNum {
+    int64_t opcode;
+};
 struct MetricEventFreeze {};
 struct MetricEventUnFreeze { int64_t frozen_ms; };
 struct MetricEventHang {
@@ -88,8 +94,10 @@ struct GfxstreamVkAbort {
     int64_t abort_reason;
 };
 
-using MetricEventType = std::variant<std::monostate, MetricEventFreeze, MetricEventUnFreeze,
-                                     MetricEventHang, MetricEventUnHang, GfxstreamVkAbort>;
+using MetricEventType =
+    std::variant<std::monostate, MetricEventBadPacketLength, MetricEventDuplicateSequenceNum,
+                 MetricEventFreeze, MetricEventUnFreeze, MetricEventHang, MetricEventUnHang,
+                 GfxstreamVkAbort>;
 
 class MetricsLogger {
    public:

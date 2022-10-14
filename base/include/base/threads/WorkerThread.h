@@ -21,9 +21,9 @@
 #include <vector>
 
 #include "base/Compiler.h"
-#include "base/ConditionVariable.h"
-#include "base/FunctorThread.h"
-#include "base/Lock.h"
+#include "base/synchronization/ConditionVariable.h"
+#include "base/threads/FunctorThread.h"
+#include "base/synchronization/Lock.h"
 
 //
 // WorkerThread<Item> encapsulates an asynchronous processing queue for objects

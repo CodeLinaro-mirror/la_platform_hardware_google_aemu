@@ -14,7 +14,7 @@
 
 #pragma once
 
-#include "base/Stream.h"
+#include "base/files/Stream.h"
 
 #include <inttypes.h>
 

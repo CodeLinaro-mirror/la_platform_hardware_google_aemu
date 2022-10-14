@@ -25,7 +25,7 @@ namespace android {
 namespace base {
 
 // These correspond to events defined in
-// google3/play/games/battlestar/logging/event_codes.proto
+// go/gpg-event-codes
 constexpr int64_t kEmulatorGraphicsFreeze = 10009;
 constexpr int64_t kEmulatorGraphicsUnfreeze = 10010;
 constexpr int64_t kEmulatorGfxstreamVkAbortReason = 10011;
@@ -33,6 +33,8 @@ constexpr int64_t kEmulatorGraphicsHangRenderThread = 10024;
 constexpr int64_t kEmulatorGraphicsUnHangRenderThread = 10025;
 constexpr int64_t kEmulatorGraphicsHangSyncThread = 10026;
 constexpr int64_t kEmulatorGraphicsUnHangSyncThread = 10027;
+constexpr int64_t kEmulatorGraphicsBadPacketLength = 10031;
+constexpr int64_t kEmulatorGraphicsDuplicateSequenceNum = 10032;
 
 void (*MetricsLogger::add_instant_event_callback)(int64_t event_code) = nullptr;
 void (*MetricsLogger::add_instant_event_with_descriptor_callback)(int64_t event_code,
@@ -112,6 +114,10 @@ struct MetricTypeVisitor {
                         kEmulatorGraphicsHangSyncThread, hangEvent.otherHungTasks);
                     break;
                 }
+                case EventHangMetadata::HangType::kOther: {
+                    // We don't collect metrics for this type of hang.
+                    break;
+                }
             }
         }
 
@@ -146,6 +152,10 @@ struct MetricTypeVisitor {
                         kEmulatorGraphicsUnHangSyncThread, unHangEvent.hung_ms);
                     break;
                 }
+                case EventHangMetadata::HangType::kOther: {
+                    // We don't collect metrics for this type of hang.
+                    break;
+                }
             }
         }
     }
@@ -166,6 +176,20 @@ struct MetricTypeVisitor {
             MetricsLogger::set_crash_annotation_callback(
                 "gfxstream_abort_code", std::to_string(abort.abort_reason).c_str());
             MetricsLogger::set_crash_annotation_callback("gfxstream_abort_msg", abort.msg);
+        }
+    }
+
+    void operator()(const MetricEventBadPacketLength BadPacketLengthEvent) const {
+        if (MetricsLogger::add_instant_event_with_metric_callback) {
+            MetricsLogger::add_instant_event_with_metric_callback(kEmulatorGraphicsBadPacketLength,
+                                                                  BadPacketLengthEvent.len);
+        }
+    }
+
+    void operator()(const MetricEventDuplicateSequenceNum DuplicateSequenceNumEvent) const {
+        if (MetricsLogger::add_instant_event_with_descriptor_callback) {
+            MetricsLogger::add_instant_event_with_descriptor_callback(
+                kEmulatorGraphicsDuplicateSequenceNum, DuplicateSequenceNumEvent.opcode);
         }
     }
 };

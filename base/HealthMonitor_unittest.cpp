@@ -18,9 +18,11 @@
 #include "base/HealthMonitor.h"
 
 #include <chrono>
+#include <limits>
+#include <vector>
 
-#include "base/Metrics.h"
 #include "TestClock.h"
+#include "base/Metrics.h"
 
 namespace emugl {
 
@@ -35,15 +37,24 @@ using ::testing::_;
 using ::testing::AllOf;
 using ::testing::ByMove;
 using ::testing::Contains;
+using ::testing::DoAll;
+using ::testing::Eq;
 using ::testing::Field;
 using ::testing::Ge;
 using ::testing::HasSubstr;
 using ::testing::InSequence;
+using ::testing::IsNull;
 using ::testing::Key;
 using ::testing::Le;
 using ::testing::MockFunction;
+using ::testing::Ne;
+using ::testing::Optional;
+using ::testing::Pair;
 using ::testing::Pointee;
+using ::testing::Ref;
 using ::testing::Return;
+using ::testing::SaveArg;
+using ::testing::StrEq;
 using ::testing::Test;
 using ::testing::VariantWith;
 
@@ -454,6 +465,138 @@ TEST_F(HealthMonitorTest, siblingsHangParentStillHealthy) {
     step(defaultHangThresholdS - 1);
     healthMonitor.stopMonitoringTask(secondChild);
     healthMonitor.stopMonitoringTask(parent);
+}
+
+class MockHealthMonitor {
+   public:
+    using Id = uint32_t;
+    MOCK_METHOD(
+        Id, startMonitoringTask,
+        (std::unique_ptr<EventHangMetadata> metadata,
+         std::optional<std::function<std::unique_ptr<HangAnnotations>()>> onHangAnnotationsCallback,
+         uint64_t timeout, std::optional<Id>));
+
+    MOCK_METHOD(void, touchMonitoredTask, (Id));
+    MOCK_METHOD(void, stopMonitoringTask, (Id));
+};
+
+TEST(HealthMonitorWatchdogBuilderTest, SimpleBuildTest) {
+    // Test simple build function and default values.
+    MockHealthMonitor monitor;
+    MockHealthMonitor::Id taskId = 0x8261;
+
+    const char message[] = "test message";
+    const int lineLowerBound = __LINE__;
+    auto builder = WATCHDOG_BUILDER(monitor, message);
+    const int lineUpperBound = __LINE__;
+    auto metadataMatcher = AllOf(
+        Pointee(Field(&EventHangMetadata::file, StrEq(__FILE__))),
+        Pointee(Field(&EventHangMetadata::function, StrEq(__func__))),
+        Pointee(Field(&EventHangMetadata::msg, StrEq(message))),
+        Pointee(Field(&EventHangMetadata::line, AllOf(Ge(lineLowerBound), Le(lineUpperBound)))),
+        Pointee(Field(&EventHangMetadata::threadId, android::base::getCurrentThreadId())),
+        Pointee(Field(&EventHangMetadata::data, IsNull())),
+        Pointee(Field(&EventHangMetadata::hangType, EventHangMetadata::HangType::kOther)));
+    EXPECT_CALL(monitor,
+                startMonitoringTask(metadataMatcher, Eq(std::nullopt), kDefaultTimeoutMs, _))
+        .Times(1)
+        .WillOnce(Return(taskId));
+    EXPECT_CALL(monitor, stopMonitoringTask(taskId)).Times(1);
+    builder.build();
+}
+
+// Test different setters.
+TEST(HealthMonitorWatchdogBuilderTest, HangTypeTest) {
+    MockHealthMonitor monitor;
+    MockHealthMonitor::Id taskId = 0x7213;
+
+    auto hangType = EventHangMetadata::HangType::kRenderThread;
+    EXPECT_CALL(monitor, startMonitoringTask(Pointee(Field(&EventHangMetadata::hangType, hangType)),
+                                             Eq(std::nullopt), kDefaultTimeoutMs, _))
+        .Times(1)
+        .WillOnce(Return(taskId));
+    EXPECT_CALL(monitor, stopMonitoringTask(taskId)).Times(1);
+    WATCHDOG_BUILDER(monitor, "test message")
+        .setHangType(EventHangMetadata::HangType::kRenderThread)
+        .build();
+}
+
+TEST(HealthMonitorWatchdogBuilderTest, TimeoutTest) {
+    MockHealthMonitor monitor;
+    MockHealthMonitor::Id taskId = 0x8749;
+    uint32_t timeoutMs = 5483;
+
+    EXPECT_CALL(monitor, startMonitoringTask(_, Eq(std::nullopt), timeoutMs, _))
+        .Times(1)
+        .WillOnce(Return(taskId));
+    EXPECT_CALL(monitor, stopMonitoringTask(taskId)).Times(1);
+    WATCHDOG_BUILDER(monitor, "test message").setTimeoutMs(timeoutMs).build();
+}
+
+TEST(HealthMonitorWatchdogBuilderTest, OnHangCallbackTest) {
+    MockHealthMonitor monitor;
+    MockHealthMonitor::Id taskId = 0x2810;
+
+    MockFunction<std::unique_ptr<HangAnnotations>()> mockOnHangCallback;
+    std::optional<std::function<std::unique_ptr<HangAnnotations>()>> actualOnHangCallback;
+
+    EXPECT_CALL(monitor, startMonitoringTask(_, Ne(std::nullopt), kDefaultTimeoutMs, _))
+        .Times(1)
+        .WillOnce(DoAll(SaveArg<1>(&actualOnHangCallback), Return(taskId)));
+    EXPECT_CALL(monitor, stopMonitoringTask(taskId)).Times(1);
+    WATCHDOG_BUILDER(monitor, "test message")
+        .setOnHangCallback(mockOnHangCallback.AsStdFunction())
+        .build();
+    EXPECT_CALL(mockOnHangCallback, Call()).Times(1);
+    (*actualOnHangCallback)();
+}
+
+TEST(HealthMonitorWatchdogBuilderTest, AnnotationsTest) {
+    MockHealthMonitor monitor;
+    MockHealthMonitor::Id taskId = 0x9271;
+
+    const char tag[] = "abcxyzalwi1943====";
+    auto annotations = std::make_unique<HangAnnotations>();
+    annotations->insert({{"tag", tag}});
+
+    EXPECT_CALL(monitor, startMonitoringTask(
+                             Pointee(Field(&EventHangMetadata::data,
+                                           Pointee(Contains(Pair(StrEq("tag"), StrEq(tag)))))),
+                             Eq(std::nullopt), kDefaultTimeoutMs, _))
+        .Times(1)
+        .WillOnce(Return(taskId));
+    EXPECT_CALL(monitor, stopMonitoringTask(taskId)).Times(1);
+    WATCHDOG_BUILDER(monitor, "test message").setAnnotations(std::move(annotations)).build();
+}
+
+TEST(HealthMonitorWatchdogBuilderTest, MultipleSettersTest) {
+    // Set multiple fields with chaining.
+    MockHealthMonitor monitor;
+    MockHealthMonitor::Id taskId = 0x9271;
+
+    uint32_t timeoutMs = 5483;
+    auto hangType = EventHangMetadata::HangType::kSyncThread;
+
+    EXPECT_CALL(monitor, startMonitoringTask(Pointee(Field(&EventHangMetadata::hangType, hangType)),
+                                             Eq(std::nullopt), timeoutMs, _))
+        .Times(1)
+        .WillOnce(Return(taskId));
+    EXPECT_CALL(monitor, stopMonitoringTask(taskId)).Times(1);
+    WATCHDOG_BUILDER(monitor, "test message").setHangType(hangType).setTimeoutMs(timeoutMs).build();
+}
+
+TEST(HealthMonitorWatchdogTest, ReleaseTest) {
+    MockHealthMonitor monitor;
+    MockHealthMonitor::Id taskId = 0x8271;
+    EXPECT_CALL(monitor, startMonitoringTask(_, Eq(std::nullopt), kDefaultTimeoutMs, _))
+        .Times(1)
+        .WillOnce(Return(taskId));
+
+    auto watchdog = WATCHDOG_BUILDER(monitor, "test message").build();
+    EXPECT_THAT(watchdog->release(), Optional(taskId));
+    EXPECT_EQ(watchdog->release(), std::nullopt);
+
+    EXPECT_CALL(monitor, stopMonitoringTask(_)).Times(0);
 }
 
 }  // namespace emugl

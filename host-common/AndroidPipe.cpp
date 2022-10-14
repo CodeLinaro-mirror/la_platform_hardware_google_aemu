@@ -17,8 +17,8 @@
 
 #include "base/Optional.h"
 #include "base/StringFormat.h"
-#include "base/MemStream.h"
-#include "base/Lock.h"
+#include "base/files/MemStream.h"
+#include "base/synchronization/Lock.h"
 #include "android_pipe_device.h"
 #include "android_pipe_host.h"
 #include "host-common/GfxstreamFatalError.h"

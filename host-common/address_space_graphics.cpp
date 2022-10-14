@@ -22,7 +22,7 @@
 #include "host-common/globals.h"
 #include "base/AlignedBuf.h"
 #include "base/SubAllocator.h"
-#include "base/Lock.h"
+#include "base/synchronization/Lock.h"
 
 #include <memory>
 

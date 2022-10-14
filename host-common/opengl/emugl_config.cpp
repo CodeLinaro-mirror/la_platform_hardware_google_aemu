@@ -16,7 +16,7 @@
 #include "gpuinfo.h"
 
 #include "base/StringFormat.h"
-#include "base/System.h"
+#include "base/system/System.h"
 #include "../globals.h"
 #include "../misc.h"
 #include "EmuglBackendList.h"
@@ -262,11 +262,11 @@ bool emuglConfig_init(EmuglConfig* config,
         return true;
     }
 
-    if (!strcmp("angle", gpu_mode)) {
+    if (gpu_mode && !strcmp("angle", gpu_mode)) {
         gpu_mode = "angle_indirect";
     }
 
-    if (!strcmp("swiftshader", gpu_mode)) {
+    if (gpu_mode && !strcmp("swiftshader", gpu_mode)) {
         gpu_mode = "swiftshader_indirect";
     }
 
@@ -282,7 +282,7 @@ bool emuglConfig_init(EmuglConfig* config,
     // the best mode depending on the environment. Its purpose is to
     // enable 'swiftshader' mode automatically when NX or Chrome Remote Desktop
     // is detected.
-    if (!strcmp(gpu_mode, "auto") || host_set_in_hwconfig) {
+    if ((gpu_mode && !strcmp(gpu_mode, "auto")) || host_set_in_hwconfig) {
         // The default will be 'host' unless:
         // 1. NX or Chrome Remote Desktop is detected, or |no_window| is true.
         // 2. The user's host GPU is on the blacklist.
@@ -343,9 +343,10 @@ bool emuglConfig_init(EmuglConfig* config,
     // 'host' is a special value corresponding to the default translation
     // to desktop GL, 'guest' does not use host-side emulation,
     // anything else must be checked against existing host-side backends.
-    if (strcmp(gpu_mode, "host") != 0 && strcmp(gpu_mode, "guest") != 0) {
+    if (!gpu_mode ||
+        (strcmp(gpu_mode, "host") != 0 && strcmp(gpu_mode, "guest") != 0)) {
         const std::vector<std::string>& backends = sBackendList->names();
-        if (!stringVectorContains(backends, gpu_mode)) {
+        if (!gpu_mode || !stringVectorContains(backends, gpu_mode)) {
             std::string error = StringFormat(
                 "Invalid GPU mode '%s', use one of: host swiftshader_indirect. "
                 "If you're already using one of those modes, "

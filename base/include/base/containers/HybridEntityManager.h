@@ -13,9 +13,9 @@
 // limitations under the License.
 #pragma once
 
-#include "base/Lookup.h"
-#include "base/EntityManager.h"
-#include "base/Lock.h"
+#include "base/containers/Lookup.h"
+#include "base/containers/EntityManager.h"
+#include "base/synchronization/Lock.h"
 
 #include <unordered_map>
 

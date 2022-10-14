@@ -13,8 +13,8 @@
 // limitations under the License.
 #pragma once
 
-#include "base/Lookup.h"
-#include "base/EntityManager.h"
+#include "base/containers/Lookup.h"
+#include "base/containers/EntityManager.h"
 
 #include <unordered_map>
 

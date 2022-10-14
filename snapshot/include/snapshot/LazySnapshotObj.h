@@ -17,7 +17,7 @@
 #pragma once
 
 #include "base/Compiler.h"
-#include "base/Lock.h"
+#include "base/synchronization/Lock.h"
 
 namespace android {
 

@@ -17,7 +17,7 @@
 #include "snapshot/TextureLoader.h"
 
 #include "base/EintrWrapper.h"
-#include "base/DecompressingStream.h"
+#include "base/files/DecompressingStream.h"
 
 #include <assert.h>
 

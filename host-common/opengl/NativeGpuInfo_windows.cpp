@@ -15,11 +15,11 @@
 #include "NativeGpuInfo.h"
 
 #include "base/StringFormat.h"
-#include "base/SmallVector.h"
+#include "base/containers/SmallVector.h"
 #include "base/StringFormat.h"
-#include "base/PathUtils.h"
-#include "base/System.h"
-#include "base/Win32UnicodeString.h"
+#include "base/files/PathUtils.h"
+#include "base/system/System.h"
+#include "base/system/Win32UnicodeString.h"
 
 #include <windows.h>
 #include <d3d9.h>

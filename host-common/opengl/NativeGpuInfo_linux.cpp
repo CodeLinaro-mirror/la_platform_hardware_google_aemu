@@ -14,10 +14,10 @@
 
 #include "NativeGpuInfo.h"
 
-#include "base/PathUtils.h"
-#include "base/ScopedFd.h"
-#include "base/FileUtils.h"
-#include "base/System.h"
+#include "base/files/PathUtils.h"
+#include "base/files/ScopedFd.h"
+#include "base/misc/FileUtils.h"
+#include "base/system/System.h"
 
 #include <string>
 

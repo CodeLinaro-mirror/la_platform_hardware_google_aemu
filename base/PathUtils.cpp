@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "base/PathUtils.h"
+#include "base/files/PathUtils.h"
 
 #include <string.h>                      // for size_t, strncmp
 #include <iterator>                      // for reverse_iterator, operator!=
@@ -24,7 +24,7 @@
 #endif
 
 #ifdef _WIN32
-#include "base/Win32UnicodeString.h"
+#include "base/system/Win32UnicodeString.h"
 #endif
 
 static inline bool sIsEmpty(const char* str) {

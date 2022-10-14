@@ -14,9 +14,9 @@
 
 #pragma once
 
-#include "base/MemStream.h"
-#include "base/SmallVector.h"
-#include "base/Stream.h"
+#include "base/files/MemStream.h"
+#include "base/containers/SmallVector.h"
+#include "base/files/Stream.h"
 #include "base/TypeTraits.h"
 
 #include <string>

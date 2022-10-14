@@ -14,7 +14,7 @@
 
 #include "../AndroidPipe.h"
 
-#include "base/Lock.h"
+#include "base/synchronization/Lock.h"
 #include "../opengles.h"
 #include <assert.h>
 #include <atomic>

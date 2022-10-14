@@ -22,22 +22,25 @@
 #include <queue>
 #include <stack>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <variant>
 
-#include "base/ConditionVariable.h"
-#include "base/Lock.h"
+#include "base/synchronization/ConditionVariable.h"
+#include "base/synchronization/Lock.h"
 #include "base/Metrics.h"
-#include "base/Thread.h"
+#include "base/threads/Thread.h"
 #include "host-common/GfxstreamFatalError.h"
 #include "host-common/logging.h"
 
 using android::base::EventHangMetadata;
 using android::base::getCurrentThreadId;
 
-#define WATCHDOG_DATA(msg, hangType, data) \
-    std::make_unique<EventHangMetadata>(__FILE__, __func__, msg, __LINE__, hangType, data)
+#define WATCHDOG_BUILDER(healthMonitor, msg)                                                       \
+    ::emugl::HealthWatchdogBuilder<std::decay_t<decltype(healthMonitor)>>(healthMonitor, __FILE__, \
+                                                                          __func__, msg, __LINE__)
 
 namespace emugl {
 
@@ -169,53 +172,54 @@ class HealthMonitor : public android::base::Thread {
 };
 
 // This class provides an RAII mechanism for monitoring a task.
-template <class Clock = steady_clock>
+// HealthMonitorT should have the exact same interface as HealthMonitor. Note that HealthWatchdog
+// can be used in performance critical path, so we use a template to dispatch a call here to
+// overcome the performance cost of virtual function dispatch.
+template <class HealthMonitorT = HealthMonitor<>>
 class HealthWatchdog {
    public:
-    HealthWatchdog(HealthMonitor<Clock>& healthMonitor, std::unique_ptr<EventHangMetadata> metadata,
+    HealthWatchdog(HealthMonitorT& healthMonitor, std::unique_ptr<EventHangMetadata> metadata,
                    std::optional<std::function<std::unique_ptr<HangAnnotations>()>>
                        onHangAnnotationsCallback = std::nullopt,
                    uint64_t timeout = kDefaultTimeoutMs)
         : mHealthMonitor(healthMonitor), mThreadId(getCurrentThreadId()) {
         auto& threadTasks = getMonitoredThreadTasks();
         auto& stack = threadTasks[&mHealthMonitor];
-        mId = mHealthMonitor.startMonitoringTask(
+        typename HealthMonitorT::Id id = mHealthMonitor.startMonitoringTask(
             std::move(metadata), std::move(onHangAnnotationsCallback), timeout,
             stack.empty() ? std::nullopt : std::make_optional(stack.top()));
-        stack.push(mId);
+        mId = id;
+        stack.push(id);
     }
 
     ~HealthWatchdog() {
-        mHealthMonitor.stopMonitoringTask(mId);
-        auto& threadTasks = getMonitoredThreadTasks();
-        auto& stack = threadTasks[&mHealthMonitor];
-        if (getCurrentThreadId() != mThreadId) {
-            ERR("HealthWatchdog destructor thread does not match origin. Destructor must be called "
-                "on the same thread.");
-            GFXSTREAM_ABORT(FatalError(ABORT_REASON_OTHER))
-                << "HealthWatchdog destructor thread does not match origin. Destructor must be "
-                   "called on the same thread.";
+        if (!mId.has_value()) {
+            return;
         }
-        if (stack.empty()) {
-            ERR("HealthWatchdog thread local stack is empty!");
-            GFXSTREAM_ABORT(FatalError(ABORT_REASON_OTHER))
-                << "HealthWatchdog thread local stack is empty!";
-        }
-        if (stack.top() != mId) {
-            ERR("HealthWatchdog id %d does not match top of stack: %d ", mId, stack.top());
-            GFXSTREAM_ABORT(FatalError(ABORT_REASON_OTHER))
-                << "HealthWatchdog id " << mId << " does not match top of stack: " << stack.top();
-        }
-        stack.pop();
+        mHealthMonitor.stopMonitoringTask(*mId);
+        checkedStackPop();
     }
 
-    void touch() { mHealthMonitor.touchMonitoredTask(mId); }
+    void touch() {
+        if (!mId.has_value()) {
+            return;
+        }
+        mHealthMonitor.touchMonitoredTask(*mId);
+    }
+
+    // Return the underlying Id, and don't issue a stop on destruction.
+    std::optional<typename HealthMonitorT::Id> release() {
+        if (mId.has_value()) {
+            checkedStackPop();
+        }
+        return std::exchange(mId, std::nullopt);
+    }
 
    private:
     using ThreadTasks =
-        std::unordered_map<HealthMonitor<Clock>*, std::stack<typename HealthMonitor<Clock>::Id>>;
-    typename HealthMonitor<Clock>::Id mId;
-    HealthMonitor<Clock>& mHealthMonitor;
+        std::unordered_map<HealthMonitorT*, std::stack<typename HealthMonitorT::Id>>;
+    std::optional<typename HealthMonitorT::Id> mId;
+    HealthMonitorT& mHealthMonitor;
     const unsigned long mThreadId;
 
     // Thread local stack of task Ids enables better reentrant behavior.
@@ -225,6 +229,81 @@ class HealthWatchdog {
         static thread_local ThreadTasks threadTasks;
         return threadTasks;
     }
+
+    // Pop the stack for the current thread, but with validation. Must be called with a non-empty
+    // WatchDog.
+    void checkedStackPop() {
+        typename HealthMonitorT::Id id = *mId;
+        auto& threadTasks = getMonitoredThreadTasks();
+        auto& stack = threadTasks[&mHealthMonitor];
+        if (getCurrentThreadId() != mThreadId) {
+            GFXSTREAM_ABORT(FatalError(ABORT_REASON_OTHER))
+                << "HealthWatchdog destructor thread does not match origin. Destructor must be "
+                   "called on the same thread.";
+        }
+        if (stack.empty()) {
+            GFXSTREAM_ABORT(FatalError(ABORT_REASON_OTHER))
+                << "HealthWatchdog thread local stack is empty!";
+        }
+        if (stack.top() != id) {
+            GFXSTREAM_ABORT(FatalError(ABORT_REASON_OTHER))
+                << "HealthWatchdog id " << id << " does not match top of stack: " << stack.top();
+        }
+        stack.pop();
+    }
+};
+
+// HealthMonitorT should have the exact same interface as HealthMonitor. This template parameter is
+// used for injecting a different type for testing.
+template <class HealthMonitorT>
+class HealthWatchdogBuilder {
+   public:
+    HealthWatchdogBuilder(HealthMonitorT& healthMonitor, const char* fileName,
+                          const char* functionName, const char* message, uint32_t line)
+        : mHealthMonitor(healthMonitor),
+          mMetadata(std::make_unique<EventHangMetadata>(
+              fileName, functionName, message, line, EventHangMetadata::HangType::kOther, nullptr)),
+          mTimeoutMs(kDefaultTimeoutMs),
+          mOnHangCallback(std::nullopt) {}
+
+    DISALLOW_COPY_ASSIGN_AND_MOVE(HealthWatchdogBuilder);
+
+    HealthWatchdogBuilder& setHangType(EventHangMetadata::HangType hangType) {
+        mMetadata->hangType = hangType;
+        return *this;
+    }
+    HealthWatchdogBuilder& setTimeoutMs(uint32_t timeoutMs) {
+        mTimeoutMs = timeoutMs;
+        return *this;
+    }
+    // F should be a callable that returns a std::unique_ptr<EventHangMetadata::HangAnnotations>. We
+    // use template instead of std::function here to avoid extra copy.
+    template <class F>
+    HealthWatchdogBuilder& setOnHangCallback(F&& callback) {
+        mOnHangCallback =
+            std::function<std::unique_ptr<HangAnnotations>()>(std::forward<F>(callback));
+        return *this;
+    }
+
+    HealthWatchdogBuilder& setAnnotations(std::unique_ptr<HangAnnotations> annotations) {
+        mMetadata->data = std::move(annotations);
+        return *this;
+    }
+
+    std::unique_ptr<HealthWatchdog<HealthMonitorT>> build() {
+        // We are allocating on the heap, so there is a performance hit. However we also allocate
+        // EventHangMetadata on the heap, so this should be Ok. If we see performance issues with
+        // these allocations, for HealthWatchdog, we can always use placement new + noop deleter to
+        // avoid heap allocation for HealthWatchdog.
+        return std::make_unique<HealthWatchdog<HealthMonitorT>>(
+            mHealthMonitor, std::move(mMetadata), std::move(mOnHangCallback), mTimeoutMs);
+    }
+
+   private:
+    HealthMonitorT& mHealthMonitor;
+    std::unique_ptr<EventHangMetadata> mMetadata;
+    uint32_t mTimeoutMs;
+    std::optional<std::function<std::unique_ptr<HangAnnotations>()>> mOnHangCallback;
 };
 
 }  // namespace emugl

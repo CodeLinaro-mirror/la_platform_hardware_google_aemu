@@ -15,8 +15,8 @@
 #pragma once
 
 #include "base/Compiler.h"
-#include "base/Lock.h"
-#include "base/System.h"
+#include "base/synchronization/Lock.h"
+#include "base/system/System.h"
 
 #include <algorithm>
 #include <inttypes.h>

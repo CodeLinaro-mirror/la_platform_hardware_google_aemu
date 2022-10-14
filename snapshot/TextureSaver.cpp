@@ -16,8 +16,8 @@
 
 #include "snapshot/TextureSaver.h"
 
-#include "base/CompressingStream.h"
-#include "base/System.h"
+#include "base/files/CompressingStream.h"
+#include "base/system/System.h"
 
 #include <algorithm>
 #include <cassert>

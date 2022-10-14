@@ -15,7 +15,7 @@
 #include "misc.h"
 
 #include "base/GLObjectCounter.h"
-#include "base/MemoryTracker.h"
+#include "base/memory/MemoryTracker.h"
 
 #include <cstring>
 

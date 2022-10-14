@@ -15,7 +15,7 @@
 
 #include "android_pipe_common.h"
 
-#include "base/Stream.h"
+#include "base/files/Stream.h"
 
 #include <stdbool.h>
 #include <stdint.h>

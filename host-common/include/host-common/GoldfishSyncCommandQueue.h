@@ -17,7 +17,7 @@
 #include "host-common/DeviceContextRunner.h"
 #include "host-common/goldfish_sync.h"
 #include "host-common/VmLock.h"
-#include "base/Stream.h"
+#include "base/files/Stream.h"
 
 #include <vector>
 

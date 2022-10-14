@@ -24,8 +24,8 @@
 
 #include "base/Compiler.h"
 #include "base/Optional.h"
-#include "base/System.h"
-#include "base/WorkerThread.h"
+#include "base/system/System.h"
+#include "base/threads/WorkerThread.h"
 
 //
 // ThreadPool<Item> - a simple collection of worker threads to process enqueued

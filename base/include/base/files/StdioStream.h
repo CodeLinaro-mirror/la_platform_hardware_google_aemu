@@ -11,29 +11,41 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
 #pragma once
 
 #include "base/Compiler.h"
-#include "base/SmallVector.h"
-#include "base/Stream.h"
+#include "base/files/Stream.h"
+
+
+#include <stdio.h>
 
 namespace android {
 namespace base {
 
-class CompressingStream : public Stream {
-    DISALLOW_COPY_AND_ASSIGN(CompressingStream);
-
+// An implementation of android::base::Stream interface on top of an
+// stdio FILE* instance.
+class StdioStream : public Stream {
 public:
-    CompressingStream(Stream& output);
-    ~CompressingStream();
+    enum Ownership { kNotOwner, kOwner };
 
-    ssize_t read(void* buffer, size_t size) override;
-    ssize_t write(const void* buffer, size_t size) override;
+    StdioStream(FILE* file = nullptr, Ownership ownership = kNotOwner);
+    StdioStream(StdioStream&& other);
+    StdioStream& operator=(StdioStream&& other);
+
+    virtual ~StdioStream();
+    virtual ssize_t read(void* buffer, size_t size) override;
+    virtual ssize_t write(const void* buffer, size_t size) override;
+
+    FILE* get() const { return mFile; }
+    void close();
 
 private:
-    Stream& mOutput;
-    void* mLzStream;
-    SmallFixedVector<char, 512> mBuffer;
+
+    DISALLOW_COPY_AND_ASSIGN(StdioStream);
+
+    FILE* mFile;
+    Ownership mOwnership;
 };
 
 }  // namespace base

@@ -14,7 +14,7 @@
 #include "base/SubAllocator.h"
 
 #include "base/address_space.h"
-#include "base/Stream.h"
+#include "base/files/Stream.h"
 
 #include <iomanip>
 #include <sstream>

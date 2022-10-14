@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "base/SharedMemory.h"
+#include "base/memory/SharedMemory.h"
 
 #include <gtest/gtest.h>
 

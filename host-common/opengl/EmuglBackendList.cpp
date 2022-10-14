@@ -15,8 +15,8 @@
 #include "EmuglBackendList.h"
 
 #include "base/StringFormat.h"
-#include "base/System.h"
-#include "base/PathUtils.h"
+#include "base/system/System.h"
+#include "base/files/PathUtils.h"
 
 #define DEBUG 0
 

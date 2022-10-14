@@ -14,7 +14,7 @@
 #pragma once
 
 #include "base/Result.h"
-#include "base/Stream.h"
+#include "base/files/Stream.h"
 #include "host-common/android_pipe_base.h"
 
 #include <cstdint>

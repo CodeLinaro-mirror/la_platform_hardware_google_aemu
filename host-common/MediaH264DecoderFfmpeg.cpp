@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #include "host-common/MediaH264DecoderFfmpeg.h"
-#include "base/System.h"
+#include "base/system/System.h"
 #include "host-common/H264NaluParser.h"
 #include "host-common/H264PingInfoParser.h"
 #include "host-common/YuvConverter.h"

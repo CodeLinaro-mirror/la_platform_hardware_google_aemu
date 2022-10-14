@@ -27,17 +27,14 @@ namespace base {
 // A trivial MRU cache. Not thread-safe.
 template <class K, class V>
 class MruCache {
-public:
+   public:
     template <class S>
     struct EntryWithSize {
-        EntryWithSize(const S&& d) :
-            EntryWithSize(std::move(d), 0) {}
+        EntryWithSize(const S&& d) : EntryWithSize(std::move(d), 0) {}
 
-        EntryWithSize(const S&& d, const size_t ds) :
-            data(std::move(d)),
-            dataSize(ds) {
-            static_assert(std::is_same<S, K>::value ||
-                std::is_same<S, V>::value, "Cache entry instantiated with invalid types");
+        EntryWithSize(const S&& d, const size_t ds) : data(std::move(d)), dataSize(ds) {
+            static_assert(std::is_same<S, K>::value || std::is_same<S, V>::value,
+                          "Cache entry instantiated with invalid types");
         }
 
         const S data;
@@ -45,24 +42,23 @@ public:
 
         bool operator==(const EntryWithSize& rhs) const { return data == rhs.data; }
         bool operator<(const EntryWithSize& rhs) const { return data < rhs.data; }
-
     };
 
     class MruCacheObserver {
-    public:
+       public:
         virtual void cacheChanged() = 0;
         virtual ~MruCacheObserver() {}
     };
 
     class CacheFlattener {
-    public:
-        virtual void handleFlatten(std::map<EntryWithSize<K>, EntryWithSize<V>>& mCache, void* buf, size_t bufSize) = 0;
+       public:
+        virtual void handleFlatten(std::map<EntryWithSize<K>, EntryWithSize<V>>& mCache, void* buf,
+                                   size_t bufSize) = 0;
         virtual ~CacheFlattener() {}
     };
 
-    MruCache(size_t maxEntries, CacheFlattener* cacheFlattener) :
-        mMaxEntries(maxEntries),
-        mCacheFlattener(cacheFlattener) {}
+    MruCache(size_t maxEntries, CacheFlattener* cacheFlattener)
+        : mMaxEntries(maxEntries), mCacheFlattener(cacheFlattener) {}
 
     bool put(const K& key, size_t keySize, V&& value, size_t valueSize) {
         evictIfNecessary();
@@ -75,12 +71,11 @@ public:
             auto iter = std::find(mMostRecents.begin(), mMostRecents.end(), cacheKey);
             mMostRecents.splice(mMostRecents.begin(), mMostRecents, iter);
             mCache.erase(exists);
-       }
-       else {
+        } else {
             mMostRecents.push_front(cacheKey);
-       }
+        }
 
-        const auto [_, res] = mCache.insert({ cacheKey, std::move(cacheValue) });
+        const auto [_, res] = mCache.insert({cacheKey, std::move(cacheValue)});
 
         if (mCacheObserver != nullptr && res) {
             mCacheObserver->cacheChanged();
@@ -110,11 +105,9 @@ public:
         return true;
     }
 
-    void setObserver(MruCacheObserver* observer) {
-        mCacheObserver = observer;
-    }
+    void setObserver(MruCacheObserver* observer) { mCacheObserver = observer; }
 
-private:
+   private:
     using MruCacheMap = std::map<EntryWithSize<K>, EntryWithSize<V>>;
     using MostRecentList = std::list<EntryWithSize<K>>;
 
@@ -138,7 +131,7 @@ private:
     const size_t mMaxEntries;
 };
 
-}
-}
+}  // namespace base
+}  // namespace android
 
 #endif

@@ -14,7 +14,7 @@
 #pragma once
 
 #include "base/Compiler.h"
-#include "base/StaticMap.h"
+#include "base/containers/StaticMap.h"
 #include "base/export.h"
 #include "base/ManagedDescriptor.hpp"
 #include "vm_operations.h"

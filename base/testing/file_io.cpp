@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include "file_io.h"
-#include "base/Win32UnicodeString.h"
+#include "base/system/Win32UnicodeString.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -28,7 +28,7 @@
 #include <direct.h>
 #include <windows.h>
 #include <share.h>
-#include "base/PathUtils.h"
+#include "base/files/PathUtils.h"
 using android::base::PathUtils;
 using android::base::Win32UnicodeString;
 // using android::base::ScopedCPtr;

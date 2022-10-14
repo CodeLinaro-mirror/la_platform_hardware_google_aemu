@@ -16,7 +16,7 @@
 
 #include "base/Compiler.h"
 #include "base/StringFormat.h"
-#include "base/PathUtils.h"
+#include "base/files/PathUtils.h"
 
 #include "file_io.h"
 

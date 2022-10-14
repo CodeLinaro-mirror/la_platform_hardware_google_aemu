@@ -15,9 +15,9 @@
 #include "host-common/goldfish_sync.h"
 #include "host-common/GoldfishSyncCommandQueue.h"
 
-#include "base/Lookup.h"
-#include "base/ConditionVariable.h"
-#include "base/Lock.h"
+#include "base/containers/Lookup.h"
+#include "base/synchronization/ConditionVariable.h"
+#include "base/synchronization/Lock.h"
 
 #include <unordered_map>
 

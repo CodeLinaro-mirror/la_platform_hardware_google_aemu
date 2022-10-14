@@ -14,7 +14,7 @@
 
 #include "host-common/HostGoldfishPipe.h"
 
-#include "base/Lookup.h"
+#include "base/containers/Lookup.h"
 #include "base/Result.h"
 #include "android/crashreport/crash-handler.h"
 #include "host-common/android_pipe_device.h"
