@@ -16,7 +16,7 @@
 #include "host-common/address_space_device.hpp"
 #include "host-common/vm_operations.h"
 #include "host-common/crash_reporter.h"
-#include "base/AlignedBuf.h"
+#include "aemu/base/AlignedBuf.h"
 
 namespace android {
 namespace emulation {

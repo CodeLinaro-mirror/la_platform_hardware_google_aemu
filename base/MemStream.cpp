@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "base/files/MemStream.h"
+#include "aemu/base/files/MemStream.h"
 
-#include "base/files/StreamSerializing.h"
+#include "aemu/base/files/StreamSerializing.h"
 
 #include <algorithm>
 #include <utility>
@@ -60,6 +60,10 @@ void MemStream::save(Stream* stream) const {
 
 void MemStream::load(Stream* stream) {
     loadBuffer(stream, &mData);
+    mReadPos = 0;
+}
+
+void MemStream::rewind() {
     mReadPos = 0;
 }
 

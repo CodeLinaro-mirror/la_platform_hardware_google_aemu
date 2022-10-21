@@ -14,12 +14,12 @@
 
 #include "opengles.h"
 
-#include "base/GLObjectCounter.h"
-#include "base/files/PathUtils.h"
-#include "base/files/Stream.h"
-#include "base/memory/MemoryTracker.h"
-#include "base/SharedLibrary.h"
-#include "base/system/System.h"
+#include "aemu/base/GLObjectCounter.h"
+#include "aemu/base/files/PathUtils.h"
+#include "aemu/base/files/Stream.h"
+#include "aemu/base/memory/MemoryTracker.h"
+#include "aemu/base/SharedLibrary.h"
+#include "aemu/base/system/System.h"
 #include "host-common/address_space_device.h"
 #include "host-common/address_space_graphics.h"
 #include "host-common/address_space_graphics_types.h"

@@ -1,4 +1,4 @@
-#include "base/files/Stream.h"
+#include "aemu/base/files/Stream.h"
 
 #include "host-common/GoldfishDma.h"
 #include "host-common/DmaMap.h"

@@ -14,8 +14,8 @@
 
 #include "EmuglBackendScanner.h"
 
-#include "base/StringFormat.h"
-#include "base/system/System.h"
+#include "aemu/base/StringFormat.h"
+#include "aemu/base/system/System.h"
 
 #include <algorithm>
 #include <string>

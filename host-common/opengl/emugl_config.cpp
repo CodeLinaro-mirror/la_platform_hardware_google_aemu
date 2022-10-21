@@ -15,8 +15,8 @@
 #include "emugl_config.h"
 #include "gpuinfo.h"
 
-#include "base/StringFormat.h"
-#include "base/system/System.h"
+#include "aemu/base/StringFormat.h"
+#include "aemu/base/system/System.h"
 #include "../globals.h"
 #include "../misc.h"
 #include "EmuglBackendList.h"

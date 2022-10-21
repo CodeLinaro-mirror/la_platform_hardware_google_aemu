@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "base/SharedLibrary.h"
+#include "aemu/base/SharedLibrary.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -21,7 +21,7 @@
 #include <functional>
 #include <vector>
 
-#include "base/files/PathUtils.h"
+#include "aemu/base/files/PathUtils.h"
 #include "host-common/logging.h"
 
 #ifndef _WIN32

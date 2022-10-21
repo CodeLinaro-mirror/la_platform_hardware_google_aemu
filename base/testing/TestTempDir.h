@@ -14,9 +14,9 @@
 
 #pragma once
 
-#include "base/Compiler.h"
-#include "base/StringFormat.h"
-#include "base/files/PathUtils.h"
+#include "aemu/base/Compiler.h"
+#include "aemu/base/StringFormat.h"
+#include "aemu/base/files/PathUtils.h"
 
 #include "file_io.h"
 

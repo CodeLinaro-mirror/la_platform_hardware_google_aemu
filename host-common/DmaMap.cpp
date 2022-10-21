@@ -14,8 +14,8 @@
 
 #include "DmaMap.h"
 
-#include "base/containers/Lookup.h"
-#include "base/files/StreamSerializing.h"
+#include "aemu/base/containers/Lookup.h"
+#include "aemu/base/files/StreamSerializing.h"
 #include "host-common/android_pipe_device.h"
 
 #include <type_traits>

@@ -1,12 +1,12 @@
-#include "base/EintrWrapper.h"
-#include "base/StringFormat.h"
-#include "base/system/System.h"
+#include "aemu/base/EintrWrapper.h"
+#include "aemu/base/StringFormat.h"
+#include "aemu/base/system/System.h"
 
 #ifdef _WIN32
 #include <windows.h>
 
-#include "base/system/Win32UnicodeString.h"
-#include "base/msvc.h"
+#include "aemu/base/system/Win32UnicodeString.h"
+#include "aemu/base/msvc.h"
 #endif
 
 #include <vector>

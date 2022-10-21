@@ -13,7 +13,7 @@
 // limitations under the License.
 #pragma once
 
-#include "base/files/Stream.h"
+#include "aemu/base/files/Stream.h"
 #include "host-common/GoldfishMediaDefs.h"
 
 namespace android {

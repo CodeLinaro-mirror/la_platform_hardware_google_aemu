@@ -14,7 +14,7 @@
 
 #pragma once
 
-#include "base/export.h"
+#include "aemu/base/export.h"
 #include "constants.h"
 #include "host-common/hw-config.h"
 

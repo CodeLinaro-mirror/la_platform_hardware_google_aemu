@@ -21,8 +21,8 @@
 #include <atomic>  // for atomic_bool, memory_o...
 #include <memory>  // for unique_ptr
 
-#include "base/synchronization/Lock.h"  // for Lock, AutoLock
-#include "base/synchronization/MessageChannel.h"
+#include "aemu/base/synchronization/Lock.h"  // for Lock, AutoLock
+#include "aemu/base/synchronization/MessageChannel.h"
 #include "..//opengles.h"  // for android_getFlushReadP...
 
 #ifdef _WIN32

@@ -3,7 +3,7 @@
 #include <cstdlib>
 #include <ostream>
 
-#include "base/Metrics.h"
+#include "aemu/base/Metrics.h"
 #include "host-common/logging.h"
 
 namespace {

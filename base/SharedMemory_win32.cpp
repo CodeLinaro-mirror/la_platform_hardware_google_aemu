@@ -11,14 +11,14 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "base/memory/SharedMemory.h"
+#include "aemu/base/memory/SharedMemory.h"
 
 #include <shlwapi.h>
 #include <cassert>
 #include <string>
 
-#include "base/files/PathUtils.h"
-#include "base/system/Win32UnicodeString.h"
+#include "aemu/base/files/PathUtils.h"
+#include "aemu/base/system/Win32UnicodeString.h"
 
 namespace android {
 namespace base {

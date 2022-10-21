@@ -11,10 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "base/SubAllocator.h"
+#include "aemu/base/SubAllocator.h"
 
-#include "base/address_space.h"
-#include "base/files/Stream.h"
+#include "aemu/base/address_space.h"
+#include "aemu/base/files/Stream.h"
 
 #include <iomanip>
 #include <sstream>

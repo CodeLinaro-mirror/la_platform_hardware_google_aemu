@@ -11,10 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "base/SubAllocator.h"
+#include "aemu/base/SubAllocator.h"
 
-#include "base/ArraySize.h"
-#include "base/files/MemStream.h"
+#include "aemu/base/ArraySize.h"
+#include "aemu/base/files/MemStream.h"
 
 #include <gtest/gtest.h>
 

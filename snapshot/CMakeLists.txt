@@ -8,8 +8,8 @@ add_library(
 target_link_libraries(
     gfxstream-snapshot
     PRIVATE
-    gfxstream-base.headers
-    gfxstream-host-common.headers)
+    aemu-base.headers
+    aemu-host-common.headers)
 target_include_directories(
     gfxstream-snapshot
     PUBLIC

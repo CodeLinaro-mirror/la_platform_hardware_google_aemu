@@ -13,11 +13,11 @@
 // limitations under the License.
 #include "OpenglEsPipe.h"
 
-#include "base/Optional.h"
-#include "base/files/PathUtils.h"
-#include "base/files/StreamSerializing.h"
-#include "base/threads/FunctorThread.h"
-#include "base/system/System.h"
+#include "aemu/base/Optional.h"
+#include "aemu/base/files/PathUtils.h"
+#include "aemu/base/files/StreamSerializing.h"
+#include "aemu/base/threads/FunctorThread.h"
+#include "aemu/base/system/System.h"
 #include "../globals.h"
 // #include "loadpng.h"
 #include "GLProcessPipe.h"

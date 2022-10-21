@@ -14,8 +14,8 @@
 
 #include "logger.h"
 
-#include "base/files/PathUtils.h"
-#include "base/synchronization/Lock.h"
+#include "aemu/base/files/PathUtils.h"
+#include "aemu/base/synchronization/Lock.h"
 
 #include <algorithm>
 #include <fstream>
@@ -24,7 +24,7 @@
 #include <stdio.h>
 #include <string>
 
-#include "base/msvc.h"
+#include "aemu/base/msvc.h"
 
 #ifndef _MSC_VER
 #include <sys/time.h>

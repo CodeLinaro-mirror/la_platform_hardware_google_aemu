@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include "host-common/MediaVpxDecoderGeneric.h"
-#include "base/system/System.h"
+#include "aemu/base/system/System.h"
 #include "host-common/MediaFfmpegVideoHelper.h"
 #include "host-common/MediaVpxVideoHelper.h"
 #include "host-common/VpxFrameParser.h"

@@ -27,7 +27,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "base/SharedLibrary.h"
+#include "aemu/base/SharedLibrary.h"
 #include "host-common/logging.h"
 #include "vulkan/vulkan.h"
 

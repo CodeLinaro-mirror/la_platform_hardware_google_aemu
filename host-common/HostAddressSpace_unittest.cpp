@@ -13,7 +13,7 @@
 // limitations under the License.
 #include "testing/HostAddressSpace.h"
 
-#include "base/AlignedBuf.h"
+#include "aemu/base/AlignedBuf.h"
 #include "host-common/GraphicsAgentFactory.h"
 #include "host-common/address_space_device.h"
 #include "host-common/address_space_device.hpp"

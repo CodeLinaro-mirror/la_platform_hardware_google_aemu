@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "base/files/CompressingStream.h"
+#include "aemu/base/files/CompressingStream.h"
 
-#include "base/files/StreamSerializing.h"
+#include "aemu/base/files/StreamSerializing.h"
 #include "lz4.h"
 
 #include <errno.h>

@@ -18,7 +18,7 @@
 
 #include <stdbool.h>
 
-#include "base/c_header.h"
+#include "aemu/base/c_header.h"
 
 ANDROID_BEGIN_HEADER
 

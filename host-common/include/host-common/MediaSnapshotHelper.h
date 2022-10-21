@@ -14,7 +14,7 @@
 
 #pragma once
 
-#include "base/files/Stream.h"
+#include "aemu/base/files/Stream.h"
 #include "host-common/MediaSnapshotState.h"
 
 #include <cstdint>

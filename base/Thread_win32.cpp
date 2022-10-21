@@ -17,8 +17,8 @@
 
 #include <sstream>
 
-#include "base/threads/Thread.h"
-#include "base/system/Win32UnicodeString.h"
+#include "aemu/base/threads/Thread.h"
+#include "aemu/base/system/Win32UnicodeString.h"
 #include "host-common/logging.h"
 
 namespace android {

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "base/LruCache.h"
+#include "aemu/base/LruCache.h"
 
 #include <cstdint>
 #include <string>

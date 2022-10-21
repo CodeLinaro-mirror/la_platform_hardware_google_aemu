@@ -13,10 +13,10 @@
 // limitations under the License.
 #pragma once
 
-#include "base/Compiler.h"
-#include "base/containers/StaticMap.h"
-#include "base/export.h"
-#include "base/ManagedDescriptor.hpp"
+#include "aemu/base/Compiler.h"
+#include "aemu/base/containers/StaticMap.h"
+#include "aemu/base/export.h"
+#include "aemu/base/ManagedDescriptor.hpp"
 #include "vm_operations.h"
 
 #include <atomic>
@@ -50,7 +50,8 @@ namespace emulation {
 
 struct VulkanInfo {
     uint32_t memoryIndex;
-    uint32_t physicalDeviceIndex;
+    uint8_t deviceUUID[16];
+    uint8_t driverUUID[16];
 };
 
 struct ManagedDescriptorInfo {

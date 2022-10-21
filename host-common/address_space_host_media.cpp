@@ -14,7 +14,7 @@
 
 #include "host-common/address_space_host_media.h"
 #include "host-common/vm_operations.h"
-#include "base/AlignedBuf.h"
+#include "aemu/base/AlignedBuf.h"
 
 #define AS_DEVICE_DEBUG 0
 

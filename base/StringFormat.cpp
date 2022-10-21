@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "base/StringFormat.h"
+#include "aemu/base/StringFormat.h"
 
 #include <stdio.h>
 

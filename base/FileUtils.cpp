@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "base/misc/FileUtils.h"
-#include "base/EintrWrapper.h"
+#include "aemu/base/misc/FileUtils.h"
+#include "aemu/base/EintrWrapper.h"
 
 #include <assert.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include "base/msvc.h"
+#include "aemu/base/msvc.h"
 #ifdef _MSC_VER
 //#include "msvc-posix.h"
 #else
