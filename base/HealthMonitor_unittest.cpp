@@ -15,14 +15,14 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "base/HealthMonitor.h"
+#include "aemu/base/HealthMonitor.h"
 
 #include <chrono>
 #include <limits>
 #include <vector>
 
 #include "TestClock.h"
-#include "base/Metrics.h"
+#include "aemu/base/Metrics.h"
 
 namespace emugl {
 

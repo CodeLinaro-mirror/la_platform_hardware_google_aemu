@@ -16,8 +16,8 @@
 
 #include "snapshot/TextureLoader.h"
 
-#include "base/EintrWrapper.h"
-#include "base/files/DecompressingStream.h"
+#include "aemu/base/EintrWrapper.h"
+#include "aemu/base/files/DecompressingStream.h"
 
 #include <assert.h>
 

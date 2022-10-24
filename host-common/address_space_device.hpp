@@ -13,8 +13,8 @@
 // limitations under the License.
 #pragma once
 
-#include "base/files/Stream.h"
-#include "base/export.h"
+#include "aemu/base/files/Stream.h"
+#include "aemu/base/export.h"
 
 struct QAndroidVmOperations;
 

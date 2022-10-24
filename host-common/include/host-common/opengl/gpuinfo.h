@@ -13,7 +13,7 @@
 // limitations under the License.
 #pragma once
 
-#include "base/Compiler.h"
+#include "aemu/base/Compiler.h"
 
 #include <stdbool.h>
 #include <stdio.h>

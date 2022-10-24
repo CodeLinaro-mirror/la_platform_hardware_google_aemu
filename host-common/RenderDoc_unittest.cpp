@@ -5,7 +5,7 @@
 
 #include <type_traits>
 
-#include "base/SharedLibrary.h"
+#include "aemu/base/SharedLibrary.h"
 
 namespace emugl {
 namespace {

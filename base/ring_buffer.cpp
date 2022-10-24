@@ -11,12 +11,12 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "base/ring_buffer.h"
+#include "aemu/base/ring_buffer.h"
 
 #include <errno.h>
 #include <string.h>
 #ifdef _MSC_VER
-#include "base/msvc.h"
+#include "aemu/base/msvc.h"
 #else
 #include <sys/time.h>
 #endif

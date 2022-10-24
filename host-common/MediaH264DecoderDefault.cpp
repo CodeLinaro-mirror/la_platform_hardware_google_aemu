@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #include "host-common/MediaH264DecoderDefault.h"
-#include "base/system/System.h"
+#include "aemu/base/system/System.h"
 #include "host-common/H264PingInfoParser.h"
 #include "host-common/MediaH264DecoderGeneric.h"
 

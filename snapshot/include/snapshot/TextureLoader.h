@@ -16,12 +16,12 @@
 
 #pragma once
 
-#include "base/containers/SmallVector.h"
-#include "base/export.h"
-#include "base/files/StdioStream.h"
-#include "base/synchronization/Lock.h"
-#include "base/system/System.h"
-#include "base/threads/Thread.h"
+#include "aemu/base/containers/SmallVector.h"
+#include "aemu/base/export.h"
+#include "aemu/base/files/StdioStream.h"
+#include "aemu/base/synchronization/Lock.h"
+#include "aemu/base/system/System.h"
+#include "aemu/base/threads/Thread.h"
 #include "snapshot/common.h"
 
 #include <functional>

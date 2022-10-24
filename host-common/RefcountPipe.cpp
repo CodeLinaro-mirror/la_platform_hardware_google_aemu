@@ -14,7 +14,7 @@
 
 #include "RefcountPipe.h"
 
-#include "base/ArraySize.h"
+#include "aemu/base/ArraySize.h"
 #include "refcount-pipe.h"
 
 #include <string.h>

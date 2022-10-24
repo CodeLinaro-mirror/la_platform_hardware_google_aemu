@@ -14,8 +14,8 @@
 
 #pragma once
 
-#include "base/c_header.h"
-#include "base/export.h"
+#include "aemu/base/c_header.h"
+#include "aemu/base/export.h"
 // #include "android/skin/winsys.h"
 
 #include <stdbool.h>

@@ -15,7 +15,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "base/ManagedDescriptor.hpp"
+#include "aemu/base/ManagedDescriptor.hpp"
 
 namespace android {
 namespace base {

@@ -14,8 +14,8 @@
 // limitations under the License.
 #include "HostAddressSpace.h"
 
-#include "base/SubAllocator.h"
-#include "base/synchronization/Lock.h"
+#include "aemu/base/SubAllocator.h"
+#include "aemu/base/synchronization/Lock.h"
 #include "host-common/address_space_device.h"
 #include "host-common/address_space_device.hpp"
 

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #include "host-common/MediaVpxDecoder.h"
-#include "base/system/System.h"
+#include "aemu/base/system/System.h"
 #include "host-common/MediaVpxDecoderGeneric.h"
 #include "host-common/VpxPingInfoParser.h"
 

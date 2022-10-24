@@ -14,10 +14,10 @@
 
 #pragma once
 
-#include "base/Compiler.h"
-#include "base/files/Stream.h"
-#include "base/Optional.h"
-#include "base/synchronization/Lock.h"
+#include "aemu/base/Compiler.h"
+#include "aemu/base/files/Stream.h"
+#include "aemu/base/Optional.h"
+#include "aemu/base/synchronization/Lock.h"
 
 #include <unordered_map>
 #include <inttypes.h>

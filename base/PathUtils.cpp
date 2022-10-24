@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "base/files/PathUtils.h"
+#include "aemu/base/files/PathUtils.h"
 
 #include <string.h>                      // for size_t, strncmp
 #include <iterator>                      // for reverse_iterator, operator!=
@@ -24,7 +24,7 @@
 #endif
 
 #ifdef _WIN32
-#include "base/system/Win32UnicodeString.h"
+#include "aemu/base/system/Win32UnicodeString.h"
 #endif
 
 static inline bool sIsEmpty(const char* str) {
@@ -98,6 +98,29 @@ bool PathUtils::isAbsolute(const char* path, HostType hostType) {
     return isDirSeparator(path[prefixSize - 1], HOST_WIN32);
 }
 
+// static
+std::string_view PathUtils::extension(const std::string& path,
+                                      HostType hostType) {
+    std::string_view tmp = path;
+    using riter = std::reverse_iterator<std::string_view::const_iterator>;
+
+    for (auto it = riter(tmp.end()), itEnd = riter(tmp.begin()); it != itEnd;
+         ++it) {
+        if (*it == '.') {
+            // reverse iterator stores a base+1, so decrement it when returning
+            // MSVC doesn't have string_view constructor with iterators
+            return std::string_view(&*std::prev(it.base()), (it - riter(tmp.end()) + 1));
+        }
+        if (isDirSeparator(*it, hostType)) {
+            // no extension here - we've found the end of file name already
+            break;
+        }
+    }
+
+    // either there's no dot in the whole path, or we found directory separator
+    // first - anyway, there's no extension in this name
+    return "";
+}
 // static
 std::string PathUtils::removeTrailingDirSeparator(const char* path,
                                                  HostType hostType) {

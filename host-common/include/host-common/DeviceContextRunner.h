@@ -14,7 +14,7 @@
 
 #pragma once
 
-#include "base/synchronization/Lock.h"
+#include "aemu/base/synchronization/Lock.h"
 #include "host-common/VmLock.h"
 
 #include <algorithm>

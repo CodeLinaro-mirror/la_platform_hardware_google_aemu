@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "base/AlignedBuf.h"
-#include "base/ArraySize.h"
+#include "aemu/base/AlignedBuf.h"
+#include "aemu/base/ArraySize.h"
 
 #include <gtest/gtest.h>
 

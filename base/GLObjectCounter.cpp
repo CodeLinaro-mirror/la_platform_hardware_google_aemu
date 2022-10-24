@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include "base/GLObjectCounter.h"
+#include "aemu/base/GLObjectCounter.h"
 
 #include <array>
 #include <atomic>

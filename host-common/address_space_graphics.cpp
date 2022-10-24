@@ -20,9 +20,9 @@
 #include "host-common/crash_reporter.h"
 #include "host-common/GfxstreamFatalError.h"
 #include "host-common/globals.h"
-#include "base/AlignedBuf.h"
-#include "base/SubAllocator.h"
-#include "base/synchronization/Lock.h"
+#include "aemu/base/AlignedBuf.h"
+#include "aemu/base/SubAllocator.h"
+#include "aemu/base/synchronization/Lock.h"
 
 #include <memory>
 

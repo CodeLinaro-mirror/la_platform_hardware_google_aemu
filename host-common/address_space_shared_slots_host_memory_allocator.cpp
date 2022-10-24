@@ -16,8 +16,8 @@
 #include "host-common/address_space_device.hpp"
 #include "host-common/vm_operations.h"
 #include "host-common/crash_reporter.h"
-#include "base/AlignedBuf.h"
-#include "base/synchronization/Lock.h"
+#include "aemu/base/AlignedBuf.h"
+#include "aemu/base/synchronization/Lock.h"
 #include <map>
 #include <unordered_set>
 #include <unordered_map>

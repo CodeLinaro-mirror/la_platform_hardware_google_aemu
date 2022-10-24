@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "base/files/StdioStream.h"
+#include "aemu/base/files/StdioStream.h"
 
 #include <assert.h>
 #include <errno.h>

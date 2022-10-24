@@ -16,8 +16,8 @@
 
 #include <stddef.h>
 
-#include "base/c_header.h"
-#include "base/export.h"
+#include "aemu/base/c_header.h"
+#include "aemu/base/export.h"
 #include "host-common/multi_display_agent.h"
 #include "host-common/vm_operations.h"
 #include "host-common/window_agent.h"
