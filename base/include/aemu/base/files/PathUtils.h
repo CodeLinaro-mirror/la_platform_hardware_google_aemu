@@ -263,14 +263,8 @@ public:
     // each one being a path component (prefix or subdirectory or file
     // name). Directory separators do not appear in components, except
     // for the root prefix, if any.
-    static std::vector<std::string_view> decompose(std::string_view path,
-                                                   HostType hostType);
     static std::vector<std::string> decompose(std::string&& path,
                                               HostType hostType);
-    static std::vector<std::string_view> decompose(const char* path,
-                                                   HostType hostType) {
-        return decompose(std::string_view(path), hostType);
-    }
     static std::vector<std::string> decompose(const std::string& path,
                                               HostType hostType);
 
@@ -280,14 +274,8 @@ public:
 
     // Decompose |path| into individual components for the host platform.
     // See comments above for more details.
-    static std::vector<std::string_view> decompose(std::string_view path) {
-        return decompose(path, HOST_TYPE);
-    }
     static std::vector<std::string> decompose(std::string&& path) {
         return decompose(std::move(path), HOST_TYPE);
-    }
-    static std::vector<std::string_view> decompose(const char* path) {
-        return decompose(std::string_view(path));
     }
     static std::vector<std::string> decompose(const std::string& path) {
         return decompose(path, HOST_TYPE);
