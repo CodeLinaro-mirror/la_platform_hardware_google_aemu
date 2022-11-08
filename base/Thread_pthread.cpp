@@ -180,9 +180,16 @@ unsigned long getCurrentThreadId() {
     pthread_t tid = pthread_self();
     // POSIX doesn't require pthread_t to be a numeric type.
     // Instead, just pick up the first sizeof(long) bytes as the "id".
+#ifdef __QNX__
+    // the assert for sizeof(long) fails
+    static_assert(sizeof(tid) >= sizeof(int),
+                  "Expected pthread_t to be at least sizeof(int) wide");
+    return *reinterpret_cast<unsigned int*>(&tid);
+#else
     static_assert(sizeof(tid) >= sizeof(long),
                   "Expected pthread_t to be at least sizeof(long) wide");
     return *reinterpret_cast<unsigned long*>(&tid);
+#endif
 }
 
 static unsigned long sUiThreadId = 0;

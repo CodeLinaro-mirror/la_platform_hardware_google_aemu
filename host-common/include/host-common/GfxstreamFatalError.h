@@ -14,14 +14,14 @@
 
 #pragma once
 
-#include <vulkan/vulkan.h>
-
 #include <cstdint>
 #include <functional>
 #include <optional>
 #include <sstream>
 
 namespace emugl {
+
+typedef int32_t VkResult;
 
 enum GfxstreamAbortReason : int64_t {
     VK_RESULT = 0,
@@ -34,7 +34,7 @@ struct FatalError {
     const VkResult vk_result;
 
     explicit FatalError(GfxstreamAbortReason ab_reason)
-        : abort_reason(ab_reason), vk_result(VK_SUCCESS) {}
+        : abort_reason(ab_reason), vk_result(0) {}
     explicit FatalError(VkResult vk_result) : abort_reason(VK_RESULT), vk_result(vk_result) {}
 
     inline int64_t getAbortCode() const {

@@ -15,7 +15,7 @@
 #include "android/base/StringParse.h"
 
 #include "android/base/threads/FunctorThread.h"
-#include "base/testing/Utils.h"
+#include "aemu/base/testing/Utils.h"
 #include <gtest/gtest.h>
 
 namespace android {

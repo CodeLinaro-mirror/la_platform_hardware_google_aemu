@@ -35,12 +35,18 @@ constexpr int64_t kEmulatorGraphicsHangSyncThread = 10026;
 constexpr int64_t kEmulatorGraphicsUnHangSyncThread = 10027;
 constexpr int64_t kEmulatorGraphicsBadPacketLength = 10031;
 constexpr int64_t kEmulatorGraphicsDuplicateSequenceNum = 10032;
+constexpr int64_t kEmulatorGraphicsVulkanOutOfMemory = 10033;
 
 void (*MetricsLogger::add_instant_event_callback)(int64_t event_code) = nullptr;
 void (*MetricsLogger::add_instant_event_with_descriptor_callback)(int64_t event_code,
                                                                   int64_t descriptor) = nullptr;
 void (*MetricsLogger::add_instant_event_with_metric_callback)(int64_t event_code,
                                                               int64_t metric_value) = nullptr;
+void (*MetricsLogger::add_vulkan_out_of_memory_event)(int64_t result_code, uint32_t op_code,
+                                                      const char* function, uint32_t line,
+                                                      uint64_t allocation_size,
+                                                      bool is_host_side_result,
+                                                      bool is_allocation) = nullptr;
 void (*MetricsLogger::set_crash_annotation_callback)(const char* key, const char* value) = nullptr;
 
 void logEventHangMetadata(const EventHangMetadata* metadata) {
@@ -190,6 +196,19 @@ struct MetricTypeVisitor {
         if (MetricsLogger::add_instant_event_with_descriptor_callback) {
             MetricsLogger::add_instant_event_with_descriptor_callback(
                 kEmulatorGraphicsDuplicateSequenceNum, DuplicateSequenceNumEvent.opcode);
+        }
+    }
+
+    void operator()(const MetricEventVulkanOutOfMemory vkOutOfMemoryEvent) const {
+        if (MetricsLogger::add_vulkan_out_of_memory_event) {
+            MetricsLogger::add_vulkan_out_of_memory_event(
+                vkOutOfMemoryEvent.vkResultCode,
+                vkOutOfMemoryEvent.opCode.value_or(0),
+                vkOutOfMemoryEvent.function,
+                vkOutOfMemoryEvent.line.value_or(0),
+                vkOutOfMemoryEvent.allocationSize.value_or(0),
+                !vkOutOfMemoryEvent.opCode.has_value(),          // is_host_side_result
+                vkOutOfMemoryEvent.allocationSize.has_value());  // is_allocation
         }
     }
 };

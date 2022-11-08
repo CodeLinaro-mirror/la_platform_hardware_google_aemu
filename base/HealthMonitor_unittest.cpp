@@ -21,7 +21,7 @@
 #include <limits>
 #include <vector>
 
-#include "TestClock.h"
+#include "aemu/base/testing/TestClock.h"
 #include "aemu/base/Metrics.h"
 
 namespace emugl {
