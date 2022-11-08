@@ -17,6 +17,7 @@
 #include <inttypes.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -93,11 +94,18 @@ struct GfxstreamVkAbort {
     int line;
     int64_t abort_reason;
 };
+struct MetricEventVulkanOutOfMemory {
+    int64_t vkResultCode;
+    std::optional<uint32_t> opCode = std::nullopt;
+    const char* function = nullptr;
+    std::optional<int> line = std::nullopt;
+    std::optional<uint64_t> allocationSize = std::nullopt;
+};
 
 using MetricEventType =
     std::variant<std::monostate, MetricEventBadPacketLength, MetricEventDuplicateSequenceNum,
                  MetricEventFreeze, MetricEventUnFreeze, MetricEventHang, MetricEventUnHang,
-                 GfxstreamVkAbort>;
+                 MetricEventVulkanOutOfMemory, GfxstreamVkAbort>;
 
 class MetricsLogger {
    public:
@@ -111,6 +119,10 @@ class MetricsLogger {
     static void (*add_instant_event_with_descriptor_callback)(int64_t event_code,
                                                               int64_t descriptor);
     static void (*add_instant_event_with_metric_callback)(int64_t event_code, int64_t metric_value);
+    static void (*add_vulkan_out_of_memory_event)(int64_t result_code, uint32_t op_code,
+                                                  const char* function, uint32_t line,
+                                                  uint64_t allocation_size,
+                                                  bool is_host_side_result, bool is_allocation);
     // Crashpad will copy the strings, so these need only persist for the function call
     static void (*set_crash_annotation_callback)(const char* key, const char* value);
 };

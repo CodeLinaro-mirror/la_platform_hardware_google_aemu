@@ -16,7 +16,7 @@
 
 #include "host-common/GfxstreamFatalError.h"
 
-#include "base/testing/TestUtils.h"
+#include "aemu/base/testing/TestUtils.h"
 
 namespace emugl {
 namespace {
@@ -28,6 +28,7 @@ TEST(GFXSTREAM_ABORT, MessageIsWellFormatted) {
 }
 
 TEST(GFXSTREAM_ABORT, WithVkResult) {
+    VkResult VK_ERROR_FRAGMENTATION = -1000161000;
     EXPECT_DEATH({ GFXSTREAM_ABORT(FatalError(VK_ERROR_FRAGMENTATION)) << "so fragmented"; },
                  "err code: -1000161000: so fragmented");
 }

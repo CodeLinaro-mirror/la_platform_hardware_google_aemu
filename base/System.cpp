@@ -11,6 +11,12 @@
 
 #include <vector>
 
+#ifdef __QNX__
+#include <fcntl.h>
+#include <devctl.h>
+#include <sys/procfs.h>
+#endif
+
 #ifdef _MSC_VER
 // #include "msvc-posix.h"
 // #include <dirent.h>
@@ -96,7 +102,7 @@ public:
     LARGE_INTEGER now;
     ::QueryPerformanceCounter(&now);
     return (now.QuadPart * 1000000ULL) / mFreqPerSec;
-#elif defined __linux__
+#elif defined __linux__ || defined __QNX__
     timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec * 1000000LL + ts.tv_nsec / 1000;
@@ -259,6 +265,21 @@ std::string getProgramDirectoryFromPlatform() {
             res.assign(dir.c_str());
         }
     }
+#elif defined(__QNX__)
+    char path[1024];
+    memset(path, 0, sizeof(path));
+    int fd = open ("/proc/self/exefile", O_RDONLY);
+    if (fd != -1) {
+        ssize_t len = read(fd, path, sizeof(path));
+        if (len > 0 && len < sizeof(path)) {
+            char* x = ::strrchr(path, '/');
+            if (x) {
+                *x = '\0';
+                res.assign(path);
+            }
+        }
+        close(fd);
+    }
 #else
 #error "Unsupported platform!"
 #endif
@@ -285,9 +306,7 @@ CpuTime cpuTime() {
     cpuUsageCurrentThread_macImpl(
         &res.user_time_us,
         &res.system_time_us);
-#else
-
-#ifdef __linux__
+#elif __linux__
     struct rusage usage;
     getrusage(RUSAGE_THREAD, &usage);
     res.user_time_us =
@@ -296,6 +315,16 @@ CpuTime cpuTime() {
     res.system_time_us =
         usage.ru_stime.tv_sec * 1000000ULL +
         usage.ru_stime.tv_usec;
+#elif __QNX__
+    int fd = open("/proc/self/as", O_RDONLY);
+    if (fd != -1) {
+        procfs_info info;
+        if (devctl(fd, DCMD_PROC_INFO, &info, sizeof(info), NULL) == EOK) {
+            res.user_time_us = info.utime / 1000; // time is in nanoseconds
+            res.system_time_us = info.stime / 1000;
+        }
+        close(fd);
+    }
 #else // Windows
     FILETIME creation_time_struct;
     FILETIME exit_time_struct;
@@ -319,7 +348,6 @@ CpuTime cpuTime() {
     res.system_time_us = system_time_100ns / 10;
 #endif
 
-#endif
     return res;
 }
 

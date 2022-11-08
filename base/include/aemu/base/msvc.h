@@ -1,6 +1,7 @@
 #pragma once
 
 #ifndef __linux__
+#ifndef __QNX__
 // Make sure these are defined and don't change anything if used.
 enum {
     SOCK_CLOEXEC = 0,
@@ -8,6 +9,7 @@ enum {
     O_CLOEXEC = 0
 #endif
 };
+#endif  // !__QNX__
 #endif  // !__linux__
 
 #ifdef _MSC_VER

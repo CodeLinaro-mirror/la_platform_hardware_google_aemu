@@ -60,6 +60,8 @@ if (BUILD_STANDALONE)
 
     if (WIN32)
         set(aemu-base-platform-deps Shlwapi)
+    elseif (QNX)
+        set(aemu-base-platform-deps dl)
     else()
         set(aemu-base-platform-deps dl rt)
     endif()
@@ -100,13 +102,6 @@ endif()
 add_library(
     aemu-base-testing-support
     testing/file_io.cpp)
-target_include_directories(
-    aemu-base-testing-support
-    PRIVATE
-    ${AEMU_COMMON_REPO_ROOT}/include
-    PUBLIC
-    ${AEMU_COMMON_REPO_ROOT}
-    ${AEMU_COMMON_REPO_ROOT}/base/testing)
 target_link_libraries(
     aemu-base-testing-support
     PRIVATE
