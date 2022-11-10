@@ -110,8 +110,8 @@ public:
 
     bool timedWait(StaticLock *userLock, uint64_t waitUntilUs) {
         const auto now = android::base::getUnixTimeUs();
-        const auto timeout =
-                std::max<uint64_t>(0, waitUntilUs  - now) / 1000;
+        const auto timeout = waitUntilUs > now ?
+                std::max<uint32_t>(0, waitUntilUs  - now) / 1000 : 0;
         return ::SleepConditionVariableSRW(
                     &mCond, &userLock->mLock, timeout, 0) != 0;
     }

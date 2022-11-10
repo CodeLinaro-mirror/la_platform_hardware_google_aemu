@@ -35,11 +35,51 @@ extern "C" const void* memmem(const void* haystack, size_t haystack_len,
 namespace android {
 namespace base {
 
+// Copy the content of |view| into a new heap-allocated zero-terminated
+// C string. Caller must free() the result.
+char* strDup(std::string_view str);
+
+// Returns true iff |haystack| contains |needle|.
+bool strContains(std::string_view haystack, const char* needle);
+
+// Joins all elements from the |range| into a single string, using |delim|
+// as a delimiter
+template <class Range, class Delimiter>
+std::string join(const Range& range, const Delimiter& delim) {
+    std::ostringstream out;
+
+    // make sure we use the ADL versions of begin/end for custom ranges
+    using std::begin;
+    using std::end;
+    auto it = begin(range);
+    const auto itEnd = end(range);
+    if (it != itEnd) {
+        out << *it;
+        for (++it; it != itEnd; ++it) {
+            out << delim << *it;
+        }
+    }
+
+    return out.str();
+}
+
+// Convenience version of join() with delimiter set to a single comma
+template <class Range>
+std::string join(const Range& range) {
+    return join(range, ',');
+}
+
+// Returns a version of |in| with whitespace trimmed from the front/end
+std::string trim(const std::string& in);
+
+bool startsWith(std::string_view string, std::string_view prefix);
+bool endsWith(std::string_view string, std::string_view suffix);
+
 // Iterates over a string's parts using |splitBy| as a delimiter.
 // |splitBy| must be a nonempty string well, or it's a no-op.
 // Otherwise, |func| is called on each of the splits, excluding the
 // characters that are part of |splitBy|.  If two |splitBy|'s occur in a row,
-// |func| will be called on a StringView("") in between. See
+// |func| will be called on a String("") in between. See
 // StringUtils_unittest.cpp for the full story.
 template <class String>
 void split(String str, String splitBy, std::function<void(const String&)> func) {
@@ -56,6 +96,15 @@ void split(String str, String splitBy, std::function<void(const String&)> func) 
         end = str.find(splitBy, begin);
     }
 }
+
+// Tokenlize a string using |splitBy| as a delimiter.
+// |splitBy| must be a nonempty string well, or it's a no-op.
+// Whitespace is removed.
+// Note: make sure out is an empty vector. It will be cleared
+// before store the result tokens
+void splitTokens(const std::string& input,
+                 std::vector<std::string>* out,
+                 std::string_view splitBy);
 
 // Splits a string into a vector of strings.
 //
@@ -128,6 +177,5 @@ inline bool ConsumeSuffix(std::string_view* s, std::string_view suffix) {
                                         std::string_view from,
                                         std::string_view to,
                                         bool all);
-
 }  // namespace base
 }  // namespace android

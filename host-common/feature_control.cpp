@@ -17,6 +17,7 @@
 #include "feature_control.h"
 #include "FeatureControl.h"
 
+#include <string>
 #include <vector>
 
 
@@ -73,3 +74,20 @@ void feature_set_if_not_overridden_or_guest_disabled(Feature feature, bool enabl
 // asyncUpdateServerFeaturePatterns. See FeatureControl.h
 // for more info. To be called only once on startup.
 void feature_update_from_server() { }
+
+const char* feature_name(Feature feature) {
+    static const std::vector<std::string>* const sFeatureNames = [] {
+        return new std::vector<std::string>{
+#define FEATURE_CONTROL_ITEM(item) #item,
+#include "FeatureControlDefHost.h"
+#include "FeatureControlDefGuest.h"
+#undef FEATURE_CONTROL_ITEM
+        };
+    }();
+
+    if (feature >= sFeatureNames->size()) {
+        return "InvalidFeature";
+    }
+
+    return (*sFeatureNames)[feature].c_str();
+}

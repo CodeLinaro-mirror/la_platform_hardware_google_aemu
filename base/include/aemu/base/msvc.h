@@ -24,7 +24,7 @@ enum {
 #include <stdint.h>
 #include <sys/stat.h>
 #include <time.h>
-#include <winsock.h>
+#include <winsock2.h>
 
 typedef SSIZE_T ssize_t;
 
@@ -40,10 +40,10 @@ typedef int pid_t;
 #define lseek(a, b, c) _lseek(a, b, c)
 #define lseek64 _lseeki64
 
-struct FileTime {
+typedef struct FileTime {
   uint32_t dwLowDateTime;
   uint32_t dwHighDateTime;
-};
+} FileTime;
 
 // Need <dirent.h>
 

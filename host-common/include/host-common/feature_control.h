@@ -49,4 +49,6 @@ void feature_set_if_not_overridden_or_guest_disabled(Feature feature, bool enabl
 // for more info. To be called only once on startup.
 void feature_update_from_server();
 
+const char* feature_name(Feature feature);
+
 ANDROID_END_HEADER

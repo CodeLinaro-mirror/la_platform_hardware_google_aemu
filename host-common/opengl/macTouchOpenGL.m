@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "android/opengl/macTouchOpenGL.h"
+#include "host-common/opengl/macTouchOpenGL.h"
 
 #include <Cocoa/Cocoa.h>
 #include <OpenGL/OpenGL.h>

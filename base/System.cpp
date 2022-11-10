@@ -17,6 +17,12 @@
 #include <sys/procfs.h>
 #endif
 
+#ifdef __APPLE__
+#include <libproc.h>
+#include <mach/clock.h>
+#include <mach/mach.h>
+#endif  // __APPLE__
+
 #ifdef _MSC_VER
 // #include "msvc-posix.h"
 // #include <dirent.h>
@@ -296,6 +302,10 @@ std::string getProgramDirectory() {
 std::string getLauncherDirectory() {
     return getProgramDirectory();
 }
+
+#ifdef __APPLE__
+void cpuUsageCurrentThread_macImpl(uint64_t* user, uint64_t* sys);
+#endif  // __APPLE__
 
 CpuTime cpuTime() {
     CpuTime res;

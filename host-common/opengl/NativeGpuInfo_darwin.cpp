@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "android/opengl/NativeGpuInfo.h"
+#include "host-common/opengl/NativeGpuInfo.h"
 
-#include "android/opengl/macTouchOpenGL.h"
+#include "host-common/opengl/macTouchOpenGL.h"
 
 #include <CoreGraphics/CGDirectDisplay.h>
 #include <IOKit/graphics/IOGraphicsLib.h>

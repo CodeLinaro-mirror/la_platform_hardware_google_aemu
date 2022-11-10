@@ -15,7 +15,7 @@
 #pragma once
 
 #include "aemu/base/Compiler.h"
-#include "aemu/base/ThreadTypes.h"
+#include "aemu/base/threads/Types.h"
 #include "aemu/base/synchronization/Lock.h"
 
 #ifdef _WIN32

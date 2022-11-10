@@ -14,7 +14,7 @@
 
 #pragma once
 
-#include "android/utils/compiler.h"
+#include "aemu/base/c_header.h"
 
 ANDROID_BEGIN_HEADER
 

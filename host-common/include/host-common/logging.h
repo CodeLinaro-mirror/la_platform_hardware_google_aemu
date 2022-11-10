@@ -55,3 +55,5 @@ void OutputLog(FILE* stream, char severity, const char* file, unsigned int line,
     do {                                                \
         GFXSTREAM_LOG(stderr, 'I', fmt, ##__VA_ARGS__); \
     } while (0)
+
+// Note: FATAL is defined in host-common/include/host-common/GfxstreamFatalError.h

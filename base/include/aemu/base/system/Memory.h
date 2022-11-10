@@ -1,4 +1,4 @@
-// Copyright (C) 2015 The Android Open Source Project
+// Copyright (C) 2022 The Android Open Source Project
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,29 +11,30 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 #pragma once
 
-#include "aemu/base/EnumFlags.h"
-
-#include <functional>
-#include <stdint.h>
+#include <cstdint>
 
 namespace android {
 namespace base {
 
-// a functor which can run in a separate thread
-using ThreadFunctor = std::function<intptr_t()>;
+// Get memory statistics
+struct MemUsage {
+    uint64_t resident;
+    uint64_t resident_max;
+    uint64_t virt;
+    uint64_t virt_max;
+    uint64_t total_phys_memory;
+    uint64_t avail_phys_memory;
+    uint64_t total_page_file;
+};
+MemUsage getMemUsage();
 
-enum class ThreadFlags : unsigned char {
-    NoFlags = 0,
-    MaskSignals = 1,
-    // A Detach-ed thread is a launch-and-forget thread.
-    // wait() and tryWait() on a Detach-ed thread always fails.
-    // OTOH, if you don't wait() on a non Detach-ed thread it would do it
-    // in dtor anyway.
-    Detach = 1 << 1
+// Known distinct kinds of disks.
+enum class DiskKind {
+    Hdd,
+    Ssd
 };
 
-}  // namespace base
-}  // namespace android
+} // namespace base
+} // namespace android
