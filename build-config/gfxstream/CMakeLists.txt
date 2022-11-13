@@ -7,6 +7,7 @@ set(GFXSTREAM_HOST_COMMON_LIB aemu-host-common PARENT_SCOPE)
 #   - aemu-base-test-srcs: aemu-base test source files
 set(aemu-base-srcs
     AlignedBuf.cpp
+    CLog.cpp
     CompressingStream.cpp
     CpuTime.cpp
     DecompressingStream.cpp

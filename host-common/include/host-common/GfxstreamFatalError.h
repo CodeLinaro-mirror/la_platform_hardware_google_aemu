@@ -38,9 +38,7 @@ struct FatalError {
     explicit FatalError(VkResult vk_result) : abort_reason(VK_RESULT), vk_result(vk_result) {}
 
     inline int64_t getAbortCode() const {
-        return abort_reason == VK_RESULT ?
-            static_cast<int64_t>(vk_result) :
-            abort_reason;
+        return abort_reason == VK_RESULT ? static_cast<int64_t>(vk_result) : abort_reason;
     }
 };
 
@@ -66,3 +64,5 @@ void setDieFunction(std::optional<std::function<void()>> newDie);
 }  // namespace emugl
 
 #define GFXSTREAM_ABORT(reason) ::emugl::AbortMessage(__FILE__, __func__, __LINE__, reason).stream()
+
+#define FATAL() GFXSTREAM_ABORT(::emugl::FatalError(ABORT_REASON_OTHER))

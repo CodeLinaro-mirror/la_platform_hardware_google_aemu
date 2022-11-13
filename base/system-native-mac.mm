@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "android/base/Optional.h"
-#include "android/base/system/System.h"
+#include "aemu/base/Optional.h"
+#include "aemu/base/system/Memory.h"
+#include "aemu/base/system/System.h"
 
 #include <Cocoa/Cocoa.h>
 #include <CoreFoundation/CoreFoundation.h>
@@ -81,7 +82,7 @@ void cpuUsageCurrentThread_macImpl(
     mach_port_deallocate(mach_task_self(), thread);
 }
 
-Optional<System::DiskKind> nativeDiskKind(int st_dev) {
+Optional<DiskKind> nativeDiskKind(int st_dev) {
     const char* devName = devname(st_dev, S_IFBLK);
     if (!devName) {
         return {};
@@ -134,11 +135,11 @@ Optional<System::DiskKind> nativeDiskKind(int st_dev) {
                 if ([@kIOPropertyMediumTypeSolidStateKey
                             isEqualToString:type]) {
                     CFRelease(res);
-                    return System::DiskKind::Ssd;
+                    return DiskKind::Ssd;
                 } else if ([@kIOPropertyMediumTypeRotationalKey
                                    isEqualToString:type]) {
                     CFRelease(res);
-                    return System::DiskKind::Hdd;
+                    return DiskKind::Hdd;
                 }
                 CFRelease(res);
             }

@@ -5,12 +5,16 @@ add_library(aemu-base.headers INTERFACE)
 # TODO: Remove this once host-common/logging.h is moved into base.
 target_link_libraries(aemu-base.headers INTERFACE aemu-host-common.headers)
 target_include_directories(aemu-base.headers INTERFACE include)
+if(WIN32)
+    target_compile_definitions(aemu-base.headers INTERFACE WIN32_LEAN_AND_MEAN)
+endif()
 
 if (BUILD_STANDALONE)
     if (NOT DEFINED aemu-base-srcs)
         # Build everything by default
         set(aemu-base-srcs
             AlignedBuf.cpp
+            CLog.cpp
             CompressingStream.cpp
             CpuTime.cpp
             DecompressingStream.cpp

@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "aemu/base/system/System.h"
+#include "aemu/base/Compiler.h"
 #include "android/utils/debug.h"
 #include <stdio.h>
 
@@ -23,16 +23,16 @@ public:
     Stopwatch();
 
     // Get the current elapsed time, microseconds.
-    System::WallDuration elapsedUs() const;
+    uint64_t elapsedUs() const;
 
     // Restart the stopwatch and return the current elapsed time, microseconds.
-    System::WallDuration restartUs();
+    uint64_t restartUs();
 
-    static double sec(System::WallDuration us) { return us / 1000000.0; }
-    static double ms(System::WallDuration us) { return us / 1000.0; }
+    static double sec(uint64_t us) { return us / 1000000.0; }
+    static double ms(uint64_t us) { return us / 1000.0; }
 
 private:
-    System::WallDuration mStartUs;
+    uint64_t mStartUs;
 };
 
 // A class for convenient time tracking in a scope.

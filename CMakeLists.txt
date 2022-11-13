@@ -14,6 +14,9 @@ set(AEMU_COMMON_REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 if(NOT GFXSTREAM_REPO_ROOT)
     set(GFXSTREAM_REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../../device/generic/vulkan-cereal)
 endif()
+if(NOT ANGLE_REPO_ROOT)
+    set(ANGLE_REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../../external/angle)
+endif()
 
 option(AEMU_COMMON_GEN_PKGCONFIG
        "Generate install files used by pkg-config."
@@ -47,6 +50,8 @@ if (NOT ${AEMU_COMMON_BUILD_CONFIG} STREQUAL "")
 ${AEMU_COMMON_REPO_ROOT}/build-config/${AEMU_COMMON_BUILD_CONFIG}")
     add_subdirectory(build-config/${AEMU_COMMON_BUILD_CONFIG})
 endif()
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-extern-c-compat -Wno-return-type-c-linkage")
 
 add_subdirectory(base)
 add_subdirectory(snapshot)

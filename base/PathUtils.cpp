@@ -145,8 +145,8 @@ std::string PathUtils::addTrailingDirSeparator(const char* path,
 // static
 bool PathUtils::split(const char* path,
                       HostType hostType,
-                      const char** dirName,
-                      const char** baseName) {
+                      std::string* dirName,
+                      std::string* baseName) {
     if (sIsEmpty(path)) {
         return false;
     }
@@ -167,7 +167,7 @@ bool PathUtils::split(const char* path,
     // Handle common case.
     if (pos > prefixLen) {
         if (dirName) {
-            *dirName = path;
+            *dirName = std::string(path, pos);
         }
         if (baseName) {
             *baseName = path + pos;
@@ -180,7 +180,7 @@ bool PathUtils::split(const char* path,
         if (!prefixLen) {
             *dirName = ".";
         } else {
-            *dirName = path;
+            *dirName = std::string(path, prefixLen);
         }
     }
     if (baseName) {
@@ -212,15 +212,13 @@ std::string PathUtils::join(const std::string& path1,
     return result;
 }
 
-// static
 template <class String>
-std::vector<String> PathUtils::decompose(const String& path,
-                                         HostType hostType) {
+static std::vector<String> decomposeImpl(const String& path, PathUtils::HostType hostType) {
     std::vector<String> result;
     if (path.empty())
         return result;
 
-    size_t prefixLen = rootPrefixSize(path, hostType);
+    size_t prefixLen = PathUtils::rootPrefixSize(path, hostType);
     auto it = path.begin();
     if (prefixLen) {
         result.emplace_back(it, it + prefixLen);
@@ -228,7 +226,7 @@ std::vector<String> PathUtils::decompose(const String& path,
     }
     for (;;) {
         auto p = it;
-        while (p != path.end() && !isDirSeparator(*p, hostType))
+        while (p != path.end() && !PathUtils::isDirSeparator(*p, hostType))
             p++;
         if (p > it) {
             result.emplace_back(it, p);
@@ -243,12 +241,12 @@ std::vector<String> PathUtils::decompose(const String& path,
 
 std::vector<std::string> PathUtils::decompose(std::string&& path,
                                               HostType hostType) {
-    return decompose<std::string>(path, hostType);
+    return decomposeImpl<std::string>(path, hostType);
 }
 
 std::vector<std::string> PathUtils::decompose(const std::string& path,
                                               HostType hostType) {
-    return decompose<std::string>(path, hostType);
+    return decomposeImpl<std::string>(path, hostType);
 }
 
 template <class String>
@@ -324,6 +322,48 @@ void PathUtils::simplifyComponents(std::vector<String>* components) {
 
 void PathUtils::simplifyComponents(std::vector<std::string>* components) {
     simplifyComponents<std::string>(components);
+}
+
+// static
+std::string PathUtils::relativeTo(const std::string& base,
+                                  const std::string& path,
+                                  HostType hostType) {
+    auto baseDecomposed = decompose(base, hostType);
+    auto pathDecomposed = decompose(path, hostType);
+
+    if (baseDecomposed.size() > pathDecomposed.size())
+        return path;
+
+    for (size_t i = 0; i < baseDecomposed.size(); i++) {
+        if (baseDecomposed[i] != pathDecomposed[i])
+            return path;
+    }
+
+    std::string result =
+            recompose(std::vector<std::string>(
+                              pathDecomposed.begin() + baseDecomposed.size(),
+                              pathDecomposed.end()),
+                      hostType);
+
+    return result;
+}
+
+bool PathUtils::move(const std::string& from, const std::string& to) {
+    // std::rename returns 0 on success.
+    if (std::rename(from.data(), to.data())) {
+#ifdef _SUPPORT_FILESYSTEM
+        // Rename can fail if files are on different disks
+        if (std::filesystem::copy_file(from.data(), to.data())) {
+            std::filesystem::remove(from.data());
+            return true;
+        } else {
+            return false;
+        }
+#else   // _SUPPORT_FILESYSTEM
+        return false;
+#endif  // _SUPPORT_FILESYSTEM
+    }
+    return true;
 }
 
 #ifdef _WIN32

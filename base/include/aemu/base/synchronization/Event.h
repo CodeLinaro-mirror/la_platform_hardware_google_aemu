@@ -35,7 +35,7 @@ public:
         mChannel.receive(&res);
     }
 
-    bool timedWait(System::Duration wallTimeUs) {
+    bool timedWait(uint64_t wallTimeUs) {
         auto res = mChannel.timedReceive(wallTimeUs);
         if (res) return true;
         return false;

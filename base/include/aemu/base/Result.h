@@ -15,6 +15,7 @@
 #pragma once
 
 #include "aemu/base/Optional.h"
+#include "aemu/base/logging/Log.h"
 
 // Result<T, E> - a template class to store either a result or error, inspired
 //                by Rust.

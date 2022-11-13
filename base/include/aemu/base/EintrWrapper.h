@@ -16,6 +16,8 @@
 
 #include <errno.h>
 
+#include "aemu/base/logging/CLog.h"
+
 namespace android {
 namespace base {
 
@@ -80,7 +82,7 @@ namespace base {
                 break; \
             ++eintr_wrapper_loop_count; \
             if(eintr_wrapper_loop_count >= MAX_EINTR_LOOP_COUNT) \
-                fprintf(stderr, "Looping around EINTR too many times\n"); \
+                dfatal("Looping around EINTR too many times"); \
         }; \
         eintr_wrapper_result; \
     })

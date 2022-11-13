@@ -16,7 +16,7 @@
 
 #include "aemu/base/TypeTraits.h"
 #include "aemu/base/threads/Thread.h"
-#include "aemu/base/ThreadTypes.h"
+#include "aemu/base/threads/Types.h"
 
 #include <utility>
 

@@ -10,6 +10,7 @@
 // GNU General Public License for more details.
 #include "aemu/base/logging/CLog.h"
 #include "aemu/base/Optional.h"
+#include "aemu/base/system/Memory.h"
 #include "aemu/base/system/System.h"
 
 #include <Cocoa/Cocoa.h>
@@ -78,7 +79,7 @@ void cpuUsageCurrentThread_macImpl(
     mach_port_deallocate(mach_task_self(), thread);
 }
 
-Optional<System::DiskKind> nativeDiskKind(int st_dev) {
+Optional<DiskKind> nativeDiskKind(int st_dev) {
     const char* devName = devname(st_dev, S_IFBLK);
     if (!devName) {
         return {};
@@ -131,11 +132,11 @@ Optional<System::DiskKind> nativeDiskKind(int st_dev) {
                 if ([@kIOPropertyMediumTypeSolidStateKey
                             isEqualToString:type]) {
                     CFRelease(res);
-                    return System::DiskKind::Ssd;
+                    return DiskKind::Ssd;
                 } else if ([@kIOPropertyMediumTypeRotationalKey
                                    isEqualToString:type]) {
                     CFRelease(res);
-                    return System::DiskKind::Hdd;
+                    return DiskKind::Hdd;
                 }
                 CFRelease(res);
             }

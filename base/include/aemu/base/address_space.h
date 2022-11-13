@@ -13,12 +13,15 @@
 // limitations under the License.
 #pragma once
 
+#include "aemu/base/c_header.h"
 #include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+
+ANDROID_BEGIN_HEADER
 
 #ifdef ADDRESS_SPACE_NAMESPACE
 namespace ADDRESS_SPACE_NAMESPACE {
@@ -472,6 +475,18 @@ static void address_space_allocator_init(
     allocator->total_bytes = size;
 }
 
+/* At this point there should be no used blocks and all available blocks must
+ * have been merged into one block.
+ */
+static void address_space_allocator_destroy(
+    struct address_space_allocator *allocator)
+{
+    address_space_assert(allocator->size == 1);
+    address_space_assert(allocator->capacity >= allocator->size);
+    address_space_assert(allocator->blocks[0].available);
+    address_space_free(allocator->blocks);
+}
+
 /* Destroy function if we don't care what was previoulsy allocated.
  * have been merged into one block.
  */
@@ -524,3 +539,5 @@ static void address_space_allocator_run(
 #ifdef ADDRESS_SPACE_NAMESPACE
 }
 #endif
+
+ANDROID_END_HEADER

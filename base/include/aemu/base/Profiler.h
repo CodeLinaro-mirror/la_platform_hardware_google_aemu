@@ -16,7 +16,7 @@
 #include "aemu/base/Compiler.h"
 
 #include "aemu/base/files/PathUtils.h"
-#include "aemu/base/system/System.h"
+#include "aemu/base/system/Memory.h"
 #include "android/utils/debug.h"
 
 #include <functional>
@@ -37,7 +37,7 @@ public:
     }
 
     MemoryUsageBytes queryCurrentResident() {
-        auto memUsage = System::get()->getMemUsage();
+        auto memUsage = getMemUsage();
         return (MemoryUsageBytes)memUsage.resident;
     }
 

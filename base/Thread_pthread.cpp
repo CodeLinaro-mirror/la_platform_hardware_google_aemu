@@ -67,9 +67,12 @@ bool Thread::start() {
         mJoined = true;
     }
 
+    // TODO: implement for mac os
+#ifndef __APPLE__
     if (mNameOpt.has_value()) {
         pthread_setname_np(mThread, (*mNameOpt).c_str());
     }
+#endif  // __APPLE__
 
     if (useAttributes) {
         pthread_attr_destroy(&attr);
