@@ -77,8 +77,6 @@ if (BUILD_STANDALONE)
         # TODO(joshuaduong): Remove this when logging.h is moved into base
         aemu-host-common.headers
         PRIVATE
-        lz4
-        perfetto-tracing-only
         logging-base
         ${aemu-base-platform-deps})
 

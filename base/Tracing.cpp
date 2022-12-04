@@ -14,7 +14,9 @@
 // limitations under the License.
 #include "aemu/base/Tracing.h"
 
+#ifdef USE_PERFETTO_TRACING
 #include "perfetto-tracing-only.h"
+#endif
 
 #include <string>
 #include <vector>
@@ -27,23 +29,33 @@ namespace base {
 const bool* tracingDisabledPtr = nullptr;
 
 void initializeTracing() {
+#ifdef USE_PERFETTO_TRACING
     virtualdeviceperfetto::initialize(&tracingDisabledPtr);
+#endif
 }
 
 void enableTracing() {
+#ifdef USE_PERFETTO_TRACING
     if (virtualdeviceperfetto::queryTraceConfig().tracingDisabled) {
         virtualdeviceperfetto::enableTracing();
     }
+#endif
 }
 
 void disableTracing() {
+#ifdef USE_PERFETTO_TRACING
     if (!virtualdeviceperfetto::queryTraceConfig().tracingDisabled) {
         virtualdeviceperfetto::disableTracing();
     }
+#endif
 }
 
 bool shouldEnableTracing() {
+#ifdef USE_PERFETTO_TRACING
     return !(virtualdeviceperfetto::queryTraceConfig().tracingDisabled);
+#else
+    return false;
+#endif
 }
 
 #ifdef __cplusplus
@@ -56,31 +68,43 @@ bool shouldEnableTracing() {
 
 __attribute__((always_inline)) void beginTrace(const char* name) {
     if (CC_LIKELY(*tracingDisabledPtr)) return;
+#ifdef USE_PERFETTO_TRACING
     virtualdeviceperfetto::beginTrace(name);
+#endif
 }
 
 __attribute__((always_inline)) void endTrace() {
     if (CC_LIKELY(*tracingDisabledPtr)) return;
+#ifdef USE_PERFETTO_TRACING
     virtualdeviceperfetto::endTrace();
+#endif
 }
 
 __attribute__((always_inline)) void traceCounter(const char* name, int64_t value) {
     if (CC_LIKELY(*tracingDisabledPtr)) return;
+#ifdef USE_PERFETTO_TRACING
     virtualdeviceperfetto::traceCounter(name, value);
+#endif
 }
 
 ScopedTrace::ScopedTrace(const char* name) {
     if (CC_LIKELY(*tracingDisabledPtr)) return;
+#ifdef USE_PERFETTO_TRACING
     virtualdeviceperfetto::beginTrace(name);
+#endif
 }
 
 ScopedTrace::~ScopedTrace() {
     if (CC_LIKELY(*tracingDisabledPtr)) return;
+#ifdef USE_PERFETTO_TRACING
     virtualdeviceperfetto::endTrace();
+#endif
 }
 
 void setGuestTime(uint64_t t) {
+#ifdef USE_PERFETTO_TRACING
     virtualdeviceperfetto::setGuestTime(t);
+#endif
 }
 
 } // namespace base

@@ -42,8 +42,6 @@ cc_library_static {
         "Tracing.cpp",
         "Thread_pthread.cpp",
     ],
-    whole_static_libs: ["perfetto-tracing-only"],
-    static_libs: ["gfxstream_lz4"],
     export_header_lib_headers: ["gfxstream_renderdoc_headers"]
 }
 
