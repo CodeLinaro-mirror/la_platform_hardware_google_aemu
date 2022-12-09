@@ -51,10 +51,9 @@ public:
     virtual std::string exe() const = 0;
 
     // The exit code of the process, this will block
-    // and wait until the process has finished or detached.
+    // and wait until the process has finished or is detached.
     //
-    // Calling this when isAlive() == true is will
-    // return INT_MIN
+    // This can return INT_MIN in case of failures.
     ProcessExitCode exitCode() const;
 
     // Unconditionally cause the process to exit. (Kill -9 ..)
@@ -85,6 +84,9 @@ public:
 
     // Retrieve the object from the given pid id.
     static std::unique_ptr<Process> fromPid(Pid pid);
+
+    // Retrieve process with "name" in the process.
+    static std::vector<std::unique_ptr<Process>> fromName(std::string name);
 
     // Retrieve myself.
     static std::unique_ptr<Process> me();

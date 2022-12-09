@@ -1,24 +1,18 @@
 # Build only support in Android
 
-# TODO(joshuaduong): Should copy/move these third-party dependencies from vulkan-cereal to here.
-set(VULKAN_CEREAL_PATH ${PROJECT_SOURCE_DIR}/../../../device/generic/vulkan-cereal)
 if(NOT TARGET lz4)
-    if(EXISTS ${VULKAN_CEREAL_PATH})
-        add_subdirectory(${VULKAN_CEREAL_PATH}/third-party/lz4 lz4)
-    endif()
+    #TODO(joshuaduong) -- add lz4 for those who need it
+    message(STATUS "This message does nothing")
 endif()
 
 if(NOT TARGET perfetto-tracing-only)
-    if(EXISTS ${VULKAN_CEREAL_PATH})
-        add_subdirectory(${VULKAN_CEREAL_PATH}/third-party/perfetto-tracing-only
-                         perfetto-tracing-only)
-    endif()
+    #TODO(joshuaduong) -- add perfetto-tracing-only for those who need it
+    message(STATUS "This message is a placeholder")
 endif()
 
 if(NOT TARGET gtest)
-    if(EXISTS ${VULKAN_CEREAL_PATH})
-        SET(INSTALL_GTEST OFF)
-        add_subdirectory(${VULKAN_CEREAL_PATH}/third-party/googletest
-                         googletest)
-    endif()
+    SET(INSTALL_GTEST OFF)
+    #TODO(joshuaduong) -- add ENABLE_TESTS option and use Googletest for those
+    # need it.
+    message(STATUS "This message is just a stand-in")
 endif()
