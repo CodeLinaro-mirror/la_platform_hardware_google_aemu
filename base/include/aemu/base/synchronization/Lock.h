@@ -16,6 +16,8 @@
 
 #include "aemu/base/Compiler.h"
 
+#include "aemu/base/ThreadAnnotations.h"
+
 #include <atomic>
 
 #ifdef _WIN32
@@ -37,14 +39,14 @@ class AutoReadLock;
 // A wrapper class for mutexes only suitable for using in static context,
 // where it's OK to leak the underlying system object. Use Lock for scoped or
 // member locks.
-class StaticLock {
+class CAPABILITY("mutex") StaticLock {
 public:
     using AutoLock = android::base::AutoLock;
 
     constexpr StaticLock() = default;
 
     // Acquire the lock.
-    void lock() {
+    void lock() ACQUIRE() {
 #ifdef _WIN32
         ::AcquireSRWLockExclusive(&mLock);
 #else
@@ -52,7 +54,7 @@ public:
 #endif
     }
 
-    bool tryLock() {
+    bool tryLock() TRY_ACQUIRE(true) {
         bool ret = false;
 #ifdef _WIN32
         ret = ::TryAcquireSRWLockExclusive(&mLock);
@@ -63,7 +65,7 @@ public:
     }
 
     // Release the lock.
-    void unlock() {
+    void unlock() RELEASE() {
 #ifdef _WIN32
         ::ReleaseSRWLockExclusive(&mLock);
 #else
@@ -133,21 +135,21 @@ private:
 // Helper class to lock / unlock a mutex automatically on scope
 // entry and exit.
 // NB: not thread-safe (as opposed to the Lock class)
-class AutoLock {
+class SCOPED_CAPABILITY AutoLock {
 public:
-    AutoLock(StaticLock& lock) : mLock(lock) { mLock.lock(); }
+    AutoLock(StaticLock& lock) ACQUIRE(mLock) : mLock(lock) { mLock.lock(); }
 
     AutoLock(AutoLock&& other) : mLock(other.mLock), mLocked(other.mLocked) {
         other.mLocked = false;
     }
 
-    void lock() {
+    void lock() ACQUIRE(mLock) {
         assert(!mLocked);
         mLock.lock();
         mLocked = true;
     }
 
-    void unlock() {
+    void unlock() RELEASE(mLock) {
         assert(mLocked);
         mLock.unlock();
         mLocked = false;
@@ -155,7 +157,7 @@ public:
 
     bool isLocked() const { return mLocked; }
 
-    ~AutoLock() {
+    ~AutoLock() RELEASE() {
         if (mLocked) {
             mLock.unlock();
         }
@@ -301,13 +303,13 @@ static inline __attribute__((always_inline)) void SmpRmb() {
 
 class SeqLock {
 public:
-    void beginWrite() {
+    void beginWrite() ACQUIRE(mWriteLock) {
         mWriteLock.lock();
         mSeq.fetch_add(1, std::memory_order_release);
         SmpWmb();
     }
 
-    void endWrite() {
+    void endWrite() RELEASE(mWriteLock) {
         SmpWmb();
         mSeq.fetch_add(1, std::memory_order_release);
         mWriteLock.unlock();

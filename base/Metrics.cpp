@@ -36,6 +36,10 @@ constexpr int64_t kEmulatorGraphicsUnHangSyncThread = 10027;
 constexpr int64_t kEmulatorGraphicsBadPacketLength = 10031;
 constexpr int64_t kEmulatorGraphicsDuplicateSequenceNum = 10032;
 constexpr int64_t kEmulatorGraphicsVulkanOutOfMemory = 10033;
+constexpr int64_t kEmulatorGraphicsHangOther = 10034;
+constexpr int64_t kEmulatorGraphicsUnHangOther = 10035;
+
+constexpr int64_t kHangDepthMetricLimit = 10;
 
 void (*MetricsLogger::add_instant_event_callback)(int64_t event_code) = nullptr;
 void (*MetricsLogger::add_instant_event_with_descriptor_callback)(int64_t event_code,
@@ -108,7 +112,8 @@ struct MetricTypeVisitor {
 
         ERR("Logging hang event. Number of tasks already hung: %d", hangEvent.otherHungTasks);
         logEventHangMetadata(hangEvent.metadata);
-        if (MetricsLogger::add_instant_event_with_metric_callback) {
+        if (MetricsLogger::add_instant_event_with_metric_callback &&
+            hangEvent.otherHungTasks <= kHangDepthMetricLimit) {
             switch (hangEvent.metadata->hangType) {
                 case EventHangMetadata::HangType::kRenderThread: {
                     MetricsLogger::add_instant_event_with_metric_callback(
@@ -121,7 +126,8 @@ struct MetricTypeVisitor {
                     break;
                 }
                 case EventHangMetadata::HangType::kOther: {
-                    // We don't collect metrics for this type of hang.
+                    MetricsLogger::add_instant_event_with_metric_callback(
+                        kEmulatorGraphicsHangOther, hangEvent.otherHungTasks);
                     break;
                 }
             }
@@ -146,7 +152,8 @@ struct MetricTypeVisitor {
     void operator()(const MetricEventUnHang unHangEvent) const {
         ERR("Logging unhang event. Hang time: %d ms", unHangEvent.hung_ms);
         logEventHangMetadata(unHangEvent.metadata);
-        if (MetricsLogger::add_instant_event_with_metric_callback) {
+        if (MetricsLogger::add_instant_event_with_metric_callback &&
+            unHangEvent.otherHungTasks <= kHangDepthMetricLimit) {
             switch (unHangEvent.metadata->hangType) {
                 case EventHangMetadata::HangType::kRenderThread: {
                     MetricsLogger::add_instant_event_with_metric_callback(
@@ -159,7 +166,8 @@ struct MetricTypeVisitor {
                     break;
                 }
                 case EventHangMetadata::HangType::kOther: {
-                    // We don't collect metrics for this type of hang.
+                    MetricsLogger::add_instant_event_with_metric_callback(
+                        kEmulatorGraphicsUnHangOther, unHangEvent.hung_ms);
                     break;
                 }
             }

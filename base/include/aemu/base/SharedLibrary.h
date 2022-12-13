@@ -24,7 +24,7 @@
 #include <windows.h>
 #endif
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && !defined(STATIC_EMUGL)
 # ifdef BUILDING_EMUGL_COMMON_SHARED
 #  define EMUGL_COMMON_API __declspec(dllexport)
 # else

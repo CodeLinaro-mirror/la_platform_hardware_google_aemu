@@ -14,7 +14,6 @@
 
 #include "misc.h"
 
-#include "aemu/base/GLObjectCounter.h"
 #include "aemu/base/memory/MemoryTracker.h"
 
 #include <cstring>
@@ -22,17 +21,8 @@
 static int s_apiLevel = -1;
 static bool s_isPhone = false;
 
-static int s_glesMajorVersion = 2;
-static int s_glesMinorVersion = 0;
-
-android::base::GLObjectCounter* s_default_gl_object_counter = nullptr;
-
-android::base::GLObjectCounter* s_gl_object_counter = nullptr;
 android::base::CpuUsage* s_cpu_usage = nullptr;
 android::base::MemoryTracker* s_mem_usage = nullptr;
-
-static SelectedRenderer s_renderer =
-    SELECTED_RENDERER_HOST;
 
 void emugl::setAvdInfo(bool phone, int apiLevel) {
     s_isPhone = phone;
@@ -42,49 +32,6 @@ void emugl::setAvdInfo(bool phone, int apiLevel) {
 void emugl::getAvdInfo(bool* phone, int* apiLevel) {
     if (phone) *phone = s_isPhone;
     if (apiLevel) *apiLevel = s_apiLevel;
-}
-
-void emugl::setGlesVersion(int maj, int min) {
-    s_glesMajorVersion = maj;
-    s_glesMinorVersion = min;
-}
-
-void emugl::getGlesVersion(int* maj, int* min) {
-    if (maj) *maj = s_glesMajorVersion;
-    if (min) *min = s_glesMinorVersion;
-}
-
-void emugl::setRenderer(SelectedRenderer renderer) {
-    s_renderer = renderer;
-}
-
-SelectedRenderer emugl::getRenderer() {
-    return s_renderer;
-}
-
-bool emugl::hasExtension(const char* extensionsStr, const char* wantedExtension) {
-    const char* match = strstr(extensionsStr, wantedExtension);
-    size_t wantedTerminatorOffset = strlen(wantedExtension);
-    if (match &&
-        (match[wantedTerminatorOffset] == ' ' ||
-         match[wantedTerminatorOffset] == '\0')) {
-        return true;
-    }
-    return false;
-}
-
-void emugl::setGLObjectCounter(android::base::GLObjectCounter* counter) {
-    s_gl_object_counter = counter;
-}
-
-android::base::GLObjectCounter* emugl::getGLObjectCounter() {
-    if (!s_gl_object_counter) {
-        if (!s_default_gl_object_counter) {
-            s_default_gl_object_counter = new android::base::GLObjectCounter;
-        }
-        return s_default_gl_object_counter;
-    }
-    return s_gl_object_counter;
 }
 
 void emugl::setCpuUsage(android::base::CpuUsage* usage) {
