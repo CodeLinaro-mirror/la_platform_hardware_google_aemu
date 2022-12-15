@@ -85,7 +85,7 @@ TEST(Logging, FormatsPrefixCorrectly) {
     std::string log = GetCapturedStderr();
     EXPECT_THAT(
         log, MatchesStdRegex(
-                 R"re(I\d{4} \d{2}:\d{2}:\d{2}\.\d{6} +\d+ logging_unittest.cpp:\d+\] foo\n)re"));
+                 R"re(I\d{4} \d{2}:\d{2}:\d{2}\.\d{6} +\w+ logging_unittest.cpp:\d+\] foo\n)re"));
 }
 
 TEST(Logging, OutputsTimestamp) {
@@ -124,8 +124,8 @@ TEST(Logging, OutputsDifferentThreadIdsOnDifferentThreads) {
 
     std::string tid1 = log1.substr(21, 9);
     std::string tid2 = log2.substr(21, 9);
-    EXPECT_THAT(tid1, MatchesStdRegex(R"( +\d+ )"));
-    EXPECT_THAT(tid2, MatchesStdRegex(R"( +\d+ )"));
+    EXPECT_THAT(tid1, MatchesStdRegex(R"( +\w+ )"));
+    EXPECT_THAT(tid2, MatchesStdRegex(R"( +\w+ )"));
     EXPECT_NE(tid1, tid2);
 }
 

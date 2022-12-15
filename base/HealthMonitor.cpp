@@ -229,14 +229,16 @@ intptr_t HealthMonitor<Clock>::main() {
             } else {
                 // Task resumes
                 if (task.hungTimestamp.has_value()) {
+                    newHungTasks--;
                     auto hangTime = duration_cast<std::chrono::milliseconds>(
                                         task.timeoutTimestamp -
                                         (task.hungTimestamp.value() + task.timeoutThreshold))
                                         .count();
-                    mLogger.logMetricEvent(MetricEventUnHang{
-                        .taskId = task.id, .metadata = task.metadata.get(), .hung_ms = hangTime});
+                    mLogger.logMetricEvent(MetricEventUnHang{.taskId = task.id,
+                                                             .metadata = task.metadata.get(),
+                                                             .hung_ms = hangTime,
+                                                             .otherHungTasks = newHungTasks});
                     task.hungTimestamp = std::nullopt;
-                    newHungTasks--;
                 }
             }
             if (tasksToRemove.find(task_id) != tasksToRemove.end()) {
