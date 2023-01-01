@@ -35,6 +35,8 @@ public:
     void onMessage(const std::vector<uint8_t>& data) override;
     void fillData(std::vector<uint8_t>& data, uint32_t id, uint32_t w, uint32_t h,
                   uint32_t dpi, uint32_t flag, bool add);
+    void fillData(std::vector<uint8_t>& data, uint32_t id, uint32_t w, uint32_t h,
+                  uint32_t dpi, uint32_t flag, int mode);
     virtual void onSave(base::Stream* stream) override;
     virtual void onLoad(base::Stream* stream) override;
 
@@ -43,6 +45,7 @@ public:
     const static uint8_t DEL;
     const static uint8_t QUERY;
     const static uint8_t BIND;
+    const static uint8_t SET_DISPLAY;
     const static uint8_t MAX_DISPLAYS;
 
 private:
