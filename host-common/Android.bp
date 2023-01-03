@@ -50,3 +50,20 @@ cc_library_static {
         "include/host-common",
     ],
 }
+
+cc_test_library {
+    name: "gfxstream_host_common_test_support",
+    defaults: [ "gfxstream_defaults" ],
+    srcs: [
+        "testing/HostAddressSpace.cpp",
+        "testing/MockAndroidEmulatorWindowAgent.cpp",
+        "testing/MockAndroidMultiDisplayAgent.cpp",
+        "testing/MockAndroidVmOperations.cpp",
+        "testing/MockGraphicsAgentFactory.cpp",
+    ],
+    static_libs: [
+        "gfxstream_base",
+        "gfxstream_host_common",
+        "libgmock",
+    ],
+}

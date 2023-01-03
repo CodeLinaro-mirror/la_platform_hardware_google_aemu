@@ -8,9 +8,7 @@ set(GFXSTREAM_HOST_COMMON_LIB aemu-host-common PARENT_SCOPE)
 set(aemu-base-srcs
     AlignedBuf.cpp
     CLog.cpp
-    CompressingStream.cpp
     CpuTime.cpp
-    DecompressingStream.cpp
     FileUtils.cpp
     FunctorThread.cpp
     GLObjectCounter.cpp
@@ -29,6 +27,10 @@ set(aemu-base-srcs
     SubAllocator.cpp
     System.cpp
     Tracing.cpp)
+if(AEMU_BASE_USE_LZ4)
+    list(APPEND aemu-base-srcs CompressingStream.cpp DecompressingStream.cpp)
+endif()
+
 set(aemu-base-posix-srcs
     SharedMemory_posix.cpp
     Thread_pthread.cpp)

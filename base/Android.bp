@@ -42,7 +42,8 @@ cc_library_static {
         "Tracing.cpp",
         "Thread_pthread.cpp",
     ],
-    export_header_lib_headers: ["gfxstream_renderdoc_headers"]
+    export_header_lib_headers: ["gfxstream_renderdoc_headers"],
+    static_libs: ["liblz4"],
 }
 
 // Run with `atest --host gfxstream_base_tests`
@@ -61,4 +62,15 @@ cc_test_host {
     test_options: {
         unit_test: true,
     },
+}
+
+cc_test_library {
+    name: "gfxstream_base_test_support",
+    defaults: [ "gfxstream_defaults" ],
+    srcs: [
+        "testing/file_io.cpp",
+    ],
+    static_libs: [
+        "gfxstream_base",
+    ],
 }
