@@ -16,9 +16,7 @@
 
 #include "aemu/base/files/StreamSerializing.h"
 
-#if LZ4_VERSION_RELEASE
 #include "lz4.h"
-#endif
 
 #include <errno.h>
 
@@ -27,16 +25,12 @@ namespace base {
 
 CompressingStream::CompressingStream(Stream& output)
     : mOutput(output) {
-#if LZ4_VERSION_RELEASE
     mLzStream = reinterpret_cast<void *>(LZ4_createStream());
-#endif
 }
 
 CompressingStream::~CompressingStream() {
     saveBuffer(&mOutput, mBuffer);
-#if LZ4_VERSION_RELEASE
     LZ4_freeStream((LZ4_stream_t*)mLzStream);
-#endif
 }
 
 ssize_t CompressingStream::read(void*, size_t) {
@@ -49,18 +43,14 @@ ssize_t CompressingStream::write(const void* buffer, size_t size) {
     }
 
     size_t outSize = 0;
-#ifdef LZ4_VERSION_RELEASE
     outSize = LZ4_compressBound(size);
-#endif
     auto oldSize = mBuffer.size();
     mBuffer.resize_noinit(mBuffer.size() + outSize);
     const auto outBuffer = mBuffer.data() + oldSize;
     int written = 0;
-#ifdef LZ4_VERSION_RELEASE
     written = LZ4_compress_fast_continue((LZ4_stream_t*)mLzStream,
                                          (const char*)buffer,
                                          outBuffer, size, outSize, 1);
-#endif
 
     if (!written) {
         return -EIO;

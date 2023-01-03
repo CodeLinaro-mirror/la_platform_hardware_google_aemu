@@ -89,10 +89,12 @@ if(NOT TARGET aemu-host-common.product-feature-override)
         aemu-base.headers)
 endif()
 
-target_link_libraries(
-    ${GFXSTREAM_HOST_COMMON_LIB}
-    PRIVATE
-    aemu-host-common.product-feature-override)
+if (GFXSTREAM_HOST_COMMON_LIB)
+    target_link_libraries(
+        ${GFXSTREAM_HOST_COMMON_LIB}
+        PRIVATE
+        aemu-host-common.product-feature-override)
+endif()
 
 if (ENABLE_VKCEREAL_TESTS)
     # Tests

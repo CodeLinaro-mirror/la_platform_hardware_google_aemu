@@ -15,7 +15,12 @@
 #pragma once
 
 #include "aemu/base/TypeTraits.h"
+
+#if __has_include("host-common/logging.h")
 #include "host-common/logging.h"
+#else
+#define ERR(x) void (0)
+#endif
 
 #include <cassert>
 #include <initializer_list>
