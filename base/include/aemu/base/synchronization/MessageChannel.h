@@ -52,42 +52,42 @@ protected:
     // where to copy the new fixed-size message. After the copy, call
     // afterWrite().
     // If the channel is stopped, return value is undefined.
-    size_t beforeWrite();
+    size_t beforeWrite() EXCLUDES(mLock) ACQUIRE(mLock);
 
     // Same as beforeWrite(), but returns an empty optional if there was
     // no room to write to instead of waiting for it.
     // One still needs to call afterWrite() anyway.
-    Optional<size_t> beforeTryWrite();
+    Optional<size_t> beforeTryWrite() EXCLUDES(mLock) ACQUIRE(mLock);
 
     // To be called after trying to write a new fixed-size message (which should
     // happen after beforeWrite() or beforeTryWrite()).
     // |success| must be true to indicate that a new item was added to the
     // channel, or false otherwise (i.e. if the channel is stopped, or if
     // beforeTryWrite() returned an empty optional).
-    void afterWrite(bool success);
+    void afterWrite(bool success) REQUIRES(mLock) RELEASE(mLock);
 
     // Call this method in the receiver thread before reading a new message.
     // This returns the position in the message array where the new message
     // can be read. Caller must process the message, then call afterRead().
     // If the channel is stopped, return value is undefined.
-    size_t beforeRead();
+    size_t beforeRead() EXCLUDES(mLock) ACQUIRE(mLock);
 
     // Same as beforeRead(), but returns an empty optional if there was
     // no data to read instead of waiting for it.
     // One still needs to call afterWrite() anyway.
-    Optional<size_t> beforeTryRead();
+    Optional<size_t> beforeTryRead() EXCLUDES(mLock) ACQUIRE(mLock);
 
     // Same as beforeRead(), but returns an empty optional if no data arrived
     // by the |wallTimeUs| absolute time. One still needs to call
     // afterWrite() anyway.
-    Optional<size_t> beforeTimedRead(uint64_t wallTimeUs);
+    Optional<size_t> beforeTimedRead(uint64_t wallTimeUs) EXCLUDES(mLock) ACQUIRE(mLock);
 
     // To be called after reading a fixed-size message from the channel (which
     // must happen after beforeRead() or beforeTryRead()).
     // |success| must be true to indicate that a message was read, or false
     // otherwise (i.e. if the channel is stopped or if beforeTryRead() returned
     // an empty optional).
-    void afterRead(bool success);
+    void afterRead(bool success) REQUIRES(mLock) RELEASE(mLock);
 
     // A version of isStopped() that doesn't lock the channel but expects it
     // to be locked by the caller.

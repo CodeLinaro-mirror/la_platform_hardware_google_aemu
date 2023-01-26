@@ -41,9 +41,6 @@ struct EventHangMetadata {
     // Field for adding custom key value annotations
     std::unique_ptr<HangAnnotations> data;
 
-    // TODO: willho@ replace this enum with a generic string field embedded in the
-    // proto and replace the individual event codes with a general hang event
-    // Requires a new callback to be passed from the vm to gfxstream_backend_init
     enum class HangType { kRenderThread, kSyncThread, kOther };
     HangType hangType;
 
@@ -86,6 +83,7 @@ struct MetricEventUnHang {
     uint64_t taskId; /* From HealthMonitor */
     EventHangMetadata* metadata;
     int64_t hung_ms;
+    int64_t otherHungTasks;
 };
 struct GfxstreamVkAbort {
     const char* file;

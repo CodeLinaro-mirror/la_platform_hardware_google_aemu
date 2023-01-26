@@ -44,11 +44,11 @@ public:
     // efficient to signal the variable before unlocking mutex, while on others
     // (Windows) it's exactly the opposite. Functions implement the best way
     // for each platform and abstract it out from the user.
-    void signalAndUnlock(StaticLock* lock);
-    void signalAndUnlock(AutoLock* lock);
+    void signalAndUnlock(StaticLock* lock) REQUIRES(lock) RELEASE(lock);
+    void signalAndUnlock(AutoLock* lock) REQUIRES(lock->mLock) RELEASE(lock->mLock);
 
-    void broadcastAndUnlock(StaticLock* lock);
-    void broadcastAndUnlock(AutoLock* lock);
+    void broadcastAndUnlock(StaticLock* lock) REQUIRES(lock) RELEASE(lock);
+    void broadcastAndUnlock(AutoLock* lock) REQUIRES(lock->mLock) RELEASE(lock->mLock);
 
     void wait(AutoLock* userLock) {
         assert(userLock->mLocked);
@@ -188,19 +188,19 @@ inline void ConditionVariable::broadcastAndUnlock(AutoLock* lock) {
     broadcast();
 }
 #else  // !_WIN32
-inline void ConditionVariable::signalAndUnlock(StaticLock* lock) {
+inline void ConditionVariable::signalAndUnlock(StaticLock* lock) REQUIRES(lock) RELEASE(lock) {
     signal();
     lock->unlock();
 }
-inline void ConditionVariable::signalAndUnlock(AutoLock* lock) {
+inline void ConditionVariable::signalAndUnlock(AutoLock* lock) REQUIRES(lock->mLock) RELEASE(lock->mLock) {
     signal();
     lock->unlock();
 }
-inline void ConditionVariable::broadcastAndUnlock(StaticLock* lock) {
+inline void ConditionVariable::broadcastAndUnlock(StaticLock* lock) REQUIRES(lock) RELEASE(lock) {
     broadcast();
     lock->unlock();
 }
-inline void ConditionVariable::broadcastAndUnlock(AutoLock* lock) {
+inline void ConditionVariable::broadcastAndUnlock(AutoLock* lock) REQUIRES(lock->mLock) RELEASE(lock->mLock) {
     broadcast();
     lock->unlock();
 }

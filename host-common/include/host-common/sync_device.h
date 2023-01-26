@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include "render-utils/render_api_types.h"
+#include <cstdint>
 
 #ifdef _MSC_VER
 # ifdef BUILDING_EMUGL_COMMON_SHARED
@@ -27,6 +27,17 @@
 #else
 # define EMUGL_COMMON_API
 #endif
+
+// Goldfish sync device
+typedef uint64_t (*emugl_sync_create_timeline_t)();
+typedef int (*emugl_sync_create_fence_t)(uint64_t timeline, uint32_t pt);
+typedef void (*emugl_sync_timeline_inc_t)(uint64_t timeline, uint32_t howmuch);
+typedef void (*emugl_sync_destroy_timeline_t)(uint64_t timeline);
+
+typedef void (*emugl_sync_trigger_wait_t)(uint64_t glsync, uint64_t thread, uint64_t timeline);
+typedef void (*emugl_sync_register_trigger_wait_t)(emugl_sync_trigger_wait_t trigger_fn);
+
+typedef bool (*emugl_sync_device_exists_t)();
 
 namespace emugl {
 

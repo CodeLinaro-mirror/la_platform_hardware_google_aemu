@@ -45,20 +45,8 @@ cc_library_static {
         "address_space_host_media.cpp",
 
         "hw-config.cpp",
-
-        "opengles.cpp",
-        "opengl/EmuglBackendList.cpp",
-        "opengl/emugl_config.cpp",
-        "opengl/GLProcessPipe.cpp",
-        "opengl/GpuFrameBridge.cpp",
-        "opengl/gpuinfo.cpp",
-        "opengl/logger.cpp",
-        "opengl/OpenglEsPipe.cpp",
-
-        "opengl/NativeGpuInfo_linux.cpp",
     ],
     local_include_dirs: [
         "include/host-common",
-        "include/host-common/opengl",
     ],
 }
