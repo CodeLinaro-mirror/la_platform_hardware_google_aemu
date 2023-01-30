@@ -482,6 +482,24 @@ class MockHealthMonitor {
     MOCK_METHOD(void, stopMonitoringTask, (Id));
 };
 
+TEST(HealthMonitorWatchdogBuilderTest, NullPointerTest) {
+    const char message[] = "test message";
+    MockHealthMonitor* monitor = nullptr;
+    auto builder = WATCHDOG_BUILDER(monitor, message);
+    auto watchdog = builder.build();
+    EXPECT_EQ(watchdog->release(), std::nullopt);
+}
+
+TEST(HealthMonitorWatchdogBuilderTest, NullPointerCallbackTest) {
+    const char message[] = "test message";
+    MockFunction<std::unique_ptr<HangAnnotations>()> mockOnHangCallback;
+    MockHealthMonitor* monitor = nullptr;
+    WATCHDOG_BUILDER(monitor, "test message")
+        .setOnHangCallback(mockOnHangCallback.AsStdFunction())
+        .build();
+    EXPECT_CALL(mockOnHangCallback, Call()).Times(0);
+}
+
 TEST(HealthMonitorWatchdogBuilderTest, SimpleBuildTest) {
     // Test simple build function and default values.
     MockHealthMonitor monitor;
@@ -489,7 +507,7 @@ TEST(HealthMonitorWatchdogBuilderTest, SimpleBuildTest) {
 
     const char message[] = "test message";
     const int lineLowerBound = __LINE__;
-    auto builder = WATCHDOG_BUILDER(monitor, message);
+    auto builder = WATCHDOG_BUILDER(&monitor, message);
     const int lineUpperBound = __LINE__;
     auto metadataMatcher = AllOf(
         Pointee(Field(&EventHangMetadata::file, StrEq(__FILE__))),
@@ -518,7 +536,7 @@ TEST(HealthMonitorWatchdogBuilderTest, HangTypeTest) {
         .Times(1)
         .WillOnce(Return(taskId));
     EXPECT_CALL(monitor, stopMonitoringTask(taskId)).Times(1);
-    WATCHDOG_BUILDER(monitor, "test message")
+    WATCHDOG_BUILDER(&monitor, "test message")
         .setHangType(EventHangMetadata::HangType::kRenderThread)
         .build();
 }
@@ -532,7 +550,7 @@ TEST(HealthMonitorWatchdogBuilderTest, TimeoutTest) {
         .Times(1)
         .WillOnce(Return(taskId));
     EXPECT_CALL(monitor, stopMonitoringTask(taskId)).Times(1);
-    WATCHDOG_BUILDER(monitor, "test message").setTimeoutMs(timeoutMs).build();
+    WATCHDOG_BUILDER(&monitor, "test message").setTimeoutMs(timeoutMs).build();
 }
 
 TEST(HealthMonitorWatchdogBuilderTest, OnHangCallbackTest) {
@@ -546,7 +564,7 @@ TEST(HealthMonitorWatchdogBuilderTest, OnHangCallbackTest) {
         .Times(1)
         .WillOnce(DoAll(SaveArg<1>(&actualOnHangCallback), Return(taskId)));
     EXPECT_CALL(monitor, stopMonitoringTask(taskId)).Times(1);
-    WATCHDOG_BUILDER(monitor, "test message")
+    WATCHDOG_BUILDER(&monitor, "test message")
         .setOnHangCallback(mockOnHangCallback.AsStdFunction())
         .build();
     EXPECT_CALL(mockOnHangCallback, Call()).Times(1);
@@ -568,7 +586,7 @@ TEST(HealthMonitorWatchdogBuilderTest, AnnotationsTest) {
         .Times(1)
         .WillOnce(Return(taskId));
     EXPECT_CALL(monitor, stopMonitoringTask(taskId)).Times(1);
-    WATCHDOG_BUILDER(monitor, "test message").setAnnotations(std::move(annotations)).build();
+    WATCHDOG_BUILDER(&monitor, "test message").setAnnotations(std::move(annotations)).build();
 }
 
 TEST(HealthMonitorWatchdogBuilderTest, MultipleSettersTest) {
@@ -584,7 +602,10 @@ TEST(HealthMonitorWatchdogBuilderTest, MultipleSettersTest) {
         .Times(1)
         .WillOnce(Return(taskId));
     EXPECT_CALL(monitor, stopMonitoringTask(taskId)).Times(1);
-    WATCHDOG_BUILDER(monitor, "test message").setHangType(hangType).setTimeoutMs(timeoutMs).build();
+    WATCHDOG_BUILDER(&monitor, "test message")
+        .setHangType(hangType)
+        .setTimeoutMs(timeoutMs)
+        .build();
 }
 
 TEST(HealthMonitorWatchdogTest, ReleaseTest) {
@@ -594,7 +615,7 @@ TEST(HealthMonitorWatchdogTest, ReleaseTest) {
         .Times(1)
         .WillOnce(Return(taskId));
 
-    auto watchdog = WATCHDOG_BUILDER(monitor, "test message").build();
+    auto watchdog = WATCHDOG_BUILDER(&monitor, "test message").build();
     EXPECT_THAT(watchdog->release(), Optional(taskId));
     EXPECT_EQ(watchdog->release(), std::nullopt);
 
