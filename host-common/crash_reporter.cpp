@@ -14,16 +14,30 @@
 * limitations under the License.
 */
 
-#include "crash_reporter.h"
+#include "host-common/crash_reporter.h"
 
 #include <stdio.h>
 #include <inttypes.h>
 
+namespace emugl {
 static void doCrash() {
     *(uint32_t*)(1234) = 5;
 }
 
-void emugl_crash_reporter(const char* message) {
-    fprintf(stderr, "%s: FATAL: [%s]\n", __func__, message);
+void default_crash_reporter(const char* format, ...) {
+    fprintf(stderr, "%s: FATAL: [%s]\n", __func__, format);
     doCrash();
 }
+
+emugl_crash_reporter_t emugl_crash_reporter = default_crash_reporter;
+
+
+void set_emugl_crash_reporter(emugl_crash_reporter_t crash_reporter) {
+    if (crash_reporter) {
+        emugl_crash_reporter = crash_reporter;
+    } else {
+        emugl_crash_reporter = default_crash_reporter;
+    }
+}
+
+}  // namespace emugl

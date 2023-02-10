@@ -17,8 +17,11 @@
 #include <stdint.h>                                   // for uint32_t
 #include <stdbool.h>
 
-#include "display_agent.h"  // for QAndroidDisplay...
-#include "multi_display_agent.h"
+#include "aemu/base/c_header.h"
+#include "host-common/display_agent.h"  // for QAndroidDisplay...
+#include "host-common/multi_display_agent.h"
+
+ANDROID_BEGIN_HEADER
 
 // This callback will be called in the following scenarios:
 //
@@ -92,3 +95,5 @@ extern RecorderStates screen_recorder_state_get(void);
 extern const char* start_shared_memory_module(int desiredFps);
 // Stops the webrtc module
 extern bool stop_shared_memory_module();
+
+ANDROID_END_HEADER

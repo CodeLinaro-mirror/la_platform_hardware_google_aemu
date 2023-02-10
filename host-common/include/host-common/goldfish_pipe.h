@@ -18,7 +18,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-class QEMUFile;
+typedef struct QEMUFile QEMUFile;
 
 /* The Android pipe virtual device expects an implementation of
  * pipe services to be provided according to the following interface

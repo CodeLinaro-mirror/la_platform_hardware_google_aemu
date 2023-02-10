@@ -522,6 +522,13 @@ HWCFG_STRING(
   "")
 
 HWCFG_BOOL(
+  hw_hotplug_multi_display,
+  "hw.hotplug_multi_display",
+  "no",
+  "If yes, create multidisplay using HAL hotplug display, otherwise, using Android window manager",
+  "")
+
+HWCFG_BOOL(
   hw_gpu_enabled,
   "hw.gpu.enabled",
   "no",
@@ -968,6 +975,27 @@ HWCFG_BOOL(
   "no",
   "Always use cold boot",
   "If set, AVD will always use the full cold boot instead of snapshot-based quick boot process")
+
+HWCFG_BOOL(
+  firstboot_bootFromDownloadableSnapshot,
+  "firstboot.bootFromDownloadableSnapshot",
+  "yes",
+  "Always use downloaded snapshot to speed up first boot",
+  "If set, AVD will always use the snapshots/downloaded/avd to speed up first boot")
+
+HWCFG_BOOL(
+  firstboot_bootFromLocalSnapshot,
+  "firstboot.bootFromLocalSnapshot",
+  "yes",
+  "Always use local snapshot to speed up first boot",
+  "If set, AVD will always use the snapshots/local/avd to speed up first boot")
+
+HWCFG_BOOL(
+  firstboot_saveToLocalSnapshot,
+  "firstboot.saveToLocalSnapshot",
+  "yes",
+  "Always save a local snapshot to speed up first boot",
+  "If set, AVD will save a snapshot to snapshots/local/avd, if it does not exist")
 
 HWCFG_STRING(
   android_sdk_root,

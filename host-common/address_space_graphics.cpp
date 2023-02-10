@@ -17,6 +17,7 @@
 #include "host-common/address_space_device.hpp"
 #include "host-common/address_space_device.h"
 #include "host-common/vm_operations.h"
+#include "host-common/crash-handler.h"
 #include "host-common/crash_reporter.h"
 #include "host-common/GfxstreamFatalError.h"
 #include "host-common/globals.h"
@@ -624,7 +625,7 @@ AddressSpaceGraphicsContext::AddressSpaceGraphicsContext(
 
     if (create.createRenderThread) {
         mCurrentConsumer = mConsumerInterface.create(
-            mHostContext, nullptr, mConsumerCallbacks, create.contextId, create.capsetId,
+            mHostContext, nullptr, mConsumerCallbacks, create.virtioGpuContextId, create.virtioGpuCapsetId,
             std::move(nameOpt));
     }
 }
