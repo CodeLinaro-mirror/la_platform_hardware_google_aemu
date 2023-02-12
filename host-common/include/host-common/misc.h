@@ -35,6 +35,7 @@ typedef enum {
     SKIN_ROTATION_270
 } SkinRotation;
 
+#ifdef __cplusplus
 namespace android {
 
 namespace base {
@@ -68,3 +69,4 @@ namespace emugl {
     EMUGL_COMMON_API const QAndroidMultiDisplayAgent &get_emugl_multi_display_operations();
 
 }
+#endif  //__cplusplus

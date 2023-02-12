@@ -21,6 +21,7 @@
 #include <functional>
 #include <string>
 #include <vector>
+#include <ostream>
 
 namespace android {
 namespace featurecontrol {
@@ -45,6 +46,7 @@ namespace featurecontrol {
 void initialize();
 
 bool isEnabled(Feature feature);
+bool isEnabledByGuest(Feature feature);
 AEMU_EXPORT void setEnabledOverride(Feature feature, bool isEnabled);
 void resetEnabledToDefault(Feature feature);
 
@@ -91,6 +93,7 @@ std::vector<Feature> getEnabledNonOverride();
 std::vector<Feature> getEnabledOverride();
 std::vector<Feature> getDisabledOverride();
 std::vector<Feature> getEnabled();
+void writeFeaturesToStream(std::ostream& os);
 
 // Overrides feature_is_enabled function above to use a user-provided callback
 // instead.

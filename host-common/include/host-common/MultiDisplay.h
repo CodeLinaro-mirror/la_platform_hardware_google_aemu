@@ -16,9 +16,11 @@
 
 #pragma once
 
-#include "aemu/base/synchronization/Lock.h"
+#include "aemu/base/EventNotificationSupport.h"
 #include "aemu/base/files/Stream.h"
+#include "aemu/base/synchronization/Lock.h"
 #include "host-common/record_screen_agent.h"
+#include "host-common/vm_operations.h"
 #include "host-common/window_agent.h"
 
 #include <map>
@@ -38,14 +40,27 @@ struct MultiDisplayInfo {
       pos_x(0), pos_y(0), width(0), height(0), dpi(0), flag(0), cb(0), enabled(true) {}
     MultiDisplayInfo(int32_t x, int32_t y, uint32_t w, uint32_t h,
                      uint32_t d, uint32_t f, bool e, uint32_t c = 0) :
-      pos_x(x), pos_y(y), width(w), height(h), dpi(d), flag(f), cb(c), enabled(e) {}
+      pos_x(x), pos_y(y), width(w), height(h), dpi(d), flag(f), enabled(e), cb(c) {}
 
 };
 
-class MultiDisplay {
+ enum class DisplayChange {
+    DisplayChanged = 0,
+    DisplayAdded,
+    DisplayRemoved,
+    DisplayTransactionCompleted,
+};
+
+struct DisplayChangeEvent {
+    DisplayChange change;
+    uint32_t displayId;
+};
+
+class MultiDisplay :  public base::EventNotificationSupport<DisplayChangeEvent> {
 public:
     MultiDisplay(const QAndroidEmulatorWindowAgent* const windowAgent,
                  const QAndroidRecordScreenAgent* const recordAgent,
+                 const QAndroidVmOperations* const vmAgent,
                  bool isGuestMode);
     static MultiDisplay* getInstance();
     bool isMultiDisplayEnabled() { base::AutoLock lock(mLock); return mMultiDisplay.size() > 1; }
@@ -86,7 +101,8 @@ public:
                        int32_t y,
                        uint32_t w,
                        uint32_t h,
-                       uint32_t dpi);
+                       uint32_t dpi,
+                       uint32_t flag);
     int destroyDisplay(uint32_t displayId);
     int getDisplayPose(uint32_t displayId,
                        int32_t* x,
@@ -97,9 +113,12 @@ public:
     int getColorBufferDisplay(uint32_t colorBuffer, uint32_t* displayId);
     int setDisplayColorBuffer(uint32_t displayId, uint32_t colorBuffer);
     void getCombinedDisplaySize(uint32_t* w, uint32_t* h);
+    bool isMultiDisplayWindow();
     void loadConfig();
     void onSave(base::Stream* stream);
     void onLoad(base::Stream* stream);
+
+    bool notifyDisplayChanges();
 
     // 0 for default Android display
     // 1-5 for Emulator UI
@@ -111,6 +130,7 @@ public:
 private:
     const QAndroidEmulatorWindowAgent* mWindowAgent;
     const QAndroidRecordScreenAgent* mRecordAgent;
+    const QAndroidVmOperations* mVmAgent;
     bool mGuestMode;
     std::map<uint32_t, MultiDisplayInfo> mMultiDisplay;
     android::base::Lock mLock;
@@ -129,9 +149,11 @@ private:
     int getNumberActiveMultiDisplaysLocked();
 
     std::map<uint32_t, MultiDisplayInfo> parseConfig();
+    bool hotPlugDisplayEnabled();
 };
 } // namespace android
 
 void android_init_multi_display(const QAndroidEmulatorWindowAgent* const windowAgent,
                                 const QAndroidRecordScreenAgent* const recordAgent,
+                                const QAndroidVmOperations* const vmAgent,
                                 bool isGUestMode = false);

@@ -16,6 +16,7 @@
 
 #include "aemu/base/c_header.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 // #include "android/settings-agent.h"
 // #include "android/skin/rect.h"

@@ -15,10 +15,13 @@
 
 #include "android_pipe_common.h"
 
-#include "aemu/base/files/Stream.h"
+#include "aemu/base/c_header.h"
+#include "aemu/base/utils/stream.h"
 
 #include <stdbool.h>
 #include <stdint.h>
+
+ANDROID_BEGIN_HEADER
 
 // The set of methods implemented by an AndroidPipe instance.
 // All these methods are called at runtime by the virtual device
@@ -92,7 +95,7 @@ typedef struct AndroidPipeFuncs {
 
     // Called to save the |service_pipe| client's state to a Stream, i.e. when
     // saving snapshots.
-    void (*save)(void* service_pipe, android::base::Stream* file);
+    void (*save)(void* service_pipe, Stream* file);
 
     // Called to load the sate of a pipe client from a Stream. This will always
     // correspond to the state of the client as saved by a previous call to
@@ -101,7 +104,7 @@ typedef struct AndroidPipeFuncs {
     // it. Parameters are similar to init(), with the addition of |file|
     // which is the input stream.
     void* (*load)(void* hwpipe, void* serviceOpaque, const char* args,
-                  android::base::Stream* file);
+                  Stream* file);
 
 } AndroidPipeFuncs;
 
@@ -133,3 +136,5 @@ extern void android_pipe_host_close(void* hwpipe);
  * NOTE: This function can be called from any thread.
  */
 extern void android_pipe_host_signal_wake(void* hwpipe, unsigned flags);
+
+ANDROID_END_HEADER

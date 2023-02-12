@@ -15,6 +15,7 @@ cc_library_static {
         "gfxstream_base",
     ],
     srcs: [
+        "empty-crash-handler.cpp",
         "crash_reporter.cpp",
         "vm_operations.cpp",
         "feature_control.cpp",

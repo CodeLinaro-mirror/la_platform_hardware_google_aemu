@@ -19,6 +19,7 @@
 #include "android/crashreport/crash-handler.h"
 #include "host-common/android_pipe_device.h"
 #include "host-common/AndroidPipe.h"
+#include "host-common/crash-handler.h"
 #include "host-common/testing/TestVmLock.h"
 #include "host-common/VmLock.h"
 
@@ -90,7 +91,7 @@ int HostGoldfishPipeDevice::connect(const char* name) {
     std::unique_ptr<HostHwPipe> hwPipe = HostHwPipe::create(hwPipeFd);
 
     InternalPipe* hostPipe = static_cast<InternalPipe*>(
-        android_pipe_guest_open(hwPipe.get()));
+        android_pipe_guest_open(hwPipe.get(), nullptr));
     if (!hostPipe) {
         mErrno = ENOENT;
         return kNoFd;
