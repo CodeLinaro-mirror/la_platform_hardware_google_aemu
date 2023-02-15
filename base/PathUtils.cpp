@@ -413,6 +413,10 @@ bool pathExists(const char* path) {
 #endif
 }
 
+std::string pj(const std::string& path1, const std::string& path2) {
+    return PathUtils::join(path1, path2);
+}
+
 std::string pj(const std::vector<std::string>& paths) {
     std::string res;
 

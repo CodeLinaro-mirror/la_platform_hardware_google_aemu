@@ -21,9 +21,7 @@ if (BUILD_STANDALONE)
         set(aemu-base-srcs
             AlignedBuf.cpp
             CLog.cpp
-            CompressingStream.cpp
             CpuTime.cpp
-            DecompressingStream.cpp
             FileUtils.cpp
             FunctorThread.cpp
             GLObjectCounter.cpp
@@ -50,6 +48,9 @@ if (BUILD_STANDALONE)
             SharedMemory_win32.cpp
             Thread_win32.cpp
             Win32UnicodeString.cpp)
+        if(AEMU_BASE_USE_LZ4)
+            list(APPEND aemu-base-srcs CompressingStream.cpp DecompressingStream.cpp)
+        endif()
 
         if (APPLE)
             set(aemu-platform-srcs
@@ -101,6 +102,9 @@ if (BUILD_STANDALONE)
     if(AEMU_COMMON_USE_PERFETTO)
         target_compile_definitions(aemu-base PRIVATE "USE_PERFETTO_TRACING")
         target_link_libraries(aemu-base PRIVATE perfetto-tracing-only)
+    endif()
+    if(AEMU_BASE_USE_LZ4)
+        target_link_libraries(aemu-base PRIVATE lz4_static)
     endif()
 endif()
 

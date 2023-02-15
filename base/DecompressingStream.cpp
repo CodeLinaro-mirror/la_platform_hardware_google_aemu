@@ -16,9 +16,7 @@
 
 #include "aemu/base/files/StreamSerializing.h"
 
-#if LZ4_VERSION_RELEASE
 #include "lz4.h"
-#endif
 
 #include <errno.h>
 #include <cassert>
@@ -27,16 +25,12 @@ namespace android {
 namespace base {
 
 DecompressingStream::DecompressingStream(Stream& input) {
-#if LZ4_VERSION_RELEASE
     mLzStream = reinterpret_cast<void *>(LZ4_createStreamDecode());
-#endif
     loadBuffer(&input, &mBuffer);
 }
 
 DecompressingStream::~DecompressingStream() {
-#if LZ4_VERSION_RELEASE
     LZ4_freeStreamDecode((LZ4_streamDecode_t*)mLzStream);
-#endif
 }
 
 ssize_t DecompressingStream::read(void* buffer, size_t size) {
@@ -46,11 +40,9 @@ ssize_t DecompressingStream::read(void* buffer, size_t size) {
         return 0;
     }
     int read = 0;
-#ifdef LZ4_VERSION_RELEASE
     read = LZ4_decompress_fast_continue(
            (LZ4_streamDecode_t*)mLzStream, mBuffer.data() + mBufferPos,
            (char*)buffer, size);
-#endif
     if (!read) {
         return -EIO;
     }
