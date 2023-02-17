@@ -21,6 +21,8 @@ bool getFileSize(int fd, uint64_t* size);
 
 void sleepMs(uint64_t ms);
 void sleepUs(uint64_t us);
+// Sleep to the specified time in microseconds from getHighResTimeUs().
+void sleepToUs(uint64_t us);
 
 CpuTime cpuTime();
 

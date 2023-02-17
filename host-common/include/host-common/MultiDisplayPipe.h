@@ -16,8 +16,8 @@
 
 #pragma once
 
-#include "AndroidAsyncMessagePipe.h"
-#include "android/emulation/control/window_agent.h"
+#include "host-common/AndroidAsyncMessagePipe.h"
+#include "host-common/window_agent.h"
 
 namespace android {
 class MultiDisplayPipe : public AndroidAsyncMessagePipe {

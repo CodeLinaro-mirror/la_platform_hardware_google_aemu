@@ -13,7 +13,7 @@
 // limitations under the License.
 #pragma once
 
-#include "aemu/base/files/Stream.h"
+#include "aemu/base/utils/stream.h"
 #include "aemu/base/export.h"
 #include "android_pipe_common.h"
 
@@ -109,8 +109,7 @@
 // hardware-side view of the pipe, and will be passed to the 'init' callback
 // from AndroidPipeHwFuncs. This returns a new |internal-pipe| value that is
 // only used by the virtual device to call android_pipe_xxx() functions below.
-ANDROID_PIPE_DEVICE_EXPORT void* android_pipe_guest_open(
-    void* hwpipe);
+ANDROID_PIPE_DEVICE_EXPORT void* android_pipe_guest_open(void* hwpipe);
 
 // Similar to android_pipe_guest_open(), but has a flags parameter that is used
 // to communicate unique transport properties about the pipe.
@@ -126,17 +125,17 @@ ANDROID_PIPE_DEVICE_EXPORT void android_pipe_guest_close(
     void* internal_pipe, PipeCloseReason reason);
 
 // Hooks for a start/end of save/load operations, called once per each snapshot.
-ANDROID_PIPE_DEVICE_EXPORT void android_pipe_guest_pre_load(android::base::Stream* file);
-ANDROID_PIPE_DEVICE_EXPORT void android_pipe_guest_post_load(android::base::Stream* file);
-ANDROID_PIPE_DEVICE_EXPORT void android_pipe_guest_pre_save(android::base::Stream* file);
-ANDROID_PIPE_DEVICE_EXPORT void android_pipe_guest_post_save(android::base::Stream* file);
+ANDROID_PIPE_DEVICE_EXPORT void android_pipe_guest_pre_load(Stream* file);
+ANDROID_PIPE_DEVICE_EXPORT void android_pipe_guest_post_load(Stream* file);
+ANDROID_PIPE_DEVICE_EXPORT void android_pipe_guest_pre_save(Stream* file);
+ANDROID_PIPE_DEVICE_EXPORT void android_pipe_guest_post_save(Stream* file);
 
 // Save the state of an Android pipe to a stream. |internal_pipe| is the pipe
 // instance from android_pipe_guest_open() or android_pipe_guest_load(), and
 // |file| is the
 // output stream.
 ANDROID_PIPE_DEVICE_EXPORT void android_pipe_guest_save(
-    void* internal_pipe, android::base::Stream* file);
+    void* internal_pipe, Stream* file);
 
 // Load the state of an Android pipe from a stream. |file| is the input stream,
 // |hwpipe| is the hardware-side pipe descriptor. On success, return a new
@@ -146,7 +145,7 @@ ANDROID_PIPE_DEVICE_EXPORT void android_pipe_guest_save(
 // just after its load/creation (only useful for certain services that can't
 // preserve state into streams). Return NULL on faillure.
 ANDROID_PIPE_DEVICE_EXPORT void* android_pipe_guest_load(
-    android::base::Stream* file, void* hwpipe, char* force_close);
+    Stream* file, void* hwpipe, char* force_close);
 
 // Similar to android_pipe_guest_load(), but this function is only called from
 // the
@@ -157,7 +156,7 @@ ANDROID_PIPE_DEVICE_EXPORT void* android_pipe_guest_load(
 // fields, and store them into |*channel|, |*wakes| and |*closed| on
 // success.
 ANDROID_PIPE_DEVICE_EXPORT void* android_pipe_guest_load_legacy(
-    android::base::Stream* file, void* hwpipe, uint64_t* channel,
+    Stream* file, void* hwpipe, uint64_t* channel,
     unsigned char* wakes, unsigned char* closed, char* force_close);
 
 // Call the poll() callback of the client associated with |pipe|.

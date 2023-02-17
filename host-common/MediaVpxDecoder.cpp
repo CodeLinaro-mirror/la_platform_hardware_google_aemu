@@ -38,23 +38,45 @@ namespace android {
 namespace emulation {
 
 namespace {
+class MediaVpxDecoderImpl : MediaVpxDecoder {
+public:
+    MediaVpxDecoderImpl() = default;
+    virtual ~MediaVpxDecoder() = default;
+    void handlePing(MediaCodecType type, MediaOperation op, void* ptr) override;
+
+public:
+    virtual void save(base::Stream* stream) const override;
+    virtual bool load(base::Stream* stream) override;
+
+private:
+    std::mutex mMapLock{};
+    uint64_t mId = 0;
+    std::unordered_map<uint64_t, MediaVpxDecoderPlugin*> mDecoders;
+    uint64_t readId(void* ptr);  // read id from the address
+    void removeDecoder(uint64_t id);
+    void addDecoder(uint64_t key,
+                    MediaVpxDecoderPlugin* val);  // this just add
+    void updateDecoder(uint64_t key,
+                       MediaVpxDecoderPlugin* val);  // this will overwrite
+    MediaVpxDecoderPlugin* getDecoder(uint64_t key);
+};
+
 MediaVpxDecoderPlugin* makeDecoderPlugin(uint64_t pluginid,
                                          VpxPingInfoParser parser,
                                          MediaCodecType type) {
     return new MediaVpxDecoderGeneric(parser, type);
 }
+
 };  // namespace
 
-uint64_t MediaVpxDecoder::readId(void* ptr) {
+uint64_t MediaVpxDecoderImpl::readId(void* ptr) {
     if (nullptr == ptr)
         return 0;
     uint64_t key = VpxPingInfoParser::parseId(ptr);
     return key;
 }
 
-MediaVpxDecoder::~MediaVpxDecoder() {}
-
-MediaVpxDecoderPlugin* MediaVpxDecoder::getDecoder(uint64_t key) {
+MediaVpxDecoderPlugin* MediaVpxDecoderImpl::getDecoder(uint64_t key) {
     {
         std::lock_guard<std::mutex> g(mMapLock);
         auto iter = mDecoders.find(key);
@@ -66,7 +88,7 @@ MediaVpxDecoderPlugin* MediaVpxDecoder::getDecoder(uint64_t key) {
     return nullptr;
 }
 
-void MediaVpxDecoder::addDecoder(uint64_t key, MediaVpxDecoderPlugin* val) {
+void MediaVpxDecoderImpl::addDecoder(uint64_t key, MediaVpxDecoderPlugin* val) {
     {
         std::lock_guard<std::mutex> g(mMapLock);
         if (mDecoders.find(key) == mDecoders.end()) {
@@ -78,7 +100,7 @@ void MediaVpxDecoder::addDecoder(uint64_t key, MediaVpxDecoderPlugin* val) {
     VPX_DPRINT("cannot add: already exist");
 }
 
-void MediaVpxDecoder::removeDecoder(uint64_t key) {
+void MediaVpxDecoderImpl::removeDecoder(uint64_t key) {
     {
         std::lock_guard<std::mutex> g(mMapLock);
         auto iter = mDecoders.find(key);
@@ -92,7 +114,7 @@ void MediaVpxDecoder::removeDecoder(uint64_t key) {
     VPX_DPRINT("error: cannot remove decoder, not in map");
 }
 
-void MediaVpxDecoder::handlePing(MediaCodecType type,
+void MediaVpxDecoderImpl::handlePing(MediaCodecType type,
                                  MediaOperation op,
                                  void* ptr) {
     using InitContextParam = VpxPingInfoParser::InitContextParam;
@@ -159,7 +181,7 @@ void MediaVpxDecoder::handlePing(MediaCodecType type,
     }
 }
 
-void MediaVpxDecoder::save(base::Stream* stream) const {
+void MediaVpxDecoderImpl::save(base::Stream* stream) const {
     int size = mDecoders.size();
     stream->putBe32(size);
     for (auto item : mDecoders) {
@@ -171,7 +193,7 @@ void MediaVpxDecoder::save(base::Stream* stream) const {
     }
 }
 
-bool MediaVpxDecoder::load(base::Stream* stream) {
+bool MediaVpxDecoderImpl::load(base::Stream* stream) {
     VPX_DPRINT("loading ..");
     int size = stream->getBe32();
     for (int i = 0; i < size; ++i) {
@@ -194,6 +216,11 @@ bool MediaVpxDecoder::load(base::Stream* stream) {
     }
 
     return true;
+}
+
+// static
+MediaVpxDecoder* MediaVpxDecoder::create() {
+    return new MediaVpxDecoderImpl();
 }
 
 }  // namespace emulation

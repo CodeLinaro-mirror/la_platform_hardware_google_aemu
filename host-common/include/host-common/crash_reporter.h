@@ -16,14 +16,23 @@
 #pragma once
 
 #ifdef _MSC_VER
-#  define EMUGL_COMMON_API extern "C" __declspec(dllexport)
+# ifdef BUILDING_EMUGL_COMMON_SHARED
+#  define EMUGL_COMMON_API __declspec(dllexport)
+# else
+#  define EMUGL_COMMON_API __declspec(dllimport)
+#endif
 #else
-#  define EMUGL_COMMON_API extern "C" __attribute((visibility("default")))
+# define EMUGL_COMMON_API
 #endif
 
-EMUGL_COMMON_API void emugl_crash_reporter(const char* message);
+// Crash reporter
+typedef void (*emugl_crash_reporter_t)(const char* format, ...);
 
-// TODO: Put back the varargs impl and stuff
-#define crashhandler_die(...)
+namespace emugl {
+
+EMUGL_COMMON_API extern emugl_crash_reporter_t emugl_crash_reporter;
+EMUGL_COMMON_API void set_emugl_crash_reporter(emugl_crash_reporter_t crash_reporter);
+
+}  // namespace emugl
 
 #undef EMUGL_COMMON_API

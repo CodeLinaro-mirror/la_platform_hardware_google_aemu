@@ -20,8 +20,8 @@ extern "C" {
 #define LOG_SEVERITY
 // Defines the available log severities.
 typedef enum LogSeverity {
-    EMULATOR_LOG_DEBUG = -2,
-    EMULATOR_LOG_VERBOSE = -1,
+    EMULATOR_LOG_VERBOSE = -2,
+    EMULATOR_LOG_DEBUG = -1,
     EMULATOR_LOG_INFO = 0,
     EMULATOR_LOG_WARNING = 1,
     EMULATOR_LOG_ERROR = 2,

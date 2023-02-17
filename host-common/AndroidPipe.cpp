@@ -303,8 +303,8 @@ class ConnectorService : public Service {
 public:
     ConnectorService() : Service("<connector>") {}
 
-    virtual AndroidPipe* create(void* hwPipe, const char* args,
-                                enum AndroidPipeFlags flags) override {
+    AndroidPipe* create(void* hwPipe, const char* args,
+                         enum AndroidPipeFlags flags) override {
         return new ConnectorPipe(hwPipe, this);
     }
 

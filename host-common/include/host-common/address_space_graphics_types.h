@@ -302,7 +302,7 @@ struct ConsumerCallbacks {
 
 using ConsumerCreateCallback =
     std::function<void* (struct asg_context, base::Stream*, ConsumerCallbacks,
-                         uint32_t contextId, uint32_t capsetId,
+                         uint32_t virtioGpuContextId, uint32_t virtioGpuCapsetId,
                          std::optional<std::string> nameOpt)>;
 using ConsumerDestroyCallback =
     std::function<void(void*)>;
