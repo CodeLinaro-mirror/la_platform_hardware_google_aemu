@@ -41,7 +41,7 @@ static_assert(VERBOSE_MAX <= (sizeof(android_verbose) * 8));
 
 #define VERBOSE_PRINT(tag, ...)                      \
     if (VERBOSE_CHECK(tag)) {                        \
-        EMULOG(EMULATOR_LOG_VERBOSE, ##__VA_ARGS__); \
+        EMULOG(EMULATOR_LOG_DEBUG, ##__VA_ARGS__); \
     }
 
 #define VERBOSE_INFO(tag, ...)                    \

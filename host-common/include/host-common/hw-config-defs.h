@@ -133,6 +133,13 @@ HWCFG_BOOL(
   "Whether there is an accelerometer in the device.")
 
 HWCFG_BOOL(
+  hw_accelerometer_uncalibrated,
+  "hw.accelerometer_uncalibrated",
+  "yes",
+  "AccelerometerUncalibrated",
+  "Whether there is an uncalibrated accelerometer in the device.")
+
+HWCFG_BOOL(
   hw_gyroscope,
   "hw.gyroscope",
   "yes",
@@ -986,6 +993,20 @@ HWCFG_BOOL(
   "use QCOW2 format for userdata-qemu.img",
   "If set, AVD will use qcow2 for userdata-qemu.img instead of the ext4")
 
+HWCFG_STRING(
+  firstboot_downloaded_path,
+  "firstboot.downloaded.path",
+  "",
+  "Path to downloaded snapshot dir",
+  "")
+
+HWCFG_STRING(
+  firstboot_local_path,
+  "firstboot.local.path",
+  "",
+  "Path to local snapshot dir",
+  "")
+
 HWCFG_BOOL(
   firstboot_bootFromDownloadableSnapshot,
   "firstboot.bootFromDownloadableSnapshot",
@@ -1020,6 +1041,13 @@ HWCFG_STRING(
   "",
   "avd home that was used during the construction of this hardware.ini",
   "This can be used by post processing tools to migrate snapshots")
+
+HWCFG_STRING(
+  requires_emulator_version,
+  "requires.emulator.version",
+  "",
+  "avd requires the version of emulator to boot properly from snapshot",
+  "This is often set by avd manager in studio when creating avd")
 
 #undef HWCFG_INT
 #undef HWCFG_STRING

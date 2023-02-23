@@ -278,7 +278,7 @@ struct LogParams {
 
     const char* file = nullptr;
     int lineno = -1;
-    LogSeverity severity = LOG_SEVERITY_FROM(VERBOSE);
+    LogSeverity severity = LOG_SEVERITY_FROM(DEBUG);
     bool quiet = false;
 };
 
