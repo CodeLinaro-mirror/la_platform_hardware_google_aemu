@@ -15,6 +15,7 @@
 #include "host-common/address_space_host_memory_allocator.h"
 #include "host-common/address_space_device.hpp"
 #include "host-common/vm_operations.h"
+#include "host-common/crash-handler.h"
 #include "host-common/crash_reporter.h"
 #include "aemu/base/AlignedBuf.h"
 

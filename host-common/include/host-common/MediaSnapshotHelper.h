@@ -38,6 +38,7 @@ public:
         H264 = 1,
         VP8 = 2,
         VP9 = 3,
+        HEVC = 4,
     };
 
 public:
@@ -94,6 +95,9 @@ private:
                        size_t len,
                        uint64_t pts);
     void saveH264Packet(const uint8_t* compressedFrame,
+                        size_t len,
+                        uint64_t pts);
+    void saveHEVCPacket(const uint8_t* compressedFrame,
                         size_t len,
                         uint64_t pts);
 

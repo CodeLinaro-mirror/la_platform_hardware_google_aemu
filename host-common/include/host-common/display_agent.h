@@ -13,6 +13,8 @@
 // limitations under the License.
 #pragma once
 
+#include "aemu/base/c_header.h"
+
 #include <stdint.h>
 
 /* A simple abstract interface to framebuffer displays. this is used to
@@ -70,6 +72,8 @@ struct QFrameBuffer {
  * Android system...
  */
 #define  DEFAULT_FRAMEBUFFER_DPI   165
+
+ANDROID_BEGIN_HEADER
 
 /* initialize a framebuffer object and allocate its pixel buffer */
 /* this computes phys_width_mm and phys_height_mm assuming a 165 dpi screen */
@@ -263,3 +267,5 @@ typedef struct QAndroidDisplayAgent {
     // framebuffer. It just needs to attach the necessary callbacks.
     void (*initFrameBufferNoWindow)(QFrameBuffer* qf);
 } QAndroidDisplayAgent;
+
+ANDROID_END_HEADER
