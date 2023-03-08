@@ -127,6 +127,7 @@ typedef struct QAndroidEmulatorWindowAgent {
     void (*show_virtual_scene_controls)(bool);
     void (*quit_request)(void);
     void (*getWindowPosition)(int*, int*);
+    bool (*hasWindow)();
 } QAndroidEmulatorWindowAgent;
 
 #ifndef USING_ANDROID_BP
