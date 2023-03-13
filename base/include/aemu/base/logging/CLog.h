@@ -52,8 +52,8 @@ extern void __emu_log_print(LogSeverity prio,
 
 // Logging support.
 #define dprint(fmt, ...)                                 \
-    if (EMULATOR_LOG_VERBOSE >= android_log_severity) {  \
-        EMULOG(EMULATOR_LOG_VERBOSE, fmt, ##__VA_ARGS__) \
+    if (EMULATOR_LOG_DEBUG >= android_log_severity) {  \
+        EMULOG(EMULATOR_LOG_DEBUG, fmt, ##__VA_ARGS__) \
     }
 
 #define dinfo(fmt, ...)                               \
