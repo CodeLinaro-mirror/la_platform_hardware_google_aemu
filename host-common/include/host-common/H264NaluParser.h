@@ -88,8 +88,6 @@ enum class H264NaluType : uint8_t {
     Undefined = 32, // not in H.264 nalu type; just here to cap the enums so checking is simpler.
 };
 
-static const std::string kNaluTypesStrings[];
-
 static bool checkSpsFrame(const uint8_t* frame, size_t szBytes);
 static bool checkPpsFrame(const uint8_t* frame, size_t szBytes);
 static bool checkIFrame(const uint8_t* frame, size_t szBytes);
