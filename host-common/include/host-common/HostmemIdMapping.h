@@ -79,10 +79,11 @@ public:
     // is referenced.
     AEMU_EXPORT void remove(Id id);
 
-    Id addDescriptorInfo(ManagedDescriptor descriptor, uint32_t handleType, uint32_t caching,
-                         std::optional<VulkanInfo> vulkanInfoOpt);
+    void addMapping(Id id, const struct MemEntry *entry);
+    void addDescriptorInfo(Id id, ManagedDescriptor descriptor, uint32_t handleType,
+                           uint32_t caching, std::optional<VulkanInfo> vulkanInfoOpt);
 
-    std::optional<ManagedDescriptorInfo> removeDescriptorInfo(HostmemIdMapping::Id id);
+    std::optional<ManagedDescriptorInfo> removeDescriptorInfo(Id id);
 
     // If id == kInvalidHostmemId or not found in map,
     // returns entry with id == kInvalidHostmemId,
