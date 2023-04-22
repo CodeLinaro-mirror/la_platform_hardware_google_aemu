@@ -248,5 +248,8 @@ typedef struct QAndroidVmOperations {
 
     // virtio display
     bool (*setDisplay)(int32_t id, int32_t w, int32_t h, uint32_t dpi);
+
+    // Reset the machine
+    void (*system_shutdown_request)(QemuShutdownCause reason);
 } QAndroidVmOperations;
 ANDROID_END_HEADER
