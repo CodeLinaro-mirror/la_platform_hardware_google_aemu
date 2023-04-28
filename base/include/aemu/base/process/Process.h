@@ -190,6 +190,9 @@ protected:
     // True if no overseer is needed
     bool mDeamon{false};
 
+    // True if we want to inherit all the fds/handles.
+    bool mInherit{false};
+
 private:
     void runOverseer();
 
