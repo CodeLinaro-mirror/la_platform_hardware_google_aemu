@@ -68,7 +68,7 @@ if (BUILD_STANDALONE)
     endif()
 
     add_library(aemu-base ${aemu-base-srcs})
-    target_compile_definitions(aemu-base PRIVATE -DENABLE_HEALTH_MONITOR=1)
+    target_compile_definitions(aemu-base PRIVATE)
 
     if (WIN32)
         set(aemu-base-platform-deps Shlwapi)
