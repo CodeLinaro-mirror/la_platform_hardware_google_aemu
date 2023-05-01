@@ -206,6 +206,7 @@ public:
     //  "file" -> ""
     //  "file." -> "."
     //  "/full/path.png" -> ".png"
+    static std::string_view extension(const char* path, HostType hostType = HOST_TYPE);
     static std::string_view extension(const std::string& path,
                                       HostType hostType = HOST_TYPE);
     // Split |path| into a directory name and a file name. |dirName| and
@@ -299,6 +300,8 @@ public:
     static std::string recompose(const std::vector<String>& components) {
         return PathUtils::recompose(components, HOST_TYPE);
     }
+
+    static std::string canonicalPath(std::string path);
 
     // Given a list of components returned by decompose(), simplify it
     // by removing instances of '.' and '..' when that makes sense.
