@@ -16,7 +16,7 @@
 
 #include "MultiDisplayPipe.h"
 #include "MultiDisplay.h"
-#include "android/opengles.h"
+#include "host-common/opengles.h"
 
 namespace android {
 
