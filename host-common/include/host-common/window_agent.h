@@ -36,6 +36,9 @@ typedef enum {
 } WindowMessageType;
 
 typedef struct {} MultiDisplayPageChangeEvent;
+typedef struct SkinLayout SkinLayout;
+typedef struct QFrame QFrame;
+typedef struct SkinEvent SKinEvent;
 
 static const int kWindowMessageTimeoutInfinite = -1;
 
@@ -128,6 +131,9 @@ typedef struct QAndroidEmulatorWindowAgent {
     void (*quit_request)(void);
     void (*getWindowPosition)(int*, int*);
     bool (*hasWindow)();
+
+    bool (*userSettingIsDontSaveSnapshot)(void);
+    void (*setUserSettingIsDontSaveSnapshot)(bool);
 } QAndroidEmulatorWindowAgent;
 
 #ifndef USING_ANDROID_BP
