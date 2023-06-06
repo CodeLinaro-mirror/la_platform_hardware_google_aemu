@@ -15,8 +15,14 @@
 */
 #pragma once
 
+#include "aemu/base/c_header.h"
+
 #include "host-common/vm_operations.h"
-// #include "host-common/window_agent.h"
+#include "host-common/window_agent.h"
+
+#ifndef USING_ANDROID_BP
+ANDROID_BEGIN_HEADER
+#endif
 
 typedef enum {
     SNAPSHOT_STATUS_NOT_STARTED,
@@ -26,8 +32,8 @@ typedef enum {
     SNAPSHOT_STATUS_CANCELED,
 } AndroidSnapshotStatus;
 
-// void androidSnapshot_initialize(const QAndroidVmOperations* vmOperations,
-//                                 const QAndroidEmulatorWindowAgent* windowAgent);
+void androidSnapshot_initialize(const QAndroidVmOperations* vmOperations,
+                                const QAndroidEmulatorWindowAgent* windowAgent);
 void androidSnapshot_setDiskSpaceCheck(bool enable);
 void androidSnapshot_finalize();
 
@@ -110,3 +116,7 @@ void androidSnapshot_setUsingHdd(bool usingHdd);
 bool androidSnapshot_isUsingHdd();
 
 bool androidSnapshot_protoExists(const char* name);
+
+#ifndef USING_ANDROID_BP
+ANDROID_END_HEADER
+#endif

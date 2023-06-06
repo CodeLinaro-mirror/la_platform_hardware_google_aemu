@@ -15,7 +15,7 @@
 #pragma once
 
 #include "host-common/GoldfishMediaDefs.h"
-#include "android/opengles.h"
+#include "host-common/opengles.h"
 
 #include <stddef.h>
 #include <stdint.h>

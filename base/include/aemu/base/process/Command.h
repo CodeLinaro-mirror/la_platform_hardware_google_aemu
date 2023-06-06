@@ -41,7 +41,7 @@ using CommandArguments = std::vector<std::string>;
 class Command {
 public:
     using ProcessFactory =
-            std::function<std::unique_ptr<ObservableProcess>(CommandArguments, bool)>;
+            std::function<std::unique_ptr<ObservableProcess>(CommandArguments, bool, bool)>;
 
     // Run the command with a std out buffer that can hold at most n bytes.
     // If the buffer is filled, the process will block for at most w ms before
@@ -72,6 +72,9 @@ public:
     // when the created process goes out of scope.
     Command& asDeamon();
 
+    // Call this if you wish to inherit all the file handles
+    Command& inherit();
+
     // Launch the process
     std::unique_ptr<ObservableProcess> execute();
 
@@ -94,6 +97,7 @@ private:
     CommandArguments mArgs;
     bool mDeamon{false};
     bool mCaptureOutput{false};
+    bool mInherit{false};
     BufferDefinition mStdout{0, 0};
     BufferDefinition mStderr{0, 0};
 };

@@ -217,7 +217,7 @@ void sleepUs(uint64_t n) {
 void sleepToUs(uint64_t absTimeUs) {
     // Approach will vary based on platform.
     //
-    // Linux has clock_nanosleep with TIMER_ABSTIME which does
+    // Linux/QNX has clock_nanosleep with TIMER_ABSTIME which does
     // exactly what we want, a sleep to some absolute time.
     //
     // Mac only has relative nanosleep(), so we'll need to calculate a time
@@ -238,7 +238,7 @@ void sleepToUs(uint64_t absTimeUs) {
     do {
         ret = nanosleep(&ts, nullptr);
     } while (ret == -1 && errno == EINTR);
-#elif defined(__linux__)
+#elif defined __linux__ || defined __QNX__
     struct timespec ts;
     ts.tv_sec = absTimeUs / 1000000ULL;
     ts.tv_nsec = absTimeUs * 1000ULL - ts.tv_sec * 1000000000ULL;

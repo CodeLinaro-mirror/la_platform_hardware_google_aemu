@@ -71,7 +71,7 @@ typedef struct GoldfishHwPipe GoldfishHwPipe;
  * the virtual device. */
 typedef struct GoldfishHostPipe GoldfishHostPipe;
 
-typedef struct {
+typedef struct GoldfishPipeServiceOps {
     // Open a new pipe. |hw_pipe| is a unique pointer value identifying the
     // hardware-side view of the pipe, and will be passed to the
     // goldfish_pipe_xxx() functions below. This returns a new host-specific

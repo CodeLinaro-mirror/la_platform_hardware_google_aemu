@@ -23,7 +23,7 @@
 #include <stdint.h>
 
 struct SnapshotRamBlock {
-    const char* id;
+    std::string id;
     int64_t startOffset;
     uint8_t* hostPtr;
     int64_t totalSize;
