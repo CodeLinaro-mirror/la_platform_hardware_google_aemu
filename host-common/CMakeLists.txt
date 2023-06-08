@@ -62,6 +62,9 @@ if (BUILD_STANDALONE)
         address_space_graphics.cpp
         address_space_host_media.cpp
 
+	# SubAllocator
+        ../base/SubAllocator.cpp
+
         hw-config.cpp
         )
 
