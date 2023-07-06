@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "aemu/base/streams/RingStreambuf.h"
+#include "aemu/base/ThreadAnnotations.h"
 
 namespace android {
 namespace base {
@@ -198,7 +199,7 @@ private:
 
     std::unique_ptr<ProcessOverseer> mOverseer;
     std::unique_ptr<std::thread> mOverseerThread;
-    bool mOverseerActive{false};
+    bool mOverseerActive GUARDED_BY(mOverseerMutex) {false};
     mutable std::mutex mOverseerMutex;
     mutable std::condition_variable mOverseerCv;
 
