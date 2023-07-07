@@ -10,5 +10,15 @@ endif()
 
 if(ENABLE_VKCEREAL_TESTS AND NOT TARGET gtest)
     set(INSTALL_GTEST OFF)
-    message(FATAL_ERROR "googletest is not provided.")
+
+    # If gtest target is not provided, find it on the system.
+    find_package(PkgConfig REQUIRED)
+    pkg_search_module(gtest REQUIRED IMPORTED_TARGET GLOBAL gtest>=0.0.0)
+    add_library(gtest ALIAS PkgConfig::gtest)
+
+    pkg_search_module(gmock REQUIRED IMPORTED_TARGET GLOBAL gmock>=0.0.0)
+    add_library(gmock ALIAS PkgConfig::gmock)
+
+    pkg_search_module(gmock_main REQUIRED IMPORTED_TARGET GLOBAL gmock_main>=0.0.0)
+    add_library(gmock_main ALIAS PkgConfig::gmock_main)
 endif()

@@ -44,9 +44,11 @@ namespace emulation {
 #define STREAM_MEM_HANDLE_TYPE_DMABUF 0x2
 #define STREAM_MEM_HANDLE_TYPE_OPAQUE_WIN32 0x3
 #define STREAM_MEM_HANDLE_TYPE_SHM 0x4
-#define STREAM_FENCE_HANDLE_TYPE_OPAQUE_FD 0x10
-#define STREAM_FENCE_HANDLE_TYPE_SYNC_FD 0x11
-#define STREAM_FENCE_HANDLE_TYPE_OPAQUE_WIN32 0x12
+#define STREAM_MEM_HANDLE_TYPE_ZIRCON 0x5
+#define STREAM_FENCE_HANDLE_TYPE_OPAQUE_FD 0x6
+#define STREAM_FENCE_HANDLE_TYPE_SYNC_FD 0x7
+#define STREAM_FENCE_HANDLE_TYPE_OPAQUE_WIN32 0x8
+#define STREAM_FENCE_HANDLE_TYPE_ZIRCON 0x9
 
 struct VulkanInfo {
     uint32_t memoryIndex;
@@ -79,10 +81,11 @@ public:
     // is referenced.
     AEMU_EXPORT void remove(Id id);
 
-    Id addDescriptorInfo(ManagedDescriptor descriptor, uint32_t handleType, uint32_t caching,
-                         std::optional<VulkanInfo> vulkanInfoOpt);
+    void addMapping(Id id, const struct MemEntry *entry);
+    void addDescriptorInfo(Id id, ManagedDescriptor descriptor, uint32_t handleType,
+                           uint32_t caching, std::optional<VulkanInfo> vulkanInfoOpt);
 
-    std::optional<ManagedDescriptorInfo> removeDescriptorInfo(HostmemIdMapping::Id id);
+    std::optional<ManagedDescriptorInfo> removeDescriptorInfo(Id id);
 
     // If id == kInvalidHostmemId or not found in map,
     // returns entry with id == kInvalidHostmemId,
