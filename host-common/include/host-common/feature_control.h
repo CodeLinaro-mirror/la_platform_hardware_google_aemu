@@ -23,11 +23,11 @@
 ANDROID_BEGIN_HEADER
 
 typedef enum {
-#define FEATURE_CONTROL_ITEM(item) kFeature_##item,
+#define FEATURE_CONTROL_ITEM(item, idx) kFeature_##item = idx,
 #include "FeatureControlDefHost.h"
 #include "FeatureControlDefGuest.h"
 #undef FEATURE_CONTROL_ITEM
-    kFeature_n_items
+    kFeature_unknown
 } Feature;
 
 // Call this function first to initialize the feature control.
