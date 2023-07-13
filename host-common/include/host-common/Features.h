@@ -25,7 +25,7 @@ enum Feature {
     Feature_unknown = -1
 };
 
-auto allFeatures = []() {
+static auto allFeatures = []() {
     return std::unordered_set<Feature>({
 #define FEATURE_CONTROL_ITEM(item, idx) item,
 #include "FeatureControlDefGuest.h"
