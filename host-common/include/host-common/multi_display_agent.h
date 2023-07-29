@@ -72,7 +72,6 @@ typedef struct QAndroidMultiDisplayAgent {
     int (*setDisplayColorBuffer)(uint32_t displayId, uint32_t colorBuffer);
     bool (*isMultiDisplayWindow)();
     void (*performRotation)(int rot);
-    bool (*isPixelFold)();
 } QAndroidMultiDisplayAgent;
 
 
