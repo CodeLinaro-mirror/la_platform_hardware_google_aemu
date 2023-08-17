@@ -143,6 +143,7 @@ private:
     std::map<uint32_t, MultiDisplayInfo> mMultiDisplay;
     android::base::Lock mLock;
 
+    void performRotationLocked(int rot);
     void recomputeLayoutLocked();
     void getCombinedDisplaySizeLocked(uint32_t* w, uint32_t* h);
     bool getMultiDisplay(uint32_t id,
