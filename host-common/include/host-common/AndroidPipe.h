@@ -166,6 +166,10 @@ public:
     // is no data yet to read.
     virtual int onGuestRecv(AndroidPipeBuffer* buffers, int numBuffers) = 0;
 
+    // A blocking call that waits until guest is able to receive data from the pipe.
+    // This can be used if a previous call to |onGuestRecv| returns PIPE_ERROR_AGAIN.
+    virtual void waitGuestRecv() const {};
+
     // Called from the device thread when the guest wants to send data to
     // the pipe. |buffers| points to an array of |numBuffers| descriptors that
     // specify where to copy the data from. Return the number of bytes that
@@ -175,6 +179,10 @@ public:
     virtual int onGuestSend(const AndroidPipeBuffer* buffers,
                             int numBuffers,
                             void** newPipePtr) = 0;
+
+    // A blocking call that waits until guest is able to send data to the pipe.
+    // This can be used if a previous call to |onGuestSend| returns PIPE_ERROR_AGAIN.
+    virtual void waitGuestSend() const {}
 
     // Called from the device thread when the guest wants to indicate it
     // wants to be woken up when the set of PIPE_WAKE_XXX event bits in |flags|

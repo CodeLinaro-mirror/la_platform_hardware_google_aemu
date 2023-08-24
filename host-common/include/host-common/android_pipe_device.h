@@ -166,9 +166,15 @@ ANDROID_PIPE_DEVICE_EXPORT unsigned android_pipe_guest_poll(void* internal_pipe)
 ANDROID_PIPE_DEVICE_EXPORT int android_pipe_guest_recv(
     void* internal_pipe, AndroidPipeBuffer* buffers, int numBuffers);
 
+// Blocking call that waits until guest is able to receive data.
+ANDROID_PIPE_DEVICE_EXPORT void android_pipe_wait_guest_recv(void* internal_pipe);
+
 // Call the sendBuffers() callback of the client associated with |pipe|.
 ANDROID_PIPE_DEVICE_EXPORT int android_pipe_guest_send(
     void** internal_pipe, const AndroidPipeBuffer* buffer, int numBuffer);
+
+// Blocking call that waits until guest is able to send data.
+ANDROID_PIPE_DEVICE_EXPORT void android_pipe_wait_guest_send(void* internal_pipe);
 
 // Call the wakeOn() callback of the client associated with |pipe|.
 ANDROID_PIPE_DEVICE_EXPORT void android_pipe_guest_wake_on(

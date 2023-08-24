@@ -74,6 +74,10 @@ static BaseStream* asBaseStream(CStream* stream) {
 }
 
 #define CHECK_VM_STATE_LOCK() (void)0
+// b/294378605: Need to implement VM_STATE_LOCK and VM_STATE_UNLOCK for qemu. We leave this empty
+// for now since qemu provides its own implementation of AndroidPipe.cpp.
+#define VM_STATE_LOCK() (void)0
+#define VM_STATE_UNLOCK() (void)0
 
 namespace android {
 
@@ -773,6 +777,14 @@ int android_pipe_guest_recv(void* internalPipe,
     return pipe->onGuestRecv(buffers, numBuffers);
 }
 
+void android_pipe_wait_guest_recv(void* internalPipe) {
+    CHECK_VM_STATE_LOCK();
+    auto pipe = static_cast<AndroidPipe*>(internalPipe);
+    VM_STATE_UNLOCK();
+    pipe->waitGuestRecv();
+    VM_STATE_LOCK();
+}
+
 int android_pipe_guest_send(void** internalPipe,
                             const AndroidPipeBuffer* buffers,
                             int numBuffers) {
@@ -781,6 +793,14 @@ int android_pipe_guest_send(void** internalPipe,
     // Note that pipe may be deleted during this call, so it's not safe to
     // access pipe after this point.
     return pipe->onGuestSend(buffers, numBuffers, internalPipe);
+}
+
+void android_pipe_wait_guest_send(void* internalPipe) {
+    CHECK_VM_STATE_LOCK();
+    auto pipe = static_cast<AndroidPipe*>(internalPipe);
+    VM_STATE_UNLOCK();
+    pipe->waitGuestSend();
+    VM_STATE_LOCK();
 }
 
 void android_pipe_guest_wake_on(void* internalPipe, unsigned wakes) {
