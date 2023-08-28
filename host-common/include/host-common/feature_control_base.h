@@ -20,7 +20,7 @@ typedef enum {
 #include "FeatureControlDefHost.h"
 #include "FeatureControlDefGuest.h"
 #undef FEATURE_CONTROL_ITEM
-    kFeature_n_items
+    kFeature_unknown
 } Feature;
 
 // Call this function first to initialize the feature control.

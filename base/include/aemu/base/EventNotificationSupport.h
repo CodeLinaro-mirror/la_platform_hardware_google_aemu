@@ -28,11 +28,17 @@ namespace base {
 // and simply call fireEvent when an event needs to be delivered.
 template <class EventObject>
 class EventNotificationSupport {
-    using EventListener =
-            std::function<void(const EventObject evt)>;
+    using EventListener = std::function<void(const EventObject evt)>;
 
-public:
+   public:
     EventNotificationSupport() = default;
+
+    // A listener that can be registered that cannot be removed.
+    // This listener will live for the lifetime of the object.
+    void registerOnce(EventListener listener) {
+        std::lock_guard<std::mutex> lock(mStreamLock);
+        mNonRemovableListeners.push_back(listener);
+    }
 
     void addListener(EventListener* listener) {
         std::lock_guard<std::mutex> lock(mStreamLock);
@@ -50,16 +56,20 @@ public:
         }
     }
 
-protected:
+   protected:
     void fireEvent(EventObject evt) {
         std::lock_guard<std::mutex> lock(mStreamLock);
         for (const auto& listener : mListeners) {
             (*listener)(evt);
         }
+        for (const auto& listener : mNonRemovableListeners) {
+            listener(evt);
+        }
     }
 
-private:
+   private:
     std::vector<EventListener*> mListeners;
+    std::vector<EventListener> mNonRemovableListeners;
     std::mutex mStreamLock;
 };
 
@@ -67,19 +77,17 @@ private:
 // the provided callback when this object goes out of scope.
 template <class Source, class EventObject>
 class RaiiEventListener {
-public:
-    using EventListener =
-            std::function<void(const EventObject evt)>;
+   public:
+    using EventListener = std::function<void(const EventObject evt)>;
 
-    RaiiEventListener(Source* src,
-                      EventListener listener)
+    RaiiEventListener(Source* src, EventListener listener)
         : mSource(src), mListener(std::move(listener)) {
         mSource->addListener(&mListener);
     }
 
     ~RaiiEventListener() { mSource->removeListener(&mListener); }
 
-private:
+   private:
     Source* mSource;
     EventListener mListener;
 };

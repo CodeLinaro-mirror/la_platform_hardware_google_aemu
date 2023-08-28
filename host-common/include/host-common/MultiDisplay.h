@@ -32,15 +32,20 @@ struct MultiDisplayInfo {
     int32_t pos_y;
     uint32_t width;
     uint32_t height;
+    uint32_t originalWidth;
+    uint32_t originalHeight;
     uint32_t dpi;
     uint32_t flag;
     uint32_t cb;
+    int32_t  rotation;
     bool     enabled;
     MultiDisplayInfo() :
-      pos_x(0), pos_y(0), width(0), height(0), dpi(0), flag(0), cb(0), enabled(true) {}
+      pos_x(0), pos_y(0), width(0), height(0), originalWidth(0),
+      originalHeight(0), dpi(0), flag(0), cb(0), rotation(0), enabled(true) {}
     MultiDisplayInfo(int32_t x, int32_t y, uint32_t w, uint32_t h,
                      uint32_t d, uint32_t f, bool e, uint32_t c = 0) :
-      pos_x(x), pos_y(y), width(w), height(h), dpi(d), flag(f), enabled(e), cb(c) {}
+      pos_x(x), pos_y(y), width(w), height(h), originalWidth(w),
+      originalHeight(0), dpi(d), flag(f), rotation(0), enabled(e), cb(c) {}
 
 };
 
@@ -117,6 +122,7 @@ public:
     void loadConfig();
     void onSave(base::Stream* stream);
     void onLoad(base::Stream* stream);
+    void performRotation(int rot);
 
     bool notifyDisplayChanges();
 
@@ -132,6 +138,7 @@ private:
     const QAndroidRecordScreenAgent* mRecordAgent;
     const QAndroidVmOperations* mVmAgent;
     bool mGuestMode;
+    int32_t  mRotation { 0 };
     std::map<uint32_t, MultiDisplayInfo> mMultiDisplay;
     android::base::Lock mLock;
 

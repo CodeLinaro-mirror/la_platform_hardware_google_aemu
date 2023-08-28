@@ -15,9 +15,11 @@
 */
 
 #include "feature_control.h"
+#include "Features.h"
 #include "FeatureControl.h"
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 
@@ -33,10 +35,12 @@ void setFeatureEnabledCallback(std::function<bool(Feature)> cb) {
 }  // namespace android
 
 struct FeatureState {
-    FeatureState() {
-        enabled.resize(1024, 0);
-    }
-    std::vector<bool> enabled;
+    std::unordered_map<Feature, bool> enabled{
+#define FEATURE_CONTROL_ITEM(item, idx) {  kFeature_##item, false },
+#include "FeatureControlDefHost.h"
+#include "FeatureControlDefGuest.h"
+#undef FEATURE_CONTROL_ITEM
+       };
 };
 
 static FeatureState sFeatureState;
@@ -46,10 +50,11 @@ void feature_initialize() { }
 
 // Get the access rules given by |name| if they exist, otherwise returns NULL
 bool feature_is_enabled(Feature feature) {
-    return android::featurecontrol::sFeatureEnabledCb ?
-        android::featurecontrol::sFeatureEnabledCb(
-            static_cast<android::featurecontrol::Feature>(feature))
-        : sFeatureState.enabled[feature];
+    if (android::featurecontrol::sFeatureEnabledCb)
+       return android::featurecontrol::sFeatureEnabledCb(
+            static_cast<android::featurecontrol::Feature>(feature));
+
+    return sFeatureState.enabled[feature];
 }
 
 void feature_set_enabled_override(Feature feature, bool isEnabled) {
@@ -76,18 +81,19 @@ void feature_set_if_not_overridden_or_guest_disabled(Feature feature, bool enabl
 void feature_update_from_server() { }
 
 const char* feature_name(Feature feature) {
-    static const std::vector<std::string>* const sFeatureNames = [] {
-        return new std::vector<std::string>{
-#define FEATURE_CONTROL_ITEM(item) #item,
+    static const std::unordered_map<Feature, std::string>* const sFeatureNames = [] {
+        return new std::unordered_map<Feature, std::string>({
+#define FEATURE_CONTROL_ITEM(item, idx) {  kFeature_##item,  #item },
 #include "FeatureControlDefHost.h"
 #include "FeatureControlDefGuest.h"
 #undef FEATURE_CONTROL_ITEM
-        };
+        });
     }();
 
-    if (feature >= sFeatureNames->size()) {
+    auto it = sFeatureNames->find(feature);
+    if (it == sFeatureNames->end()) {
         return "InvalidFeature";
     }
 
-    return (*sFeatureNames)[feature].c_str();
+    return it->second.c_str();
 }

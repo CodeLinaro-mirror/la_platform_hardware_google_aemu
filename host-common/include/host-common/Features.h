@@ -13,15 +13,26 @@
 // limitations under the License.
 
 #pragma once
-
+#include <functional>
+#include <unordered_set>
 namespace android {
 namespace featurecontrol {
 enum Feature {
-#define FEATURE_CONTROL_ITEM(item) item,
-#include "FeatureControlDefHost.h"
+#define FEATURE_CONTROL_ITEM(item, idx) item = idx,
 #include "FeatureControlDefGuest.h"
+#include "FeatureControlDefHost.h"
 #undef FEATURE_CONTROL_ITEM
-    Feature_n_items
+    Feature_unknown = -1
 };
-}
-}
+
+static auto allFeatures = []() {
+    return std::unordered_set<Feature>({
+#define FEATURE_CONTROL_ITEM(item, idx) item,
+#include "FeatureControlDefGuest.h"
+#include "FeatureControlDefHost.h"
+#undef FEATURE_CONTROL_ITEM
+});
+};
+
+}  // namespace featurecontrol
+}  // namespace android
