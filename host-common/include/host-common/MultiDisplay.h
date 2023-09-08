@@ -119,6 +119,7 @@ public:
     int setDisplayColorBuffer(uint32_t displayId, uint32_t colorBuffer);
     void getCombinedDisplaySize(uint32_t* w, uint32_t* h);
     bool isMultiDisplayWindow();
+    bool isPixelFold();
     void loadConfig();
     void onSave(base::Stream* stream);
     void onLoad(base::Stream* stream);
@@ -142,6 +143,7 @@ private:
     std::map<uint32_t, MultiDisplayInfo> mMultiDisplay;
     android::base::Lock mLock;
 
+    void performRotationLocked(int rot);
     void recomputeLayoutLocked();
     void getCombinedDisplaySizeLocked(uint32_t* w, uint32_t* h);
     bool getMultiDisplay(uint32_t id,
