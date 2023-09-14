@@ -123,6 +123,9 @@ typedef struct GoldfishPipeServiceOps {
                       GoldfishPipeBuffer *buffers,
                       int num_buffers);
 
+    // Blocking call that waits until guest is able to receive data through |host_pipe|.
+    void (*wait_guest_recv)(GoldfishHostPipe* host_pipe);
+
     // Called when the guest tries to send data to the host through
     // |host_pipe|. This will try to copy data from the memory ranges
     // decribed by the array |buffers| or |num_buffers| items.
@@ -131,6 +134,9 @@ typedef struct GoldfishPipeServiceOps {
     int (*guest_send)(GoldfishHostPipe **host_pipe,
                       const GoldfishPipeBuffer *buffers,
                       int num_buffers);
+
+    // Blocking call that waits until guest is able to send data through |host_pipe|.
+    void (*wait_guest_send)(GoldfishHostPipe* host_pipe);
 
     // Called when the guest wants to be waked on specific events.
     // identified by the |wake_flags| bitmask. The host should call

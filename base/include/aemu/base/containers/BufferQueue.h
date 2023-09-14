@@ -68,9 +68,23 @@ public:
     // is not full or it would grow anyway.
     bool canPushLocked() const { return !mClosed && mCount < (int)mBuffers.size(); }
 
+    // A blocking call that will wait until one can send a buffer to the queue.
+    void waitUntilPushableLocked() {
+        if (!canPushLocked()) {
+            mCanPush.wait(&mLock);
+        }
+    }
+
     // Return true iff one can receive a buffer from the queue, i.e. if
     // it is not empty.
     bool canPopLocked() const { return mCount > 0; }
+
+    // A blocking call that will wait until one can receive a buffer from the queue.
+    void waitUntilPopableLocked() {
+        if (!canPopLocked()) {
+            mCanPop.wait(&mLock);
+        }
+    }
 
     // Return true iff the queue is closed.
     bool isClosedLocked() const { return mClosed; }
