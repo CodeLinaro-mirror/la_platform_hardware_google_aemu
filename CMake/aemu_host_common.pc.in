@@ -1,6 +1,6 @@
 prefix="@CMAKE_INSTALL_PREFIX@"
 libdir="${prefix}/lib"
-includedir="${prefix}/include"
+includedir="${prefix}/include/aemu/host-common"
 
 Name: @PROJECT_NAME@ host common
 Description: @CMAKE_PROJECT_DESCRIPTION@
