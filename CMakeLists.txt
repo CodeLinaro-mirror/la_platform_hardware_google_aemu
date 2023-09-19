@@ -10,16 +10,6 @@ enable_testing()
 # cross-compiling)
 set(CMAKE_GTEST_DISCOVER_TESTS_DISCOVERY_MODE "PRE_TEST")
 
-option(BUILD_SHARED_LIBS "Build using shared libraries" OFF)
-
-if (AEMU_COMMON_GEN_PKGCONFIG)
-   set(LOGGING_LIB_NAME aemu-logging)
-   set(SNAPSHOT_LIB_NAME aemu-snapshot)
-else()
-   set(LOGGING_LIB_NAME logging-base)
-   set(SNAPSHOT_LIB_NAME gfxstream-snapshot)
-endif()
-
 project(AEMUCommon
         DESCRIPTION "Android emulation utilities library"
         VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}
@@ -89,9 +79,9 @@ if(AEMU_COMMON_GEN_PKGCONFIG)
     include(GNUInstallDirs)
     set(INSTALL_PC_FILES
         aemu_base
-        aemu_logging
+        logging_base
         aemu_host_common
-        aemu_snapshot)
+        gfxstream_snapshot)
     if(ENABLE_VKCEREAL_TESTS)
         list(APPEND INSTALL_PC_FILES aemu_base_testing_support aemu_host_common_testing_support)
     endif()
@@ -103,13 +93,17 @@ if(AEMU_COMMON_GEN_PKGCONFIG)
     endforeach()
 
     install(DIRECTORY base/include/aemu DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-    install(DIRECTORY snapshot/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/aemu/snapshot)
-    install(DIRECTORY host-common/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/aemu/host-common)
+    install(DIRECTORY host-common/include/host-common DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(DIRECTORY host-common/testing
+            DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/host-common
+            FILES_MATCHING
+            PATTERN "*.h")
+    install(DIRECTORY snapshot/include/snapshot DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
     set(INSTALL_TARGETS
         aemu-base
         aemu-host-common
-        ${SNAPSHOT_LIB_NAME}
-        ${LOGGING_LIB_NAME})
+        gfxstream-snapshot
+        logging-base)
     if(ENABLE_VKCEREAL_TESTS)
         list(APPEND INSTALL_TARGETS aemu-base-testing-support aemu-host-common-testing-support)
     endif()

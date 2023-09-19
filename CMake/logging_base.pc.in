@@ -1,10 +1,10 @@
 prefix="@CMAKE_INSTALL_PREFIX@"
 libdir="${prefix}/lib"
-includedir="${prefix}/include/aemu/host-common"
+includedir="${prefix}/include"
 
 Name: @PROJECT_NAME@ logging base
 Description: @CMAKE_PROJECT_DESCRIPTION@
 Version: @VERSION_MAJOR@.@VERSION_MINOR@.@VERSION_PATCH@
 
-Libs: -L${libdir} -laemu-logging
+Libs: -L${libdir} -llogging-base
 Cflags: -I${includedir}
