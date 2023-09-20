@@ -68,6 +68,14 @@ if (BUILD_STANDALONE)
     endif()
 
     add_library(aemu-base ${aemu-base-srcs})
+    if (BUILD_SHARED_LIBS)
+        set_target_properties(
+            aemu-base
+            PROPERTIES
+            VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}
+            SOVERSION ${VERSION_MAJOR})
+    endif()
+
     target_compile_definitions(aemu-base PRIVATE)
 
     if (WIN32)
@@ -87,7 +95,7 @@ if (BUILD_STANDALONE)
         # TODO(joshuaduong): Remove this when logging.h is moved into base
         aemu-host-common.headers
         PRIVATE
-        logging-base
+        ${LOGGING_LIB_NAME}
         ${aemu-base-platform-deps})
 
     target_include_directories(
@@ -150,7 +158,7 @@ if (ENABLE_VKCEREAL_TESTS)
         PRIVATE
         aemu-base.headers
         ${GFXSTREAM_BASE_LIB}
-        logging-base
+        ${LOGGING_LIB_NAME}
         aemu-base-testing-support
         gmock
         gtest_main)
