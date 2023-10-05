@@ -45,7 +45,7 @@ struct MultiDisplayInfo {
     MultiDisplayInfo(int32_t x, int32_t y, uint32_t w, uint32_t h,
                      uint32_t d, uint32_t f, bool e, uint32_t c = 0) :
       pos_x(x), pos_y(y), width(w), height(h), originalWidth(w),
-      originalHeight(0), dpi(d), flag(f), rotation(0), enabled(e), cb(c) {}
+      originalHeight(h), dpi(d), flag(f), rotation(0), enabled(e), cb(c) {}
 
 };
 
