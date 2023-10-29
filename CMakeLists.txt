@@ -105,6 +105,7 @@ if(AEMU_COMMON_GEN_PKGCONFIG)
     install(DIRECTORY base/include/aemu DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
     install(DIRECTORY snapshot/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/aemu/snapshot)
     install(DIRECTORY host-common/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/aemu/host-common)
+    install(DIRECTORY third-party/cuda/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/aemu/host-common)
     set(INSTALL_TARGETS
         aemu-base
         aemu-host-common

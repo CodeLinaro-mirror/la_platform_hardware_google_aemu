@@ -36,6 +36,7 @@ cc_library_headers {
         "base/include",
         "host-common/include",
         "snapshot/include",
+        "third-party/cuda/include",
     ],
     apex_available: [
         "//apex_available:platform",
