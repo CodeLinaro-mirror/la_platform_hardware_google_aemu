@@ -692,6 +692,13 @@ HWCFG_INT(
   "Provides hinge angle sensor sub type. 0 (invisible hinge, fold on screen) and 1 (hinge)",
   "")
 
+HWCFG_INT(
+  hw_sensor_hinge_resizable_config,
+  "hw.sensor.hinge.resizable.config",
+  0,
+  "For resizable only: this indicates the hinge config applies to which avd",
+  "")
+
 HWCFG_STRING(
   hw_sensor_hinge_ranges,
   "hw.sensor.hinge.ranges",
