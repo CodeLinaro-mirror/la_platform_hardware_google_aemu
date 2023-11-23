@@ -19,7 +19,18 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+
 #include "aemu/base/logging/LogSeverity.h"
+
+#ifdef _MSC_VER
+#ifdef LOGGING_API_SHARED
+#define LOGGING_API __declspec(dllexport)
+#else
+#define LOGGING_API __declspec(dllimport)
+#endif
+#else
+#define LOGGING_API
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,18 +43,21 @@ typedef enum {
     kLogEnableVerbose = 1 << 3,
 } LoggingFlags;
 
-
 // Enable/disable verbose logs from the base/* family.
-extern void base_enable_verbose_logs();
-extern void base_disable_verbose_logs();
+LOGGING_API void base_enable_verbose_logs();
+LOGGING_API void base_disable_verbose_logs();
+
+LOGGING_API void verbose_enable(uint64_t tag);
+LOGGING_API void verbose_disable(uint64_t tag);
+LOGGING_API bool verbose_check(uint64_t tag);
+LOGGING_API bool verbose_check_any();
+LOGGING_API void set_verbosity_mask(uint64_t mask);
+LOGGING_API uint64_t get_verbosity_mask();
 
 // Configure the logging framework.
-extern void base_configure_logs(LoggingFlags flags);
-extern void __emu_log_print(LogSeverity prio,
-                            const char* file,
-                            int line,
-                            const char* fmt,
-                            ...);
+LOGGING_API void base_configure_logs(LoggingFlags flags);
+LOGGING_API void __emu_log_print(LogSeverity prio, const char* file, int line, const char* fmt,
+                                 ...);
 
 #ifndef EMULOG
 #define EMULOG(priority, fmt, ...) \
@@ -51,21 +65,21 @@ extern void __emu_log_print(LogSeverity prio,
 #endif
 
 // Logging support.
-#define dprint(fmt, ...)                                 \
-    if (EMULATOR_LOG_DEBUG >= android_log_severity) {  \
+#define dprint(fmt, ...)                               \
+    if (EMULATOR_LOG_DEBUG >= getMinLogLevel()) {      \
         EMULOG(EMULATOR_LOG_DEBUG, fmt, ##__VA_ARGS__) \
     }
 
 #define dinfo(fmt, ...)                               \
-    if (EMULATOR_LOG_INFO >= android_log_severity) {  \
+    if (EMULATOR_LOG_INFO >= getMinLogLevel()) {      \
         EMULOG(EMULATOR_LOG_INFO, fmt, ##__VA_ARGS__) \
     }
 #define dwarning(fmt, ...)                               \
-    if (EMULATOR_LOG_WARNING >= android_log_severity) {  \
+    if (EMULATOR_LOG_WARNING >= getMinLogLevel()) {      \
         EMULOG(EMULATOR_LOG_WARNING, fmt, ##__VA_ARGS__) \
     }
 #define derror(fmt, ...)                               \
-    if (EMULATOR_LOG_ERROR >= android_log_severity) {  \
+    if (EMULATOR_LOG_ERROR >= getMinLogLevel()) {      \
         EMULOG(EMULATOR_LOG_ERROR, fmt, ##__VA_ARGS__) \
     }
 #define dfatal(fmt, ...) EMULOG(EMULATOR_LOG_FATAL, fmt, ##__VA_ARGS__)
@@ -73,4 +87,3 @@ extern void __emu_log_print(LogSeverity prio,
 #ifdef __cplusplus
 }
 #endif
-

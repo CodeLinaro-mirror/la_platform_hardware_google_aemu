@@ -23,16 +23,22 @@
 
 #include "aemu/base/logging/LogSeverity.h"  // for LogSeverity, EMULATOR_...
 
+#ifdef _MSC_VER
+# ifdef LOGGING_API_SHARED
+#  define LOGGING_API __declspec(dllexport)
+# else
+#  define LOGGING_API __declspec(dllimport)
+#endif
+#else
+# define LOGGING_API
+#endif
+
 namespace android {
 namespace base {
 
-// Returns the minimal log level.
-::LogSeverity getMinLogLevel();
-void setMinLogLevel(::LogSeverity level);
-
 class LogFormatter;
 
-void setLogFormatter(LogFormatter* fmt);
+LOGGING_API void setLogFormatter(LogFormatter* fmt);
 
 // Convert a log level name (e.g. 'INFO') into the equivalent
 // ::android::base LOG_<name> constant.
@@ -47,7 +53,7 @@ void setLogFormatter(LogFormatter* fmt);
 //  }
 //
 #define LOG_IS_ON(severity) \
-    (LOG_SEVERITY_FROM(severity) >= ::android::base::getMinLogLevel())
+    (LOG_SEVERITY_FROM(severity) >= getMinLogLevel())
 
 // For performance reasons, it's important to avoid constructing a
 // LogMessage instance every time a LOG() or CHECK() statement is
@@ -205,11 +211,11 @@ void setLogFormatter(LogFormatter* fmt);
 #endif
 
 // A function that returns true iff DCHECK() should actually do any checking.
-bool dcheckIsEnabled();
+LOGGING_API bool dcheckIsEnabled();
 
 // Change the DCHECK() level to either false or true. Should only be called
 // early, e.g. after parsing command-line arguments. Returns previous value.
-bool setDcheckLevel(bool enabled);
+LOGGING_API bool setDcheckLevel(bool enabled);
 
 // DLOG() is like LOG() for debug builds, and doesn't do anything for
 // release one. This is useful to add log messages that you don't want
@@ -247,7 +253,7 @@ bool setDcheckLevel(bool enabled);
 //
 //    LOG(INFO) << LogString("There are %d items in this set", count);
 //
-class LogString {
+class LOGGING_API LogString {
 public:
     LogString(const char* fmt, ...);
     const char* string() const { return mString.data(); }
@@ -258,7 +264,7 @@ private:
 
 // Helper structure used to group the parameters of a LOG() or CHECK()
 // statement.
-struct LogParams {
+struct  LOGGING_API LogParams {
     LogParams() {}
     LogParams(const char* a_file,
               int a_lineno,
@@ -282,7 +288,7 @@ struct LogParams {
     bool quiet = false;
 };
 
-class LogstreamBuf : public std::streambuf {
+class LOGGING_API LogstreamBuf : public std::streambuf {
 public:
     LogstreamBuf();
 
@@ -304,7 +310,7 @@ private:
 // This also takes a source file, line number and severity to avoid
 // storing these in the stack of the functions were LOG() and CHECK()
 // statements are called.
-class LogStream {
+class LOGGING_API LogStream {
 public:
     LogStream(const char* file, int lineno, LogSeverity severity, bool quiet);
     ~LogStream() = default;
@@ -326,13 +332,13 @@ private:
 };
 
 // Add your own types when needed:
-std::ostream& operator<<(std::ostream& stream,
+LOGGING_API std::ostream& operator<<(std::ostream& stream,
                          const android::base::LogString& str);
-std::ostream& operator<<(std::ostream& stream, const std::string_view& str);
+LOGGING_API std::ostream& operator<<(std::ostream& stream, const std::string_view& str);
 
 // Helper class used to avoid compiler errors, see LOG_LAZY_EVAL for
 // more information.
-class LogStreamVoidify {
+class LOGGING_API LogStreamVoidify {
 public:
     LogStreamVoidify() {}
     // This has to be an operator with a precedence lower than << but
@@ -348,7 +354,7 @@ public:
 //
 // When destroyed, the message sends the final output to the appropriate
 // log (e.g. stderr by default).
-class LogMessage {
+class LOGGING_API LogMessage {
 public:
     // To suppress printing file/line, set quiet = true.
     LogMessage(const char* file,
@@ -390,7 +396,7 @@ protected:
 // This cannot be a sub-class of LogMessage because the destructor needs
 // to restore the saved errno message after sending the message to the
 // LogOutput and deleting the stream.
-class ErrnoLogMessage {
+class LOGGING_API ErrnoLogMessage {
 public:
     ErrnoLogMessage(const char* file,
                     int line,
@@ -417,7 +423,7 @@ namespace testing {
 
 // Abstract interface to the output where the log messages are sent.
 // IMPORTANT: Only use this for unit testing the log facility.
-class LogOutput {
+class LOGGING_API LogOutput {
 public:
     LogOutput() {}
     virtual ~LogOutput() {}
