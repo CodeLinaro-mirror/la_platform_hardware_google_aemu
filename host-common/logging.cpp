@@ -35,6 +35,9 @@ namespace {
 
 constexpr int kMaxThreadIdLength = 7;  // 7 digits for the thread id is what Google uses everywhere.
 
+gfxstream_logger_t sLogger = nullptr;
+gfxstream_logger_t sFineLogger = nullptr;
+
 // Returns the current thread id as a string of at most kMaxThreadIdLength characters.
 // We try to avoid using std::this_thread::get_id() because on Linux at least it returns a long
 // number (e.g. 139853607339840) which isn't the same as the thread id from the OS itself.
@@ -81,8 +84,16 @@ const char* GetFileBasename(const char* file) {
 
 }  // namespace
 
+void set_gfxstream_logger(gfxstream_logger_t f) { sLogger = f; }
+
+void set_gfxstream_fine_logger(gfxstream_logger_t f) { sFineLogger = f; }
+
 void OutputLog(FILE* stream, char severity, const char* file, unsigned int line,
                int64_t timestamp_us, const char* format, ...) {
+    gfxstream_logger_t logger =
+        severity == 'I' || severity == 'W' || severity == 'E' || severity == 'F' ? sLogger
+                                                                                 : sFineLogger;
+
     if (timestamp_us == 0) {
         timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
                            std::chrono::system_clock::now().time_since_epoch())
@@ -103,14 +114,28 @@ void OutputLog(FILE* stream, char severity, const char* file, unsigned int line,
 
     // Output the standard Google logging prefix
     // See also: https://github.com/google/glog/blob/9dc1107f88d3a1613d61b80040d83c1c1acbac3d/src/logging.cc#L1612-L1615
-    fprintf(stream, "%c%02d%02d %02d:%02d:%02d.%06" PRId64 " %7s %s:%d] ", severity,
-            ts_parts.tm_mon + 1, ts_parts.tm_mday, ts_parts.tm_hour, ts_parts.tm_min,
-            ts_parts.tm_sec, microseconds, getCachedThreadID(), GetFileBasename(file), line);
+    if (logger) {
+        logger("%c%02d%02d %02d:%02d:%02d.%06" PRId64 " %7s %s:%d] ", severity, ts_parts.tm_mon + 1,
+               ts_parts.tm_mday, ts_parts.tm_hour, ts_parts.tm_min, ts_parts.tm_sec, microseconds,
+               getCachedThreadID(), GetFileBasename(file), line);
+    } else {
+        fprintf(stream, "%c%02d%02d %02d:%02d:%02d.%06" PRId64 " %7s %s:%d] ", severity,
+                ts_parts.tm_mon + 1, ts_parts.tm_mday, ts_parts.tm_hour, ts_parts.tm_min,
+                ts_parts.tm_sec, microseconds, getCachedThreadID(), GetFileBasename(file), line);
+    }
 
     // Output the actual log message and newline
     va_list args;
     va_start(args, format);
-    vfprintf(stream, format, args);
+    if (logger) {
+        logger(format, args);
+    } else {
+        vfprintf(stream, format, args);
+    }
     va_end(args);
-    fprintf(stream, "\n");
+    if (logger) {
+        logger("\n");
+    } else {
+        fprintf(stream, "\n");
+    }
 }
