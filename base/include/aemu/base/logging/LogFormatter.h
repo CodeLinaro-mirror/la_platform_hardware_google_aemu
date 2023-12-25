@@ -14,9 +14,8 @@
 
 #include <stdarg.h>  // for va_list
 #include <stddef.h>  // for size_t
-#include <iosfwd>    // for string
+
 #include <memory>
-#include <mutex>   // for mutex
 #include <mutex>   // for mutex
 #include <string>  // for string
 
@@ -27,28 +26,21 @@ namespace base {
 
 // A LogFormatter formats a log line.
 class LogFormatter {
-public:
+   public:
     virtual ~LogFormatter() = default;
-
-    // Mainly to facilitate unit testing..
-    std::string format(const LogParams& params, const char* fmt, ...);
 
     // Formats the given line, returning the string that should be printed, or
     // empty in case nothing should be printed.
     //
     // The last line should not be terminated by a newline.
-    virtual std::string format(const LogParams& params,
-                               const char* fmt,
-                               va_list args) = 0;
+    virtual std::string format(const LogParams& params, const std::string& line) = 0;
 };
 
 // This simply logs the level, and message according to the following regex:
 // ^(VERBOSE|DEBUG|INFO|WARNING|ERROR|FATAL|UNKWOWN)\s+\| (.*)
 class SimpleLogFormatter : public LogFormatter {
-public:
-    std::string format(const LogParams& params,
-                       const char* fmt,
-                       va_list args) override;
+   public:
+    std::string format(const LogParams& params, const std::string& line) override;
 };
 
 // This simply logs the time, level and message according to the following
@@ -56,10 +48,8 @@ public:
 // ^(\d+:\d+:\d+\.\d+)\s+(VERBOSE|DEBUG|INFO|WARNING|ERROR|FATAL|UNKWOWN)\s+\|
 // (.*)
 class SimpleLogWithTimeFormatter : public LogFormatter {
-public:
-    std::string format(const LogParams& params,
-                       const char* fmt,
-                       va_list args) override;
+   public:
+    std::string format(const LogParams& params, const std::string& line) override;
 };
 
 // This is a more verbose log line, which includes all we know:
@@ -76,10 +66,16 @@ public:
 // group 4: File:Line
 // group 5: Log message
 class VerboseLogFormatter : public LogFormatter {
-public:
-    std::string format(const LogParams& params,
-                       const char* fmt,
-                       va_list args) override;
+   public:
+    std::string format(const LogParams& params, const std::string& line) override;
+};
+
+
+// Uses Google's standard logging prefix (go/logging#prefix)
+// so that the logs are correctly parsed by standard tools (e.g. Analog)
+class GoogleLogFormatter : public LogFormatter {
+    public:
+    std::string format(const LogParams& params, const std::string& line) override;
 };
 
 // This formatter removes all duplicate lines, replacing them with an occurrence
@@ -88,18 +84,16 @@ public:
 // WARNING: This logger does not neccessarily produces output, and buffers the
 // last line if it was a duplicate.
 class NoDuplicateLinesFormatter : public LogFormatter {
-public:
+   public:
     NoDuplicateLinesFormatter(std::shared_ptr<LogFormatter> logger);
 
     // Will return "" when the last line was a duplicate.
-    std::string format(const LogParams& params,
-                       const char* fmt,
-                       va_list args) override;
+    std::string format(const LogParams& params, const std::string& line) override;
 
-private:
+   private:
     std::shared_ptr<LogFormatter> mInner;
     std::string kEmpty{};
-    char mPrevLog[4096] = {0};
+    std::string mPrevLogLine;
     LogParams mPrevParams;
     int mDuplicates{0};
     std::mutex mFormatMutex;

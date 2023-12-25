@@ -13,24 +13,25 @@
 // limitations under the License.
 #pragma once
 
-#include <stddef.h>  // for size_t
-#include <array>
-#include <cstdint>     // for uint8_t, uint32_t
-#include <functional>  // for function
-#include <list>        // for list
-#include <memory>      // for unique_ptr
-#include <mutex>       // for recursive_mutex
-#include <string>
-#include <unordered_map>  // for operator!=, unord...
-#include <utility>        // for move
-#include <vector>         // for vector
+#include <stddef.h>
 
-#include "aemu/base/Optional.h"                  // for Optional
-#include "aemu/base/files/Stream.h"              // for Stream
-#include "aemu/base/logging/CLog.h"                    // for dprint
-#include "aemu/base/synchronization/Lock.h"      // for AutoLock, Lock
-#include "host-common/AndroidPipe.h"          // for AndroidPipe, Andr...
-#include "host-common/android_pipe_common.h"  // for AndroidPipeBuffer
+#include <array>
+#include <cstdint>
+#include <functional>
+#include <list>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+#include "aemu/base/Optional.h"
+#include "aemu/base/files/Stream.h"
+#include "aemu/base/logging/Log.h"
+#include "aemu/base/synchronization/Lock.h"
+#include "host-common/AndroidPipe.h"
+#include "host-common/android_pipe_common.h"
 
 // This is a utility class that can help implement message-based remote calls
 // between the host and guest, with optional out-of-band responses.
