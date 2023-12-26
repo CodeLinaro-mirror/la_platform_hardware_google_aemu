@@ -13,6 +13,9 @@
 // limitations under the License.
 #pragma once
 
+#include <stdint.h>
+
+#ifndef LOGGING_API
 #ifdef _MSC_VER
 #ifdef LOGGING_API_SHARED
 #define LOGGING_API __declspec(dllexport)
@@ -21,6 +24,7 @@
 #endif
 #else
 #define LOGGING_API
+#endif
 #endif
 
 #ifdef __cplusplus
@@ -49,6 +53,28 @@ typedef enum LogSeverity {
 // Returns the minimal log level.
 LOGGING_API LogSeverity getMinLogLevel();
 LOGGING_API void setMinLogLevel(LogSeverity level);
+
+
+typedef enum {
+    kLogDefaultOptions = 0,
+    kLogEnableDuplicateFilter = 1,
+    kLogEnableTime = 1 << 2,
+    kLogEnableVerbose = 1 << 3,
+} LoggingFlags;
+
+// Enable/disable verbose logs from the base/* family.
+LOGGING_API void base_enable_verbose_logs();
+LOGGING_API void base_disable_verbose_logs();
+
+LOGGING_API void verbose_enable(uint64_t tag);
+LOGGING_API void verbose_disable(uint64_t tag);
+LOGGING_API bool verbose_check(uint64_t tag);
+LOGGING_API bool verbose_check_any();
+LOGGING_API void set_verbosity_mask(uint64_t mask);
+LOGGING_API uint64_t get_verbosity_mask();
+
+// Configure the logging framework.
+LOGGING_API void base_configure_logs(LoggingFlags flags);
 
 #ifdef __cplusplus
 }

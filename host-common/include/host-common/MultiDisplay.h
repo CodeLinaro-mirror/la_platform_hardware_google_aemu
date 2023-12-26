@@ -130,9 +130,9 @@ public:
     // 0 for default Android display
     // 1-5 for Emulator UI
     // 6-10 for developer from rcControl
-    static const uint32_t s_displayIdInternalBegin = 6;
-    static const uint32_t s_maxNumMultiDisplay = 11;
-    static const uint32_t s_invalidIdMultiDisplay = 0xFFFFFFAB;
+    static constexpr uint32_t s_displayIdInternalBegin = 6;
+    static constexpr uint32_t s_maxNumMultiDisplay = 11;
+    static constexpr uint32_t s_invalidIdMultiDisplay = 0xFFFFFFAB;
 
 private:
     const QAndroidEmulatorWindowAgent* mWindowAgent;

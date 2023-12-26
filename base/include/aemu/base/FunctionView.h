@@ -14,10 +14,12 @@
 
 #pragma once
 
-#include "aemu/base/TypeTraits.h"
-
+#include <cstdint>
 #include <string_view>
 #include <utility>
+
+#include "aemu/base/TypeTraits.h"
+
 
 namespace android {
 namespace base {

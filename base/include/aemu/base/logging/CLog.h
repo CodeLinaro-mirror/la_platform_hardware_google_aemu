@@ -36,53 +36,42 @@
 extern "C" {
 #endif
 
-typedef enum {
-    kLogDefaultOptions = 0,
-    kLogEnableDuplicateFilter = 1,
-    kLogEnableTime = 1 << 2,
-    kLogEnableVerbose = 1 << 3,
-} LoggingFlags;
-
-// Enable/disable verbose logs from the base/* family.
-LOGGING_API void base_enable_verbose_logs();
-LOGGING_API void base_disable_verbose_logs();
-
-LOGGING_API void verbose_enable(uint64_t tag);
-LOGGING_API void verbose_disable(uint64_t tag);
-LOGGING_API bool verbose_check(uint64_t tag);
-LOGGING_API bool verbose_check_any();
-LOGGING_API void set_verbosity_mask(uint64_t mask);
-LOGGING_API uint64_t get_verbosity_mask();
-
-// Configure the logging framework.
-LOGGING_API void base_configure_logs(LoggingFlags flags);
-LOGGING_API void __emu_log_print(LogSeverity prio, const char* file, int line, const char* fmt,
-                                 ...);
+LOGGING_API void __emu_log_print(LogSeverity prio, const char* file, int line, const char* fmt, ...)
+    __attribute__((format(printf, 4, 5)));
 
 #ifndef EMULOG
 #define EMULOG(priority, fmt, ...) \
     __emu_log_print(priority, __FILE__, __LINE__, fmt, ##__VA_ARGS__);
 #endif
 
+#ifndef dprint
 // Logging support.
 #define dprint(fmt, ...)                               \
     if (EMULATOR_LOG_DEBUG >= getMinLogLevel()) {      \
         EMULOG(EMULATOR_LOG_DEBUG, fmt, ##__VA_ARGS__) \
     }
-
+#endif
+#ifndef dinfo
 #define dinfo(fmt, ...)                               \
     if (EMULATOR_LOG_INFO >= getMinLogLevel()) {      \
         EMULOG(EMULATOR_LOG_INFO, fmt, ##__VA_ARGS__) \
     }
+#endif
+#ifndef dwarning
 #define dwarning(fmt, ...)                               \
     if (EMULATOR_LOG_WARNING >= getMinLogLevel()) {      \
         EMULOG(EMULATOR_LOG_WARNING, fmt, ##__VA_ARGS__) \
     }
+#endif
+#ifndef derror
 #define derror(fmt, ...)                               \
     if (EMULATOR_LOG_ERROR >= getMinLogLevel()) {      \
         EMULOG(EMULATOR_LOG_ERROR, fmt, ##__VA_ARGS__) \
     }
+#endif
+#ifndef dfatal
 #define dfatal(fmt, ...) EMULOG(EMULATOR_LOG_FATAL, fmt, ##__VA_ARGS__)
+#endif
 
 #ifdef __cplusplus
 }
