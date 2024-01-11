@@ -127,15 +127,15 @@ void OutputLog(FILE* stream, char severity, const char* file, unsigned int line,
     // Output the actual log message and newline
     va_list args;
     va_start(args, format);
-    char temp[2048];
-    int ret = vsnprintf(temp, sizeof(temp), format, args);
-    temp[sizeof(temp) - 1] = 0;
-
     if (logger) {
-        logger("%s\n", temp);
+        logger(format, args);
     } else {
-        fprintf(stream, "%s\n", temp);
+        vfprintf(stream, format, args);
     }
     va_end(args);
-
+    if (logger) {
+        logger("\n");
+    } else {
+        fprintf(stream, "\n");
+    }
 }
