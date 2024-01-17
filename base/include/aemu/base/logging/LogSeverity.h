@@ -13,6 +13,16 @@
 // limitations under the License.
 #pragma once
 
+#ifdef _MSC_VER
+#ifdef LOGGING_API_SHARED
+#define LOGGING_API __declspec(dllexport)
+#else
+#define LOGGING_API __declspec(dllimport)
+#endif
+#else
+#define LOGGING_API
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -36,7 +46,9 @@ typedef enum LogSeverity {
 #endif
 } LogSeverity;
 
-extern LogSeverity android_log_severity;
+// Returns the minimal log level.
+LOGGING_API LogSeverity getMinLogLevel();
+LOGGING_API void setMinLogLevel(LogSeverity level);
 
 #ifdef __cplusplus
 }

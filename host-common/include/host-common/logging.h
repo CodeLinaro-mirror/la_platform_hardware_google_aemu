@@ -17,6 +17,11 @@
 #include <cstdint>
 #include <cstdio>
 
+typedef void (*gfxstream_logger_t)(const char* fmt, ...);
+
+void set_gfxstream_logger(gfxstream_logger_t f);
+void set_gfxstream_fine_logger(gfxstream_logger_t f);
+
 // Outputs a log line using Google's standard prefix. (http://go/logging#prefix)
 //
 // Do not use this function directly. Instead, use one of the logging macros below.

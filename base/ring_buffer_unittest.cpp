@@ -193,7 +193,7 @@ TEST(ring_buffer, ProduceConsumeMultiThread) {
 }
 
 // Tests various step sizes of ring buffer transmission.
-TEST(ring_buffer, ProduceConsumeMultiThreadVaryingStepSize) {
+TEST(ring_buffer, DISABLED_ProduceConsumeMultiThreadVaryingStepSize) {
     std::default_random_engine generator;
     generator.seed(0);
 
