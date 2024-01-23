@@ -28,5 +28,9 @@ std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>> resolveLayout(
         std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>> rect,
         const double monitorAspectRatio);
 
+std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>> resolveStackedLayout(
+        std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>> rectangles,
+        const uint32_t monitorWidth);
+
 }  // namespace base
 }  // namespace android
