@@ -27,6 +27,10 @@
 namespace android {
 namespace emulation {
 namespace {
+size_t align(size_t value, size_t alignment) {
+    return (value + alignment - 1) & (~(alignment - 1));
+}
+
 typedef AddressSpaceSharedSlotsHostMemoryAllocatorContext ASSSHMAC;
 typedef ASSSHMAC::MemBlock MemBlock;
 typedef MemBlock::FreeSubblocks_t FreeSubblocks_t;
@@ -35,15 +39,32 @@ using base::AutoLock;
 using base::Lock;
 
 #if defined(__APPLE__) && defined(__arm64__)
-constexpr uint32_t kAlignment = 16384;
+constexpr uint32_t kAllocAlignment = 16384;
 #else
-constexpr uint32_t kAlignment = 4096;
+constexpr uint32_t kAllocAlignment = 4096;
 #endif
 
 uint64_t allocateAddressSpaceBlock(const AddressSpaceHwFuncs* hw, uint32_t size) {
     uint64_t offset;
     if (hw->allocSharedHostRegionLocked(size, &offset)) {
         return 0;
+    } else {
+        return hw->getPhysAddrStartLocked() + offset;
+    }
+}
+
+uint64_t allocateAddressSpaceBlockFixed(uint64_t gpa, const AddressSpaceHwFuncs* hw, uint32_t size) {
+    uint64_t offset = gpa - hw->getPhysAddrStartLocked();
+    if (hw->allocSharedHostRegionFixedLocked(size, offset)) {
+        // Note: even if we do not succeed in allocSharedHostRegionFixedLocked,
+        // assume this is because we're doing a snapshot load, and the VMSTATE
+        // description of memory slots in hw/pci/goldfish_address_space.c
+        // already contains the entry we wanted. TODO: Consider always
+        // allowing allocSharedHostRegionFixedLocked succeed if it encounters
+        // an unavailable block at the same offset and size, and/or add a
+        // "forSnapshotLoad" flag to allocSharedHostRegionFixedLocked in order
+        // to specifically account for this case.
+        return hw->getPhysAddrStartLocked() + offset;
     } else {
         return hw->getPhysAddrStartLocked() + offset;
     }
@@ -72,7 +93,7 @@ std::pair<uint64_t, MemBlock*> translatePhysAddr(uint64_t p) {
 
 MemBlock::MemBlock(const address_space_device_control_ops* o, const AddressSpaceHwFuncs* h, uint32_t sz)
         : ops(o), hw(h) {
-    bits = android::aligned_buf_alloc(kAlignment, sz);
+    bits = android::aligned_buf_alloc(kAllocAlignment, sz);
     bitsSize = sz;
     physBase = allocateAddressSpaceBlock(hw, sz);
     if (!physBase) {
@@ -230,7 +251,7 @@ bool MemBlock::load(base::Stream* stream,
                     MemBlock* block) {
     const uint64_t physBaseLoaded = stream->getBe64();
     const uint32_t bitsSize = stream->getBe32();
-    void* const bits = android::aligned_buf_alloc(kAlignment, bitsSize);
+    void* const bits = android::aligned_buf_alloc(kAllocAlignment, bitsSize);
     if (!bits) {
         return false;
     }
@@ -238,7 +259,7 @@ bool MemBlock::load(base::Stream* stream,
         android::aligned_buf_free(bits);
         return false;
     }
-    const uint64_t physBase = allocateAddressSpaceBlock(hw, bitsSize);
+    const uint64_t physBase = allocateAddressSpaceBlockFixed(physBaseLoaded, hw, bitsSize);
     if (!physBase) {
         android::aligned_buf_free(bits);
         return false;
@@ -307,8 +328,7 @@ void AddressSpaceSharedSlotsHostMemoryAllocatorContext::perform(AddressSpaceDevi
 uint64_t
 AddressSpaceSharedSlotsHostMemoryAllocatorContext::allocate(
         AddressSpaceDevicePingInfo *info) {
-    const uint32_t alignedSize =
-        ((info->size + kAlignment - 1) / kAlignment) * kAlignment;
+    const uint32_t alignedSize = align(info->size, (*m_hw->getGuestPageSize)());
 
     AutoLock lock(g_blocksLock);
     for (auto& kv : g_blocks) {

@@ -28,7 +28,8 @@ public:
         Unallocate = 2
     };
 
-    AddressSpaceHostMemoryAllocatorContext(const address_space_device_control_ops *ops);
+    AddressSpaceHostMemoryAllocatorContext(const address_space_device_control_ops *ops,
+                                           const AddressSpaceHwFuncs* hw);
     ~AddressSpaceHostMemoryAllocatorContext();
 
     void perform(AddressSpaceDevicePingInfo *info) override;
@@ -51,6 +52,7 @@ private:
 
     std::unordered_map<uint64_t, std::pair<void *, size_t>> m_paddr2ptr;
     const address_space_device_control_ops *m_ops;  // do not save/load
+    const AddressSpaceHwFuncs* m_hw;
 };
 
 }  // namespace emulation
