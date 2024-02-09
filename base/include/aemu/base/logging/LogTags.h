@@ -17,7 +17,7 @@ extern "C" {
 #endif
 
 #ifndef VERBOSE_TAG_LIST
-    #error "_VERBOSE_TAG(xx, yy) List not defined."
+#error "_VERBOSE_TAG(xx, yy) List not defined."
 #endif
 
 #define _VERBOSE_TAG(x, y) VERBOSE_##x,
@@ -26,24 +26,22 @@ typedef enum {
 } VerboseTag;
 #undef _VERBOSE_TAG
 
-
-#define VERBOSE_ENABLE(tag) verbose_enable((int64_t) VERBOSE_##tag)
+#define VERBOSE_ENABLE(tag) verbose_enable((int64_t)VERBOSE_##tag)
 #define VERBOSE_DISABLE(tag) verbose_disable(int64_t) VERBOSE_##tag)
-#define VERBOSE_CHECK(tag)  verbose_check((int64_t) VERBOSE_##tag)
+#define VERBOSE_CHECK(tag) verbose_check((int64_t)VERBOSE_##tag)
 #define VERBOSE_CHECK_ANY() verbose_check_any();
 
-#define VERBOSE_PRINT(tag, ...)                      \
-    if (VERBOSE_CHECK(tag)) {                        \
-        EMULOG(EMULATOR_LOG_DEBUG, ##__VA_ARGS__); \
+#define VERBOSE_PRINT(tag, ...) \
+    if (VERBOSE_CHECK(tag)) {   \
+        dprint(__VA_ARGS__);  \
     }
 
-#define VERBOSE_INFO(tag, ...)                    \
-    if (VERBOSE_CHECK(tag)) {                     \
-        EMULOG(EMULATOR_LOG_INFO, ##__VA_ARGS__); \
+#define VERBOSE_INFO(tag, ...) \
+    if (VERBOSE_CHECK(tag)) {  \
+        dinfo(__VA_ARGS__);  \
     }
 
 #define VERBOSE_DPRINT(tag, ...) VERBOSE_PRINT(tag, __VA_ARGS__)
-
 
 #ifdef __cplusplus
 }
