@@ -11,7 +11,6 @@ package {
 cc_library_static {
     name: "gfxstream_base",
     defaults: ["gfxstream_defaults"],
-    header_libs: ["gfxstream_renderdoc_headers"],
     srcs: [
         "AlignedBuf.cpp",
         "CompressingStream.cpp",
@@ -39,7 +38,8 @@ cc_library_static {
         "Tracing.cpp",
         "Thread_pthread.cpp",
     ],
-    export_header_lib_headers: ["gfxstream_renderdoc_headers"],
+    header_libs: ["libgfxstream_thirdparty_renderdoc_headers"],
+    export_header_lib_headers: ["libgfxstream_thirdparty_renderdoc_headers"],
     static_libs: ["liblz4"],
 }
 
