@@ -70,11 +70,8 @@ public:
         } else {
             AutoLock lock(mMapLock);
             // Fixed allocations require us to update mIndexForMap to catch up with it.
-            // We assume that addFixed/add for the map case do not interleave badly
-            // (addFixed at i, add at i+1, addFixed at i+1)
-            mIndexForMap = index_u64;
+            mIndexForMap = std::max(index_u64 + 1, mIndexForMap);
             mMap[index_u64] = data;
-            ++mIndexForMap;
             return index;
         }
     }
