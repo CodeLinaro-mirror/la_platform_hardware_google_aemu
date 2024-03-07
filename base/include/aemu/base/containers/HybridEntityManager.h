@@ -57,7 +57,12 @@ public:
             mIndexForMap = maxIndex;
         }
         nextIndex = mIndexForMap;
-        mMap[nextIndex] = data;
+        auto emplaced = mMap.emplace(nextIndex, data);
+        if (!emplaced.second) {
+            fprintf(stderr, "%s: fatal: trying to insert duplicated entry 0x%llx\n", __func__,
+                    (unsigned long long)nextIndex);
+            abort();
+        }
         ++mIndexForMap;
         return EM::makeHandle(nextIndex, 1, type);
     }
@@ -71,7 +76,12 @@ public:
             AutoLock lock(mMapLock);
             // Fixed allocations require us to update mIndexForMap to catch up with it.
             mIndexForMap = std::max(index_u64 + 1, mIndexForMap);
-            mMap[index_u64] = data;
+            auto emplaced = mMap.emplace(index_u64, data);
+            if (!emplaced.second) {
+                fprintf(stderr, "%s: fatal: trying to insert duplicated entry 0x%llx\n", __func__,
+                        (unsigned long long)index_u64);
+                abort();
+            }
             return index;
         }
     }

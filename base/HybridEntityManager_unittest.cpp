@@ -24,7 +24,7 @@ using TestHCM = HybridEntityManager<kTestMaxIndex, uint64_t, int>;
 TEST(HybridEntityManager, UpdateIndex) {
     TestHCM m;
     // Occupy all linear entries.
-    for (uint32_t i = 0; i < kTestMaxIndex + 1; i++) {
+    for (uint32_t i = 0; i < kTestMaxIndex; i++) {
         m.add(i, 1);
     }
     int indices[4];
