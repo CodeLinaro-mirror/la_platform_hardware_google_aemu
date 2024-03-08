@@ -52,6 +52,8 @@ namespace emugl {
     EMUGL_COMMON_API void setAvdInfo(bool isPhone, int apiLevel);
     EMUGL_COMMON_API void getAvdInfo(bool* isPhone, int* apiLevel);
 
+    EMUGL_COMMON_API void setShouldSkipDraw(bool skip);
+    EMUGL_COMMON_API bool shouldSkipDraw();
     // CPU usage get/set.
     EMUGL_COMMON_API void setCpuUsage(android::base::CpuUsage* usage);
     EMUGL_COMMON_API android::base::CpuUsage* getCpuUsage();
