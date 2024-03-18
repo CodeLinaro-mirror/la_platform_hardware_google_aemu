@@ -51,5 +51,6 @@ void feature_set_if_not_overridden_or_guest_disabled(Feature feature, bool enabl
 void feature_update_from_server();
 
 const char* feature_name(Feature feature);
+Feature feature_from_name(const char* name);
 
 ANDROID_END_HEADER
