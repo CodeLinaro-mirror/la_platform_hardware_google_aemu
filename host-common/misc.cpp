@@ -21,12 +21,23 @@
 static int s_apiLevel = -1;
 static bool s_isPhone = false;
 
+static bool s_shouldSkipDrawing = false;
+
 android::base::CpuUsage* s_cpu_usage = nullptr;
 android::base::MemoryTracker* s_mem_usage = nullptr;
 
 void emugl::setAvdInfo(bool phone, int apiLevel) {
     s_isPhone = phone;
     s_apiLevel = apiLevel;
+}
+
+bool emugl::shouldSkipDraw() {
+    return s_shouldSkipDrawing;
+}
+
+
+void emugl::setShouldSkipDraw(bool skip) {
+    s_shouldSkipDrawing = skip;
 }
 
 void emugl::getAvdInfo(bool* phone, int* apiLevel) {
