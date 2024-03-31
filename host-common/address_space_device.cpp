@@ -69,8 +69,22 @@ public:
 
     void destroyHandle(uint32_t handle) {
         AS_DEVICE_DPRINT("erase handle: %u", handle);
-        AutoLock lock(mContextsLock);
-        mContexts.erase(handle);
+
+        std::unique_ptr<AddressSpaceDeviceContext> context;
+
+        {
+            AutoLock lock(mContextsLock);
+
+            auto contextDescriptionIt = mContexts.find(handle);
+            if (contextDescriptionIt == mContexts.end()) return;
+            auto& contextDescription = contextDescriptionIt->second;
+
+            context = std::move(contextDescription.device_context);
+
+            mContexts.erase(contextDescriptionIt);
+        }
+
+        // Destroy `context` without holding the lock.
     }
 
     void tellPingInfo(uint32_t handle, uint64_t gpa) {
