@@ -47,6 +47,9 @@ typedef struct EmulatorWindow EmulatorWindow;
 typedef void (*UiUpdateFunc)(void* data);
 
 typedef struct QAndroidEmulatorWindowAgent {
+    // Initialize the UI, e.g. load and apply settings from all windows
+    void (*initUI)();
+
     // Get a pointer to the emulator window structure.
     EmulatorWindow* (*getEmulatorWindow)(void);
 

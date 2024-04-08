@@ -150,7 +150,8 @@ if (ENABLE_VKCEREAL_TESTS)
             StringFormat_unittest.cpp
             SubAllocator_unittest.cpp
             TypeTraits_unittest.cpp
-            WorkerThread_unittest.cpp)
+            WorkerThread_unittest.cpp
+            HybridEntityManager_unittest.cpp)
     endif()
     add_executable(aemu-base_unittests ${aemu-base-test-srcs})
     target_link_libraries(
