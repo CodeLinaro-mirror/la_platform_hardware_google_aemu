@@ -94,6 +94,20 @@ using is_trivially_default_constructible =
 // Atomic state variable type. Used to ensure to synchronize concurrent
 // initialization and access without incurring the full cost of a mutex
 // lock/unlock.
+
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! DEPRECATED !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+// Please don't use this macro. Use a function-local static of type
+// android::base::NoDestructor<T> instead:
+//
+// Factory& Factory::GetInstance() {
+//   static base::NoDestructor<Factory> instance;
+//   return *instance;
+// }
+//
+// From C++20 onwards this will no longer compile. See:
+// See https://github.com/microsoft/STL/issues/661
+// For details on issues and guarantees around atomic initialization.
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 struct LazyInstanceState {
     enum class State : char {
         Init = 0,
@@ -180,7 +194,7 @@ T* LazyInstance<T>::ptrInternal() const {
     static_assert(std::is_standard_layout<LazyInstance>::value,
                   "LazyInstance<T> is not a standard layout type");
 #ifndef _MSC_VER
-    // These checks are not working in vs2019.. 
+    // These checks are not working in vs2019..
     static_assert(
             internal::is_trivially_default_constructible<LazyInstance>::value,
             "LazyInstance<T> can't be trivially default constructed");
