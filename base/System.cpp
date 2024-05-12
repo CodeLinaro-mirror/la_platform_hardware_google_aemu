@@ -39,7 +39,7 @@
 #endif  // __APPLE__
 
 #ifdef _MSC_VER
-// #include "msvc-posix.h"
+// #include "aemu/base/msvc.h"
 // #include <dirent.h>
 #else
 #include <time.h>
@@ -145,7 +145,7 @@ static const TickCountImpl kTickCount;
 namespace android {
 namespace base {
 
-std::string getEnvironmentVariable(const std::string& key) { 
+std::string getEnvironmentVariable(const std::string& key) {
 #ifdef _WIN32
     Win32UnicodeString varname_unicode(key);
     const wchar_t* value = _wgetenv(varname_unicode.c_str());
