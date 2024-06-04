@@ -20,7 +20,7 @@
 #include "android/utils/file_io.h"  // for android_mkdir, android_stat
 
 #ifdef _MSC_VER
-#include "msvc-posix.h"
+#include "aemu/base/msvc.h"
 using uid_t = uint32_t;
 using gid_t = uint32_t;
 #endif
