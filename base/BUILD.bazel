@@ -100,6 +100,7 @@ cc_library(
     linkopts = select({
         "@platforms//os:linux": [
             "-ldl",
+            "-lrt",
         ],
         "@platforms//os:windows": [
             "-DEFAULTLIB:Shlwapi.lib",
