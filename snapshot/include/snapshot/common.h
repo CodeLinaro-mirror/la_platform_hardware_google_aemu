@@ -111,6 +111,11 @@ enum class FailureReason {
     OutOfDiskSpace,
 
     InProgressLimit = 30000,
+
+    UnsupportedVkApp = 30001,
+    UnsupportedVkApi = 30002,
+
+    UnsupportedVkUsageLimit = 40000,
 };
 
 FailureReason errnoToFailure(int error);
