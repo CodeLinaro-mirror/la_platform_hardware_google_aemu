@@ -7,7 +7,6 @@ namespace base {
 
 std::string getEnvironmentVariable(const std::string& key);
 void setEnvironmentVariable(const std::string& key, const std::string& value);
-bool isVerboseLogging();
 
 uint64_t getUnixTimeUs();
 uint64_t getHighResTimeUs();

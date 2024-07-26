@@ -22,6 +22,8 @@ typedef void (*gfxstream_logger_t)(const char* fmt, ...);
 void set_gfxstream_logger(gfxstream_logger_t f);
 void set_gfxstream_fine_logger(gfxstream_logger_t f);
 
+void set_gfxstream_enable_verbose_logs();
+
 // Outputs a log line using Google's standard prefix. (http://go/logging#prefix)
 //
 // Do not use this function directly. Instead, use one of the logging macros below.
@@ -73,6 +75,11 @@ void OutputLog(FILE* stream, char severity, const char* file, unsigned int line,
 #define INFO(fmt, ...)                                  \
     do {                                                \
         GFXSTREAM_LOG(stderr, 'I', fmt, ##__VA_ARGS__); \
+    } while (0)
+
+#define VERBOSE(fmt, ...)                               \
+    do {                                                \
+        GFXSTREAM_LOG(stderr, 'V', fmt, ##__VA_ARGS__); \
     } while (0)
 
 // Note: FATAL is defined in host-common/include/host-common/GfxstreamFatalError.h
