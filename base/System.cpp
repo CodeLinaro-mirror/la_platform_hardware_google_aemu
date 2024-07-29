@@ -178,10 +178,6 @@ void setEnvironmentVariable(const std::string& key, const std::string& value) {
 #endif
 }
 
-bool isVerboseLogging() {
-    return false;
-}
-
 int fdStat(int fd, PathStat* st) {
 #ifdef _WIN32
     return _fstat64(fd, st);
