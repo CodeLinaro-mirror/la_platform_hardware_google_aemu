@@ -272,6 +272,16 @@ service EmulatorController {
     // is not resizable. The following gRPC error codes can be returned:
     // -  FAILED_PRECONDITION (code 9) if the AVD is not resizable.
     rpc setDisplayMode(DisplayMode) returns (google.protobuf.Empty) {}
+
+    // Changes the XR-related settings. Fails if the AVD is not XR. The
+    // following gRPC error codes can be returned:
+    // -  FAILED_PRECONDITION (code 9) if the AVD is not XR.
+    rpc setXrOptions(XrOptions) returns (google.protobuf.Empty) {}
+
+    // Gets the current state of XR-related settings. Fails if the AVD is not
+    // XR. The following gRPC error codes can be returned:
+    // -  FAILED_PRECONDITION (code 9) if the AVD is not XR.
+    rpc getXrOptions(google.protobuf.Empty) returns (XrOptions) {}
 }
 
 // A Run State that describes the state of the Virtual Machine.
@@ -486,6 +496,26 @@ message DisplayMode {
     DisplayModeValue value = 1;
 }
 
+message XrOptions {
+    enum Environment {
+        LIVING_ROOM_DAY = 0;
+        LIVING_ROOM_NIGHT = 1;
+        // More environments may be added later.
+    }
+
+    // The currently active artificial surrounding environment (a.k.a.
+    // passthrough environment).
+    Environment environment = 1;
+
+    // A value of 0.0 means that the real or artificial surrounding environment
+    // (a.k.a. passthrough environment) is not visible. A value of 1.0 means
+    // that the passthrough environment is fully visible. Any value outside of
+    // the range [0.0-1.0] is ignored and leaves the state of passthrough
+    // unchanged. For simplicity of the implementation, this number may be
+    // rounded to an integer before applying.
+    float passthrough_coefficient = 2;
+}
+
 message LogMessage {
     // [Output Only] The contents of the log output.
     string contents = 1;
@@ -690,11 +720,11 @@ message PenEvent {
 // interacting with a pointing device (such as a mouse).
 message MouseEvent {
     // The horizontal coordinate. This is the physical location on the
-    // screen For example 0 indicates the leftmost coordinate.
+    // screen, where 0 indicates the leftmost coordinate.
     int32 x = 1;
 
-    // The vertical coordinate. This is the physical location on the screen
-    // For example 0 indicates the top left coordinate.
+    // The vertical coordinate. This is the physical location on the screen,
+    // where 0 indicates the topmost coordinate.
     int32 y = 2;
 
     // Indicates which buttons are pressed.
@@ -820,6 +850,129 @@ message KeyboardEvent {
     string text = 5;
 }
 
+message XrInputEvent {
+    // For this message, movement and rotation angles are relative to the
+    // camera's current orientation.
+    // The coordinate system is right-handed and is defined as follows:
+    //   x axis is pointing right
+    //   y axis is pointing up
+    //   z axis is pointing towards the viewer
+
+    message NavButtonPressEvent {
+        // If a value is set to false, it may not be set.
+        // NONE of these values are mutually exclusive, but combining opposites
+        // may result in no effective change on the guest.
+
+        // Whether there is an intent to move the viewport forward relative to
+        // the viewer (-z direction). (Note that this means visible content will
+        // move closer to the viewer.)
+        bool forward_held = 1;
+
+        // Whether there is an intent to move the viewport backward relative to
+        // the veiwer (+z direction). (Note that this means visible content
+        // will move further from the viewer.)
+        bool backward_held = 2;
+
+        // Whether there is an intent to move the viewport to the left (-x
+        // direction). (Note that this means visible content will appear to
+        // shift to the right.)
+        bool left_held = 3;
+
+        // Whether there is an intent to move the viewport to the right (+x
+        // direction). (Note that this means visible content will appear to
+        // shift to the left.)
+        bool right_held = 4;
+
+        // Whether there is an intent to move the viewport upward (+y
+        // direction). (Note that this means visible content will appear to
+        // shift downward.)
+        bool up_held = 5;
+
+        // Whether there is an intent to move the viewport downward (-y
+        // direction). (Note that this means visible content will appear to
+        // shift upward.)
+        bool down_held = 6;
+
+        // Whether there is an intent to rotate the viewport to the left
+        // (positive rotation around y-axis).
+        bool rotate_left_held = 7;
+
+        // Whether there is an intent to rotate the viewport to the right
+        // (negative rotation around y-axis).
+        bool rotate_right_held = 8;
+
+        // Whether there is an intent to rotate the viewport upward (positive
+        // rotation around the x-axis).
+        bool rotate_up_held = 9;
+
+        // Whether there is an intent to rotate the viewport downward (negative
+        // rotation around the x-axis).
+        bool rotate_down_held = 10;
+    }
+
+    message RelativeMoveEvent {
+        // Intent of this relative movement. Semantics are as follows:
+        enum Intent {
+            // rel_x shifts the viewport in the horizontal axis, positive values
+            //       correspond to positive x-axis values, or moving the
+            //       viewport to the right.
+            // rel_y shifts the viewport in the vertical axis, positive values
+            //       correspond to negative y-axis values, or moving the
+            //       viewport downward.
+            XR_MOVE_EVENT_INTENT_VIEWPORT_PAN = 0;
+
+            // rel_y shifts the viewport in the z-axis, positive values
+            //       correspond to positive z-axis values, or moving the
+            //       viewport backward relative to the viewer.
+            // rel_x is ignored.
+            XR_MOVE_EVENT_INTENT_VIEWPORT_ZOOM = 1;
+
+            // rel_y rotates the viewport around the x-axis, positive values
+            //       correspond to rotating the viewport downward (negative
+            //       rotation around the x-axis).
+            // rel_x rotates the viewport around the y-axis, positive values
+            //       correspond to rotating the viewport to the right (negative
+            //       rotation around the y-axis).
+            XR_MOVE_EVENT_INTENT_VIEWPORT_ROTATE = 2;
+        }
+
+        Intent intent = 1;
+
+        // An adjustable scaling factor will be applied by the guest OS to
+        // convert from display pixels to meters or degrees as appropriate.
+
+        // The update-to-update difference in position in display pixels for the
+        // mouse in the x-axis, where 0 represents the leftmost coordinate.
+        sint32 rel_x = 2;
+
+        // The update-to-update difference in position in display pixels for the
+        // mouse in the y-axis, where 0 represents the topmost coordinate.
+        sint32 rel_y = 3;
+    }
+
+    oneof type {
+        // The current state of the navigation buttons; similar to
+        // keypresses.
+        NavButtonPressEvent nav_event = 1;
+
+        // Relative motion update, including an intent and relative mouse cursor
+        // position changes.
+        RelativeMoveEvent move_event = 2;
+    }
+}
+
+message XrCommand {
+    enum Action {
+        // Recenter the viewport position and rotation.
+        RECENTER = 0;
+
+        // Show the XR taskbar.
+        SHOW_TASKBAR = 1;
+    }
+
+    Action action = 1;
+}
+
 // An input event that can be delivered to the emulator.
 message InputEvent {
     oneof type {
@@ -829,6 +982,10 @@ message InputEvent {
         AndroidEvent android_event = 4;
         PenEvent pen_event = 5;
         WheelEvent wheel_event = 6;
+        MouseEvent xr_hand_event = 7;
+        MouseEvent xr_eye_event = 8;
+        XrInputEvent xr_input_event = 9;
+        XrCommand command = 10;
     }
 };
 
@@ -1334,6 +1491,11 @@ message Notification {
         Posture posture = 4;
         BootCompletedNotification booted = 5;
         BrightnessValue brightness = 6;
+
+        // This notification is sent when a TextView receives or loses focus.
+        // It is also sent immediately in response to the streamNotification
+        // call.
+        TextViewFocus textViewFocus = 7;
     }
 }
 
@@ -1349,6 +1511,15 @@ message CameraNotification {
     // Indicates whether the camera app was activated or deactivated.
     bool active = 1;
     // The display the camera app is associated with.
+    int32 display = 2;
+}
+
+message TextViewFocus {
+    // Indicates whether a text view currently has focus.
+    bool textViewHasFocus = 1;
+
+    // If a text view has focus, the display where the text view is located.
+    // Otherwise, unset.
     int32 display = 2;
 }
 
