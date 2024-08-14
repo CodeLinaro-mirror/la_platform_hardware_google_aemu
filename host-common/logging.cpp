@@ -37,6 +37,7 @@ constexpr int kMaxThreadIdLength = 7;  // 7 digits for the thread id is what Goo
 
 gfxstream_logger_t sLogger = nullptr;
 gfxstream_logger_t sFineLogger = nullptr;
+bool sEnableVerbose = false;
 
 // Returns the current thread id as a string of at most kMaxThreadIdLength characters.
 // We try to avoid using std::this_thread::get_id() because on Linux at least it returns a long
@@ -88,11 +89,19 @@ void set_gfxstream_logger(gfxstream_logger_t f) { sLogger = f; }
 
 void set_gfxstream_fine_logger(gfxstream_logger_t f) { sFineLogger = f; }
 
+void set_gfxstream_enable_verbose_logs() { sEnableVerbose = true; }
+
+
 void OutputLog(FILE* stream, char severity, const char* file, unsigned int line,
                int64_t timestamp_us, const char* format, ...) {
     gfxstream_logger_t logger =
-        severity == 'I' || severity == 'W' || severity == 'E' || severity == 'F' ? sLogger
-                                                                                 : sFineLogger;
+        severity == 'V' || severity == 'I' || severity == 'W' || severity == 'E' || severity == 'F'
+            ? sLogger
+            : sFineLogger;
+
+    if (severity == 'V' && !sEnableVerbose) {
+        return;
+    }
 
     if (timestamp_us == 0) {
         timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(

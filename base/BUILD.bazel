@@ -77,7 +77,6 @@ cc_library(
             "SharedMemory_win32.cpp",
             "Thread_win32.cpp",
             "Win32UnicodeString.cpp",
-            "msvc.cpp",
         ],
         "@platforms//os:macos": [
             "SharedMemory_posix.cpp",
@@ -122,6 +121,9 @@ cc_library(
         "@platforms//os:macos": [
             ":aemu-base-darwin",
         ],
+        "@platforms//os:windows": [
+            "//external/qemu/google/compat/windows:compat",
+        ],
         "//conditions:default": [],
     }),
 )
@@ -145,13 +147,15 @@ cc_test(
         "ring_buffer_unittest.cpp",
         "testing/file_io.cpp",
     ] + select({
-        "@platforms//os:windows": ["Win32UnicodeString_unittest.cpp"],
+        "@platforms//os:windows": [
+            "Win32UnicodeString_unittest.cpp",
+        ],
         "//conditions:default": [],
     }),
     deps = [
         ":aemu-base",
         ":aemu-base-headers",
-        "//hardware/google/aemu/base:aemu-base-darwin",
+        "//hardware/generic/goldfish/android/logging:backend",
         "//hardware/google/aemu/base:aemu-base-metrics",
         "//hardware/google/aemu/host-common:logging",
         "@com_google_absl//absl/log",
