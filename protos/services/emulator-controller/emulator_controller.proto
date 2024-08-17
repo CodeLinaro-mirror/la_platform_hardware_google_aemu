@@ -985,7 +985,7 @@ message InputEvent {
         MouseEvent xr_hand_event = 7;
         MouseEvent xr_eye_event = 8;
         XrInputEvent xr_input_event = 9;
-        XrCommand command = 10;
+        XrCommand xr_command = 10;
     }
 };
 
