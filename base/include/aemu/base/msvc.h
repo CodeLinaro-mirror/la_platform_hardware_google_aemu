@@ -124,8 +124,8 @@ struct timezone {
 #define strncasecmp _strnicmp
 
 // From <stdio.h>
-#define fseeko64 _fseeki64
-#define ftello64 _ftelli64
+#define fseeko _fseeki64
+#define ftello _ftelli64
 
 // From <linux/limits.h>
 #define PATH_MAX MAX_PATH

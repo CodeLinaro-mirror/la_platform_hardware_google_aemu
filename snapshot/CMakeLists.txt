@@ -23,7 +23,3 @@ target_include_directories(
     ${SNAPSHOT_LIB_NAME}
     PUBLIC
     ${AEMU_COMMON_REPO_ROOT}/include)
-if (APPLE)
-    target_compile_definitions(
-        ${SNAPSHOT_LIB_NAME} PRIVATE -Dfseeko64=fseek -Dftello64=ftell)
-endif()
