@@ -38,6 +38,7 @@ constexpr int kMaxThreadIdLength = 7;  // 7 digits for the thread id is what Goo
 gfxstream_logger_t sLogger = nullptr;
 gfxstream_logger_t sFineLogger = nullptr;
 bool sEnableVerbose = false;
+bool sEnableColors = false;
 
 // Returns the current thread id as a string of at most kMaxThreadIdLength characters.
 // We try to avoid using std::this_thread::get_id() because on Linux at least it returns a long
@@ -91,6 +92,7 @@ void set_gfxstream_fine_logger(gfxstream_logger_t f) { sFineLogger = f; }
 
 void set_gfxstream_enable_verbose_logs() { sEnableVerbose = true; }
 
+void set_gfxstream_enable_log_colors() { sEnableColors = true; }
 
 void OutputLog(FILE* stream, char severity, const char* file, unsigned int line,
                int64_t timestamp_us, const char* format, ...) {
@@ -121,29 +123,43 @@ void OutputLog(FILE* stream, char severity, const char* file, unsigned int line,
     // Get the microseconds part of the timestamp since it's not available in the tm struct
     int64_t microseconds = timestamp_us % 1000000;
 
-    // Output the standard Google logging prefix
+    // Standard Google logging prefix
     // See also: https://github.com/google/glog/blob/9dc1107f88d3a1613d61b80040d83c1c1acbac3d/src/logging.cc#L1612-L1615
-    if (logger) {
-        logger("%c%02d%02d %02d:%02d:%02d.%06" PRId64 " %7s %s:%d] ", severity, ts_parts.tm_mon + 1,
-               ts_parts.tm_mday, ts_parts.tm_hour, ts_parts.tm_min, ts_parts.tm_sec, microseconds,
-               getCachedThreadID(), GetFileBasename(file), line);
-    } else {
-        fprintf(stream, "%c%02d%02d %02d:%02d:%02d.%06" PRId64 " %7s %s:%d] ", severity,
-                ts_parts.tm_mon + 1, ts_parts.tm_mday, ts_parts.tm_hour, ts_parts.tm_min,
-                ts_parts.tm_sec, microseconds, getCachedThreadID(), GetFileBasename(file), line);
-    }
+    char prefix[1024];
+    snprintf(prefix, sizeof(prefix), "%c%02d%02d %02d:%02d:%02d.%06" PRId64 " %7s %s:%d]", severity,
+            ts_parts.tm_mon + 1, ts_parts.tm_mday, ts_parts.tm_hour, ts_parts.tm_min,
+            ts_parts.tm_sec, microseconds, getCachedThreadID(), GetFileBasename(file), line);
 
-    // Output the actual log message and newline
+    // Actual log message
     va_list args;
     va_start(args, format);
-    char temp[2048];
-    int ret = vsnprintf(temp, sizeof(temp), format, args);
-    temp[sizeof(temp) - 1] = 0;
+    char formatted_message[2048];
+    int ret = vsnprintf(formatted_message, sizeof(formatted_message), format, args);
+    formatted_message[sizeof(formatted_message) - 1] = 0;
 
-    if (logger) {
-        logger("%s\n", temp);
+    // Output prefix and the message with a newline
+    if (sEnableColors) {
+        const char* colorTag = "";
+        const char* colorTagReset = "\x1B[0m";
+
+        // Colorize errors and warnings
+        if (severity == 'E' || severity == 'F') {
+            colorTag = "\x1B[31m";  // Red
+        } else if (severity == 'W') {
+            colorTag = "\x1B[33m";  // Yellow
+        }
+
+        if (logger) {
+            logger("%s%s %s\n%s", colorTag, prefix, formatted_message, colorTagReset);
+        } else {
+            fprintf(stream, "%s%s %s\n%s", colorTag, prefix, formatted_message, colorTagReset);
+        }
     } else {
-        fprintf(stream, "%s\n", temp);
+        if (logger) {
+            logger("%s %s\n", prefix, formatted_message);
+        } else {
+            fprintf(stream, "%s %s\n", prefix, formatted_message);
+        }
     }
     va_end(args);
 
