@@ -305,7 +305,8 @@ protected:
      *         successful, or std::nullopt if process creation failed.
      */
     virtual std::optional<Pid> createProcess(const CommandArguments& args,
-                                             bool captureOutput) = 0;
+                                             bool captureOutput,
+                                             bool replace) = 0;
 
     /**
      * Creates the ProcessOverseer object responsible for monitoring the child
