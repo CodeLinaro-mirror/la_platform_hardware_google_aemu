@@ -23,6 +23,7 @@ void set_gfxstream_logger(gfxstream_logger_t f);
 void set_gfxstream_fine_logger(gfxstream_logger_t f);
 
 void set_gfxstream_enable_verbose_logs();
+void set_gfxstream_enable_log_colors();
 
 // Outputs a log line using Google's standard prefix. (http://go/logging#prefix)
 //
