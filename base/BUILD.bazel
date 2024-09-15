@@ -57,6 +57,7 @@ cc_library(
         "FileUtils.cpp",
         "FunctorThread.cpp",
         "GLObjectCounter.cpp",
+        "GraphicsObjectCounter.cpp",
         "HealthMonitor.cpp",
         "LayoutResolver.cpp",
         "MemStream.cpp",
