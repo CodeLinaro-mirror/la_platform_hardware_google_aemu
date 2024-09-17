@@ -25,6 +25,7 @@ if (BUILD_STANDALONE)
             FileUtils.cpp
             FunctorThread.cpp
             GLObjectCounter.cpp
+            GraphicsObjectCounter.cpp
             HealthMonitor.cpp
             LayoutResolver.cpp
             MemStream.cpp
