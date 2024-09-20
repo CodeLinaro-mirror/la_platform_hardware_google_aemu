@@ -16,7 +16,12 @@ cc_library(
     deps = [
         "//hardware/google/aemu/host-common:aemu-host-common-headers",
         "@com_google_absl//absl/strings:str_format",
-    ],
+    ] + select({
+        "@platforms//os:windows": [
+            "//hardware/google/aemu/windows:compat-hdrs",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 cc_library(

@@ -10,7 +10,12 @@ package {
 
 cc_library_static {
     name: "gfxstream_base",
-    defaults: ["gfxstream_defaults"],
+    host_supported: true,
+    vendor_available: true,
+    cflags: [
+        "-Wno-unused-parameter",
+        "-Wno-reorder-ctor",
+    ],
     srcs: [
         "AlignedBuf.cpp",
         "CompressingStream.cpp",
@@ -39,9 +44,17 @@ cc_library_static {
         "Tracing.cpp",
         "Thread_pthread.cpp",
     ],
-    header_libs: ["libgfxstream_thirdparty_renderdoc_headers"],
+    header_libs: [
+        "libgfxstream_thirdparty_renderdoc_headers",
+        "aemu_common_headers",
+
+    ],
     export_header_lib_headers: ["libgfxstream_thirdparty_renderdoc_headers"],
     static_libs: ["liblz4"],
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.virt",
+    ],
 }
 
 // Run with `atest --host gfxstream_base_tests`
