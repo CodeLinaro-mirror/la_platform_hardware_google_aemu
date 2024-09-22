@@ -25,6 +25,7 @@
 #define FILETIME_1970 116444736000000000ull
 #define HECTONANOSEC_PER_SEC 10000000ull
 
+
 int mkstemp(char* t) {
     // TODO(joshuaduong): Support unicode (b/117322783)
     int len = strlen(t) + 1;
