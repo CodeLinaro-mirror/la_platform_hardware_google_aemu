@@ -150,9 +150,9 @@ void OutputLog(FILE* stream, char severity, const char* file, unsigned int line,
         }
 
         if (logger) {
-            logger("%s%s %s\n%s", colorTag, prefix, formatted_message, colorTagReset);
+            logger("%s%s %s%s\n", colorTag, prefix, formatted_message, colorTagReset);
         } else {
-            fprintf(stream, "%s%s %s\n%s", colorTag, prefix, formatted_message, colorTagReset);
+            fprintf(stream, "%s%s %s%s\n", colorTag, prefix, formatted_message, colorTagReset);
         }
     } else {
         if (logger) {

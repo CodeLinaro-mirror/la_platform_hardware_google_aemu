@@ -37,6 +37,12 @@ target_include_directories(
     INTERFACE
     include)
 
+if (MSVC)
+    target_link_libraries(
+        aemu-host-common.headers
+        INTERFACE
+        msvc-posix-compat)
+endif()
 if (BUILD_STANDALONE)
     add_library(
         aemu-host-common
