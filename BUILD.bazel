@@ -20,3 +20,13 @@ license_kind(
     conditions = ["notice"],
     url = "https://spdx.org/licenses/Apache-2.0.html",
 )
+
+cc_library(
+    name = "aemu-host-common-test-headers",
+    hdrs = glob([
+        "host-common/testing/**/*.h",
+        "host-common/testing/**/*.hpp",
+    ]),
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+)
