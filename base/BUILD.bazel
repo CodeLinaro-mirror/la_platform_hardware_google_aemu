@@ -146,6 +146,7 @@ cc_test(
         "ManagedDescriptor_unittest.cpp",
         "NoDestructor_unittest.cpp",
         "Optional_unittest.cpp",
+        "RecurrentTask_unittest.cpp",
         "StringFormat_unittest.cpp",
         "SubAllocator_unittest.cpp",
         "TypeTraits_unittest.cpp",
@@ -158,10 +159,15 @@ cc_test(
         ],
         "//conditions:default": [],
     }),
+    linkopts = [
+        "-undefined error",
+    ],
     deps = [
         ":aemu-base",
         ":aemu-base-headers",
         "//hardware/generic/goldfish/android/logging:backend",
+        "//hardware/generic/goldfish/android/looper",
+        "//hardware/generic/goldfish/android/sockets",
         "//hardware/google/aemu/base:aemu-base-metrics",
         "//hardware/google/aemu/host-common:logging",
         "@com_google_absl//absl/log",

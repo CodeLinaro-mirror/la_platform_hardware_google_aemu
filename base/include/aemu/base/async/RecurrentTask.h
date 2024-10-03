@@ -11,117 +11,167 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 #pragma once
-
-#include "aemu/base/async/Looper.h"
-#include "aemu/base/Compiler.h"
-#include "aemu/base/synchronization/ConditionVariable.h"
-#include "aemu/base/synchronization/Lock.h"
-#include "aemu/base/memory/ScopedPtr.h"
-
+#include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <memory>
+#include <mutex>
+
+#include "aemu/base/async/Looper.h"
 
 namespace android {
 namespace base {
 
-// A RecurrentTask is an object that allows you to run a task repeatedly on the
-// event loop, until you're done.
-// Example:
-//
-//     class AreWeThereYet {
-//     public:
-//         AreWeThereYet(Looper* looper) :
-//                 mAskRepeatedly(looper,
-//                                [this]() { return askAgain(); },
-//                                1 * 60 * 1000) {}
-//
-//         bool askAgain() {
-//             std::cout << "Are we there yet?" << std::endl;
-//             return rand() % 2;
-//         }
-//
-//         void startHike() {
-//             mAskRepeatedly.start();
-//         }
-//
-//     private:
-//         RecurrentTask mAskRepeatedly;
-//     };
-//
-// Note: RecurrentTask is meant to execute a task __on the looper thread__.
-// It is thread safe though.
+/**
+ * @class RecurrentTask
+ * @brief A class to run a recurring task on a Looper event loop.
+ *
+ * The RecurrentTask allows scheduling a task that will run repeatedly
+ * at a defined interval on the event loop. The task will continue running
+ * until it is explicitly stopped.
+ */
 class RecurrentTask {
-public:
+   public:
+    /**
+     * @typedef TaskFunction
+     * @brief Defines the function type for the task to be run.
+     *
+     * The function returns a boolean indicating whether the task
+     * should be run again (`true`) or not (`false`).
+     */
     using TaskFunction = std::function<bool()>;
 
-    RecurrentTask(Looper* looper,
-                  TaskFunction function,
-                  Looper::Duration taskIntervalMs)
+    /**
+     * @brief Constructor to initialize a RecurrentTask.
+     *
+     * @param looper The Looper on which the task will be scheduled.
+     * @param function The task function that returns a boolean indicating
+     *                 whether the task should repeat.
+     * @param taskIntervalMs The interval (in milliseconds) between task executions.
+     */
+    RecurrentTask(Looper* looper, TaskFunction function, Looper::Duration taskIntervalMs)
         : mLooper(looper),
-          mFunction(function),
-          mTaskIntervalMs(int(taskIntervalMs)),
+          mFunction(std::move(function)),
+          mTaskIntervalMs(static_cast<int>(taskIntervalMs)),
           mTimer(mLooper->createTimer(&RecurrentTask::taskCallback, this)) {}
+
+    /**
+     * @brief Constructor to initialize a RecurrentTask.
+     *
+     * @param looper The Looper on which the task will be scheduled.
+     * @param function The task function that returns a boolean indicating
+     *                 whether the task should repeat.
+     * @param interval The interval (in milliseconds) between task executions.
+     */
+    RecurrentTask(Looper* looper, TaskFunction function, std::chrono::milliseconds interval)
+        : RecurrentTask(looper, function, interval.count()) {}
 
     ~RecurrentTask() { stopAndWait(); }
 
+    /**
+     * @brief Starts the task, scheduling it on the looper.
+     *
+     * @param runImmediately If true, runs the task immediately; otherwise, it waits
+     *                       for the task interval before running.
+     */
     void start(bool runImmediately = false) {
+        start(runImmediately ? std::chrono::milliseconds(0)
+                             : std::chrono::milliseconds(mTaskIntervalMs));
+    }
+
+    /**
+     * @brief Starts the task, scheduling it on the looper after an initial delay.
+     *
+     * @param initialDelay The delay (in milliseconds) before the first execution of the task.
+     */
+    void start(std::chrono::milliseconds initialDelay) {
         {
-            AutoLock lock(mLock);
+            std::lock_guard<std::mutex> lock(mMutex);
             mInFlight = true;
         }
-        mTimer->startRelative(runImmediately ? 0 : mTaskIntervalMs);
+        mTimer->startRelative(initialDelay.count());
     }
 
+    /**
+     * @brief Stops the task asynchronously.
+     *
+     * This function stops the timer and prevents any further task execution.
+     * The function will not wait for a currently running task to complete.
+     */
     void stopAsync() {
         mTimer->stop();
-
-        AutoLock lock(mLock);
+        std::lock_guard<std::mutex> lock(mMutex);
         mInFlight = false;
     }
 
+    /**
+     * @brief Stops the task and waits for any ongoing task to finish.
+     *
+     * Ensures that any currently running task completes before stopping the recurrent task.
+     */
     void stopAndWait() {
         mTimer->stop();
-
-        AutoLock lock(mLock);
+        std::unique_lock<std::mutex> lock(mMutex);
         mInFlight = false;
 
-        // Make sure we wait for the pending task to complete if it was running.
-        while (mInTimerCallback) {
-            mInTimerCondition.wait(&lock);
-        }
+        // Wait for the pending task to complete if it is running.
+        mInTimerCondition.wait(lock, [this]() { return !mInTimerCallback; });
     }
 
+    /**
+     * @brief Checks if the task is currently in flight (scheduled or running).
+     *
+     * @return true if the task is scheduled or running, false otherwise.
+     */
     bool inFlight() const {
-        AutoLock lock(mLock);
+        std::lock_guard<std::mutex> lock(mMutex);
         return mInFlight;
     }
 
+    /**
+     * @brief Blocks the calling thread until the task is running.
+     *
+     * This function waits until the task is either running or stops entirely.
+     */
     void waitUntilRunning() {
-        AutoLock lock(mLock);
-        while (mInFlight && !mInTimerCallback) {
-            mInTimerCondition.wait(&lock);
-        }
+        std::unique_lock<std::mutex> lock(mMutex);
+        mInTimerCondition.wait(lock, [this]() { return !mInFlight || mInTimerCallback; });
     }
 
+    /**
+     * @brief Gets the task execution interval in milliseconds.
+     *
+     * @return The interval (in milliseconds) between task executions.
+     */
     Looper::Duration taskIntervalMs() const { return mTaskIntervalMs; }
 
-protected:
-    static void taskCallback(void* opaqueThis, Looper::Timer* timer) {
-        const auto self = static_cast<RecurrentTask*>(opaqueThis);
-        AutoLock lock(self->mLock);
+    /**
+     * @brief Gets the task execution interval
+     *
+     * @return The interval (in milliseconds) between task executions.
+     */
+    std::chrono::milliseconds interval() const {
+        return std::chrono::milliseconds(mTaskIntervalMs);
+    }
+
+   private:
+    static void taskCallback(void* opaqueThis, Looper::Timer* /*timer*/) {
+        auto self = static_cast<RecurrentTask*>(opaqueThis);
+        std::unique_lock<std::mutex> lock(self->mMutex);
+
         self->mInTimerCallback = true;
         const bool inFlight = self->mInFlight;
-        self->mInTimerCondition.broadcastAndUnlock(&lock);
 
-        const auto undoInTimerCallback =
-                makeCustomScopedPtr(self, [&lock](RecurrentTask* self) {
-                    if (!lock.isLocked()) {
-                        lock.lock();
-                    }
+        self->mInTimerCondition.notify_all();
+        lock.unlock();
+
+        auto undoInTimerCallback =
+            std::unique_ptr<RecurrentTask, std::function<void(RecurrentTask*)>>(
+                self, [](RecurrentTask* self) {
+                    std::lock_guard<std::mutex> lock(self->mMutex);
                     self->mInTimerCallback = false;
-                    self->mInTimerCondition.broadcastAndUnlock(&lock);
+                    self->mInTimerCondition.notify_all();
                 });
 
         if (!inFlight) {
@@ -130,21 +180,25 @@ protected:
 
         const bool callbackResult = self->mFunction();
 
-        lock.lock();
         if (!callbackResult) {
+            std::lock_guard<std::mutex> lock(self->mMutex);
             self->mInFlight = false;
             return;
         }
-        // It is possible that the client code in |mFunction| calls |stop|, so
-        // we must double check before reposting the task.
-        if (!self->mInFlight) {
-            return;
+
+        // It is possible that the client code in |mFunction| calls |stop|,
+        // so we must double-check before reposting the task.
+        {
+            std::lock_guard<std::mutex> lock(self->mMutex);
+            if (!self->mInFlight) {
+                return;
+            }
         }
-        lock.unlock();
+
         self->mTimer->startRelative(self->mTaskIntervalMs);
     }
 
-private:
+   protected:
     Looper* const mLooper;
     const TaskFunction mFunction;
     const int mTaskIntervalMs;
@@ -152,8 +206,76 @@ private:
     bool mInFlight = false;
     const std::unique_ptr<Looper::Timer> mTimer;
 
-    mutable Lock mLock;
-    ConditionVariable mInTimerCondition;
+    mutable std::mutex mMutex;
+    std::condition_variable mInTimerCondition;
+};
+
+/**
+ * @class SimpleRecurrentTask
+ * @brief A simple scheduler that automatically deletes itself
+ *        when the task function returns false, indicating completion.
+ *
+ * This class is used to repeatedly schedule tasks on the looper thread
+ * and delete itself once the task is done (i.e., when the task function
+ * returns false).
+ */
+class SimpleRecurrentTask {
+   public:
+    /**
+     * @brief Schedules a task that runs on the given interval until the
+     *        task function returns false.
+     *
+     * The function creates a new instance of SimpleRecurrentTask, which starts
+     * after the initial delay and automatically deletes itself when the task is done.
+     *
+     * @param looper The event loop on which to schedule the task.
+     * @param function The task function to be executed. Should return `true`
+     *        to continue scheduling the task or `false` to stop and delete
+     *        the task.
+     * @param interval The interval between successive executions of the task.
+     * @param initialDelay The delay before the first execution.
+     *
+     * @note The task will keep running until the provided task function
+     *       returns false.
+     * @note This can leak a SimpleRecurrentTask object if the looper is deleted
+     *       when the task is still scheduled.
+     *
+     * Example usage:
+     * @code
+     * SimpleRecurrentTask::schedule(looper, []() {
+     *     std::cout << "Task executed!" << std::endl;
+     *     return someConditionMet;  // Return false to stop the task
+     * }, std::chrono::milliseconds(1000));  // Run every 1 second
+     * @endcode
+     */
+    static void schedule(Looper* looper, RecurrentTask::TaskFunction function,
+                         std::chrono::milliseconds interval,
+                         std::chrono::milliseconds initialDelay = std::chrono::milliseconds(0)) {
+        new SimpleRecurrentTask(looper, function, interval, initialDelay);
+    }
+
+   private:
+    SimpleRecurrentTask(Looper* looper, RecurrentTask::TaskFunction function,
+                        std::chrono::milliseconds interval, std::chrono::milliseconds initialDelay)
+        : mTimer(looper->createTimer(&SimpleRecurrentTask::taskCallback, this)),
+          mTaskInterval(interval),
+          mFunction(std::move(function)) {
+        mTimer->startRelative(initialDelay.count());
+    }
+
+    static void taskCallback(void* opaqueThis, Looper::Timer* /*timer*/) {
+        // Note that timer == mTimer
+        auto self = static_cast<SimpleRecurrentTask*>(opaqueThis);
+        if (self->mFunction()) {
+            self->mTimer->startRelative(self->mTaskInterval.count());
+        } else {
+            delete self;
+        }
+    }
+
+    const std::unique_ptr<Looper::Timer> mTimer;
+    const std::chrono::milliseconds mTaskInterval;
+    const RecurrentTask::TaskFunction mFunction;
 };
 
 }  // namespace base
