@@ -134,6 +134,21 @@ cc_library(
     }),
 )
 
+cc_library(
+    name = "test-io",
+    srcs = [
+        "testing/file_io.cpp",
+    ],
+    visibility = [
+        "//visibility:public",
+    ],
+    deps = [
+        ":aemu-base",
+        ":aemu-base-headers",
+    ],
+    alwayslink = True,
+)
+
 cc_test(
     name = "aemu-base_unittests",
     srcs = [
@@ -152,7 +167,6 @@ cc_test(
         "TypeTraits_unittest.cpp",
         "WorkerThread_unittest.cpp",
         "ring_buffer_unittest.cpp",
-        "testing/file_io.cpp",
     ] + select({
         "@platforms//os:windows": [
             "Win32UnicodeString_unittest.cpp",
