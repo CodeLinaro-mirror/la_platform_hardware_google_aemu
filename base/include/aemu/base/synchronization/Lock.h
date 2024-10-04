@@ -155,8 +155,6 @@ public:
         mLocked = false;
     }
 
-    bool isLocked() const { return mLocked; }
-
     ~AutoLock() RELEASE() {
         if (mLocked) {
             mLock.unlock();
