@@ -17,20 +17,20 @@
 #include <cstdint>
 #include <cstdio>
 
-typedef void (*gfxstream_logger_t)(const char* fmt, ...);
+typedef void (*gfxstream_logger_t)(char severity, const char* file, unsigned int line,
+               int64_t timestamp_us, const char* message);
 
 void set_gfxstream_logger(gfxstream_logger_t f);
-void set_gfxstream_fine_logger(gfxstream_logger_t f);
-
 void set_gfxstream_enable_verbose_logs();
 void set_gfxstream_enable_log_colors();
 
 // Outputs a log line using Google's standard prefix. (http://go/logging#prefix)
 //
 // Do not use this function directly. Instead, use one of the logging macros below.
+// Note that: Logging with the 'D' (Debug) level is the least severe.
 //
 // stream: file handle to output to.
-// severity: single character to indicate severity: 'V', 'D', 'I', 'W', 'E', or 'F'.
+// severity: single character to indicate severity: 'D', 'V', 'I', 'W', 'E', or 'F'.
 // file: name of the file where the message comes from (typically __FILE__)
 // line: line number where the message comes from (typically __LINE__)
 // timestamp_us: for testing only - timestamp of the log in microseconds since the Unix epoch.

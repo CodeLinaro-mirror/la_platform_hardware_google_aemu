@@ -14,14 +14,15 @@
 
 #pragma once
 
-#include <list>                         // for list<>::iterator, list
-#include <memory>                       // for unique_ptr
-#include <mutex>                        // for mutex
+#include <list>
+#include <memory>
+#include <mutex>
 #include <string_view>
-#include <unordered_map>                // for unordered_map
-#include <unordered_set>                // for unordered_set
+#include <thread>
+#include <unordered_map>
+#include <unordered_set>
 
-#include "aemu/base/async/Looper.h"  // for Looper::ClockType, Looper
+#include "aemu/base/async/Looper.h"
 
 namespace android {
 namespace base {
@@ -37,6 +38,11 @@ public:
     ~DefaultLooper() override;
 
     std::string_view name() const override { return "Generic"; }
+
+    bool onLooperThread() const override {
+        static thread_local std::thread::id thread_id = std::this_thread::get_id();
+        return mThreadId == thread_id;
+    }
 
     Duration nowMs(ClockType clockType = ClockType::kHost) override;
 
@@ -201,6 +207,7 @@ protected:
     std::mutex mScheduledTasksAccess;
 
     bool mForcedExit = false;
+    std::thread::id mThreadId;
 };
 
 }  // namespace base
