@@ -88,6 +88,7 @@ const char* GetFileBasename(const char* file) {
 
 }  // namespace
 
+gfxstream_logger_t get_gfx_stream_logger() { return sLogger; };
 void set_gfxstream_logger(gfxstream_logger_t f) { sLogger = f; }
 
 void set_gfxstream_enable_verbose_logs() { sEnableVerbose = true; }
