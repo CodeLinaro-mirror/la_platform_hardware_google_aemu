@@ -164,17 +164,5 @@ class AsyncSocket : public AsyncSocketAdapter {
     std::recursive_mutex mListenerLock;
 };
 
-/**
- * @brief Wraps an AsyncSocket to provide simple onRead/onClose
- * callbacks.
- */
-class SimpleAsyncSocket : public SimpleAsyncSocketAdapter {
-   public:
-    SimpleAsyncSocket(Looper* looper, int fd, SimpleAsyncSocketAdapter::OnReadCallback onRead,
-                      SimpleAsyncSocketAdapter::OnCloseCallback onClose)
-        : SimpleAsyncSocketAdapter(std::make_unique<AsyncSocket>(looper, ScopedSocket(fd)),
-                                   std::move(onRead), std::move(onClose)) {}
-};
-
 }  // namespace base
 }  // namespace android
