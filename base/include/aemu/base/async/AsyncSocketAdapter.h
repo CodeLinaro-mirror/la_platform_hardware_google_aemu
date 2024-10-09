@@ -207,7 +207,10 @@ class SimpleAsyncSocket : public AsyncSocketEventListener {
         } while (true);
     };
 
-    void onClose(AsyncSocketAdapter* socket, int err) override { mOnClose(); };
+    void onClose(AsyncSocketAdapter* socket, int err) override {
+        if (mOnClose) mOnClose();
+    };
+
     void onConnected(AsyncSocketAdapter* socket) override {}
 
     /**

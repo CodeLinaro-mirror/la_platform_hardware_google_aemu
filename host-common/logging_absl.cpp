@@ -30,6 +30,36 @@ void set_gfxstream_fine_logger(gfxstream_logger_t f) {}
 void set_gfxstream_enable_log_colors() {}
 void set_gfxstream_enable_verbose_logs() { sEnableVerbose = true; }
 
+void gfx_stream_logger(char severity, const char* file, unsigned int line, int64_t timestamp_us,
+                       const char* msg) {
+
+    switch (severity) {
+        case 'I':  // INFO
+            ABSL_LOG(INFO).AtLocation(file, line) << msg;
+            break;
+        case 'W':  // WARNING
+            ABSL_LOG(WARNING).AtLocation(file, line) << msg;
+            break;
+        case 'E':  // ERROR
+            ABSL_LOG(ERROR).AtLocation(file, line) << msg;
+            break;
+        case 'F':  // FATAL
+            ABSL_LOG(FATAL).AtLocation(file, line) << msg;
+            break;
+        case 'V':
+            VLOG(1).AtLocation(file, line) << msg;
+            break;
+        case 'D':
+            VLOG(2).AtLocation(file, line) << msg;
+            break;
+        default:
+            ABSL_LOG(INFO).AtLocation(file, line) << msg;
+            break;
+    };
+}
+
+gfxstream_logger_t get_gfx_stream_logger() { return gfx_stream_logger; };
+
 void OutputLog(FILE* stream, char severity, const char* file, unsigned int line,
                int64_t timestamp_us, const char* format, ...) {
     if (severity == 'V' && !sEnableVerbose) {
