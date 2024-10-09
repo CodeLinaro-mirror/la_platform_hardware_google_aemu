@@ -30,8 +30,25 @@
 
 namespace android {
 
+/**
+ * Do not abuse this by using any complicated T. Use it for POD or primitives
+ */
 template <class T, size_t align>
 class AlignedBuf {
+    constexpr static bool triviallyCopyable() {
+#if (defined(__GNUC__) && !defined(__clang__) && __GNUC__ <= 4) || \
+        defined(__OLD_STD_VERSION__)
+        // Older g++ doesn't support std::is_trivially_copyable.
+        constexpr bool triviallyCopyable =
+                std::has_trivial_copy_constructor<T>::value;
+#else
+        constexpr bool triviallyCopyable = std::is_trivially_copyable<T>::value;
+#endif
+        return triviallyCopyable;
+    }
+    static_assert(triviallyCopyable() && std::is_standard_layout<T>::value &&
+                  std::is_trivially_default_constructible<T>::value);
+
 public:
     explicit AlignedBuf(size_t size) {
         static_assert(align && ((align & (align - 1)) == 0),
@@ -68,17 +85,6 @@ public:
     ~AlignedBuf() { if (mBuffer) freeImpl(mBuffer); } // account for getting moved out
 
     void resize(size_t newSize) {
-#if (defined(__GNUC__) && !defined(__clang__) && __GNUC__ <= 4) || \
-        defined(__OLD_STD_VERSION__)
-        // Older g++ doesn't support std::is_trivially_copyable.
-        constexpr bool triviallyCopyable =
-                std::has_trivial_copy_constructor<T>::value;
-#else
-        constexpr bool triviallyCopyable = std::is_trivially_copyable<T>::value;
-#endif
-        static_assert(triviallyCopyable,
-                      "AlignedBuf can only resize trivially copyable values");
-
         resizeImpl(newSize);
     }
 
@@ -95,22 +101,27 @@ public:
     }
 
 private:
+    T* getNewBuffer(size_t newSize) {
+        if (newSize == 0) {
+            return nullptr;
+        }
+        size_t pad = std::max(align, sizeof(T));
+        size_t newSizeBytes =
+            ((align - 1 + newSize * sizeof(T) + pad) / align) * align;
+        return static_cast<T*>(reallocImpl(nullptr, newSizeBytes));
+    }
 
     void resizeImpl(size_t newSize) {
-        if (newSize) {
-            size_t pad = std::max(align, sizeof(T));
+        T* new_buffer = getNewBuffer(newSize);
+        if (new_buffer && mBuffer) {
             size_t keepSize = std::min(newSize, mSize);
-            size_t newSizeBytes = ((align - 1 + newSize * sizeof(T) + pad) / align) * align;
-
-            std::vector<T> temp(mBuffer, mBuffer + keepSize);
-            mBuffer = static_cast<T*>(reallocImpl(mBuffer, newSizeBytes));
-            std::copy(temp.data(), temp.data() + keepSize, mBuffer);
-        } else {
-            if (mBuffer) freeImpl(mBuffer);
-            mBuffer = nullptr;
+            std::copy(mBuffer, mBuffer + keepSize, new_buffer);
         }
-
-        mSize = newSize;
+        if (mBuffer) {
+            freeImpl(mBuffer);
+        }
+        mBuffer = new_buffer;
+        mSize = (new_buffer ? newSize : 0);
     }
 
     void* reallocImpl(void* oldPtr, size_t sizeBytes) {
