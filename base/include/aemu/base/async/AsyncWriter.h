@@ -35,6 +35,7 @@ public:
                Looper::FdWatch* watch);
 
     AsyncStatus run();
+    size_t written() { return mPos; }
 
 private:
     const uint8_t* mBuffer;

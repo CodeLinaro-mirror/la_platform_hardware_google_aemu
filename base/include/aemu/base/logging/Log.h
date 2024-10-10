@@ -11,9 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 #pragma once
 
+#ifndef ABSL_LOG_LOG_H_
 #include <errno.h>   // for errno
 #include <stdio.h>   // for size_t, EOF
 #include <string.h>  // for strcmp
@@ -460,3 +460,4 @@ class LOGGING_API LogOutput {
 
 }  // namespace base
 }  // namespace android
+#endif
