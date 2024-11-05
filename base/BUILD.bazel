@@ -149,6 +149,25 @@ cc_library(
     alwayslink = True,
 )
 
+cc_library(
+    name = "test-matchers",
+    srcs = [
+        "testing/ProtobufMatchers.cpp",
+    ],
+    visibility = [
+        "//visibility:public",
+    ],
+    deps = [
+        ":aemu-base",
+        ":aemu-base-headers",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
+        "@com_google_googletest//:gtest",
+        "@com_google_protobuf//:protobuf",
+    ],
+    alwayslink = True,
+)
+
 cc_test(
     name = "aemu-base_unittests",
     srcs = [
