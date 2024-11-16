@@ -57,12 +57,11 @@ struct AllocationCreateInfo {
 
 struct Block {
     char* buffer = nullptr;
+    uint64_t bufferSize = 0;
     SubAllocator* subAlloc = nullptr;
     uint64_t offsetIntoPhys = 0; // guest claimShared/mmap uses this
-    // size: implicitly ADDRESS_SPACE_GRAPHICS_BLOCK_SIZE
     bool isEmpty = true;
     bool dedicated = false;
-    size_t dedicatedSize = 0;
     bool usesVirtioGpuHostmem = false;
     uint64_t hostmemId = 0;
     bool external = false;
@@ -375,16 +374,13 @@ private:
             stream->putBe32(1);
         }
 
+        stream->putBe64(block.bufferSize);
         stream->putBe64(block.offsetIntoPhys);
         stream->putBe32(block.dedicated);
-        stream->putBe64(block.dedicatedSize);
         stream->putBe32(block.usesVirtioGpuHostmem);
         stream->putBe64(block.hostmemId);
-
         block.subAlloc->save(stream);
-
-        stream->putBe64(ADDRESS_SPACE_GRAPHICS_BLOCK_SIZE);
-        stream->write(block.buffer, ADDRESS_SPACE_GRAPHICS_BLOCK_SIZE);
+        stream->write(block.buffer, block.bufferSize);
     }
 
     void loadBlockLocked(
@@ -401,10 +397,9 @@ private:
             block.isEmpty = false;
         }
 
+        create.size = stream->getBe64(); // `bufferSize`
         block.offsetIntoPhys = stream->getBe64();
-
         create.dedicated = stream->getBe32();
-        create.size = stream->getBe64();
         create.virtioGpu = stream->getBe32();
         create.hostmemRegisterFixed = true;
         create.fromLoad = true;
@@ -414,8 +409,7 @@ private:
 
         block.subAlloc->load(stream);
 
-        stream->getBe64();
-        stream->read(block.buffer, ADDRESS_SPACE_GRAPHICS_BLOCK_SIZE);
+        stream->read(block.buffer, block.bufferSize);
     }
 
     void fillAllocFromLoad(const Block& block, Allocation& alloc) {
@@ -446,16 +440,14 @@ private:
                 }
 
                 block.buffer = (char*)buf;
+                block.bufferSize = create.size;
                 block.subAlloc =
                     new SubAllocator(buf, create.size, ADDRESS_SPACE_GRAPHICS_PAGE_SIZE);
                 block.offsetIntoPhys = 0;
-
                 block.isEmpty = false;
                 block.usesVirtioGpuHostmem = create.virtioGpu;
                 block.hostmemId = create.hostmemId;
                 block.dedicated = create.dedicated;
-                block.dedicatedSize = create.size;
-
             } else {
                 crashhandler_die(
                     "Cannot use dedicated allocation without virtio-gpu hostmem id");
@@ -499,12 +491,12 @@ private:
                     ADDRESS_SPACE_GRAPHICS_BLOCK_SIZE);
 
                 block.buffer = (char*)buf;
+                block.bufferSize = ADDRESS_SPACE_GRAPHICS_BLOCK_SIZE;
                 block.subAlloc =
                     new SubAllocator(
                         buf, ADDRESS_SPACE_GRAPHICS_BLOCK_SIZE,
                         ADDRESS_SPACE_GRAPHICS_PAGE_SIZE);
                 block.offsetIntoPhys = offsetIntoPhys;
-
                 block.isEmpty = false;
             }
         }
