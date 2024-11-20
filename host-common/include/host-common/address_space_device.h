@@ -20,7 +20,7 @@ extern "C" {
 struct AddressSpaceHwFuncs;
 
 struct AddressSpaceCreateInfo {
-    uint32_t handle;
+    uint32_t handle = 0;
     uint32_t type;
     uint64_t physAddr;
     bool fromSnapshot;
@@ -88,7 +88,7 @@ struct AddressSpaceHwFuncs {
      * or when loading a snapshot while the emulator is running.
      * Returns 0 if successful, -errno otherwise. */
     int (*freeSharedHostRegion)(uint64_t offset);
-    
+
     /* Versions of the above but when the state is already locked. */
     int (*allocSharedHostRegionLocked)(uint64_t page_aligned_size, uint64_t* offset);
     int (*freeSharedHostRegionLocked)(uint64_t offset);
