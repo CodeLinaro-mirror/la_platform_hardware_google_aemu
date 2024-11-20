@@ -391,7 +391,9 @@ private:
         stream->putBe32(block.usesVirtioGpuHostmem);
         stream->putBe64(block.hostmemId);
         block.subAlloc->save(stream);
-        stream->write(block.buffer, block.bufferSize);
+        if (!block.external) {
+            stream->write(block.buffer, block.bufferSize);
+        }
     }
 
     void loadBlockLocked(base::Stream* stream,
@@ -449,7 +451,9 @@ private:
 
         block.subAlloc->load(stream);
 
-        stream->read(block.buffer, block.bufferSize);
+        if (!block.external) {
+            stream->read(block.buffer, block.bufferSize);
+        }
     }
 
     void fillAllocFromLoad(const Block& block, Allocation& alloc) {
