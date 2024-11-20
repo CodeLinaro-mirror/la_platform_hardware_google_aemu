@@ -75,7 +75,7 @@ private:
 
     void loadRingConfig(base::Stream* stream, struct asg_ring_config& config);
 
-    void loadAllocation(base::Stream* stream, Allocation& alloc, AllocType type);
+    void loadAllocation(base::Stream* stream, Allocation& alloc);
 
     // For consumer communication
     enum ConsumerCommand {

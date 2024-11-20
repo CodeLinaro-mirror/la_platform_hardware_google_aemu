@@ -757,9 +757,18 @@ bool AddressSpaceGraphicsContext::load(base::Stream* stream) {
     mExiting = stream->getBe32();
     mUnavailableReadCount = stream->getBe32();
 
-    loadAllocation(stream, mRingAllocation, AllocType::AllocTypeRing);
-    loadAllocation(stream, mBufferAllocation, AllocType::AllocTypeBuffer);
-    loadAllocation(stream, mCombinedAllocation, AllocType::AllocTypeCombined);
+    loadAllocation(stream, mRingAllocation);
+    loadAllocation(stream, mBufferAllocation);
+    loadAllocation(stream, mCombinedAllocation);
+
+    if (mIsVirtio) {
+        sGlobals()->fillAllocFromLoad(mCombinedAllocation, AllocType::AllocTypeCombined);
+        mRingAllocation = sGlobals()->allocRingViewIntoCombined(mCombinedAllocation);
+        mBufferAllocation = sGlobals()->allocBufferViewIntoCombined(mCombinedAllocation);
+    } else {
+        sGlobals()->fillAllocFromLoad(mRingAllocation, AllocType::AllocTypeRing);
+        sGlobals()->fillAllocFromLoad(mBufferAllocation, AllocType::AllocTypeBuffer);
+    }
 
     mHostContext = asg_context_create(
         mRingAllocation.buffer,
@@ -833,13 +842,11 @@ void AddressSpaceGraphicsContext::loadRingConfig(base::Stream* stream, struct as
     config.in_error = stream->getBe32();
 }
 
-void AddressSpaceGraphicsContext::loadAllocation(base::Stream* stream, Allocation& alloc, AddressSpaceGraphicsContext::AllocType type) {
+void AddressSpaceGraphicsContext::loadAllocation(base::Stream* stream, Allocation& alloc) {
     alloc.blockIndex = stream->getBe64();
     alloc.offsetIntoPhys = stream->getBe64();
     alloc.size = stream->getBe64();
     alloc.isView = stream->getBe32();
-
-    sGlobals()->fillAllocFromLoad(alloc, type);
 }
 
 }  // namespace asg
