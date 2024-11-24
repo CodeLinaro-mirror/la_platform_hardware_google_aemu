@@ -248,6 +248,10 @@ public:
         }
     }
 
+    void setLoadResources(AddressSpaceDeviceLoadResources resources) {
+        mLoadResources = std::move(resources);
+    }
+
     bool load(Stream* stream) {
         // First destroy all contexts, because
         // this can be done while an emulator is running
@@ -262,8 +266,7 @@ public:
 
         asg::AddressSpaceGraphicsContext::init(get_address_space_device_control_ops());
 
-        if (!AddressSpaceGraphicsContext::globalStateLoad(
-                stream)) {
+        if (!AddressSpaceGraphicsContext::globalStateLoad(stream, mLoadResources)) {
             return false;
         }
 
@@ -447,6 +450,9 @@ private:
     };
 
     std::map<uint64_t, std::vector<DeallocationCallbackEntry>> mDeallocationCallbacks; // do not save/load, users re-register on load
+
+    // Not saved/loaded. Externally owned resources used during load.
+    std::optional<AddressSpaceDeviceLoadResources> mLoadResources;
 };
 
 static AddressSpaceDeviceState* sAddressSpaceDeviceState() {
@@ -577,6 +583,12 @@ void goldfish_address_space_set_vm_operations(const QAndroidVmOperations* vmops)
 
 const QAndroidVmOperations* goldfish_address_space_get_vm_operations() {
     return sVmOps;
+}
+
+int goldfish_address_space_memory_state_set_load_resources(
+    AddressSpaceDeviceLoadResources resources) {
+    sAddressSpaceDeviceState()->setLoadResources(std::move(resources));
+    return 0;
 }
 
 int goldfish_address_space_memory_state_load(android::base::Stream *stream) {
