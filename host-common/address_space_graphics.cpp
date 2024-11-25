@@ -14,18 +14,19 @@
 
 #include "host-common/address_space_graphics.h"
 
-#include "host-common/address_space_device.hpp"
-#include "host-common/address_space_device.h"
-#include "host-common/vm_operations.h"
-#include "host-common/crash-handler.h"
-#include "host-common/crash_reporter.h"
-#include "host-common/GfxstreamFatalError.h"
-#include "host-common/globals.h"
+#include <memory>
+#include <optional>
+
 #include "aemu/base/AlignedBuf.h"
 #include "aemu/base/SubAllocator.h"
 #include "aemu/base/synchronization/Lock.h"
-
-#include <memory>
+#include "host-common/GfxstreamFatalError.h"
+#include "host-common/address_space_device.h"
+#include "host-common/address_space_device.hpp"
+#include "host-common/crash-handler.h"
+#include "host-common/crash_reporter.h"
+#include "host-common/globals.h"
+#include "host-common/vm_operations.h"
 
 #define ASGFX_DEBUG 0
 
@@ -46,13 +47,13 @@ namespace emulation {
 namespace asg {
 
 struct AllocationCreateInfo {
-    bool dedicated;
     bool virtioGpu;
     bool hostmemRegisterFixed;
     bool fromLoad;
     uint64_t size;
     uint64_t hostmemId;
     void *externalAddr;
+    std::optional<uint32_t> dedicatedContextHandle;
 };
 
 struct Block {
@@ -61,7 +62,7 @@ struct Block {
     SubAllocator* subAlloc = nullptr;
     uint64_t offsetIntoPhys = 0; // guest claimShared/mmap uses this
     bool isEmpty = true;
-    bool dedicated = false;
+    std::optional<uint32_t> dedicatedContextHandle;
     bool usesVirtioGpuHostmem = false;
     uint64_t hostmemId = 0;
     bool external = false;
@@ -142,18 +143,21 @@ public:
                 (unsigned long long)ADDRESS_SPACE_GRAPHICS_BLOCK_SIZE);
         }
 
-        size_t index = 0;
-
         Allocation res;
 
-        for (auto& block : existingBlocks) {
+        size_t index = 0;
+        for (index = 0; index < existingBlocks.size(); index++) {
+            auto& block = existingBlocks[index];
 
             if (block.isEmpty) {
                 fillBlockLocked(block, create);
             }
 
-            auto buf = block.subAlloc->alloc(create.size);
+            if (block.dedicatedContextHandle != create.dedicatedContextHandle) {
+                continue;
+            }
 
+            auto buf = block.subAlloc->alloc(create.size);
             if (buf) {
                 res.buffer = (char*)buf;
                 res.blockIndex = index;
@@ -161,14 +165,12 @@ public:
                     block.offsetIntoPhys +
                     block.subAlloc->getOffset(buf);
                 res.size = create.size;
-                res.dedicated = create.dedicated;
+                res.dedicatedContextHandle = create.dedicatedContextHandle;
                 res.hostmemId = create.hostmemId;
                 return res;
             } else {
                 // block full
             }
-
-            ++index;
         }
 
         Block newBlock;
@@ -191,7 +193,7 @@ public:
             newBlock.offsetIntoPhys +
             newBlock.subAlloc->getOffset(buf);
         res.size = create.size;
-        res.dedicated = create.dedicated;
+        res.dedicatedContextHandle = create.dedicatedContextHandle;
         res.hostmemId = create.hostmemId;
 
         return res;
@@ -210,7 +212,7 @@ public:
 
         auto& block = existingBlocks[alloc.blockIndex];
 
-        if (block.dedicated) {
+        if (block.external) {
             destroyBlockLocked(block);
             return;
         }
@@ -250,16 +252,19 @@ public:
     }
 
     Allocation allocRingAndBufferStorageDedicated(const struct AddressSpaceCreateInfo& asgCreate) {
+        if (!asgCreate.handle) {
+            crashhandler_die("Dedicated ASG allocation requested without dedicated handle.\n");
+        }
+
         struct AllocationCreateInfo create = {0};
         create.size = sizeof(struct asg_ring_storage) + mPerContextBufferSize;
-        create.dedicated = true;
+        create.dedicatedContextHandle = asgCreate.handle;
         create.virtioGpu = true;
         if (asgCreate.externalAddr) {
             create.externalAddr = asgCreate.externalAddr;
             if (asgCreate.externalAddrSize < static_cast<uint64_t>(create.size)) {
                 crashhandler_die("External address size too small\n");
             }
-
             create.size = asgCreate.externalAddrSize;
         }
 
@@ -312,7 +317,8 @@ public:
         // mConsumerInterface.globalPostSave();
     }
 
-    bool load(base::Stream* stream) {
+    bool load(base::Stream* stream,
+              const std::optional<AddressSpaceDeviceLoadResources>& resources) {
         clear();
         mConsumerInterface.globalPreLoad();
 
@@ -325,15 +331,15 @@ public:
         mCombinedBlocks.resize(combinedBlockCount);
 
         for (auto& block: mRingBlocks) {
-            loadBlockLocked(stream, block);
+            loadBlockLocked(stream, resources, block);
         }
 
         for (auto& block: mBufferBlocks) {
-            loadBlockLocked(stream, block);
+            loadBlockLocked(stream, resources, block);
         }
 
         for (auto& block: mCombinedBlocks) {
-            loadBlockLocked(stream, block);
+            loadBlockLocked(stream, resources, block);
         }
 
         return true;
@@ -376,17 +382,23 @@ private:
 
         stream->putBe64(block.bufferSize);
         stream->putBe64(block.offsetIntoPhys);
-        stream->putBe32(block.dedicated);
+        if (block.dedicatedContextHandle) {
+            stream->putBe32(1);
+            stream->putBe32(*block.dedicatedContextHandle);
+        } else {
+            stream->putBe32(0);
+        }
         stream->putBe32(block.usesVirtioGpuHostmem);
         stream->putBe64(block.hostmemId);
         block.subAlloc->save(stream);
-        stream->write(block.buffer, block.bufferSize);
+        if (!block.external) {
+            stream->write(block.buffer, block.bufferSize);
+        }
     }
 
-    void loadBlockLocked(
-        base::Stream* stream,
-        Block& block) {
-
+    void loadBlockLocked(base::Stream* stream,
+                         const std::optional<AddressSpaceDeviceLoadResources>& resources,
+                         Block& block) {
         uint32_t filled = stream->getBe32();
         struct AllocationCreateInfo create = {0};
 
@@ -399,8 +411,38 @@ private:
 
         create.size = stream->getBe64(); // `bufferSize`
         block.offsetIntoPhys = stream->getBe64();
-        create.dedicated = stream->getBe32();
+        if (stream->getBe32() == 1) {
+            create.dedicatedContextHandle = stream->getBe32();
+        }
         create.virtioGpu = stream->getBe32();
+
+        if (create.virtioGpu) {
+            if (!create.dedicatedContextHandle) {
+                crashhandler_die(
+                    "Failed to load ASG context global block: "
+                    "Virtio GPU backed blocks are expected to have dedicated context.\n");
+            }
+
+            // Blocks whose memory are backed Virtio GPU resource do not own the external
+            // memory. The external memory must be re-loaded outside of ASG and provided via
+            // `resources`.
+            if (!resources) {
+                crashhandler_die(
+                    "Failed to load ASG context global block: "
+                    "Virtio GPU backed blocks need external memory resources for loading.\n");
+            }
+
+            const auto externalMemoryIt =
+                resources->contextExternalMemoryMap.find(*create.dedicatedContextHandle);
+            if (externalMemoryIt == resources->contextExternalMemoryMap.end()) {
+                crashhandler_die(
+                    "Failed to load ASG context global block: "
+                    "Virtio GPU backed blocks an need external memory replacement.\n");
+            }
+            const auto& externalMemory = externalMemoryIt->second;
+            create.externalAddr = externalMemory.externalAddress;
+        }
+
         create.hostmemRegisterFixed = true;
         create.fromLoad = true;
         create.hostmemId = stream->getBe64();
@@ -409,49 +451,38 @@ private:
 
         block.subAlloc->load(stream);
 
-        stream->read(block.buffer, block.bufferSize);
+        if (!block.external) {
+            stream->read(block.buffer, block.bufferSize);
+        }
     }
 
     void fillAllocFromLoad(const Block& block, Allocation& alloc) {
         alloc.buffer = block.buffer + (alloc.offsetIntoPhys - block.offsetIntoPhys);
-        alloc.dedicated = block.dedicated;
+        alloc.dedicatedContextHandle = block.dedicatedContextHandle;
         alloc.hostmemId = block.hostmemId;
     }
 
     void fillBlockLocked(Block& block, struct AllocationCreateInfo& create) {
-        if (create.dedicated) {
-            if (create.virtioGpu) {
-                void* buf;
+        if (create.dedicatedContextHandle) {
+            if (!create.virtioGpu) {
+                crashhandler_die("Cannot use dedicated allocation without virtio-gpu hostmem id");
+            }
 
-                if (create.externalAddr) {
-                    buf = create.externalAddr;
-                    block.external = true;
-                } else {
-                    buf = aligned_buf_alloc(ADDRESS_SPACE_GRAPHICS_PAGE_SIZE, create.size);
-
-                    struct MemEntry entry = { 0 };
-                    entry.hva = buf;
-                    entry.size = create.size;
-                    entry.register_fixed = create.hostmemRegisterFixed;
-                    entry.fixed_id = create.hostmemId ? create.hostmemId : 0;
-                    entry.caching = MAP_CACHE_CACHED;
-
-                    create.hostmemId = mControlOps->hostmem_register(&entry);
-                }
-
-                block.buffer = (char*)buf;
-                block.bufferSize = create.size;
-                block.subAlloc =
-                    new SubAllocator(buf, create.size, ADDRESS_SPACE_GRAPHICS_PAGE_SIZE);
-                block.offsetIntoPhys = 0;
-                block.isEmpty = false;
-                block.usesVirtioGpuHostmem = create.virtioGpu;
-                block.hostmemId = create.hostmemId;
-                block.dedicated = create.dedicated;
-            } else {
+            if (!create.externalAddr) {
                 crashhandler_die(
                     "Cannot use dedicated allocation without virtio-gpu hostmem id");
             }
+
+            block.external = true;
+            block.buffer = (char*)create.externalAddr;
+            block.bufferSize = create.size;
+            block.subAlloc =
+                new SubAllocator(block.buffer, block.bufferSize, ADDRESS_SPACE_GRAPHICS_PAGE_SIZE);
+            block.offsetIntoPhys = 0;
+            block.isEmpty = false;
+            block.usesVirtioGpuHostmem = create.virtioGpu;
+            block.hostmemId = create.hostmemId;
+            block.dedicatedContextHandle = create.dedicatedContextHandle;
         } else {
             if (create.virtioGpu) {
                 crashhandler_die(
@@ -757,9 +788,18 @@ bool AddressSpaceGraphicsContext::load(base::Stream* stream) {
     mExiting = stream->getBe32();
     mUnavailableReadCount = stream->getBe32();
 
-    loadAllocation(stream, mRingAllocation, AllocType::AllocTypeRing);
-    loadAllocation(stream, mBufferAllocation, AllocType::AllocTypeBuffer);
-    loadAllocation(stream, mCombinedAllocation, AllocType::AllocTypeCombined);
+    loadAllocation(stream, mRingAllocation);
+    loadAllocation(stream, mBufferAllocation);
+    loadAllocation(stream, mCombinedAllocation);
+
+    if (mIsVirtio) {
+        sGlobals()->fillAllocFromLoad(mCombinedAllocation, AllocType::AllocTypeCombined);
+        mRingAllocation = sGlobals()->allocRingViewIntoCombined(mCombinedAllocation);
+        mBufferAllocation = sGlobals()->allocBufferViewIntoCombined(mCombinedAllocation);
+    } else {
+        sGlobals()->fillAllocFromLoad(mRingAllocation, AllocType::AllocTypeRing);
+        sGlobals()->fillAllocFromLoad(mBufferAllocation, AllocType::AllocTypeBuffer);
+    }
 
     mHostContext = asg_context_create(
         mRingAllocation.buffer,
@@ -802,8 +842,9 @@ void AddressSpaceGraphicsContext::globalStatePostSave() {
     sGlobals()->postSave();
 }
 
-bool AddressSpaceGraphicsContext::globalStateLoad(base::Stream* stream) {
-    return sGlobals()->load(stream);
+bool AddressSpaceGraphicsContext::globalStateLoad(
+    base::Stream* stream, const std::optional<AddressSpaceDeviceLoadResources>& resources) {
+    return sGlobals()->load(stream, resources);
 }
 
 void AddressSpaceGraphicsContext::saveRingConfig(base::Stream* stream, const struct asg_ring_config& config) const {
@@ -833,13 +874,11 @@ void AddressSpaceGraphicsContext::loadRingConfig(base::Stream* stream, struct as
     config.in_error = stream->getBe32();
 }
 
-void AddressSpaceGraphicsContext::loadAllocation(base::Stream* stream, Allocation& alloc, AddressSpaceGraphicsContext::AllocType type) {
+void AddressSpaceGraphicsContext::loadAllocation(base::Stream* stream, Allocation& alloc) {
     alloc.blockIndex = stream->getBe64();
     alloc.offsetIntoPhys = stream->getBe64();
     alloc.size = stream->getBe64();
     alloc.isView = stream->getBe32();
-
-    sGlobals()->fillAllocFromLoad(alloc, type);
 }
 
 }  // namespace asg
