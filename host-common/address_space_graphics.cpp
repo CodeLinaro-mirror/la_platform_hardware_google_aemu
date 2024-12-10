@@ -597,15 +597,21 @@ AddressSpaceGraphicsContext::AddressSpaceGraphicsContext(
           [this] { return onUnavailableRead(); },
           [](uint64_t physAddr) { return (char*)sGlobals()->controlOps()->get_host_ptr(physAddr); },
       }),
-      mConsumerInterface(sGlobals()->getConsumerInterface()),
-      mIsVirtio(false) {
-    mIsVirtio = (create.type == AddressSpaceDeviceType::VirtioGpuGraphics);
+      mConsumerInterface(sGlobals()->getConsumerInterface()) {
     if (create.fromSnapshot) {
         // Use load() instead to initialize
         return;
     }
 
-    if (mIsVirtio) {
+    const bool isVirtio = (create.type == AddressSpaceDeviceType::VirtioGpuGraphics);
+    if (isVirtio) {
+        VirtioGpuInfo& info = mVirtioGpuInfo.emplace();
+        info.contextId = create.virtioGpuContextId;
+        info.capsetId = create.virtioGpuCapsetId;
+        if (create.contextNameSize) {
+            info.name = std::string(create.contextName, create.contextNameSize);
+        }
+
         mCombinedAllocation = sGlobals()->allocRingAndBufferStorageDedicated(create);
         mRingAllocation = sGlobals()->allocRingViewIntoCombined(mCombinedAllocation);
         mBufferAllocation = sGlobals()->allocBufferViewIntoCombined(mCombinedAllocation);
@@ -640,16 +646,12 @@ AddressSpaceGraphicsContext::AddressSpaceGraphicsContext(
 
     mSavedConfig = *mHostContext.ring_config;
 
-    std::optional<std::string> nameOpt;
-    if (create.contextNameSize) {
-        std::string name(create.contextName, create.contextNameSize);
-        nameOpt = name;
-    }
-
     if (create.createRenderThread) {
-        mCurrentConsumer = mConsumerInterface.create(
-            mHostContext, nullptr, mConsumerCallbacks, create.virtioGpuContextId, create.virtioGpuCapsetId,
-            std::move(nameOpt));
+        mCurrentConsumer =
+            mConsumerInterface.create(mHostContext, nullptr, mConsumerCallbacks,
+                                      mVirtioGpuInfo ? mVirtioGpuInfo->contextId : 0,
+                                      mVirtioGpuInfo ? mVirtioGpuInfo->capsetId : 0,
+                                      mVirtioGpuInfo ? mVirtioGpuInfo->name : std::nullopt);
     }
 }
 
@@ -684,7 +686,7 @@ void AddressSpaceGraphicsContext::perform(AddressSpaceDevicePingInfo* info) {
             mHostContext, nullptr /* no load stream */, mConsumerCallbacks, 0, 0,
             std::nullopt);
 
-        if (mIsVirtio) {
+        if (mVirtioGpuInfo) {
             info->metadata = mCombinedAllocation.hostmemId;
         }
         break;
@@ -756,7 +758,21 @@ void AddressSpaceGraphicsContext::preSave() const {
 }
 
 void AddressSpaceGraphicsContext::save(base::Stream* stream) const {
-    stream->putBe32(mIsVirtio);
+    if (mVirtioGpuInfo) {
+        const VirtioGpuInfo& info = *mVirtioGpuInfo;
+        stream->putBe32(1);
+        stream->putBe32(info.contextId);
+        stream->putBe32(info.capsetId);
+        if (info.name) {
+            stream->putBe32(1);
+            stream->putString(*info.name);
+        } else {
+            stream->putBe32(0);
+        }
+    } else {
+        stream->putBe32(0);
+    }
+
     stream->putBe32(mVersion);
     stream->putBe32(mExiting);
     stream->putBe32(mUnavailableReadCount);
@@ -783,7 +799,17 @@ void AddressSpaceGraphicsContext::postSave() const {
 }
 
 bool AddressSpaceGraphicsContext::load(base::Stream* stream) {
-    mIsVirtio = stream->getBe32();
+    const bool hasVirtioGpuInfo = (stream->getBe32() == 1);
+    if (hasVirtioGpuInfo) {
+        VirtioGpuInfo& info = mVirtioGpuInfo.emplace();
+        info.contextId = stream->getBe32();
+        info.capsetId = stream->getBe32();
+        const bool hasName = (stream->getBe32() == 1);
+        if (hasName) {
+            info.name = stream->getString();
+        }
+    }
+
     mVersion = stream->getBe32();
     mExiting = stream->getBe32();
     mUnavailableReadCount = stream->getBe32();
@@ -792,7 +818,7 @@ bool AddressSpaceGraphicsContext::load(base::Stream* stream) {
     loadAllocation(stream, mBufferAllocation);
     loadAllocation(stream, mCombinedAllocation);
 
-    if (mIsVirtio) {
+    if (mVirtioGpuInfo) {
         sGlobals()->fillAllocFromLoad(mCombinedAllocation, AllocType::AllocTypeCombined);
         mRingAllocation = sGlobals()->allocRingViewIntoCombined(mCombinedAllocation);
         mBufferAllocation = sGlobals()->allocBufferViewIntoCombined(mCombinedAllocation);
@@ -819,11 +845,13 @@ bool AddressSpaceGraphicsContext::load(base::Stream* stream) {
 
     loadRingConfig(stream, mSavedConfig);
 
-    uint32_t consumerExists = stream->getBe32();
-
-    if (consumerExists) {
-        mCurrentConsumer = mConsumerInterface.create(
-            mHostContext, stream, mConsumerCallbacks, 0, 0, std::nullopt);
+    const bool hasConsumer = stream->getBe32() == 1;
+    if (hasConsumer) {
+        mCurrentConsumer =
+            mConsumerInterface.create(mHostContext, stream, mConsumerCallbacks,
+                                      mVirtioGpuInfo ? mVirtioGpuInfo->contextId : 0,
+                                      mVirtioGpuInfo ? mVirtioGpuInfo->capsetId : 0,
+                                      mVirtioGpuInfo ? mVirtioGpuInfo->name : std::nullopt);
         mConsumerInterface.postLoad(mCurrentConsumer);
     }
 
