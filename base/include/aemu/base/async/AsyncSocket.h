@@ -141,6 +141,8 @@ class AsyncSocket : public AsyncSocketAdapter {
     // Attempts to connect to the specified port.
     void connectToPort();
 
+    void scheduleCallback(std::function<void()> callback);
+
     // Size of the write buffer.
     static const int WRITE_BUFFER_SIZE = 1024;
 
@@ -178,6 +180,11 @@ class AsyncSocket : public AsyncSocketAdapter {
     // Mutex to track callback activity, this mutex will be taken
     // when a callback is active.
     std::recursive_mutex mListenerLock;
+
+    std::mutex mInflightMutex;
+    std::condition_variable mInflightCv;
+    int mInflight{0};
+    bool mClosing{false};
 };
 
 }  // namespace base
