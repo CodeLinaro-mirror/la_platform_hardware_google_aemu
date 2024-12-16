@@ -109,7 +109,12 @@ private:
     // For onUnavailableRead
     uint32_t mUnavailableReadCount = 0;
 
-    bool mIsVirtio = false;
+    struct VirtioGpuInfo {
+        uint32_t contextId = 0;
+        uint32_t capsetId = 0;
+        std::optional<std::string> name;
+    };
+    std::optional<VirtioGpuInfo> mVirtioGpuInfo;
     // To save the ring config if it is cleared on hostmem map
     struct asg_ring_config mSavedConfig;
 };
