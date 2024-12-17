@@ -850,124 +850,10 @@ message KeyboardEvent {
     string text = 5;
 }
 
-message XrInputEvent {
-    // For this message, movement and rotation angles are relative to the
-    // camera's current orientation.
-    // The coordinate system is right-handed and is defined as follows:
-    //   x axis is pointing right
-    //   y axis is pointing up
-    //   z axis is pointing towards the viewer
-
-    message NavButtonPressEvent {
-        // If a value is set to false, it may not be set.
-        // NONE of these values are mutually exclusive, but combining opposites
-        // may result in no effective change on the guest.
-
-        // Whether there is an intent to move the viewport forward relative to
-        // the viewer (-z direction). (Note that this means visible content will
-        // move closer to the viewer.)
-        bool forward_held = 1;
-
-        // Whether there is an intent to move the viewport backward relative to
-        // the veiwer (+z direction). (Note that this means visible content
-        // will move further from the viewer.)
-        bool backward_held = 2;
-
-        // Whether there is an intent to move the viewport to the left (-x
-        // direction). (Note that this means visible content will appear to
-        // shift to the right.)
-        bool left_held = 3;
-
-        // Whether there is an intent to move the viewport to the right (+x
-        // direction). (Note that this means visible content will appear to
-        // shift to the left.)
-        bool right_held = 4;
-
-        // Whether there is an intent to move the viewport upward (+y
-        // direction). (Note that this means visible content will appear to
-        // shift downward.)
-        bool up_held = 5;
-
-        // Whether there is an intent to move the viewport downward (-y
-        // direction). (Note that this means visible content will appear to
-        // shift upward.)
-        bool down_held = 6;
-
-        // Whether there is an intent to rotate the viewport to the left
-        // (positive rotation around y-axis).
-        bool rotate_left_held = 7;
-
-        // Whether there is an intent to rotate the viewport to the right
-        // (negative rotation around y-axis).
-        bool rotate_right_held = 8;
-
-        // Whether there is an intent to rotate the viewport upward (positive
-        // rotation around the x-axis).
-        bool rotate_up_held = 9;
-
-        // Whether there is an intent to rotate the viewport downward (negative
-        // rotation around the x-axis).
-        bool rotate_down_held = 10;
-    }
-
-    message RelativeMoveEvent {
-        // Intent of this relative movement. Semantics are as follows:
-        enum Intent {
-            // rel_x shifts the viewport in the horizontal axis, positive values
-            //       correspond to positive x-axis values, or moving the
-            //       viewport to the right.
-            // rel_y shifts the viewport in the vertical axis, positive values
-            //       correspond to negative y-axis values, or moving the
-            //       viewport downward.
-            XR_MOVE_EVENT_INTENT_VIEWPORT_PAN = 0;
-
-            // rel_y shifts the viewport in the z-axis, positive values
-            //       correspond to positive z-axis values, or moving the
-            //       viewport backward relative to the viewer.
-            // rel_x is ignored.
-            XR_MOVE_EVENT_INTENT_VIEWPORT_ZOOM = 1;
-
-            // rel_y rotates the viewport around the x-axis, positive values
-            //       correspond to rotating the viewport downward (negative
-            //       rotation around the x-axis).
-            // rel_x rotates the viewport around the y-axis, positive values
-            //       correspond to rotating the viewport to the right (negative
-            //       rotation around the y-axis).
-            XR_MOVE_EVENT_INTENT_VIEWPORT_ROTATE = 2;
-        }
-
-        Intent intent = 1;
-
-        // An adjustable scaling factor will be applied by the guest OS to
-        // convert from display pixels to meters or degrees as appropriate.
-
-        // The update-to-update difference in position in display pixels for the
-        // mouse in the x-axis, where 0 represents the leftmost coordinate.
-        sint32 rel_x = 2;
-
-        // The update-to-update difference in position in display pixels for the
-        // mouse in the y-axis, where 0 represents the topmost coordinate.
-        sint32 rel_y = 3;
-    }
-
-    oneof type {
-        // The current state of the navigation buttons; similar to
-        // keypresses.
-        NavButtonPressEvent nav_event = 1;
-
-        // Relative motion update, including an intent and relative mouse cursor
-        // position changes.
-        RelativeMoveEvent move_event = 2;
-    }
-}
-
 message XrCommand {
     enum Action {
         // Recenter the viewport position and rotation.
         RECENTER = 0;
-
-        // Show the XR taskbar.
-        SHOW_TASKBAR = 1;
     }
 
     Action action = 1;
@@ -984,8 +870,11 @@ message InputEvent {
         WheelEvent wheel_event = 6;
         MouseEvent xr_hand_event = 7;
         MouseEvent xr_eye_event = 8;
-        XrInputEvent xr_input_event = 9;
-        XrCommand xr_command = 10;
+        XrCommand xr_command = 9;
+        RotationRadian xr_head_rotation_event = 10;
+        Translation xr_head_movement_event = 11;
+        AngularVelocity xr_head_angular_velocity_event = 12;
+        Velocity xr_head_velocity_event = 13;
     }
 };
 
@@ -1530,18 +1419,39 @@ message DisplayConfigurationsChangedNotification {
     DisplayConfigurations displayConfigurations = 1;
 }
 
-// Rotation angles are relative to the current orientation.
 message RotationRadian {
+    // Components of the rotation vector in radians.
+    // Rotation angles are relative to the current orientation.
     float x = 1;  // Angle of rotation around the x axis in right-handed direction.
     float y = 2;  // Angle of rotation around the y axis in right-handed direction.
     float z = 3;  // Angle of rotation around the z axis in right-handed direction.
 }
 
-// Velocity is measured in meters per second.
+message Translation {
+    // Components of the translation vector in meters.
+    float delta_x = 1;
+    float delta_y = 2;
+    float delta_z = 3;
+}
+
+message AngularVelocity {
+    // Components of the angular velocity vector in radians per second.
+    float omega_x = 1;
+    float omega_y = 2;
+    float omega_z = 3;
+
+    // Time it takes to reach the new angular velocity.
+    float transition_time_sec = 4;
+}
+
 message Velocity {
+    // Components of the velocity vector in meters per second.
     float x = 1;
     float y = 2;
     float z = 3;
+
+    // Time it takes to reach the new velocity.
+    float transition_time_sec = 4;
 }
 
 // Must follow the definition in "external/qemu/android/hw-sensors.h"
