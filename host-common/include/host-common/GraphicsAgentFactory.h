@@ -31,7 +31,7 @@ typedef int (*LineConsumerCallback)(void* opaque, const char* buff, int len);
 namespace android {
 namespace emulation {
 #define DEFINE_GRAPHICS_AGENT_GETTER(typ, name) \
-    virtual const typ* const android_get_##typ() const;
+    virtual const typ* android_get_##typ() const;
 
 // The default graphics agent factory will not do anything, it will
 // leave the graphics agents intact.

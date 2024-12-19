@@ -26,17 +26,17 @@ extern "C" const QAndroidMultiDisplayAgent* const
 namespace android {
 namespace emulation {
 
-const QAndroidVmOperations* const
+const QAndroidVmOperations*
 MockGraphicsAgentFactory::android_get_QAndroidVmOperations() const {
     return gMockQAndroidVmOperations;
 }
 
-const QAndroidMultiDisplayAgent* const
+const QAndroidMultiDisplayAgent*
 MockGraphicsAgentFactory::android_get_QAndroidMultiDisplayAgent() const {
     return gMockQAndroidMultiDisplayAgent;
 }
 
-const QAndroidEmulatorWindowAgent* const
+const QAndroidEmulatorWindowAgent*
 MockGraphicsAgentFactory::android_get_QAndroidEmulatorWindowAgent() const {
     return gMockQAndroidEmulatorWindowAgent;
 }
