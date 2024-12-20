@@ -58,7 +58,7 @@ class MruCache {
     };
 
     MruCache(size_t maxEntries, CacheFlattener* cacheFlattener)
-        : mMaxEntries(maxEntries), mCacheFlattener(cacheFlattener) {}
+        : mCacheFlattener(cacheFlattener), mMaxEntries(maxEntries) {}
 
     bool put(const K& key, size_t keySize, V&& value, size_t valueSize) {
         evictIfNecessary();
