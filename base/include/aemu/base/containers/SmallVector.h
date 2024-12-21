@@ -289,11 +289,18 @@ public:
         // TODO: Add runtime assertion instead?
         // https://developercommunity.visualstudio.com/content/problem/22196/static-assert-cannot-compile-constexprs-method-tha.html
 #ifndef _MSC_VER
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Winvalid-offsetof"
+#endif
         static_assert(offsetof(base, mCapacity) + sizeof(base::mCapacity) ==
                                       offsetof(SmallFixedVector, mData) &&
                               offsetof(Data, array) == 0,
                       "SmallFixedVector<> class layout is wrong, "
                       "|mData| needs to follow |mCapacity|");
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 #endif
 
         init_inplace();
