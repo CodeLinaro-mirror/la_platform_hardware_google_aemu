@@ -27,13 +27,13 @@ namespace emulation {
 // at the start of the unit tests.
 class MockGraphicsAgentFactory : public GraphicsAgentFactory {
 public:
-    const QAndroidVmOperations* const android_get_QAndroidVmOperations()
+    const QAndroidVmOperations* android_get_QAndroidVmOperations()
             const override;
 
-    const QAndroidMultiDisplayAgent* const
+    const QAndroidMultiDisplayAgent*
     android_get_QAndroidMultiDisplayAgent() const override;
 
-    const QAndroidEmulatorWindowAgent* const
+    const QAndroidEmulatorWindowAgent*
     android_get_QAndroidEmulatorWindowAgent() const override;
 
 
