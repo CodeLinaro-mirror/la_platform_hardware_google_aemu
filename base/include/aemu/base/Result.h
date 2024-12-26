@@ -15,7 +15,12 @@
 #pragma once
 
 #include "aemu/base/Optional.h"
+
+#ifdef ABSL_LOG_CHECK_H_
+#define CHECK DCHECK
+#else
 #include "aemu/base/logging/Log.h"
+#endif
 
 // Result<T, E> - a template class to store either a result or error, inspired
 //                by Rust.
