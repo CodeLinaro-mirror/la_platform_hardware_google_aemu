@@ -39,7 +39,7 @@ const GraphicsAgents* getGraphicsAgents() {
 }
 
 #define DEFINE_GRAPHICS_AGENT_GETTER_IMPL(typ, name)                   \
-    const typ* const GraphicsAgentFactory::android_get_##typ() const { \
+    const typ* GraphicsAgentFactory::android_get_##typ() const { \
         return sGraphicsAgents.name;                                   \
     };
 
