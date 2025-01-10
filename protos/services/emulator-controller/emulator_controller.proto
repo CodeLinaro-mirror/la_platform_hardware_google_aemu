@@ -1435,23 +1435,21 @@ message Translation {
 }
 
 message AngularVelocity {
-    // Components of the angular velocity vector in radians per second.
+    // Components of the target angular velocity vector in radians per second.
+    // Transition to these values is implementation dependent, and may be
+    // smoothed over time.
     float omega_x = 1;
     float omega_y = 2;
     float omega_z = 3;
-
-    // Time it takes to reach the new angular velocity.
-    float transition_time_sec = 4;
 }
 
 message Velocity {
-    // Components of the velocity vector in meters per second.
+    // Components of the target velocity vector in meters per second.
+    // Transition to these values is implementation dependent, and may be
+    // smoothed over time.
     float x = 1;
     float y = 2;
     float z = 3;
-
-    // Time it takes to reach the new velocity.
-    float transition_time_sec = 4;
 }
 
 // Must follow the definition in "external/qemu/android/hw-sensors.h"
