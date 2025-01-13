@@ -137,6 +137,12 @@ typedef struct QAndroidEmulatorWindowAgent {
 
     bool (*userSettingIsDontSaveSnapshot)(void);
     void (*setUserSettingIsDontSaveSnapshot)(bool);
+
+    bool (*setXrInputMode)(int);
+    bool (*setXrEnvironmentMode)(int);
+    bool (*setXrScreenRecenter)();
+    bool (*setXrViewportControlMode)(int);
+
 } QAndroidEmulatorWindowAgent;
 
 #ifndef USING_ANDROID_BP
