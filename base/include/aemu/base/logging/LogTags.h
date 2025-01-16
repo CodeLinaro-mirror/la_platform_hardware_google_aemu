@@ -26,22 +26,29 @@ typedef enum {
 } VerboseTag;
 #undef _VERBOSE_TAG
 
-#define VERBOSE_ENABLE(tag) verbose_enable((int64_t)VERBOSE_##tag)
-#define VERBOSE_DISABLE(tag) verbose_disable(int64_t) VERBOSE_##tag)
-#define VERBOSE_CHECK(tag) verbose_check((int64_t)VERBOSE_##tag)
+#define VERBOSE_ENABLE_IMPL(tag) verbose_enable((int64_t)tag)
+#define VERBOSE_ENABLE(tag) VERBOSE_ENABLE_IMPL(VERBOSE_##tag)
+#define VERBOSE_DISABLE_IMPL(tag) verbose_disable((int64_t)tag)
+#define VERBOSE_DISABLE(tag) VERBOSE_DISABLE_IMPL(VERBOSE_##tag)
+#define VERBOSE_CHECK_IMPL(tag) verbose_check((int64_t)tag)
+#define VERBOSE_CHECK(tag) VERBOSE_CHECK_IMPL(VERBOSE_##tag)
 #define VERBOSE_CHECK_ANY() verbose_check_any();
 
-#define VERBOSE_PRINT(tag, ...) \
-    if (VERBOSE_CHECK(tag)) {   \
+#define VERBOSE_PRINT_IMPL(tag, ...) \
+    if (VERBOSE_CHECK_IMPL(tag)) {   \
         dprint(__VA_ARGS__);  \
     }
 
-#define VERBOSE_INFO(tag, ...) \
-    if (VERBOSE_CHECK(tag)) {  \
+#define VERBOSE_PRINT(tag, ...) VERBOSE_PRINT_IMPL(VERBOSE_##tag, __VA_ARGS__)
+
+#define VERBOSE_INFO_IMPL(tag, ...) \
+    if (VERBOSE_CHECK_IMPL(tag)) {  \
         dinfo(__VA_ARGS__);  \
     }
 
-#define VERBOSE_DPRINT(tag, ...) VERBOSE_PRINT(tag, __VA_ARGS__)
+#define VERBOSE_INFO(tag, ...) VERBOSE_INFO_IMPL(VERBOSE_##tag, __VA_ARGS__)
+
+#define VERBOSE_DPRINT(tag, ...) VERBOSE_PRINT_IMPL(VERBOSE_##tag, __VA_ARGS__)
 
 #ifdef __cplusplus
 }
