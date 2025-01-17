@@ -96,7 +96,19 @@ LOGGING_API void setLogFormatter(LogFormatter* fmt);
 //      ... do additionnal logging
 //  }
 //
-#define LOG_IS_ON(severity) (LOG_SEVERITY_FROM(severity) >= getMinLogLevel())
+// Please note that LOG_IS_ON CANNOT be used inside macros the
+// `severity` value will be expanded and the expanded value will
+// be used, e.g.
+//
+//  #define LOG(severity) LOG_LAZY_EVAL(LOG_IS_ON(severity), ...)
+//  #define ERROR 0
+//  LOG(ERROR) << "blah";
+//
+//  `ERROR` will be expanded into `EMULATOR_LOG_0` here
+//  instead of `EMULATOR_LOG_ERROR`.
+
+#define LOG_IS_ON_IMPL(severity) ((severity) >= getMinLogLevel())
+#define LOG_IS_ON(severity) LOG_IS_ON_IMPL(EMULATOR_LOG_##severity)
 
 // For performance reasons, it's important to avoid constructing a
 // LogMessage instance every time a LOG() or CHECK() statement is
@@ -136,7 +148,7 @@ LOGGING_API void setLogFormatter(LogFormatter* fmt);
 // if the severity level is disabled.
 //
 // It's possible to do conditional logging with LOG_IF()
-#define LOG(severity) LOG_LAZY_EVAL(LOG_IS_ON(severity), LOG_MESSAGE_STREAM_COMPACT(severity))
+#define LOG(severity) LOG_LAZY_EVAL(LOG_IS_ON_IMPL(EMULATOR_LOG_##severity), LOG_MESSAGE_STREAM_COMPACT(severity))
 
 // A variant of LOG() that only performs logging if a specific condition
 // is encountered. Note that |condition| is only evaluated if |severity|
@@ -149,16 +161,16 @@ LOGGING_API void setLogFormatter(LogFormatter* fmt);
 //            << "Fuel injection at optimal level";
 //
 #define LOG_IF(severity, condition) \
-    LOG_LAZY_EVAL(LOG_IS_ON(severity) && (condition), LOG_MESSAGE_STREAM_COMPACT(severity))
+    LOG_LAZY_EVAL(LOG_IS_ON_IMPL(EMULATOR_LOG_##severity) && (condition), LOG_MESSAGE_STREAM_COMPACT(severity))
 
 // A variant of LOG() that avoids printing debug information such as file/line
 // information, for user-visible output.
-#define QLOG(severity) LOG_LAZY_EVAL(LOG_IS_ON(severity), QLOG_MESSAGE_STREAM_COMPACT(severity))
+#define QLOG(severity) LOG_LAZY_EVAL(LOG_IS_ON_IMPL(EMULATOR_LOG_##severity), QLOG_MESSAGE_STREAM_COMPACT(severity))
 
 // A variant of LOG_IF() that avoids printing debug information such as
 // file/line information, for user-visible output.
 #define QLOG_IF(severity, condition) \
-    LOG_LAZY_EVAL(LOG_IS_ON(severity) && (condition), QLOG_MESSAGE_STREAM_COMPACT(severity))
+    LOG_LAZY_EVAL(LOG_IS_ON_IMPL(EMULATOR_LOG_##severity) && (condition), QLOG_MESSAGE_STREAM_COMPACT(severity))
 
 // A variant of LOG() that integrates with the utils/debug.h verbose tags,
 // enabling statements to only appear on the console if the "-debug-<tag>"
@@ -176,14 +188,14 @@ LOGGING_API void setLogFormatter(LogFormatter* fmt);
 // to the current value of 'errno' just before the macro is called. This
 // also preserves the value of 'errno' so it can be tested after the
 // macro call (i.e. any error during log output does not interfere).
-#define PLOG(severity) LOG_LAZY_EVAL(LOG_IS_ON(severity), PLOG_MESSAGE_STREAM_COMPACT(severity))
+#define PLOG(severity) LOG_LAZY_EVAL(LOG_IS_ON_IMPL(EMULATOR_LOG_##severity), PLOG_MESSAGE_STREAM_COMPACT(severity))
 
 // A variant of LOG_IF() that also appends the string message corresponding
 // to the current value of 'errno' just before the macro is called. This
 // also preserves the value of 'errno' so it can be tested after the
 // macro call (i.e. any error during log output does not interfere).
 #define PLOG_IF(severity, condition) \
-    LOG_LAZY_EVAL(LOG_IS_ON(severity) && (condition), PLOG_MESSAGE_STREAM_COMPACT(severity))
+    LOG_LAZY_EVAL(LOG_IS_ON_IMPL(EMULATOR_LOG_##severity) && (condition), PLOG_MESSAGE_STREAM_COMPACT(severity))
 
 // Evaluate |condition|, and if it fails, log a fatal message.
 // This is a better version of assert(), in the future, this will
@@ -226,7 +238,7 @@ LOGGING_API void setLogFormatter(LogFormatter* fmt);
 // DLOG_IS_ON(severity) is used to indicate whether DLOG() should print
 // something for the current level.
 #if ENABLE_DLOG
-#define DLOG_IS_ON(severity) LOG_IS_ON(severity)
+#define DLOG_IS_ON(severity) LOG_IS_ON_IMPL(severity)
 #else
 // NOTE: The compile-time constant ensures that the DLOG() statements are
 //       not compiled in the final binary.
@@ -259,7 +271,7 @@ LOGGING_API bool setDcheckLevel(bool enabled);
 // DLOG_IF() is like DLOG() for debug builds, and doesn't do anything for
 // release one. See DLOG() comments.
 #define DLOG_IF(severity, condition) \
-    LOG_LAZY_EVAL(DLOG_IS_ON(severity) && (condition), LOG_MESSAGE_STREAM_COMPACT(severity))
+    LOG_LAZY_EVAL(DLOG_IS_ON(EMULATOR_LOG_##severity) && (condition), LOG_MESSAGE_STREAM_COMPACT(severity))
 
 // DCHECK(condition) is used to perform CHECK() in debug builds, or if
 // the program called setDcheckLevel(true) previously. Note that it is
@@ -277,7 +289,7 @@ LOGGING_API bool setDcheckLevel(bool enabled);
 // DPLOG_IF() tests whether |condition| is true before calling
 // DPLOG(severity)
 #define DPLOG_IF(severity, condition) \
-    LOG_LAZY_EVAL(DLOG_IS_ON(severity) && (condition), PLOG_MESSAGE_STREAM_COMPACT(severity))
+    LOG_LAZY_EVAL(DLOG_IS_ON(EMULATOR_LOG_##severity) && (condition), PLOG_MESSAGE_STREAM_COMPACT(severity))
 
 // Convenience class used hold a formatted string for logging reasons.
 // Usage example:
