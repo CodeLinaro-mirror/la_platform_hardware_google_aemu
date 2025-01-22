@@ -13,6 +13,8 @@
 // limitations under the License.
 #include "host-common/crash-handler.h"
 
+#include <stdlib.h>
+
 void crashhandler_die(const char* message) {
     abort();
 }
