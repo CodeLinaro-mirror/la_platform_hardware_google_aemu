@@ -165,6 +165,18 @@ typedef enum SnapshotSkipReason {
     SNAPSHOT_SKIP_UNSUPPORTED_VK_API = 2,
 } SnapshotSkipReason;
 
+inline const char* toString_SnapshotSkipReason(SnapshotSkipReason reason) {
+    switch (reason) {
+        case SNAPSHOT_SKIP_UNKNOWN:
+            return "UNKNOWN";
+        case SNAPSHOT_SKIP_UNSUPPORTED_VK_APP:
+            return "UNSUPPORTED_VK_APP";
+        case SNAPSHOT_SKIP_UNSUPPORTED_VK_API:
+            return "UNSUPPORTED_VK_API";
+    }
+    return "UNKNOWN";
+}
+
 // C interface to expose Qemu implementations of common VM related operations.
 typedef struct QAndroidVmOperations {
     bool (*vmStop)(void);
