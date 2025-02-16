@@ -270,6 +270,9 @@ typedef struct QAndroidVmOperations {
     // Reset the machine
     void (*system_shutdown_request)(QemuShutdownCause reason);
 
+    void (*vulkanInstanceRegister)(uint64_t id, const char* name);
+    void (*vulkanInstanceUnregister)(uint64_t id);
+
     // Set the reason to skip snapshotting on exit.
     void (*setSkipSnapshotSaveReason)(SnapshotSkipReason reason);
 
