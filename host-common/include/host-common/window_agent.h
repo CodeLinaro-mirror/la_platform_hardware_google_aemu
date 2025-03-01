@@ -138,10 +138,27 @@ typedef struct QAndroidEmulatorWindowAgent {
     bool (*userSettingIsDontSaveSnapshot)(void);
     void (*setUserSettingIsDontSaveSnapshot)(bool);
 
+    // Sets the XR input mode.
     bool (*setXrInputMode)(int);
+    // Sets the XR environment mode.
     bool (*setXrEnvironmentMode)(int);
+    // Sets the XR screen recenter.
     bool (*setXrScreenRecenter)();
+    // Sets the XR viewport control mode.
     bool (*setXrViewportControlMode)(int);
+
+    // Sets the XR head rotation event.
+    bool (*sendXrHeadRotationEvent)(float x,float y, float z);
+    // Sets the XR head movement event.
+    bool (*sendXrHeadMovementEvent)(float delta_x, float delta_y, float delta_z);
+    // Sets the XR head angular velocity event.
+    bool (*sendXrHeadAngularVelocityEvent)(float omega_x, float omega_y, float omega_z);
+    // Sets the XR head velocity event.
+    bool (*sendXrHeadVelocityEvent)(float x, float y, float z);
+    // Sets the XR options.
+    bool (*setXrOptions)(int environment, float passthroughCoefficient);
+    // Gets the XR options.
+    bool (*getXrOptions)(int* environment, float* passthroughCoefficient);
 
 } QAndroidEmulatorWindowAgent;
 
