@@ -1385,6 +1385,10 @@ message Notification {
         // It is also sent immediately in response to the streamNotification
         // call.
         TextViewFocus textViewFocus = 7;
+        // This notification is sent when XrOptions change.
+        // It is also sent immediately in response to the streamNotification
+        // call.
+        XrOptions xrOptions = 8;
     }
 }
 
