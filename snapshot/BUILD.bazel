@@ -1,7 +1,15 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
 # Interface library
 cc_library(
     name = "gfxstream-snapshot-headers",
-    hdrs = glob(["include/**/*.h"]),
+    hdrs = [
+        "include/snapshot/LazySnapshotObj.h",
+        "include/snapshot/TextureLoader.h",
+        "include/snapshot/TextureSaver.h",
+        "include/snapshot/common.h",
+        "include/snapshot/interface.h",
+    ],
     includes = ["include"],
     visibility = ["//visibility:public"],
 )
@@ -19,6 +27,7 @@ cc_library(
         "-Wno-extern-c-compat",
         "-Wno-return-type-c-linkage",
     ],
+    defines = ["dfatal=\"(void*)\""],
     visibility = ["//visibility:public"],
     deps = [
         ":gfxstream-snapshot-headers",

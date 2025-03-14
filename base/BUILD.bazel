@@ -92,11 +92,6 @@ cc_library(
         "include/aemu/base/files/TarStream.h",
         "include/aemu/base/files/preadwrite.h",
         "include/aemu/base/gl_object_counter.h",
-        "include/aemu/base/logging/CLog.h",
-        "include/aemu/base/logging/Log.h",
-        "include/aemu/base/logging/LogFormatter.h",
-        "include/aemu/base/logging/LogSeverity.h",
-        "include/aemu/base/logging/LogTags.h",
         "include/aemu/base/memory/ContiguousRangeMapper.h",
         "include/aemu/base/memory/MallocUsableSize.h",
         "include/aemu/base/memory/MemoryHints.h",
@@ -215,10 +210,34 @@ objc_library(
 )
 
 cc_library(
+    name = "aemu-base-logging",
+    srcs = [
+        "CLog.cpp",
+    ],
+    hdrs = [
+        "include/aemu/base/logging/CLog.h",
+        "include/aemu/base/logging/Log.h",
+        "include/aemu/base/logging/LogFormatter.h",
+        "include/aemu/base/logging/LogSeverity.h",
+        "include/aemu/base/logging/LogTags.h",
+    ],
+    defines = [
+        "BUILDING_EMUGL_COMMON_SHARED",
+        "LOGGING_API_SHARED",
+    ] + select({
+        "@platforms//os:windows": [
+            "WIN32_LEAN_AND_MEAN",
+        ],
+        "//conditions:default": [],
+    }),
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
     name = "aemu-base",
     srcs = [
         "AlignedBuf.cpp",
-        "CLog.cpp",
         "CompressingStream.cpp",
         "CpuTime.cpp",
         "Debug.cpp",
@@ -260,6 +279,7 @@ cc_library(
     defines = [
         "BUILDING_EMUGL_COMMON_SHARED",
         "LOGGING_API_SHARED",
+        "dfatal=\"(void*)\"",
     ] + select({
         "@platforms//os:windows": [
             "WIN32_LEAN_AND_MEAN",
