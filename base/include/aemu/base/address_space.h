@@ -45,6 +45,7 @@ struct address_block {
             uint64_t available : 1;
         };
     };
+    uint64_t map_size;
 };
 
 /* A dynamic array of address blocks, with the following invariant:
@@ -211,6 +212,7 @@ address_space_allocator_split_block(
     new_block->offset = to_borrow_from->offset + new_size;
     new_block->size = size;
     new_block->available = 1;
+    new_block->map_size = 0;
 
     ++allocator->size;
 
@@ -292,6 +294,7 @@ address_space_allocator_split_block_at_offset(
     new_block->offset = offset;
     new_block->size = size;
     new_block->available = 1;
+    new_block->map_size = 0;
 
     ++allocator->size;
 
@@ -299,6 +302,7 @@ address_space_allocator_split_block_at_offset(
         extra_block->offset = offset + size;
         extra_block->size = old_block_size - size - to_borrow_from->size;
         extra_block->available = 1;
+        extra_block->map_size = 0;
 
         ++allocator->size;
     }
