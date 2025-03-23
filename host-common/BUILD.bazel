@@ -20,8 +20,8 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":aemu-host-common-headers",
-        "//hardware/google/aemu/base:aemu-base-headers",
-        "//hardware/google/aemu/base:aemu-base-metrics",
+        "//base:aemu-base-headers",
+        "//base:aemu-base-metrics",
     ],
 )
 
@@ -44,8 +44,8 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":aemu-host-common-headers",
-        "//hardware/google/aemu/base:aemu-base-headers",
-        "//hardware/google/aemu/base:aemu-base-metrics",
+        "//base:aemu-base-headers",
+        "//base:aemu-base-metrics",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:absl_log",
     ],
@@ -193,8 +193,8 @@ cc_library(
     deps = [
         ":aemu-host-common-headers",
         ":logging",
-        "//hardware/google/aemu/base:aemu-base-allocator",
-        "//hardware/google/aemu/base:aemu-base-headers",
+        "//base:aemu-base-allocator",
+        "//base:aemu-base-headers",
     ],
     alwayslink = 1,
 )
@@ -215,7 +215,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":aemu-host-common-headers",
-        "//hardware/google/aemu/base:aemu-base-headers",
+        "//base:aemu-base-headers",
     ],
 )
 
@@ -237,7 +237,7 @@ cc_library(
     includes = ["testing"],
     deps = [
         ":aemu-host-common-headers",
-        "//hardware/google/aemu/base:aemu-base-headers",
+        "//base:aemu-base-headers",
         "@com_google_googletest//:gtest",
     ],
 )
@@ -260,11 +260,11 @@ cc_test(
     deps = [
         ":aemu-host-common-headers",
         ":logging",
-        "//hardware/google/aemu:aemu-host-common-test-headers",
-        "//hardware/google/aemu/base:aemu-base",
-        "//hardware/google/aemu/base:aemu-base-allocator",
-        "//hardware/google/aemu/base:aemu-base-headers",
-        "//hardware/google/aemu/host-common:aemu-host-common",
+        "//:aemu-host-common-test-headers",
+        "//base:aemu-base",
+        "//base:aemu-base-allocator",
+        "//base:aemu-base-headers",
+        "//host-common:aemu-host-common",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/log:globals",

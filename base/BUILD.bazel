@@ -172,11 +172,11 @@ cc_library(
     includes = ["include"],
     visibility = ["//visibility:public"],
     deps = [
-        "//hardware/google/aemu/host-common:aemu-host-common-headers",
+        "//host-common:aemu-host-common-headers",
         "@com_google_absl//absl/strings:str_format",
     ] + select({
         "@platforms//os:windows": [
-            "//hardware/google/aemu/windows:compat-hdrs",
+            "//windows:compat-hdrs",
         ],
         "//conditions:default": [],
     }),
@@ -204,6 +204,9 @@ objc_library(
     sdk_frameworks = [
         "IOkit",
         "AppKit",
+    ],
+    target_compatible_with = [
+        "@platforms//os:macos",
     ],
     deps = [":aemu-base-headers"],
     alwayslink = True,
@@ -305,14 +308,14 @@ cc_library(
     deps = [
         ":aemu-base-headers",
         ":aemu-base-metrics",
-        "//external/lz4",
-        "//hardware/google/aemu/host-common:logging",
+        "//host-common:logging",
+        "@lz4",
     ] + select({
         "@platforms//os:macos": [
             ":aemu-base-darwin",
         ],
         "@platforms//os:windows": [
-            "//external/qemu/google/compat/windows:compat",
+            "@aemu//windows:compat",
         ],
         "//conditions:default": [],
     }),
@@ -333,25 +336,6 @@ cc_library(
     alwayslink = True,
 )
 
-cc_library(
-    name = "test-matchers",
-    srcs = [
-        "testing/ProtobufMatchers.cpp",
-    ],
-    visibility = [
-        "//visibility:public",
-    ],
-    deps = [
-        ":aemu-base",
-        ":aemu-base-headers",
-        "@com_google_absl//absl/log",
-        "@com_google_absl//absl/log:check",
-        "@com_google_googletest//:gtest",
-        "@com_google_protobuf//:protobuf",
-    ],
-    alwayslink = True,
-)
-
 cc_test(
     name = "aemu-base_unittests",
     srcs = [
@@ -364,7 +348,6 @@ cc_test(
         "ManagedDescriptor_unittest.cpp",
         "NoDestructor_unittest.cpp",
         "Optional_unittest.cpp",
-        "RecurrentTask_unittest.cpp",
         "StringFormat_unittest.cpp",
         "SubAllocator_unittest.cpp",
         "TypeTraits_unittest.cpp",
@@ -382,11 +365,9 @@ cc_test(
     deps = [
         ":aemu-base",
         ":aemu-base-headers",
-        "//hardware/generic/goldfish/android/logging:backend",
-        "//hardware/generic/goldfish/android/looper",
-        "//hardware/generic/goldfish/android/sockets",
-        "//hardware/google/aemu/base:aemu-base-metrics",
-        "//hardware/google/aemu/host-common:logging",
+        ":aemu-base-logging",
+        "//base:aemu-base-metrics",
+        "//host-common:logging",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
