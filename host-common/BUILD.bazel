@@ -242,25 +242,30 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "test-headers",
+    hdrs = [
+        "testing/HostAddressSpace.h",
+        "testing/MockAndroidEmulatorWindowAgent.h",
+        "testing/MockAndroidVmOperations.h",
+        "testing/MockGraphicsAgentFactory.h",
+    ],
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+    deps = ["//base:test-io"],
+)
+
 # Testing Libraries and Executable (conditional)
 cc_test(
     name = "aemu-host-logging_unittests",
-    srcs =
-        [
-            # "GfxstreamFatalError_unittest.cpp",
-            # "HostAddressSpace_unittest.cpp",
-            # "HostGoldfishPipe_unittest.cpp",
-            # "HostmemIdMapping_unittest.cpp",
-            # "VmLock_unittest.cpp",
-            "logging_absl_unittest.cpp",
-        ] + glob([
-            "testing/**",
-        ]),
+    srcs = [
+        "logging_absl_unittest.cpp",
+    ],
     includes = ["testing"],
     deps = [
         ":aemu-host-common-headers",
         ":logging",
-        "//:aemu-host-common-test-headers",
+        ":test-headers",
         "//base:aemu-base",
         "//base:aemu-base-allocator",
         "//base:aemu-base-headers",
