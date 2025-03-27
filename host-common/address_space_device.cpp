@@ -324,11 +324,10 @@ public:
         AutoLock lock(mContextsLock);
         mContexts.clear();
         AddressSpaceSharedSlotsHostMemoryAllocatorContext::globalStateClear();
-        auto it = mMemoryMappings.begin();
         std::vector<std::pair<uint64_t, uint64_t>> gpasSizesToErase;
-        for (auto it: mMemoryMappings) {
-            auto gpa = it.first;
-            auto size = it.second.second;
+        for (auto& mapping : mMemoryMappings) {
+            auto gpa = mapping.first;
+            auto size = mapping.second.second;
             gpasSizesToErase.push_back({gpa, size});
         }
         for (const auto& gpaSize : gpasSizesToErase) {
