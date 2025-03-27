@@ -489,11 +489,10 @@ private:
                     "Only dedicated allocation allowed in virtio-gpu hostmem id path");
             } else {
                 uint64_t offsetIntoPhys;
-                int allocRes = 0;
 
                 if (create.fromLoad) {
                     offsetIntoPhys = block.offsetIntoPhys;
-                    allocRes = get_address_space_device_hw_funcs()->
+                    int allocRes = get_address_space_device_hw_funcs()->
                         allocSharedHostRegionFixedLocked(
                                 ADDRESS_SPACE_GRAPHICS_BLOCK_SIZE, offsetIntoPhys);
                     if (allocRes) {
