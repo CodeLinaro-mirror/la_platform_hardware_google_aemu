@@ -135,9 +135,9 @@ void AddressSpaceHostMemoryAllocatorContext::save(base::Stream* stream) const {
 bool AddressSpaceHostMemoryAllocatorContext::load(base::Stream* stream) {
     clear();
 
-    size_t size = stream->getBe32();
+    size_t numAddr = stream->getBe32();
 
-    for (size_t i = 0; i < size; ++i) {
+    for (size_t i = 0; i < numAddr; ++i) {
         uint64_t phys_addr = stream->getBe64();
         uint64_t size = stream->getBe64();
         void *mem = allocate_impl(phys_addr, size);
