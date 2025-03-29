@@ -8,6 +8,9 @@ cc_library(
         "includes",
         "includes/dirent",
     ],
+    target_compatible_with = [
+        "@platforms//os:windows",
+    ],
     visibility = ["//visibility:public"],
 )
 
@@ -34,6 +37,9 @@ cc_library(
         "-DEFAULTLIB:Winmm.lib",
     ],
     linkstatic = True,
+    target_compatible_with = [
+        "@platforms//os:windows",
+    ],
     visibility = ["//visibility:public"],
     deps = [":compat-hdrs"],
 )
@@ -42,6 +48,9 @@ cc_test(
     name = "dirent_test",
     srcs = [
         "tests/dirent_test.cpp",
+    ],
+    target_compatible_with = [
+        "@platforms//os:windows",
     ],
     deps = [
         ":compat",
