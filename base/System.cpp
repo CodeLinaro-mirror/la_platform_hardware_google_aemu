@@ -397,6 +397,10 @@ std::string getProgramDirectory() {
 }
 
 std::string getLauncherDirectory() {
+    std::string launcherDirEnv = getEnvironmentVariable("ANDROID_EMULATOR_LAUNCHER_DIR");
+    if (!launcherDirEnv.empty()) {
+        return launcherDirEnv;
+    }
     return getProgramDirectory();
 }
 
