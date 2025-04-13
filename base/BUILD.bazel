@@ -132,6 +132,7 @@ cc_library(
         "include/aemu/base/system/System.h",
         "include/aemu/base/system/Win32UnicodeString.h",
         "include/aemu/base/system/Win32Utils.h",
+        "include/aemu/base/testing/FileMatchers.h",
         "include/aemu/base/testing/GTestUtils.h",
         "include/aemu/base/testing/GlmTestHelpers.h",
         "include/aemu/base/testing/MockUtils.h",
@@ -255,6 +256,7 @@ cc_library(
         "MemoryTracker.cpp",
         "MessageChannel.cpp",
         "PathUtils.cpp",
+        "RingStreambuf.cpp",
         "SharedLibrary.cpp",
         "StdioStream.cpp",
         "Stream.cpp",
@@ -337,10 +339,24 @@ cc_library(
 )
 
 cc_test(
+    name = "ringstream_perf",
+    size = "small",
+    srcs = ["RingStreambuf_perf.cpp"],
+    copts = ["-Wno-deprecated-declarations"],
+    includes = ["test"],
+    deps = [
+        ":aemu-base",
+        ":aemu-base-headers",
+        "@com_github_google_benchmark//:benchmark",
+    ],
+)
+
+cc_test(
     name = "aemu-base_unittests",
     srcs = [
         "AlignedBuf_unittest.cpp",
         "ArraySize_unittest.cpp",
+        "FileMatcher_unittest.cpp",
         "HealthMonitor_unittest.cpp",
         "HybridEntityManager_unittest.cpp",
         "LayoutResolver_unittest.cpp",
@@ -348,6 +364,7 @@ cc_test(
         "ManagedDescriptor_unittest.cpp",
         "NoDestructor_unittest.cpp",
         "Optional_unittest.cpp",
+        "RingStreambuf_unittest.cpp",
         "StringFormat_unittest.cpp",
         "SubAllocator_unittest.cpp",
         "TypeTraits_unittest.cpp",
