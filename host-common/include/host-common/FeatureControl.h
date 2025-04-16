@@ -47,6 +47,7 @@ bool isEnabled(Feature feature);
 bool isEnabledByGuest(Feature feature);
 AEMU_EXPORT void setEnabledOverride(Feature feature, bool isEnabled);
 void resetEnabledToDefault(Feature feature);
+void makeReadOnly(Feature feature);
 
 // Queries whether this feature is tied to the guest.
 bool isGuestFeature(Feature feature);

@@ -30,8 +30,7 @@ endif()
 add_library(aemu-host-common.headers INTERFACE)
 target_link_libraries(
     aemu-host-common.headers
-    INTERFACE
-    gfxstream-snapshot.headers)
+    INTERFACE)
 target_include_directories(
     aemu-host-common.headers
     INTERFACE

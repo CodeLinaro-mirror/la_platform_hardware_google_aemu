@@ -25,6 +25,34 @@
 
 namespace android {
 namespace base {
+namespace {
+
+#ifndef __NR_memfd_create
+#if __aarch64__
+#define __NR_memfd_create 279
+#elif __arm__
+#define __NR_memfd_create 279
+#elif __powerpc64__
+#define __NR_memfd_create 360
+#elif __i386__
+#define	 __NR_memfd_create 356
+#elif __x86_64__
+#define __NR_memfd_create 319
+#endif
+#endif
+
+int memfd_create_wrapper(const char *name, unsigned int flags) {
+#if defined(HAVE_MEMFD_CREATE)
+	return memfd_create(name, flags);
+#elif defined(__NR_memfd_create)
+	return syscall(__NR_memfd_create, name, flags);
+#else
+	return -1;
+#endif
+}
+
+}  // namespace
+
 
 SharedMemory::SharedMemory(const std::string& name, size_t size) : mSize(size) {
     const std::string& kFileUri = "file://";
@@ -91,7 +119,7 @@ int SharedMemory::openInternal(int oflag, int mode, bool doMapping) {
     struct stat sb;
     if (mShareType == ShareType::SHARED_MEMORY) {
 #if !defined(__BIONIC__)
-        mFd = shm_open(mName.c_str(), oflag, mode);
+        mFd = memfd_create_wrapper(mName.c_str(), FD_CLOEXEC);
 #else
         return ENOTTY;
 #endif
