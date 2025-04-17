@@ -14,10 +14,8 @@ option(BUILD_SHARED_LIBS "Build using shared libraries" OFF)
 
 if (AEMU_COMMON_GEN_PKGCONFIG)
    set(LOGGING_LIB_NAME aemu-logging)
-   set(SNAPSHOT_LIB_NAME aemu-snapshot)
 else()
    set(LOGGING_LIB_NAME logging-base)
-   set(SNAPSHOT_LIB_NAME gfxstream-snapshot)
 endif()
 
 project(AEMUCommon
@@ -74,7 +72,6 @@ endif()
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-extern-c-compat -Wno-return-type-c-linkage -D_FILE_OFFSET_BITS=64")
 
 add_subdirectory(base)
-add_subdirectory(snapshot)
 add_subdirectory(host-common)
 add_subdirectory(third-party)
 
@@ -93,8 +90,7 @@ if(AEMU_COMMON_GEN_PKGCONFIG)
     set(INSTALL_PC_FILES
         aemu_base
         aemu_logging
-        aemu_host_common
-        aemu_snapshot)
+        aemu_host_common)
     if(ENABLE_VKCEREAL_TESTS)
         list(APPEND INSTALL_PC_FILES aemu_base_testing_support aemu_host_common_testing_support)
     endif()
@@ -106,13 +102,11 @@ if(AEMU_COMMON_GEN_PKGCONFIG)
     endforeach()
 
     install(DIRECTORY base/include/aemu DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-    install(DIRECTORY snapshot/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/aemu/snapshot)
     install(DIRECTORY host-common/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/aemu/host-common)
     install(DIRECTORY third-party/cuda/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/aemu/host-common)
     set(INSTALL_TARGETS
         aemu-base
         aemu-host-common
-        ${SNAPSHOT_LIB_NAME}
         ${LOGGING_LIB_NAME})
     if(ENABLE_VKCEREAL_TESTS)
         list(APPEND INSTALL_TARGETS aemu-base-testing-support aemu-host-common-testing-support)
