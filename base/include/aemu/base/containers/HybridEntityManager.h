@@ -165,13 +165,13 @@ public:
     void forEachLive(IterFunc func) {
         {
             SeqLock::ScopedWrite sw(&mEntityManagerLock);
-            mEntityManager.forEachLiveComponent(func);
+            mEntityManager.forEachLiveEntry(func);
         }
 
         AutoLock lock(mMapLock);
         for (auto it : mMap) {
             auto handle = index2Handle(it.first);
-            func(true /* live */, handle, handle, it.second);
+            func(true /* live */, handle, it.second);
         }
     }
 
@@ -185,7 +185,7 @@ public:
         AutoLock lock(mMapLock);
         for (const auto it : mMap) {
             auto handle = index2Handle(it.first);
-            func(true /* live */, handle, handle, it.second);
+            func(true /* live */, handle, it.second);
         }
     }
 
