@@ -593,8 +593,7 @@ message VmConfiguration {
         KVM = 2;
 
         // Intel® Hardware Accelerated Execution Manager (Intel® HAXM)
-        // https://github.com/intel/haxm
-        HAXM = 3;
+        HAXM = 3 [deprecated = true];
 
         // Hypervisor Framework.
         // https://developer.apple.com/documentation/hypervisor
