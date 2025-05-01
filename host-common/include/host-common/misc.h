@@ -36,15 +36,6 @@ typedef enum {
 } SkinRotation;
 
 #ifdef __cplusplus
-namespace android {
-
-namespace base {
-
-class CpuUsage;
-class MemoryTracker;
-
-} // namespace base
-} // namespace android
 
 namespace emugl {
 
@@ -54,13 +45,6 @@ namespace emugl {
 
     EMUGL_COMMON_API void setShouldSkipDraw(bool skip);
     EMUGL_COMMON_API bool shouldSkipDraw();
-    // CPU usage get/set.
-    EMUGL_COMMON_API void setCpuUsage(android::base::CpuUsage* usage);
-    EMUGL_COMMON_API android::base::CpuUsage* getCpuUsage();
-
-    // Memory usage get/set
-    EMUGL_COMMON_API void setMemoryTracker(android::base::MemoryTracker* usage);
-    EMUGL_COMMON_API android::base::MemoryTracker* getMemoryTracker();
 
     // Window operation agent
     EMUGL_COMMON_API void set_emugl_window_operations(const QAndroidEmulatorWindowAgent &voperations);

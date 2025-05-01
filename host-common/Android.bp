@@ -21,8 +21,6 @@ cc_library_static {
         "vm_operations.cpp",
         "feature_control.cpp",
         "FeatureControlOverride.cpp",
-        "dma_device.cpp",
-        "sync_device.cpp",
         "misc.cpp",
         "window_operations.cpp",
         "logging.cpp",
@@ -32,9 +30,6 @@ cc_library_static {
         "HostmemIdMapping.cpp",
         "RefcountPipe.cpp",
         "GraphicsAgentFactory.cpp",
-
-        "GoldfishSyncCommandQueue.cpp",
-        "goldfish_sync.cpp",
 
         "DmaMap.cpp",
         "GoldfishDma.cpp",

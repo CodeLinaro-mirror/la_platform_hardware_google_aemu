@@ -14,17 +14,12 @@
 
 #include "misc.h"
 
-#include "aemu/base/memory/MemoryTracker.h"
-
 #include <cstring>
 
 static int s_apiLevel = -1;
 static bool s_isPhone = false;
 
 static bool s_shouldSkipDrawing = false;
-
-android::base::CpuUsage* s_cpu_usage = nullptr;
-android::base::MemoryTracker* s_mem_usage = nullptr;
 
 void emugl::setAvdInfo(bool phone, int apiLevel) {
     s_isPhone = phone;
@@ -43,20 +38,4 @@ void emugl::setShouldSkipDraw(bool skip) {
 void emugl::getAvdInfo(bool* phone, int* apiLevel) {
     if (phone) *phone = s_isPhone;
     if (apiLevel) *apiLevel = s_apiLevel;
-}
-
-void emugl::setCpuUsage(android::base::CpuUsage* usage) {
-    s_cpu_usage = usage;
-}
-
-android::base::CpuUsage* emugl::getCpuUsage() {
-    return s_cpu_usage;
-}
-
-void emugl::setMemoryTracker(android::base::MemoryTracker* usage) {
-    s_mem_usage = usage;
-}
-
-android::base::MemoryTracker* emugl::getMemoryTracker() {
-    return s_mem_usage;
 }
