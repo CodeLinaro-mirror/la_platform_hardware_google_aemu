@@ -49,7 +49,6 @@ if (BUILD_STANDALONE)
         # emugl glue
         empty-crash-handler.cpp
         crash_reporter.cpp
-        vm_operations.cpp
         feature_control.cpp
         misc.cpp
         window_operations.cpp

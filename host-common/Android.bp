@@ -18,7 +18,6 @@ cc_library_static {
     srcs: [
         "empty-crash-handler.cpp",
         "crash_reporter.cpp",
-        "vm_operations.cpp",
         "feature_control.cpp",
         "FeatureControlOverride.cpp",
         "misc.cpp",

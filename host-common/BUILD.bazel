@@ -165,7 +165,6 @@ cc_library(
         "feature_control.cpp",
         "hw-config.cpp",
         "misc.cpp",
-        "vm_operations.cpp",
         "window_operations.cpp",
     ],
     hdrs = [":aemu-host-common-headers"],
