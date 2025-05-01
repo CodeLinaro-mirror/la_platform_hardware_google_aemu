@@ -39,10 +39,6 @@ typedef enum {
 
 namespace emugl {
 
-    // Set and get API version of system image.
-    EMUGL_COMMON_API void setAvdInfo(bool isPhone, int apiLevel);
-    EMUGL_COMMON_API void getAvdInfo(bool* isPhone, int* apiLevel);
-
     EMUGL_COMMON_API void setShouldSkipDraw(bool skip);
     EMUGL_COMMON_API bool shouldSkipDraw();
 

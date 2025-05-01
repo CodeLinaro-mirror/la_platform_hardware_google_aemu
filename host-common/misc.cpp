@@ -16,15 +16,7 @@
 
 #include <cstring>
 
-static int s_apiLevel = -1;
-static bool s_isPhone = false;
-
 static bool s_shouldSkipDrawing = false;
-
-void emugl::setAvdInfo(bool phone, int apiLevel) {
-    s_isPhone = phone;
-    s_apiLevel = apiLevel;
-}
 
 bool emugl::shouldSkipDraw() {
     return s_shouldSkipDrawing;
@@ -33,9 +25,4 @@ bool emugl::shouldSkipDraw() {
 
 void emugl::setShouldSkipDraw(bool skip) {
     s_shouldSkipDrawing = skip;
-}
-
-void emugl::getAvdInfo(bool* phone, int* apiLevel) {
-    if (phone) *phone = s_isPhone;
-    if (apiLevel) *apiLevel = s_apiLevel;
 }
