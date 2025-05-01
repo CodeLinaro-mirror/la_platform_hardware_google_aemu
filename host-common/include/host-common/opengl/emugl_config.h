@@ -19,7 +19,7 @@
 
 #include "aemu/base/c_header.h"
 #include "aemu/base/export.h"
-#include "host-common/opengl/renderer_enums.h"
+#include "render-utils/renderer_enums.h"
 
 ANDROID_BEGIN_HEADER
 
