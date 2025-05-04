@@ -49,10 +49,7 @@ if (BUILD_STANDALONE)
         # emugl glue
         empty-crash-handler.cpp
         crash_reporter.cpp
-        vm_operations.cpp
         feature_control.cpp
-        dma_device.cpp
-        sync_device.cpp
         misc.cpp
         window_operations.cpp
 
@@ -61,10 +58,6 @@ if (BUILD_STANDALONE)
         HostmemIdMapping.cpp
         RefcountPipe.cpp
         GraphicsAgentFactory.cpp
-
-        # goldfish sync
-        GoldfishSyncCommandQueue.cpp
-        goldfish_sync.cpp
 
         # goldfish dma
         DmaMap.cpp

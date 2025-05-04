@@ -277,7 +277,7 @@ typedef struct QAndroidVmOperations {
     void (*vulkanInstanceEnumerate)(uint32_t* pCount, uint64_t* pIds, char** pNames);
 
     // Set the reason to skip snapshotting on exit.
-    void (*setSkipSnapshotSaveReason)(SnapshotSkipReason reason);
+    void (*setSkipSnapshotSaveReason)(uint32_t reason);
 
     // Get the reason to skip snapshotting on exit.
     SnapshotSkipReason (*getSkipSnapshotSaveReason)();

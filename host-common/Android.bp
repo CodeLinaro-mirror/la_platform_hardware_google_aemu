@@ -18,11 +18,8 @@ cc_library_static {
     srcs: [
         "empty-crash-handler.cpp",
         "crash_reporter.cpp",
-        "vm_operations.cpp",
         "feature_control.cpp",
         "FeatureControlOverride.cpp",
-        "dma_device.cpp",
-        "sync_device.cpp",
         "misc.cpp",
         "window_operations.cpp",
         "logging.cpp",
@@ -32,9 +29,6 @@ cc_library_static {
         "HostmemIdMapping.cpp",
         "RefcountPipe.cpp",
         "GraphicsAgentFactory.cpp",
-
-        "GoldfishSyncCommandQueue.cpp",
-        "goldfish_sync.cpp",
 
         "DmaMap.cpp",
         "GoldfishDma.cpp",
