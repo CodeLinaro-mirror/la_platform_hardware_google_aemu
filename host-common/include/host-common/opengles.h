@@ -24,7 +24,7 @@
 #include "render-utils/virtio_gpu_ops.h"
 
 #ifdef __cplusplus
-#include "host-common/opengl/misc.h"
+#include "host-common/misc.h"
 #include "render-utils/RenderLib.h"
 #endif
 
@@ -116,6 +116,9 @@ AEMU_EXPORT void android_setOpenglesTranslation(float px, float py);
 AEMU_EXPORT void android_setOpenglesScreenMask(int width, int height, const unsigned char* rgbaData);
 
 AEMU_EXPORT void android_redrawOpenglesWindow(void);
+
+AEMU_EXPORT void android_setShouldSkipDraw(bool skip);
+AEMU_EXPORT bool android_getShouldSkipDraw(void);
 
 AEMU_EXPORT bool android_hasGuestPostedAFrame(void);
 AEMU_EXPORT void android_resetGuestPostedAFrame(void);

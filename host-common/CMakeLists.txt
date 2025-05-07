@@ -30,7 +30,8 @@ endif()
 add_library(aemu-host-common.headers INTERFACE)
 target_link_libraries(
     aemu-host-common.headers
-    INTERFACE)
+    INTERFACE
+    aemu-base.headers)
 target_include_directories(
     aemu-host-common.headers
     INTERFACE
@@ -50,7 +51,6 @@ if (BUILD_STANDALONE)
         empty-crash-handler.cpp
         crash_reporter.cpp
         feature_control.cpp
-        misc.cpp
         window_operations.cpp
 
         # What used to be android-emu
@@ -58,18 +58,6 @@ if (BUILD_STANDALONE)
         HostmemIdMapping.cpp
         RefcountPipe.cpp
         GraphicsAgentFactory.cpp
-
-        # goldfish dma
-        DmaMap.cpp
-        GoldfishDma.cpp
-
-        # Address space device
-        address_space_device_control_ops.cpp
-        address_space_device.cpp
-        address_space_host_memory_allocator.cpp
-        address_space_shared_slots_host_memory_allocator.cpp
-        address_space_graphics.cpp
-        address_space_host_media.cpp
 
 	# SubAllocator
         ../base/SubAllocator.cpp
@@ -118,34 +106,8 @@ if (GFXSTREAM_HOST_COMMON_LIB)
 endif()
 
 if (ENABLE_VKCEREAL_TESTS)
-    # Tests
-    add_library(
-        aemu-host-common-testing-support
-        testing/HostAddressSpace.cpp
-        testing/MockGraphicsAgentFactory.cpp
-        testing/MockAndroidEmulatorWindowAgent.cpp
-        testing/MockAndroidMultiDisplayAgent.cpp
-        testing/MockAndroidVmOperations.cpp)
-    target_include_directories(
-        aemu-host-common-testing-support
-        PUBLIC
-        ${AEMU_COMMON_REPO_ROOT})
-    target_link_libraries(
-        aemu-host-common-testing-support
-        PUBLIC
-        PRIVATE
-        aemu-base.headers
-        aemu-host-common.headers
-        gtest
-        gmock)
-
     add_executable(
         aemu-host-common_unittests
-        address_space_graphics_unittests.cpp
-        address_space_host_memory_allocator_unittests.cpp
-        address_space_shared_slots_host_memory_allocator_unittests.cpp
-        HostAddressSpace_unittest.cpp
-        HostmemIdMapping_unittest.cpp
         logging_unittest.cpp
         GfxstreamFatalError_unittest.cpp)
 
@@ -161,7 +123,6 @@ if (ENABLE_VKCEREAL_TESTS)
         aemu-host-common.headers
         ${GFXSTREAM_BASE_LIB}
         ${GFXSTREAM_HOST_COMMON_LIB}
-        aemu-host-common-testing-support
         gtest_main
         gmock_main)
 

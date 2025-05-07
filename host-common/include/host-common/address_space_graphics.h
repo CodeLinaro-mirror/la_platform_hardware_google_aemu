@@ -20,10 +20,10 @@
 #include "AddressSpaceService.h"
 #include "address_space_device.h"
 #include "address_space_device.hpp"
-#include "address_space_graphics_types.h"
 #include "aemu/base/ring_buffer.h"
 #include "aemu/base/synchronization/MessageChannel.h"
 #include "aemu/base/threads/FunctorThread.h"
+#include "render-utils/address_space_graphics_types.h"
 
 namespace android {
 namespace emulation {
