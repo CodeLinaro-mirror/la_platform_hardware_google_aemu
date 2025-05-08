@@ -29,18 +29,15 @@
 
 // List of values used to identify a clockwise 90-degree rotation.
 typedef enum {
-    SKIN_ROTATION_0,
-    SKIN_ROTATION_90,
-    SKIN_ROTATION_180,
-    SKIN_ROTATION_270
+    SKIN_ROTATION_0 = 0,
+    SKIN_ROTATION_90 = 1,
+    SKIN_ROTATION_180 = 2,
+    SKIN_ROTATION_270 = 3,
 } SkinRotation;
 
 #ifdef __cplusplus
 
 namespace emugl {
-
-    EMUGL_COMMON_API void setShouldSkipDraw(bool skip);
-    EMUGL_COMMON_API bool shouldSkipDraw();
 
     // Window operation agent
     EMUGL_COMMON_API void set_emugl_window_operations(const QAndroidEmulatorWindowAgent &voperations);

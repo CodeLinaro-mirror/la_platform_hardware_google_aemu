@@ -11,10 +11,13 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
 #pragma once
 
 #include <memory>
+
 #include "aemu/base/files/Stream.h"
+#include "render-utils/address_space_operations.h"
 
 namespace android {
 namespace emulation {
@@ -39,15 +42,6 @@ enum AddressSpaceDeviceType {
     HostMemoryAllocator = 5,
     SharedSlotsHostMemoryAllocator = 6,
     VirtioGpuGraphics = 10,
-};
-
-struct AddressSpaceDevicePingInfo {
-    uint64_t phys_addr;
-    uint64_t size;
-    uint64_t metadata;
-    uint64_t wait_phys_addr;
-    uint32_t wait_flags;
-    uint32_t direction;
 };
 
 class AddressSpaceDeviceContext {

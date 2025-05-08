@@ -20,7 +20,6 @@ cc_library_static {
         "crash_reporter.cpp",
         "feature_control.cpp",
         "FeatureControlOverride.cpp",
-        "misc.cpp",
         "window_operations.cpp",
         "logging.cpp",
         "GfxstreamFatalError.cpp",
@@ -30,36 +29,9 @@ cc_library_static {
         "RefcountPipe.cpp",
         "GraphicsAgentFactory.cpp",
 
-        "DmaMap.cpp",
-        "GoldfishDma.cpp",
-
-        "address_space_device_control_ops.cpp",
-        "address_space_device.cpp",
-        "address_space_host_memory_allocator.cpp",
-        "address_space_shared_slots_host_memory_allocator.cpp",
-        "address_space_graphics.cpp",
-        "address_space_host_media.cpp",
-
         "hw-config.cpp",
     ],
     local_include_dirs: [
         "include/host-common",
-    ],
-}
-
-cc_test_library {
-    name: "gfxstream_host_common_test_support",
-    defaults: [ "gfxstream_defaults" ],
-    srcs: [
-        "testing/HostAddressSpace.cpp",
-        "testing/MockAndroidEmulatorWindowAgent.cpp",
-        "testing/MockAndroidMultiDisplayAgent.cpp",
-        "testing/MockAndroidVmOperations.cpp",
-        "testing/MockGraphicsAgentFactory.cpp",
-    ],
-    static_libs: [
-        "gfxstream_base",
-        "gfxstream_host_common",
-        "libgmock",
     ],
 }
