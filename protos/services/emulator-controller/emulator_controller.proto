@@ -456,6 +456,9 @@ message SensorValue {
         // instead.
         // Measures acceleration force and provides bias data.
         ACCELERATION_UNCALIBRATED = 17;
+        // A sensor of this type measures the direction in which the device is
+        // pointing relative to true north in degrees.
+        HEADING = 18;
     }
 
     // Type of sensor
