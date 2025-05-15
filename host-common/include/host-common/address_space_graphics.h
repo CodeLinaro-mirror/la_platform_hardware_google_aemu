@@ -44,7 +44,7 @@ public:
  AddressSpaceGraphicsContext(const struct AddressSpaceCreateInfo& create);
  ~AddressSpaceGraphicsContext();
 
- static void setConsumer(ConsumerInterface);
+ static void setConsumer(gfxstream::ConsumerInterface);
  static void init(const address_space_device_control_ops* ops);
  static void clear();
 
@@ -71,12 +71,7 @@ public:
  };
 
 private:
-
-    void saveRingConfig(base::Stream* stream, const struct asg_ring_config& config) const;
     void saveAllocation(base::Stream* stream, const Allocation& alloc) const;
-
-    void loadRingConfig(base::Stream* stream, struct asg_ring_config& config);
-
     void loadAllocation(base::Stream* stream, Allocation& alloc);
 
     // For consumer communication
@@ -89,25 +84,24 @@ private:
     };
 
     // For ConsumerCallbacks
-    int onUnavailableRead();
+    gfxstream::AsgOnUnavailableReadStatus onUnavailableRead();
 
     // Data layout
     uint32_t mVersion = 1;
     Allocation mRingAllocation;
     Allocation mBufferAllocation;
     Allocation mCombinedAllocation;
-    struct asg_context mHostContext = {};
 
     // Consumer storage
-    ConsumerCallbacks mConsumerCallbacks;
-    ConsumerInterface mConsumerInterface;
+    gfxstream::ConsumerCallbacks mConsumerCallbacks;
+    gfxstream::ConsumerInterface mConsumerInterface;
     void* mCurrentConsumer = 0;
 
     // Communication with consumer
     mutable base::MessageChannel<ConsumerCommand, 4> mConsumerMessages;
     uint32_t mExiting = 0;
     // For onUnavailableRead
-    uint32_t mUnavailableReadCount = 0;
+
 
     struct VirtioGpuInfo {
         uint32_t contextId = 0;
@@ -115,8 +109,6 @@ private:
         std::optional<std::string> name;
     };
     std::optional<VirtioGpuInfo> mVirtioGpuInfo;
-    // To save the ring config if it is cleared on hostmem map
-    struct asg_ring_config mSavedConfig;
 };
 
 }  // namespace asg
