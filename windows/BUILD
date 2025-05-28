@@ -1,5 +1,19 @@
 load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 
+exports_files(
+    [
+        "includes",
+        "includes/sys",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "compat-includes",
+    srcs = glob(["includes/**/*.h"]),
+    visibility = ["//visibility:public"],
+)
+
 cc_library(
     name = "compat-hdrs",
     hdrs = glob(["includes/**/*.h"]),
