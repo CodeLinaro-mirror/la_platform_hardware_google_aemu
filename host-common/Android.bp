@@ -11,7 +11,10 @@ package {
 
 cc_library_static {
     name: "gfxstream_host_common",
-    defaults: [ "gfxstream_defaults" ],
+    defaults: ["gfxstream_defaults"],
+    header_libs: [
+        "aemu_common_headers",
+    ],
     static_libs: [
         "gfxstream_base",
     ],
