@@ -826,6 +826,13 @@ HWCFG_BOOL(
   "Whether there is a wrist tilt gesture sensor in the device")
 
 HWCFG_BOOL(
+  hw_sensors_heading,
+  "hw.sensors.heading",
+  "no",
+  "Heading",
+  "The direction in which the device is pointing relative to true north in degrees")
+
+HWCFG_BOOL(
   hw_useext4,
   "hw.useext4",
   "yes",

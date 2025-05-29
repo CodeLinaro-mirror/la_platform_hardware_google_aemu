@@ -64,6 +64,9 @@ cc_test_host {
     srcs: [
         "LruCache_unittest.cpp",
     ],
+    header_libs: [
+        "aemu_common_headers",
+    ],
     static_libs: [
         "gfxstream_base",
         "libgmock",
@@ -78,6 +81,9 @@ cc_test_host {
 cc_test_library {
     name: "gfxstream_base_test_support",
     defaults: ["gfxstream_defaults"],
+    header_libs: [
+        "aemu_common_headers",
+    ],
     srcs: [
         "testing/file_io.cpp",
     ],
