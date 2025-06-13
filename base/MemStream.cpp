@@ -48,16 +48,19 @@ ssize_t MemStream::write(const void* buffer, size_t size) {
     return size;
 }
 
-int MemStream::writtenSize() const {
-    return (int)mData.size();
+size_t MemStream::writtenSize() const {
+    return mData.size();
 }
 
-int MemStream::readPos() const {
+size_t MemStream::readPos() const {
     return mReadPos;
 }
 
-int MemStream::readSize() const {
-    return mData.size() - mReadPos;
+size_t  MemStream::readSize() const {
+    if (mData.size() > mReadPos) {
+        return mData.size() - mReadPos;
+    }
+    return 0;
 }
 
 void MemStream::save(Stream* stream) const {
