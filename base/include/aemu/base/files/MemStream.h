@@ -33,9 +33,9 @@ public:
     MemStream(MemStream&& other) = default;
     MemStream& operator=(MemStream&& other) = default;
 
-    int writtenSize() const;
-    int readPos() const;
-    int readSize() const;
+    size_t writtenSize() const;
+    size_t readPos() const;
+    size_t readSize() const;
 
     // Stream interface implementation.
     ssize_t read(void* buffer, size_t size) override;
@@ -57,7 +57,7 @@ private:
     DISALLOW_COPY_AND_ASSIGN(MemStream);
 
     Buffer mData;
-    int mReadPos = 0;
+    size_t mReadPos = 0;
     void* mPb = nullptr;
 };
 
