@@ -78,7 +78,6 @@ class OutputLogTest : public ::testing::Test {
         absl::AddLogSink(log_sink_.get());
 
         absl::SetVLogLevel("*", 2);
-        set_gfxstream_enable_verbose_logs();
 
         // Set log level to capture everything (adjust as needed)
         absl::SetStderrThreshold(absl::LogSeverity::kInfo);

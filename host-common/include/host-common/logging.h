@@ -17,14 +17,6 @@
 #include <cstdint>
 #include <cstdio>
 
-typedef void (*gfxstream_logger_t)(char severity, const char* file, unsigned int line,
-               int64_t timestamp_us, const char* message);
-
-gfxstream_logger_t get_gfx_stream_logger();
-void set_gfxstream_logger(gfxstream_logger_t f);
-void set_gfxstream_enable_verbose_logs();
-void set_gfxstream_enable_log_colors();
-
 // Outputs a log line using Google's standard prefix. (http://go/logging#prefix)
 //
 // Do not use this function directly. Instead, use one of the logging macros below.

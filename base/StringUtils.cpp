@@ -26,39 +26,45 @@
 #include <string_view>
 #include <vector>
 
-
 #ifdef _WIN32
-const void* memmem(const void* haystack, size_t haystackLen,
-                   const void* needle, size_t needleLen) {
+const void* memmem(const void* haystack, size_t haystackLen, const void* needle, size_t needleLen) {
     if (!haystack || !needle) {
         return nullptr;
     }
 
     const auto it = std::search(
-                        static_cast<const char*>(haystack),
-                        static_cast<const char*>(haystack) + haystackLen,
-                        static_cast<const char*>(needle),
-                        static_cast<const char*>(needle) + needleLen);
-    return it == static_cast<const char*>(haystack) + haystackLen
-            ? nullptr
-            : it;
+        static_cast<const char*>(haystack), static_cast<const char*>(haystack) + haystackLen,
+        static_cast<const char*>(needle), static_cast<const char*>(needle) + needleLen);
+    return it == static_cast<const char*>(haystack) + haystackLen ? nullptr : it;
 }
 #endif  // _WIN32
 
 namespace android {
 namespace base {
 
-char* strDup(std::string_view view) {
-    // Same as strdup(str.c_str()) but avoids a strlen() call.
-    char* ret = static_cast<char*>(malloc(view.size() + 1u));
-    ::memcpy(ret, view.data(), view.size());
-    ret[view.size()] = '\0';
-    return ret;
+char* strDup(std::string_view str) {
+    size_t len = str.size();
+    // Only allocate an extra byte if not already null-terminated
+    bool alreadyNullTerminated = (len > 0) && (str.data()[len] == '\0');
+    size_t allocSize = alreadyNullTerminated ? len : len + 1;
+    char* result = static_cast<char*>(malloc(allocSize));
+    if (!result) return nullptr;
+    if (alreadyNullTerminated) {
+        // null terminated, just copy the string
+        memcpy(result, str.data(), len);
+    } else {
+        // add null terminator
+        memcpy(result, str.data(), len);
+        result[len] = '\0';
+    }
+    return result;
 }
 
 bool strContains(std::string_view haystack, const char* needle) {
-    return ::memmem(haystack.data(), haystack.size(), needle,
-                    ::strlen(needle)) != nullptr;
+    if (!needle) return false;
+    size_t needle_len = ::strlen(needle);
+    if (needle_len == 0) return true;  // Empty string is always contained
+    return ::memmem(haystack.data(), haystack.size(), needle, needle_len) != nullptr;
 }
 
 std::string Trim(const std::string& s) {
@@ -95,9 +101,7 @@ std::string Trim(const std::string& s) {
     return s.substr(start_index, end_index - start_index + 1);
 }
 
-std::string trim(const std::string& in) {
-    return Trim(in);
-}
+std::string trim(const std::string& in) { return Trim(in); }
 
 bool StartsWith(std::string_view s, std::string_view prefix) {
     return s.substr(0, prefix.size()) == prefix;
@@ -105,17 +109,15 @@ bool StartsWith(std::string_view s, std::string_view prefix) {
 
 bool startsWith(std::string_view string, std::string_view prefix) {
     return string.size() >= prefix.size() &&
-            memcmp(string.data(), prefix.data(), prefix.size()) == 0;
+           memcmp(string.data(), prefix.data(), prefix.size()) == 0;
 }
 
 bool endsWith(std::string_view string, std::string_view suffix) {
     return string.size() >= suffix.size() &&
-            memcmp(string.data() + string.size() - suffix.size(),
-                   suffix.data(), suffix.size()) == 0;
+           memcmp(string.data() + string.size() - suffix.size(), suffix.data(), suffix.size()) == 0;
 }
 
-void splitTokens(const std::string& input,
-                 std::vector<std::string>* out,
+void splitTokens(const std::string& input, std::vector<std::string>* out,
                  std::string_view splitBy) {
     auto removeWhiteSpace = [out](std::string_view strView) {
         std::string s(strView);
@@ -123,13 +125,12 @@ void splitTokens(const std::string& input,
         out->push_back(s);
     };
     out->clear();
-    split(input, splitBy, removeWhiteSpace);
+    split<std::string_view>(input, splitBy, removeWhiteSpace);
 }
 
-std::vector<std::string> Split(const std::string& s,
-                               const std::string& delimiters) {
+std::vector<std::string> Split(const std::string& s, const std::string& delimiters) {
     if (delimiters.empty()) {
-        return {}
+        return {};
     }
 
     std::vector<std::string> result;
@@ -139,8 +140,7 @@ std::vector<std::string> Split(const std::string& s,
     while (true) {
         found = s.find_first_of(delimiters, base);
         result.push_back(s.substr(base, found - base));
-        if (found == s.npos)
-            break;
+        if (found == s.npos) break;
         base = found + 1;
     }
 
@@ -154,48 +154,36 @@ template std::string Join(const std::vector<const char*>&, char);
 template std::string Join(const std::vector<std::string>&, const std::string&);
 template std::string Join(const std::vector<const char*>&, const std::string&);
 
-bool StartsWith(std::string_view s, char prefix) {
-    return !s.empty() && s.front() == prefix;
-}
+bool StartsWith(std::string_view s, char prefix) { return !s.empty() && s.front() == prefix; }
 
 bool StartsWithIgnoreCase(std::string_view s, std::string_view prefix) {
-    return s.size() >= prefix.size() &&
-           strncasecmp(s.data(), prefix.data(), prefix.size()) == 0;
+    return s.size() >= prefix.size() && strncasecmp(s.data(), prefix.data(), prefix.size()) == 0;
 }
 
 bool EndsWith(std::string_view s, std::string_view suffix) {
-    return s.size() >= suffix.size() &&
-           s.substr(s.size() - suffix.size(), suffix.size()) == suffix;
+    return s.size() >= suffix.size() && s.substr(s.size() - suffix.size(), suffix.size()) == suffix;
 }
 
-bool EndsWith(std::string_view s, char suffix) {
-    return !s.empty() && s.back() == suffix;
-}
+bool EndsWith(std::string_view s, char suffix) { return !s.empty() && s.back() == suffix; }
 
 bool EndsWithIgnoreCase(std::string_view s, std::string_view suffix) {
     return s.size() >= suffix.size() &&
-           strncasecmp(s.data() + (s.size() - suffix.size()), suffix.data(),
-                       suffix.size()) == 0;
+           strncasecmp(s.data() + (s.size() - suffix.size()), suffix.data(), suffix.size()) == 0;
 }
 
 bool EqualsIgnoreCase(std::string_view lhs, std::string_view rhs) {
-    return lhs.size() == rhs.size() &&
-           strncasecmp(lhs.data(), rhs.data(), lhs.size()) == 0;
+    return lhs.size() == rhs.size() && strncasecmp(lhs.data(), rhs.data(), lhs.size()) == 0;
 }
 
-std::string StringReplace(std::string_view s,
-                          std::string_view from,
-                          std::string_view to,
+std::string StringReplace(std::string_view s, std::string_view from, std::string_view to,
                           bool all) {
-    if (from.empty())
-        return std::string(s);
+    if (from.empty()) return std::string(s);
 
     std::string result;
     std::string_view::size_type start_pos = 0;
     do {
         std::string_view::size_type pos = s.find(from, start_pos);
-        if (pos == std::string_view::npos)
-            break;
+        if (pos == std::string_view::npos) break;
 
         result.append(s.data() + start_pos, pos - start_pos);
         result.append(to.data(), to.size());
