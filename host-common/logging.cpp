@@ -36,7 +36,6 @@ namespace {
 
 constexpr int kMaxThreadIdLength = 7;  // 7 digits for the thread id is what Google uses everywhere.
 
-gfxstream_logger_t sLogger = nullptr;
 bool sEnableVerbose = false;
 bool sEnableColors = false;
 
@@ -88,31 +87,8 @@ const char* GetFileBasename(const char* file) {
 
 }  // namespace
 
-gfxstream_logger_t get_gfx_stream_logger() { return sLogger; };
-void set_gfxstream_logger(gfxstream_logger_t f) { sLogger = f; }
-
-void set_gfxstream_enable_verbose_logs() { sEnableVerbose = true; }
-
-void set_gfxstream_enable_log_colors() { sEnableColors = true; }
-
 void OutputLog(FILE* stream, char severity, const char* file, unsigned int line,
                int64_t timestamp_us, const char* format, ...) {
-    if (sLogger) {
-        char formatted_message[2048];
-        va_list args;
-        va_start(args, format);
-        int ret = vsnprintf(formatted_message, sizeof(formatted_message), format, args);
-        va_end(args);
-        if (timestamp_us == 0) {
-            timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                               std::chrono::system_clock::now().time_since_epoch())
-                               .count();
-        }
-
-        sLogger(severity, file, line, timestamp_us, formatted_message);
-        return;
-    }
-
     if (severity == 'V' && !sEnableVerbose) {
         return;
     }
