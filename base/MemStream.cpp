@@ -24,9 +24,7 @@
 namespace android {
 namespace base {
 
-MemStream::MemStream(int reserveSize) {
-    mData.reserve(reserveSize);
-}
+MemStream::MemStream(size_t reserveSize) { mData.reserve(reserveSize); }
 
 MemStream::MemStream(Buffer&& data) : mData(std::move(data)) {}
 
@@ -34,7 +32,7 @@ ssize_t MemStream::read(void* buffer, size_t size) {
     if (!buffer) {
         return 0;
     }
-    const auto sizeToRead = std::min<int>(size, readSize());
+    const auto sizeToRead = std::min<size_t>(size, readSize());
     memcpy(buffer, mData.data() + mReadPos, sizeToRead);
     mReadPos += sizeToRead;
     return sizeToRead;

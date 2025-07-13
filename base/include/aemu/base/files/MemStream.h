@@ -27,7 +27,7 @@ class MemStream : public Stream {
 public:
     using Buffer = std::vector<char>;
 
-    MemStream(int reserveSize = 512);
+    MemStream(size_t reserveSize = 512);
     MemStream(Buffer&& data);
 
     MemStream(MemStream&& other) = default;
