@@ -25,6 +25,7 @@
 #include <unordered_map>                                 // for unordered_map
 #include <utility>                                       // for pair, make_pair
 #include <vector>                                        // for vector
+#include <cstring>                                       // for memcpy
 
 #include "android/base/LayoutResolver.h"                 // for resolveLayout
 #include "android/base/Log.h"                            // for LogStreamVoi...
@@ -434,6 +435,32 @@ int MultiDisplay::getDisplayPose(uint32_t displayId,
     *y = mMultiDisplay[displayId].pos_y;
     *w = mMultiDisplay[displayId].width;
     *h = mMultiDisplay[displayId].height;
+    return 0;
+}
+
+int MultiDisplay::getColorTransformMatrix(uint32_t displayId, float outColorTransformMatrix[16]) {
+    if (mGuestMode) {
+        return -1;
+    }
+    AutoLock lock(mLock);
+    auto display = mMultiDisplay.find(displayId);
+    if (display == mMultiDisplay.end()) {
+        return -1;
+    }
+    std::memcpy(outColorTransformMatrix, display.second->colorTransform.mat, sizeof(float) * 16);
+    return 0;
+}
+
+int MultiDisplay::setColorTransformMatrix(uint32_t displayId, float colorTransformMatrix[16]) {
+    if (mGuestMode) {
+        return -1;
+    }
+    AutoLock lock(mLock);
+    auto display = mMultiDisplay.find(displayId);
+    if (display == mMultiDisplay.end()) {
+        return -1;
+    }
+    std::memcpy(display.second->colorTransform.mat, colorTransformMatrix, sizeof(float) * 16);
     return 0;
 }
 
