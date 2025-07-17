@@ -197,6 +197,18 @@ cc_library(
     deps = [":aemu-base-headers"],
 )
 
+cc_library(
+    name = "aemu-base-socket-utils",
+    srcs = ["SocketUtils.cpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":aemu-base-headers",
+        ":aemu-base-logging",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
+    ],
+)
+
 objc_library(
     name = "aemu-base-darwin",
     srcs = [
@@ -366,6 +378,7 @@ cc_test(
         "NoDestructor_unittest.cpp",
         "Optional_unittest.cpp",
         "RingStreambuf_unittest.cpp",
+        "SocketUtils_unittest.cpp",
         "StringFormat_unittest.cpp",
         "StringUtils_test.cpp",
         "SubAllocator_unittest.cpp",
@@ -385,6 +398,7 @@ cc_test(
         ":aemu-base",
         ":aemu-base-headers",
         ":aemu-base-logging",
+        ":aemu-base-socket-utils",
         "//base:aemu-base-metrics",
         "//host-common:logging",
         "@com_google_absl//absl/log",
