@@ -209,6 +209,34 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "event-support",
+    srcs = ["EventWaiter.cpp"],
+    hdrs = [
+        "include/aemu/base/events/CallbackEventSupport.h",
+        "include/aemu/base/events/EventSupport.h",
+        "include/aemu/base/events/EventWaiter.h",
+        "include/aemu/base/events/PropertyChangeSupport.h",
+    ],
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+    deps = ["@com_google_absl//absl/synchronization"],
+)
+
+cc_test(
+    name = "event-support-test",
+    srcs = [
+        "tests/CallbackEvent_unittest.cpp",
+        "tests/EventWaiter_unittest.cpp",
+        "tests/GenericEventWaiter_unittest.cpp",
+        "tests/PropertyChangeEvent_unittest.cpp",
+    ],
+    deps = [
+        ":event-support",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 objc_library(
     name = "aemu-base-darwin",
     srcs = [
