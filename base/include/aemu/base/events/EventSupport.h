@@ -123,6 +123,11 @@ class EventChangeSupport {
         return mListeners.size();
     }
 
+    bool isRegistered(EventListener<T>* listener) {
+        const std::lock_guard<std::mutex> lock(mListenerLock);
+        return mListeners.count(listener);
+    }
+
    private:
     std::mutex mListenerLock;  // A mutex to protect the listener set
     std::unordered_set<EventListener<T>*> mListeners;

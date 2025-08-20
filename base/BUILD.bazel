@@ -227,6 +227,7 @@ cc_test(
     name = "event-support-test",
     srcs = [
         "tests/CallbackEvent_unittest.cpp",
+        "tests/EventSupportTest.cpp",
         "tests/EventWaiter_unittest.cpp",
         "tests/GenericEventWaiter_unittest.cpp",
         "tests/PropertyChangeEvent_unittest.cpp",
