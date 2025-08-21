@@ -233,12 +233,20 @@ public:
     // thread and returns (doesn't wait for task to complete).
     virtual void scheduleCallback(TaskCallback&& callback) = 0;
 
+    using ExitListener = std::function<void(Looper* looper)>;
+    // Adds to a list of listeners that will be invoked when the looper exits. The exit listeners
+    // will be invoked on the thread that the looper is destroyed on.
+    //
+    // |callback| will be invoked right before the looper is destroyed.
+    void addExitListener(ExitListener&& callback);
+
 protected:
     // Default constructor is protected. Use create() method to create
     // new generic Looper instances.
     Looper();
 
 private:
+    std::vector<ExitListener> mExitListeners;
     DISALLOW_COPY_AND_ASSIGN(Looper);
 };
 
