@@ -709,6 +709,22 @@ message TouchEvent {
     int32 display = 2;
 }
 
+// A TouchpadEvent contains a list of Touch objects that are in contact with
+// the touchpad surface.
+//
+// Touchpad events are delivered in sequence as specified in the touchList.
+//
+// TouchpadEvents are delivered to the emulated devices using ["Protocol
+// B"](https://www.kernel.org/doc/Documentation/input/multi-touch-protocol.txt)
+message TouchpadEvent {
+    // The list of Touch objects, note that these do not need to be unique
+    repeated Touch touches = 1;
+
+    // The touchpad device where the touch event occurred.
+    // Omitting or using the value 0 indicates the main touchpad.
+    int32 touchpad = 2;
+}
+
 message PenEvent {
     // The list of Pen objects, note that these do not need to be unique
     repeated Pen events = 1;
@@ -877,6 +893,7 @@ message InputEvent {
         Translation xr_head_movement_event = 11;
         AngularVelocity xr_head_angular_velocity_event = 12;
         Velocity xr_head_velocity_event = 13;
+        TouchpadEvent touchpad_event = 14;
     }
 };
 
