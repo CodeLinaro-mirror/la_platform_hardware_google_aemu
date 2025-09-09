@@ -439,5 +439,24 @@ auto makeScopedCallback(EventSystem& system,
                         typename ScopedEventCallback<EventSystem, T>::EventCallback callback) {
     return std::make_unique<ScopedEventCallback<EventSystem, T>>(system, std::move(callback));
 }
+
+// Helper to deduce the event type from a lambda's signature
+template <typename T> struct function_traits;
+template <typename ClassType, typename ReturnType, typename Arg>
+struct function_traits<ReturnType (ClassType::*)(Arg) const> { using event_type = std::decay_t<Arg>; };
+template <typename ClassType, typename ReturnType>
+struct function_traits<ReturnType (ClassType::*)() const> { using event_type = void; };
+
+/**
+ * @brief Helper function to create a ScopedEventCallback with automatic type deduction.
+ * @param system Reference to the event system
+ * @param callback The callback function
+ * @return A new ScopedEventCallback instance
+ */
+template <typename EventSystem, typename F>
+auto makeScopedCallback(EventSystem& system, F&& callback) {
+    using T = typename function_traits<decltype(&F::operator())>::event_type;
+    return std::make_unique<ScopedEventCallback<EventSystem, T>>(system, std::forward<F>(callback));
+}
 }  // namespace base
 }  // namespace android
