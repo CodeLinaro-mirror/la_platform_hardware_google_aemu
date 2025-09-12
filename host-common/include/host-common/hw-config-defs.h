@@ -77,6 +77,27 @@ HWCFG_BOOL(
   "Whether there are hardware back/home keys on the device.")
 
 HWCFG_BOOL(
+  hw_touchpad0,
+  "hw.touchpad0",
+  "no",
+  "Touchpad support",
+  "Whether there is a touchpad on the device")
+
+HWCFG_INT(
+  hw_touchpad0_width,
+  "hw.touchpad0.width",
+  600,
+  "Touchpad width",
+  "Whether there is a trackball on the device.")
+
+HWCFG_INT(
+  hw_touchpad0_height,
+  "hw.touchpad0.height",
+  400,
+  "Touchpad height",
+  "")
+
+HWCFG_BOOL(
   hw_trackBall,
   "hw.trackBall",
   "yes",
