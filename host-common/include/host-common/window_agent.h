@@ -160,6 +160,8 @@ typedef struct QAndroidEmulatorWindowAgent {
     // Gets the XR options.
     bool (*getXrOptions)(int* environment, float* passthroughCoefficient);
 
+    // Sets the XR hand gesture.
+    bool (*setXrHandGesture)(int);
 } QAndroidEmulatorWindowAgent;
 
 #ifndef USING_ANDROID_BP
