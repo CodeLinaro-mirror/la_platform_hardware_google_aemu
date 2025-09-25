@@ -28,114 +28,6 @@ struct event_source_traits<Host<T, Policy>> {
 };
 
 /**
- * @brief A mixin that adds a modern, safe, and high-performance callback API
- * to any policy-based event source.
- *
- * @details This class inherits from the provided EventSourceType, gaining its
- * performance characteristics. It adds an ID-based callback system where each
- * callback is managed by its own dedicated internal listener.
- *
- * @tparam EventSourceType The concrete event source class to extend (e.g.,
- * eventing::ThreadSafeEventSource<MyEvent>).
- */
-template <typename EventSourceType>
-class WithCallbacks : public EventSourceType {
-   public:
-    using T = typename event_source_traits<EventSourceType>::event_type;
-    using EventCallback = std::function<void(const T&)>;
-    using CallbackId = size_t;
-    using PtrType = typename EventSourceType::Ptr;
-
-    using EventSourceType::EventSourceType;
-
-    /**
-     * @brief Adds a callback, creating a dedicated listener for it.
-     * @return A unique ID for managing the callback's lifetime.
-     */
-    virtual CallbackId addCallback(EventCallback callback) {
-        auto listener = std::make_shared<InternalListener>(std::move(callback));
-        CallbackId id;
-
-        {
-            const std::lock_guard<std::mutex> lock(mApiLock);
-            id = mNextId++;
-            mListenerMap[id] = listener;
-        }
-
-        // Add the listener to the underlying high-performance EventSource
-        if constexpr (eventing::is_shared_ptr_v<PtrType> || eventing::is_weak_ptr_v<PtrType>) {
-            EventSourceType::addListener(listener);
-        } else {
-            EventSourceType::addListener(listener.get());
-        }
-
-        return id;
-    }
-
-    /**
-     * @brief Removes a callback by its ID.
-     */
-    void removeCallback(CallbackId id) {
-        std::shared_ptr<InternalListener> listener;
-        {
-            const std::lock_guard<std::mutex> lock(mApiLock);
-            auto it = mListenerMap.find(id);
-            if (it == mListenerMap.end()) {
-                return;
-            }
-            listener = it->second;
-            mListenerMap.erase(it);
-        }
-
-        // Remove the listener from the underlying EventSource
-        if (listener) {
-            if constexpr (eventing::is_shared_ptr_v<PtrType> || eventing::is_weak_ptr_v<PtrType>) {
-                EventSourceType::removeListener(listener);
-            } else {
-                EventSourceType::removeListener(listener.get());
-            }
-        }
-    }
-
-    /**
-     * @brief Returns the number of listeners in the underlying event source.
-     */
-    size_t size() { return EventSourceType::size(); }
-
-    /**
-     * @brief Fires an event to all listeners in the underlying event source.
-     */
-    void fireEvent(typename event_param<T>::type event) {
-        EventSourceType::fireEvent(event);
-    }
-
-    /**
-     * @brief Returns the number of active callbacks.
-     */
-    size_t callbackCount() const {
-        const std::lock_guard<std::mutex> lock(mApiLock);
-        return mListenerMap.size();
-    }
-
-   private:
-    // A dedicated listener that holds a single callback.
-    class InternalListener : public eventing::EventListener<T> {
-       public:
-        explicit InternalListener(EventCallback cb) : mCallback(std::move(cb)) {}
-        void eventArrived(typename event_param<T>::type event) override {
-            mCallback(event);
-        }
-
-       private:
-        EventCallback mCallback;
-    };
-
-    mutable std::mutex mApiLock;
-    CallbackId mNextId = 0;
-    std::unordered_map<CallbackId, std::shared_ptr<InternalListener>> mListenerMap;
-};
-
-/**
  * @brief RAII wrapper for automatic callback management.
  *
  * This class automatically unregisters the callback when destroyed.
@@ -239,6 +131,122 @@ class ScopedEventCallback<EventSystem, void> {
    private:
     EventSystem& mSystem;
     size_t mId;
+};
+
+/**
+ * @brief A mixin that adds a modern, safe, and high-performance callback API
+ * to any policy-based event source.
+ *
+ * @details This class inherits from the provided EventSourceType, gaining its
+ * performance characteristics. It adds an ID-based callback system where each
+ * callback is managed by its own dedicated internal listener.
+ *
+ * @tparam EventSourceType The concrete event source class to extend (e.g.,
+ * eventing::ThreadSafeEventSource<MyEvent>).
+ */
+template <typename EventSourceType>
+class WithCallbacks : public EventSourceType {
+   public:
+    using T = typename event_source_traits<EventSourceType>::event_type;
+    using EventCallback = std::function<void(const T&)>;
+    using CallbackId = size_t;
+    using PtrType = typename EventSourceType::Ptr;
+
+    /**
+     * @brief A unique pointer that holds a ScopedEventCallback, ensuring the
+     * callback is automatically unregistered when the handle goes out of scope.
+     * This is the return type of `makeScopedCallback`.
+     */
+    using ScopedCallbackHandle =
+        std::unique_ptr<ScopedEventCallback<WithCallbacks<EventSourceType>, T>>;
+
+    using EventSourceType::EventSourceType;
+
+    /**
+     * @brief Adds a callback, creating a dedicated listener for it.
+     * @return A unique ID for managing the callback's lifetime.
+     */
+    virtual CallbackId addCallback(EventCallback callback) {
+        auto listener = std::make_shared<InternalListener>(std::move(callback));
+        CallbackId id;
+
+        {
+            const std::lock_guard<std::mutex> lock(mApiLock);
+            id = mNextId++;
+            mListenerMap[id] = listener;
+        }
+
+        // Add the listener to the underlying high-performance EventSource
+        if constexpr (eventing::is_shared_ptr_v<PtrType> || eventing::is_weak_ptr_v<PtrType>) {
+            EventSourceType::addListener(listener);
+        } else {
+            EventSourceType::addListener(listener.get());
+        }
+
+        return id;
+    }
+
+    /**
+     * @brief Removes a callback by its ID.
+     */
+    void removeCallback(CallbackId id) {
+        std::shared_ptr<InternalListener> listener;
+        {
+            const std::lock_guard<std::mutex> lock(mApiLock);
+            auto it = mListenerMap.find(id);
+            if (it == mListenerMap.end()) {
+                return;
+            }
+            listener = it->second;
+            mListenerMap.erase(it);
+        }
+
+        // Remove the listener from the underlying EventSource
+        if (listener) {
+            if constexpr (eventing::is_shared_ptr_v<PtrType> || eventing::is_weak_ptr_v<PtrType>) {
+                EventSourceType::removeListener(listener);
+            } else {
+                EventSourceType::removeListener(listener.get());
+            }
+        }
+    }
+
+    /**
+     * @brief Returns the number of listeners in the underlying event source.
+     */
+    size_t size() { return EventSourceType::size(); }
+
+    /**
+     * @brief Fires an event to all listeners in the underlying event source.
+     */
+    void fireEvent(typename event_param<T>::type event) {
+        EventSourceType::fireEvent(event);
+    }
+
+    /**
+     * @brief Returns the number of active callbacks.
+     */
+    size_t callbackCount() const {
+        const std::lock_guard<std::mutex> lock(mApiLock);
+        return mListenerMap.size();
+    }
+
+   private:
+    // A dedicated listener that holds a single callback.
+    class InternalListener : public eventing::EventListener<T> {
+       public:
+        explicit InternalListener(EventCallback cb) : mCallback(std::move(cb)) {}
+        void eventArrived(typename event_param<T>::type event) override {
+            mCallback(event);
+        }
+
+       private:
+        EventCallback mCallback;
+    };
+
+    mutable std::mutex mApiLock;
+    CallbackId mNextId = 0;
+    std::unordered_map<CallbackId, std::shared_ptr<InternalListener>> mListenerMap;
 };
 
 /**
