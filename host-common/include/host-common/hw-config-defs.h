@@ -307,6 +307,13 @@ HWCFG_INT(
   "LCD VSYNC rate",
   "")
 
+HWCFG_BOOL(
+  hw_lcd_transparent,
+  "hw.lcd.transparent",
+  "false",
+  "LCD transparency",
+  "Enable/Disable LCD transparency simulation. Default: false")
+
 HWCFG_STRING(
   hw_gltransport,
   "hw.gltransport",
