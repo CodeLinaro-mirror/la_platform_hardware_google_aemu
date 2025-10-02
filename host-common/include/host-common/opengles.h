@@ -114,6 +114,7 @@ AEMU_EXPORT int android_hideOpenglesWindow(void);
 AEMU_EXPORT void android_setOpenglesTranslation(float px, float py);
 
 AEMU_EXPORT void android_setOpenglesScreenMask(int width, int height, const uint8_t* rgbaData);
+AEMU_EXPORT void android_setOpenglesScreenBackground(int width, int height, const uint8_t* rgbaData);
 
 AEMU_EXPORT void android_redrawOpenglesWindow(void);
 
