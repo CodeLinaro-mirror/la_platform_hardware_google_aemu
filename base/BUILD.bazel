@@ -93,6 +93,7 @@ cc_library(
         "include/aemu/base/files/preadwrite.h",
         "include/aemu/base/gl_object_counter.h",
         "include/aemu/base/memory/ContiguousRangeMapper.h",
+        "include/aemu/base/memory/LazyInstance.h",
         "include/aemu/base/memory/MallocUsableSize.h",
         "include/aemu/base/memory/MemoryHints.h",
         "include/aemu/base/memory/MemoryTracker.h",
