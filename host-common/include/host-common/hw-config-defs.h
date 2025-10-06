@@ -88,7 +88,7 @@ HWCFG_INT(
   "hw.touchpad0.width",
   600,
   "Touchpad width",
-  "Whether there is a trackball on the device.")
+  "")
 
 HWCFG_INT(
   hw_touchpad0_height,
