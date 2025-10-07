@@ -197,6 +197,47 @@ cc_library(
     deps = [":aemu-base-headers"],
 )
 
+cc_library(
+    name = "aemu-base-socket-utils",
+    srcs = ["SocketUtils.cpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":aemu-base-headers",
+        ":aemu-base-logging",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
+    ],
+)
+
+cc_library(
+    name = "event-support",
+    srcs = ["EventWaiter.cpp"],
+    hdrs = [
+        "include/aemu/base/events/CallbackEventSupport.h",
+        "include/aemu/base/events/EventSupport.h",
+        "include/aemu/base/events/EventWaiter.h",
+        "include/aemu/base/events/PropertyChangeSupport.h",
+    ],
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+    deps = ["@com_google_absl//absl/synchronization"],
+)
+
+cc_test(
+    name = "event-support-test",
+    srcs = [
+        "tests/CallbackEvent_unittest.cpp",
+        "tests/EventSupportTest.cpp",
+        "tests/EventWaiter_unittest.cpp",
+        "tests/GenericEventWaiter_unittest.cpp",
+        "tests/PropertyChangeEvent_unittest.cpp",
+    ],
+    deps = [
+        ":event-support",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 objc_library(
     name = "aemu-base-darwin",
     srcs = [
@@ -366,6 +407,7 @@ cc_test(
         "NoDestructor_unittest.cpp",
         "Optional_unittest.cpp",
         "RingStreambuf_unittest.cpp",
+        "SocketUtils_unittest.cpp",
         "StringFormat_unittest.cpp",
         "StringUtils_test.cpp",
         "SubAllocator_unittest.cpp",
@@ -385,6 +427,7 @@ cc_test(
         ":aemu-base",
         ":aemu-base-headers",
         ":aemu-base-logging",
+        ":aemu-base-socket-utils",
         "//base:aemu-base-metrics",
         "//host-common:logging",
         "@com_google_absl//absl/log",

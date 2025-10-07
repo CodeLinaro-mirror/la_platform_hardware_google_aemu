@@ -120,7 +120,7 @@ void free_emugl_host_gpu_props(emugl_host_gpu_prop_list props);
 // |gpu_option| is the value of the '-gpu <mode>' option, or NULL.
 // |bitness| is the host bitness (0, 32 or 64).
 // |no_window| is true if the '-no-window' emulator flag was used.
-// |blacklisted| is true if the GPU driver is on the list of
+// |denylisted| is true if the GPU driver is on the list of
 // crashy GPU drivers.
 // |use_host_vulkan| is true if the '-use-host-vulkan' emulator flag was used.
 //
@@ -133,7 +133,7 @@ AEMU_EXPORT bool emuglConfig_init(EmuglConfig* config,
                                   const char* gpu_option,
                                   int bitness,
                                   bool no_window,
-                                  bool blacklisted,
+                                  bool denylisted,
                                   bool google_apis,
                                   int uiPreferredBackend,
                                   bool use_host_vulkan);

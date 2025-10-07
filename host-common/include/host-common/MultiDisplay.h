@@ -27,6 +27,11 @@
 
 namespace android {
 
+struct DisplayColorTransform {
+    float mat[16];
+    DisplayColorTransform() : mat{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1} {}
+};
+
 struct MultiDisplayInfo {
     int32_t pos_x;
     int32_t pos_y;
@@ -39,6 +44,8 @@ struct MultiDisplayInfo {
     uint32_t cb;
     int32_t  rotation;
     bool     enabled;
+    DisplayColorTransform colorTransform;
+
     MultiDisplayInfo() :
       pos_x(0), pos_y(0), width(0), height(0), originalWidth(0),
       originalHeight(0), dpi(0), flag(0), cb(0), rotation(0), enabled(true) {}
@@ -114,6 +121,8 @@ public:
                        int32_t* y,
                        uint32_t* w,
                        uint32_t* h);
+    int setColorTransformMatrix(uint32_t displayId, const float colorTransformMatrix[16]);
+    int getColorTransformMatrix(uint32_t displayId, float outColorTransformMatrix[16]);
     int getDisplayColorBuffer(uint32_t displayId, uint32_t* colorBuffer);
     int getColorBufferDisplay(uint32_t colorBuffer, uint32_t* displayId);
     int setDisplayColorBuffer(uint32_t displayId, uint32_t colorBuffer);

@@ -345,6 +345,9 @@ public:
     // Move a file. It works even when from and to are on different disks.
     static bool move(const std::string& from, const std::string& to);
 
+    // Delete a file.
+    static bool remove(const std::string& name);
+
 #ifdef _WIN32
     static Win32UnicodeString asUnicodePath(const char* path) { return Win32UnicodeString(path); }
 #else
