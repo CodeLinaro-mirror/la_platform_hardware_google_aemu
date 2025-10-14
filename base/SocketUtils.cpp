@@ -624,6 +624,7 @@ void disable_sigalrm(signal_state_t* state) {
 void restore_sigalrm(signal_state_t* state) {
     pthread_sigmask(SIG_SETMASK, &state->old, NULL);
 }
+#endif
 
 // Helper function to connect a socket without SIGALRM interference
 static int socket_connect_no_sigalrm(int socket, const void* address, uint32_t address_len) {
@@ -652,7 +653,6 @@ int socket_connect_posix(int fd, const void* address, uint32_t address_len) {
     }
     return ret;
 }
-#endif
 
 static int socketTcpLoopbackClientFor(int port, int domain) {
     ScopedSocket s(socketCreateTcpFor(domain));
