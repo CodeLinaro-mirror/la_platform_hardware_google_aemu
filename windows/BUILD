@@ -68,6 +68,6 @@ cc_test(
     ],
     deps = [
         ":compat",
-        "@com_google_googletest//:gtest_main",
+        "@googletest//:gtest_main",
     ],
 )

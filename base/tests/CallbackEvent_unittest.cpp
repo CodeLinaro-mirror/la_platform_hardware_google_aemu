@@ -86,7 +86,7 @@ TEST_F(CallbackTests, ScopedCallbackLifetime) {
     int count = 0;
     {
         auto scoped =
-            makeScopedCallback<TestEventSystem, int>(events, [&count](const int&) { count++; });
+            makeScopedCallback(events, [&count](const int&) { count++; });
 
         EXPECT_EQ(events.callbackCount(), 1);
         events.triggerEvent(42);
@@ -101,7 +101,7 @@ TEST_F(CallbackTests, ScopedCallbackLifetime) {
 TEST_F(CallbackTests, ScopedCallbackMove) {
     int count = 0;
     auto scoped =
-        makeScopedCallback<TestEventSystem, int>(events, [&count](const int&) { count++; });
+        makeScopedCallback(events, [&count](const int&) { count++; });
 
     // Move the callback
     auto moved = std::move(scoped);
@@ -197,7 +197,7 @@ TEST_F(CallbackTests, CallbackThrowsException) {
 // Memory leak tests (requires running with sanitizers)
 TEST_F(CallbackTests, NoMemoryLeaks) {
     for (int i = 0; i < 1000; ++i) {
-        auto scoped = makeScopedCallback<TestEventSystem, int>(events, [](const int&) {});
+        auto scoped = makeScopedCallback(events, [](const int&) {});
         events.triggerEvent(42);
     }
     EXPECT_EQ(events.callbackCount(), 0);
