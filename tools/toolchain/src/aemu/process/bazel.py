@@ -1,0 +1,168 @@
+# -*- coding: utf-8 -*-
+# Copyright 2023 - The Android Open Source Project
+#
+# Licensed under the Apache License, Version 2.0 (the',  help='License');
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an',  help='AS IS' BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+import json
+import logging
+import platform
+from functools import lru_cache
+from pathlib import Path
+from typing import Dict, List, Set
+from aemu.process.runner import check_output, run
+
+
+class Bazel:
+    def __init__(
+        self,
+        aosp: Path,
+        dist: Path,
+        startup_options: list[str] = [],
+        build_options: list[str] = [],
+    ):
+        self.aosp = aosp.absolute()
+        self.log_dir = dist.absolute() / "bazel-logs"
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        self.startup_options = startup_options
+        self.build_options = build_options
+        self.bazel_dir = aosp / "prebuilts" / "bazel"
+        self.exe = self.bazel_dir / f"{self.host()}-x86_64" / "bazel"
+        self.info = self._load_bazel_info()
+        logging.info("Using bazel config: %s", self.info)
+        assert "output_base" in self.info
+        assert "workspace" in self.info
+        assert "output_path" in self.info
+
+    def host(self) -> str:
+        return platform.system().lower()
+
+    def build_target(self, bazel_target: str, build_for_includes: bool = False) -> str:
+        """Builds the specified Bazel target.
+
+        Run the Bazel build command for the specified target using the
+        stored Bazel executable.
+
+        Args:
+            bazel_target (str): The Bazel target to build.
+
+        Returns:
+            List of targets that were build.
+        """
+        if ":" in bazel_target:
+            label = bazel_target[bazel_target.rfind(":") + 1 :]
+        else:
+            label = bazel_target[bazel_target.rfind("/") + 1 :]
+        bazel_explain_file = (self.log_dir / f"explain-{label}.txt").absolute()
+
+        build_options = self.build_options + [
+            f"--explain={bazel_explain_file}",
+            "--verbose_explanations",
+        ]
+        if build_for_includes:
+            build_options.append("--output_groups=compilation_prerequisites_INTERNAL_")
+
+        output = run(
+            [self.exe]
+            + self.startup_options
+            + ["build"]
+            + build_options
+            + [bazel_target],
+            cwd=self.aosp,
+        )
+        return [x for x in output if x.startswith("bazel")]
+
+    def _replace_labels(self, package_info_result: str) -> str:
+        """Replace labels from the package info script."""
+        # Concatenate includes and shim, then replace labels with actual values.
+        return (
+            package_info_result.replace("${output_base}", self.info["output_base"])
+            .replace("${bazel_out}", self.info["output_path"])
+            .replace("${workspace}", self.info["workspace"])
+        )
+
+    def _replace_targets(self, target: str) -> str:
+        return target.replace("bazel-out", self.info["output_path"]).replace(
+            "bazel-bin", self.info["bazel-bin"]
+        )
+
+    @lru_cache(maxsize=None)
+    def package_info(self, bazel_target: str) -> Dict[str, List[str]]:
+        """Retrieve information about the Bazel target with paths normalized.
+
+        Args:
+            bazel_target (str): The Bazel target to query.
+
+        Returns:
+            Dict[str, [str]]: A dictionary containing information about the Bazel target.
+        """
+        # Load information about Bazel target using 'cquery' and retrieve
+        # A json string that looks like:
+        # {
+        #    "archive": "path/to/archive",
+        #    "includes": "path1;path2;...",
+        #    "defines": "key1;key2=val;...",
+        # }
+        #
+
+        # First make sure that the virtual includes are actually generated.
+        self.build_target(bazel_target, build_for_includes=True)
+
+        query_script = self.aosp / "build" / "bazel" / "utils" / "cmake.cquery.bzl"
+
+        build_options = self.build_options + [
+            f"--starlark:file={query_script}",
+            "--output=starlark",
+        ]
+
+        starlark = check_output(
+            [self.exe]
+            + self.startup_options
+            + ["cquery"]
+            + build_options
+            + [bazel_target],
+            cwd=self.aosp,
+        )
+        normalized = self._replace_labels(starlark)
+        info = json.loads(normalized)
+        for k, v in info.items():
+            info[k] = list(set(v.split(";")))
+
+        logging.info("Target %s config info: %s", bazel_target, info)
+        return info
+
+    def get_archive(self, bazel_target: str) -> Path:
+        """Gets the path of the compiled archive (.lib/.a) generated by this target."""
+        archives = [self._replace_targets(x) for x in self.build_target(bazel_target)]
+        return Path(next(iter(archives), ""))
+
+    def get_includes(self, bazel_target: str) -> Set[Path]:
+        return set(
+            [Path(x) for x in self.package_info(bazel_target).get("includes", [])]
+        )
+
+    def _load_bazel_info(self) -> Dict[str, str]:
+        """Retrieve the bazel configuration."""
+
+        # Bazel info gives:
+        # key: value
+        #
+        # for example:
+        #
+        # command_log: /private/var/tmp/_bazel_me/66e1d3546ce0030819ddb695de13f5d3/command.log
+        # committed-heap-size: 209MB
+        # execution_root: /private/var/tmp/_bazel_me/66e1d3546ce0030819ddb695de13f5d3/execroot/_main
+        # gc-count: 121
+        info = check_output(
+            cmd=[self.exe] + self.startup_options + ["info"] + self.build_options,
+            cwd=self.aosp,
+        ).splitlines()
+        return dict(line.strip().split(": ") for line in info)

@@ -1,0 +1,60 @@
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+
+package(default_visibility = ["//visibility:public"])
+
+py_library(
+    name = "amc_common_lib",
+    srcs = [
+        "src/aemu/__init__.py",
+        "src/aemu/jsonc.py",
+        "src/aemu/log.py",
+        "src/aemu/process/__init__.py",
+        "src/aemu/process/runner.py",
+        "src/aemu/util.py",
+    ],
+    imports = ["src"],
+)
+
+py_library(
+    name = "amc_toolchain_lib",
+    srcs = [
+        "src/aemu/buildbot_utils.py",
+        "src/aemu/process/bazel.py",
+        "src/aemu/process/cmake.py",
+        "src/aemu/toolchain.py",
+        "src/aemu/toolchains/__init__.py",
+        "src/aemu/toolchains/darwin_generator.py",
+        "src/aemu/toolchains/factory.py",
+        "src/aemu/toolchains/linux_arm_generator.py",
+        "src/aemu/toolchains/linux_generator.py",
+        "src/aemu/toolchains/mingw_to_msvc_lib.py",
+        "src/aemu/toolchains/package_config_pc.py",
+        "src/aemu/toolchains/toolchain_generator.py",
+        "src/aemu/toolchains/windows_generator.py",
+    ],
+    imports = ["src"],
+    deps = [":amc_common_lib"],
+)
+
+py_library(
+    name = "amc_qemu_configure_lib",
+    srcs = [
+        "src/aemu/configure/__init__.py",
+        "src/aemu/configure/libraries.py",
+        "src/aemu/configure/meson_project_builder.py",
+        "src/aemu/configure/shim.py",
+    ],
+    imports = ["src"],
+    deps = [":amc_common_lib"],
+)
+
+py_binary(
+    name = "amc",
+    srcs = ["src/amc.py"],
+    main = "src/amc.py",
+    deps = [
+        ":amc_common_lib",
+        ":amc_qemu_configure_lib",
+        ":amc_toolchain_lib",
+    ],
+)
