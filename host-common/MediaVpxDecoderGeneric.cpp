@@ -16,6 +16,7 @@
 #include "host-common/MediaFfmpegVideoHelper.h"
 #include "host-common/MediaVpxVideoHelper.h"
 #include "host-common/VpxFrameParser.h"
+#include "host-common/FeatureControl.h"
 #include "android/main-emugl.h"
 #include "android/utils/debug.h"
 
@@ -28,6 +29,7 @@
 #include <stdio.h>
 #include <cassert>
 #include <functional>
+#include <string.h>
 
 #define MEDIA_VPX_DEBUG 0
 
@@ -39,7 +41,7 @@
 #define VPX_DPRINT(fmt, ...)
 #endif
 
-#include <string.h>
+namespace fc = android::featurecontrol;
 
 namespace android {
 namespace emulation {
@@ -83,6 +85,12 @@ bool canUseCudaDecoder() {
 }
 
 bool canDecodeToGpuTexture() {
+    if (fc::isEnabled(fc::VulkanNativeSwapchain)) {
+        // TODO(b/454881204): YUV conversion requires OpenGL and won't work in
+        // vulkan-only mode
+        return false;
+    }
+
 #ifndef __APPLE__
 
     if (cudaVpxAllowed() &&

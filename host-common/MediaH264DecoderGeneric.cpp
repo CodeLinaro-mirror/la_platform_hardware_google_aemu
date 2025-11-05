@@ -16,6 +16,7 @@
 #include "aemu/base/system/System.h"
 #include "host-common/H264PingInfoParser.h"
 #include "host-common/MediaFfmpegVideoHelper.h"
+#include "host-common/FeatureControl.h"
 #include "android/main-emugl.h"
 
 #ifndef __APPLE__
@@ -42,6 +43,8 @@
 #else
 #define H264_DPRINT(fmt, ...)
 #endif
+
+namespace fc = android::featurecontrol;
 
 namespace android {
 namespace emulation {
@@ -70,6 +73,12 @@ bool canUseCudaDecoder() {
 }
 
 bool canDecodeToGpuTexture() {
+    if (fc::isEnabled(fc::VulkanNativeSwapchain)) {
+        // TODO(b/454881204): YUV conversion requires OpenGL and won't work in
+        // vulkan-only mode
+        return false;
+    }
+
     if (emuglConfig_get_current_renderer() == SELECTED_RENDERER_HOST) {
         return true;
     } else {
