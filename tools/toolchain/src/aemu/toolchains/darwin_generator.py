@@ -132,8 +132,8 @@ class DarwinToDarwinGenerator(ToolchainGenerator):
             )
         return cargo, ""
 
-    def gen_toolchain(self):
-        super().gen_toolchain()
+    def gen_toolchain(self, packages, binaries):
+        super().gen_toolchain(packages, binaries)
         self.gen_script("objc", self.dest / f"{self.prefix}objc", self.cc)
 
     def parse_xcode_sdks(self):

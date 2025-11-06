@@ -1,0 +1,2 @@
+option('message', type : 'string', value : 'Nothing',
+       description: 'A message that will be displayed')

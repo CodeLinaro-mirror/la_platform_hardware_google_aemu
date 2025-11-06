@@ -89,6 +89,7 @@ def toolchain_command(args):
         toolchain_dir,
         _split_list(args.bazel_startup_options),
         _split_list(args.bazel_build_options),
+        args.target,
     )
 
     toolchain.gen_toolchain()

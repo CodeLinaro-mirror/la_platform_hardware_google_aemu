@@ -11,13 +11,15 @@ The Android Meson Configurator (`amc`) is a Python-based command-line tool desig
 The tool is driven by a `JSONC` (JSON with Comments) file, typically named `build-config.jsonc`. This file defines all the necessary parameters for the build, including:
 
 -   **Dependencies**: A list of libraries required by the project.
+-   **Binaries**: A dictionary where each key is the name of an executable and the value is the corresponding Bazel target. `amc` generates wrapper scripts for these binaries, making them available to Meson's `find_program`. This is particularly useful for build tools and custom code generators.
 -   **Meson Options**: Feature flags and settings passed to the `meson setup` command.
 -   **Generated Files**: Any additional configuration files that need to be created for the build.
 -   **Platform-Specific Settings**: Overrides and additions for different host platforms (e.g., `linux-x64`, `mac-aarch64`, `windows-x64`).
 
 ### 2. Toolchain Generation
 
-`amc` generates a set of wrapper scripts for the compiler, linker, and other toolchain utilities (e.g., `cc`, `c++`, `ar`, `nm`). These wrappers ensure that Meson uses the correct Clang toolchain and sysroots that are provided within the AOSP source tree, along with the necessary flags for the target platform.
+`amc` generates a set of wrapper scripts for the compiler, linker, and other toolchain utilities (e.g., `cc`, `c++`, `ar`, `nm`). These wrappers ensure that Meson uses the correct Clang toolchain and sysroots that are provided within the AOSP source tree, along with the necessary flags for the target platform. This will configure a cross compilation toolchain if neccessary.
+This process fully supports cross-compilation, allowing you to build for a target platform that is different from your host machine.
 
 ### 3. Dependency Management via pkg-config
 
@@ -28,6 +30,14 @@ Meson relies on the `pkg-config` utility to discover libraries and their require
 3.  Generating `.pc` (pkg-config) files that point to these Bazel-built artifacts.
 
 This allows Meson to seamlessly find and link against dependencies without needing to know that they were built by Bazel.
+
+**Note:** For `amc` to resolve dependencies correctly, your Bazel workspace must include the `goldfish_build` module. This is typically done by adding the following to your `MODULE.bazel` file:
+
+```bzl
+bazel_dep(name = "goldfish_build")
+```
+
+This module provides the necessary platform definitions and toolchains that `amc` relies on.
 
 ## Commands
 
@@ -49,6 +59,7 @@ The configuration file has two main sections: `common` for settings shared acros
 -   `project_name`: The name of the Meson project.
 -   `source_path`: The relative path to the project's source code, relative to the repository root.
 -   `dependencies`: A dictionary of libraries. Each entry specifies the `lib_type` (e.g., "bazel"), the `bazel_target`, and an optional `shim` object to customize the generated `.pc` file (e.g., to add extra linker flags).
+-   `binaries`: A dictionary of executables. Each entry specifies the name of the binary and the `bazel_target` that produces it.
 -   `meson_options`: A dictionary of Meson feature flags (e.g., `-Dalsa=enabled`).
 -   `generated_files`: A list of files to be generated from templates, such as QEMU's `config-host.mak`.
 
@@ -66,6 +77,16 @@ This example defines the `glib` dependency, which is built from the `@glib//glib
     "Requires": "pcre2, gmodule-export-2.0",
     "link_flags": "-pthread"
   }
+}
+```
+
+### Example Binary
+
+This example defines a binary named `my_generator` that is built from the `//tools:my_generator` Bazel target. Meson can then find this tool using `find_program('my_generator')`.
+
+```json
+"binaries": {
+  "my_generator": "//tools:my_generator"
 }
 ```
 

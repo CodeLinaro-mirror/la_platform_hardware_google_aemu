@@ -1,0 +1,38 @@
+{
+    "shims": [
+        {
+            "target": ".*",
+            "shims": {
+                "restrict_to": "cc_library|cc_binary|cc_interface_binary|objc_library",
+                // xs4all!
+                "visibility": [
+                    "//visibility:public"
+                ]
+            }
+        },
+        {
+            "target": ".*",
+            "shims": {
+                "restrict_to": "cc_library|objc_library",
+                "alwayslink": 1
+            }
+        }
+    ],
+    // These are the bazel mappings we are going to use for
+    // external dependencies. For every pkg config dependency
+    // you will need to provide a bazel target
+    "external_deps": {
+        "glib-2.0": [
+            "@glib//glib"
+        ],
+        "gmodule-export-2.0": [
+            "@glib//gmodule"
+        ]
+    },
+    // The actual set of targets you wish to generate bazel targets for.
+    // These are the targets that will be exported.
+    "export": [
+        "hello"
+    ],
+    "exclude": []
+}
