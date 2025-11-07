@@ -1,0 +1,31 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_python//python:defs.bzl", "py_binary")
+
+py_binary(
+    name = "py_gen",
+    srcs = ["py_gen.py"],
+)
+
+cc_binary(
+    name = "hello",
+    srcs = [
+        "message.h",
+        "sample.cpp",
+    ],
+    defines = ["_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST"],
+    # buildifier: leave-alone
+    includes = [
+        ".",
+        "platform/darwin-arm64",
+    ],
+    visibility = ["//visibility:public"],
+    # deps = ["@glib//glib"],
+)
+
+genrule(
+    name = "generate_message_h",
+    outs = ["message.h"],
+    cmd = "$(location @aemu//tools/toolchain/example:py_gen) -m 'A message from darwin x86.' -o $(location message.h)",
+    cmd_bat = "$(location @aemu//tools/toolchain/example:py_gen) -m 'A message from darwin x86.' -o $(location message.h)",
+    tools = ["@aemu//tools/toolchain/example:py_gen"],
+)

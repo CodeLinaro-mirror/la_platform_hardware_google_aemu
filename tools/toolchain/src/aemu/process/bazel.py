@@ -22,12 +22,22 @@ from aemu.process.runner import check_output, run
 
 
 class Bazel:
+
+    PLATFORM_MAP = {
+        "windows-x64": "@goldfish_build//platforms:windows_x64",
+        "linux-x64": "@goldfish_build//platforms:linux_x64",
+        "linux-aarch64": "@goldfish_build//platforms:linux_aarch64",
+        "mac-aarch64": "@goldfish_build//platforms:macos_aarch64",
+        "mac-x64": "@goldfish_build//platforms:macos_x64",
+    }
+
     def __init__(
         self,
         aosp: Path,
         dist: Path,
         startup_options: list[str] = [],
         build_options: list[str] = [],
+        target: str = None,
     ):
         self.aosp = aosp.absolute()
         self.log_dir = dist.absolute() / "bazel-logs"
@@ -37,15 +47,66 @@ class Bazel:
         self.bazel_dir = aosp / "prebuilts" / "bazel"
         self.exe = self.bazel_dir / f"{self.host()}-x86_64" / "bazel"
         self.info = self._load_bazel_info()
+        self.platform = self._set_platform(target) if target else None
+
         logging.info("Using bazel config: %s", self.info)
         assert "output_base" in self.info
         assert "workspace" in self.info
         assert "output_path" in self.info
 
+    def _set_platform(self, target):
+        platform = self.PLATFORM_MAP[target]
+        try:
+            run([self.exe, "query", platform], cwd=self.aosp)
+            return platform
+        except:
+            logging.error(
+                "The target platform '%s' for target '%s' is not available. "
+                "This commonly occurs when the AEMU Bazel configuration, which provides the "
+                "'goldfish_build' module, is not available. Please ensure you are using the "
+                'correct `bazel_dep(name = "goldfish_build", version = "0.0.2")` file for your build.',
+                platform,
+                target,
+            )
+            raise
+
     def host(self) -> str:
         return platform.system().lower()
 
-    def build_target(self, bazel_target: str, build_for_includes: bool = False) -> str:
+    def build_exe(
+        self,
+        bazel_target: str,
+    ) -> Path:
+        self.build_target(bazel_target, for_host=True)
+
+        build_options = self.build_options + [
+            "--verbose_explanations",
+        ]
+
+        if self.platform:
+            build_options += [
+                f"--platforms={self.platform}",
+            ]
+
+        files = check_output(
+            [self.exe]
+            + self.startup_options
+            + ["cquery"]
+            + build_options
+            + [bazel_target, "--output=files"],
+            cwd=self.aosp,
+        )
+
+        dest = self.aosp / files.splitlines()[0].strip()
+        return dest.absolute()
+
+
+    def build_target(
+        self,
+        bazel_target: str,
+        build_for_includes: bool = False,
+        for_host: bool = False,
+    ) -> str:
         """Builds the specified Bazel target.
 
         Run the Bazel build command for the specified target using the
@@ -67,6 +128,12 @@ class Bazel:
             f"--explain={bazel_explain_file}",
             "--verbose_explanations",
         ]
+
+        if not for_host and self.platform:
+            build_options += [
+                f"--platforms={self.platform}",
+            ]
+
         if build_for_includes:
             build_options.append("--output_groups=compilation_prerequisites_INTERNAL_")
 
@@ -121,6 +188,7 @@ class Bazel:
         build_options = self.build_options + [
             f"--starlark:file={query_script}",
             "--output=starlark",
+            f"--platforms={self.platform}",
         ]
 
         starlark = check_output(

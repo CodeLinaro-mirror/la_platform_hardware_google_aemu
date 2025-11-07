@@ -109,7 +109,7 @@ class MesonProjectBuilder:
         self.dest.mkdir(parents=True, exist_ok=True)
         self.target = target
         self.bazel = Bazel(
-            self.aosp, self.dest, bazel_startup_options, bazel_build_options
+            self.aosp, self.dest, bazel_startup_options, bazel_build_options, target
         )
         self.cmake = CMake(self.aosp, self.toolchain, self.dest)
 
@@ -161,19 +161,6 @@ class MesonProjectBuilder:
         else:
             return platform_config
 
-    def generate_pkg_config_files(self):
-        """Generates pkg-config files for all defined dependencies.
-
-        This method iterates through the packages defined in the configuration
-        and generates their corresponding `pkg-config` (.pc) files in the
-        toolchain's pkg-config directory.
-        """
-        for package in self.packages():
-            package.generate_pkg_config(
-                self.dest,
-                self.toolchain / ToolchainGenerator.PKGCFG_DIR,
-            )
-
     def configure_meson(self, meson_flags):
         """Orchestrates the Meson build configuration process.
 
@@ -188,11 +175,11 @@ class MesonProjectBuilder:
             meson_flags (list[str]): A list of additional command-line flags
                                      to pass to `meson setup`.
         """
-        self.toolchain_generator.gen_toolchain()
+        packages = self.packages()
+        binaries = self.binaries()
+        self.toolchain_generator.gen_toolchain(packages, binaries)
 
         meson_flags = [] if meson_flags is None else meson_flags
-
-        self.generate_pkg_config_files()
 
         self.generate_files()
 
@@ -245,6 +232,10 @@ class MesonProjectBuilder:
                 lib_class(builder, target, config["version"], config.get("shim", {}))
             )
         return platform_deps_list
+
+    def binaries(self):
+        """Constructs a dictionary of custom binaries for the current target."""
+        return self._get_merged_config("binaries", {})
 
     def meson_config(self):
         """Constructs the final Meson options dictionary for the current target.
