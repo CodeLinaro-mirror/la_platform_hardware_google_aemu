@@ -1,3 +1,4 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 
 package(default_visibility = ["//visibility:public"])
@@ -57,4 +58,9 @@ py_binary(
         ":amc_qemu_configure_lib",
         ":amc_toolchain_lib",
     ],
+)
+
+cc_binary(
+    name = "hello",
+    srcs = ["src/hello.c"],
 )

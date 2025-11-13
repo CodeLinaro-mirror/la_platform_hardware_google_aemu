@@ -14,12 +14,12 @@
 # limitations under the License.
 
 from aemu.toolchains.toolchain_generator import ToolchainGenerator
+from pathlib import Path
 import shutil
-import logging
 
 
 class LinuxToLinuxAarch64Generator(ToolchainGenerator):
-    """A cross compilation toolchain configurator using gcc
+    """A cross compilation toolchain configurator using clang
 
     It will try to use the hardcoded version if available, otherwise
     it will fallback to the default one.
@@ -32,37 +32,45 @@ class LinuxToLinuxAarch64Generator(ToolchainGenerator):
         super().__init__(aosp, dest, prefix)
         self.target_arch = "aarch64"
 
-    def _tool(self, tool):
-        gcc = shutil.which(f"{self.GCC_PREFIX}{tool}")
-        return gcc, ""
+    def _fetch_toolchain(self):
+        # Make sure we have the sysroot.
+        sysroot = Path(self.dest) / "sysroot"
+        if not sysroot.exists():
+            # This will pull down the sysroot if not available.
+            self.bazel.build_target("@aemu//tools/toolchain:hello")
+            sysroot.mkdir(exist_ok=True, parents=True)
+            src = Path(self.bazel.info["output_base"], "external", "arm-sysroot+")
+            shutil.copytree(src, sysroot, dirs_exist_ok=True)
 
-    def cc(self, compiler="gcc"):
-        versioned = f"{self.GCC_PREFIX}{compiler}-{self.GCC_VER}"
-        gcc = shutil.which(versioned)
-        if not gcc:
-            logging.warning(
-                "%s not found, Falling back to non versioned compiler", versioned
-            )
-            gcc, _ = self._tool(compiler)
+        return sysroot
+
+    def cc(self):
         cache = f"{self.ccache}" if self.ccache else ""
-        script = f"{cache} {gcc} "
+        toolchain = self._fetch_toolchain()
+        sysroot = toolchain / "aarch64-none-linux-gnu" / "libc"
+
+        script = (
+            f"{cache} {self.clang()}/bin/clang "
+            f"--target=aarch64-none-linux-gnu --sysroot={sysroot} "
+            f"--gcc-toolchain={toolchain} -fuse-ld=lld"
+        )
         return script, ""
 
     def cxx(self):
-        return self.cc("g++")
+        return self.cc()
 
-    def lld(self):
-        ld, _ = self._tool("ld")
-        return (
-            f"{ld} -L/usr/lib/gcc/aarch64-linux-gnu/5",
-            "-lc -lc++ -lm -lgcc -lgcc_s -ldl",
-        )
+    def rustc(self):
+        return "echo <not yet implemented>", ""
 
-    def link_dirs(self):
-        pass
-
-    def nm(self):
-        return self._tool("nm")
+    def cargo(self):
+        return "echo <not yet implemented>", ""
 
     def strip(self):
-        return self._tool("strip")
+        objcopy = self.clang() / "bin" / "llvm-objcopy"
+        script = "mkdir -p build/debug_info\n"
+        script += "target=$(basename $1)\n"
+        script += f'{objcopy} --only-keep-debug  $1 "build/debug_info/$target.debug" \n'
+        script += f"{objcopy} --strip-unneeded  $1\n"
+        script += f'{objcopy} --add-gnu-debuglink="build/debug_info/$target.debug" $1\n'
+        script += "# EXPLICITLY DISABLED ARBITRARY ARGUMENTS: "
+        return script, ""
