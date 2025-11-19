@@ -1375,22 +1375,6 @@ message DisplayConfigurations {
 }
 
 message Notification {
-    enum EventType {
-        VIRTUAL_SCENE_CAMERA_INACTIVE = 0;
-        VIRTUAL_SCENE_CAMERA_ACTIVE = 1;
-
-        // Fired when an update to a display event has been fired through
-        // the extended ui. This does not fire events when the display
-        // is changed through the console or gRPC endpoint.
-        DISPLAY_CONFIGURATIONS_CHANGED_UI = 2;
-
-        // Don't add new event types here, add them to "oneof type" below.
-    }
-
-    // Deprecated, use the type below to get detailed information
-    // regarding the event.
-    EventType event = 1 [deprecated = true];
-
     // Detailed notification information.
     oneof type {
         CameraNotification cameraNotification = 2;
