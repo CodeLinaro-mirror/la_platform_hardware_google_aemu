@@ -39,6 +39,13 @@
  */
 #define CORE_HARDWARE_INI "hardware-qemu.ini"
 
+/* The name of the optional .ini file that contains the environment
+ * properties for the AVD. This file is specific to the AVD and is in
+ * the AVD's directory. This will be used to composite corresponding
+ * background images and video feeds.
+ */
+#define AVD_ENVIRONMENT_INI "environment.ini"
+
 /* The name of the snapshot lock file that is used to serialize
  * snapshot operations on the same AVD across multiple emulator
  * instances.

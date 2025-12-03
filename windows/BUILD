@@ -1,4 +1,4 @@
-load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 
 exports_files(
     [
@@ -70,4 +70,17 @@ cc_test(
         ":compat",
         "@googletest//:gtest_main",
     ],
+)
+
+cc_binary(
+    name = "proc-killer",
+    srcs = ["src/proc-killer.cpp"],
+    linkopts = [
+        "/SUBSYSTEM:CONSOLE",
+        "/ENTRY:wmainCRTStartup",
+    ],
+    target_compatible_with = [
+        "@platforms//os:windows",
+    ],
+    visibility = ["//visibility:public"],
 )

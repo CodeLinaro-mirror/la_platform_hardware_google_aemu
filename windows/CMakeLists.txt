@@ -1,3 +1,4 @@
+cmake_minimum_required(VERSION 3.10)
 if(TARGET msvc-posix-compat)
   return()
 endif()
@@ -8,8 +9,10 @@ if(INCLUDE_ANDROID_CMAKE)
                        src/setjmp.asm)
   android_add_library(TARGET msvc-posix-compat LICENSE Apache-2.0 SRC "")
   target_link_libraries(msvc-posix-compat PRIVATE setjmp_asm_lib)
+  android_add_executable(TARGET proc-killer LICENSE Apache-2.0 SRC src/proc-killer.cpp)
 else()
   add_library(msvc-posix-compat)
+  add_executable(proc-killer src/proc-killer.cpp)
 endif()
 
 target_sources(

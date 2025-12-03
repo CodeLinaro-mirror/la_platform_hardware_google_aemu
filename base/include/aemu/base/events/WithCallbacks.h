@@ -1,4 +1,5 @@
 #pragma once
+#include <cassert>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -167,13 +168,15 @@ class WithCallbacks : public EventSourceType {
      * @return A unique ID for managing the callback's lifetime.
      */
     virtual CallbackId addCallback(EventCallback callback) {
-        auto listener = std::make_shared<InternalListener>(std::move(callback));
+        const auto listener = std::make_shared<InternalListener>(std::move(callback));
         CallbackId id;
 
         {
             const std::lock_guard<std::mutex> lock(mApiLock);
             id = mNextId++;
-            mListenerMap[id] = listener;
+            const bool inserted = mListenerMap.insert({id, listener}).second;
+            assert(inserted);
+            (void)inserted;
         }
 
         // Add the listener to the underlying high-performance EventSource
