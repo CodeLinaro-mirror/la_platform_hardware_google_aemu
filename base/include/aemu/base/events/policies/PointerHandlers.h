@@ -68,6 +68,13 @@ struct WeakPtrHash {
     }
 };
 
+// C++17 SFINAE helper to check for a .size() method.
+template <typename T, typename = void>
+struct has_size_method : std::false_type {};
+template <typename T>
+struct has_size_method<T, std::void_t<decltype(std::declval<T>().size())>>
+    : std::true_type {};
+
 /**
  * @brief A type trait to abstract away pointer-specific operations.
  *
@@ -95,7 +102,8 @@ struct PointerHandlers {
     /**
      * @brief Finds an element in a range using the correct comparison method.
      */
-    static auto find(auto begin, auto end, const PtrType& val) {
+    template <typename Iterator>
+    static auto find(Iterator begin, Iterator end, const PtrType& val) {
         return std::find(begin, end, val);
     }
 
@@ -105,9 +113,10 @@ struct PointerHandlers {
      */
     template <class Container>
     static size_t count_live(const Container& c) {
-        if constexpr (requires { c.size(); }) {
+        if constexpr (has_size_method<const Container&>::value) {
             return c.size();
         } else {
+            // Fallback to c.size member
             return c.size;
         }
     }
@@ -132,8 +141,10 @@ struct PointerHandlers<std::weak_ptr<T>> {
     /**
      * @brief Finds an element in a range using a safe, lock-based comparison.
      */
-    static auto find(auto begin, auto end, const Ptr& val) {
-        return std::find_if(begin, end, [&](const Ptr& elem) { return Equal()(elem, val); });
+    template <typename Iterator>
+    static auto find(Iterator begin, Iterator end, const Ptr& val) {
+        return std::find_if(begin, end,
+                            [&](const Ptr& elem) { return Equal()(elem, val); });
     }
 
     /**
@@ -142,7 +153,8 @@ struct PointerHandlers<std::weak_ptr<T>> {
      */
     template <class Container>
     static size_t count_live(const Container& c) {
-        return std::count_if(c.begin(), c.end(), [](const Ptr& p) { return !p.expired(); });
+        return std::count_if(c.begin(), c.end(),
+                             [](const Ptr& p) { return !p.expired(); });
     }
 };
 
