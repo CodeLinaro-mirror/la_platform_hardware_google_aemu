@@ -347,6 +347,12 @@ service EmulatorController {
     // This method returns `OK` (code 0) upon successful completion of the stream.
     rpc injectAudio(stream AudioPacket) returns (google.protobuf.Empty) {}
 
+    // Retrieves the current settings for the microphone
+    rpc getMicrophoneState(google.protobuf.Empty) returns (MicrophoneState) {}
+
+    // Sets the state for the microphone
+    rpc setMicrophoneState(MicrophoneState) returns (google.protobuf.Empty) {}
+
     // Deprecated, please use the streamLogcat method instead.
     rpc getLogcat(LogMessage) returns (LogMessage) {
         option deprecated = true;
@@ -465,6 +471,7 @@ service EmulatorController {
     // - `BrightnessValue`: Reports changes in backlight brightness (LCD, keyboard, or button).
     // - `TextViewFocus`: Sent when a text view gains or loses focus, or immediately on subscription.
     // - `XrOptions`: Reports changes in XR-related settings (environment, passthrough coefficient), or immediately on subscription.
+    // - `MicrophoneState` : Reports changes in the microphone state (currently whether host microphone access is allowed)
     //
     // This method returns a server-side streaming reactor.
     rpc streamNotification(google.protobuf.Empty)
@@ -1535,6 +1542,11 @@ message AudioPacket {
     bytes audio = 3;
 }
 
+message MicrophoneState {
+    // Whether or not host microphone access is enabled
+    bool realAudioEnabled = 1;
+}
+
 message SmsMessage {
     // The source address where this message came from.
     //
@@ -1687,6 +1699,7 @@ message Notification {
         // It is also sent immediately in response to the streamNotification
         // call.
         XrOptions xrOptions = 8;
+        MicrophoneState microphoneState = 9;
     }
 }
 
