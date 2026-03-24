@@ -584,6 +584,9 @@ service EmulatorController {
     // - `OK` (code 0): Upon successful retrieval of the XR options.
     // - `FAILED_PRECONDITION` (code 9): If XR mode is not supported in the current AVD or if the `getXrOptions` agent function fails.
     rpc getXrOptions(google.protobuf.Empty) returns (XrOptions) {}
+
+    // Sets the environment background for AI glasses.
+    rpc setEnvironment(Environment) returns (google.protobuf.Empty) {}
 }
 
 // A Run State that describes the state of the Virtual Machine.
@@ -1788,4 +1791,11 @@ message PhoneNumber {
     //
     // For example: +3106225412 or (650) 555-1221
     string number = 1;
+}
+
+// Specifies environment background for AI glasses.
+message Environment {
+   // Key/value pairs corresponing to the contents of the environment.ini file.
+   // An empty map means no environment.
+   map<string, string> environment = 1;
 }
