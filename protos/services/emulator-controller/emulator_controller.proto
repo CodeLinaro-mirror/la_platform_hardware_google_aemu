@@ -706,6 +706,14 @@ message PhysicalModelValue {
 
     // Value interpretation depends on sensor.
     ParameterValue value = 3;
+
+    enum Interpolation {
+        SMOOTH = 0;
+        STEP = 1;
+    }
+
+    // [Input Only] How to transition to the target value.
+    Interpolation interpolation = 4;
 }
 
 // A single sensor value.
