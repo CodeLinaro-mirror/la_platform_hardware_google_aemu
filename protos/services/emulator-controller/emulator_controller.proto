@@ -830,6 +830,8 @@ message XrOptions {
     // unchanged. For simplicity of the implementation, this number may be
     // rounded to an integer before applying.
     float passthrough_coefficient = 2;
+
+    float dimming_value = 4;
 }
 
 message LogMessage {
