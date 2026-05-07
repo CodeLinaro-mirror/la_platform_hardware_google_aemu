@@ -96,22 +96,26 @@ class Bazel:
     def build_exe(
         self,
         bazel_target: str,
+        for_host: bool = True,
     ) -> Path:
         """Builds a Bazel target that produces an executable.
 
         Args:
             bazel_target: The Bazel target to build.
+            for_host: Whether to build for the host.
 
         Returns:
             The path to the built executable.
         """
-        self.build_target(bazel_target, for_host=True)
+        self.build_target(bazel_target, for_host=for_host)
 
         build_options = self.build_options + [
             "--verbose_explanations",
         ]
 
-        if self.platform:
+        # Only add target platform if we are not building for host.
+        # Otherwise cquery returns paths for target platform which may not exist.
+        if not for_host and self.platform:
             build_options += [
                 f"--platforms={self.platform}",
             ]

@@ -31,7 +31,6 @@ from typing import List, Optional
 from aemu import jsonc
 from aemu.command import CommandLineReconstructor
 from aemu.configure.meson_project_builder import MesonProjectBuilder
-from aemu.configure.shim import create_shim
 from aemu.log import configure_logging, run_meson_command
 from aemu.process.bazel import Bazel
 from aemu.process.runner import run
@@ -351,11 +350,6 @@ def bazel_command(args: argparse.Namespace) -> None:
         build_dir = Path(build_dir).resolve()
         bazel_build_dir = Path(bazel_build_dir).resolve()
 
-        if args.shim:
-            shim_path = Path(args.shim)
-        else:
-            shim_path = create_shim(Path(args.aosp), Path(build_dir))
-
         toolchain_generator = get_toolchain_generator(
             args.target,
             get_toolchain_dir(bazel_build_dir),
@@ -373,15 +367,48 @@ def bazel_command(args: argparse.Namespace) -> None:
             bazel_build_options=_split_list(args.bazel_build_options),
             target=get_target_alias(args.target),
         )
+
+        use_old_shim_behavior = False
+        if args.shim:
+            if not builder.has_shims():
+                logging.warning(
+                    "--shim flag used and no shims found in %s. Reverting to old behavior (using provided shim file).",
+                    args.config,
+                )
+                shim_path = Path(args.shim)
+                use_old_shim_behavior = True
+            else:
+                logging.warning(
+                    "--shim flag is deprecated and ignored because config contains shims. Using shims from %s.",
+                    args.config,
+                )
+                with tempfile.NamedTemporaryFile(
+                    mode="w", delete=False, suffix=".jsonc"
+                ) as f:
+                    shim_path = Path(f.name)
+                builder.write_shim_file(shim_path)
+        else:
+            with tempfile.NamedTemporaryFile(
+                mode="w", delete=False, suffix=".jsonc"
+            ) as f:
+                shim_path = Path(f.name)
+            builder.write_shim_file(shim_path)
+
         shim_file = shim_path.absolute()
-        builder.configure_meson(
-            [
-                "--backend",
-                "bazel",
-                f"-Dbackend_shadow_build={get_build_dir(build_dir).as_posix()}",
-                f"-Dbackend_shim={shim_file.as_posix()}",
-            ]
-        )
+
+        try:
+            builder.configure_meson(
+                [
+                    "--backend",
+                    "bazel",
+                    f"-Dbackend_shadow_build={get_build_dir(build_dir).as_posix()}",
+                    f"-Dbackend_shim={shim_file.as_posix()}",
+                ]
+            )
+        finally:
+            # Only delete if we generated a temporary file
+            if not use_old_shim_behavior and shim_path.exists():
+                shim_path.unlink()
         sys_id = f"{toolchain_generator.host()}-{toolchain_generator.target_arch}"
         build_file = get_build_dir(bazel_build_dir) / "bazel" / "BUILD.bazel"
         build_file.rename(
