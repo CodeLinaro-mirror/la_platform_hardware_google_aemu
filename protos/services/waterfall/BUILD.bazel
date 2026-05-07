@@ -1,5 +1,7 @@
 load("@grpc//bazel:cc_grpc_library.bzl", "cc_grpc_library")
+load("@grpc-java//:java_grpc_library.bzl", "java_grpc_library")
 load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@protobuf//bazel:java_proto_library.bzl", "java_proto_library")
 load("@protobuf//bazel:proto_library.bzl", "proto_library")
 
 package(default_visibility = ["//visibility:public"])
@@ -33,4 +35,15 @@ proto_library(
 cc_proto_library(
     name = "control_socket_cc_proto",
     deps = [":control_socket_proto"],
+)
+
+java_proto_library(
+    name = "waterfall_java_proto",
+    deps = [":waterfall_proto"],
+)
+
+java_grpc_library(
+    name = "waterfall_java_grpc",
+    srcs = [":waterfall_proto"],
+    deps = [":waterfall_java_proto"],
 )
