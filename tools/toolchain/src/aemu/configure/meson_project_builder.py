@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import platform
+import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -329,3 +329,30 @@ class MesonProjectBuilder:
         common_config = config_def.get("common", {})
         platform_specific_config = config_def.get(self.target, {})
         return {**common_config, **platform_specific_config}
+
+    def write_shim_file(self, dest: Path) -> None:
+        """Writes the shim configuration to the specified destination."""
+        common = self.config.get("common", {})
+
+        plat = self.config.get("platforms", {}).get(self.target, {})
+
+        out = {}
+        out["bazel_prefix"] = common.get("bazel_prefix", "") + plat.get(
+            "bazel_prefix", ""
+        )
+        out["shims"] = common.get("shims", []) + plat.get("shims", [])
+        out["external_deps"] = common.get("external_deps", {}) | plat.get(
+            "external_deps", {}
+        )
+        out["export"] = common.get("export", []) + plat.get("export", [])
+        out["exclude"] = common.get("exclude", []) + plat.get("exclude", [])
+
+        dest.write_text(json.dumps(out))
+
+    def has_shims(self) -> bool:
+        """Checks if the configuration contains any shims for the current target."""
+        if "shims" in self.config.get("common", {}):
+            return True
+        if "shims" in self.config.get("platforms", {}).get(self.target, {}):
+            return True
+        return False
