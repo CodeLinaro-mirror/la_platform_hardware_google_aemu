@@ -1,5 +1,7 @@
 load("@grpc//bazel:cc_grpc_library.bzl", "cc_grpc_library")
+load("@grpc-java//:java_grpc_library.bzl", "java_grpc_library")
 load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@protobuf//bazel:java_proto_library.bzl", "java_proto_library")
 load("@protobuf//bazel:proto_library.bzl", "proto_library")
 
 package(default_visibility = ["//visibility:public"])
@@ -9,8 +11,8 @@ proto_library(
     srcs = ["virtual_scene_service.proto"],
     strip_import_prefix = "",
     deps = [
-        "@com_goole_protobuf//:wrappers_proto",
         "@protobuf//:empty_proto",
+        "@protobuf//:wrappers_proto",
     ],
 )
 
@@ -25,4 +27,15 @@ cc_grpc_library(
     generate_mocks = True,
     grpc_only = True,
     deps = [":virtual_scene_service_cc_proto"],
+)
+
+java_proto_library(
+    name = "virtual_scene_service_java_proto",
+    deps = [":virtual_scene_service_proto"],
+)
+
+java_grpc_library(
+    name = "virtual_scene_service_java_grpc",
+    srcs = [":virtual_scene_service_proto"],
+    deps = [":virtual_scene_service_java_proto"],
 )
