@@ -472,6 +472,7 @@ service EmulatorController {
     // - `TextViewFocus`: Sent when a text view gains or loses focus, or immediately on subscription.
     // - `XrOptions`: Reports changes in XR-related settings (environment, passthrough coefficient), or immediately on subscription.
     // - `MicrophoneState` : Reports changes in the microphone state (currently whether host microphone access is allowed)
+    // - `LedIndicator`: Reports changes in AI Glasses XR LED light state on subscription.
     //
     // This method returns a server-side streaming reactor.
     rpc streamNotification(google.protobuf.Empty)
@@ -832,6 +833,28 @@ message XrOptions {
     float passthrough_coefficient = 2;
 
     float dimming_value = 4;
+}
+
+// The state of one LED indicator of AI glasses.
+message LedIndicator {
+   enum Facing {
+       INSIDE = 0;
+       OUTSIDE = 1;
+   }
+
+   enum State {
+       OFF = 0;
+       ON = 1;
+   }
+
+   // The indicator's identifier.
+   optional uint32 id = 1;
+   // Determines whether the indicator is inside or outside of the glasses frames.
+   optional Facing facing = 2;
+   // Determines whether the indicator is on or off.
+   optional State state = 3;
+   // Color in RGB format.
+   optional uint32 color = 4;
 }
 
 message LogMessage {
@@ -1713,6 +1736,8 @@ message Notification {
         // call.
         XrOptions xrOptions = 8;
         MicrophoneState microphoneState = 9;
+        // This notification is sent when AI glasses LED light status change.
+        LedIndicator ledIndicator = 10;
     }
 }
 
