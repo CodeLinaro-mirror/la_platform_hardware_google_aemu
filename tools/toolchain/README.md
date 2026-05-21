@@ -118,6 +118,12 @@ When `transitive_dependencies` is enabled, `amc` performs an automated traversal
 
 This automation significantly reduces the need for manual shims and ensures that complex Bazel libraries work "out of the box" within Meson.
 
+### Shimming (Rule Overrides)
+
+`amc` supports overriding or modifying generated Bazel rules using a `shims` configuration. This allows you to customize the build for specific targets without modifying the Meson build files.
+
+Shims can be specified in the `common` section or platform-specific sections of `build-config.jsonc`. They support regex matching on target names and can modify attributes like `srcs`, `deps`, `copts`, etc.
+
 ## Commands
 
 `amc` provides several commands to manage the build lifecycle.

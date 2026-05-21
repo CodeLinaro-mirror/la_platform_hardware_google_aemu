@@ -50,7 +50,6 @@ py_library(
         "src/aemu/configure/__init__.py",
         "src/aemu/configure/libraries.py",
         "src/aemu/configure/meson_project_builder.py",
-        "src/aemu/configure/shim.py",
     ],
     imports = ["src"],
     deps = [":amc_common_lib"],
