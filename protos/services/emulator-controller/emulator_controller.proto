@@ -45,138 +45,306 @@ import "google/protobuf/empty.proto";
 //               android usually responds to these events.
 service EmulatorController {
     // set/get/stream the sensor data
+    // This RPC is not implemented in EmulatorController and will return an unimplemented error.
     rpc streamSensor(SensorValue) returns (stream SensorValue) {}
+    // Gets the current value of a specified sensor.
+    //
+    // The following gRPC error codes can be returned:
+    // -  INTERNAL (code 13) if `getSensorSize` fails to retrieve sensor dimensions.
+    //
+    // The `status` field in the `SensorValue` reply indicates the operational state:
+    // -  `OK` (0): Sensor data retrieved successfully.
+    // -  `UNKNOWN` (2): Unknown sensor type (should not happen if using valid `SensorType`).
+    // -  `DISABLED` (3): The sensor is disabled.
+    // -  `NO_SERVICE` (4): The `qemud` service responsible for sensors is not available or initiated.
     rpc getSensor(SensorValue) returns (SensorValue) {}
+    // Sets the override value for a specified sensor. This operation is asynchronous
+    // and executed on the emulator's main looper. An immediate subsequent `getSensor`
+    // call might not reflect the newly set value.
+    //
+    // This method returns `OK` (code 0) upon successful asynchronous scheduling of the operation.
+    // No specific gRPC error codes are returned by this method itself, but underlying
+    // operations might log warnings if the sensor agent is unavailable.
     rpc setSensor(SensorValue) returns (google.protobuf.Empty) {}
 
     // set/get/stream the physical model, this is likely the one you are
     // looking for when you wish to modify the device state.
+    //
+    // This operation is asynchronous and executed on the emulator's main looper. An immediate subsequent `getPhysicalModel`
+    // call might not reflect the newly set value. The `interpolation` field from the request is used to determine the
+    // physical interpolation method, mapped using `abs((static_cast<int>(physicalValue.interpolation())) - 1)`.
+    //
+    // This method returns `OK` (code 0) upon successful asynchronous scheduling of the operation.
     rpc setPhysicalModel(PhysicalModelValue) returns (google.protobuf.Empty) {}
+    // Gets the current value of a specified physical model parameter.
+    //
+    // The `status` field in the `PhysicalModelValue` reply indicates the operational state:
+    // -  `OK` (0): Physical model data retrieved successfully.
+    // -  `UNKNOWN` (2): Unknown physical type (should not happen if using valid `PhysicalType`).
+    // -  `NO_SERVICE` (3): The `qemud` service responsible for physical parameters is not available or initiated.
     rpc getPhysicalModel(PhysicalModelValue) returns (PhysicalModelValue) {}
+    // This RPC is not implemented in EmulatorController and will return an unimplemented error.
     rpc streamPhysicalModel(PhysicalModelValue)
             returns (stream PhysicalModelValue) {}
 
-    // Atomically set/get the current primary clipboard data.
-    // Note that a call to setClipboard will result in an immediate
-    // event for those who made a call to streamClipboard and are
-    // on a different channel than the one used to set the clipboard.
+    // Atomically sets the current primary clipboard data. This operation is asynchronous
+    // and executed on the emulator's main looper. It triggers a `ClipboardEvent`
+    // to all listeners (except the originating channel) indicating the new content.
+    //
+    // This method returns `OK` (code 0) upon successful asynchronous scheduling of the operation.
     rpc setClipboard(ClipData) returns (google.protobuf.Empty) {}
+    // Retrieves the current primary clipboard data. This is a synchronous operation.
+    //
+    // This method returns `OK` (code 0) and the current `ClipData` upon success.
     rpc getClipboard(google.protobuf.Empty) returns (ClipData) {}
 
-    // Streams the current data on the clipboard. This will immediately produce
-    // a result with the current state of the clipboard after which the stream
-    // will block and wait until a new clip event is available from the guest.
-    // Calling the setClipboard method above will not result in generating a
-    // clip event. It is possible to lose clipboard events if the clipboard
-    // updates very rapidly.
+    // Streams real-time updates of the clipboard content. Upon subscription,
+    // it immediately sends the current clipboard state. Subsequent updates are
+    // streamed as new content becomes available from the guest or is set via `setClipboard`
+    // from a different client. Events originating from the same client that initiated
+    // the stream are filtered out to prevent echoing.
+    //
+    // It is possible to miss very rapid clipboard updates. The stream will block
+    // awaiting new events after the initial state is sent.
+    //
+    // This method returns a server-side streaming reactor.
     rpc streamClipboard(google.protobuf.Empty) returns (stream ClipData) {}
 
-    // Set/get the battery to the given state.
+    // Sets the emulator's battery state to the provided values. This operation is
+    // executed asynchronously on the main looper.
+    //
+    // This method returns `OK` (code 0) upon successful asynchronous scheduling
+    // of the operation. No explicit gRPC error codes are returned by this method.
     rpc setBattery(BatteryState) returns (google.protobuf.Empty) {}
+    // Retrieves the current battery state from the emulator. This is a
+    // synchronous operation that waits for completion.
+    //
+    // This method returns `OK` (code 0) and populates the `BatteryState` reply
+    // with the current information upon success. No explicit gRPC error codes
+    // are returned by this method.
     rpc getBattery(google.protobuf.Empty) returns (BatteryState) {}
 
-    // Set the state of the gps.
-    // Note: Setting the gps position will not be reflected in the user
-    // interface. Keep in mind that android usually only samples the gps at 1
-    // hz.
+    // Sets the state of the GPS in the emulator. This operation is asynchronous
+    // and executed on the main looper. It updates the emulator's GPS location
+    // (latitude, longitude, altitude, speed, bearing, and satellites) and sets
+    // the timestamp.
+    //
+    // Note: Setting the GPS position will not be immediately reflected in the user
+    // interface. Android typically samples GPS at 1 Hz.
+    // This method returns `OK` (code 0) upon successful asynchronous scheduling
+    // of the operation.
     rpc setGps(GpsState) returns (google.protobuf.Empty) {}
 
-    // Gets the latest gps state as delivered by the setGps call, or location ui
-    // if active.
+    // Gets the latest GPS state as reported by the emulator. This includes data
+    // delivered by previous `setGps` calls or from the location UI if active.
+    // This is a synchronous operation that waits for completion.
     //
-    // Note: this is not necessarily the actual gps coordinate visible at the
-    // time, due to gps sample frequency (usually 1hz).
+    // Note: The returned GPS state is not necessarily the exact coordinate
+    // visible at the time due to Android's typical 1 Hz GPS sample frequency.
+    //
+    // This method returns `OK` (code 0) and populates the `GpsState` reply
+    // with the retrieved information upon success. No explicit gRPC error codes
+    // are returned by this method.
     rpc getGps(google.protobuf.Empty) returns (GpsState) {}
 
-    // Simulate a touch event on the finger print sensor.
+    // Simulates a touch event on the fingerprint sensor. This operation is
+    // executed asynchronously on the main looper.
+    //
+    // The `isTouching` field indicates whether the fingerprint sensor is being
+    // touched, and `touchId` specifies the identifier of the registered
+    // fingerprint. The `setTouch` agent function is used to apply these values.
+    //
+    // This method returns `OK` (code 0) upon successful asynchronous scheduling
+    // of the operation. No explicit gRPC error codes are returned by this method.
     rpc sendFingerprint(Fingerprint) returns (google.protobuf.Empty) {}
 
-    // Send a keyboard event. Translating the event.
+    // Sends a keyboard event to the emulator. This operation is asynchronous
+    // and executed on the main looper.
+    //
+    // The `KeyboardEvent` message allows specifying input using `keyCode`, `key` (W3C standard string), or `text` (UTF-8 string).
+    // The `KeyEventSender` prioritizes `key`, then `keyCode`, then `text`.
+    // - If `key` is a non-printable W3C key string (e.g., "Backspace", "ArrowUp"), it's translated to an evdev keycode and sent.
+    // - If `key` is a printable Unicode character, it's converted to a sequence of evdev keydown/keyup events, handling modifiers.
+    // - If `keyCode` is provided, it's translated from its `codeType` (Usb, Evdev, XKB, Win, Mac) to an evdev keycode and sent as keydown/keyup pairs.
+    // - If `text` is provided, each UTF-8 character is converted to evdev keypress (keydown then keyup) events.
+    //
+    // This method returns `OK` (code 0) upon successful asynchronous scheduling of the operation.
     rpc sendKey(KeyboardEvent) returns (google.protobuf.Empty) {}
-    // Send touch/mouse events. Note that mouse events can be simulated
-    // by touch events.
+    // Sends touch events to the emulator. This operation is asynchronous and executed on the main looper.
+    //
+    // The `TouchEvent` contains a list of `Touch` objects, each with `x`, `y` coordinates, `identifier`, `pressure`, `touch_major`, `touch_minor`, `expiration`, and `orientation`.
+    // Coordinates are scaled to the emulator's display resolution. Each `Touch` `identifier` is mapped to an internal Linux multitouch slot.
+    // Expiration handling ensures that inactive touch events are properly "lifted" after 120 seconds.
+    //
+    // This method returns `OK` (code 0) upon successful asynchronous scheduling of the operation. Warnings are logged if no touch slots are available.
     rpc sendTouch(TouchEvent) returns (google.protobuf.Empty) {}
+    // Sends mouse events to the emulator. This operation is asynchronous and executed on the main looper.
+    //
+    // The `MouseEvent` specifies `x`, `y` coordinates, `buttons` state (bitmask: 1 for left, 2 for right), and `display` ID.
+    // In certain virtual input configurations (VirtioInput enabled, but VirtioMouse and VirtioTablet disabled), `buttons` may be masked to only consider the primary button.
+    // The event is sent to the emulator's `user_event_agent`.
+    //
+    // This method returns `OK` (code 0) upon successful asynchronous scheduling of the operation.
     rpc sendMouse(MouseEvent) returns (google.protobuf.Empty) {}
+    // Injects a stream of wheel events into the emulator. This is a server-side streaming RPC.
+    //
+    // Each `WheelEvent` contains `dx`, `dy` (delta values, `dy` is pre-multiplied by 120 for scroll clicks), and `display` ID.
+    // If the emulator's input device has rotary capabilities (e.g., AVD_WEAR flavor), `dy` is scaled and sent as a rotary event.
+    // Otherwise, it's sent as a standard mouse wheel event.
+    //
+    // This method returns a server-side streaming reactor.
     rpc injectWheel(stream WheelEvent) returns (google.protobuf.Empty) {}
 
-    // Stream a series of input events to the emulator, the events will
-    // arrive in order.
+    // Streams a series of generic input events to the emulator. The events are processed in the order they arrive.
+    // This is a server-side streaming RPC that supports various input types encapsulated within `InputEvent`'s `oneof type` field.
+    //
+    // Supported input types:
+    // - `key_event` (KeyboardEvent): Processed by `KeyEventSender` as described in `sendKey`.
+    // - `touch_event` (TouchEvent): Processed by `TouchEventSender` as described in `sendTouch`.
+    // - `mouse_event` (MouseEvent): Processed by `MouseEventSender` as described in `sendMouse`.
+    // - `android_event` (AndroidEvent): Raw Linux input events (`type`, `code`, `value`) sent directly to the kernel.
+    // - `pen_event` (PenEvent): Processed by `PenEventSender` for pen input, including pressure, orientation, and button state.
+    // - `wheel_event` (WheelEvent): Processed by `WheelEventSender` as described in `injectWheel`.
+    // - `xr_command` (XrCommand): Executes XR-specific commands (e.g., `RECENTER` to recenter the viewport). Unknown actions are logged as warnings.
+    // - `xr_head_rotation_event` (RotationRadian): Sends head rotation data in radians. Logs an error if the agent call fails.
+    // - `xr_head_movement_event` (Translation): Sends head movement data in meters. Logs an error if the agent call fails.
+    // - `xr_head_angular_velocity_event` (AngularVelocity): Sends head angular velocity data in radians per second. Logs an error if the agent call fails.
+    // - `xr_head_velocity_event` (Velocity): Sends head velocity data in meters per second. Logs an error if the agent call fails.
+    // - `touchpad_event` (TouchpadEvent): Processed by `TouchpadEventSender` for touchpad input, similar to touch events but for a touchpad device.
+    //
+    // All underlying input sending operations for XR events are executed asynchronously on the main looper.
+    //
+    // Returns `INVALID_ARGUMENT` (code 3) if an unrecognized input event type is received, indicating a potential out-of-date emulator.
+    // The stream reactor automatically deletes itself upon completion.
     rpc streamInputEvent(stream InputEvent) returns (google.protobuf.Empty) {}
 
-    // Make a phone call.
+    // Initiates or manipulates a phone call in the emulator. This is a synchronous
+    // operation executed on the main looper.
+    //
+    // The `PhoneCall` message specifies the `operation` (e.g., InitCall, AcceptCall)
+    // and the target phone `number`. The `telephonyCmd` agent function handles the
+    // actual call action.
+    //
+    // Returns a `PhoneResponse` indicating the outcome:
+    // - `OK` (0): The operation was successful.
+    // - `BadOperation` (1): The provided `operation` enum is out of range.
+    // - `BadNumber` (2): The provided `number` is malformed.
+    // - `InvalidAction` (3): The requested `operation` is invalid given the current call state (e.g., disconnecting when no call is active).
+    // - `ActionFailed` (4): An internal error occurred, typically if the modem agent is unavailable.
+    // - `RadioOff` (5): The emulator's radio is turned off.
     rpc sendPhone(PhoneCall) returns (PhoneResponse) {}
 
-    // Sends an sms message to the emulator.
+    // Sends an SMS message to the emulator. This is a synchronous operation.
+    //
+    // The `SmsMessage` contains the `srcAddress` (source phone number) and the `text` of the message.
+    // The `srcAddress` is validated for GSM formatting. The message `text` is converted into SMS PDUs
+    // (Protocol Data Units) and delivered via the modem agent.
+    //
+    // Returns a `PhoneResponse` indicating the outcome:
+    // - `OK` (0): The SMS message was successfully delivered.
+    // - `BadNumber` (2): The `srcAddress` is malformed.
+    // - `ActionFailed` (4): An internal error occurred, e.g., if the modem agent is unavailable or PDU creation fails.
+    //
+    // Other error cases from PDU creation (e.g., invalid characters in text) also result in `ActionFailed`.
     rpc sendSms(SmsMessage) returns (PhoneResponse) {}
 
-    // Sends an sms message to the emulator.
+    // Sets the emulator's phone number. This is a synchronous operation.
+    //
+    // The `PhoneNumber` message contains the new `number` to be set. The modem agent's
+    // `amodem_update_phone_number` function is used for this update.
+    //
+    // Returns a `PhoneResponse` indicating the outcome:
+    // - `OK` (0): The phone number was successfully updated.
+    // - `BadNumber` (2): The provided `number` is invalid for the modem.
+    // - `ActionFailed` (4): An internal error occurred, typically if the modem agent is unavailable.
     rpc setPhoneNumber(PhoneNumber) returns (PhoneResponse) {}
 
-    // Retrieve the status of the emulator. This will contain general
-    // hardware information, and whether the device has booted or not.
+    // Retrieves the current status of the emulator. This includes comprehensive
+    // information about the virtual machine's configuration and the guest operating system's state.
+    //
+    // The `EmulatorStatus` reply contains:
+    // - `version`: The emulator version string.
+    // - `uptime`: The time the emulator has been active in milliseconds.
+    // - `booted`: A boolean indicating if the device has completed booting.
+    // - `vmConfig`: Detailed `VmConfiguration` (hypervisor type, CPU cores, RAM size).
+    // - `hardwareConfig`: Key-value pairs describing the emulator's hardware configuration.
+    // - `heartbeat`: A monotonically increasing number indicating guest activity (incremented approximately once per second).
+    // - `guestConfig`: A map of key-value pairs with guest-specific configurations, including:
+    //    - "multidisplay": "available" or "unavailable" based on display pipe readiness.
+    //    - "androidVersion": The Android version of the guest OS.
+    //    - "hypervisorVersion": The hypervisor version used by the guest.
+    //
+    // This method returns `OK` (code 0) upon successful retrieval of the emulator status.
     rpc getStatus(google.protobuf.Empty) returns (EmulatorStatus) {}
 
-    // Gets an individual screenshot in the desired format.
+    // Retrieves a single screenshot in the desired format.
     //
-    // The image will be scaled to the desired ImageFormat, while maintaining
-    // the aspect ratio. The returned image will never exceed resolution of the
-    // device display. Not setting the width or height (i.e. they are 0) will
-    // result in using the display width and height.
+    // The image will be scaled to the `desiredWidth` and `desiredHeight` specified in `ImageFormat`, while maintaining
+    // the aspect ratio. If `width` or `height` are 0, the device's current display dimensions are used.
+    // The returned image will never exceed the device's actual display resolution, but can be smaller.
     //
-    // The resulting image will be properly oriented and can be displayed
-    // directly without post processing. For example, if the device has a
-    // 1080x1920 screen and is in landscape mode and called with no width or
-    // height parameter, it will return a 1920x1080 image.
+    // The `display` field in `ImageFormat` specifies the target display; 0 (or omitted) indicates the main display.
+    // For folded Pixel Fold devices, the display ID might be internally remapped, and `foldedDisplay` information will be populated.
+    // The resulting image is properly oriented based on the device's coarse-grained orientation, derived from sensor state.
     //
-    // The dimensions of the returned image will never exceed the corresponding
-    // display dimensions. For example, this method will return a 1920x1080
-    // screenshot, if the display resolution is 1080x1920 and a screenshot of
-    // 2048x2048 is requested when the device is in landscape mode.
+    // The `transport` field in `ImageFormat` can specify `MMAP` for shared memory delivery, but if the shared memory region
+    // is too small, a `FAILED_PRECONDITION` error will be returned.
     //
-    // This method will return an empty image if the display is not visible.
+    // This method returns:
+    // - `OK` (code 0) and an `Image` object upon success.
+    // - `INVALID_ARGUMENT` (code 3) if the specified `display` ID is invalid or disabled.
+    // - `CANCELLED` (code 1) if the gRPC context is cancelled during the operation (an expensive operation).
+    // - `FAILED_PRECONDITION` (code 9) if the guest has not posted a new frame yet (for non-PNG formats when fast path is used).
+    //
+    // This method will return an image with width 0 and height 0 if the display is not visible.
     rpc getScreenshot(ImageFormat) returns (Image) {}
 
-    // Streams a series of screenshots in the desired format.
+    // Streams a series of screenshots in the desired format. This is a server-side streaming RPC.
     //
-    // A new frame will be delivered whenever the device produces a new frame.
-    // Beware that this can produce a significant amount of data and that
-    // certain translations can be very costly. For example, streaming a series
-    // of png images is very cpu intensive.
+    // A new frame is delivered whenever the device produces a new frame or when sensor changes occur.
+    // Initial state: The first frame delivered might be an empty image (width 0, height 0) if the display is inactive.
+    // Subsequent frames are delivered when new content is available or a sensor event triggers an update.
+    // If the display becomes inactive, an empty image will be delivered again. Images resume when the display becomes active.
     //
-    // Images are produced according to the getScreenshot API described above.
+    // `ImageFormat` parameters (format, width, height, display) behave as described in `getScreenshot`.
+    // The `transport` field in `ImageFormat` can specify `MMAP` for shared memory delivery. If `MMAP` is used and the
+    // provided shared memory handle is valid and mapped, pixel data will be written directly to it.
+    // The `image` field in the `Image` reply will be empty if `MMAP` transport is used.
     //
-    // If the display is inactive, or becomes inactive, an empty image will be
-    // delivered. Images will be delived again if the display becomes active and
-    // new frames are produced.
+    // Performance considerations:
+    // - Streaming can produce a significant amount of data.
+    // - `PNG` format is CPU-intensive due to encoding overhead.
+    // - Using `MMAP` transport can significantly reduce gRPC overhead for pixel data.
+    //
+    // This method returns:
+    // - A server-side streaming reactor.
+    // - `INVALID_ARGUMENT` (code 3) if the specified `display` ID is invalid or disabled.
+    // - `CANCELLED` (code 1) if the gRPC context is cancelled during the operation.
     rpc streamScreenshot(ImageFormat) returns (stream Image) {}
 
-    // Streams a series of audio packets in the desired format.
-    // A new frame will be delivered whenever the emulated device
-    // produces a new audio frame. You can expect packets to be
-    // delivered in intervals of 20-30ms.
+    // Streams a series of audio packets in the desired format. This is a server-side streaming RPC.
+    // A new frame is delivered approximately every 20-30ms when the emulated device produces audio.
+    // If `samplingRate` is 0, it defaults to 44100 Hz.
+    // The stream may block indefinitely if the emulator ceases to produce audio.
+    // Packets are allocated with a buffer size calculated based on the audio format and a 30ms frame time.
     //
-    // Be aware that this can block when the emulator does not
-    // produce any audio whatsoever!
+    // This method returns `OK` (code 0) upon successful streaming initiation.
     rpc streamAudio(AudioFormat) returns (stream AudioPacket) {}
 
-    // Injects a series of audio packets to the android microphone.
-    // A new frame will be delivered whenever the emulated device
-    // requests a new audio frame. Audio is usually delivered at a rate
-    // that the emulator is requesting frames. Audio will be stored in a
-    // temporary buffer that can hold 300ms of audio.
+    // Injects a series of audio packets into the Android microphone. This is a client-side streaming RPC.
+    // Audio packets are processed at a rate determined by the emulator's request for frames.
+    // An internal buffer can hold approximately 300ms of audio.
     //
     // Notes:
-    //  - Only the first audio format packet that is delivered will be
-    // honored. There is no need to send the audio format multiple times.
-    //  - Real time audio currently immediately overrides the buffer. This
-    // means you must provide a constant rate of audio packets. The real
-    // time mode is experimental. Timestamps of audio packets might be
-    // used in the future to improve synchronization.
+    //  - Only the `AudioFormat` from the first received packet is honored. Subsequent `AudioFormat` changes are ignored.
+    //  - `MODE_REAL_TIME` is experimental: incoming data may overwrite existing data if the client does not control timing properly.
+    //  - The circular buffer attempts to deliver all queued samples upon stream closure by writing silence for up to 300ms.
     //
-    // -  INVALID_ARGUMENT (code 3) The sampling rate was too high/low
-    // -  INVALID_ARGUMENT (code 3) The audio packet was too large to handle.
-    // -  FAILED_PRECONDITION (code 9) If there was a microphone registered
-    // already.
+    // Returns the following gRPC error codes:
+    // - `FAILED_PRECONDITION` (code 9): If another microphone is already active, or if unable to register the microphone.
+    // - `INVALID_ARGUMENT` (code 3): If the desired `samplingRate` exceeds 48kHz, or if an `AudioPacket` is too large for the internal buffer.
+    //
+    // This method returns `OK` (code 0) upon successful completion of the stream.
     rpc injectAudio(stream AudioPacket) returns (google.protobuf.Empty) {}
 
     // Deprecated, please use the streamLogcat method instead.
@@ -184,103 +352,230 @@ service EmulatorController {
         option deprecated = true;
     }
 
-    // Streams the logcat output from the emulator.
-    // Note that parsed logcat messages are only available after L (Api >23)
+    // Streams the logcat output from the emulator in real-time. This is a server-side streaming RPC.
+    // The stream sources its data from the `logcat` command executed via `AdbShellStream` in the Android guest.
+    // Log lines are processed individually as they arrive.
+    //
+    // The `LogMessage.sort` field determines the output format:
+    // - If `LogMessage.sort` is `Parsed`, each incoming log line is parsed into a structured `LogcatEntry` object,
+    //   and these entries are returned in the `LogMessage.entries` field. Structured parsing is typically
+    //   available for Android API Level 23 (Marshmallow) and later.
+    // - If `LogMessage.sort` is `Text` (or unspecified), the raw log line is returned in the `LogMessage.contents` field.
+    //
+    // The stream continues as long as the underlying `logcat` process is running and the client is connected.
+    // The stream will naturally terminate if the `logcat` process stops or the connection is lost.
+    // No explicit gRPC error codes are returned by this method during active streaming.
     rpc streamLogcat(LogMessage) returns (stream LogMessage) {}
 
-    // Transition the virtual machine to the desired state. Note that
-    // some states are only observable. For example you cannot transition
-    // to the error state.
+    // Transitions the virtual machine to the desired state. This operation is asynchronous
+    // and executed on the QEMU looper to handle necessary IO locks. Note that some states
+    // (e.g., `UNKNOWN`, `RESTORE_VM`, `SAVE_VM`, `INTERNAL_ERROR`) are purely observable
+    // and cannot be set directly.
+    //
+    // The `VmRunState.state` field triggers specific VM operations:
+    // - `RESET`: Calls `vmReset()` to reset the VM.
+    // - `SHUTDOWN`: Calls `skin_winsys_quit_request()` for a graceful shutdown, similar to closing the emulator GUI.
+    // - `TERMINATE`: Forcefully kills the emulator process. This can lead to system corruption and should be used with extreme caution.
+    // - `PAUSED`: Calls `vmPause()` to pause the VM, halting CPU cycles.
+    // - `RUNNING`: Calls `vmResume()` to resume the VM.
+    // - `RESTART`: Calls `ui->requestRestart()` to perform a full emulator restart.
+    // - `START`: Calls `vmStart()` to resume a stopped emulator.
+    // - `STOP`: Calls `vmStop()` to stop (pause) a running emulator.
+    //
+    // This method returns `OK` (code 0) upon successful asynchronous scheduling of the operation.
     rpc setVmState(VmRunState) returns (google.protobuf.Empty) {}
 
-    // Gets the state of the virtual machine.
+    // Retrieves the current run state of the virtual machine. This is a synchronous operation.
+    //
+    // Internal QEMU run states are mapped to `VmRunState.RunState` as follows:
+    // - `QEMU_RUN_STATE_PAUSED` and `QEMU_RUN_STATE_SUSPENDED` map to `PAUSED`.
+    // - `QEMU_RUN_STATE_RESTORE_VM` maps to `RESTORE_VM`.
+    // - `QEMU_RUN_STATE_RUNNING` maps to `RUNNING`.
+    // - `QEMU_RUN_STATE_SAVE_VM` maps to `SAVE_VM`.
+    // - `QEMU_RUN_STATE_SHUTDOWN` maps to `SHUTDOWN`.
+    // - `QEMU_RUN_STATE_GUEST_PANICKED`, `QEMU_RUN_STATE_INTERNAL_ERROR`, and `QEMU_RUN_STATE_IO_ERROR` map to `INTERNAL_ERROR`.
+    // - Any other states default to `UNKNOWN`.
+    //
+    // This method returns `OK` (code 0) and populates the `VmRunState` reply with the current VM state.
     rpc getVmState(google.protobuf.Empty) returns (VmRunState) {}
 
-    // Atomically changes the current multi-display configuration.
-    // After this call the given display configurations will be activated. You
-    // can only update secondary displays. Displays with id 0 will be ignored.
+    // Atomically changes the current multi-display configuration. This operation applies
+    // the provided `DisplayConfigurations`, with special handling for secondary displays.
+    // Display ID 0 (the primary display) cannot be modified via this RPC.
     //
-    // This call can result in the removal or addition of secondary displays,
-    // the final display state can be observed by the returned configuration.
+    // Preconditions:
+    // - The `android::featurecontrol::MultiDisplay` feature must be enabled.
     //
-    // The following gRPC error codes can be returned:
-    // -  FAILED_PRECONDITION (code 9) if the AVD does not support a
-    // configurable
-    //    secondary display.
-    // -  INVALID_ARGUMENT (code 3) if:
-    //     - The same display id is defined multiple times.
-    //     - The display configurations are outside valid ranges.
-    //       See DisplayConfiguration for details on valid ranges.
-    // -  INTERNAL (code 13) if there was an internal emulator failure.
+    // Input Validation:
+    // - `INVALID_ARGUMENT` (code 3): If duplicate `display` IDs are found in the request.
+    // - `INVALID_ARGUMENT` (code 3): If any `DisplayConfiguration` (width, height, dpi, flags)
+    //   is outside valid ranges as determined by `multiDisplayParamValidate`.
+    // - `INVALID_ARGUMENT` (code 3): If any `display` ID is outside the configurable range
+    //   `[1, userConfigurable]`.
+    //
+    // Atomic Update and Rollback:
+    // The system attempts to apply each display configuration. If any update fails
+    // (e.g., after multiple retries for transient pipe errors), a rollback mechanism
+    // is initiated: successfully updated displays are reverted to their previous state,
+    // and newly added displays are deleted. In such cases, an `INTERNAL` error is returned.
+    //
+    // Deletion of Unrequested Displays:
+    // Any displays that were active before this call but are not present in the new
+    // `request.displays` (and are not display ID 0) will be deleted.
+    //
+    // Notifications:
+    // Upon successful completion, `notifyDisplayChanges()` is called to inform
+    // third-party subscribers.
+    //
+    // Returns the following gRPC error codes:
+    // - `OK` (code 0): Upon successful application of all configurations, returning the final active `DisplayConfigurations`.
+    // - `FAILED_PRECONDITION` (code 9): If the multi-display feature is not available.
+    // - `INTERNAL` (code 13): If an internal emulator failure occurs during display modification or rollback.
     rpc setDisplayConfigurations(DisplayConfigurations)
             returns (DisplayConfigurations) {}
 
-    // Returns all currently valid logical displays.
+    // Returns all currently valid logical displays configured in the emulator. This is a synchronous operation.
     //
-    // The gRPC error code FAILED_PRECONDITION (code 9) is returned if the AVD
-    // does not support a configurable secondary display.
+    // Preconditions:
+    // - The `android::featurecontrol::MultiDisplay` feature must be enabled.
+    //
+    // The `DisplayConfigurations` reply contains:
+    // - `displays`: A repeated field of `DisplayConfiguration` objects, each detailing
+    //   the width, height, DPI, flags, and ID of an active display.
+    //   For Pixel Fold devices, only the main display configuration might be relevant.
+    // - `userConfigurable`: The maximum number of user-configurable displays (IDs from 1 up to this value).
+    // - `maxDisplays`: The total maximum number of displays the emulator supports.
+    //
+    // This method returns:
+    // - `OK` (code 0) and the current `DisplayConfigurations` upon success.
+    // - `FAILED_PRECONDITION` (code 9): If the AVD does not support the multi-display feature.
     rpc getDisplayConfigurations(google.protobuf.Empty)
             returns (DisplayConfigurations) {}
 
-    // Notifies client of the following changes:
+    // Notifies the client of various emulator state changes in real-time. This is a server-side streaming RPC.
+    // Upon subscription, the current states of virtual scene camera, foldable posture, boot completion,
+    // and XR options are immediately sent. The stream then continuously delivers new notifications
+    // when relevant events occur. `UniqueEventStreamWriter` ensures that only distinct state changes are streamed.
     //
-    // - Virtual scene camera status change.
-    // - Display configuration changes from extended ui. This will only be fired
-    //   if the user makes modifications the extended displays through the
-    //   extended control tab.
+    // Notifications include:
+    // - `CameraNotification`: Reports virtual scene camera activation/deactivation and associated display.
+    // - `DisplayConfigurationsChangedNotification`: Triggered when display configurations are modified via the extended UI. Does not fire for changes made through console or gRPC.
+    // - `Posture`: Reports changes in the device's foldable posture.
+    // - `BootCompletedNotification`: Indicates when the emulator has finished booting.
+    // - `BrightnessValue`: Reports changes in backlight brightness (LCD, keyboard, or button).
+    // - `TextViewFocus`: Sent when a text view gains or loses focus, or immediately on subscription.
+    // - `XrOptions`: Reports changes in XR-related settings (environment, passthrough coefficient), or immediately on subscription.
     //
-    // Note that this method will send the initial virtual scene state
-    // immediately.
+    // This method returns a server-side streaming reactor.
     rpc streamNotification(google.protobuf.Empty)
             returns (stream Notification) {}
 
-    // Rotation angles are relative to the camera's current orientation.
-    // The coordinate system is right-handed and is defined as follows:
-    //   x axis is pointing right
-    //   y axis is pointing up
-    //   z axis is pointing towards the viewer
-    // The z component of rotation is not used when calling this method.
+    // Rotates the virtual scene camera relative to its current orientation. This operation is asynchronous
+    // and executed on the main looper.
+    //
+    // The `RotationRadian` message specifies angles in radians around the x, y, and z axes. The z component of rotation is currently unused.
+    // The coordinate system is right-handed: x-axis points right, y-axis points up, and z-axis points towards the viewer.
+    // This operation only succeeds if the virtual scene camera is actively connected.
+    //
+    // This method returns `OK` (code 0) upon successful asynchronous scheduling of the operation.
     rpc rotateVirtualSceneCamera(RotationRadian)
             returns (google.protobuf.Empty) {}
-    // Velocity is absolute and is measured in meters per second.
-    // The coordinate system is right-handed and is defined as follows:
-    //   x axis is pointing right
-    //   y axis is pointing up
-    //   z axis is pointing towards the viewer
+    // Sets the absolute velocity of the virtual scene camera. This operation is asynchronous
+    // and executed on the main looper.
+    //
+    // The `Velocity` message specifies components in meters per second along the x, y, and z axes.
+    // The coordinate system is right-handed: x-axis points right, y-axis points up, and z-axis points towards the viewer.
+    // The transition to these target velocity values may be smoothed over time by the implementation.
+    // This operation only succeeds if the virtual scene camera is actively connected.
+    //
+    // This method returns `OK` (code 0) upon successful asynchronous scheduling of the operation.
     rpc setVirtualSceneCameraVelocity(Velocity)
             returns (google.protobuf.Empty) {}
-    // Set foldable posture
+    // Sets the foldable posture of the device. This operation is asynchronous
+    // and executed on the main looper.
+    //
+    // The `Posture` message contains a `PostureValue` enum, defining the desired
+    // physical configuration of the foldable device.
+    //
+    // Returns the following gRPC error codes:
+    // - `OK` (code 0): Upon successful asynchronous scheduling of the operation.
+    // - `FAILED_PRECONDITION` (code 9): If the emulator is unable to set the specified posture.
     rpc setPosture(Posture) returns (google.protobuf.Empty) {}
 
-    // Get the backlight brightness.
-    // The following gRPC error codes can be returned:
-    // -  FAILED_PRECONDITION (code 9) if the AVD does not support hw-control.
+    // Retrieves the current backlight brightness for a specified light type. This is a synchronous operation.
+    //
+    // The `BrightnessValue.target` field (e.g., `LCD`, `KEYBOARD`, `BUTTON`) determines which light's brightness is queried.
+    // Internal mapping converts these to string names like "lcd_backlight".
+    //
+    // Returns the following gRPC error codes:
+    // - `OK` (code 0): Upon successful retrieval, populating the `BrightnessValue` reply with the `target` and current `value`.
+    // - `FAILED_PRECONDITION` (code 9): If the AVD does not support the `hw-control` agent or its `getBrightness` function is unavailable.
     rpc getBrightness(BrightnessValue) returns (BrightnessValue) {}
 
-    // Set the backlight brightness.
-    // The following gRPC error codes can be returned:
-    // -  FAILED_PRECONDITION (code 9) if the AVD does not support hw-control.
-    // -  INVALID_ARGUMENT (code 3) The brightness exceeds the valid range.
+    // Sets the backlight brightness for a specified light type. This operation is asynchronous
+    // and executed on the main looper.
+    //
+    // The `BrightnessValue.target` field (e.g., `LCD`, `KEYBOARD`, `BUTTON`) determines which light's brightness is set.
+    // The `BrightnessValue.value` specifies the desired intensity, ranging from 0 to 255.
+    // Internal mapping converts `LightType` to string names like "lcd_backlight".
+    //
+    // Returns the following gRPC error codes:
+    // - `OK` (code 0): Upon successful asynchronous scheduling of the operation.
+    // - `FAILED_PRECONDITION` (code 9): If the AVD does not support the `hw-control` agent or its `setBrightness` function is unavailable.
+    // - `INVALID_ARGUMENT` (code 3): If the `brightness` value exceeds the valid range (0-255).
     rpc setBrightness(BrightnessValue) returns (google.protobuf.Empty) {}
 
-    // Returns the current mode of the primary display of a resizable AVD.
-    // The following gRPC error codes can be returned:
-    // -  FAILED_PRECONDITION (code 9) if the AVD is not resizable.
+    // Returns the current mode of the primary display of a resizable AVD. This is a synchronous operation.
+    //
+    // Preconditions:
+    // - The AVD must be configured to support resizable displays (`resizableEnabled()` must be true).
+    //
+    // The `DisplayMode.value` field will be populated with the current `DisplayModeValue`,
+    // derived from the `getResizableActiveConfigId()`.
+    //
+    // Returns the following gRPC error codes:
+    // - `OK` (code 0): Upon successful retrieval of the display mode.
+    // - `FAILED_PRECONDITION` (code 9): If the AVD is not resizable.
     rpc getDisplayMode(google.protobuf.Empty) returns (DisplayMode) {}
 
-    // Sets the size of the primary display of a resizable AVD. Fails if the AVD
-    // is not resizable. The following gRPC error codes can be returned:
-    // -  FAILED_PRECONDITION (code 9) if the AVD is not resizable.
+    // Sets the size of the primary display of a resizable AVD to the specified `DisplayModeValue`. This operation is asynchronous
+    // and executed on the main looper.
+    //
+    // Preconditions:
+    // - The AVD must be configured to support resizable displays (`resizableEnabled()` must be true).
+    // - The emulator's `changeResizableDisplay` agent function must be available.
+    //
+    // The `DisplayMode.value` field specifies the desired display configuration (e.g., `PHONE`, `FOLDABLE`, `TABLET`, `DESKTOP`).
+    //
+    // Returns the following gRPC error codes:
+    // - `OK` (code 0): Upon successful asynchronous scheduling of the operation.
+    // - `FAILED_PRECONDITION` (code 9): If the AVD is not resizable.
+    // - `INTERNAL` (code 13): If the internal window agent function `changeResizableDisplay` is not available.
     rpc setDisplayMode(DisplayMode) returns (google.protobuf.Empty) {}
 
-    // Changes the XR-related settings. Fails if the AVD is not XR. The
-    // following gRPC error codes can be returned:
-    // -  FAILED_PRECONDITION (code 9) if the AVD is not XR.
+    // Changes the XR-related settings of the emulator. This operation is asynchronous
+    // and executed on the main looper.
+    //
+    // The `XrOptions` message specifies the `environment` (e.g., `LIVING_ROOM_DAY`, `LIVING_ROOM_NIGHT`)
+    // and `passthrough_coefficient` (a float between 0.0 and 1.0 for real/artificial environment visibility).
+    // Values for `passthrough_coefficient` outside [0.0, 1.0] are ignored.
+    //
+    // Returns the following gRPC error codes:
+    // - `OK` (code 0): Upon successful asynchronous scheduling of the operation.
+    // - `FAILED_PRECONDITION` (code 9): If the `setXrOptions` agent function fails (e.g., if XR is not supported).
     rpc setXrOptions(XrOptions) returns (google.protobuf.Empty) {}
 
-    // Gets the current state of XR-related settings. Fails if the AVD is not
-    // XR. The following gRPC error codes can be returned:
-    // -  FAILED_PRECONDITION (code 9) if the AVD is not XR.
+    // Retrieves the current state of XR-related settings from the emulator. This is a synchronous operation.
+    //
+    // Preconditions:
+    // - XR mode must be supported in the current AVD (`isXrGuestOs()` must be true).
+    //   (Note: Current implementation of `isXrGuestOs()` always returns true).
+    //
+    // The `XrOptions` reply contains the current `environment` and `passthrough_coefficient`.
+    //
+    // Returns the following gRPC error codes:
+    // - `OK` (code 0): Upon successful retrieval of the XR options.
+    // - `FAILED_PRECONDITION` (code 9): If XR mode is not supported in the current AVD or if the `getXrOptions` agent function fails.
     rpc getXrOptions(google.protobuf.Empty) returns (XrOptions) {}
 }
 
