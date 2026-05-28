@@ -1,5 +1,6 @@
-load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
-load("@rules_python//python:defs.bzl", "py_library", "py_test")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+load(":amc.bzl", "amc_generator", "amc_pkg_config", "amc_toolchain")
 load(":self.bzl", "py_binary_with_self_label")
 
 package(default_visibility = ["//visibility:public"])
@@ -52,7 +53,10 @@ py_library(
         "src/aemu/configure/meson_project_builder.py",
     ],
     imports = ["src"],
-    deps = [":amc_common_lib"],
+    deps = [
+        ":amc_common_lib",
+        ":amc_toolchain_lib",
+    ],
 )
 
 py_binary_with_self_label(
@@ -63,6 +67,36 @@ py_binary_with_self_label(
         ":amc_common_lib",
         ":amc_qemu_configure_lib",
         ":amc_toolchain_lib",
+    ],
+)
+
+py_binary(
+    name = "gen_toolchain",
+    srcs = ["src/gen_toolchain.py"],
+    imports = ["src"],
+    main = "src/gen_toolchain.py",
+    deps = [
+        ":amc_toolchain_lib",
+    ],
+)
+
+py_binary(
+    name = "gen_pkg_config",
+    srcs = ["src/gen_pkg_config.py"],
+    imports = ["src"],
+    main = "src/gen_pkg_config.py",
+    deps = [
+        ":amc_toolchain_lib",
+    ],
+)
+
+py_binary(
+    name = "gen_bazel",
+    srcs = ["src/gen_bazel.py"],
+    imports = ["src"],
+    main = "src/gen_bazel.py",
+    deps = [
+        ":amc_qemu_configure_lib",
     ],
 )
 
@@ -132,4 +166,37 @@ py_test(
 cc_binary(
     name = "hello",
     srcs = ["src/hello.c"],
+)
+
+# Build a test_lib
+cc_library(
+    name = "test_lib",
+    srcs = ["tests/test_lib.c"],
+    hdrs = ["tests/test_lib.h"],
+    includes = ["tests"],
+)
+
+# Generate a pkg-config definition for test_lib
+amc_pkg_config(
+    name = "test_lib_pc",
+    package_name = "test-lib",
+    library = ":test_lib",
+    version = "1.0.0",
+)
+
+# Generate a toolchain for the test generation
+amc_toolchain(
+    name = "test_toolchain",
+    target_platform = "linux",
+    tool_versions = ":test_tool_versions.json",
+)
+
+# Run a test meson to bazel generation
+amc_generator(
+    name = "test_generator",
+    srcs = ["README.md"],
+    config = "//tools/toolchain/tests/amc/simple:build-config.jsonc",
+    packages = [":test_lib_pc"],
+    target_platform = "linux",
+    toolchain = ":test_toolchain",
 )

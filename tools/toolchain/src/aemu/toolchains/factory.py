@@ -71,6 +71,9 @@ def get_toolchain_generator(
     prefix: str,
     aosp: Path,
     versions: dict = None,
+    ninja_bin: Path = None,
+    pkg_config_bin: Path = None,
+    compat_lib: Path = None,
 ) -> ToolchainGenerator:
     """Factory method for ToolchainGenerator objects.
 
@@ -82,6 +85,9 @@ def get_toolchain_generator(
         prefix: The prefix for the toolchain binaries.
         aosp: The path to the AOSP source tree.
         versions: A dictionary of toolchain versions.
+        ninja_bin: Path to prebuilt ninja binary.
+        pkg_config_bin: Path to prebuilt pkg-config binary.
+        compat_lib: Path to prebuilt compat library.
 
     Returns:
         A ToolchainGenerator object for the specified target.
@@ -106,4 +112,11 @@ def get_toolchain_generator(
     toolchain_klazz = generator_map[canonical_target]
     # Initialize the toolchain generator with the specified destination and an empty suffix.
     # This generator will be used to manage toolchain-related configurations.
-    return toolchain_klazz(Path(aosp), Path(toolchain_dir), prefix, versions)
+    generator = toolchain_klazz(Path(aosp), Path(toolchain_dir), prefix, versions)
+    if ninja_bin:
+        generator.ninja_bin = Path(ninja_bin)
+    if pkg_config_bin:
+        generator.pkg_config_bin = Path(pkg_config_bin)
+    if compat_lib:
+        generator.compat_lib = Path(compat_lib)
+    return generator
