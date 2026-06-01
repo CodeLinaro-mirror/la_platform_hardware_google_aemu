@@ -1,5 +1,7 @@
 load("@grpc//bazel:cc_grpc_library.bzl", "cc_grpc_library")
+load("@grpc-java//:java_grpc_library.bzl", "java_grpc_library")
 load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@protobuf//bazel:java_proto_library.bzl", "java_proto_library")
 load("@protobuf//bazel:proto_library.bzl", "proto_library")
 
 package(default_visibility = ["//visibility:public"])
@@ -25,6 +27,17 @@ cc_grpc_library(
     generate_mocks = True,
     grpc_only = True,
     deps = [":snapshot_service_cc_proto"],
+)
+
+java_grpc_library(
+    name = "snapshot_service_java_grpc",
+    srcs = [":snapshot_service_proto"],
+    deps = [":snapshot_service_java_proto"],
+)
+
+java_proto_library(
+    name = "snapshot_service_java_proto",
+    deps = [":snapshot_service_proto"],
 )
 
 proto_library(
