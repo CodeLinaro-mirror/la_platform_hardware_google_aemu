@@ -27,21 +27,21 @@ def amc_test(name, build_config, shim, srcs = []):
     """
     sh_test(
         name = name,
-        srcs = ["//hardware/google/aemu/tools/toolchain/tests/amc/utils:amc_test_wrapper.sh"],
+        srcs = ["//tools/toolchain/tests/amc/utils:amc_test_wrapper.sh"],
         args = [
-            "$(location //hardware/google/aemu/tools/toolchain/tests/amc/utils:amc_test.py)",
+            "$(location //tools/toolchain/tests/amc/utils:amc_test.py)",
             "--amc",
-            "$(location //hardware/google/aemu/tools/toolchain:amc)",
+            "$(location //tools/toolchain:amc)",
             "--build-config",
             "$(location %s)" % build_config,
             "--shim",
             "$(location %s)" % shim,
         ],
         data = [
-            "//hardware/google/aemu/tools/toolchain:amc",
+            "//tools/toolchain:amc",
             build_config,
             shim,
-            "//hardware/google/aemu/tools/toolchain/tests/amc/utils:amc_test.py",
+            "//tools/toolchain/tests/amc/utils:amc_test.py",
         ] + srcs,
         local = True,
     )

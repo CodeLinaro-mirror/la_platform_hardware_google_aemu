@@ -15,7 +15,7 @@
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@rules_python//python:defs.bzl", "py_binary")
 
-package(default_visibility = ["//hardware/google/aemu/tools/toolchain/tests/amc:__subpackages__"])
+package(default_visibility = ["//tools/toolchain/tests/amc:__subpackages__"])
 
 # To provide custom binaries to amc, we must define it as a bazel target so it can be brought into
 # the sandbox.

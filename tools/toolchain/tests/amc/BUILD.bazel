@@ -12,29 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("//hardware/google/aemu/tools/toolchain/tests/amc/utils:amc_test.bzl", "amc_test")
+load("//tools/toolchain/tests/amc/utils:amc_test.bzl", "amc_test")
 
 amc_test(
     name = "simple_test",
     srcs = [
-        "//hardware/google/aemu/tools/toolchain/tests/amc/simple:main.cpp",
-        "//hardware/google/aemu/tools/toolchain/tests/amc/simple:meson.build",
+        "//tools/toolchain/tests/amc/simple:main.cpp",
+        "//tools/toolchain/tests/amc/simple:meson.build",
     ],
-    build_config = "//hardware/google/aemu/tools/toolchain/tests/amc/simple:build-config.jsonc",
-    shim = "//hardware/google/aemu/tools/toolchain/tests/amc/simple:shim.jsonc",
+    build_config = "//tools/toolchain/tests/amc/simple:build-config.jsonc",
+    shim = "//tools/toolchain/tests/amc/simple:shim.jsonc",
 )
 
 amc_test(
     name = "custom_target_test",
     srcs = [
-        "//hardware/google/aemu/tools/toolchain/tests/amc/custom_target:input0.txt",
-        "//hardware/google/aemu/tools/toolchain/tests/amc/custom_target:input1.txt",
-        "//hardware/google/aemu/tools/toolchain/tests/amc/custom_target:main.cpp",
-        "//hardware/google/aemu/tools/toolchain/tests/amc/custom_target:meson.build",
-        "//hardware/google/aemu/tools/toolchain/tests/amc/custom_target:meson_options.txt",
-        "//hardware/google/aemu/tools/toolchain/tests/amc/custom_target:py_gen.py",
-        "//hardware/google/aemu/tools/toolchain/tests/amc/custom_target/binaries:prog_py_gen",
+        "//tools/toolchain/tests/amc/custom_target:input0.txt",
+        "//tools/toolchain/tests/amc/custom_target:input1.txt",
+        "//tools/toolchain/tests/amc/custom_target:main.cpp",
+        "//tools/toolchain/tests/amc/custom_target:meson.build",
+        "//tools/toolchain/tests/amc/custom_target:meson_options.txt",
+        "//tools/toolchain/tests/amc/custom_target:py_gen.py",
+        "//tools/toolchain/tests/amc/custom_target/binaries:prog_py_gen",
     ],
-    build_config = "//hardware/google/aemu/tools/toolchain/tests/amc/custom_target:build-config.jsonc",
-    shim = "//hardware/google/aemu/tools/toolchain/tests/amc/custom_target:shim.jsonc",
+    build_config = "//tools/toolchain/tests/amc/custom_target:build-config.jsonc",
+    shim = "//tools/toolchain/tests/amc/custom_target:shim.jsonc",
 )
