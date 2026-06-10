@@ -13,3 +13,14 @@ cc_proto_library(
     name = "grpc_diagnostic_cc_proto",
     deps = [":grpc_diagnostic_proto"],
 )
+
+proto_library(
+    name = "breadcrumb_proto",
+    srcs = ["breadcrumb.proto"],
+    strip_import_prefix = "",
+)
+
+cc_proto_library(
+    name = "breadcrumb_cc_proto",
+    deps = [":breadcrumb_proto"],
+)
