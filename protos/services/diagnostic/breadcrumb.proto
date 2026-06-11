@@ -19,9 +19,9 @@ package android.control.breadcrumbs;
 //
 // Breadcrumbs are used primarily for telemetry, debugging, and post-crash analysis.
 // By aggregating `Breadcrumb` messages with the same `flow_id`, engineers can
-// reconstruct the exact state machine of an asynchronous operation (like a gRPC call
-// or ADB packet transfer) spanning multiple threads, leading up to a failure or
-// performance bottleneck.
+// reconstruct the exact state machine of an asynchronous operation (like a gRPC call,
+// ADB packet transfer, or EventLoop task dispatch) spanning multiple threads, leading
+// up to a failure or performance bottleneck.
 message Breadcrumb {
   uint64 timestamp_ns = 1;
   uint32 thread_id    = 2;
@@ -38,8 +38,9 @@ message Breadcrumb {
 
   // Polymorphic payload for different use cases
   oneof payload {
-    GrpcPayload grpc = 5;
-    AdbPayload  adb  = 6;
+    GrpcPayload   grpc   = 5;
+    AdbPayload    adb    = 6;
+    LooperPayload looper = 7;
   }
 }
 
@@ -147,3 +148,23 @@ message AdbPayload {
 message BreadcrumbList {
   repeated Breadcrumb breadcrumbs = 1;
 }
+
+// Payload for EventLoop (looper) asynchronous task tracking.
+// Correlates tasks being posted from one thread and executed on another.
+message LooperPayload {
+  enum LooperEvent {
+    EVENT_UNSPECIFIED = 0;
+    POST              = 1; // Task was posted to the target event loop queue
+    EXECUTE           = 2; // Task started executing on the target event loop
+  }
+  LooperEvent event     = 1;
+  uint64      caller_pc = 2; // Instruction address of the caller (only set for POST)
+
+  // Unique loop ID. Conceptually redundant in looper-local logs since the log buffer
+  // itself identifies the looper, but logged as a robust fallback key for reconstructing
+  // looper name maps in post-processing tools.
+  uint32      loop_id   = 3;
+
+  string      context   = 4; // Optional dynamic context string
+}
+
