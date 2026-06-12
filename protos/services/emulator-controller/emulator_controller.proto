@@ -373,36 +373,37 @@ service EmulatorController {
     // No explicit gRPC error codes are returned by this method during active streaming.
     rpc streamLogcat(LogMessage) returns (stream LogMessage) {}
 
-    // Transitions the virtual machine to the desired state. This operation is asynchronous
-    // and executed on the QEMU looper to handle necessary IO locks. Note that some states
-    // (e.g., `UNKNOWN`, `RESTORE_VM`, `SAVE_VM`, `INTERNAL_ERROR`) are purely observable
-    // and cannot be set directly.
+    // Transitions the virtual machine to the desired state. This operation is scheduled
+    // asynchronously.
     //
-    // The `VmRunState.state` field triggers specific VM operations:
-    // - `RESET`: Calls `vmReset()` to reset the VM.
-    // - `SHUTDOWN`: Calls `skin_winsys_quit_request()` for a graceful shutdown, similar to closing the emulator GUI.
-    // - `TERMINATE`: Forcefully kills the emulator process. This can lead to system corruption and should be used with extreme caution.
-    // - `PAUSED`: Calls `vmPause()` to pause the VM, halting CPU cycles.
-    // - `RUNNING`: Calls `vmResume()` to resume the VM.
-    // - `RESTART`: Calls `ui->requestRestart()` to perform a full emulator restart.
-    // - `START`: Calls `vmStart()` to resume a stopped emulator.
-    // - `STOP`: Calls `vmStop()` to stop (pause) a running emulator.
+    // Transition commands:
+    // - `RUNNING` or `START`: Starts or resumes execution of the virtual machine.
+    // - `PAUSED` or `STOP`: Pauses execution of the virtual machine, halting CPU cycles.
+    // - `RESET` or `RESTART`: Performs a warm reset of the virtual machine.
+    // - `SHUTDOWN`: Initiates a graceful shutdown of the emulator.
+    // - `TERMINATE`: Forcefully terminates the emulator process immediately without cleanup.
+    //   This can cause data corruption and must be used with caution.
     //
-    // This method returns `OK` (code 0) upon successful asynchronous scheduling of the operation.
+    // Note that write-only actions (`START`, `STOP`, `RESET`, `RESTART`) perform the
+    // transition but are not observed as states in `getVmState`. Purely observable states
+    // (`UNKNOWN`, `RESTORE_VM`, `SAVE_VM`, `INTERNAL_ERROR`) cannot be set directly.
+    //
+    // Returns once the operation has been scheduled.
+    // Note: The call may not return when the state is set to `TERMINATE` or `SHUTDOWN`.
     rpc setVmState(VmRunState) returns (google.protobuf.Empty) {}
 
-    // Retrieves the current run state of the virtual machine. This is a synchronous operation.
+    // Retrieves the current execution state of the virtual machine.
     //
-    // Internal QEMU run states are mapped to `VmRunState.RunState` as follows:
-    // - `QEMU_RUN_STATE_PAUSED` and `QEMU_RUN_STATE_SUSPENDED` map to `PAUSED`.
-    // - `QEMU_RUN_STATE_RESTORE_VM` maps to `RESTORE_VM`.
-    // - `QEMU_RUN_STATE_RUNNING` maps to `RUNNING`.
-    // - `QEMU_RUN_STATE_SAVE_VM` maps to `SAVE_VM`.
-    // - `QEMU_RUN_STATE_SHUTDOWN` maps to `SHUTDOWN`.
-    // - `QEMU_RUN_STATE_GUEST_PANICKED`, `QEMU_RUN_STATE_INTERNAL_ERROR`, and `QEMU_RUN_STATE_IO_ERROR` map to `INTERNAL_ERROR`.
-    // - Any other states default to `UNKNOWN`.
+    // The returned `VmRunState` represents the current condition of the VM:
+    // - `RUNNING`: The virtual machine is actively executing.
+    // - `PAUSED`: Execution is suspended (CPUs are halted).
+    // - `SHUTDOWN`: The guest operating system has initiated a shutdown.
+    // - `RESTORE_VM`: The virtual machine is paused while restoring its state (e.g., loading a snapshot).
+    // - `SAVE_VM`: The virtual machine is paused while saving its state (e.g., taking a snapshot).
+    // - `INTERNAL_ERROR`: Execution has stopped due to a guest panic, I/O error, or hypervisor failure.
+    // - `UNKNOWN`: The virtual machine is in an unmapped or transient state.
     //
-    // This method returns `OK` (code 0) and populates the `VmRunState` reply with the current VM state.
+    // This is a synchronous query operation.
     rpc getVmState(google.protobuf.Empty) returns (VmRunState) {}
 
     // Atomically changes the current multi-display configuration. This operation applies
@@ -593,44 +594,52 @@ service EmulatorController {
     rpc getHostCameras(google.protobuf.Empty) returns (CameraList) {}
 }
 
-// A Run State that describes the state of the Virtual Machine.
+// Represents the execution state of the virtual machine, used for both querying the
+// current status and requesting state transitions.
 message VmRunState {
     enum RunState {
-        // The emulator is in an unknown state. You cannot transition to this
-        // state.
+        // Purely observable state. The virtual machine is in an unmapped or transient state.
+        // Cannot be set directly.
         UNKNOWN = 0;
-        // Guest is actively running. You can transition to this state from the
-        // paused state.
+
+        // Active execution state. Setting this state resumes the virtual machine.
         RUNNING = 1;
-        // Guest is paused to load a snapshot. You cannot transition to this
-        // state.
+
+        // Purely observable state. The virtual machine is paused while restoring its state
+        // (e.g., loading a snapshot). Cannot be set directly.
         RESTORE_VM = 2;
-        // Guest has been paused. Transitioning to this state will pause the
-        // emulator the guest will not be consuming any cpu cycles.
+
+        // Suspended execution state. Setting this state pauses the virtual machine and halts
+        // CPU cycles.
         PAUSED = 3;
-        // Guest is paused to take or export a snapshot. You cannot
-        // transition to this state.
+
+        // Purely observable state. The virtual machine is paused while saving its state
+        // (e.g., taking a snapshot). Cannot be set directly.
         SAVE_VM = 4;
-        // System shutdown, note that it is similar to power off. It tries to
-        // set the system status and notify guest. The system is likely going to
-        // disappear soon and do proper cleanup of resources, possibly taking
-        // a snapshot. This is the same behavior as closing the emulator by
-        // clicking the X (close) in the user interface.
+
+        // Graceful shutdown state. Setting this state initiates a clean shutdown of the
+        // virtual machine.
         SHUTDOWN = 5;
-        // Immediately terminate the emulator. No resource cleanup will take
-        // place. There is a good change to corrupt the system.
+
+        // Write-only command. Immediately terminates the emulator process without cleanup.
+        // Can cause data corruption and must be used with caution.
         TERMINATE = 7;
-        // Will cause the emulator to reset. This is not a state you can
-        // observe.
+
+        // Write-only command. Triggers a warm reset of the virtual machine.
         RESET = 9;
-        // Guest experienced some error state, you cannot transition to this
-        // state.
+
+        // Purely observable state. The virtual machine has stopped execution due to a guest
+        // panic, internal error, or I/O failure. Cannot be set directly.
         INTERNAL_ERROR = 10;
-        // Completely restart the emulator.
+
+        // Write-only command. Triggers a warm reset of the virtual machine (equivalent to `RESET`).
         RESTART = 11;
-        // Resume a stopped emulator
+
+        // Write-only command. Starts or resumes execution of the virtual machine (equivalent
+        // to `RUNNING`).
         START = 12;
-        // Stop (pause) a running emulator
+
+        // Write-only command. Stops execution of the virtual machine (equivalent to `PAUSED`).
         STOP = 13;
     }
 
