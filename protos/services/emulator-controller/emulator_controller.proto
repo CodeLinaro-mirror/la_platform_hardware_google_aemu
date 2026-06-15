@@ -588,6 +588,9 @@ service EmulatorController {
 
     // Sets the environment background for AI glasses.
     rpc setEnvironment(Environment) returns (google.protobuf.Empty) {}
+
+    // Returns the list of video cameras connected to the host machine.
+    rpc getHostCameras(google.protobuf.Empty) returns (CameraList) {}
 }
 
 // A Run State that describes the state of the Virtual Machine.
@@ -1835,4 +1838,15 @@ message Environment {
    // Key/value pairs corresponing to the contents of the environment.ini file.
    // An empty map means no environment.
    map<string, string> environment = 1;
+}
+
+message Camera {
+    // Human-readable name for use with UI
+    string display_name = 1;
+    // Os Specific identifier
+    string id = 2;
+}
+
+message CameraList {
+    repeated Camera cameras = 1;
 }
