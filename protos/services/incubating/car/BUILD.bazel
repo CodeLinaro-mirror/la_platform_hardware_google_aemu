@@ -36,3 +36,34 @@ java_grpc_library(
     srcs = [":car_service_proto"],
     deps = [":car_service_java_proto"],
 )
+
+proto_library(
+    name = "vehicle_service_proto",
+    srcs = ["vehicle_service.proto"],
+    strip_import_prefix = "",
+    deps = ["@protobuf//:empty_proto"],
+)
+
+cc_proto_library(
+    name = "vehicle_service_cc_proto",
+    deps = [":vehicle_service_proto"],
+)
+
+cc_grpc_library(
+    name = "vehicle_service_cc_grpc",
+    srcs = [":vehicle_service_proto"],
+    generate_mocks = True,
+    grpc_only = True,
+    deps = [":vehicle_service_cc_proto"],
+)
+
+java_proto_library(
+    name = "vehicle_service_java_proto",
+    deps = [":vehicle_service_proto"],
+)
+
+java_grpc_library(
+    name = "vehicle_service_java_grpc",
+    srcs = [":vehicle_service_proto"],
+    deps = [":vehicle_service_java_proto"],
+)
