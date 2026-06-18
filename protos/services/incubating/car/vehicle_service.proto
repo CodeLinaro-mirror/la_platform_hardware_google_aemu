@@ -1,0 +1,115 @@
+// Copyright (C) 2026 The Android Open Source Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.android.emulation.control.incubating";
+
+package android.emulation.control.incubating;
+
+import "google/protobuf/empty.proto";
+
+// Service for interacting with the Android Automotive Vehicle HAL (VHAL) in the emulator.
+service VehicleService {
+    // Sets a vehicle property value on the Vehicle HAL.
+    //
+    // The `VehiclePropValue` contains the property ID, area ID, and the new value(s) to set.
+    //
+    // Returns the following gRPC error codes:
+    // - `OK` (code 0): Upon successfully setting the property.
+    // - `INVALID_ARGUMENT` (code 3): If the property ID is invalid or the data type mismatch.
+    // - `INTERNAL` (code 13): If there is an internal error communicating with the Vehicle HAL.
+    rpc setVehicleProperty(VehiclePropValue) returns (google.protobuf.Empty) {}
+
+    // Retrieves a vehicle property value from the Vehicle HAL.
+    //
+    // The `GetVehiclePropertyRequest` specifies the property ID and area ID of the property to get.
+    //
+    // Returns the current `VehiclePropValue` or the following gRPC error codes:
+    // - `OK` (code 0): Upon successful retrieval.
+    // - `INVALID_ARGUMENT` (code 3): If the requested property ID or area ID is invalid.
+    // - `NOT_FOUND` (code 5): If the property is not supported or not set.
+    rpc getVehicleProperty(GetVehiclePropertyRequest) returns (VehiclePropValue) {}
+
+    // Streams vehicle property change events from the Vehicle HAL.
+    //
+    // Clients will receive a stream of `VehicleEvent` messages whenever a subscribed
+    // vehicle property value changes.
+    //
+    // Returns the following gRPC error codes:
+    // - `OK` (code 0): Upon successfully establishing the stream.
+    rpc streamVehicleEvents(google.protobuf.Empty) returns (stream VehicleEvent) {}
+}
+
+// Uniquely identifies a specific vehicle property instance (combination of property ID and area ID).
+message VehiclePropertyAddress {
+    // The vehicle property ID as defined in the VehicleProperty enum or AIDL definition.
+    int32 prop_id = 1;
+    // The area ID for zone-specific properties (e.g., seats, zones).
+    int32 area_id = 2;
+}
+
+// Request message to retrieve a vehicle property value.
+message GetVehiclePropertyRequest {
+    // The target vehicle property address (combination of property ID and area ID).
+    VehiclePropertyAddress address = 1;
+}
+
+// Event notification representing a change in a vehicle property value.
+message VehicleEvent {
+    oneof event {
+        // The updated vehicle property value containing the new state.
+        VehiclePropValue property_change_event = 1;
+    }
+}
+
+// Represents the value of a vehicle property in the Vehicle HAL.
+//
+// A single property value can contain multiple values across different types
+// (e.g., for MIXED type properties), which is why these are separate repeated fields
+// rather than a `oneof` union.
+message VehiclePropValue {
+    // Represents the status of a vehicle property in the Vehicle HAL.
+    enum Status {
+        AVAILABLE = 0;
+        NOT_AVAILABLE_GENERAL = 1;
+        ERROR = 2;
+        NOT_AVAILABLE_DISABLED = 0x1001;
+        NOT_AVAILABLE_SPEED_LOW = 0x1002;
+        NOT_AVAILABLE_SPEED_HIGH = 0x1003;
+        NOT_AVAILABLE_POOR_VISIBILITY = 0x1004;
+        NOT_AVAILABLE_SAFETY = 0x1005;
+        NOT_AVAILABLE_SUBSYSTEM_NOT_CONNECTED = 0x1006;
+    }
+
+    // Timestamp in nanoseconds since boot.
+    int64 timestamp = 1;
+    // The area ID associated with this property value (e.g. seat, zone).
+    int32 area_id = 2;
+    // The vehicle property ID (e.g., vehicle speed, gear, HVAC temperature).
+    int32 prop = 3;
+    // The status of the property.
+    Status status = 4;
+    // List of 32-bit integer values.
+    repeated int32 int32_values = 5;
+    // List of float values.
+    repeated float float_values = 6;
+    // List of 64-bit integer values.
+    repeated int64 int64_values = 7;
+    // Raw byte values.
+    bytes byte_values = 8;
+    // String value.
+    string string_value = 9;
+}
