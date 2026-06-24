@@ -109,15 +109,16 @@ class MesonProjectBuilder:
         self.toolchain = Path(toolchain_dir).absolute()
         self.dest.mkdir(parents=True, exist_ok=True)
         self.target = target
-        self.bazel = Bazel(
-            self.aosp, self.dest, bazel_startup_options, bazel_build_options, target
-        )
-        self.cmake = CMake(self.aosp, self.toolchain, self.dest)
 
         self.toolchain_generator = generator
-        if ccache:
-            self.toolchain_generator.ccache = Path(ccache).absolute()
-        self.toolchain_generator.bazel = self.bazel
+        if self.toolchain_generator:
+            self.cmake = CMake(self.aosp, self.toolchain, self.dest)
+            self.bazel = Bazel(
+                self.aosp, self.dest, bazel_startup_options, bazel_build_options, target
+            )
+            if ccache:
+                self.toolchain_generator.ccache = Path(ccache).absolute()
+            self.toolchain_generator.bazel = self.bazel
 
         self._load_config(config_file)
         self.features = self.config.get("features", [])
@@ -190,9 +191,10 @@ class MesonProjectBuilder:
             meson_flags (list[str]): A list of additional command-line flags
                                      to pass to `meson setup`.
         """
-        packages = self.packages()
-        binaries = self.binaries()
-        self.toolchain_generator.gen_toolchain(packages, binaries)
+        if self.toolchain_generator:
+            packages = self.packages()
+            binaries = self.binaries()
+            self.toolchain_generator.gen_toolchain(packages, binaries)
 
         meson_flags = [] if meson_flags is None else meson_flags
 

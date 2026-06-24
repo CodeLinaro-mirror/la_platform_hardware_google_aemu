@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Dict, Tuple, List, Any
 
 from aemu.process.runner import check_output
-from aemu.toolchains.toolchain_generator import ToolchainGenerator
+from aemu.toolchains.toolchain_generator import ToolchainGenerator, safe_symlink_dir
 
 
 def compare_versions(v1: str, v2: str) -> int:
@@ -174,9 +174,7 @@ class DarwinToDarwinGenerator(ToolchainGenerator):
         """Setup symlink to macos sdk."""
         super().link_dirs()
         target = self.dest / "sysroot"
-        if target.is_symlink() or target.exists():
-            target.unlink()
-        target.symlink_to(self.osx_sdk_root)
+        safe_symlink_dir(self.osx_sdk_root, target)
 
     def parse_xcode_sdks(self) -> Dict[str, Dict[str, str]]:
         """
