@@ -1,0 +1,4 @@
+{
+  "clang": "clang-stable",
+  "rust": "1.94.1"
+}
