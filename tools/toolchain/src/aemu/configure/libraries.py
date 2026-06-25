@@ -155,7 +155,7 @@ class Lib:
                             p = candidate
                             break  # Stop checking other bases
 
-                data.append(p.resolve())
+                data.append(p.absolute())
 
         cfg = PackageConfigPc(
             name=pkglib_name,

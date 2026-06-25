@@ -96,6 +96,27 @@ class TestWindowsToWindowsGenerator(unittest.TestCase):
         self.assertIn("lldb", calls)
         self.assertIn("lib", calls)
 
+    def test_gen_script_generates_relocatable_cmd(self):
+        self.dest.mkdir(parents=True, exist_ok=True)
+        script_path = self.dest / "meson"
+
+        def dummy_cmd():
+            py_exe = self.aosp / "external/rules_python/python.exe"
+            meson_py = self.aosp / "external/meson/meson.py"
+            return f'"{py_exe}" "{meson_py}"', ""
+
+        self.gen.gen_script("meson", script_path, dummy_cmd)
+
+        cmd_file = self.dest / "meson.cmd"
+        self.assertTrue(cmd_file.exists())
+        content = cmd_file.read_text(encoding="utf-8")
+        self.assertIn("%~dp0", content)
+        self.assertNotIn(self.aosp.as_posix(), content)
+        # Ensure backslashes are used in the relocatable path for cmd.exe
+        self.assertIn(r"external\rules_python\python.exe", content)
+        self.assertIn(r"external\meson\meson.py", content)
+        self.assertEqual(self.gen.toolchain_map["meson"], "meson.cmd")
+
 
 if __name__ == "__main__":
     unittest.main()
