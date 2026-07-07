@@ -81,6 +81,7 @@ def _amc_toolchain_impl(ctx):
         env = env,
         execution_requirements = {
             "no-sandbox": "1",
+            "no-cache": "1",
             "local": "1",
         },
     )
@@ -210,6 +211,7 @@ def _amc_pkg_config_impl(ctx):
         env = env,
         execution_requirements = {
             "no-sandbox": "1",
+            "no-cache": "1",
             "local": "1",
         },
     )
@@ -292,14 +294,19 @@ def _amc_generator_impl(ctx):
     if ctx.executable.ninja:
         inputs.append(ctx.executable.ninja)
 
-    is_windows = ctx.target_platform_has_constraint(
-        ctx.attr._windows_constraint[platform_common.ConstraintValueInfo],
-    )
     env = {
         # The meson backends call ninja directly after checking this var.
         "NINJA": ctx.executable.ninja.path if ctx.executable.ninja else "ninja",
         "MESON_FORCE_BACKTRACE": "1",
     }
+
+    # Even in the sandbox, this basic PATH gives access to common tools like git and chmod
+    if "PATH" in ctx.configuration.default_shell_env:
+        env["PATH"] = ctx.configuration.default_shell_env["PATH"]
+
+    is_windows = ctx.target_platform_has_constraint(
+        ctx.attr._windows_constraint[platform_common.ConstraintValueInfo],
+    )
     if is_windows:
         env["SystemRoot"] = "C:\\Windows"
         env["SystemDrive"] = "C:"
@@ -308,8 +315,6 @@ def _amc_generator_impl(ctx):
 
         # Needed for python's platform.machine() to work on Windows.
         env["PROCESSOR_ARCHITECTURE"] = "AMD64"
-        if "PATH" in ctx.configuration.default_shell_env:
-            env["PATH"] = ctx.configuration.default_shell_env["PATH"]
 
     ctx.actions.run(
         outputs = [output_dir],
@@ -321,6 +326,7 @@ def _amc_generator_impl(ctx):
         env = env,
         execution_requirements = {
             "no-sandbox": "1",
+            "no-cache": "1",
             "local": "1",
         },
     )
