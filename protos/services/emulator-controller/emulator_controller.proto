@@ -590,6 +590,10 @@ service EmulatorController {
     // Sets the environment background for AI glasses.
     rpc setEnvironment(Environment) returns (google.protobuf.Empty) {}
 
+    // Gets the current environment configuration for AI glasses. Values that are not set in environment.ini
+    // will be set to default values.
+    rpc getEnvironment(google.protobuf.Empty) returns (Environment) {}
+
     // Returns the list of video cameras connected to the host machine.
     rpc getHostCameras(google.protobuf.Empty) returns (CameraList) {}
 }

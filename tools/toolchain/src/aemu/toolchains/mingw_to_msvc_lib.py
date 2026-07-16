@@ -101,8 +101,10 @@ def convert_mingw_to_msvc_lib(
         print(f"Successfully converted {archive_file} to {output_lib}")
     except subprocess.CalledProcessError as e:
         print("Conversion failed:", e)
+        raise
     except Exception as e:
         print("Error occurred:", e)
+        raise
 
 
 if __name__ == "__main__":
@@ -125,17 +127,14 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    try:
-        if args.recursive:
-            for archive in Path(args.archive_file).glob("*.a"):
-                convert_mingw_to_msvc_lib(
-                    archive,
-                    Path(args.output.lib) / archive.with_suffix(".lib").name,
-                    Path(args.llvm_root),
-                )
-        else:
+    if args.recursive:
+        for archive in Path(args.archive_file).glob("*.a"):
             convert_mingw_to_msvc_lib(
-                Path(args.archive_file), Path(args.output_lib), Path(args.llvm_root)
+                archive,
+                Path(args.output.lib) / archive.with_suffix(".lib").name,
+                Path(args.llvm_root),
             )
-    except Exception as e:
-        print("Conversion failed:", e)
+    else:
+        convert_mingw_to_msvc_lib(
+            Path(args.archive_file), Path(args.output_lib), Path(args.llvm_root)
+        )

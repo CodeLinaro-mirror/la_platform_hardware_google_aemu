@@ -42,9 +42,16 @@ class LinuxToLinuxGenerator(ToolchainGenerator):
             return
 
         version_path = (self.clang() / "lib" / "clang" / self.cc_version()).absolute()
-        self.with_compat = (
-            self.aosp / "third_party" / "qemu" / "google" / "compat"
-        ).exists()
+
+        if self.compat_lib:
+            assert(self.bazel == None)
+            self.with_compat = True
+            compat_lib_dir = self.compat_lib.resolve().parent
+        elif (self.aosp / "third_party" / "qemu" / "google" / "compat").exists():
+            assert(self.bazel != None)
+            self.with_compat = True
+            self.bazel.build_target(self.COMPAT_ARCHIVE)
+            compat_lib_dir = self.bazel.get_archive(self.COMPAT_ARCHIVE).parent
 
         self.linux_sys_root = (
             self.aosp
@@ -73,9 +80,8 @@ class LinuxToLinuxGenerator(ToolchainGenerator):
             f"-Wl,-rpath,'$ORIGIN/lib64:$ORIGIN:{self.clang() / 'lib' / 'x86_64-unknown-linux-gnu'}' "
         )
 
-        if self.with_compat:
-            self.bazel.build_target(self.COMPAT_ARCHIVE)
-            compat_lib_dir = self.bazel.get_archive(self.COMPAT_ARCHIVE).parent
+        if compat_lib_dir:
+            # TODO(whollins): We should pass this in for the Qemu build (or set in json config).
             compat_isystem_path = (
                 self.aosp
                 / "third_party"
