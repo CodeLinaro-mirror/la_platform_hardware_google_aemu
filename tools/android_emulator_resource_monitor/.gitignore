@@ -1,0 +1,19 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*$py.class
+
+# Generated Time-series summaries and files
+device_monitor_summary_*.txt
+device_monitor_data_*.csv
+device_monitor_summary_*.csv
+
+# Operating system limitations
+.DS_Store
+.idea/
+.vscode/
+
+# Build outputs
+out/
+rust/target/
