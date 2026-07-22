@@ -147,18 +147,6 @@ ANDROID_PIPE_DEVICE_EXPORT void android_pipe_guest_save(
 ANDROID_PIPE_DEVICE_EXPORT void* android_pipe_guest_load(
     Stream* file, void* hwpipe, char* force_close);
 
-// Similar to android_pipe_guest_load(), but this function is only called from
-// the
-// QEMU1 virtual pipe device, to support legacy snapshot formats. It can be
-// ignored by the QEMU2 virtual device implementation.
-//
-// The difference is that this must also read the hardware-specific state
-// fields, and store them into |*channel|, |*wakes| and |*closed| on
-// success.
-ANDROID_PIPE_DEVICE_EXPORT void* android_pipe_guest_load_legacy(
-    Stream* file, void* hwpipe, uint64_t* channel,
-    unsigned char* wakes, unsigned char* closed, char* force_close);
-
 // Call the poll() callback of the client associated with |pipe|.
 ANDROID_PIPE_DEVICE_EXPORT unsigned android_pipe_guest_poll(void* internal_pipe);
 

@@ -575,28 +575,6 @@ AndroidPipe* AndroidPipe::loadFromStream(BaseStream* stream,
     return loadPipeFromStreamCommon(&pipeStream, hwPipe, service, pForceClose);
 }
 
-// static
-AndroidPipe* AndroidPipe::loadFromStreamLegacy(BaseStream* stream,
-                                               void* hwPipe,
-                                               uint64_t* pChannel,
-                                               unsigned char* pWakes,
-                                               unsigned char* pClosed,
-                                               char* pForceClose) {
-    Service* service = sGlobals()->loadServiceByName(stream);
-    // Always load the pipeStream, it allows us to safely skip loading streams.
-    MemStream pipeStream;
-    pipeStream.load(stream);
-
-    if (!service) {
-        return nullptr;
-    }
-    *pChannel = pipeStream.getBe64();
-    *pWakes = pipeStream.getByte();
-    *pClosed = pipeStream.getByte();
-
-    return loadPipeFromStreamCommon(&pipeStream, hwPipe, service, pForceClose);
-}
-
 }  // namespace android
 
 // API for the virtual device.
@@ -745,19 +723,6 @@ void* android_pipe_guest_load(CStream* stream,
     DD("%s: hwpipe=%p", __FUNCTION__, hwPipe);
     return AndroidPipe::loadFromStream(asBaseStream(stream), hwPipe,
                                        pForceClose);
-}
-
-void* android_pipe_guest_load_legacy(CStream* stream,
-                                     void* hwPipe,
-                                     uint64_t* pChannel,
-                                     unsigned char* pWakes,
-                                     unsigned char* pClosed,
-                                     char* pForceClose) {
-    CHECK_VM_STATE_LOCK();
-    DD("%s: hwpipe=%p", __FUNCTION__, hwPipe);
-    return android::AndroidPipe::loadFromStreamLegacy(asBaseStream(stream),
-                                                      hwPipe, pChannel, pWakes,
-                                                      pClosed, pForceClose);
 }
 
 unsigned android_pipe_guest_poll(void* internalPipe) {

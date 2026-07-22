@@ -230,17 +230,6 @@ public:
                                        void* hwPipe,
                                        char* pForceClose);
 
-    // A variant of loadFromStream() that is only used to support legacy
-    // snapshot format for pipes. On success, sets |*pChannel|, |*pWakes| and
-    // |*pClosed|, as well as |*pForceClose|. Only used by the QEMU1 virtual
-    // pipe device, and will probably be removed in the future.
-    static AndroidPipe* loadFromStreamLegacy(android::base::Stream* stream,
-                                             void* hwPipe,
-                                             uint64_t* pChannel,
-                                             unsigned char* pWakes,
-                                             unsigned char* pClosed,
-                                             char* pForceClose);
-
     // Flags accessor
     void setFlags(AndroidPipeFlags flags) { mFlags = flags; }
     AndroidPipeFlags getFlags() const { return mFlags; }
