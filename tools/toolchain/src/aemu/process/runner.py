@@ -98,7 +98,10 @@ def run(
 
     if toolchain_path:
         logging.info("Adding toolchain %s to path", toolchain_path)
-        env["PATH"] = str(toolchain_path) + os.pathsep + env["PATH"]
+        if env.get("PATH"):
+            env["PATH"] = str(toolchain_path) + os.pathsep + env["PATH"]
+        else:
+            env["PATH"] = str(toolchain_path)
 
     # Create a subprocess to run the command.
     process = subprocess.Popen(
