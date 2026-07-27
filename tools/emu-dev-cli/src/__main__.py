@@ -2,7 +2,7 @@
 import argparse
 import platform
 import sys
-from commands import create, fetch_build, init_cmd, launch, source_directory
+from commands import create, cts, fetch_build, init_cmd, launch, source_directory
 from install import installer
 
 
@@ -32,6 +32,7 @@ def main():
 
     # Register subcommands
     create.register_parser(subparsers)
+    cts.register_parser(subparsers)
     fetch_build.register_parser(subparsers, default_host)
     init_cmd.register_parser(subparsers)
     installer.register_parser(subparsers)

@@ -115,7 +115,28 @@ Launches a prebuilt `emulator` executable. Auto-configures Linux dynamic shared 
 
 ---
 
-### 5. Onboarding Initialization (`init`)
+### 5. Automated CTS-Verifier Runner (`cts run-cts-verifier`)
+
+Downloads and executes automated CTS-Verifier test modules (`tts`, `battery_saver`, `vibrations`, `tile_service`, `screen_pinning`, `has_vibrator`, etc.) against an online emulator.
+
+* **Run using public latest Android release CDN (Default):**
+  If `--build-id` is omitted, downloads the official Google Developer CDN release:
+  `https://dl.google.com/dl/android/cts/android-cts-verifier-17_r1-linux_x86-x86.zip` (x86_64) or `-arm.zip` (ARM64).
+  ```bash
+  emu-dev-cli cts run-cts-verifier --module tts
+  ```
+* **Run using specific Android Build (`go/ab`) build ID:**
+  ```bash
+  emu-dev-cli cts run-cts-verifier --build-id 15900270 --module vibrations
+  ```
+* **List available automated test modules:**
+  ```bash
+  emu-dev-cli cts run-cts-verifier --list-modules
+  ```
+
+---
+
+### 6. Onboarding Initialization (`init`)
 
 Installs global agent skills into `~/.gemini/` and launches interactive workspace source path setup if `~/.android/emu-dev-cli.json` is missing:
 ```bash

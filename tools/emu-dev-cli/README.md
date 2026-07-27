@@ -73,3 +73,16 @@ emu-dev-cli launch emulator \
   --detached \
   -- -avd my-phone -no-window
 ```
+
+### 5. Automated CTS-Verifier Runner
+```bash
+# Run TTS module using public CDN release (default when --build-id omitted)
+emu-dev-cli cts run-cts-verifier --module tts
+
+# Run vibrations module using specific Android Build build ID
+emu-dev-cli cts run-cts-verifier --build-id 15900270 --module vibrations
+
+# List all available automated modules
+emu-dev-cli cts run-cts-verifier --list-modules
+```
+
