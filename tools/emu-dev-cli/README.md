@@ -1,6 +1,6 @@
 # Android Emulator Developer CLI (`emu-dev-cli`)
 
-`emu-dev-cli` is a command-line helper tool designed for Android Emulator developers and AI engineering agents to automate fetching prebuilt emulator binaries, setting up virtual device configurations (AVDs), dynamic environment linking, and executing automated test suites (such as CTS and CTS-Verifier).
+`emu-dev-cli` is a command-line helper tool designed for Android Emulator developers and AI engineering agents to automate fetching prebuilt emulator binaries, setting up virtual device configurations (AVDs), dynamic environment linking, executing automated test suites (such as CTS and CTS-Verifier), querying framework documentation, and self-updating built binaries.
 
 ---
 
@@ -27,6 +27,17 @@ emu-dev-cli init
 * `~/.gemini/skills/emu_dev_cli/SKILL.md`
 
 and prompts for local source code repository paths on your workstation.
+
+### 3. Rebuild & update from local source repository
+
+```bash
+emu-dev-cli update
+```
+
+`update` rebuilds `//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli` via Bazel from your local `emu-main-next` checkout and re-installs the compiled release package.
+
+> [!NOTE]
+> **Agent Integration:** Once initialized, `emu-dev-cli` skills are automatically registered in `~/.gemini/skills/` and `~/.gemini/config/skills/`. This makes all `emu-dev-cli` capabilities natively visible to and executable by **Gemini** and **Jetski** AI coding assistants during developer sessions.
 
 ---
 
@@ -86,3 +97,12 @@ emu-dev-cli cts run-cts-verifier --build-id 15900270 --module vibrations
 emu-dev-cli cts run-cts-verifier --list-modules
 ```
 
+### 6. Query Framework Documentation Paths (`docs`)
+```bash
+# Get full path to CTS Verifier automation guide
+emu-dev-cli docs cts-verifier-automation
+# Output: /work/emu-main-next/third_party/adt-infra/goldfish_test/xts/verifier/README.md
+
+# Machine-readable JSON output
+emu-dev-cli --json docs cts-verifier-automation
+```

@@ -269,12 +269,9 @@ def run_cts_verifier(args):
             url = PUBLIC_VERIFIER_URLS.get(arch_key, PUBLIC_VERIFIER_URLS["x86_64"])
             download_with_progress(url, dest_zip)
 
-        print("Extracting CtsVerifier.apk from archive...")
+        print("Extracting CTS-Verifier package contents from archive...")
         with zipfile.ZipFile(dest_zip, "r") as zf:
-            apk_entry = next((f for f in zf.namelist() if f.endswith("CtsVerifier.apk")), None)
-            if not apk_entry:
-                raise RuntimeError("CtsVerifier.apk not found inside downloaded ZIP archive.")
-            zf.extract(apk_entry, os.path.join(cache_dir, "extracted"))
+            zf.extractall(os.path.join(cache_dir, "extracted"))
 
     if not os.path.exists(extracted_apk):
         raise RuntimeError(f"CtsVerifier.apk not accessible at {extracted_apk}")
@@ -292,6 +289,18 @@ def run_cts_verifier(args):
         print(f"⚠️  adb install warning: {inst_res.stderr.strip()}")
         if "INSTALL_FAILED_OLDER_SDK" in inst_res.stderr:
             print("  Hint: DEVICE is a release build while APK targeted DEV preview. Supply matching --build-id.")
+
+    # Install companion helper APKs (e.g. CtsEmptyDeviceAdmin.apk, CtsEmptyDeviceOwner.apk, etc.)
+    extracted_dir = os.path.dirname(extracted_apk)
+    if os.path.exists(extracted_dir):
+        helper_apks = [
+            f for f in os.listdir(extracted_dir)
+            if f.endswith(".apk") and f != "CtsVerifier.apk"
+        ]
+        for helper in helper_apks:
+            helper_path = os.path.join(extracted_dir, helper)
+            print(f"Installing companion APK {helper} onto device {serial}...")
+            subprocess.run(adb_prefix + ["install", "-r", "-g", helper_path], capture_output=True, text=True, check=False)
 
     # Configure appops / settings policies
     subprocess.run(adb_prefix + ["shell", "settings", "put", "global", "hidden_api_policy", "1"], check=False)

@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
 import argparse
+import os
 import platform
 import sys
-from commands import create, cts, fetch_build, init_cmd, launch, source_directory
+
+REAL_FILE = os.path.realpath(__file__)
+SCRIPT_DIR = os.path.dirname(REAL_FILE)
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+lib_dir = os.path.join(SCRIPT_DIR, "lib")
+if os.path.exists(lib_dir) and lib_dir not in sys.path:
+    sys.path.insert(0, lib_dir)
+
+from commands import create, cts, docs, fetch_build, init_cmd, launch, source_directory, update_cmd
 from install import installer
 
 
@@ -33,11 +43,13 @@ def main():
     # Register subcommands
     create.register_parser(subparsers)
     cts.register_parser(subparsers)
+    docs.register_parser(subparsers)
     fetch_build.register_parser(subparsers, default_host)
     init_cmd.register_parser(subparsers)
     installer.register_parser(subparsers)
     launch.register_parser(subparsers)
     source_directory.register_parser(subparsers)
+    update_cmd.register_parser(subparsers)
 
     args = parser.parse_args()
     if not args.subcommand or not hasattr(args, "func"):

@@ -142,3 +142,26 @@ Installs global agent skills into `~/.gemini/` and launches interactive workspac
 ```bash
 emu-dev-cli init
 ```
+
+---
+
+### 7. Query Documentation Paths (`docs`)
+
+Accesses documentation files using configured branch source directory paths in `~/.android/emu-dev-cli.json`:
+
+* **Get path to CTS Verifier automation documentation (`README.md`):**
+  ```bash
+  emu-dev-cli docs cts-verifier-automation
+  # Output: /work/emu-main-next/third_party/adt-infra/goldfish_test/xts/verifier/README.md
+  ```
+
+---
+
+### 8. Rebuild & Update Executable (`update`)
+
+Rebuilds `//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli` via Bazel from the configured local `emu-main-next` source directory and re-installs the compiled release package:
+
+```bash
+emu-dev-cli update
+```
+
