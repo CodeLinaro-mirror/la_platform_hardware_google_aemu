@@ -188,7 +188,6 @@ def setup():
 
     # Copy Generic AEMU Skills
     copy_skills_from("hardware/google/aemu/agents/skills", skills_dir)
-    copy_skills_from("hardware/google/aemu/tools/emu-dev-cli/skills", skills_dir)
     copy_skills_from("hardware/generic/goldfish/agents/skills", skills_dir)
     copy_skills_from("external/qemu/android/agents/skills", skills_dir)
 

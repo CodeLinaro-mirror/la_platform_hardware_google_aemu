@@ -9,45 +9,42 @@ from lib.output import print_result
 
 SKILL_MARKDOWN_CONTENT = """---
 name: emu_dev_cli
-description: CLI tool for fetching prebuilt Android Emulator binaries and system images from Android Build (go/ab) into /tmp/. Use when setting up test instances or reproducing bugs.
+description: CLI tool for fetching prebuilt emulator binaries and system images from Android Build (go/ab), creating AVDs, launching emulator instances, and executing automated CTS-Verifier test modules (e.g. tts, battery_saver, vibrations) on the emulator using 'emu-dev-cli cts run-cts-verifier --module <name>' and discovering modules with '--list-modules'. Use when setting up test instances, reproducing bugs, or running CTS-Verifier tests.
 ---
 
 # Android Emulator Developer CLI (`emu-dev-cli`)
 
-Use `emu-dev-cli` to pull and extract prebuilt emulator host binaries or system image archives from Android Build (`go/ab`).
+`emu-dev-cli` is an agent-first CLI for emulator developers and AI engineering assistants to construct, manage, and verify Android Emulator environments.
 
-Executable path:
+Executable command:
 ```bash
-bazel-bin/hardware/google/aemu/tools/emu-dev-cli/emu-dev-cli
+emu-dev-cli <command>
 ```
-*(If missing, run `bazel build //hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli` once).*
 
 ---
 
-## Supported Commands
+## 🛠️ Command Reference
 
-### 1. Fetch Emulator Binaries (`fetch-build emulator`)
+### 1. Fetch Artifacts from Android Build (`fetch-build`)
 
-Pulls host emulator release package (`sdk-repo-linux-emulator-<build-id>.zip`) into `/tmp/emulator-linux-x64-<build-id>/extracted/emulator/emulator`.
+Pulls and extracts prebuilt emulator host binaries or system image archives from `go/ab` into `/tmp/`.
 
-* **Fetch latest on `emu-main-next` (Default):**
+#### A. Fetch Host Emulator (`fetch-build emulator`)
+* **Fetch latest build on `emu-main-next` (Default):**
   ```bash
   emu-dev-cli fetch-build emulator --latest
   ```
-* **Fetch latest on `emu-main-dev`:**
+* **Fetch latest build on `emu-main-dev`:**
   ```bash
   emu-dev-cli fetch-build emulator --latest --branch emu-main-dev
   ```
-* **Fetch by numeric build ID:**
+* **Fetch specific build by ID:**
   ```bash
   emu-dev-cli fetch-build emulator --build-id 15943073
   ```
 
----
-
-### 2. Fetch System Images (`fetch-build system-image`)
-
-Pulls system image archive (`sdk-repo-linux-system-images-<build-id>.zip`) into `/tmp/system-image-<arch>-<build-id>/extracted/`. Auto-detects workstation host architecture (`x86_64` vs `arm64`).
+#### B. Fetch System Image (`fetch-build system-image`)
+Auto-detects host CPU architecture (`x86_64` vs `arm64`).
 
 * **Fetch latest system image on `trunk-release` (Default):**
   ```bash
@@ -57,10 +54,130 @@ Pulls system image archive (`sdk-repo-linux-system-images-<build-id>.zip`) into 
   ```bash
   emu-dev-cli fetch-build system-image --latest --branch 26Q2-emu-release
   ```
-* **Fetch by numeric build ID:**
+* **Fetch specific system image build ID:**
   ```bash
   emu-dev-cli fetch-build system-image --build-id 15900270
   ```
+
+---
+
+### 2. Source Directory Registry (`source-directory`)
+
+Manage mappings between branch names (`emu-main-dev`, `emu-main-next`, `git_main`) and their local source code checkout paths on disk. Stored in `~/.android/emu-dev-cli.json`.
+
+* **Get local repository path for branch:**
+  ```bash
+  emu-dev-cli source-directory get emu-main-dev
+  # Output: /work/emu-main-dev
+  ```
+* **Set local repository path for branch:**
+  ```bash
+  emu-dev-cli source-directory set emu-main-dev /work/emu-main-dev
+  ```
+* **List all configured mappings:**
+  ```bash
+  emu-dev-cli source-directory list
+  ```
+
+---
+
+### 3. Create Android Virtual Devices (`create avd`)
+
+Creates a valid Android Virtual Device (AVD) pointer (`~/.android/avd/<name>.ini`) and hardware profile (`~/.android/avd/<name>.avd/config.ini`) bound to a system-image directory.
+
+#### Available Device Profiles (`--list-profiles`)
+`small_phone`, `medium_phone` (default), `medium_tablet`, `small_desktop`, `medium_desktop`, `large_desktop`.
+
+```bash
+# List available device profiles
+emu-dev-cli create avd --list-profiles
+
+# Create AVD with medium_phone profile
+emu-dev-cli create avd \\
+  --name my-dev-phone \\
+  --sysimg-dir /tmp/system-image-x86_64-26Q2-emu-release-latest/extracted/ \\
+  --profile medium_phone \\
+  --force
+```
+
+---
+
+### 4. Launch Emulator Instances (`launch emulator`)
+
+Launches a prebuilt `emulator` executable. Auto-configures Linux dynamic shared library paths (`LD_LIBRARY_PATH` for Qt, Vulkan, and GLES) and verifies X11 `DISPLAY` sockets (`DISPLAY=:20` on CRD).
+
+* **Dry-run verification (no process spawned):**
+  ```bash
+  emu-dev-cli launch emulator \\
+    --emulator-dir /tmp/emulator-linux-x64-15942201/extracted/emulator \\
+    --dry-run \\
+    -- -avd my-dev-phone
+  ```
+* **Launch interactive foreground emulator:**
+  ```bash
+  emu-dev-cli launch emulator \\
+    --emulator-dir /tmp/emulator-linux-x64-15942201/extracted/emulator \\
+    -- -avd my-dev-phone
+  ```
+* **Launch detached daemon background emulator:**
+  ```bash
+  emu-dev-cli launch emulator \\
+    --emulator-dir /tmp/emulator-linux-x64-15942201/extracted/emulator \\
+    --detached \\
+    -- -avd my-dev-phone -no-window
+  ```
+
+---
+
+### 5. Automated CTS-Verifier Runner (`cts run-cts-verifier`)
+
+Downloads and executes automated CTS-Verifier test modules (`tts`, `battery_saver`, `vibrations`, `tile_service`, `screen_pinning`, `has_vibrator`, etc.) against an online emulator.
+
+* **Discover available automated test modules (`--list-modules`):**
+  Dynamically scans and lists all available CTS-Verifier automation modules (e.g. `tts`, `battery_saver`, `vibrations`, `tile_service`, `screen_pinning`, `has_vibrator`):
+  ```bash
+  emu-dev-cli cts run-cts-verifier --list-modules
+  ```
+* **Run specific CTS-Verifier module on emulator (`--module <name>`):**
+  Runs the specified module against an active or launched emulator instance:
+  ```bash
+  emu-dev-cli cts run-cts-verifier --module tts
+  ```
+* **Run using specific Android Build (`go/ab`) build ID:**
+  ```bash
+  emu-dev-cli cts run-cts-verifier --build-id 15900270 --module vibrations
+  ```
+
+---
+
+### 6. Onboarding Initialization (`init`)
+
+Installs global agent skills into `~/.gemini/` and launches interactive workspace source path setup if `~/.android/emu-dev-cli.json` is missing:
+```bash
+emu-dev-cli init
+```
+
+---
+
+### 7. Query Documentation Paths (`docs`)
+
+Accesses documentation files using configured branch source directory paths in `~/.android/emu-dev-cli.json`:
+
+* **Get path to CTS Verifier automation documentation (`README.md`):**
+  ```bash
+  emu-dev-cli docs cts-verifier-automation
+  # Output: /work/emu-main-next/third_party/adt-infra/goldfish_test/xts/verifier/README.md
+  ```
+
+---
+
+### 8. Rebuild & Update Executable (`update`)
+
+Rebuilds `//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli` via Bazel from the configured local `emu-main-next` source directory and re-installs the compiled release package:
+
+```bash
+emu-dev-cli update
+```
 """
 
 
@@ -194,21 +311,29 @@ def install_launcher_with_sudo(built_bin, dest_path, source_dir=None):
     return res.returncode == 0
 
 
-def install_skill():
+def install_skill(source_dir=None):
     home_dir = os.path.expanduser("~")
     target_dirs = [
         os.path.join(home_dir, ".gemini", "config", "skills", "emu_dev_cli"),
         os.path.join(home_dir, ".gemini", "skills", "emu_dev_cli"),
     ]
     installed_files = []
-    source_skill = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "skills", "SKILL.md")
+    
+    candidate_skills = []
+    if source_dir:
+        candidate_skills.append(os.path.join(source_dir, "hardware", "google", "aemu", "tools", "emu-dev-cli", "skills", "SKILL.md"))
+    candidate_skills.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "skills", "SKILL.md"))
+    candidate_skills.append(os.path.join(home_dir, ".android", "emu-dev-cli", "skills", "SKILL.md"))
+
     content_to_write = SKILL_MARKDOWN_CONTENT
-    if os.path.exists(source_skill):
-        try:
-            with open(source_skill, "r", encoding="utf-8") as f:
-                content_to_write = f.read()
-        except Exception:
-            pass
+    for cand in candidate_skills:
+        if cand and os.path.exists(cand):
+            try:
+                with open(cand, "r", encoding="utf-8") as f:
+                    content_to_write = f.read()
+                break
+            except Exception:
+                pass
 
     for target_dir in target_dirs:
         try:

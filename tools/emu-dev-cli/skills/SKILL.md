@@ -1,11 +1,16 @@
 ---
 name: emu_dev_cli
-description: CLI tool for fetching prebuilt Android Emulator binaries and system images from Android Build (go/ab), managing local repository checkout directories, creating device AVDs, and launching background/foreground test emulator instances. Use when setting up test instances, reproducing bugs, or verifying CTS.
+description: CLI tool for fetching prebuilt emulator binaries and system images from Android Build (go/ab), creating AVDs, launching emulator instances, and executing automated CTS-Verifier test modules (e.g. tts, battery_saver, vibrations) on the emulator using 'emu-dev-cli cts run-cts-verifier --module <name>' and discovering modules with '--list-modules'. Use when setting up test instances, reproducing bugs, or running CTS-Verifier tests.
 ---
 
 # Android Emulator Developer CLI (`emu-dev-cli`)
 
 `emu-dev-cli` is an agent-first CLI for emulator developers and AI engineering assistants to construct, manage, and verify Android Emulator environments.
+
+Executable command:
+```bash
+emu-dev-cli <command>
+```
 
 ---
 
@@ -119,19 +124,19 @@ Launches a prebuilt `emulator` executable. Auto-configures Linux dynamic shared 
 
 Downloads and executes automated CTS-Verifier test modules (`tts`, `battery_saver`, `vibrations`, `tile_service`, `screen_pinning`, `has_vibrator`, etc.) against an online emulator.
 
-* **Run using public latest Android release CDN (Default):**
-  If `--build-id` is omitted, downloads the official Google Developer CDN release:
-  `https://dl.google.com/dl/android/cts/android-cts-verifier-17_r1-linux_x86-x86.zip` (x86_64) or `-arm.zip` (ARM64).
+* **Discover available automated test modules (`--list-modules`):**
+  Dynamically scans and lists all available CTS-Verifier automation modules (e.g. `tts`, `battery_saver`, `vibrations`, `tile_service`, `screen_pinning`, `has_vibrator`):
+  ```bash
+  emu-dev-cli cts run-cts-verifier --list-modules
+  ```
+* **Run specific CTS-Verifier module on emulator (`--module <name>`):**
+  Runs the specified module against an active or launched emulator instance:
   ```bash
   emu-dev-cli cts run-cts-verifier --module tts
   ```
 * **Run using specific Android Build (`go/ab`) build ID:**
   ```bash
   emu-dev-cli cts run-cts-verifier --build-id 15900270 --module vibrations
-  ```
-* **List available automated test modules:**
-  ```bash
-  emu-dev-cli cts run-cts-verifier --list-modules
   ```
 
 ---

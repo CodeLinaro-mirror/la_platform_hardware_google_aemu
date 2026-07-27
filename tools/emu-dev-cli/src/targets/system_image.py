@@ -11,14 +11,16 @@ FETCH_ARTIFACT_BIN = "/google/data/ro/projects/android/fetch_artifact"
 
 TARGET_CANDIDATES = {
     "x86_64": [
-        "sdk_gphone64_x86_64-userdebug",
+        "sdk_gphone16k_x86_64-user",
         "sdk_gphone16k_x86_64-userdebug",
+        "sdk_gphone64_x86_64-userdebug",
         "sdk_gphone_x86_64-userdebug",
         "sdk_car_x86_64-userdebug",
     ],
     "arm64": [
-        "sdk_gphone64_arm64-userdebug",
+        "sdk_gphone16k_arm64-user",
         "sdk_gphone16k_arm64-userdebug",
+        "sdk_gphone64_arm64-userdebug",
         "sdk_gphone_arm64-userdebug",
     ],
 }
@@ -102,7 +104,7 @@ def run_system_image_fetch(args):
     json_mode = getattr(args, "json", False)
 
     target_name = args.target or (
-        "sdk_gphone16k_x86_64-userdebug" if arch == "x86_64" else "sdk_gphone16k_arm64-userdebug"
+        "sdk_gphone16k_x86_64-user" if arch == "x86_64" else "sdk_gphone16k_arm64-user"
     )
 
     fetch_tool = FETCH_ARTIFACT_BIN if os.path.exists(FETCH_ARTIFACT_BIN) else shutil.which("fetch_artifact")

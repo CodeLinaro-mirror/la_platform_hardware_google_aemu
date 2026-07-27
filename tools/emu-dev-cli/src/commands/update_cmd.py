@@ -137,7 +137,7 @@ def run_update_cmd(args):
 
     print(f"📦 Re-installing compiled emu-dev-cli release package from {built_bin}...")
     install_launcher_wrapper(built_bin, dest_path, source_dir=source_dir)
-    skill_files = install_skill()
+    skill_files = install_skill(source_dir=source_dir)
 
     print_result({
         "status": "success",

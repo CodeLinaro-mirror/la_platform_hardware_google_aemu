@@ -8,6 +8,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 from lib.output import print_result
 from commands.source_directory import get_source_directory
+from commands.update_cmd import find_bazel_cmd
 
 PUBLIC_VERIFIER_URLS = {
     "x86": "https://dl.google.com/dl/android/cts/android-cts-verifier-17_r1-linux_x86-x86.zip",
@@ -131,6 +132,30 @@ def register_parser(subparsers):
         action="store_true",
         help="Dynamically scan and list all automated CTS-Verifier test modules in repository"
     )
+    verifier_parser.add_argument(
+        "--bazel",
+        action="store_true",
+        default=True,
+        help="Execute hermetic CTS-Verifier test target defined in verifier.bzl using Bazel (default)"
+    )
+    verifier_parser.add_argument(
+        "--no-bazel", "--direct",
+        dest="bazel",
+        action="store_false",
+        help="Execute tests directly against an active emulator device over ADB instead of using Bazel"
+    )
+    verifier_parser.add_argument(
+        "--window",
+        action="store_true",
+        default=True,
+        help="Launch emulator with GUI window enabled (default via bazel run)"
+    )
+    verifier_parser.add_argument(
+        "--no-window", "--headless",
+        dest="window",
+        action="store_false",
+        help="Launch emulator in headless mode without GUI window"
+    )
     verifier_parser.set_defaults(parser=verifier_parser, func=run_cts_verifier)
 
 
@@ -234,6 +259,56 @@ def run_cts_verifier(args):
                 "modules": discovered_modules
             }, json_mode=True)
         sys.exit(0)
+
+    # Auto-disable Bazel mode if user specified non-default configuration parameters
+    has_custom_config = (
+        bool(getattr(args, "serial", None)) or
+        bool(getattr(args, "build_id", None)) or
+        bool(getattr(args, "target", None)) or
+        bool(getattr(args, "force_download", False)) or
+        (getattr(args, "branch", "trunk-release") != "trunk-release")
+    )
+
+    use_bazel = getattr(args, "bazel", True) and not has_custom_config
+
+    if use_bazel:
+        source_dir = get_source_directory("emu-main-next")
+        if not source_dir or not os.path.exists(os.path.join(source_dir, "third_party/adt-infra/goldfish_test/xts/verifier.bzl")):
+            source_dir = os.getcwd()
+
+        bazel_bin = find_bazel_cmd(source_dir)
+
+        if args.all or not args.module:
+            target = "@goldfish_test//xts:cts-verifier"
+        else:
+            mod = args.module.lower().replace("pass_", "").replace("run_", "").replace(".py", "").replace(".sh", "")
+            subname = None
+            verifier_dir = os.path.join(source_dir, "third_party", "adt-infra", "goldfish_test", "xts", "verifier")
+            if os.path.exists(verifier_dir):
+                sh_files = [f for f in os.listdir(verifier_dir) if f.startswith("run_") and f.endswith(".sh")]
+                for sh in sh_files:
+                    s_sub = sh.replace("run_", "").replace(".sh", "")
+                    if s_sub == mod or s_sub == f"{mod}_test":
+                        subname = s_sub
+                        break
+                if not subname:
+                    for sh in sh_files:
+                        s_sub = sh.replace("run_", "").replace(".sh", "")
+                        if mod in s_sub:
+                            subname = s_sub
+                            break
+            if not subname:
+                subname = mod
+            target = f"@goldfish_test//xts:cts-verifier.{subname}"
+
+        print(f"Executing hermetic CTS-Verifier test target via Bazel ({bazel_bin}): {target}...")
+        cmd = [bazel_bin, "run", target]
+        if not getattr(args, "window", True):
+            cmd.extend(["--", "--no-window"])
+        else:
+            cmd.extend(["--", "--window"])
+        res = subprocess.run(cmd, cwd=source_dir, check=False)
+        sys.exit(res.returncode)
 
     serial = get_adb_serial(args.serial)
     if not serial and not args.list_modules:

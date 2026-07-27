@@ -5,12 +5,17 @@ from commands.source_directory import run_first_time_setup, CONFIG_FILE_PATH, lo
 
 SKILL_MARKDOWN_CONTENT = """---
 name: emu_dev_cli
-description: CLI tool for fetching prebuilt Android Emulator binaries and system images from Android Build (go/ab), managing local repository checkout directories, creating device AVDs, and launching background/foreground test emulator instances. Use when setting up test instances, reproducing bugs, or verifying CTS.
+description: CLI tool for fetching prebuilt emulator binaries and system images from Android Build (go/ab), creating AVDs, launching emulator instances, and executing automated CTS-Verifier test modules (e.g. tts, battery_saver, vibrations) on the emulator using 'emu-dev-cli cts run-cts-verifier --module <name>' and discovering modules with '--list-modules'. Use when setting up test instances, reproducing bugs, or running CTS-Verifier tests.
 ---
 
 # Android Emulator Developer CLI (`emu-dev-cli`)
 
 `emu-dev-cli` is an agent-first CLI for emulator developers and AI engineering assistants to construct, manage, and verify Android Emulator environments.
+
+Executable command:
+```bash
+emu-dev-cli <command>
+```
 
 ---
 
@@ -120,11 +125,54 @@ Launches a prebuilt `emulator` executable. Auto-configures Linux dynamic shared 
 
 ---
 
-### 5. Onboarding Initialization (`init`)
+### 5. Automated CTS-Verifier Runner (`cts run-cts-verifier`)
+
+Downloads and executes automated CTS-Verifier test modules (`tts`, `battery_saver`, `vibrations`, `tile_service`, `screen_pinning`, `has_vibrator`, etc.) against an online emulator.
+
+* **Discover available automated test modules (`--list-modules`):**
+  Dynamically scans and lists all available CTS-Verifier automation modules (e.g. `tts`, `battery_saver`, `vibrations`, `tile_service`, `screen_pinning`, `has_vibrator`):
+  ```bash
+  emu-dev-cli cts run-cts-verifier --list-modules
+  ```
+* **Run specific CTS-Verifier module on emulator (`--module <name>`):**
+  Runs the specified module against an active or launched emulator instance:
+  ```bash
+  emu-dev-cli cts run-cts-verifier --module tts
+  ```
+* **Run using specific Android Build (`go/ab`) build ID:**
+  ```bash
+  emu-dev-cli cts run-cts-verifier --build-id 15900270 --module vibrations
+  ```
+
+---
+
+### 6. Onboarding Initialization (`init`)
 
 Installs global agent skills into `~/.gemini/` and launches interactive workspace source path setup if `~/.android/emu-dev-cli.json` is missing:
 ```bash
 emu-dev-cli init
+```
+
+---
+
+### 7. Query Documentation Paths (`docs`)
+
+Accesses documentation files using configured branch source directory paths in `~/.android/emu-dev-cli.json`:
+
+* **Get path to CTS Verifier automation documentation (`README.md`):**
+  ```bash
+  emu-dev-cli docs cts-verifier-automation
+  # Output: /work/emu-main-next/third_party/adt-infra/goldfish_test/xts/verifier/README.md
+  ```
+
+---
+
+### 8. Rebuild & Update Executable (`update`)
+
+Rebuilds `//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli` via Bazel from the configured local `emu-main-next` source directory and re-installs the compiled release package:
+
+```bash
+emu-dev-cli update
 ```
 """
 
