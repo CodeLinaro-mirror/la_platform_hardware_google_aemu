@@ -104,18 +104,10 @@ def get_release_package_directory(dest_path):
         return os.path.join(home_dir, ".android", "emu-dev-cli")
 
 
-def compile_src_to_release_lib(src_dir, release_lib_dir):
+def copy_src_to_release_lib(src_dir, release_lib_dir):
     """
-    Compiles all python modules into bytecode binaries (.pyc) under release/lib/:
-      emu-dev-cli/
-        emu-dev-cli  (binary)
-        lib/
-          __main__.pyc
-          commands/*.pyc
-          install/*.pyc
-          lib/*.pyc
-          targets/*.pyc
-    No plain-text .py source files are included.
+    Copies python modules to release/lib/ directory.
+    Includes .py source files and compiles optional .pyc bytecodes using sys.executable.
     """
     os.makedirs(release_lib_dir, exist_ok=True)
     for root, _, files in os.walk(src_dir):
@@ -123,17 +115,28 @@ def compile_src_to_release_lib(src_dir, release_lib_dir):
             if not f.endswith(".py"):
                 continue
             rel_path = os.path.relpath(os.path.join(root, f), src_dir)
+            dest_py = os.path.join(release_lib_dir, rel_path)
+            os.makedirs(os.path.dirname(dest_py), exist_ok=True)
+            source_py = os.path.join(root, f)
+            if os.path.abspath(source_py) != os.path.abspath(dest_py):
+                shutil.copy2(source_py, dest_py)
             pyc_rel = rel_path[:-3] + ".pyc"
             dest_pyc = os.path.join(release_lib_dir, pyc_rel)
-            os.makedirs(os.path.dirname(dest_pyc), exist_ok=True)
-            source_py = os.path.join(root, f)
             try:
-                py_compile.compile(source_py, cfile=dest_pyc, doraise=True)
+                py_compile.compile(source_py, cfile=dest_pyc, doraise=False)
             except Exception:
                 pass
 
 
-def install_launcher_wrapper(built_bin, dest_path):
+def resolve_source_directory(source_dir=None):
+    if source_dir:
+        cand = os.path.join(source_dir, "hardware", "google", "aemu", "tools", "emu-dev-cli", "src")
+        if os.path.exists(cand):
+            return cand
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
     release_dir = get_release_package_directory(dest_path)
     release_lib_dir = os.path.join(release_dir, "lib")
     os.makedirs(release_dir, exist_ok=True)
@@ -149,9 +152,9 @@ def install_launcher_wrapper(built_bin, dest_path):
     if platform.system().lower() != "windows":
         os.chmod(release_bin, 0o755)
 
-    # 2. Compile python source code to .pyc bytecodes in release/lib/ directory
-    src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    compile_src_to_release_lib(src_dir, release_lib_dir)
+    # 2. Copy python source code to release/lib/ directory
+    src_dir = resolve_source_directory(source_dir)
+    copy_src_to_release_lib(src_dir, release_lib_dir)
 
     # 3. Create PATH executable symlink at ~/.android/bin/emu-dev-cli pointing to release_bin
     dest_dir = os.path.dirname(dest_path)
@@ -167,7 +170,7 @@ def install_launcher_wrapper(built_bin, dest_path):
             shutil.copy2(release_bin, dest_path)
 
 
-def install_launcher_with_sudo(built_bin, dest_path):
+def install_launcher_with_sudo(built_bin, dest_path, source_dir=None):
     if platform.system().lower() == "windows":
         return False
     release_dir = get_release_package_directory(dest_path)
@@ -181,8 +184,8 @@ def install_launcher_with_sudo(built_bin, dest_path):
     shutil.copy2(built_bin, release_bin)
     os.chmod(release_bin, 0o755)
 
-    src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    compile_src_to_release_lib(src_dir, release_lib_dir)
+    src_dir = resolve_source_directory(source_dir)
+    copy_src_to_release_lib(src_dir, release_lib_dir)
 
     quoted_release_bin = shlex.quote(release_bin)
     quoted_dest = shlex.quote(str(dest_path))
@@ -267,6 +270,10 @@ def run_install_cmd(args):
     dest_path = getattr(args, "path", None) or detect_default_install_path()
 
     built_bin = os.path.normpath(sys.argv[0])
+    if "emu-dev-cli-backend" in built_bin:
+        candidate_cc_bin = built_bin.replace("emu-dev-cli-backend", "emu-dev-cli")
+        if os.path.exists(candidate_cc_bin):
+            built_bin = candidate_cc_bin
 
     final_installed = None
     try:

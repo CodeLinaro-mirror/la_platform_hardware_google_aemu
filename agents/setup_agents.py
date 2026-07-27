@@ -15,8 +15,10 @@ if _EMU_DEV_CLI_SRC.exists():
 
 try:
     from install import installer
+    from commands.update_cmd import find_bazel_cmd
 except ImportError:
     installer = None
+    find_bazel_cmd = None
 
 
 def setup():
@@ -199,8 +201,9 @@ def setup():
     if "bazel" in build_tools and installer:
         print("\nBuilding and installing emu-dev-cli...")
         try:
+            bazel_cmd = find_bazel_cmd(str(source_root)) if find_bazel_cmd else "bazel"
             res = subprocess.run(
-                ["bazel", "build", "//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli"],
+                [bazel_cmd, "build", "//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli"],
                 cwd=source_root, check=False
             )
             if res.returncode == 0:

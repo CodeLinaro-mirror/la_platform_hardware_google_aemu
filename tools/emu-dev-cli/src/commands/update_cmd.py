@@ -29,11 +29,39 @@ def register_parser(subparsers):
 
 
 def find_bazel_cmd(source_dir):
-    # 1. Check local repo bazel wrapper script
-    local_bazel = os.path.join(source_dir, "prebuilts", "bazel", "linux-x86_64", "bazel")
-    if os.path.exists(local_bazel) and os.access(local_bazel, os.X_OK):
-        return local_bazel
-    # 2. Check system PATH
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+
+    if system == "linux":
+        platform_dirs = ["linux-x86_64"]
+        exe_names = ["bazel"]
+    elif system == "darwin":
+        if machine in ("arm64", "aarch64"):
+            platform_dirs = ["darwin-arm64", "darwin-x86_64", "mac-arm64", "mac-x86_64"]
+        else:
+            platform_dirs = ["darwin-x86_64", "mac-x86_64"]
+        exe_names = ["bazel"]
+    elif system == "windows":
+        platform_dirs = ["windows-x86_64", "windows"]
+        exe_names = ["bazel.exe", "bazel"]
+    else:
+        platform_dirs = ["linux-x86_64"]
+        exe_names = ["bazel"]
+
+    # 1. Check repository prebuilts/bazel/<platform>/bazel
+    for p_dir in platform_dirs:
+        for exe in exe_names:
+            candidate = os.path.join(source_dir, "prebuilts", "bazel", p_dir, exe)
+            if os.path.exists(candidate):
+                if system == "windows" or os.access(candidate, os.X_OK):
+                    return candidate
+
+    # 2. Check local repo tools/bazel wrapper script
+    tools_bazel = os.path.join(source_dir, "tools", "bazel")
+    if os.path.exists(tools_bazel) and os.access(tools_bazel, os.X_OK):
+        return tools_bazel
+
+    # 3. Check system PATH
     system_bazel = shutil.which("bazel")
     if system_bazel:
         return system_bazel
@@ -108,7 +136,7 @@ def run_update_cmd(args):
         sys.exit(1)
 
     print(f"📦 Re-installing compiled emu-dev-cli release package from {built_bin}...")
-    install_launcher_wrapper(built_bin, dest_path)
+    install_launcher_wrapper(built_bin, dest_path, source_dir=source_dir)
     skill_files = install_skill()
 
     print_result({

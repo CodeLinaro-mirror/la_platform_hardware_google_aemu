@@ -1,5 +1,5 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary")
-load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -23,4 +23,13 @@ cc_binary(
     name = "emu-dev-cli",
     srcs = ["src/launcher.cpp"],
     data = [":emu-dev-cli-backend"],
+)
+
+py_test(
+    name = "emu_dev_cli_test",
+    srcs = ["tests/emu_dev_cli_test.py"],
+    imports = ["src"],
+    deps = [
+        ":emu_dev_cli_lib",
+    ],
 )

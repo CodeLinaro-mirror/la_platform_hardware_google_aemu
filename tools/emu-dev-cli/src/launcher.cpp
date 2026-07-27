@@ -46,11 +46,13 @@ int main(int argc, char *argv[]) {
     // Release layout: emu-dev-cli/ (binary) with lib/ containing compiled .pyc modules
     std::string lib_dir = exe_dir + "/lib";
     std::string main_pyc = lib_dir + "/__main__.pyc";
+    std::string main_py = lib_dir + "/__main__.py";
     std::string direct_pyc = exe_dir + "/__main__.pyc";
     std::string direct_py = exe_dir + "/__main__.py";
 
-    // Fallback: look in Bazel workspace runfiles / src path
-    std::string bazel_main = "/work/emu-main-next/hardware/google/aemu/tools/emu-dev-cli/src/__main__.py";
+    // Fallback lookups: check Bazel runfiles and relative source paths
+    std::string bazel_runfiles_main = exe_path + ".runfiles/_main/hardware/google/aemu/tools/emu-dev-cli/src/__main__.py";
+    std::string bazel_runfiles_src = exe_path + ".runfiles/_main/hardware/google/aemu/tools/emu-dev-cli/src";
 
     std::string target_script;
     std::string pythonpath_dir = lib_dir;
@@ -58,18 +60,39 @@ int main(int argc, char *argv[]) {
     if (access(main_pyc.c_str(), F_OK) == 0) {
         target_script = main_pyc;
         pythonpath_dir = lib_dir;
+    } else if (access(main_py.c_str(), F_OK) == 0) {
+        target_script = main_py;
+        pythonpath_dir = lib_dir;
     } else if (access(direct_pyc.c_str(), F_OK) == 0) {
         target_script = direct_pyc;
         pythonpath_dir = exe_dir;
     } else if (access(direct_py.c_str(), F_OK) == 0) {
         target_script = direct_py;
         pythonpath_dir = exe_dir;
-    } else if (access(bazel_main.c_str(), F_OK) == 0) {
-        target_script = bazel_main;
-        pythonpath_dir = "/work/emu-main-next/hardware/google/aemu/tools/emu-dev-cli/src";
+    } else if (access(bazel_runfiles_main.c_str(), F_OK) == 0) {
+        target_script = bazel_runfiles_main;
+        pythonpath_dir = bazel_runfiles_src;
     } else {
-        fprintf(stderr, "Error: Could not locate emu-dev-cli release runtime.\n");
-        return 1;
+        // Walk up from exe_dir searching for hardware/google/aemu/tools/emu-dev-cli/src/__main__.py
+        std::string curr = exe_dir;
+        bool found = false;
+        for (int i = 0; i < 7; ++i) {
+            std::string cand = curr + "/hardware/google/aemu/tools/emu-dev-cli/src/__main__.py";
+            std::string cand_src = curr + "/hardware/google/aemu/tools/emu-dev-cli/src";
+            if (access(cand.c_str(), F_OK) == 0) {
+                target_script = cand;
+                pythonpath_dir = cand_src;
+                found = true;
+                break;
+            }
+            std::string parent = get_directory(curr);
+            if (parent == curr || parent.empty()) break;
+            curr = parent;
+        }
+        if (!found) {
+            fprintf(stderr, "Error: Could not locate emu-dev-cli release runtime.\n");
+            return 1;
+        }
     }
 
     std::string python_bin = "/usr/bin/python3";

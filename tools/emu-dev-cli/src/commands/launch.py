@@ -282,6 +282,7 @@ def run_launch_emulator(args):
         system = platform.system().lower()
         popen_kwargs = {
             "env": env,
+            "cwd": emu_dir,
             "stdout": log_fd,
             "stderr": log_fd,
             "stdin": subprocess.DEVNULL,
@@ -318,7 +319,7 @@ def run_launch_emulator(args):
         sys.stdout.flush()
 
     try:
-        res = subprocess.run(full_cmd, env=env, check=False)
+        res = subprocess.run(full_cmd, env=env, cwd=emu_dir, check=False)
         sys.exit(res.returncode)
     except KeyboardInterrupt:
         sys.exit(0)
