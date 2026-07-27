@@ -4,10 +4,22 @@ import shutil
 import json
 import os
 import sys
+import subprocess
+
+# Add emu-dev-cli source directory to sys.path to reuse installation package
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_SOURCE_ROOT = _SCRIPT_DIR.parents[3]
+_EMU_DEV_CLI_SRC = _SOURCE_ROOT / "hardware/google/aemu/tools/emu-dev-cli/src"
+if _EMU_DEV_CLI_SRC.exists():
+    sys.path.insert(0, str(_EMU_DEV_CLI_SRC))
+
+try:
+    from install import installer
+except ImportError:
+    installer = None
 
 
 def setup():
-    # 1. Path Calculation
     script_dir = Path(__file__).resolve().parent
     source_root = script_dir.parents[3]
 
@@ -48,6 +60,16 @@ def setup():
     }
     tier_file = tier_map.get(choice, "standard_verification.toml")
     tier_path = script_dir / ".gemini/policies" / tier_file
+
+    # Prompt for emu-dev-cli installation location using install package
+    default_install_path = installer.detect_default_install_path() if installer else "/usr/local/bin/emu-dev-cli"
+    print("\nInstall emu-dev-cli developer helper globally?")
+    try:
+        install_path_str = input(f"Specify installation binary path [{default_install_path}]: ").strip()
+        if not install_path_str:
+            install_path_str = default_install_path
+    except EOFError:
+        install_path_str = default_install_path
 
     # Create .gemini directory
     gemini_dir = source_root / ".gemini"
@@ -106,14 +128,12 @@ def setup():
         print("Warning: Could not copy settings.json.")
 
     # Smart Agent Aggregation
-    # Use hard copies instead of symlinks as some environments/CLIs have issues with them.
     agents_dir = gemini_dir / "agents"
     if agents_dir.is_symlink():
         agents_dir.unlink()
     agents_dir.mkdir(exist_ok=True)
 
     def copy_agents_from(source_path_rel, target_dir):
-        # Resolve source relative to source_root to find actual files
         source_full = source_root / source_path_rel
         if not source_full.exists():
             return
@@ -132,11 +152,7 @@ def setup():
 
     # Copy Generic AEMU Agents
     copy_agents_from("hardware/google/aemu/agents/.gemini/agents", agents_dir)
-
-    # Copy Project-Specific Goldfish Agents (if present)
     copy_agents_from("hardware/generic/goldfish/agents/.gemini/agents", agents_dir)
-
-    # Copy Project-Specific QEMU Agents (if present)
     copy_agents_from("external/qemu/android/agents/.gemini/agents", agents_dir)
 
     # Smart Skills Aggregation
@@ -170,17 +186,51 @@ def setup():
 
     # Copy Generic AEMU Skills
     copy_skills_from("hardware/google/aemu/agents/skills", skills_dir)
-
-    # Copy Project-Specific Goldfish Skills (if present)
+    copy_skills_from("hardware/google/aemu/tools/emu-dev-cli/skills", skills_dir)
     copy_skills_from("hardware/generic/goldfish/agents/skills", skills_dir)
-
-    # Copy Project-Specific QEMU Skills (if present)
     copy_skills_from("external/qemu/android/agents/skills", skills_dir)
 
     # Also copy the tiers/policies folder so they are visible
     if not safe_copy("hardware/google/aemu/agents/.gemini/policies",
                      "policies_templates", base_dir=gemini_dir):
         print("Warning: Could not copy policies directory.")
+
+    # 6. Build and install emu-dev-cli using src/install module
+    if "bazel" in build_tools and installer:
+        print("\nBuilding and installing emu-dev-cli...")
+        try:
+            res = subprocess.run(
+                ["bazel", "build", "//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli"],
+                cwd=source_root, check=False
+            )
+            if res.returncode == 0:
+                built_bin = source_root / "bazel-bin/hardware/google/aemu/tools/emu-dev-cli/emu-dev-cli"
+                if sys.platform.startswith("win") and not built_bin.exists():
+                    built_bin = built_bin.with_suffix(".exe")
+                dest_path = Path(install_path_str)
+                final_installed = None
+                try:
+                    installer.install_launcher_wrapper(str(built_bin), str(dest_path))
+                    final_installed = dest_path
+                    print(f"  + Installed emu-dev-cli global launcher to {dest_path}")
+                except PermissionError:
+                    print(f"  ! Permission denied for {dest_path}. Attempting to escalate with sudo...")
+                    if installer.install_launcher_with_sudo(str(built_bin), str(dest_path)):
+                        final_installed = dest_path
+                        print(f"  + Installed emu-dev-cli global launcher to {dest_path} (via sudo)")
+                    else:
+                        fallback_path = Path(installer.get_fallback_install_path())
+                        installer.install_launcher_wrapper(str(built_bin), str(fallback_path))
+                        final_installed = fallback_path
+                        print(f"  ! Sudo escalation failed; installed to fallback location: {fallback_path}")
+
+                installer.install_skill()
+                if final_installed:
+                    installer.print_path_instructions(final_installed)
+            else:
+                print("  ! Bazel build failed for emu-dev-cli.")
+        except Exception as e:
+            print(f"  ! Warning: Could not install emu-dev-cli: {e}")
 
     print("-" * 50)
     print(f"Done. Gemini CLI configured with {tier_file}.")

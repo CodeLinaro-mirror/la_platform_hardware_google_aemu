@@ -1,0 +1,26 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+
+package(default_visibility = ["//visibility:public"])
+
+py_library(
+    name = "emu_dev_cli_lib",
+    srcs = glob(["src/**/*.py"]),
+    imports = ["src"],
+)
+
+py_binary(
+    name = "emu-dev-cli-backend",
+    srcs = ["src/__main__.py"],
+    imports = ["src"],
+    main = "src/__main__.py",
+    deps = [
+        ":emu_dev_cli_lib",
+    ],
+)
+
+cc_binary(
+    name = "emu-dev-cli",
+    srcs = ["src/launcher.cpp"],
+    data = [":emu-dev-cli-backend"],
+)
