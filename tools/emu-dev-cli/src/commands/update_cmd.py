@@ -4,7 +4,7 @@ import shutil
 import platform
 import subprocess
 
-from commands.source_directory import get_source_directory
+from commands.source_directory import get_source_directory, ensure_codesearch_urls_config
 from install.installer import install_launcher_wrapper, install_skill, detect_default_install_path
 from lib.output import print_result
 
@@ -138,6 +138,7 @@ def run_update_cmd(args):
     print(f"📦 Re-installing compiled emu-dev-cli release package from {built_bin}...")
     install_launcher_wrapper(built_bin, dest_path, source_dir=source_dir)
     skill_files = install_skill(source_dir=source_dir)
+    ensure_codesearch_urls_config()
 
     print_result({
         "status": "success",

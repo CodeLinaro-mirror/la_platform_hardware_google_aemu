@@ -6,6 +6,7 @@ import subprocess
 import shlex
 import py_compile
 from lib.output import print_result
+from commands.source_directory import ensure_codesearch_urls_config
 
 SKILL_MARKDOWN_CONTENT = """---
 name: emu_dev_cli
@@ -413,6 +414,7 @@ def run_install_cmd(args):
             final_installed = fallback
 
     skill_files = install_skill()
+    ensure_codesearch_urls_config()
 
     print_result({
         "status": "success",
