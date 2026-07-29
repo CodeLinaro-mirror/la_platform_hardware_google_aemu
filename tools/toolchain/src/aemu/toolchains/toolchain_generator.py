@@ -29,6 +29,32 @@ from aemu.command import CommandLineReconstructor
 from aemu.process.bazel import Bazel
 
 
+def safe_symlink_dir(src: Path, dest: Path) -> None:
+    if dest.is_symlink() or dest.exists():
+        if dest.is_dir() and not dest.is_symlink():
+            shutil.rmtree(dest)
+        else:
+            dest.unlink()
+
+    dest.mkdir(parents=True, exist_ok=True)
+    for item in src.iterdir():
+        dest_item = dest / item.name
+        if not item.exists():
+            logging.warning("Skipping dangling symlink: %s", item)
+            continue
+
+        if dest_item.is_symlink() or dest_item.exists():
+            if dest_item.is_dir() and not dest_item.is_symlink():
+                shutil.rmtree(dest_item)
+            else:
+                dest_item.unlink()
+
+        if item.is_dir():
+            safe_symlink_dir(item, dest_item)
+        else:
+            dest_item.symlink_to(item.resolve())
+
+
 class ToolchainGenerator:
     """A class for generating toolchain wrappers."""
 
@@ -36,7 +62,7 @@ class ToolchainGenerator:
     PACKAGES_DIR = "packages"
 
     def __init__(
-        self, aosp: Path, dest: Path, prefix: str, versions: Dict[str, str] = None
+        self, aosp: Path, dest: Path, prefix: str, versions: Dict[str, str] = None,
     ) -> None:
         """Initializes a ToolchainGenerator object.
 
@@ -53,6 +79,10 @@ class ToolchainGenerator:
         self.env: Dict[str, str] = os.environ
         self.reconstructor = CommandLineReconstructor()
         self.command_line = self.reconstructor.get_command_string()
+
+        self.ninja_bin = None
+        self.pkg_config_bin = None
+        self.compat_lib = None
 
         if versions:
             self.versions = versions
@@ -252,6 +282,10 @@ class ToolchainGenerator:
         """An MSVC-compatible tool for managing object library archives."""
         return self.llvm_tool("llvm-lib")
 
+    def llvm_lipo(self) -> Tuple[str, str]:
+        """Tool to create or operate on universal binaries (fat files)."""
+        return self.llvm_tool("llvm-lipo")
+
     def clang_tidy(self) -> Tuple[str, str]:
         """A Clang-based C++ linter tool that provides static analysis and fixes for common coding errors."""
         return self.llvm_tool("clang-tidy")
@@ -272,12 +306,21 @@ class ToolchainGenerator:
         """Link and manipulate archived debug symbol files (macOS .dSYM bundles)."""
         return self.llvm_tool("dsymutil")
 
+    def lipo(self) -> Tuple[str, str]:
+        """Tool to create or operate on universal binaries (fat files)."""
+        return self.llvm_tool("llvm-lipo")
+
     def lldb(self) -> Tuple[str, str]:
         """The LLVM debugger, providing high-performance debugging for C, C++, and Objective-C."""
         return self.llvm_tool("lldb")
 
     def ninja(self) -> Tuple[str, str]:
         """Returns the ninja command and extra arguments."""
+        if self.ninja_bin:
+            assert(self.bazel == None)
+            return self.aosp / self.ninja_bin, ""
+
+        assert(self.bazel != None)
         artifacts = self.bazel.build_target("@ninja", for_host=True)
         if artifacts:
             return f"{self.aosp / artifacts[0]}", ""
@@ -344,12 +387,34 @@ class ToolchainGenerator:
         exe = f"{self.py_exe} {meson_py} "
         return exe, ""
 
+    def python3(self) -> Tuple[str, str]:
+        """Returns the python3 command."""
+        exe = f"{self.py_exe}"
+        return exe, ""
+
+    def git(self) -> Tuple[str, str]:
+        """Returns the system git command."""
+        git_path = shutil.which("git")
+        if not git_path:
+            raise FileNotFoundError("System git was not found on PATH.")
+        return git_path, ""
+
     def strip(self) -> Tuple[str, str]:
         """Returns the strip command and extra arguments."""
         return "", ""
 
     def pkg_config(self) -> Tuple[str, str]:
         """Returns the pkg-config command and extra arguments."""
+        if self.pkg_config_bin:
+            # Note PKG_CONFIG_PATH not set in the script as it should be overridden in this mode.
+            assert(self.bazel == None)
+            return (
+                f'PKG_CONFIG_LIBDIR="" '
+                f"{self.aosp / self.pkg_config_bin}",
+                "",
+            )
+
+        assert(self.bazel != None)
         # Build pkg-config from source for the host.
         artifacts = self.bazel.build_target("@pkg-config", for_host=True)
         return (
@@ -368,7 +433,6 @@ class ToolchainGenerator:
             exe: The path to the script.
             cmd_generator_fn: A function that returns the command and extra arguments.
         """
-        current_file = Path(__file__).resolve()
         self.toolchain_map[name] = exe.absolute().as_posix()
 
         logging.info("Generating %s", exe)
@@ -408,9 +472,15 @@ class ToolchainGenerator:
             config["binaries"] = {}
 
         for name, dest in self.toolchain_map.items():
-            config["binaries"][name] = f"'{dest}'"
+            if isinstance(dest, list):
+                config["binaries"][name] = "[" + ", ".join([f"'{x}'" for x in dest]) + "]"
+            else:
+                config["binaries"][name] = f"'{dest}'"
 
-        config["binaries"]["c"] = f"'{self.toolchain_map['cc']}'"
+        if isinstance(self.toolchain_map['cc'], list):
+            config["binaries"]["c"] = "[" + ", ".join([f"'{x}'" for x in self.toolchain_map['cc']]) + "]"
+        else:
+            config["binaries"]["c"] = f"'{self.toolchain_map['cc']}'"
 
         with open(self.dest / "aosp-cl.ini", "w", encoding="utf-8") as f:
             f.write("# Auto generated by Android Meson Generator - do not modify\n")
@@ -424,10 +494,7 @@ class ToolchainGenerator:
             return
 
         target = self.dest / "lib"
-        if target.is_symlink() or target.exists():
-            target.unlink()
-
-        target.symlink_to(clang_lib)
+        safe_symlink_dir(clang_lib, target)
 
     def gen_toolchain(
         self, packages: List[Any] = [], binaries: Dict[str, str] = {}
@@ -486,6 +553,7 @@ class ToolchainGenerator:
             "meson": self.meson,
             "ninja": self.ninja,
             "pkg-config": self.pkg_config,
+            "python3": self.python3,
             "cmake": self.cmake,
             "cargo": self.cargo,
             # Static Analysis/Formatting/Linting
@@ -496,6 +564,11 @@ class ToolchainGenerator:
             "lldb": self.lldb,
             "dwarfdump": self.llvm_dwarfdump,
         }
+        if self.host() == "darwin":
+            cmds["lipo"] = self.llvm_lipo
+        if self.host() != "windows":
+            cmds["git"] = self.git
+
         for cmd, fn in cmds.items():
             self.gen_script(cmd, self.dest / f"{self.prefix}{cmd}", fn)
 
