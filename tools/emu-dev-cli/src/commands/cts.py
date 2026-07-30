@@ -7,7 +7,7 @@ import urllib.request
 import zipfile
 import xml.etree.ElementTree as ET
 from lib.output import print_result
-from commands.source_directory import get_source_directory
+from commands.source_directory import get_source_directory, find_file_in_source_directories
 from commands.update_cmd import find_bazel_cmd
 
 PUBLIC_VERIFIER_URLS = {
@@ -21,19 +21,16 @@ FETCH_ARTIFACT_BIN = "/google/data/ro/projects/android/fetch_artifact"
 
 
 def find_verifier_scripts_dir():
-    # Primary lookup: check source-directory registry (~/.android/emu-dev-cli.json)
-    for branch_key in ["emu-main-next", "emu-main-dev", "git_main", "main"]:
-        src_path = get_source_directory(branch_key)
-        if src_path:
-            candidate = os.path.join(src_path, "third_party", "adt-infra", "goldfish_test", "xts", "verifier")
-            if os.path.isdir(candidate):
-                return candidate, f"source-directory '{branch_key}' ({src_path})"
+    rel_path = os.path.join("third_party", "adt-infra", "goldfish_test", "xts", "verifier")
+    found = find_file_in_source_directories(rel_path)
+    if found:
+        return found, f"source-directory registry ({found})"
 
     # Fallback: walk relative directories from script location
     curr = os.path.abspath(__file__)
     for _ in range(7):
         curr = os.path.dirname(curr)
-        candidate = os.path.join(curr, "third_party", "adt-infra", "goldfish_test", "xts", "verifier")
+        candidate = os.path.join(curr, rel_path)
         if os.path.isdir(candidate):
             return candidate, f"relative repo path ({candidate})"
 
@@ -145,6 +142,12 @@ def register_parser(subparsers):
         help="Execute tests directly against an active emulator device over ADB instead of using Bazel"
     )
     verifier_parser.add_argument(
+        "--rbe",
+        action="store_true",
+        default=False,
+        help="Execute test target on Remote Build Execution (RBE) using Bazel remote config"
+    )
+    verifier_parser.add_argument(
         "--window",
         action="store_true",
         default=True,
@@ -155,6 +158,18 @@ def register_parser(subparsers):
         dest="window",
         action="store_false",
         help="Launch emulator in headless mode without GUI window"
+    )
+    verifier_parser.add_argument(
+        "--test-builder-mode", "--test-builder",
+        action="store_true",
+        dest="test_builder_mode",
+        help="Run module using TestBuilder interactive automation generator (automation_dev/test_builder.py)"
+    )
+    verifier_parser.add_argument(
+        "--collect-tests", "--collect-test-module-names", "--collect-labels",
+        action="store_true",
+        dest="collect_test_module_names",
+        help="Scroll through CtsVerifier on device and collect all test activity labels into a JSON file"
     )
     verifier_parser.set_defaults(parser=verifier_parser, func=run_cts_verifier)
 
@@ -232,15 +247,15 @@ def run_cts_verifier(args):
     scripts_dir, origin_info = find_verifier_scripts_dir()
     discovered_modules = discover_available_modules(scripts_dir)
 
-    if not getattr(args, "module", None) and not getattr(args, "all", False) and not getattr(args, "list_modules", False):
+    if not getattr(args, "module", None) and not getattr(args, "all", False) and not getattr(args, "list_modules", False) and not getattr(args, "collect_test_module_names", False):
         if not json_mode and hasattr(args, "parser"):
             args.parser.print_help()
-            print("\n❌ error: Either --module <name> or --all (or --list-modules) must be specified.")
+            print("\n❌ error: Either --module <name>, --all, --list-modules, or --collect-test-module-names must be specified.")
             sys.exit(1)
         print_result({
             "status": "error",
             "action": "run-cts-verifier",
-            "error_message": "Either --module <name> or --all (or --list-modules) must be specified.",
+            "error_message": "Either --module <name>, --all, --list-modules, or --collect-test-module-names must be specified.",
             "exit_code": 1
         }, json_mode=json_mode, is_error=True)
         sys.exit(1)
@@ -271,6 +286,12 @@ def run_cts_verifier(args):
 
     use_bazel = getattr(args, "bazel", True) and not has_custom_config
 
+    if getattr(args, "collect_test_module_names", False) and not use_bazel:
+        builder_script = os.path.join(scripts_dir, "automation_dev", "test_builder.py")
+        print("🔍 Running CtsVerifier test label collector over ADB...")
+        res = subprocess.run([sys.executable, builder_script, "--collect-test-module-names"], check=False)
+        sys.exit(res.returncode)
+
     if use_bazel:
         source_dir = get_source_directory("emu-main-next")
         if not source_dir or not os.path.exists(os.path.join(source_dir, "third_party/adt-infra/goldfish_test/xts/verifier.bzl")):
@@ -278,35 +299,75 @@ def run_cts_verifier(args):
 
         bazel_bin = find_bazel_cmd(source_dir)
 
+        if getattr(args, "collect_test_module_names", False):
+            target = "@goldfish_test//xts:cts-verifier-automation-dev"
+            print(f"Executing hermetic CTS-Verifier test label collector via Bazel ({bazel_bin}): {target}...")
+            cmd = [bazel_bin, "run", target, "--", "--collect_tests", "--window"]
+            res = subprocess.run(cmd, cwd=source_dir, check=False)
+            sys.exit(res.returncode)
+
+        if getattr(args, "test_builder_mode", False):
+            target = "@goldfish_test//xts:cts-verifier-automation-dev"
+            script_name = "run_screen_lock_test.sh"
+            if args.module:
+                raw_mod = args.module.lower().replace("pass_", "").replace("run_", "").replace(".py", "").replace(".sh", "").replace(" ", "_")
+                if not raw_mod.endswith("_test"):
+                    raw_mod += "_test"
+                script_name = f"run_{raw_mod}.sh"
+            print(f"Executing hermetic CTS-Verifier TestBuilder via Bazel ({bazel_bin}): {target}...")
+            cmd = [bazel_bin, "run", target, "--", "--dev_mode", "--window", "--script", script_name]
+            res = subprocess.run(cmd, cwd=source_dir, check=False)
+            sys.exit(res.returncode)
+
         if args.all or not args.module:
-            target = "@goldfish_test//xts:cts-verifier"
+            target = "@goldfish_test//xts:ets-verifier"
         else:
             mod = args.module.lower().replace("pass_", "").replace("run_", "").replace(".py", "").replace(".sh", "")
             subname = None
-            verifier_dir = os.path.join(source_dir, "third_party", "adt-infra", "goldfish_test", "xts", "verifier")
-            if os.path.exists(verifier_dir):
-                sh_files = [f for f in os.listdir(verifier_dir) if f.startswith("run_") and f.endswith(".sh")]
-                for sh in sh_files:
-                    s_sub = sh.replace("run_", "").replace(".sh", "")
-                    if s_sub == mod or s_sub == f"{mod}_test":
-                        subname = s_sub
-                        break
-                if not subname:
+            if mod in ("clock", "clocktest", "clock_test"):
+                subname = "ClockTest"
+            else:
+                verifier_dir = os.path.join(source_dir, "third_party", "adt-infra", "goldfish_test", "xts", "verifier")
+                if os.path.exists(verifier_dir):
+                    sh_files = [f for f in os.listdir(verifier_dir) if f.startswith("run_") and f.endswith(".sh")]
                     for sh in sh_files:
                         s_sub = sh.replace("run_", "").replace(".sh", "")
-                        if mod in s_sub:
+                        if s_sub == mod or s_sub == f"{mod}_test":
                             subname = s_sub
                             break
+                    if not subname:
+                        for sh in sh_files:
+                            s_sub = sh.replace("run_", "").replace(".sh", "")
+                            if mod in s_sub:
+                                subname = s_sub
+                                break
             if not subname:
                 subname = mod
-            target = f"@goldfish_test//xts:cts-verifier.{subname}"
+            target = f"@goldfish_test//xts:ets-verifier.{subname}"
 
-        print(f"Executing hermetic CTS-Verifier test target via Bazel ({bazel_bin}): {target}...")
-        cmd = [bazel_bin, "run", target]
-        if not getattr(args, "window", True):
-            cmd.extend(["--", "--no-window"])
+        if getattr(args, "rbe", False):
+            print(f"Executing hermetic ETS-Verifier test target on Remote Build Execution (RBE) via Bazel ({bazel_bin}): {target}...")
+            cmd = [
+                bazel_bin, "test", "-c", "opt",
+                "--config=remote", "--sandbox_debug", "--nocache_test_results",
+                "--config=ants", "--config=sponge", "--flaky_test_attempts=8",
+                target
+            ]
+        elif args.all or not args.module:
+            print(f"Executing hermetic ETS-Verifier test suite via Bazel ({bazel_bin}): {target}...")
+            cmd = [bazel_bin, "test", target]
+            if not getattr(args, "window", True):
+                cmd.append("--test_arg=--no-window")
+            else:
+                cmd.append("--test_arg=--window")
         else:
-            cmd.extend(["--", "--window"])
+            print(f"Executing hermetic ETS-Verifier test target via Bazel ({bazel_bin}): {target}...")
+            cmd = [bazel_bin, "run", target]
+            if not getattr(args, "window", True):
+                cmd.extend(["--", "--no-window"])
+            else:
+                cmd.extend(["--", "--window"])
+
         res = subprocess.run(cmd, cwd=source_dir, check=False)
         sys.exit(res.returncode)
 

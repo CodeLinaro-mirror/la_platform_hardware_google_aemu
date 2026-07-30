@@ -7,6 +7,7 @@ from lib.output import print_result
 # Add your doc targets here
 DOC_TARGETS = {
     "cts-verifier-automation": ("emu-main-next", "third_party/adt-infra/goldfish_test/xts/verifier/README.md"),
+    "cts-verifier-automation-development": ("emu-main-next", "third_party/adt-infra/goldfish_test/xts/verifier/DEVELOPING_CTS_VERIFIER_AUTOMATION.md"),
     "emu-dev-cli-development": ("emu-main-next", "hardware/google/aemu/tools/emu-dev-cli/docs/DEVELOPMENT.md"),
 }
 
