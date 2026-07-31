@@ -12,7 +12,7 @@ lib_dir = os.path.join(SCRIPT_DIR, "lib")
 if os.path.exists(lib_dir) and lib_dir not in sys.path:
     sys.path.insert(0, lib_dir)
 
-from commands import create, cts, docs, fetch_build, init_cmd, launch, source_directory, update_cmd
+from commands import crash, create, cts, docs, fetch_build, init_cmd, launch, source_directory, update_cmd
 from install import installer
 
 
@@ -41,6 +41,7 @@ def main():
     default_host = detect_default_host()
 
     # Register subcommands
+    crash.register_parser(subparsers)
     create.register_parser(subparsers)
     cts.register_parser(subparsers)
     docs.register_parser(subparsers)

@@ -190,9 +190,14 @@ def detect_default_install_path():
         emu_dev_dir.mkdir(parents=True, exist_ok=True)
         return str(emu_dev_dir / "emu-dev-cli.exe")
     else:
-        android_bin = os.path.expanduser("~/.android/bin")
-        os.makedirs(android_bin, exist_ok=True)
-        return os.path.join(android_bin, "emu-dev-cli")
+        try:
+            android_bin = os.path.expanduser("~/.android/bin")
+            os.makedirs(android_bin, exist_ok=True)
+            return os.path.join(android_bin, "emu-dev-cli")
+        except Exception:
+            fallback = get_fallback_install_path()
+            os.makedirs(os.path.dirname(fallback), exist_ok=True)
+            return fallback
 
 
 def get_fallback_install_path():
@@ -225,9 +230,17 @@ def get_release_package_directory(dest_path):
 def copy_src_to_release_lib(src_dir, release_lib_dir):
     """
     Copies python modules to release/lib/ directory.
-    Includes .py source files and compiles optional .pyc bytecodes using sys.executable.
+    Includes .py source files and cleans up stale .pyc bytecodes.
     """
     os.makedirs(release_lib_dir, exist_ok=True)
+    for root, _, files in os.walk(release_lib_dir):
+        for f in files:
+            if f.endswith(".pyc"):
+                try:
+                    os.remove(os.path.join(root, f))
+                except OSError:
+                    pass
+
     for root, _, files in os.walk(src_dir):
         for f in files:
             if not f.endswith(".py"):
@@ -238,12 +251,6 @@ def copy_src_to_release_lib(src_dir, release_lib_dir):
             source_py = os.path.join(root, f)
             if os.path.abspath(source_py) != os.path.abspath(dest_py):
                 shutil.copy2(source_py, dest_py)
-            pyc_rel = rel_path[:-3] + ".pyc"
-            dest_pyc = os.path.join(release_lib_dir, pyc_rel)
-            try:
-                py_compile.compile(source_py, cfile=dest_pyc, doraise=False)
-            except Exception:
-                pass
 
 
 def resolve_source_directory(source_dir=None):
@@ -273,6 +280,68 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
     # 2. Copy python source code to release/lib/ directory
     src_dir = resolve_source_directory(source_dir)
     copy_src_to_release_lib(src_dir, release_lib_dir)
+
+    # Copy advisor self-contained executable and runfiles if built
+    source_workspace = source_dir or get_source_directory("emu-main-next")
+    if not source_workspace or not os.path.exists(source_workspace):
+        source_workspace = resolve_source_directory(source_dir)
+
+    if source_workspace:
+        advisor_src = os.path.join(
+            source_workspace,
+            "bazel-bin",
+            "external",
+            "goldfish+",
+            "emulator",
+            "crashreport",
+            "tool",
+            "advisor",
+            "advisor",
+        )
+        if os.path.exists(advisor_src):
+            bin_dir = os.path.join(release_lib_dir, "bin")
+            os.makedirs(bin_dir, exist_ok=True)
+            advisor_dest = os.path.join(bin_dir, "advisor")
+            if os.path.exists(advisor_dest) or os.path.islink(advisor_dest):
+                os.unlink(advisor_dest)
+            shutil.copy2(advisor_src, advisor_dest)
+            if platform.system().lower() != "windows":
+                os.chmod(advisor_dest, 0o755)
+
+            advisor_rf = advisor_src + ".runfiles"
+            advisor_rf_dest = advisor_dest + ".runfiles"
+            if os.path.exists(advisor_rf):
+                if os.path.exists(advisor_rf_dest) or os.path.islink(advisor_rf_dest):
+                    if os.path.islink(advisor_rf_dest):
+                        os.unlink(advisor_rf_dest)
+                    else:
+                        shutil.rmtree(advisor_rf_dest)
+                try:
+                    shutil.copytree(advisor_rf, advisor_rf_dest, symlinks=True)
+                except Exception:
+                    pass
+
+        # Copy compiled emu-main-next crashreport executable directly to bin/
+        exe_suffix = ".exe" if platform.system().lower() == "windows" else ""
+        crashreport_src = os.path.join(
+            source_workspace,
+            "bazel-bin",
+            "external",
+            "goldfish+",
+            "emulator",
+            "crashreport",
+            "tool",
+            f"crashreport{exe_suffix}",
+        )
+        if os.path.exists(crashreport_src):
+            bin_dir = os.path.join(release_lib_dir, "bin")
+            os.makedirs(bin_dir, exist_ok=True)
+            crashreport_dest = os.path.join(bin_dir, f"crashreport{exe_suffix}")
+            if os.path.exists(crashreport_dest) or os.path.islink(crashreport_dest):
+                os.unlink(crashreport_dest)
+            shutil.copy2(crashreport_src, crashreport_dest)
+            if platform.system().lower() != "windows":
+                os.chmod(crashreport_dest, 0o755)
 
     # 3. Create PATH executable symlink at ~/.android/bin/emu-dev-cli pointing to release_bin
     dest_dir = os.path.dirname(dest_path)

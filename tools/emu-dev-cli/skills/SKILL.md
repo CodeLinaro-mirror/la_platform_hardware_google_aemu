@@ -170,3 +170,34 @@ Rebuilds `//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli` via Bazel from t
 emu-dev-cli update
 ```
 
+---
+
+### 9. Crash Investigation & Automated Fixing (`crash`)
+
+Integrates CrashAdvisor minidump diagnostics, normalized stack fingerprinting, Buganizer issue deduplication, and autonomous AI engineer fixing:
+
+* **Find existing / duplicate Buganizer issues (`find-bug`):**
+  Symbolicates crash minidump, parses stack fingerprint (top faulting frame & calling functions), and searches Buganizer Component 29601 for existing issues. **Note:** Expects a Crash ID (e.g., `05d8356e2f800000`) or `go/crash` URL, **not** a Buganizer bug ID (`b/...`):
+  ```bash
+  emu-dev-cli crash find-bug 05d8356e2f800000
+  emu-dev-cli crash find-bug https://crash.corp.google.com/05d8356e2f800000
+  ```
+* **File or update Buganizer issue (`file-bug`):**
+  Runs CrashAdvisor RCA analysis for a Crash ID, creates a new issue in Component 29601 or updates/reopens an existing issue with looper timelines and stack traces:
+  ```bash
+  emu-dev-cli crash file-bug 05d8356e2f800000
+  ```
+* **Attempt autonomous fix (`autofix`):**
+  Parses RCA actionability YAML for a Crash ID, maps target files to local repository checkout, and dispatches `emu_main_next_engineer` to write tests, fix code, and upload a Gerrit CL:
+  ```bash
+  emu-dev-cli crash autofix 05d8356e2f800000
+  emu-dev-cli crash autofix 05d8356e2f800000 --dry-run
+  ```
+* **Unified Crash Analysis (`analyze`):**
+  Runs symbolication, stack fingerprinting, and interactive or automated RCA investigation:
+  ```bash
+  emu-dev-cli crash analyze 05d8356e2f800000 --file-bug --autofix
+  ```
+
+
+

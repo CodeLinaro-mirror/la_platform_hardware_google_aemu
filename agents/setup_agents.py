@@ -388,7 +388,13 @@ def setup():
         try:
             bazel_cmd = find_bazel_cmd(str(source_root)) if find_bazel_cmd else "bazel"
             res = subprocess.run(
-                [bazel_cmd, "build", "//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli"],
+                [
+                    bazel_cmd,
+                    "build",
+                    "//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli",
+                    "@goldfish//emulator/crashreport/tool/advisor:advisor",
+                    "@goldfish//emulator/crashreport/tool:crashreport",
+                ],
                 cwd=source_root, check=False
             )
             if res.returncode == 0:
@@ -398,7 +404,7 @@ def setup():
                 dest_path = Path(install_path_str)
                 final_installed = None
                 try:
-                    installer.install_launcher_wrapper(str(built_bin), str(dest_path))
+                    installer.install_launcher_wrapper(str(built_bin), str(dest_path), source_dir=str(source_root))
                     final_installed = dest_path
                     print(f"  + Installed emu-dev-cli global launcher to {dest_path}")
                 except PermissionError:
