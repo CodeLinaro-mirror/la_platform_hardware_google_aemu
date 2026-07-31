@@ -1,13 +1,21 @@
 ---
 name: emu_dev_cli
-description: CLI tool for fetching prebuilt emulator binaries and system images from Android Build (go/ab), creating AVDs, launching emulator instances, and executing automated CTS-Verifier test modules (e.g. tts, battery_saver, vibrations) on the emulator using 'emu-dev-cli cts run-cts-verifier --module <name>' and discovering modules with '--list-modules'. Use when setting up test instances, reproducing bugs, or running CTS-Verifier tests.
+description:
+  CLI tool for fetching prebuilt emulator binaries and system images from
+  Android Build (go/ab), creating AVDs, launching emulator instances, and
+  executing automated CTS-Verifier test modules (e.g. tts, battery_saver,
+  vibrations) on the emulator using 'emu-dev-cli cts run-cts-verifier --module
+  <name>' and discovering modules with '--list-modules'. Use when setting up
+  test instances, reproducing bugs, or running CTS-Verifier tests.
 ---
 
 # Android Emulator Developer CLI (`emu-dev-cli`)
 
-`emu-dev-cli` is an agent-first CLI for emulator developers and AI engineering assistants to construct, manage, and verify Android Emulator environments.
+`emu-dev-cli` is an agent-first CLI for emulator developers and AI engineering
+assistants to construct, manage, and verify Android Emulator environments.
 
 Executable command:
+
 ```bash
 emu-dev-cli <command>
 ```
@@ -18,34 +26,37 @@ emu-dev-cli <command>
 
 ### 1. Fetch Artifacts from Android Build (`fetch-build`)
 
-Pulls and extracts prebuilt emulator host binaries or system image archives from `go/ab` into `/tmp/`.
+Pulls and extracts prebuilt emulator host binaries or system image archives from
+`go/ab` into `/tmp/`.
 
 #### A. Fetch Host Emulator (`fetch-build emulator`)
-* **Fetch latest build on `emu-main-next` (Default):**
+
+- **Fetch latest build on `emu-main-next` (Default):**
   ```bash
   emu-dev-cli fetch-build emulator --latest
   ```
-* **Fetch latest build on `emu-main-dev`:**
+- **Fetch latest build on `emu-main-dev`:**
   ```bash
   emu-dev-cli fetch-build emulator --latest --branch emu-main-dev
   ```
-* **Fetch specific build by ID:**
+- **Fetch specific build by ID:**
   ```bash
   emu-dev-cli fetch-build emulator --build-id 15943073
   ```
 
 #### B. Fetch System Image (`fetch-build system-image`)
+
 Auto-detects host CPU architecture (`x86_64` vs `arm64`).
 
-* **Fetch latest system image on `trunk-release` (Default):**
+- **Fetch latest system image on `trunk-release` (Default):**
   ```bash
   emu-dev-cli fetch-build system-image --latest
   ```
-* **Fetch latest system image on release branch:**
+- **Fetch latest system image on release branch:**
   ```bash
   emu-dev-cli fetch-build system-image --latest --branch 26Q2-emu-release
   ```
-* **Fetch specific system image build ID:**
+- **Fetch specific system image build ID:**
   ```bash
   emu-dev-cli fetch-build system-image --build-id 15900270
   ```
@@ -54,18 +65,20 @@ Auto-detects host CPU architecture (`x86_64` vs `arm64`).
 
 ### 2. Source Directory Registry (`source-directory`)
 
-Manage mappings between branch names (`emu-main-dev`, `emu-main-next`, `git_main`) and their local source code checkout paths on disk. Stored in `~/.android/emu-dev-cli.json`.
+Manage mappings between branch names (`emu-main-dev`, `emu-main-next`,
+`git_main`) and their local source code checkout paths on disk. Stored in
+`~/.android/emu-dev-cli.json`.
 
-* **Get local repository path for branch:**
+- **Get local repository path for branch:**
   ```bash
   emu-dev-cli source-directory get emu-main-dev
   # Output: /work/emu-main-dev
   ```
-* **Set local repository path for branch:**
+- **Set local repository path for branch:**
   ```bash
   emu-dev-cli source-directory set emu-main-dev /work/emu-main-dev
   ```
-* **List all configured mappings:**
+- **List all configured mappings:**
   ```bash
   emu-dev-cli source-directory list
   ```
@@ -74,10 +87,14 @@ Manage mappings between branch names (`emu-main-dev`, `emu-main-next`, `git_main
 
 ### 3. Create Android Virtual Devices (`create avd`)
 
-Creates a valid Android Virtual Device (AVD) pointer (`~/.android/avd/<name>.ini`) and hardware profile (`~/.android/avd/<name>.avd/config.ini`) bound to a system-image directory.
+Creates a valid Android Virtual Device (AVD) pointer
+(`~/.android/avd/<name>.ini`) and hardware profile
+(`~/.android/avd/<name>.avd/config.ini`) bound to a system-image directory.
 
 #### Available Device Profiles (`--list-profiles`)
-`small_phone`, `medium_phone` (default), `medium_tablet`, `small_desktop`, `medium_desktop`, `large_desktop`.
+
+`small_phone`, `medium_phone` (default), `medium_tablet`, `small_desktop`,
+`medium_desktop`, `large_desktop`.
 
 ```bash
 # List available device profiles
@@ -95,22 +112,24 @@ emu-dev-cli create avd \
 
 ### 4. Launch Emulator Instances (`launch emulator`)
 
-Launches a prebuilt `emulator` executable. Auto-configures Linux dynamic shared library paths (`LD_LIBRARY_PATH` for Qt, Vulkan, and GLES) and verifies X11 `DISPLAY` sockets (`DISPLAY=:20` on CRD).
+Launches a prebuilt `emulator` executable. Auto-configures Linux dynamic shared
+library paths (`LD_LIBRARY_PATH` for Qt, Vulkan, and GLES) and verifies X11
+`DISPLAY` sockets (`DISPLAY=:20` on CRD).
 
-* **Dry-run verification (no process spawned):**
+- **Dry-run verification (no process spawned):**
   ```bash
   emu-dev-cli launch emulator \
     --emulator-dir /tmp/emulator-linux-x64-15942201/extracted/emulator \
     --dry-run \
     -- -avd my-dev-phone
   ```
-* **Launch interactive foreground emulator:**
+- **Launch interactive foreground emulator:**
   ```bash
   emu-dev-cli launch emulator \
     --emulator-dir /tmp/emulator-linux-x64-15942201/extracted/emulator \
     -- -avd my-dev-phone
   ```
-* **Launch detached daemon background emulator:**
+- **Launch detached daemon background emulator:**
   ```bash
   emu-dev-cli launch emulator \
     --emulator-dir /tmp/emulator-linux-x64-15942201/extracted/emulator \
@@ -122,19 +141,23 @@ Launches a prebuilt `emulator` executable. Auto-configures Linux dynamic shared 
 
 ### 5. Automated CTS-Verifier Runner (`cts run-cts-verifier`)
 
-Downloads and executes automated CTS-Verifier test modules (`tts`, `battery_saver`, `vibrations`, `tile_service`, `screen_pinning`, `has_vibrator`, etc.) against an online emulator.
+Downloads and executes automated CTS-Verifier test modules (`tts`,
+`battery_saver`, `vibrations`, `tile_service`, `screen_pinning`, `has_vibrator`,
+etc.) against an online emulator.
 
-* **Discover available automated test modules (`--list-modules`):**
-  Dynamically scans and lists all available CTS-Verifier automation modules (e.g. `tts`, `battery_saver`, `vibrations`, `tile_service`, `screen_pinning`, `has_vibrator`):
+- **Discover available automated test modules (`--list-modules`):** Dynamically
+  scans and lists all available CTS-Verifier automation modules (e.g. `tts`,
+  `battery_saver`, `vibrations`, `tile_service`, `screen_pinning`,
+  `has_vibrator`):
   ```bash
   emu-dev-cli cts run-cts-verifier --list-modules
   ```
-* **Run specific CTS-Verifier module on emulator (`--module <name>`):**
-  Runs the specified module against an active or launched emulator instance:
+- **Run specific CTS-Verifier module on emulator (`--module <name>`):** Runs the
+  specified module against an active or launched emulator instance:
   ```bash
   emu-dev-cli cts run-cts-verifier --module tts
   ```
-* **Run using specific Android Build (`go/ab`) build ID:**
+- **Run using specific Android Build (`go/ab`) build ID:**
   ```bash
   emu-dev-cli cts run-cts-verifier --build-id 15900270 --module vibrations
   ```
@@ -143,7 +166,9 @@ Downloads and executes automated CTS-Verifier test modules (`tts`, `battery_save
 
 ### 6. Onboarding Initialization (`init`)
 
-Installs global agent skills into `~/.gemini/` and launches interactive workspace source path setup if `~/.android/emu-dev-cli.json` is missing:
+Installs global agent skills into `~/.gemini/` and launches interactive
+workspace source path setup if `~/.android/emu-dev-cli.json` is missing:
+
 ```bash
 emu-dev-cli init
 ```
@@ -152,9 +177,10 @@ emu-dev-cli init
 
 ### 7. Query Documentation Paths (`docs`)
 
-Accesses documentation files using configured branch source directory paths in `~/.android/emu-dev-cli.json`:
+Accesses documentation files using configured branch source directory paths in
+`~/.android/emu-dev-cli.json`:
 
-* **Get path to CTS Verifier automation documentation (`README.md`):**
+- **Get path to CTS Verifier automation documentation (`README.md`):**
   ```bash
   emu-dev-cli docs cts-verifier-automation
   # Output: /work/emu-main-next/third_party/adt-infra/goldfish_test/xts/verifier/README.md
@@ -164,7 +190,9 @@ Accesses documentation files using configured branch source directory paths in `
 
 ### 8. Rebuild & Update Executable (`update`)
 
-Rebuilds `//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli` via Bazel from the configured local `emu-main-next` source directory and re-installs the compiled release package:
+Rebuilds `//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli` via Bazel from
+the configured local `emu-main-next` source directory and re-installs the
+compiled release package:
 
 ```bash
 emu-dev-cli update
@@ -174,27 +202,40 @@ emu-dev-cli update
 
 ### 9. Crash Investigation & Automated Fixing (`crash`)
 
-Integrates CrashAdvisor minidump diagnostics, normalized stack fingerprinting, Buganizer issue deduplication, and autonomous AI engineer fixing:
+Integrates CrashAdvisor minidump diagnostics, normalized stack fingerprinting,
+Buganizer issue deduplication, and autonomous AI engineer fixing:
 
-* **Find existing / duplicate Buganizer issues (`find-bug`):**
-  Symbolicates crash minidump, parses stack fingerprint (top faulting frame & calling functions), and searches Buganizer Component 29601 for existing issues. **Note:** Expects a Crash ID (e.g., `05d8356e2f800000`) or `go/crash` URL, **not** a Buganizer bug ID (`b/...`):
+- **Find existing / duplicate Buganizer issues (`find-bug`):** Symbolicates
+  crash minidump, parses stack fingerprint (top faulting frame & calling
+  functions), and searches Buganizer Component 29601 for existing issues.
+  **Note:** Expects a Crash ID (e.g., `05d8356e2f800000`) or `go/crash` URL,
+  **not** a Buganizer bug ID (`b/...`):
   ```bash
   emu-dev-cli crash find-bug 05d8356e2f800000
   emu-dev-cli crash find-bug https://crash.corp.google.com/05d8356e2f800000
   ```
-* **File or update Buganizer issue (`file-bug`):**
-  Runs CrashAdvisor RCA analysis for a Crash ID, creates a new issue in Component 29601 or updates/reopens an existing issue with looper timelines and stack traces:
+- **File or update Buganizer issue (`file-bug`):** Runs CrashAdvisor RCA
+  analysis for a Crash ID, creates a new issue in Component 29601 or
+  updates/reopens an existing issue with looper timelines and stack traces:
   ```bash
   emu-dev-cli crash file-bug 05d8356e2f800000
   ```
-* **Attempt autonomous fix (`autofix`):**
-  Parses RCA actionability YAML for a Crash ID, maps target files to local repository checkout, and dispatches `emu_main_next_engineer` to write tests, fix code, and upload a Gerrit CL:
+- **Attempt autonomous fix (`autofix`):** Parses RCA actionability YAML for a
+  Crash ID, maps target files to local repository checkout, and dispatches
+  `emu_main_next_engineer` to write tests, fix code, and upload a Gerrit CL:
   ```bash
   emu-dev-cli crash autofix 05d8356e2f800000
   emu-dev-cli crash autofix 05d8356e2f800000 --dry-run
   ```
-* **Unified Crash Analysis (`analyze`):**
-  Runs symbolication, stack fingerprinting, and interactive or automated RCA investigation:
+- **Local Crash Reproduction (`reproduce`):** Extracts Build ID, platform,
+  and commandline flags from crash metadata, downloads the matching emulator
+  binary, and boots under the LLDB interactive debugger:
+  ```bash
+  emu-dev-cli crash reproduce 05d8356e2f800000 --lldb
+  emu-dev-cli crash reproduce 05d8356e2f800000 --dry-run
+  ```
+- **Unified Crash Analysis (`analyze`):** Runs symbolication, stack
+  fingerprinting, and interactive or automated RCA investigation:
   ```bash
   emu-dev-cli crash analyze 05d8356e2f800000 --file-bug --autofix
   ```

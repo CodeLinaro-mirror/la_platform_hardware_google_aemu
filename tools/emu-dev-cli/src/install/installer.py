@@ -1,12 +1,19 @@
 import os
-import sys
-import shutil
+from pathlib import Path
 import platform
-import subprocess
-import shlex
 import py_compile
+import shlex
+import shutil
+import subprocess
+import sys
+
+from commands.source_directory import (
+    ensure_codesearch_urls_config,
+    get_source_directory,
+)
+from lib.bazel import BazelRunner
 from lib.output import print_result
-from commands.source_directory import ensure_codesearch_urls_config
+from lib.workspace import WorkspacePathResolver
 
 SKILL_MARKDOWN_CONTENT = """---
 name: emu_dev_cli
@@ -185,7 +192,9 @@ emu-dev-cli update
 def detect_default_install_path():
     system = platform.system().lower()
     if system == "windows":
-        local_appdata = os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))
+        local_appdata = os.environ.get(
+            "LOCALAPPDATA", str(Path.home() / "AppData" / "Local")
+        )
         emu_dev_dir = Path(local_appdata) / "Google" / "EmuDevCLI"
         emu_dev_dir.mkdir(parents=True, exist_ok=True)
         return str(emu_dev_dir / "emu-dev-cli.exe")
@@ -221,7 +230,9 @@ def get_release_package_directory(dest_path):
     home_dir = os.path.expanduser("~")
     system = platform.system().lower()
     if system == "windows":
-        local_appdata = os.environ.get("LOCALAPPDATA", os.path.join(home_dir, "AppData", "Local"))
+        local_appdata = os.environ.get(
+            "LOCALAPPDATA", os.path.join(home_dir, "AppData", "Local")
+        )
         return os.path.join(local_appdata, "Google", "EmuDevCLI")
     else:
         return os.path.join(home_dir, ".android", "emu-dev-cli")
@@ -255,10 +266,43 @@ def copy_src_to_release_lib(src_dir, release_lib_dir):
 
 def resolve_source_directory(source_dir=None):
     if source_dir:
-        cand = os.path.join(source_dir, "hardware", "google", "aemu", "tools", "emu-dev-cli", "src")
+        cand = os.path.join(
+            source_dir, "hardware", "google", "aemu", "tools", "emu-dev-cli", "src"
+        )
         if os.path.exists(cand):
             return cand
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def resolve_built_artifact(source_workspace, target, binary_name):
+    """Dynamically resolves built artifact via BazelRunner cquery, with fallback to bazel-bin search."""
+    is_windows = platform.system().lower() == "windows"
+    exe_name = f"{binary_name}.exe" if is_windows else binary_name
+    src_path = Path(source_workspace)
+
+    # 1. Use BazelRunner to resolve artifact dynamically via cquery
+    try:
+        runner = BazelRunner(source_dir=src_path)
+        artifacts = runner.query_artifacts([target], cwd=src_path)
+        for art in artifacts:
+            if art.is_file() and (is_windows or os.access(art, os.X_OK)):
+                return str(art)
+    except Exception as e:
+        sys.stderr.write(
+            f"ℹ️ Note: dynamic Bazel cquery for {target} failed ({e}). Falling back to bazel-bin search.\n"
+        )
+
+    # 2. Resilient search in bazel-bin
+    bazel_bin = src_path / "bazel-bin"
+    if bazel_bin.is_dir():
+        for match in bazel_bin.glob(f"**/{exe_name}"):
+            if match.is_file() and not match.name.endswith(
+                (".runfiles", ".params", ".manifest")
+            ):
+                if is_windows or os.access(match, os.X_OK):
+                    return str(match)
+
+    return None
 
 
 def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
@@ -287,18 +331,12 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
         source_workspace = resolve_source_directory(source_dir)
 
     if source_workspace:
-        advisor_src = os.path.join(
+        advisor_src = resolve_built_artifact(
             source_workspace,
-            "bazel-bin",
-            "external",
-            "goldfish+",
-            "emulator",
-            "crashreport",
-            "tool",
-            "advisor",
-            "advisor",
+            target="@goldfish//emulator/crashreport/tool/advisor:advisor",
+            binary_name="advisor",
         )
-        if os.path.exists(advisor_src):
+        if advisor_src and os.path.exists(advisor_src):
             bin_dir = os.path.join(release_lib_dir, "bin")
             os.makedirs(bin_dir, exist_ok=True)
             advisor_dest = os.path.join(bin_dir, "advisor")
@@ -318,22 +356,20 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
                         shutil.rmtree(advisor_rf_dest)
                 try:
                     shutil.copytree(advisor_rf, advisor_rf_dest, symlinks=True)
-                except Exception:
-                    pass
+                except OSError as e:
+                    sys.stderr.write(
+                        f"⚠️ Warning: Failed to copy advisor runfiles from {advisor_rf} to {advisor_rf_dest}: {e}\n"
+                    )
 
         # Copy compiled emu-main-next crashreport executable directly to bin/
         exe_suffix = ".exe" if platform.system().lower() == "windows" else ""
-        crashreport_src = os.path.join(
+        crashreport_src = resolve_built_artifact(
             source_workspace,
-            "bazel-bin",
-            "external",
-            "goldfish+",
-            "emulator",
-            "crashreport",
-            "tool",
-            f"crashreport{exe_suffix}",
+            target="@goldfish//emulator/crashreport/tool:crashreport",
+            binary_name=f"crashreport{exe_suffix}",
         )
-        if os.path.exists(crashreport_src):
+        if crashreport_src and os.path.exists(crashreport_src):
+
             bin_dir = os.path.join(release_lib_dir, "bin")
             os.makedirs(bin_dir, exist_ok=True)
             crashreport_dest = os.path.join(bin_dir, f"crashreport{exe_suffix}")
@@ -376,7 +412,12 @@ def install_launcher_with_sudo(built_bin, dest_path, source_dir=None):
 
     quoted_release_bin = shlex.quote(release_bin)
     quoted_dest = shlex.quote(str(dest_path))
-    cmd = ["sudo", "sh", "-c", f"ln -sf {quoted_release_bin} {quoted_dest} || cp {quoted_release_bin} {quoted_dest}"]
+    cmd = [
+        "sudo",
+        "sh",
+        "-c",
+        f"ln -sf {quoted_release_bin} {quoted_dest} || cp {quoted_release_bin} {quoted_dest}",
+    ]
     res = subprocess.run(cmd, check=False)
     return res.returncode == 0
 
@@ -388,12 +429,31 @@ def install_skill(source_dir=None):
         os.path.join(home_dir, ".gemini", "skills", "emu_dev_cli"),
     ]
     installed_files = []
-    
+
     candidate_skills = []
     if source_dir:
-        candidate_skills.append(os.path.join(source_dir, "hardware", "google", "aemu", "tools", "emu-dev-cli", "skills", "SKILL.md"))
-    candidate_skills.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "skills", "SKILL.md"))
-    candidate_skills.append(os.path.join(home_dir, ".android", "emu-dev-cli", "skills", "SKILL.md"))
+        candidate_skills.append(
+            os.path.join(
+                source_dir,
+                "hardware",
+                "google",
+                "aemu",
+                "tools",
+                "emu-dev-cli",
+                "skills",
+                "SKILL.md",
+            )
+        )
+    candidate_skills.append(
+        os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "skills",
+            "SKILL.md",
+        )
+    )
+    candidate_skills.append(
+        os.path.join(home_dir, ".android", "emu-dev-cli", "skills", "SKILL.md")
+    )
 
     content_to_write = SKILL_MARKDOWN_CONTENT
     for cand in candidate_skills:
@@ -402,8 +462,8 @@ def install_skill(source_dir=None):
                 with open(cand, "r", encoding="utf-8") as f:
                     content_to_write = f.read()
                 break
-            except Exception:
-                pass
+            except OSError as e:
+                sys.stderr.write(f"ℹ️ Could not read skill from {cand}: {e}\n")
 
     for target_dir in target_dirs:
         try:
@@ -412,15 +472,19 @@ def install_skill(source_dir=None):
             with open(skill_file, "w", encoding="utf-8") as f:
                 f.write(content_to_write)
             installed_files.append(skill_file)
-        except Exception:
-            pass
+        except OSError as e:
+            sys.stderr.write(
+                f"⚠️ Warning: Could not install skill to {target_dir}: {e}\n"
+            )
 
     return installed_files
 
 
 def print_path_instructions(installed_bin_path):
     installed_dir = os.path.dirname(str(installed_bin_path))
-    path_dirs = [os.path.normpath(p) for p in os.environ.get("PATH", "").split(os.pathsep) if p]
+    path_dirs = [
+        os.path.normpath(p) for p in os.environ.get("PATH", "").split(os.pathsep) if p
+    ]
     norm_installed_dir = os.path.normpath(installed_dir)
 
     if norm_installed_dir in path_dirs:
@@ -429,10 +493,14 @@ def print_path_instructions(installed_bin_path):
 
     system = platform.system().lower()
     print("-" * 50)
-    print(f"⚠️  To use 'emu-dev-cli' from any terminal, add its directory to your PATH:")
+    print(
+        f"⚠️  To use 'emu-dev-cli' from any terminal, add its directory to your PATH:"
+    )
     if system == "windows":
         print(f"\n  In PowerShell, run:")
-        print(f'    [Environment]::SetEnvironmentVariable("Path", $env:Path + ";{installed_dir}", "User")')
+        print(
+            f'    [Environment]::SetEnvironmentVariable("Path", $env:Path + ";{installed_dir}", "User")'
+        )
         print(f"\n  Or in Command Prompt (cmd), run:")
         print(f'    setx PATH "%PATH%;{installed_dir}"')
     else:
@@ -441,21 +509,23 @@ def print_path_instructions(installed_bin_path):
         if "zsh" in user_shell:
             shell_rc = "~/.zshrc"
         print(f"\n  Run the following command in your terminal:")
-        print(f'    echo \'export PATH="{installed_dir}:$PATH"\' >> {shell_rc} && source {shell_rc}')
+        print(
+            f"    echo 'export PATH=\"{installed_dir}:$PATH\"' >> {shell_rc} && source {shell_rc}"
+        )
     print("-" * 50)
 
 
 def register_parser(subparsers):
     install_parser = subparsers.add_parser(
         "install",
-        help="Install emu-dev-cli global launcher and agent SKILL.md into user environment"
+        help="Install emu-dev-cli global launcher and agent SKILL.md into user environment",
     )
     default_path = detect_default_install_path()
     install_parser.add_argument(
         "--path",
         type=str,
         default=default_path,
-        help=f"Destination executable path (defaults to '{default_path}')"
+        help=f"Destination executable path (defaults to '{default_path}')",
     )
     install_parser.set_defaults(func=run_install_cmd)
 
@@ -485,13 +555,16 @@ def run_install_cmd(args):
     skill_files = install_skill()
     ensure_codesearch_urls_config()
 
-    print_result({
-        "status": "success",
-        "action": "install",
-        "summary": f"Successfully installed emu_dev_cli compiled release package and skills",
-        "launcher_path": str(final_installed),
-        "skill_files": skill_files,
-    }, json_mode=json_mode)
+    print_result(
+        {
+            "status": "success",
+            "action": "install",
+            "summary": f"Successfully installed emu_dev_cli compiled release package and skills",
+            "launcher_path": str(final_installed),
+            "skill_files": skill_files,
+        },
+        json_mode=json_mode,
+    )
 
     if final_installed:
         print_path_instructions(final_installed)

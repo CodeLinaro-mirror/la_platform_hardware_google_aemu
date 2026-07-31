@@ -59,16 +59,30 @@ def is_path_secure_user_owned(path: str, is_dir: bool = False) -> bool:
         return False
 
 
-def get_crashadvisor_sandbox_dir(crash_id: str) -> str:
-    """Resolves the absolute path to the CrashAdvisor sandbox directory for a crash ID."""
-    user = os.environ.get("USER") or getpass.getuser()
-    primary = os.path.join(tempfile.gettempdir(), f"crashadvisor_{user}", crash_id)
-    if os.path.exists(primary):
-        return primary
-    fallback = os.path.join("/tmp", f"crashadvisor_{user}", crash_id)
-    if os.path.exists(fallback):
-        return fallback
-    return primary
+def create_secure_sandbox_dir(crash_id: str) -> str:
+    """Creates a guaranteed atomic, user-exclusive (0o700) sandbox directory."""
+    return tempfile.mkdtemp(prefix=f"crashadvisor_{crash_id}_")
+
+
+def get_crashadvisor_sandbox_dir(crash_id: str, create: bool = True) -> str:
+    """Resolves or creates the absolute path to a secure CrashAdvisor sandbox directory."""
+    if create:
+        return create_secure_sandbox_dir(crash_id)
+
+    temp_dir = Path(tempfile.gettempdir())
+    matches = sorted(
+        [
+            p
+            for p in temp_dir.glob(f"crashadvisor_{crash_id}_*")
+            if is_path_secure_user_owned(p, is_dir=True)
+        ],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if matches:
+        return str(matches[0])
+
+    return create_secure_sandbox_dir(crash_id)
 
 
 
@@ -703,9 +717,10 @@ def run_analyze(args: argparse.Namespace) -> None:
         crash_modules = ensure_crashadvisor_imports()
         advisor_mod = crash_modules["advisor"]
 
+        sandbox_dir = get_crashadvisor_sandbox_dir(crash_id, create=True)
         is_auto_run = getattr(args, "auto_run", False)
         token = acquire_auth_token(getattr(args, "token", None))
-        cmd_args = [crash_id]
+        cmd_args = [crash_id, "--work-dir", sandbox_dir]
         if token:
             cmd_args.extend(["--token", token])
         if is_auto_run:
@@ -717,7 +732,6 @@ def run_analyze(args: argparse.Namespace) -> None:
 
         # In interactive mode (not auto-run), automatically execute investigation_cmd.sh
         if not is_auto_run:
-            sandbox_dir = get_crashadvisor_sandbox_dir(crash_id)
             script_path = os.path.join(sandbox_dir, "investigation_cmd.sh")
             if os.path.exists(script_path):
                 if not (
