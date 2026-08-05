@@ -63,6 +63,26 @@ class OAuthTokenManagerTest(unittest.TestCase):
         token = manager.fetch_oauth2l_token()
         self.assertEqual(token, "fetched_oauth2l_token")
 
+    def test_save_cached_token(self):
+        """Tests save_cached_token stores token in memory and environment."""
+        manager = OAuthTokenManager()
+        manager.save_cached_token("Bearer cached_tok_123")
+        self.assertEqual(manager._cached_token, "cached_tok_123")
+        self.assertEqual(os.environ.get("OAUTH2_TOKEN"), "cached_tok_123")
+
+    @patch("pathlib.Path.exists")
+    @patch("subprocess.run")
+    def test_fetch_oauth2l_token_ssh_fallback(self, mock_run, mock_exists):
+        """Tests SSH fallback path executes save_cached_token without AttributeError."""
+        mock_exists.return_value = False
+        local_fail = MagicMock(returncode=1, stdout="")
+        ssh_success = MagicMock(returncode=0, stdout="Bearer ssh_fetched_token")
+        mock_run.side_effect = [local_fail, local_fail, ssh_success]
+        manager = OAuthTokenManager()
+        token = manager.fetch_oauth2l_token()
+        self.assertEqual(token, "ssh_fetched_token")
+        self.assertEqual(manager._cached_token, "ssh_fetched_token")
+
 
 if __name__ == "__main__":
     unittest.main()

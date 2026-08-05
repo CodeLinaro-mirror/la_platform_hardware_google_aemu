@@ -14,12 +14,31 @@
 
 """Unified workspace and path resolution module for emu-dev-cli."""
 
+import getpass
 import logging
 import os
 from pathlib import Path
+import re
 import shutil
 import sys
+import tempfile
 from typing import List, Optional, Union
+
+
+def get_flakiness_sandbox_dir(sub_dir: str = "") -> Path:
+    """Returns a user-isolated temporary sandbox directory outside the git repository tree.
+
+    Path format: <tempdir>/flakiness_<user>/[sub_dir]
+    """
+    user = os.environ.get("USER") or getpass.getuser()
+    base_dir = Path(tempfile.gettempdir()) / f"flakiness_{user}"
+    if sub_dir:
+        target_dir = base_dir / sub_dir
+    else:
+        target_dir = base_dir
+    target_dir.mkdir(parents=True, exist_ok=True)
+    return target_dir
+
 
 from commands.source_directory import (
     find_file_in_source_directories,
@@ -115,6 +134,100 @@ class WorkspacePathResolver:
 
         return None
 
+    def resolve_bazel_target_source_path(
+        self, target_label: str
+    ) -> tuple[Optional[Path], Optional[Path]]:
+        """Resolves a Bazel target label (e.g. '@goldfish//emulator/libs/process:process_unittests')
+        to its exact package directory (e.g. 'hardware/generic/goldfish/emulator/libs/process')
+        and primary source file (e.g. 'command_test.cc').
+
+        Args:
+            target_label: Bazel target string.
+
+        Returns:
+            Tuple of (package_directory_path, primary_source_file_path)
+        """
+        clean_target = (
+            target_label.replace("@@goldfish+//", "")
+            .replace("@goldfish//", "")
+            .replace("//", "")
+            .replace("@", "")
+        )
+        if ":" in clean_target:
+            pkg_rel, target_name = clean_target.split(":", 1)
+        else:
+            pkg_rel = clean_target
+            target_name = clean_target.split("/")[-1]
+
+        # 1. First attempt Bazel query for precise source file resolution
+        try:
+            src_dir = get_source_directory(self.default_workspace)
+            candidate_roots = [Path(src_dir)] if src_dir else []
+            candidate_roots.extend(self.custom_roots)
+            for root in candidate_roots:
+                if (root / "WORKSPACE").exists() or (root / "MODULE.bazel").exists():
+                    runner = BazelRunner(source_dir=root)
+                    proc = runner.cquery(
+                        f"labels(srcs, {target_label})",
+                        invocation_flags=["--output=files"],
+                        cwd=root,
+                        check=False,
+                    )
+                    if proc.returncode == 0 and proc.stdout.strip():
+                        for line in proc.stdout.splitlines():
+                            cand_p = Path(line.strip())
+                            if cand_p.is_file():
+                                return cand_p.parent, cand_p
+        except Exception:
+            pass
+
+        # 2. Search package directory across registered workspace roots
+        package_dir = self.find_directory(pkg_rel)
+        if not package_dir:
+            for prefix in ("hardware/generic/goldfish", "hardware/google/aemu"):
+                cand = self.find_directory(Path(prefix) / pkg_rel)
+                if cand:
+                    package_dir = cand
+                    break
+
+        if not package_dir:
+            return None, None
+
+        # 3. Search primary source file inside package_dir via BUILD.bazel parsing heuristic
+        matched_file = None
+        build_bazel = package_dir / "BUILD.bazel"
+        if build_bazel.is_file():
+            content = build_bazel.read_text(encoding="utf-8")
+            if target_name in content:
+                pattern = rf'name\s*=\s*"{re.escape(target_name)}".*?srcs\s*=\s*\[(.*?)\]'
+                match = re.search(pattern, content, re.DOTALL)
+                if match:
+                    src_list = match.group(1)
+                    src_files = re.findall(r'"([^"]+)"', src_list)
+                    for f in src_files:
+                        cand_file = package_dir / f
+                        if cand_file.is_file():
+                            matched_file = cand_file
+                            break
+
+        if not matched_file:
+            for ext in (".cpp", ".cc", ".c", ".py", ".rs", ".go"):
+                for name_cand in (
+                    f"{target_name}{ext}",
+                    f"{target_name.replace('_unittests', '_test')}{ext}",
+                    f"{target_name.replace('_test', '')}{ext}",
+                    f"command_test{ext}",
+                ):
+                    cand = package_dir / name_cand
+                    if cand.is_file():
+                        matched_file = cand
+                        break
+                if matched_file:
+                    break
+
+        return package_dir, matched_file
+
+
     def find_tool_binary(
         self,
         binary_name: str,
@@ -193,4 +306,4 @@ class WorkspacePathResolver:
         return None
 
 
-__all__ = ["WorkspacePathResolver"]
+__all__ = ["WorkspacePathResolver", "get_flakiness_sandbox_dir"]

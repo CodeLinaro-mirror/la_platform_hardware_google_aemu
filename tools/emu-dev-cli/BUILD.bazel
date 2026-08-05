@@ -20,6 +20,7 @@ package(default_visibility = ["//visibility:public"])
 py_library(
     name = "emu_dev_cli_lib",
     srcs = glob(["src/**/*.py"]),
+    data = glob(["src/templates/*.md"]),
     imports = ["src"],
 )
 

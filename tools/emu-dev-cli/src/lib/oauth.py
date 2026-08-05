@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 class OAuthTokenManager:
     """Reusable OAuth2 token manager providing fallback resolution via explicit tokens,
-    environment variables, and automated `oauth2l` SSO fetch/refresh routines.
+    environment variables, automated `oauth2l` SSO fetch/refresh routines, and remote SSH GLinux retrieval.
     """
 
     DEFAULT_SCOPES: List[str] = [
@@ -48,32 +48,31 @@ class OAuthTokenManager:
         """
         self.scopes = scopes or list(self.DEFAULT_SCOPES)
         self.env_vars = env_vars or ["BUGANIZER_TOKEN", "OAUTH2_TOKEN"]
+        self._cached_token: Optional[str] = None
+
+    def save_cached_token(self, token: str) -> None:
+        """Caches the acquired token in instance memory and environment."""
+        cleaned = self.clean_token(token)
+        if cleaned:
+            self._cached_token = cleaned
+            os.environ["OAUTH2_TOKEN"] = cleaned
 
     @staticmethod
     def clean_token(raw_token: Optional[str]) -> Optional[str]:
-        """Strips whitespace and trailing newlines, and removes 'Bearer ' prefix if present.
-
-        Args:
-            raw_token: Raw token string or subprocess output.
-
-        Returns:
-            Cleaned token string if valid, None otherwise.
-        """
+        """Strips whitespace and trailing newlines, and removes 'Authorization:' / 'Bearer ' prefixes if present."""
         if not raw_token:
             return None
         cleaned = raw_token.strip()
-        if cleaned.startswith("Bearer "):
-            cleaned = cleaned.replace("Bearer ", "").strip()
+        if "Bearer " in cleaned:
+            cleaned = cleaned.split("Bearer ")[-1].strip()
+        elif cleaned.startswith("Authorization:"):
+            cleaned = cleaned.replace("Authorization:", "").strip()
         if not cleaned or cleaned.startswith("Error") or " " in cleaned:
             return None
         return cleaned
 
     def get_token_from_env(self) -> Optional[str]:
-        """Checks configured environment variables for a valid OAuth2 token.
-
-        Returns:
-            Cleaned token string if found in environment variables, None otherwise.
-        """
+        """Checks configured environment variables for a valid OAuth2 token."""
         for var in self.env_vars:
             val = os.environ.get(var)
             if val:
@@ -83,17 +82,15 @@ class OAuthTokenManager:
         return None
 
     def fetch_oauth2l_token(self) -> Optional[str]:
-        """Attempts to fetch or refresh token via `oauth2l` CLI utility using SSO or standard fetch flows.
-
-        Returns:
-            Cleaned token string if acquired via oauth2l, None otherwise.
-        """
+        """Attempts to fetch or refresh token via local `oauth2l` SSO or SSH remote GLinux retrieval."""
         user = os.environ.get("USER") or getpass.getuser()
         sso_email = f"{user}@google.com"
 
         cmd_variants = []
         if sys.platform == "linux" and Path("/google/data").exists():
+            cmd_variants.append(["oauth2l", "header", "--sso", sso_email] + self.scopes)
             cmd_variants.append(["oauth2l", "fetch", "--sso", sso_email] + self.scopes)
+        cmd_variants.append(["oauth2l", "header"] + self.scopes)
         cmd_variants.append(["oauth2l", "fetch"] + self.scopes)
 
         for cmd in cmd_variants:
@@ -107,55 +104,61 @@ class OAuthTokenManager:
                 if res.returncode == 0 and res.stdout.strip():
                     cleaned = self.clean_token(res.stdout)
                     if cleaned:
+                        self.save_cached_token(cleaned)
                         return cleaned
             except Exception:
                 pass
 
-        # Retry with oauth2l reset if stale cache caused failure
-        try:
-            subprocess.run(["oauth2l", "reset"], capture_output=True, timeout=5.0)
-            for cmd in cmd_variants:
-                res = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=10.0,
-                )
-                if res.returncode == 0 and res.stdout.strip():
-                    cleaned = self.clean_token(res.stdout)
-                    if cleaned:
-                        return cleaned
-        except Exception:
-            pass
+        # Remote GLinux SSH Fallback (for macOS workstations)
+        if sys.platform == "darwin" or not Path("/google/data").exists():
+            glinux_hosts = []
+            if os.environ.get("GLINUX_HOST"):
+                glinux_hosts.append(os.environ.get("GLINUX_HOST"))
+            if os.environ.get("REMOTE_GLINUX_HOST"):
+                glinux_hosts.append(os.environ.get("REMOTE_GLINUX_HOST"))
+            glinux_hosts.append(f"{user}.c.googlers.com")
 
-        # Fallback: try oauth2l header
-        try:
-            res = subprocess.run(
-                ["oauth2l", "header", "--sso", sso_email] + self.scopes,
-                capture_output=True,
-                text=True,
-                timeout=5.0,
-            )
-            if res.returncode == 0 and "Bearer " in res.stdout:
-                return self.clean_token(res.stdout)
-        except Exception:
-            pass
+            ssh_commands = [
+                f"export PATH=$PATH:/google/data/ro/teams/oneplatform:~/go/bin:/usr/local/bin; oauth2l header --sso {sso_email} " + " ".join(self.scopes),
+                f"export PATH=$PATH:/google/data/ro/teams/oneplatform:~/go/bin:/usr/local/bin; oauth2l fetch --sso {sso_email} " + " ".join(self.scopes),
+            ]
 
-        return None
+            for host in glinux_hosts:
+                for subcmd in ssh_commands:
+                    try:
+                        remote_cmd = [
+                            "ssh",
+                            "-o", "BatchMode=yes",
+                            "-o", "ConnectTimeout=4",
+                            host,
+                            subcmd,
+                        ]
+                        res = subprocess.run(
+                            remote_cmd,
+                            capture_output=True,
+                            text=True,
+                            timeout=8.0,
+                        )
+                        if res.returncode == 0 and res.stdout.strip():
+                            cleaned = self.clean_token(res.stdout)
+                            if cleaned:
+                                self.save_cached_token(cleaned)
+                                return cleaned
+                    except Exception:
+                        pass
 
     def acquire_token(self, user_token: Optional[str] = None) -> Optional[str]:
-        """Resolves OAuth2 token from explicit CLI argument, environment variables, or oauth2l SSO.
-
-        Args:
-            user_token: Optional explicit token passed by user/CLI argument.
-
-        Returns:
-            Resolved OAuth2 token string if acquired, None otherwise.
-        """
+        """Resolves OAuth2 token from explicit CLI argument, environment variables, or oauth2l SSO."""
         if user_token:
             cleaned = self.clean_token(user_token)
             if cleaned:
                 logger.debug("Acquired OAuth2 token from user argument")
+                return cleaned
+
+        if self._cached_token:
+            cleaned = self.clean_token(self._cached_token)
+            if cleaned:
+                logger.debug("Acquired OAuth2 token from in-memory cache")
                 return cleaned
 
         env_token = self.get_token_from_env()
@@ -166,6 +169,19 @@ class OAuthTokenManager:
         token = self.fetch_oauth2l_token()
         if token:
             logger.debug("Acquired OAuth2 token via oauth2l helper")
+            self.save_cached_token(token)
         else:
             logger.debug("No OAuth2 token could be acquired")
         return token
+
+    def get_token(
+        self, user_token: Optional[str] = None, force_refresh: bool = False
+    ) -> Optional[str]:
+        """Convenience method to acquire token, optionally forcing cache refresh."""
+        if force_refresh:
+            self._cached_token = None
+            try:
+                subprocess.run(["oauth2l", "reset"], capture_output=True, timeout=5.0)
+            except Exception:
+                pass
+        return self.acquire_token(user_token=user_token)

@@ -150,7 +150,42 @@ emu-dev-cli crash file-bug 05d8356e2f800000
 # Run RCA and dispatch autonomous engineer to fix local repo
 emu-dev-cli crash autofix 05d8356e2f800000
 
+# Local reproduction with LLDB attached to qemu-system process
+emu-dev-cli crash reproduce 05d8356e2f800000 --lldb
+
 # Run unified crash analysis
 emu-dev-cli crash analyze 05d8356e2f800000 --file-bug --autofix
+```
+
+---
+
+#### Authentication Protocol & macOS Workstation Handling (`--token`)
+Android Test Hub and Android Build internal endpoints require an OAuth2 token with `https://www.googleapis.com/auth/androidbuild.internal`.
+
+On **macOS workstations**, standard `oauth2l fetch` grants public cloud-platform credentials which return `HTTP 403 Forbidden` (`ACCESS_TOKEN_SCOPE_INSUFFICIENT`).
+
+**Agent Execution Protocol when running on macOS (`sys.platform == 'darwin'`):**
+1. **Environment Check**: Check if `ANDROID_BUILD_TOKEN` environment variable or `--token <token>` argument is set.
+2. **Automated Remote SSH Fetch**: If an SSH connection to a GLinux machine (`$GLINUX_HOST` or `$USER.c.googlers.com`) is available, `OAuthTokenManager` automatically fetches the token via SSH.
+3. **Interactive Escalation**: If an auth failure (`HTTP 403`) occurs, the agent interactively prompts the user to run `oauth2l fetch --sso $USER@google.com androidbuild.internal` and pass it via `--token` or `export ANDROID_BUILD_TOKEN="..."`.
+
+```bash
+# List flaky test targets from Android Test Hub (across Linux, ASAN, TSAN, Windows, Mac)
+emu-dev-cli flakiness list --target emulator_linux_x64_tsan --mode all --min-flake-rate 10.0 --days 7
+
+# Inspect individual test chronological execution history and pass/fail rates
+emu-dev-cli flakiness history --test @goldfish//emulator/plugin/hal/plug:hal_plug_adapter_unittests --target emulator_linux_x64_tsan
+
+# Fetch diagnostic logs and thread dumps for an invocation
+emu-dev-cli flakiness fetch-logs --invocation-id I99100010599127182 --artifact-type HOST_LOG
+
+# Locally reproduce and stress-test flakes under Bazel
+emu-dev-cli flakiness reproduce --test @goldfish//emulator/plugin/hal/plug:hal_plug_adapter_unittests --target emulator_linux_x64_tsan --iterations 30
+
+# Triage against Buganizer and generate AI root-cause patches
+emu-dev-cli flakiness triage --target emulator_linux_x64_tsan --min-flake-rate 10.0 --dry-run
+
+# One-command remediation: apply fix, stress-test 50x, and prepare Gerrit CL
+emu-dev-cli flakiness fix --bug 123456789 --target emulator_linux_x64_tsan --iterations 50 --upload
 ```
 

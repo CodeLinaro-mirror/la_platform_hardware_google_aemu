@@ -18,6 +18,7 @@ from commands import (
     cts,
     docs,
     fetch_build,
+    flakiness,
     init_cmd,
     launch,
     source_directory,
@@ -25,6 +26,7 @@ from commands import (
 )
 from install import installer
 from lib.logging_config import setup_logging
+
 
 
 def detect_default_host():
@@ -69,6 +71,7 @@ def main():
     cts.register_parser(subparsers)
     docs.register_parser(subparsers)
     fetch_build.register_parser(subparsers, default_host)
+    flakiness.register_parser(subparsers)
     init_cmd.register_parser(subparsers)
     installer.register_parser(subparsers)
     launch.register_parser(subparsers)

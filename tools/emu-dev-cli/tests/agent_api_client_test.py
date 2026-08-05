@@ -31,9 +31,11 @@ from lib.agent import AgentApiClient
 class AgentApiClientTest(unittest.TestCase):
     """Tests for AgentApiClient wrapper."""
 
+    @patch("lib.agent.resolve_agentapi_binary")
     @patch("subprocess.run")
-    def test_start_conversation(self, mock_run):
+    def test_start_conversation(self, mock_run, mock_resolve):
         """Tests launching a new agent conversation via agentapi CLI."""
+        mock_resolve.return_value = "agentapi"
         mock_run.return_value = MagicMock(
             returncode=0, stdout="Conversation ID: 1234\n"
         )
@@ -53,13 +55,15 @@ class AgentApiClientTest(unittest.TestCase):
             ],
             capture_output=True,
             text=True,
-            check=True,
+            check=False,
         )
         self.assertEqual(res.returncode, 0)
 
+    @patch("lib.agent.resolve_agentapi_binary")
     @patch("subprocess.run")
-    def test_send_message(self, mock_run):
+    def test_send_message(self, mock_run, mock_resolve):
         """Tests sending a message to an existing conversation."""
+        mock_resolve.return_value = "agentapi"
         mock_run.return_value = MagicMock(returncode=0, stdout="Message sent\n")
         client = AgentApiClient()
         res = client.send_message(
@@ -77,7 +81,7 @@ class AgentApiClientTest(unittest.TestCase):
             ],
             capture_output=True,
             text=True,
-            check=True,
+            check=False,
         )
 
 
