@@ -1,3 +1,17 @@
+# Copyright 2026 The Android Open Source Project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 load("@rules_cc//cc:defs.bzl", "cc_binary")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 
@@ -25,11 +39,22 @@ cc_binary(
     data = [":emu-dev-cli-backend"],
 )
 
-py_test(
-    name = "emu_dev_cli_test",
-    srcs = ["tests/emu_dev_cli_test.py"],
-    imports = ["src"],
-    deps = [
-        ":emu_dev_cli_lib",
+[
+    py_test(
+        name = f.replace("tests/", "").replace(".py", ""),
+        srcs = [f],
+        imports = ["src"],
+        deps = [
+            ":emu_dev_cli_lib",
+        ],
+    )
+    for f in glob(["tests/*_test.py"])
+]
+
+test_suite(
+    name = "all_tests",
+    tests = [
+        f.replace("tests/", "").replace(".py", "")
+        for f in glob(["tests/*_test.py"])
     ],
 )
