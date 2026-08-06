@@ -160,14 +160,25 @@ emu-dev-cli crash analyze 05d8356e2f800000 --file-bug --autofix
 ---
 
 #### Authentication Protocol & macOS Workstation Handling (`--token`)
-Android Test Hub and Android Build internal endpoints require an OAuth2 token with `https://www.googleapis.com/auth/androidbuild.internal`.
 
-On **macOS workstations**, standard `oauth2l fetch` grants public cloud-platform credentials which return `HTTP 403 Forbidden` (`ACCESS_TOKEN_SCOPE_INSUFFICIENT`).
+Android Test Hub and Android Build internal endpoints require an OAuth2 token
+with `https://www.googleapis.com/auth/androidbuild.internal`.
+
+On **macOS workstations**, standard `oauth2l fetch` grants public cloud-platform
+credentials which return `HTTP 403 Forbidden`
+(`ACCESS_TOKEN_SCOPE_INSUFFICIENT`).
 
 **Agent Execution Protocol when running on macOS (`sys.platform == 'darwin'`):**
-1. **Environment Check**: Check if `ANDROID_BUILD_TOKEN` environment variable or `--token <token>` argument is set.
-2. **Automated Remote SSH Fetch**: If an SSH connection to a GLinux machine (`$GLINUX_HOST` or `$USER.c.googlers.com`) is available, `OAuthTokenManager` automatically fetches the token via SSH.
-3. **Interactive Escalation**: If an auth failure (`HTTP 403`) occurs, the agent interactively prompts the user to run `oauth2l fetch --sso $USER@google.com androidbuild.internal` and pass it via `--token` or `export ANDROID_BUILD_TOKEN="..."`.
+
+1. **Environment Check**: Check if `ANDROID_BUILD_TOKEN` environment variable or
+   `--token <token>` argument is set.
+2. **Automated Remote SSH Fetch**: If an SSH connection to a GLinux machine
+   (`$GLINUX_HOST` or `$USER.c.googlers.com`) is available, `OAuthTokenManager`
+   automatically fetches the token via SSH.
+3. **Interactive Escalation**: If an auth failure (`HTTP 403`) occurs, the agent
+   interactively prompts the user to run
+   `oauth2l fetch --sso $USER@google.com androidbuild.internal` and pass it via
+   `--token` or `export ANDROID_BUILD_TOKEN="..."`.
 
 ```bash
 # List flaky test targets from Android Test Hub (across Linux, ASAN, TSAN, Windows, Mac)
@@ -189,3 +200,91 @@ emu-dev-cli flakiness triage --target emulator_linux_x64_tsan --min-flake-rate 1
 emu-dev-cli flakiness fix --bug 123456789 --target emulator_linux_x64_tsan --iterations 50 --upload
 ```
 
+---
+
+### 8. Clang-Tidy Progressive Remediation (`tidy`)
+
+`emu-dev-cli tidy` automates progressive Clang-Tidy diagnostic analysis,
+transactional refactoring, target discovery, and compliance auditing across
+Android Emulator Bazel packages.
+
+#### 8.1 Diagnostic Profiling (`tidy check`)
+
+Runs the Bazel Clang-Tidy aspect (`:tidy_report`) and categorizes diagnostics
+across 4 Progressive Remediation Levels:
+
+```bash
+# Check all diagnostics up to Level 4 (default)
+emu-dev-cli tidy check @goldfish//emulator/plugin/display:tidy
+
+# Check strictly Level 1 (Safe AST fixes)
+emu-dev-cli tidy check @goldfish//emulator/libs/sockets:tidy --level 1
+
+# Output structured JSON report
+emu-dev-cli tidy check @goldfish//emulator/launcher:tidy --json
+```
+
+#### 8.2 Autonomous Transactional Refactoring (`tidy fix`)
+
+Executes the progressive transactional remediation loop with automatic step
+isolation:
+
+- **Level 1 (AST Safe)**: Applies Clang-Tidy native byte-offset replacements
+  directly.
+- **Level 2 (Local Scopes)**: Refactors local variables, private members, and
+  internal static constants (`k_snake_case` / `g_snake_case`).
+- **Level 3 (Translational Call-Sites)**: Refactors internal function signatures
+  and parameter declarations, capturing broken call-sites with `CompilerOracle`.
+- **Level 4 (Public API / Global Signatures)**: Refactors exported APIs, scoping
+  package closures (`f"{pkg}:all"`) and 1-hop reverse dependencies
+  (`cquery rdeps`) to prevent full-repository rebuild latency.
+- **Rollback Invariant**: If verification or test gates fail,
+  `emu-dev-cli tidy fix` automatically invokes `tx.rollback_step()` so the
+  working tree is never left dirty.
+
+```bash
+# Run Level 1 AST fixes
+emu-dev-cli tidy fix @goldfish//emulator/plugin/display:tidy --level safe
+
+# Run Level 2 local identifier refactoring
+emu-dev-cli tidy fix @goldfish//emulator/libs/sockets:tidy --level local
+
+# Continue a paused transaction after manual adjustments
+emu-dev-cli tidy fix --continue
+
+# Inspect active transaction status
+emu-dev-cli tidy fix --status
+
+# Abort an active transaction and restore anchor commit
+emu-dev-cli tidy fix --abort
+```
+
+#### 8.3 Package Rule Configuration (`tidy add`)
+
+Scans Bazel packages and configures `clang_tidy_test` rules with proper licenses
+and target lists:
+
+```bash
+# Add clang_tidy_test rule to a BUILD.bazel package directory
+emu-dev-cli tidy add emulator/libs/sockets --target sockets
+```
+
+---
+
+## 🤖 Agent Autonomous Remediation & Policy Protocol
+
+When an AI pair programmer or autonomous agent is tasked with fixing Clang-Tidy
+warnings or modernizing C++ code:
+
+1. **Prohibition of Manual Source Edits**: Do not perform manual
+   search-and-replace, ad-hoc source editing, or whole-file regex substitutions
+   across targets.
+2. **Profile Diagnostics**: Run
+   `emu-dev-cli tidy check <target> --level <N>` to inspect diagnostic
+   counts.
+3. **Execute Transactional Fix**: Run
+   `emu-dev-cli tidy fix --target <target> --level <N>` to let the tool manage
+   AST mutations, `CompilerOracle` call-site discovery, test gate verification,
+   and clean step commits.
+4. **Rebase Hygiene**: When performing interactive rebases, run `clang-format`
+   or `git clang-format` per commit across the stack to maintain style hygiene.
