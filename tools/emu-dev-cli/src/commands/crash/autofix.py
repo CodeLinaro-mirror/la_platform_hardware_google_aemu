@@ -15,10 +15,14 @@
 """Closed-loop autonomous engineer fixing subcommand module for emu-dev-cli (`crash autofix`)."""
 
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from commands.crash.advisor import run_crashadvisor_bazel
+from commands.crash.fix_checker import (
+    evaluate_crash_fix_status,
+    format_agent_version_guardrail_prompt,
+)
 from commands.crash.utils import (
     acquire_auth_token,
     get_crashadvisor_sandbox_dir,
@@ -32,12 +36,16 @@ from lib.markdown import extract_yaml_block
 def run_autofix(args: argparse.Namespace) -> None:
     """Parses RCA actionability and dispatches emu_main_next_engineer for autonomous fix.
 
+    Checks whether the crash was built against an older repository version and whether
+    the bug has already been resolved or fixed before dispatching the autonomous agent.
+
     Args:
-        args: Parsed command line arguments containing crash_id, token, dry_run flags.
+        args: Parsed command line arguments containing crash_id, token, dry_run, force flags.
     """
     target_id = parse_crash_id(args.crash_id)
     token = acquire_auth_token(getattr(args, "token", None))
     dry_run = getattr(args, "dry_run", False)
+    force = getattr(args, "force", False)
 
     print(f"🔧 Initiating autonomous autofix pipeline for Target: {target_id}...")
 
@@ -81,13 +89,30 @@ def run_autofix(args: argparse.Namespace) -> None:
         if cand.exists():
             local_file_path = str(cand)
 
+    meta_path = Path(sandbox_dir) / "metadata.json"
+    fix_res = evaluate_crash_fix_status(
+        crash_id=target_id,
+        metadata_path=meta_path if meta_path.exists() else None,
+        action_data=action_data,
+        source_dir=local_src_dir,
+    )
+
+    fixed_badge = (
+        "ALREADY FIXED / RESOLVED ✅"
+        if fix_res.is_already_fixed
+        else "NEEDS VERIFICATION / FIX ⚠️"
+    )
+
     print(f"\n📋 Actionability Analysis Results:")
     print(f"  • Fixable: {'YES ✅' if is_fixable else 'NO ❌'}")
     print(f"  • Target File: {target_file}")
     if local_file_path:
         print(f"  • Local File Path: file://{local_file_path}")
     print(f"  • Target Function: {target_func}")
-    print(f"  • Remediation: {remediation}\n")
+    print(f"  • Remediation: {remediation}")
+    print(f"  • Crash Build ID: {fix_res.build_id} (Version: {fix_res.version_str})")
+    print(f"  • Fix Status Assessment: {fixed_badge} ({fix_res.fix_reason})")
+    print(f"  • Repository Version Warning: {fix_res.older_version_warning}\n")
 
     if not is_fixable:
         print(
@@ -95,19 +120,30 @@ def run_autofix(args: argparse.Namespace) -> None:
         )
         sys.exit(0)
 
+    if fix_res.is_already_fixed and not force and not dry_run:
+        print(
+            f"🟢 Fix Assessment Notice: The bug associated with Crash {target_id} appears to ALREADY BE FIXED.\n"
+            f"   Reason: {fix_res.fix_reason}\n"
+            f"   Note: This crash occurred on Build ID {fix_res.build_id}, which is an older build than current repository HEAD.\n"
+            f"   Halting automated dispatch to prevent redundant CLs. To dispatch the AI engineer anyway, pass --force."
+        )
+        sys.exit(0)
+
     if dry_run:
         print("🔍 Dry-run specified. Skipping agentapi dispatch.")
         sys.exit(0)
 
-    # Dispatch emu_main_next_engineer subagent
-    prompt = f"""Implement the remediation plan detailed in {rca_path} for Crash Target {target_id}.
-Target File: {target_file} (Local Path: {local_file_path or 'Search workspace'})
-Target Function: {target_func}
-Remediation Summary: {remediation}
+    # Construct prompt with older build version guardrails
+    prompt = format_agent_version_guardrail_prompt(
+        crash_id=target_id,
+        rca_path=str(rca_path),
+        target_file=target_file,
+        local_file_path=local_file_path,
+        target_func=target_func,
+        remediation=remediation,
+        fix_status=fix_res,
+    )
 
-Follow the TDD loop (Red/Green/Refactor) coordinating with test_enforcer.
-Upon successful verification, hand off to reviewer.md for audit and committer.md to execute repo upload.
-"""
     print("🤖 Dispatching emu_main_next_engineer subagent via agentapi...")
     try:
         agent_client = AgentApiClient()
@@ -131,7 +167,7 @@ def register_autofix_parser(crash_subparsers) -> None:
     autofix_parser = crash_subparsers.add_parser(
         "autofix",
         help="Perform RCA and dispatch emu_main_next_engineer to implement and verify a local fix",
-        description="Parses CrashAdvisor RCA actionability data for a Crash ID, maps faulting code locations to local source repository paths, and dispatches the autonomous AI engineer to write unit tests and fix the code.",
+        description="Parses CrashAdvisor RCA actionability data for a Crash ID, maps faulting code locations to local source repository paths, verifies older build revisions and existing fixes, and dispatches the autonomous AI engineer to write unit tests and fix the code.",
     )
     autofix_parser.add_argument(
         "crash_id", help="Crash ID (e.g. 05d8356e2f800000) or go/crash URL"
@@ -141,5 +177,10 @@ def register_autofix_parser(crash_subparsers) -> None:
         "--dry-run",
         action="store_true",
         help="Perform analysis and file mapping without launching agent",
+    )
+    autofix_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force dispatching autonomous engineer even if bug is already marked fixed in Buganizer or codebase",
     )
     autofix_parser.set_defaults(func=run_autofix)

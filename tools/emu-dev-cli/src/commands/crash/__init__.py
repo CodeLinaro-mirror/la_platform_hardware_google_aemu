@@ -22,6 +22,15 @@ from commands.crash.analyze import register_analyze_parser, run_analyze
 from commands.crash.autofix import register_autofix_parser, run_autofix
 from commands.crash.file_bug import register_file_bug_parser, run_file_bug
 from commands.crash.find_bug import register_find_bug_parser, run_find_bug
+from commands.crash.fix_checker import (
+    CrashFixChecker,
+    FixStatusResult,
+    check_buganizer_fixed_status,
+    check_git_history_fixes,
+    evaluate_crash_fix_status,
+    extract_crash_version_info,
+    format_agent_version_guardrail_prompt,
+)
 from commands.crash.parser import register_parser
 from commands.crash.reproduce import register_reproduce_parser, run_reproduce
 from commands.crash.utils import (
@@ -35,11 +44,18 @@ from commands.crash.utils import (
 )
 
 __all__ = [
+    "CrashFixChecker",
+    "FixStatusResult",
     "OAuthTokenManager",
     "acquire_auth_token",
+    "check_buganizer_fixed_status",
+    "check_git_history_fixes",
     "create_secure_sandbox_dir",
     "ensure_crashadvisor_imports",
+    "evaluate_crash_fix_status",
+    "extract_crash_version_info",
     "extract_top_fault_frame",
+    "format_agent_version_guardrail_prompt",
     "get_crashadvisor_sandbox_dir",
     "is_path_secure_user_owned",
     "parse_crash_id",
