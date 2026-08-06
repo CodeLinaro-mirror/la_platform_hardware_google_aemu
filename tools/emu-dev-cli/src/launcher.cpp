@@ -57,17 +57,17 @@ int main(int argc, char *argv[]) {
     std::string target_script;
     std::string pythonpath_dir = lib_dir;
 
-    if (access(main_pyc.c_str(), F_OK) == 0) {
-        target_script = main_pyc;
-        pythonpath_dir = lib_dir;
-    } else if (access(main_py.c_str(), F_OK) == 0) {
+    if (access(main_py.c_str(), F_OK) == 0) {
         target_script = main_py;
         pythonpath_dir = lib_dir;
-    } else if (access(direct_pyc.c_str(), F_OK) == 0) {
-        target_script = direct_pyc;
-        pythonpath_dir = exe_dir;
+    } else if (access(main_pyc.c_str(), F_OK) == 0) {
+        target_script = main_pyc;
+        pythonpath_dir = lib_dir;
     } else if (access(direct_py.c_str(), F_OK) == 0) {
         target_script = direct_py;
+        pythonpath_dir = exe_dir;
+    } else if (access(direct_pyc.c_str(), F_OK) == 0) {
+        target_script = direct_pyc;
         pythonpath_dir = exe_dir;
     } else if (access(bazel_runfiles_main.c_str(), F_OK) == 0) {
         target_script = bazel_runfiles_main;
