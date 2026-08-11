@@ -92,9 +92,11 @@ def run_update_cmd(args):
         sys.exit(1)
 
     bazel_cmd = find_bazel_cmd(source_dir)
-    print(f"🔨 Building {BAZEL_TARGET} in {source_dir}...")
+    advisor_target = "@goldfish//emulator/crashreport/tool/advisor:advisor"
+    crashreport_target = "@goldfish//emulator/crashreport/tool:crashreport"
+    print(f"🔨 Building {BAZEL_TARGET}, {advisor_target}, and {crashreport_target} in {source_dir}...")
 
-    cmd = [bazel_cmd, "build", BAZEL_TARGET]
+    cmd = [bazel_cmd, "build", BAZEL_TARGET, advisor_target, crashreport_target]
     try:
         if verbose or not json_mode:
             res = subprocess.run(cmd, cwd=source_dir, check=False)
