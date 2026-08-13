@@ -16,9 +16,9 @@
 
 import argparse
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 from commands.crash.advisor import ensure_crashadvisor_imports, run_crashadvisor_bazel
 from commands.crash.autofix import run_autofix
@@ -54,7 +54,7 @@ def run_analyze(args: argparse.Namespace) -> None:
         run_find_bug(args)
         print("\n------------------------------------------------------------")
         print(f"🔬 Launching interactive CrashAdvisor RCA diagnostic session...")
-        crash_modules = ensure_crashadvisor_imports()
+        ensure_crashadvisor_imports()
 
         sandbox_dir = get_crashadvisor_sandbox_dir(crash_id, create=True)
         is_auto_run = getattr(args, "auto_run", False)
@@ -93,9 +93,7 @@ def run_analyze(args: argparse.Namespace) -> None:
                             f"⚠️ Failed to launch interactive script: {e}\n"
                         )
             else:
-                sys.stderr.write(
-                    f"⚠️ Investigation script not found at {script_path}\n"
-                )
+                sys.stderr.write(f"⚠️ Investigation script not found at {script_path}\n")
 
 
 def _add_analyze_arguments(parser: argparse.ArgumentParser) -> None:

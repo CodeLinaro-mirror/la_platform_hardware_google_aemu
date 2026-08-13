@@ -18,6 +18,8 @@ import logging
 import platform
 import shutil
 import subprocess
+import urllib.parse
+import urllib.request
 from getpass import getuser
 from pathlib import Path
 
@@ -33,7 +35,7 @@ def raise_if_none(x, msg):
 
 
 class AndroidBuildClient(object):
-    """A client to talk to go/ab"""
+    """A client to talk to go/ab via Android Build API v4."""
 
     def __init__(self, token):
         if not token:
@@ -50,13 +52,18 @@ Pass the generated token in using the --token option.
                 token = self.obtain_token()
 
         logging.debug("Using token: %s", token)
-        credentials = AccessTokenCredentials(token, "aemu-build-client/1.0")
-        self.service = googleapiclient.discovery.build(
-            "androidbuildinternal",
-            "v3",
-            discoveryServiceUrl="https://www.googleapis.com/discovery/v1/apis/androidbuildinternal/v3/rest",
-            credentials=credentials,
-        )
+        self.token = token.strip()
+        credentials = AccessTokenCredentials(self.token, "aemu-build-client/1.0")
+        try:
+            self.service = googleapiclient.discovery.build(
+                "androidbuildinternal",
+                "v4",
+                discoveryServiceUrl="https://androidbuild-pa.googleapis.com/$discovery/rest?version=v4",
+                credentials=credentials,
+            )
+        except Exception as e:
+            logging.debug("Could not build discovery service: %s", e)
+            self.service = None
 
     def obtain_token(self):
         token_proc = shutil.which("oauth2l")
@@ -80,25 +87,31 @@ Pass the generated token in using the --token option.
         except subprocess.TimeoutExpired:
             logging.error("Timeout while trying to retrieve token, have you run gcert?")
 
+    def _make_v4_request(self, url):
+        req = urllib.request.Request(
+            url,
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/json",
+            },
+        )
+        with urllib.request.urlopen(req) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
     def get_latest_build_id(self, branch, build_target):
         raise_if_none(branch, "branch")
 
-        request = self.service.build().list(
-            branch=branch,
-            target=build_target,
-            buildType="submitted",
-            successful=True,
-            sortingType="buildId",
-            fields="builds/buildId",
-            maxResults=1,
-        )
-        response = request.execute()
-        if "builds" in response:
-            builds = response["builds"]
-            if len(builds) == 1:
-                return builds[0]["buildId"]
-            else:
-                raise RuntimeError('No builds found for "%s" branch' % (branch))
+        params = urllib.parse.urlencode({
+            "branches": branch,
+            "targets": build_target,
+            "buildType": "SUBMITTED",
+            "pageSize": 1,
+        })
+        url = f"https://androidbuild-pa.googleapis.com/v4/builds?{params}"
+        response = self._make_v4_request(url)
+        builds = response.get("builds", [])
+        if len(builds) >= 1:
+            return builds[0]["buildId"]
         else:
             raise RuntimeError(
                 "No builds found for %s/%s, response=%s"
@@ -111,46 +124,28 @@ Pass the generated token in using the --token option.
         """Returns a list of build ids that meets the criteria.
 
         Args:
-            client: the Android Build Client to work with.
             branch: the branch
             target: the target
             results: The max number of builds to fetch.
             endBuildId: The latest buildId in the range, or none if we should use results
             success: look for successful or failed builds.
         Returns:
-            A build id
+            A list of build ids
         """
         logging.debug(
-            f'Listing submitted builds buildType="submitted", branch={branch}, target={target}, buildId={buildId}, successful={success}, maxResults={results}'
+            f'Listing submitted builds buildType="SUBMITTED", branch={branch}, target={target}, buildId={buildId}, successful={success}, maxResults={results}'
         )
-        if endBuildId:
-            result = (
-                self.service.build()
-                .list(
-                    buildType="submitted",
-                    branch=branch,
-                    target=target,
-                    startBuildId=buildId,
-                    endBuildId=endBuildId,
-                    successful=success,
-                    maxResults=results,
-                )
-                .execute()
-            )
-        else:
-            result = (
-                self.service.build()
-                .list(
-                    buildType="submitted",
-                    branch=branch,
-                    target=target,
-                    buildId=buildId,
-                    successful=success,
-                    maxResults=results,
-                )
-                .execute()
-            )
+        query_params = {
+            "buildType": "SUBMITTED",
+            "pageSize": results or 100,
+        }
+        if branch:
+            query_params["branches"] = branch
+        if target:
+            query_params["targets"] = target
 
+        url = f"https://androidbuild-pa.googleapis.com/v4/builds?{urllib.parse.urlencode(query_params)}"
+        result = self._make_v4_request(url)
         logging.debug("Server response: %s", result)
         builds = result.get("builds", [])
         if not builds:
@@ -161,16 +156,11 @@ Pass the generated token in using the --token option.
         raise_if_none(bid, "no bid provided")
         raise_if_none(build_target, "build_target should not be none")
 
-        request = self.service.buildartifact().list(
-            buildId=bid,
-            target=build_target,
-            attemptId="latest",
-            fields="artifacts/name",
-            maxResults=1000,
-        )
-        response = request.execute()
-        if "artifacts" in response:
-            return map(lambda a: a["name"], response["artifacts"])
+        url = f"https://androidbuild-pa.googleapis.com/v4/builds/{bid}/{build_target}/attempts/latest/artifacts?pageSize=1000"
+        response = self._make_v4_request(url)
+        artifacts = response.get("artifacts", [])
+        if artifacts:
+            return [a["name"] for a in artifacts]
         else:
             raise RuntimeError(
                 "No artifacts found for %s at %s, response=%s"
@@ -196,23 +186,35 @@ Pass the generated token in using the --token option.
         raise_if_none(build_target, "build_target")
         raise_if_none(artifact, "artifact")
 
-        request = self.service.buildartifact().get(
-            buildId=bid, target=build_target, attemptId="latest", resourceId=artifact
-        )
-        response = request.execute()
-        total_size = int(response.get("size", 0))
+        meta_url = f"https://androidbuild-pa.googleapis.com/v4/builds/{bid}/{build_target}/attempts/latest/artifacts/{artifact}"
+        response = self._make_v4_request(meta_url)
+        meta = response.get("buildArtifactMetadata", response)
+        total_size = int(meta.get("size", 0))
 
-        request = self.service.buildartifact().get_media(
-            buildId=bid, target=build_target, attemptId="latest", resourceId=artifact
-        )
+        download_url = None
+        try:
+            url_endpoint = f"https://androidbuild-pa.googleapis.com/v4/builds/{bid}/{build_target}/attempts/latest/artifacts/{artifact}/url"
+            url_resp = self._make_v4_request(url_endpoint)
+            download_url = url_resp.get("signedUrl")
+        except Exception as e:
+            logging.debug("Could not retrieve signedUrl from /url: %s", e)
 
+        headers = {}
+        if not download_url:
+            download_url = f"https://androidbuild-pa.googleapis.com/v4/builds/{bid}/{build_target}/attempts/latest/artifacts/{artifact}?alt=media"
+            headers["Authorization"] = f"Bearer {self.token}"
+
+        media_req = urllib.request.Request(download_url, headers=headers)
         with tqdm(
             total=total_size, unit="B", unit_scale=True, unit_divisor=1024, miniters=1
         ) as progress_bar:
             with io.FileIO(dst, mode="wb") as fh:
-                downloader = googleapiclient.http.MediaIoBaseDownload(fh, request)
-                done = False
-                while not done:
-                    status, done = downloader.next_chunk(num_retries=3)
-                    if status:
-                        progress_bar.update(status.resumable_progress - progress_bar.n)
+                with urllib.request.urlopen(media_req) as resp:
+                    chunk_size = 1024 * 1024  # 1MB chunks
+                    while True:
+                        chunk = resp.read(chunk_size)
+                        if not chunk:
+                            break
+                        fh.write(chunk)
+                        progress_bar.update(len(chunk))
+

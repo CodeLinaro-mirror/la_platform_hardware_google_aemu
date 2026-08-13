@@ -18,7 +18,7 @@ import argparse
 import os
 import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 SRC_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"
@@ -169,6 +169,68 @@ class CrashFindBugTest(unittest.TestCase):
         res_arg = mock_print_res.call_args[0][0]
         # Should only have 1 candidate because 12345678 was already added in Tier 1
         self.assertEqual(res_arg["candidates_found"], 1)
+
+    @patch("commands.crash.find_bug.ensure_crashadvisor_imports")
+    @patch("commands.crash.find_bug.acquire_auth_token")
+    @patch("commands.crash.find_bug.print_result")
+    def test_run_find_bug_fixed_issue_and_older_build(
+        self, mock_print_res, mock_acquire_token, mock_ensure_imports
+    ):
+        """Tests that find_bug detects already fixed issues and includes build/version metadata."""
+        mock_acquire_token.return_value = "tok_123"
+        mock_buganizer = MagicMock()
+        mock_client = MagicMock()
+        mock_client.search_issue_by_signature.return_value = {
+            "issueId": "99988877",
+            "issueState": {
+                "title": "Fixed Crash in FrameBuffer",
+                "status": "FIXED",
+                "assignee": {"emailAddress": "engineer@google.com"},
+            },
+        }
+        mock_buganizer.BuganizerClient.return_value = mock_client
+
+        mock_metadata = MagicMock()
+        mock_meta_instance = MagicMock()
+        mock_meta_instance.primary_signature = "android::FrameBuffer::post"
+        mock_meta_instance.build_id = "15953806"
+        mock_meta_instance.data = {
+            "report_proto": {
+                "product": {"Version": "34.2.1-15953806"},
+                "stableSignature": "android::FrameBuffer::post",
+            }
+        }
+        mock_metadata.CrashMetadata.return_value = mock_meta_instance
+
+        mock_ensure_imports.return_value = {
+            "buganizer": mock_buganizer,
+            "context": MagicMock(),
+            "client": MagicMock(),
+            "api": MagicMock(),
+            "metadata": mock_metadata,
+            "symbols": MagicMock(),
+            "dump": MagicMock(),
+        }
+
+        args = argparse.Namespace(
+            crash_id="05d8356e2f800000",
+            token="tok_123",
+            component_id=29601,
+            json=True,
+            verbose=False,
+        )
+
+        run_find_bug(args)
+        mock_print_res.assert_called_once()
+        res = mock_print_res.call_args[0][0]
+        self.assertEqual(res["status"], "success")
+        self.assertTrue(res["already_fixed"])
+        self.assertEqual(res["fix_status"], "FIXED")
+        self.assertEqual(res["build_id"], "15953806")
+        self.assertTrue(res["is_older_build"])
+        self.assertIn("older version", res["older_version_warning"].lower())
+        self.assertTrue(res["candidates"][0]["is_fixed"])
+        self.assertEqual(res["candidates"][0]["status"], "FIXED")
 
 
 if __name__ == "__main__":
