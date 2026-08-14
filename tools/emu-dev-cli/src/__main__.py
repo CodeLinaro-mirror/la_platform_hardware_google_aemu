@@ -12,8 +12,21 @@ lib_dir = os.path.join(SCRIPT_DIR, "lib")
 if os.path.exists(lib_dir) and lib_dir not in sys.path:
     sys.path.insert(0, lib_dir)
 
-from commands import create, cts, docs, fetch_build, init_cmd, launch, source_directory, update_cmd
+from commands import (
+    crash,
+    create,
+    cts,
+    docs,
+    fetch_build,
+    flakiness,
+    init_cmd,
+    launch,
+    source_directory,
+    update_cmd,
+)
 from install import installer
+from lib.logging_config import setup_logging
+
 
 
 def detect_default_host():
@@ -30,21 +43,35 @@ def detect_default_host():
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="emu-dev-cli",
-        description="Android Emulator Developer Assistant CLI"
+        prog="emu-dev-cli", description="Android Emulator Developer Assistant CLI"
     )
-    parser.add_argument("--json", action="store_true", help="Output results in machine-readable JSON format")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose sub-command output")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output results in machine-readable JSON format",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose sub-command output and DEBUG logging",
+    )
+    parser.add_argument(
+        "--log-file",
+        help="Path to write execution log trace file for debugging",
+    )
 
     subparsers = parser.add_subparsers(dest="subcommand", help="Available subcommands")
 
     default_host = detect_default_host()
 
     # Register subcommands
+    crash.register_parser(subparsers)
     create.register_parser(subparsers)
     cts.register_parser(subparsers)
     docs.register_parser(subparsers)
     fetch_build.register_parser(subparsers, default_host)
+    flakiness.register_parser(subparsers)
     init_cmd.register_parser(subparsers)
     installer.register_parser(subparsers)
     launch.register_parser(subparsers)
@@ -52,6 +79,12 @@ def main():
     update_cmd.register_parser(subparsers)
 
     args = parser.parse_args()
+
+    setup_logging(
+        verbose=getattr(args, "verbose", False),
+        log_file=getattr(args, "log_file", None),
+    )
+
     if not args.subcommand or not hasattr(args, "func"):
         parser.print_help()
         sys.exit(1)
