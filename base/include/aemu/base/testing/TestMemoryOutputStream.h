@@ -23,11 +23,10 @@
 namespace android {
 namespace base {
 
-// A convenience android::base::Stream implementation that collects
-// all written data into a memory buffer, that can be retrieved with
-// its view() method, and cleared with its reset() method.
-// read() operations on the stream are forbidden.
-class TestMemoryOutputStream : public Stream {
+// A convenience test class that collects all written data into a memory buffer,
+// that can be retrieved with its view() method, and cleared with its reset()
+// method. read() operations on the stream are forbidden.
+class TestMemoryOutputStream : public StreamWithErrorLogger {
 public:
     virtual ssize_t read(void* buffer, size_t len) override {
         errno = EINVAL;

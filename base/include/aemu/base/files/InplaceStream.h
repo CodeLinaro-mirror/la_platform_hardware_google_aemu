@@ -21,7 +21,7 @@ namespace android {
 namespace base {
 
 // An implementation of the Stream interface for a given char*.
-class InplaceStream : public Stream {
+class InplaceStream : public StreamWithErrorLogger {
 public:
     using Buffer = char*;
 
