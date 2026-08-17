@@ -8,3 +8,7 @@ importlib-metadata ; python_version < "3.8"
 
 pyasn1
 httplib2
+psutil
+grpcio
+pytest
+pytest-mock
