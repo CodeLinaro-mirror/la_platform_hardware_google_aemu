@@ -21,11 +21,9 @@ Provides modular helpers for:
 - Resolving and validating secure user-owned sandbox directories
 """
 
-import getpass
-import os
-from pathlib import Path
 import tempfile
-from typing import Optional, Tuple
+from pathlib import Path
+from typing import Optional
 
 from lib.oauth import OAuthTokenManager
 from lib.security import is_path_secure_user_owned
@@ -100,12 +98,29 @@ def acquire_auth_token(user_token: Optional[str] = None) -> Optional[str]:
     return OAuthTokenManager().acquire_token(user_token)
 
 
+from commands.crash.fix_checker import (
+    CrashFixChecker,
+    FixStatusResult,
+    check_buganizer_fixed_status,
+    check_git_history_fixes,
+    evaluate_crash_fix_status,
+    extract_crash_version_info,
+    format_agent_version_guardrail_prompt,
+)
+
 __all__ = [
+    "CrashFixChecker",
+    "FixStatusResult",
     "OAuthTokenManager",
     "StackTraceParser",
     "acquire_auth_token",
+    "check_buganizer_fixed_status",
+    "check_git_history_fixes",
     "create_secure_sandbox_dir",
+    "evaluate_crash_fix_status",
+    "extract_crash_version_info",
     "extract_top_fault_frame",
+    "format_agent_version_guardrail_prompt",
     "get_crashadvisor_sandbox_dir",
     "is_path_secure_user_owned",
     "parse_crash_id",

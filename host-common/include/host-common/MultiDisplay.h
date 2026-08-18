@@ -33,6 +33,17 @@ struct DisplayColorTransform {
     DisplayColorTransform() : mat{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1} {}
 };
 
+// Must match ComposerClient::PowerMode
+enum class DisplayPowerMode : uint32_t {
+    OFF = 0,
+    DOZE = 1,
+    ON = 2,
+    DOZE_SUSPEND = 3,
+    ON_SUSPEND = 4,
+    // Not an actual power mode, used to test valid value conversions
+    MAX_VAL = ON_SUSPEND,
+};
+
 struct MultiDisplayInfo {
     int32_t pos_x;
     int32_t pos_y;
@@ -46,14 +57,17 @@ struct MultiDisplayInfo {
     int32_t  rotation;
     bool     enabled;
     DisplayColorTransform colorTransform;
+    DisplayPowerMode powerMode;
 
     MultiDisplayInfo() :
       pos_x(0), pos_y(0), width(0), height(0), originalWidth(0),
-      originalHeight(0), dpi(0), flag(0), cb(0), rotation(0), enabled(true) {}
+      originalHeight(0), dpi(0), flag(0), cb(0), rotation(0), enabled(true),
+      powerMode(DisplayPowerMode::ON) {}
     MultiDisplayInfo(int32_t x, int32_t y, uint32_t w, uint32_t h,
                      uint32_t d, uint32_t f, bool e, uint32_t c = 0) :
       pos_x(x), pos_y(y), width(w), height(h), originalWidth(w),
-      originalHeight(h), dpi(d), flag(f), cb(c), rotation(0), enabled(e) {}
+      originalHeight(h), dpi(d), flag(f), cb(c), rotation(0), enabled(e),
+      powerMode(DisplayPowerMode::ON) {}
 
 };
 
@@ -127,6 +141,8 @@ public:
                        uint32_t* h);
     int setColorTransformMatrix(uint32_t displayId, const float colorTransformMatrix[16]);
     int getColorTransformMatrix(uint32_t displayId, float outColorTransformMatrix[16]);
+    int getDisplayPowerMode(uint32_t displayId, uint32_t* powerMode);
+    int setDisplayPowerMode(uint32_t displayId, uint32_t powerMode);
     int getDisplayColorBuffer(uint32_t displayId, uint32_t* colorBuffer);
     int getColorBufferDisplay(uint32_t colorBuffer, uint32_t* displayId);
     int setDisplayColorBuffer(uint32_t displayId, uint32_t colorBuffer);

@@ -19,7 +19,7 @@ import os
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 SRC_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"
@@ -60,14 +60,16 @@ class CrashAutofixTest(unittest.TestCase):
             mock_get_sandbox.return_value = tmp_dir
             rca_file = os.path.join(tmp_dir, "rca_summary.md")
             with open(rca_file, "w", encoding="utf-8") as f:
-                f.write("""
+                f.write(
+                    """
 actionability:
   fixable: true
   target_file: android/FrameBuffer.cpp
   target_function: android::FrameBuffer::post
   remediation_summary: Null-check buffer pointer before dereferencing
 ```
-""")
+"""
+                )
 
             args = argparse.Namespace(
                 crash_id="05d8356e2f800000",
@@ -98,23 +100,82 @@ actionability:
             mock_get_sandbox.return_value = tmp_dir
             rca_file = os.path.join(tmp_dir, "rca_summary.md")
             with open(rca_file, "w", encoding="utf-8") as f:
-                f.write("""
+                f.write(
+                    """
 actionability:
   fixable: true
   target_file: android/FrameBuffer.cpp
   target_function: android::FrameBuffer::post
   remediation_summary: Null-check buffer pointer before dereferencing
 ```
-""")
+"""
+                )
 
             args = argparse.Namespace(
                 crash_id="05d8356e2f800000",
                 token="token_abc",
                 dry_run=False,
+                force=True,
             )
 
             run_autofix(args)
             mock_start_conv.assert_called_once()
+            prompt_called = mock_start_conv.call_args[1]["prompt"]
+            self.assertIn("BEFORE WRITING CODE", prompt_called)
+            self.assertIn("git log", prompt_called.lower())
+            self.assertIn("older version", prompt_called.lower())
+
+    @patch("commands.crash.autofix.evaluate_crash_fix_status")
+    @patch("lib.agent.AgentApiClient.start_conversation")
+    @patch("commands.crash.autofix.get_crashadvisor_sandbox_dir")
+    @patch("commands.crash.autofix.run_crashadvisor_bazel")
+    @patch("commands.crash.autofix.acquire_auth_token")
+    def test_run_autofix_halts_when_already_fixed(
+        self,
+        mock_acquire_token,
+        mock_run_bazel,
+        mock_get_sandbox,
+        mock_start_conv,
+        mock_eval_fix,
+    ):
+        """Tests run_autofix halts without dispatching when bug is already fixed and --force is not passed."""
+        mock_acquire_token.return_value = "token_abc"
+        mock_run_bazel.return_value = MagicMock(returncode=0)
+        mock_eval_fix.return_value = MagicMock(
+            is_already_fixed=True,
+            fix_status="FIXED",
+            fix_reason="Buganizer b/12345678 is FIXED",
+            build_id="15953806",
+            version_str="34.2.1-15953806",
+            older_version_warning="Crash on older build 15953806",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            mock_get_sandbox.return_value = tmp_dir
+            rca_file = os.path.join(tmp_dir, "rca_summary.md")
+            with open(rca_file, "w", encoding="utf-8") as f:
+                f.write(
+                    """
+actionability:
+  fixable: true
+  target_file: android/FrameBuffer.cpp
+  target_function: android::FrameBuffer::post
+  remediation_summary: Null-check buffer pointer before dereferencing
+```
+"""
+                )
+
+            args = argparse.Namespace(
+                crash_id="05d8356e2f800000",
+                token="token_abc",
+                dry_run=False,
+                force=False,
+            )
+
+            with self.assertRaises(SystemExit) as cm:
+                run_autofix(args)
+            self.assertEqual(cm.exception.code, 0)
+            mock_start_conv.assert_not_called()
 
 
 if __name__ == "__main__":

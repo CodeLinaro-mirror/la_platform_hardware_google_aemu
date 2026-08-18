@@ -146,7 +146,7 @@ static const QAndroidMultiDisplayAgent sMultiDisplayAgent = {
             std::memcpy(mMultiDisplay[displayId].colorTransform.mat, outColorMatrix,
                         sizeof(float) * 16);
             return 0;
-        }
+        },
         .getDisplayColorTransform = [](uint32_t displayId, float outColorMatrix[16]) -> int {
             if (!outColorMatrix || mMultiDisplay.find(displayId) == mMultiDisplay.end()) {
                 return -1;
@@ -154,7 +154,24 @@ static const QAndroidMultiDisplayAgent sMultiDisplayAgent = {
             std::memcpy(outColorMatrix, mMultiDisplay[displayId].colorTransform.mat,
                         sizeof(float) * 16);
             return 0;
-        }
+        },
+        .getDisplayPowerMode = [](uint32_t displayId, uint32_t* mode) -> int {
+            if (!mode || mMultiDisplay.find(displayId) == mMultiDisplay.end()) {
+                return -1;
+            }
+            *mode = static_cast<uint32_t>(mMultiDisplay[displayId].powerMode);
+            return 0;
+        },
+        .setDisplayPowerMode = [](uint32_t displayId, uint32_t mode) -> int {
+            if (mMultiDisplay.find(displayId) == mMultiDisplay.end()) {
+                return -1;
+            }
+            if (mode > static_cast<uint32_t>(android::DisplayPowerMode::MAX_VAL)) {
+                return -1;
+            }
+            mMultiDisplay[displayId].powerMode = static_cast<android::DisplayPowerMode>(mode);
+            return 0;
+        },
         .getDisplayColorBuffer = [](uint32_t displayId,
                                     uint32_t* colorBuffer) -> int {
             *colorBuffer = mMultiDisplay[displayId].cb;

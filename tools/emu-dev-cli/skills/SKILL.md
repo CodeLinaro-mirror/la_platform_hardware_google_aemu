@@ -197,29 +197,33 @@ emu-dev-cli update
 ### 9. Crash Investigation & Automated Fixing (`crash`)
 
 Integrates CrashAdvisor minidump diagnostics, normalized stack fingerprinting,
-Buganizer issue deduplication, and autonomous AI engineer fixing:
+Buganizer issue deduplication across open and closed tickets, older repository build revision checking,
+and autonomous AI engineer fixing:
 
 - **Find existing / duplicate Buganizer issues (`find-bug`):** Symbolicates
   crash minidump, parses stack fingerprint (top faulting frame & calling
-  functions), and searches Buganizer Component 29601 for existing issues.
-  **Note:** Expects a Crash ID (e.g., `05d8356e2f800000`) or `go/crash` URL,
-  **not** a Buganizer bug ID (`b/...`):
+  functions), queries Buganizer Component 29601 across both open and closed issues,
+  identifies if the crash was built against an older repository version than current HEAD,
+  and reports whether the bug has already been fixed (`[ALREADY FIXED / RESOLVED ✅]` vs `[OPEN]`):
   ```bash
   emu-dev-cli crash find-bug 05d8356e2f800000
   emu-dev-cli crash find-bug https://crash.corp.google.com/05d8356e2f800000
   ```
 - **File or update Buganizer issue (`file-bug`):** Runs CrashAdvisor RCA
   analysis for a Crash ID, creates a new issue in Component 29601 or
-  updates/reopens an existing issue with looper timelines and stack traces:
+  updates an existing issue with looper timelines, stack traces, and older build revision context:
   ```bash
   emu-dev-cli crash file-bug 05d8356e2f800000
   ```
 - **Attempt autonomous fix (`autofix`):** Parses RCA actionability YAML for a
-  Crash ID, maps target files to local repository checkout, and dispatches
-  `emu_main_next_engineer` to write tests, fix code, and upload a Gerrit CL:
+  Crash ID, maps target files to local repository checkout, checks if the bug has already
+  been resolved in Buganizer or recent git commits on an older build version, and dispatches
+  `emu_main_next_engineer` with explicit version guardrails instructing the agent to inspect
+  `git log` and current source code before making changes:
   ```bash
   emu-dev-cli crash autofix 05d8356e2f800000
   emu-dev-cli crash autofix 05d8356e2f800000 --dry-run
+  emu-dev-cli crash autofix 05d8356e2f800000 --force
   ```
 - **Local Crash Reproduction (`reproduce`):** Extracts Build ID, platform,
   and commandline flags from crash metadata, downloads the matching emulator
@@ -229,7 +233,7 @@ Buganizer issue deduplication, and autonomous AI engineer fixing:
   emu-dev-cli crash reproduce 05d8356e2f800000 --dry-run
   ```
 - **Unified Crash Analysis (`analyze`):** Runs symbolication, stack
-  fingerprinting, and interactive or automated RCA investigation:
+  fingerprinting, older repository build evaluation, and interactive or automated RCA investigation:
   ```bash
   emu-dev-cli crash analyze 05d8356e2f800000 --file-bug --autofix
   ```

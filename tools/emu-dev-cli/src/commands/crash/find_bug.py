@@ -16,22 +16,32 @@
 
 import argparse
 import json
-from pathlib import Path
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 from commands.crash.advisor import ensure_crashadvisor_imports, run_crashadvisor_bazel
+from commands.crash.fix_checker import (
+    evaluate_crash_fix_status,
+    extract_crash_version_info,
+)
 from commands.crash.utils import (
     acquire_auth_token,
     extract_top_fault_frame,
     parse_crash_id,
 )
+from commands.source_directory import get_source_directory
 from lib.output import print_result
+
+CLOSED_STATUSES = {"FIXED", "VERIFIED", "OBSOLETE", "CLOSED", "DONE"}
 
 
 def run_find_bug(args: argparse.Namespace) -> None:
     """Finds existing Buganizer issues using exact signatures and stack fingerprint analysis.
+
+    Checks whether the crash originated from an older repository build version and whether
+    the bug has already been resolved or fixed in Buganizer or the local source repository.
 
     Args:
         args: Parsed command line arguments containing crash_id, token, component_id, json, verbose flags.
@@ -60,6 +70,18 @@ def run_find_bug(args: argparse.Namespace) -> None:
     api.download_metadata(ctx.crash_id, ctx.metadata_path)
     meta = metadata_mod.CrashMetadata(ctx.metadata_path)
     stable_sig = meta.primary_signature or "Unknown"
+
+    meta_json = getattr(meta, "data", {})
+    if not meta_json and ctx.metadata_path.exists():
+        try:
+            with open(ctx.metadata_path, "r", encoding="utf-8") as f:
+                meta_json = json.load(f)
+        except Exception:
+            pass
+
+    vinfo = extract_crash_version_info(meta_json)
+    build_id = meta.build_id or vinfo.get("build_id", "unknown")
+    version_str = vinfo.get("version_str", build_id)
 
     # Ensure local symbolication & stack dump exist
     txt_dump = Path(ctx.work_dir) / "crashreport.txt"
@@ -112,21 +134,28 @@ def run_find_bug(args: argparse.Namespace) -> None:
             if getattr(args, "verbose", False):
                 sys.stderr.write(f"⚠️ Buganizer signature search notice: {e}\n")
 
-    # Tier 2: Top Fault Function Match
+    # Tier 2: Top Fault Function Match across both open and closed issues
     if top_func:
         try:
-            queries = [f'componentid:{component_id} status:open "{top_func}"']
+            queries = [
+                f'componentid:{component_id} "{top_func}"',
+                f'componentid:{component_id} status:open "{top_func}"',
+            ]
             for q in queries:
                 if client.cli_binary and not client.token:
                     cmd = [client.cli_binary, "search", q, "--format=json"]
-                    res = subprocess.run(cmd, capture_output=True, text=True)
+                    res = subprocess.run(
+                        cmd, capture_output=True, text=True, timeout=10
+                    )
                     if res.returncode == 0 and res.stdout.strip():
                         issues = json.loads(res.stdout)
-                        if issues:
-                            issue_t2 = issues[0]
-                            issue_t2_id = issue_t2.get("issueId")
-                            if not any(
-                                c["issue"].get("issueId") == issue_t2_id
+                        for issue_t2 in (
+                            issues if isinstance(issues, list) else [issues]
+                        ):
+                            issue_t2_id = issue_t2.get("issueId") or issue_t2.get("id")
+                            if issue_t2_id and not any(
+                                str(c["issue"].get("issueId") or c["issue"].get("id"))
+                                == str(issue_t2_id)
                                 for c in candidates
                             ):
                                 candidates.append(
@@ -139,58 +168,88 @@ def run_find_bug(args: argparse.Namespace) -> None:
         except Exception:
             pass
 
+    # Normalize candidate issues for fix status evaluation
+    normalized_candidates = []
+    for c in candidates:
+        iss = c["issue"]
+        iss_id = str(iss.get("issueId") or iss.get("id", ""))
+        state = iss.get("issueState", {})
+        status = (state.get("status") or iss.get("status", "UNKNOWN")).upper()
+        title = state.get("title") or iss.get("title", "Untitled")
+        assignee = state.get("assignee", {}).get("emailAddress", "Unassigned")
+        normalized_candidates.append(
+            {
+                "issue_id": iss_id,
+                "status": status,
+                "title": title,
+                "assignee": assignee,
+                "is_fixed": status in CLOSED_STATUSES,
+                "confidence": c["confidence"],
+                "url": f"https://b.corp.google.com/issues/{iss_id}",
+            }
+        )
+
+    local_src_dir = get_source_directory("emu-main-next")
+    fix_res = evaluate_crash_fix_status(
+        crash_id=crash_id,
+        metadata_path=ctx.metadata_path,
+        candidate_issues=normalized_candidates,
+        source_dir=local_src_dir,
+        meta_json=meta_json,
+    )
+
     if json_mode:
         print_result(
             {
                 "status": "success",
                 "action": "crash find-bug",
                 "crash_id": crash_id,
+                "build_id": build_id,
+                "version_str": version_str,
+                "already_fixed": fix_res.is_already_fixed,
+                "fix_status": fix_res.fix_status,
+                "fix_reason": fix_res.fix_reason,
+                "is_older_build": fix_res.is_older_build,
+                "older_version_warning": fix_res.older_version_warning,
                 "stable_signature": stable_sig,
                 "top_fault_function": top_func,
                 "top_fault_file": top_file,
-                "candidates_found": len(candidates),
-                "candidates": [
-                    {
-                        "confidence": c["confidence"],
-                        "issue_id": c["issue"].get("issueId"),
-                        "title": c["issue"].get("issueState", {}).get("title")
-                        or c["issue"].get("title"),
-                        "status": c["issue"].get("issueState", {}).get("status")
-                        or c["issue"].get("status"),
-                        "assignee": c["issue"]
-                        .get("issueState", {})
-                        .get("assignee", {})
-                        .get("emailAddress"),
-                        "url": f"https://b.corp.google.com/issues/{c['issue'].get('issueId')}",
-                    }
-                    for c in candidates
-                ],
+                "candidates_found": len(normalized_candidates),
+                "candidates": normalized_candidates,
             },
             json_mode=True,
         )
     else:
         print(f"\n🔍 Crash ID: {crash_id}")
+        print(f"📦 Crash Build ID: {build_id} (Version: {version_str})")
+        print(
+            f"⚠️ Repository Version Context: Crash was captured from Build {build_id}. The bug may already be fixed in current HEAD."
+        )
         print(f"📌 Primary Signature: {stable_sig}")
         if top_func:
             print(f"🎯 Fault Frame: {top_func} ({top_file or 'unknown file'})")
+        print(
+            f"🛠️ Fix Status Assessment: {'ALREADY FIXED ✅' if fix_res.is_already_fixed else 'OPEN / NEEDS VERIFICATION ⚠️'} ({fix_res.fix_reason})"
+        )
         print()
 
         if not candidates:
             print("🟢 No matching existing issues found in Buganizer Component 29601.")
         else:
-            print(f"🐛 Found {len(candidates)} Candidate Buganizer Issue(s):\n")
-            for idx, cand in enumerate(candidates, 1):
-                iss = cand["issue"]
-                iss_id = iss.get("issueId")
-                state = iss.get("issueState", {})
-                title = state.get("title") or iss.get("title", "Untitled")
-                status = state.get("status") or iss.get("status", "UNKNOWN")
-                assignee = state.get("assignee", {}).get("emailAddress", "Unassigned")
+            print(
+                f"🐛 Found {len(normalized_candidates)} Candidate Buganizer Issue(s):\n"
+            )
+            for idx, cand in enumerate(normalized_candidates, 1):
+                fixed_badge = (
+                    " [ALREADY FIXED / RESOLVED ✅]" if cand["is_fixed"] else ""
+                )
                 print(f"  {idx}. [{cand['confidence']}]")
-                print(f"     • Issue: b/{iss_id}")
-                print(f"     • Title: {title}")
-                print(f"     • Status: {status} (Assignee: {assignee})")
-                print(f"     • URL: https://b.corp.google.com/issues/{iss_id}\n")
+                print(f"     • Issue: b/{cand['issue_id']}")
+                print(f"     • Title: {cand['title']}")
+                print(
+                    f"     • Status: {cand['status']}{fixed_badge} (Assignee: {cand['assignee']})"
+                )
+                print(f"     • URL: {cand['url']}\n")
 
 
 def register_find_bug_parser(crash_subparsers) -> None:
