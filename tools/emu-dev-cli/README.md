@@ -159,6 +159,23 @@ emu-dev-cli crash analyze 05d8356e2f800000 --file-bug --autofix
 
 ---
 
+### 8. Automated Flakiness Suite (`flakiness`)
+
+The `flakiness` command family provides a closed-loop system for developers and
+AI agents to discover, investigate, reproduce, triage, and fix flaky emulator
+tests across all CI platforms.
+
+#### Target Platform Matrix (`--target`)
+
+| Target Name                    | Description                            | Local Bazel Flags                                           |
+| :----------------------------- | :------------------------------------- | :---------------------------------------------------------- |
+| `emulator_linux_x64` (default) | Standard Linux x86_64 host build       | `bazel test <test>`                                         |
+| `emulator_linux_x64_asan`      | AddressSanitizer memory safety build   | `bazel test <test> --config=asan`                           |
+| `emulator_linux_x64_tsan`      | ThreadSanitizer data-race build        | `bazel test <test> --config=tsan`                           |
+| `emulator_windows_x64`         | Windows x86_64 host build              | `bazel test <test> --config=rbe-win-x64` (on Linux via RBE) |
+| `emulator_mac_aarch64`         | Apple Silicon ARM64 host build         | `bazel test <test> --config=macos_arm64`                    |
+| `all`                          | Aggregates runs across all 5 platforms | _(Queries all CI targets)_                                  |
+
 #### Authentication Protocol & macOS Workstation Handling (`--token`)
 
 Android Test Hub and Android Build internal endpoints require an OAuth2 token
@@ -181,34 +198,38 @@ credentials which return `HTTP 403 Forbidden`
    `--token` or `export ANDROID_BUILD_TOKEN="..."`.
 
 ```bash
-# List flaky test targets from Android Test Hub (across Linux, ASAN, TSAN, Windows, Mac)
+# 1. List flaky test targets from Android Test Hub (across Linux, ASAN, TSAN, Windows, Mac)
 emu-dev-cli flakiness list --target emulator_linux_x64_tsan --mode all --min-flake-rate 10.0 --days 7
 
-# Inspect individual test chronological execution history and pass/fail rates
+# 2. Inspect individual test chronological execution history and pass/fail rates
 emu-dev-cli flakiness history --test @goldfish//emulator/plugin/hal/plug:hal_plug_adapter_unittests --target emulator_linux_x64_tsan
 
-# Fetch diagnostic logs and thread dumps for an invocation
+# 3. Inspect ResultStore / Sponge / Fusion2 test actions, failure exit codes, timings, and logs
+emu-dev-cli flakiness sponge --invocation 82bbf192-5d6f-418c-bef7-fdecb58fba26
+emu-dev-cli flakiness sponge --test @@goldfish+//emulator/launcher:can_boot_with_minigbm --target emulator_mac_aarch64 --latest-failures 3
+
+# 4. Fetch diagnostic logs, ResultStore action summaries, and thread dumps for an invocation
 emu-dev-cli flakiness fetch-logs --invocation-id I99100010599127182 --artifact-type HOST_LOG
 
-# Locally reproduce and stress-test flakes under Bazel
+# 5. Locally reproduce and stress-test flakes under Bazel (supports RBE for Windows on Linux)
 emu-dev-cli flakiness reproduce --test @goldfish//emulator/plugin/hal/plug:hal_plug_adapter_unittests --target emulator_linux_x64_tsan --iterations 30
 
-# Triage against Buganizer and generate AI root-cause patches
+# 6. Triage against Buganizer and generate AI root-cause patches
 emu-dev-cli flakiness triage --target emulator_linux_x64_tsan --min-flake-rate 10.0 --dry-run
 
-# One-command remediation: apply fix, stress-test 50x, and prepare Gerrit CL
+# 7. One-command remediation: apply fix, stress-test 50x, and prepare Gerrit CL
 emu-dev-cli flakiness fix --bug 123456789 --target emulator_linux_x64_tsan --iterations 50 --upload
 ```
 
 ---
 
-### 8. Clang-Tidy Progressive Remediation (`tidy`)
+### 9. Clang-Tidy Progressive Remediation (`tidy`)
 
 `emu-dev-cli tidy` automates progressive Clang-Tidy diagnostic analysis,
 transactional refactoring, target discovery, and compliance auditing across
 Android Emulator Bazel packages.
 
-#### 8.1 Diagnostic Profiling (`tidy check`)
+#### 9.1 Diagnostic Profiling (`tidy check`)
 
 Runs the Bazel Clang-Tidy aspect (`:tidy_report`) and categorizes diagnostics
 across 4 Progressive Remediation Levels:
@@ -224,7 +245,7 @@ emu-dev-cli tidy check @goldfish//emulator/libs/sockets:tidy --level 1
 emu-dev-cli tidy check @goldfish//emulator/launcher:tidy --json
 ```
 
-#### 8.2 Autonomous Transactional Refactoring (`tidy fix`)
+#### 9.2 Autonomous Transactional Refactoring (`tidy fix`)
 
 Executes the progressive transactional remediation loop with automatic step
 isolation:
@@ -259,7 +280,7 @@ emu-dev-cli tidy fix --status
 emu-dev-cli tidy fix --abort
 ```
 
-#### 8.3 Package Rule Configuration (`tidy add`)
+#### 9.3 Package Rule Configuration (`tidy add`)
 
 Scans Bazel packages and configures `clang_tidy_test` rules with proper licenses
 and target lists:
@@ -279,9 +300,8 @@ warnings or modernizing C++ code:
 1. **Prohibition of Manual Source Edits**: Do not perform manual
    search-and-replace, ad-hoc source editing, or whole-file regex substitutions
    across targets.
-2. **Profile Diagnostics**: Run
-   `emu-dev-cli tidy check <target> --level <N>` to inspect diagnostic
-   counts.
+2. **Profile Diagnostics**: Run `emu-dev-cli tidy check <target> --level <N>` to
+   inspect diagnostic counts.
 3. **Execute Transactional Fix**: Run
    `emu-dev-cli tidy fix --target <target> --level <N>` to let the tool manage
    AST mutations, `CompilerOracle` call-site discovery, test gate verification,

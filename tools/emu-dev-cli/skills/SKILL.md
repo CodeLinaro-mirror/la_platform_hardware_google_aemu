@@ -344,22 +344,49 @@ emu-dev-cli flakiness history \
 
 ---
 
-#### 10.3 Fetch Diagnostic Artifacts (`flakiness fetch-logs`)
+#### 10.3 Inspect Sponge & ResultStore Logs (`flakiness sponge`)
 
-Downloads logcat files, host stdout/stderr logs, thread dumps, and Perfetto
-traces for any invocation ID (`I...`).
+Queries ResultStore via Stubby RPC to inspect build/test actions, failure exit codes,
+error messages, process execution durations, and diagnostic file URIs (`test.log`, `test.xml`)
+for any Sponge / Fusion2 invocation UUID or URL:
+
+```bash
+# 1. Inspect a specific invocation by UUID or Fusion2 URL
+emu-dev-cli flakiness sponge --invocation 82bbf192-5d6f-418c-bef7-fdecb58fba26
+
+# 2. Inspect invocation and filter for a specific test target
+emu-dev-cli flakiness sponge \
+  --invocation 82bbf192-5d6f-418c-bef7-fdecb58fba26 \
+  --test @@goldfish+//emulator/launcher:can_boot_with_minigbm
+
+# 3. Automatically inspect the latest 3 failed invocations for a flaky test on macOS
+emu-dev-cli flakiness sponge \
+  --test @@goldfish+//emulator/launcher:can_boot_with_minigbm \
+  --target emulator_mac_aarch64 \
+  --latest-failures 3
+
+# 4. Output machine-readable JSON for automated agent triage
+emu-dev-cli --json flakiness sponge --invocation 82bbf192-5d6f-418c-bef7-fdecb58fba26
+```
+
+---
+
+#### 10.4 Fetch Diagnostic Artifacts (`flakiness fetch-logs`)
+
+Downloads logcat files, host stdout/stderr logs, thread dumps, Perfetto
+traces, and ResultStore / Sponge summaries for any invocation ID (`I...` or UUID).
 
 ```bash
 # Fetch host log for an invocation
 emu-dev-cli flakiness fetch-logs --invocation-id I99100010599127182 --artifact-type HOST_LOG
 
-# Fetch all logs and traces to a custom directory
+# Fetch all logs, ResultStore action summaries, and traces to a custom directory
 emu-dev-cli flakiness fetch-logs --invocation-id I99100010599127182 --artifact-type ALL --out-dir /tmp/test_logs/
 ```
 
 ---
 
-#### 10.4 Reproduce Flakes Locally (`flakiness reproduce`)
+#### 10.5 Reproduce Flakes Locally (`flakiness reproduce`)
 
 Executes the target's Bazel test runner with targeted sanitizers/configs and
 `--runs_per_test=N` to stress-test and locally reproduce non-deterministic
