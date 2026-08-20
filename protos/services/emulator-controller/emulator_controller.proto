@@ -1708,6 +1708,22 @@ message DisplayConfiguration {
     // The id can be used to get or stream a screenshot.
     uint32 display = 5;
 }
+
+message DisplayPowerModeNotification {
+    enum PowerMode {
+        OFF = 0;          // The screen is fully turned off; backlight is off and rendering is disabled
+        DOZE = 1;         // The screen is in low-power Always-On/ambient display mode
+        ON = 2;           // The screen is fully turned on and active
+        DOZE_SUSPEND = 3; // The screen is in low-power doze mode, and updates/rendering are suspended
+        ON_SUSPEND = 4;   // The screen is fully turned on, but updates/rendering are suspended
+    }
+
+    // The display ID.
+    uint32 display = 1;
+
+    // The power mode of the display.
+    PowerMode power_mode = 2;
+}
 // Provides information about all the displays that can be attached
 // to the emulator. The emulator will always have at least one display.
 //
@@ -1756,6 +1772,8 @@ message Notification {
         MicrophoneState microphoneState = 9;
         // This notification is sent when AI glasses LED light status change.
         LedIndicator ledIndicator = 10;
+        // This notification is sent when a display's power mode changes.
+        DisplayPowerModeNotification displayPowerMode = 11;
     }
 }
 
