@@ -76,7 +76,7 @@ emu-dev-cli source-directory set emu-main-next /work/emu-main-next
 emu-dev-cli source-directory list
 ```
 
-### 3. Create an Android Virtual Device (AVD)
+### 3. Create an Android Virtual Device (AVD) or Mesh
 
 ```bash
 # Create an AVD matching official android-cli profile
@@ -85,6 +85,12 @@ emu-dev-cli create avd \
   --sysimg-dir /tmp/system-image-x86_64-26Q2-emu-release-latest/extracted/ \
   --profile medium_phone \
   --force
+
+# Batch-create a mesh of N isolated AVD instances (e.g. bt-mesh-1, bt-mesh-2)
+emu-dev-cli create mesh \
+  --prefix bt-mesh \
+  --count 2 \
+  --profile medium_phone
 ```
 
 ### 4. Launch Emulator Instance

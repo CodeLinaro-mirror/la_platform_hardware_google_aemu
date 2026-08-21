@@ -108,6 +108,12 @@ emu-dev-cli create avd \
   --sysimg-dir /tmp/system-image-x86_64-26Q2-emu-release-latest/extracted/ \
   --profile medium_phone \
   --force
+
+# Batch-create a mesh of N isolated AVD instances (e.g. bt-mesh-1, bt-mesh-2)
+emu-dev-cli create mesh \
+  --prefix bt-mesh \
+  --count 2 \
+  --profile medium_phone
 ```
 
 ---

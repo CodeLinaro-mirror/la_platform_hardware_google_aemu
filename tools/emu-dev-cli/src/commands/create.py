@@ -147,107 +147,40 @@ def print_device_profiles(json_mode=False):
     print("-" * 65)
 
 
-def register_parser(subparsers):
-    create_parser = subparsers.add_parser(
-        "create",
-        help="Create AVDs or other developer artifacts"
-    )
-    create_subparsers = create_parser.add_subparsers(dest="create_cmd", help="Available resource types to create")
-    create_parser.set_defaults(func=lambda args: create_parser.print_help() or sys.exit(0))
-
-    # create avd
-    avd_parser = create_subparsers.add_parser(
-        "avd",
-        help="Create a new Android Virtual Device (AVD) from a system-image directory"
-    )
-    avd_parser.add_argument("--name", type=str, default=None, help="Name of the AVD (defaults to profile name if omitted)")
-    avd_parser.add_argument("--sysimg-dir", type=str, default=None, help="Path to extracted system-image directory")
-    avd_parser.add_argument(
-        "--profile",
-        type=str,
-        default="medium_phone",
-        choices=list(DEVICE_PROFILES.keys()),
-        help="Device profile: small_phone, medium_phone (default), medium_tablet, small_desktop, medium_desktop, large_desktop"
-    )
-    avd_parser.add_argument("--list-profiles", action="store_true", help="List available device profiles and exit")
-    avd_parser.add_argument("--ram", type=int, default=None, help="Override RAM size in MB")
-    avd_parser.add_argument("--cores", type=int, default=4, help="Number of CPU cores (default: 4)")
-    avd_parser.add_argument("--disk-size", type=str, default=None, help="Override data partition size (e.g. 8G)")
-    avd_parser.add_argument("--gpu", type=str, default="auto", help="GPU mode: auto, host, swiftshader_indirect (default: auto)")
-    avd_parser.add_argument("--force", action="store_true", help="Overwrite existing AVD with the same name")
-    avd_parser.set_defaults(parser=avd_parser, func=run_create_avd)
-
-
-def run_create_avd(args):
-    json_mode = getattr(args, "json", False)
-
-    if args.list_profiles:
-        print_device_profiles(json_mode)
-        return
-
-    sysimg_dir_arg = args.sysimg_dir
-    if not sysimg_dir_arg:
-        sysimg_dir_arg = find_cached_sysimg_dir()
-
-    if not sysimg_dir_arg:
-        name_val = args.name or "my-phone"
-        err_msg = (
-            f"No system-image directory specified (--sysimg-dir) and no cached system images were found in /tmp.\n\n"
-            f"💡 To download a prebuilt system image, run:\n"
-            f"   emu-dev-cli fetch-build system-image --latest\n\n"
-            f"   Then re-run create:\n"
-            f"   emu-dev-cli create avd --name {name_val}\n"
-        )
-        if json_mode:
-            print_result({
-                "status": "error",
-                "action": "create avd",
-                "error_message": "No system-image directory specified and no cached images found in /tmp.",
-                "suggestion": "emu-dev-cli fetch-build system-image --latest",
-                "exit_code": 1
-            }, json_mode=True, is_error=True)
-        else:
-            print(f"❌ Error: {err_msg}")
-        sys.exit(1)
-
-    if not args.sysimg_dir and not json_mode:
-        print(f"ℹ️  Using auto-discovered system image: {sysimg_dir_arg}")
-
-    profile_name = args.profile or "medium_phone"
+def create_single_avd(
+    avd_name,
+    profile_name="medium_phone",
+    raw_sysimg_dir=None,
+    ram=None,
+    cores=4,
+    disk_size=None,
+    gpu="auto",
+    force=False,
+    avd_root=None,
+):
+    """
+    Creates a single Android Virtual Device (AVD) directory and ini pointer file.
+    """
     profile = DEVICE_PROFILES.get(profile_name, DEVICE_PROFILES["medium_phone"])
+    if not raw_sysimg_dir:
+        raise ValueError("raw_sysimg_dir must be provided")
 
-    avd_name = args.name or profile_name
-    raw_sysimg_dir = os.path.abspath(os.path.expanduser(sysimg_dir_arg))
+    abs_raw_sysimg = os.path.abspath(os.path.expanduser(raw_sysimg_dir))
+    if not os.path.isdir(abs_raw_sysimg):
+        raise FileNotFoundError(f"System image directory not found: {abs_raw_sysimg}")
 
-    if not os.path.isdir(raw_sysimg_dir):
-        print_result({
-            "status": "error",
-            "action": "create avd",
-            "name": avd_name,
-            "error_message": f"System image directory not found: {raw_sysimg_dir}",
-            "exit_code": 1
-        }, json_mode=json_mode, is_error=True)
-        sys.exit(1)
+    sysimg_dir = find_actual_sysimg_dir(abs_raw_sysimg)
 
-    # Automatically locate inner directory containing system.img / kernel-ranchu
-    sysimg_dir = find_actual_sysimg_dir(raw_sysimg_dir)
-
-    home_dir = os.path.expanduser("~")
-    avd_root = os.path.join(home_dir, ".android", "avd")
+    if avd_root is None:
+        home_dir = os.path.expanduser("~")
+        avd_root = os.path.join(home_dir, ".android", "avd")
     os.makedirs(avd_root, exist_ok=True)
 
     ini_file = os.path.join(avd_root, f"{avd_name}.ini")
     avd_dir = os.path.join(avd_root, f"{avd_name}.avd")
 
-    if (os.path.exists(ini_file) or os.path.exists(avd_dir)) and not args.force:
-        print_result({
-            "status": "error",
-            "action": "create avd",
-            "name": avd_name,
-            "error_message": f"AVD '{avd_name}' already exists at {avd_dir}. Pass --force to overwrite.",
-            "exit_code": 1
-        }, json_mode=json_mode, is_error=True)
-        sys.exit(1)
+    if (os.path.exists(ini_file) or os.path.exists(avd_dir)) and not force:
+        raise FileExistsError(f"AVD '{avd_name}' already exists at {avd_dir}. Pass --force to overwrite.")
 
     if os.path.exists(ini_file):
         os.unlink(ini_file)
@@ -257,8 +190,8 @@ def run_create_avd(args):
     os.makedirs(avd_dir, exist_ok=True)
 
     arch, abi = detect_arch_and_abi(sysimg_dir)
-    ram_size = args.ram if args.ram else profile["ram"]
-    disk_size = args.disk_size if args.disk_size else profile["disk"]
+    ram_size = ram if ram else profile["ram"]
+    disk_size_val = disk_size if disk_size else profile["disk"]
 
     # Ensure trailing slash on sysdir for emulator parser
     sysimg_dir_slash = sysimg_dir if sysimg_dir.endswith("/") else sysimg_dir + "/"
@@ -277,15 +210,15 @@ def run_create_avd(args):
         f.write(f"avd.ini.displayname={avd_name}\n")
         f.write(f"abi.type={abi}\n")
         f.write(f"hw.cpu.arch={arch}\n")
-        f.write(f"hw.cpu.ncore={args.cores}\n")
+        f.write(f"hw.cpu.ncore={cores}\n")
         f.write(f"hw.ramSize={ram_size}\n")
         f.write(f"vm.heapSize={profile['heap']}\n")
-        f.write(f"disk.dataPartition.size={disk_size}\n")
+        f.write(f"disk.dataPartition.size={disk_size_val}\n")
         f.write(f"image.sysdir.1={sysimg_dir_slash}\n")
         f.write(f"tag.id=google_apis\n")
         f.write(f"tag.display=Google APIs\n")
         f.write(f"hw.gpu.enabled=yes\n")
-        f.write(f"hw.gpu.mode={args.gpu}\n")
+        f.write(f"hw.gpu.mode={gpu}\n")
         f.write(f"hw.keyboard=yes\n")
         f.write(f"hw.dPad=no\n")
         f.write(f"hw.mainKeys=no\n")
@@ -306,11 +239,7 @@ def run_create_avd(args):
         except Exception:
             pass
 
-    summary_msg = f"Created AVD '{avd_name}' [{profile_name}] ({arch}/{abi})"
-    print_result({
-        "status": "success",
-        "action": "create avd",
-        "summary": summary_msg,
+    return {
         "avd_name": avd_name,
         "profile": profile_name,
         "ini_file": ini_file,
@@ -319,5 +248,161 @@ def run_create_avd(args):
         "abi": abi,
         "display_resolution": f"{profile['width']}x{profile['height']} ({profile['density']} dpi)",
         "sysimg_dir": sysimg_dir,
-        "run_command_example": f"emu-dev-cli launch emulator --emulator-dir=<dir> -- -avd {avd_name}"
-    }, json_mode=json_mode)
+    }
+
+
+def register_parser(subparsers):
+    create_parser = subparsers.add_parser(
+        "create",
+        help="Create AVDs or other developer artifacts"
+    )
+    create_subparsers = create_parser.add_subparsers(dest="create_cmd", help="Available resource types to create")
+    create_parser.set_defaults(func=lambda args: create_parser.print_help() or sys.exit(0))
+
+    def add_avd_arguments(parser):
+        parser.add_argument("--name", type=str, default=None, help="Name of the AVD (defaults to profile name if omitted)")
+        parser.add_argument("--prefix", type=str, default=None, help="Prefix name when creating multiple AVD instances (e.g. 'mesh-node')")
+        parser.add_argument("--count", type=int, default=1, help="Number of AVD instances to batch create (default: 1)")
+        parser.add_argument("--sysimg-dir", type=str, default=None, help="Path to extracted system-image directory")
+        parser.add_argument(
+            "--profile",
+            type=str,
+            default="medium_phone",
+            choices=list(DEVICE_PROFILES.keys()),
+            help="Device profile: small_phone, medium_phone (default), medium_tablet, small_desktop, medium_desktop, large_desktop"
+        )
+        parser.add_argument("--list-profiles", action="store_true", help="List available device profiles and exit")
+        parser.add_argument("--ram", type=int, default=None, help="Override RAM size in MB")
+        parser.add_argument("--cores", type=int, default=4, help="Number of CPU cores (default: 4)")
+        parser.add_argument("--disk-size", type=str, default=None, help="Override data partition size (e.g. 8G)")
+        parser.add_argument("--gpu", type=str, default="auto", help="GPU mode: auto, host, swiftshader_indirect (default: auto)")
+        parser.add_argument("--force", action="store_true", help="Overwrite existing AVD with the same name")
+
+    # create avd
+    avd_parser = create_subparsers.add_parser(
+        "avd",
+        help="Create a new Android Virtual Device (AVD) or batch of AVDs from a system-image directory"
+    )
+    add_avd_arguments(avd_parser)
+    avd_parser.set_defaults(parser=avd_parser, func=run_create_avd)
+
+    # create mesh
+    mesh_parser = create_subparsers.add_parser(
+        "mesh",
+        help="Create a mesh batch of N Android Virtual Devices (AVDs) from a system-image directory"
+    )
+    add_avd_arguments(mesh_parser)
+    mesh_parser.set_defaults(parser=mesh_parser, func=run_create_avd)
+
+
+def run_create_avd(args):
+    json_mode = getattr(args, "json", False)
+
+    if args.list_profiles:
+        print_device_profiles(json_mode)
+        return
+
+    count = getattr(args, "count", 1) or 1
+    if count < 1:
+        print_result({
+            "status": "error",
+            "action": "create avd",
+            "error_message": f"Invalid --count value: {count}. Must be >= 1.",
+            "exit_code": 1
+        }, json_mode=json_mode, is_error=True)
+        sys.exit(1)
+
+    profile_name = getattr(args, "profile", None) or "medium_phone"
+    prefix = getattr(args, "prefix", None) or getattr(args, "name", None) or (profile_name if count == 1 else f"{profile_name}-mesh")
+
+    sysimg_dir_arg = getattr(args, "sysimg_dir", None)
+    if not sysimg_dir_arg:
+        sysimg_dir_arg = find_cached_sysimg_dir()
+
+    if not sysimg_dir_arg:
+        cmd_type = "mesh" if count > 1 or getattr(args, "create_cmd", "") == "mesh" else "avd"
+        name_val = getattr(args, "prefix", None) or getattr(args, "name", None) or ("bt-mesh" if count > 1 else "my-phone")
+        count_flag = f" --count {count}" if count > 1 else ""
+        err_msg = (
+            f"No system-image directory specified (--sysimg-dir) and no cached system images were found in /tmp.\n\n"
+            f"💡 To download a prebuilt system image, run:\n"
+            f"   emu-dev-cli fetch-build system-image --latest\n\n"
+            f"   Then re-run create:\n"
+            f"   emu-dev-cli create {cmd_type} --name {name_val}{count_flag}\n"
+        )
+        if json_mode:
+            print_result({
+                "status": "error",
+                "action": f"create {cmd_type}",
+                "error_message": "No system-image directory specified and no cached images found in /tmp.",
+                "suggestion": "emu-dev-cli fetch-build system-image --latest",
+                "exit_code": 1
+            }, json_mode=True, is_error=True)
+        else:
+            print(f"❌ Error: {err_msg}")
+        sys.exit(1)
+
+    if not args.sysimg_dir and not json_mode:
+        print(f"ℹ️  Using auto-discovered system image: {sysimg_dir_arg}")
+
+    names = []
+    if count == 1 and args.name:
+        names = [args.name]
+    else:
+        for i in range(1, count + 1):
+            names.append(f"{prefix}-{i}" if count > 1 else prefix)
+
+    created_avds = []
+    for avd_name in names:
+        try:
+            res = create_single_avd(
+                avd_name=avd_name,
+                profile_name=profile_name,
+                raw_sysimg_dir=sysimg_dir_arg,
+                ram=args.ram,
+                cores=args.cores,
+                disk_size=args.disk_size,
+                gpu=args.gpu,
+                force=args.force,
+            )
+            created_avds.append(res)
+        except (FileNotFoundError, FileExistsError, ValueError) as e:
+            print_result({
+                "status": "error",
+                "action": "create avd",
+                "name": avd_name,
+                "error_message": str(e),
+                "exit_code": 1
+            }, json_mode=json_mode, is_error=True)
+            sys.exit(1)
+
+    if count == 1:
+        first = created_avds[0]
+        summary_msg = f"Created AVD '{first['avd_name']}' [{first['profile']}] ({first['arch']}/{first['abi']})"
+        print_result({
+            "status": "success",
+            "action": "create avd",
+            "summary": summary_msg,
+            "avd_name": first["avd_name"],
+            "profile": first["profile"],
+            "ini_file": first["ini_file"],
+            "avd_dir": first["avd_dir"],
+            "arch": first["arch"],
+            "abi": first["abi"],
+            "display_resolution": first["display_resolution"],
+            "sysimg_dir": first["sysimg_dir"],
+            "run_command_example": f"emu-dev-cli launch emulator --emulator-dir=<dir> -- -avd {first['avd_name']}"
+        }, json_mode=json_mode)
+    else:
+        summary_msg = f"Created {len(created_avds)} AVD mesh instances with prefix '{prefix}' [{profile_name}]"
+        print_result({
+            "status": "success",
+            "action": "create mesh",
+            "summary": summary_msg,
+            "count": len(created_avds),
+            "prefix": prefix,
+            "profile": profile_name,
+            "avds": created_avds,
+            "avd_names": [a["avd_name"] for a in created_avds],
+            "launch_mesh_example": f"emu-dev-cli launch mesh --emulator-dir=<dir> --prefix {prefix} --count {len(created_avds)}"
+        }, json_mode=json_mode)
