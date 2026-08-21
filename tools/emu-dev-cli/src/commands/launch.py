@@ -1,103 +1,41 @@
+# Copyright 2026 The Android Open Source Project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import os
-import re
-import sys
-import glob
 import platform
+import re
 import subprocess
-import shutil
+import sys
 import time
+from lib.avd import get_mesh_node_names
+from lib.emulator import (
+    calculate_mesh_ports,
+    find_cached_emulator_dir,
+    is_headless_launch,
+    prepare_environment,
+    resolve_emulator_executable,
+    spawn_emulator_process,
+)
 from lib.output import print_result
-
-NON_EXEC_EXTENSIONS = {
-    ".so", ".png", ".jpg", ".jpeg", ".webp", ".txt", ".xml", ".json",
-    ".img", ".dat", ".pak", ".pyc", ".py", ".md", ".ini", ".properties",
-    ".pem", ".crt", ".key", ".cer", ".icns", ".ico", ".svg"
-}
-
-
-def ensure_executable_permissions(emu_dir, emu_bin):
-    if platform.system().lower() == "windows":
-        return
-
-    for root, _, files in os.walk(emu_dir):
-        for f in files:
-            ext = os.path.splitext(f)[1].lower()
-            if ext in NON_EXEC_EXTENSIONS:
-                continue
-            full_p = os.path.join(root, f)
-            if not os.access(full_p, os.X_OK):
-                try:
-                    os.chmod(full_p, 0o755)
-                except Exception:
-                    pass
-
-
-def resolve_emulator_executable(emulator_dir_arg):
-    if not emulator_dir_arg:
-        raise ValueError(
-            "Emulator directory not specified. Please provide --emulator-dir=<path> "
-            "(e.g. --emulator-dir=/tmp/emulator-linux-x64-15942201/extracted/emulator)."
-        )
-
-    is_windows = platform.system().lower() == "windows"
-    exe_name = "emulator.exe" if is_windows else "emulator"
-
-    abs_dir = os.path.abspath(os.path.expanduser(emulator_dir_arg))
-    if not os.path.isdir(abs_dir):
-        raise FileNotFoundError(f"Specified emulator directory does not exist: {abs_dir}")
-
-    direct_bin = os.path.join(abs_dir, exe_name)
-    if os.path.exists(direct_bin):
-        ensure_executable_permissions(abs_dir, direct_bin)
-        return direct_bin, abs_dir
-
-    sub_bin = os.path.join(abs_dir, "emulator", exe_name)
-    if os.path.exists(sub_bin):
-        sub_dir = os.path.join(abs_dir, "emulator")
-        ensure_executable_permissions(sub_dir, sub_bin)
-        return sub_bin, sub_dir
-
-    raise FileNotFoundError(f"Could not locate '{exe_name}' binary inside directory: {abs_dir}")
-
-
-def prepare_environment(emu_dir):
-    env = os.environ.copy()
-    system = platform.system().lower()
-
-    if system == "linux":
-        lib64 = os.path.join(emu_dir, "lib64")
-        qt_lib = os.path.join(lib64, "qt", "lib")
-        gles_lib = os.path.join(lib64, "gles_swiftshader")
-        vulkan_lib = os.path.join(lib64, "vulkan")
-        existing_ld = env.get("LD_LIBRARY_PATH", "")
-
-        ld_paths = [p for p in [lib64, qt_lib, gles_lib, vulkan_lib] if os.path.exists(p)]
-        if existing_ld:
-            ld_paths.append(existing_ld)
-        env["LD_LIBRARY_PATH"] = ":".join(ld_paths)
-
-        qt_plugins = os.path.join(lib64, "qt", "plugins")
-        if os.path.exists(qt_plugins):
-            env["QT_PLUGIN_PATH"] = qt_plugins
-
-    elif system == "darwin":
-        lib64 = os.path.join(emu_dir, "lib64")
-        existing_dyld = env.get("DYLD_LIBRARY_PATH", "")
-        if os.path.exists(lib64):
-            env["DYLD_LIBRARY_PATH"] = f"{lib64}:{existing_dyld}" if existing_dyld else lib64
-
-    return env
-
-
-def is_headless_launch(emu_args):
-    headless_flags = {"-no-window", "-no-gui", "-headless"}
-    return any(flag in emu_args for flag in headless_flags)
 
 
 def get_display_owner_label(disp_num):
     sock_path = f"/tmp/.X11-unix/X{disp_num}"
     try:
-        res = subprocess.run(["fuser", sock_path], capture_output=True, text=True, check=False)
+        res = subprocess.run(
+            ["fuser", sock_path], capture_output=True, text=True, check=False
+        )
         pids = res.stdout.strip().split()
         if pids:
             pid = pids[0]
@@ -157,20 +95,33 @@ def check_display_health(env, emu_args, json_mode=False):
 
     if not json_mode:
         print("⚠️  DISPLAY WARNING:")
-        print(f"   Current DISPLAY='{disp_str}' has no active socket file at /tmp/.X11-unix/X{disp_num or 0}.")
+        print(
+            f"   Current DISPLAY='{disp_str}' has no active socket file at"
+            f" /tmp/.X11-unix/X{disp_num or 0}."
+        )
         if active_displays:
             print("   Detected active X11 display socket(s) on machine:")
             for _, d_str, owner_desc in active_displays:
                 print(f"     • DISPLAY={d_str:<6} [{owner_desc}]")
             suggested_disp = active_displays[0][1]
             for num, d_str, owner_desc in active_displays:
-                if "chrome" in owner_desc.lower() or "xorg" in owner_desc.lower() or num == 20:
+                if (
+                    "chrome" in owner_desc.lower()
+                    or "xorg" in owner_desc.lower()
+                    or num == 20
+                ):
                     suggested_disp = d_str
                     break
-            print(f"   If Qt XCB fails to connect to display, try running: export DISPLAY={suggested_disp}")
+            print(
+                "   If Qt XCB fails to connect to display, try running: export"
+                f" DISPLAY={suggested_disp}"
+            )
         else:
             print("   No active X11 display sockets found in /tmp/.X11-unix/.")
-            print("   If launch fails with Qt XCB error, ensure your display server is running or pass '-no-window'.")
+            print(
+                "   If launch fails with Qt XCB error, ensure your display"
+                " server is running or pass '-no-window'."
+            )
         print("   Proceeding to launch emulator...")
         print("-" * 50)
         sys.stdout.flush()
@@ -178,62 +129,143 @@ def check_display_health(env, emu_args, json_mode=False):
 
 def register_parser(subparsers):
     launch_parser = subparsers.add_parser(
-        "launch",
-        help="Launch developer tools (emulator, cts-verifier, etc.)"
+        "launch", help="Launch developer tools (emulator, mesh, cts-verifier, etc.)"
     )
-    launch_parser.set_defaults(func=lambda args: launch_parser.print_help() or sys.exit(0))
-    launch_subparsers = launch_parser.add_subparsers(dest="launch_cmd", help="Resource type to launch")
+    launch_parser.set_defaults(
+        func=lambda args: launch_parser.print_help() or sys.exit(0)
+    )
+    launch_subparsers = launch_parser.add_subparsers(
+        dest="launch_cmd", help="Resource type to launch"
+    )
 
     # emu-dev-cli launch emulator ...
     emulator_parser = launch_subparsers.add_parser(
         "emulator",
-        help="Launch an Android Emulator using prebuilt emulator binaries and forwarding arguments"
+        help=(
+            "Launch an Android Emulator using prebuilt emulator binaries and"
+            " forwarding arguments"
+        ),
     )
     emulator_parser.add_argument(
         "--emulator-dir",
         type=str,
         default=None,
-        help="Directory containing extracted prebuilt emulator (required)"
+        help="Directory containing extracted prebuilt emulator (auto-discovered if omitted)",
     )
     emulator_parser.add_argument(
         "--detached",
         action="store_true",
-        help="Launch emulator as an independent daemon background process and exit immediately"
+        help="Launch emulator as an independent daemon background process and exit immediately",
     )
     emulator_parser.add_argument(
         "--log-file",
         type=str,
         default=None,
-        help="Custom log file path when running with --detached (defaults to /tmp/emulator_<pid>.log)"
+        help="Custom log file path when running with --detached (defaults to /tmp/emulator_<pid>.log)",
     )
     emulator_parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print resolved executable, library paths, and command without executing"
+        help="Print resolved executable, library paths, and command without executing",
     )
     emulator_parser.add_argument(
         "emulator_args",
         nargs="*",
-        help="Arguments passed directly to emulator (use '--' before options, e.g. -- -avd my-avd)"
+        help="Arguments passed directly to emulator (use '--' before options, e.g. -- -avd my-avd)",
     )
-    emulator_parser.set_defaults(parser=emulator_parser, func=run_launch_emulator)
+    emulator_parser.set_defaults(
+        parser=emulator_parser, func=run_launch_emulator
+    )
+
+    # emu-dev-cli launch mesh ...
+    mesh_parser = launch_subparsers.add_parser(
+        "mesh",
+        help="Concurrently launch a mesh of N isolated emulator instances with non-overlapping ports",
+    )
+    mesh_parser.add_argument(
+        "--emulator-dir",
+        type=str,
+        default=None,
+        help="Directory containing extracted prebuilt emulator (auto-discovered if omitted)",
+    )
+    mesh_parser.add_argument(
+        "--prefix",
+        type=str,
+        default="medium_phone",
+        help="Prefix of the AVD mesh instances (e.g. 'bt-mesh')",
+    )
+    mesh_parser.add_argument(
+        "--count",
+        type=int,
+        default=2,
+        help="Number of mesh emulator instances to launch (default: 2)",
+    )
+    mesh_parser.add_argument(
+        "--base-port",
+        type=int,
+        default=5554,
+        help="Base console port for the first instance (default: 5554)",
+    )
+    mesh_parser.add_argument(
+        "--packet-streamer",
+        type=str,
+        default="default",
+        help="Packet streamer endpoint for Netsim/Bluetooth radio mesh sync (default: 'default')",
+    )
+    mesh_parser.add_argument(
+        "--no-window",
+        action="store_true",
+        help="Run emulator instances headlessly without graphical window",
+    )
+    mesh_parser.add_argument(
+        "--log-dir",
+        type=str,
+        default=None,
+        help="Directory to store output logs for each mesh node (defaults to /tmp/mesh_<prefix>_<ts>)",
+    )
+    mesh_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print resolved node configurations and launch commands without executing",
+    )
+    mesh_parser.add_argument(
+        "emulator_args",
+        nargs="*",
+        help="Additional emulator options forwarded to all instances (use '--', e.g. -- -gpu swiftshader_indirect)",
+    )
+    mesh_parser.set_defaults(parser=mesh_parser, func=run_launch_mesh)
+
+
+def _handle_missing_emulator_error(json_mode: bool, cmd_name: str = "emulator"):
+    err_msg = (
+        "No emulator directory specified (--emulator-dir) and no cached"
+        " emulator was found in /tmp.\n\n💡 To download a prebuilt emulator"
+        " binary, run:\n   emu-dev-cli fetch-build emulator --latest\n\n  "
+        f" Then re-run launch:\n   emu-dev-cli launch {cmd_name} ...\n"
+    )
+    if json_mode:
+        print_result(
+            {
+                "status": "error",
+                "action": f"launch {cmd_name}",
+                "error_message": (
+                    "No emulator directory specified and no cached emulator"
+                    " found in /tmp."
+                ),
+                "suggestion": "emu-dev-cli fetch-build emulator --latest",
+                "exit_code": 1,
+            },
+            json_mode=True,
+            is_error=True,
+        )
+    else:
+        print(f"❌ Error: {err_msg}")
+    sys.exit(1)
 
 
 def run_launch_emulator(args):
     json_mode = getattr(args, "json", False)
     emu_args = getattr(args, "emulator_args", []) or []
-
-    if not args.emulator_dir:
-        if not json_mode and hasattr(args, "parser"):
-            args.parser.print_help()
-            sys.exit(0)
-        print_result({
-            "status": "error",
-            "action": "launch emulator",
-            "error_message": "--emulator-dir is required when launching emulator.",
-            "exit_code": 1
-        }, json_mode=json_mode, is_error=True)
-        sys.exit(1)
 
     if emu_args and emu_args[0] == "--":
         emu_args = emu_args[1:]
@@ -241,12 +273,18 @@ def run_launch_emulator(args):
     try:
         emu_bin, emu_dir = resolve_emulator_executable(args.emulator_dir)
     except (ValueError, FileNotFoundError) as e:
-        print_result({
-            "status": "error",
-            "action": "launch emulator",
-            "error_message": str(e),
-            "exit_code": 1
-        }, json_mode=json_mode, is_error=True)
+        if not args.emulator_dir and not find_cached_emulator_dir():
+            _handle_missing_emulator_error(json_mode, "emulator")
+        print_result(
+            {
+                "status": "error",
+                "action": "launch emulator",
+                "error_message": str(e),
+                "exit_code": 1,
+            },
+            json_mode=json_mode,
+            is_error=True,
+        )
         sys.exit(1)
 
     env = prepare_environment(emu_dir)
@@ -255,16 +293,19 @@ def run_launch_emulator(args):
     full_cmd = [emu_bin] + emu_args
 
     if args.dry_run:
-        print_result({
-            "status": "dry_run",
-            "action": "launch emulator",
-            "emulator_executable": emu_bin,
-            "emulator_dir": emu_dir,
-            "detached_mode": args.detached,
-            "display": env.get("DISPLAY", ""),
-            "ld_library_path": env.get("LD_LIBRARY_PATH", ""),
-            "full_command": full_cmd,
-        }, json_mode=json_mode)
+        print_result(
+            {
+                "status": "dry_run",
+                "action": "launch emulator",
+                "emulator_executable": emu_bin,
+                "emulator_dir": emu_dir,
+                "detached_mode": args.detached,
+                "display": env.get("DISPLAY", ""),
+                "ld_library_path": env.get("LD_LIBRARY_PATH", ""),
+                "full_command": full_cmd,
+            },
+            json_mode=json_mode,
+        )
         return
 
     # Detached daemon launch mode
@@ -276,36 +317,27 @@ def run_launch_emulator(args):
         else:
             log_file_path = os.path.abspath(os.path.expanduser(log_file_path))
 
-        os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
-        log_fd = open(log_file_path, "a", encoding="utf-8")
+        proc = spawn_emulator_process(
+            full_cmd, emu_dir, env, log_file_path=log_file_path, detached=True
+        )
 
-        system = platform.system().lower()
-        popen_kwargs = {
-            "env": env,
-            "cwd": emu_dir,
-            "stdout": log_fd,
-            "stderr": log_fd,
-            "stdin": subprocess.DEVNULL,
-            "close_fds": True,
-        }
-        if system == "windows":
-            popen_kwargs["creationflags"] = 0x00000008
-        else:
-            popen_kwargs["start_new_session"] = True
-
-        proc = subprocess.Popen(full_cmd, **popen_kwargs)
-
-        print_result({
-            "status": "success",
-            "action": "launch emulator (detached)",
-            "summary": f"Started emulator daemon (PID {proc.pid}) on DISPLAY={env.get('DISPLAY')}",
-            "pid": proc.pid,
-            "display": env.get("DISPLAY", ""),
-            "log_file": log_file_path,
-            "emulator_executable": emu_bin,
-            "emulator_dir": emu_dir,
-            "full_command": full_cmd,
-        }, json_mode=json_mode)
+        print_result(
+            {
+                "status": "success",
+                "action": "launch emulator (detached)",
+                "summary": (
+                    f"Started emulator daemon (PID {proc.pid}) on"
+                    f" DISPLAY={env.get('DISPLAY')}"
+                ),
+                "pid": proc.pid,
+                "display": env.get("DISPLAY", ""),
+                "log_file": log_file_path,
+                "emulator_executable": emu_bin,
+                "emulator_dir": emu_dir,
+                "full_command": full_cmd,
+            },
+            json_mode=json_mode,
+        )
         return
 
     # Foreground interactive launch mode
@@ -324,10 +356,141 @@ def run_launch_emulator(args):
     except KeyboardInterrupt:
         sys.exit(0)
     except Exception as ex:
-        print_result({
-            "status": "error",
-            "action": "launch emulator",
-            "error_message": f"Failed to execute emulator: {ex}",
-            "exit_code": 1
-        }, json_mode=json_mode, is_error=True)
+        print_result(
+            {
+                "status": "error",
+                "action": "launch emulator",
+                "error_message": f"Failed to execute emulator: {ex}",
+                "exit_code": 1,
+            },
+            json_mode=json_mode,
+            is_error=True,
+        )
         sys.exit(1)
+
+
+def run_launch_mesh(args):
+    json_mode = getattr(args, "json", False)
+    count = getattr(args, "count", 2) or 2
+    prefix = getattr(args, "prefix", "medium_phone") or "medium_phone"
+    base_port = getattr(args, "base_port", 5554) or 5554
+    packet_streamer = getattr(args, "packet_streamer", "default")
+    no_window = getattr(args, "no_window", False)
+    dry_run = getattr(args, "dry_run", False)
+
+    extra_args = getattr(args, "emulator_args", []) or []
+    if extra_args and extra_args[0] == "--":
+        extra_args = extra_args[1:]
+
+    try:
+        port_assignments = calculate_mesh_ports(
+            base_port=base_port, count=count
+        )
+    except ValueError as e:
+        print_result(
+            {
+                "status": "error",
+                "action": "launch mesh",
+                "error_message": str(e),
+                "exit_code": 1,
+            },
+            json_mode=json_mode,
+            is_error=True,
+        )
+        sys.exit(1)
+
+    try:
+        emu_bin, emu_dir = resolve_emulator_executable(args.emulator_dir)
+    except (ValueError, FileNotFoundError) as e:
+        if not args.emulator_dir and not find_cached_emulator_dir():
+            _handle_missing_emulator_error(json_mode, "mesh")
+        print_result(
+            {
+                "status": "error",
+                "action": "launch mesh",
+                "error_message": str(e),
+                "exit_code": 1,
+            },
+            json_mode=json_mode,
+            is_error=True,
+        )
+        sys.exit(1)
+
+    env = prepare_environment(emu_dir)
+    check_display_health(env, extra_args + (["-no-window"] if no_window else []), json_mode=json_mode)
+
+    avd_names = get_mesh_node_names(prefix, count)
+
+    ts = int(time.time())
+    log_dir = args.log_dir or f"/tmp/mesh_{prefix}_{ts}"
+    log_dir = os.path.abspath(os.path.expanduser(log_dir))
+    if not dry_run:
+        os.makedirs(log_dir, exist_ok=True)
+
+    node_results = []
+    for i, port_info in enumerate(port_assignments):
+        avd_name = avd_names[i]
+        c_port = port_info["console_port"]
+        a_port = port_info["adb_port"]
+        serial = port_info["serial"]
+
+        node_cmd = [
+            emu_bin,
+            "-avd",
+            avd_name,
+            "-ports",
+            f"{c_port},{a_port}",
+        ]
+        if packet_streamer:
+            node_cmd.extend(["-packet-streamer-endpoint", packet_streamer])
+        if no_window and "-no-window" not in extra_args and "-headless" not in extra_args:
+            node_cmd.append("-no-window")
+        if extra_args:
+            node_cmd.extend(extra_args)
+
+        log_file = os.path.join(log_dir, f"{avd_name}_{c_port}.log")
+
+        if dry_run:
+            node_results.append({
+                "index": port_info["index"],
+                "avd_name": avd_name,
+                "serial": serial,
+                "console_port": c_port,
+                "adb_port": a_port,
+                "log_file": log_file,
+                "command": node_cmd,
+            })
+        else:
+            proc = spawn_emulator_process(
+                node_cmd, emu_dir, env, log_file_path=log_file, detached=True
+            )
+            node_results.append({
+                "index": port_info["index"],
+                "avd_name": avd_name,
+                "serial": serial,
+                "console_port": c_port,
+                "adb_port": a_port,
+                "pid": proc.pid,
+                "log_file": log_file,
+                "command": node_cmd,
+            })
+
+    summary_msg = (
+        f"{'Planned' if dry_run else 'Launched'} mesh of {count} emulator"
+        f" instances with prefix '{prefix}' on ports {base_port}..{port_assignments[-1]['console_port']}"
+    )
+
+    result_payload = {
+        "status": "dry_run" if dry_run else "success",
+        "action": "launch mesh",
+        "summary": summary_msg,
+        "count": count,
+        "prefix": prefix,
+        "packet_streamer_endpoint": packet_streamer,
+        "nodes": node_results,
+        "serials": [n["serial"] for n in node_results],
+        "log_directory": log_dir,
+        "emulator_executable": emu_bin,
+        "emulator_dir": emu_dir,
+    }
+    print_result(result_payload, json_mode=json_mode)
