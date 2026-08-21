@@ -23,16 +23,27 @@ from lib.mesh import (
     get_device_avd_name,
     get_netsim_devices,
     summarize_netsim_chips,
+    teardown_mesh,
     wait_for_mesh_ready,
 )
 from lib.output import format_markdown_table, print_result
 
 
-def _resolve_target_serials(args) -> List[str]:
-    """Resolves list of target serials from --serials or (--prefix, --count, --base-port)."""
+def _resolve_target_serials(
+    args, allow_auto_adb: bool = False
+) -> List[str]:
+    """Resolves list of target serials from --serials, --all, or (--prefix, --count, --base-port)."""
     raw_serials = getattr(args, "serials", None)
     if raw_serials:
         return [s.strip() for s in raw_serials.split(",") if s.strip()]
+
+    if getattr(args, "all", False):
+        return get_connected_adb_devices()
+
+    if allow_auto_adb and not getattr(args, "prefix", None):
+        connected = get_connected_adb_devices()
+        if connected:
+            return connected
 
     count = getattr(args, "count", 2) or 2
     base_port = getattr(args, "base_port", 5554) or 5554
@@ -128,6 +139,54 @@ def register_parser(subparsers):
         help="Directory containing extracted prebuilt emulator to locate netsim binary",
     )
     status_parser.set_defaults(parser=status_parser, func=run_mesh_status)
+
+    # emu-dev-cli mesh teardown / stop ...
+    for cmd_name in ("teardown", "stop"):
+        td_parser = mesh_subparsers.add_parser(
+            cmd_name,
+            help="Gracefully stop mesh emulator instances and reset Netsim RF simulation",
+        )
+        td_parser.add_argument(
+            "--serials",
+            type=str,
+            default=None,
+            help="Comma-separated list of target serials (auto-discovers all online emulators if omitted)",
+        )
+        td_parser.add_argument(
+            "--prefix",
+            type=str,
+            default=None,
+            help="Prefix of the AVD mesh instances (used to compute serials if --serials is omitted)",
+        )
+        td_parser.add_argument(
+            "--count",
+            type=int,
+            default=2,
+            help="Number of mesh instances to stop (default: 2)",
+        )
+        td_parser.add_argument(
+            "--base-port",
+            type=int,
+            default=5554,
+            help="Base console port (default: 5554)",
+        )
+        td_parser.add_argument(
+            "--all",
+            action="store_true",
+            help="Stop all connected emulator instances recognized by adb",
+        )
+        td_parser.add_argument(
+            "--no-netsim-reset",
+            action="store_true",
+            help="Skip resetting Netsim RF device scene",
+        )
+        td_parser.add_argument(
+            "--emulator-dir",
+            type=str,
+            default=None,
+            help="Directory containing extracted prebuilt emulator to locate netsim binary",
+        )
+        td_parser.set_defaults(parser=td_parser, func=run_mesh_teardown)
 
 
 def run_wait_ready(args):
@@ -238,7 +297,7 @@ def run_mesh_status(args):
                 "action": "mesh status",
                 "summary": "No connected ADB emulator devices found",
                 "total_nodes": 0,
-                "serials": [] if json_mode else "None",
+                "serials": [],
                 "nodes": [],
                 "netsim_active": False,
             },
@@ -293,6 +352,85 @@ def run_mesh_status(args):
             "nodes": node_statuses,
             "netsim_active": netsim_data is not None,
             "netsim_devices": netsim_data,
+            "markdown_table": table_md,
+        },
+        json_mode=json_mode,
+    )
+
+
+def run_mesh_teardown(args):
+    json_mode = getattr(args, "json", False)
+
+    try:
+        serials = _resolve_target_serials(args, allow_auto_adb=True)
+    except ValueError as e:
+        print_result(
+            {
+                "status": "error",
+                "action": "mesh teardown",
+                "error_message": str(e),
+                "exit_code": 1,
+            },
+            json_mode=json_mode,
+            is_error=True,
+        )
+        sys.exit(1)
+
+    if not serials:
+        print_result(
+            {
+                "status": "success",
+                "action": "mesh teardown",
+                "summary": "No mesh emulator instances found to stop",
+                "total_nodes": 0,
+                "total_stopped": 0,
+                "stopped_serials": [],
+                "netsim_reset": False,
+                "nodes": [],
+            },
+            json_mode=json_mode,
+        )
+        return
+
+    emu_dir = getattr(args, "emulator_dir", None)
+    reset_netsim = not getattr(args, "no_netsim_reset", False)
+
+    res = teardown_mesh(
+        serials=serials,
+        reset_netsim=reset_netsim,
+        emu_dir=emu_dir,
+    )
+
+    table_rows = []
+    for node in res["nodes"]:
+        s = node["serial"]
+        avd_name = node.get("avd_name") or "(unknown)"
+        stopped = node.get("stopped", False)
+        table_rows.append([
+            s,
+            avd_name,
+            "🛑 Stopped" if stopped else "❌ Failed",
+        ])
+
+    table_md = format_markdown_table(
+        ["Serial", "AVD Name", "Status"], table_rows
+    )
+
+    summary_msg = f"Tore down {res['total_stopped']}/{res['total_nodes']} mesh node(s)"
+    if res.get("netsim_reset"):
+        summary_msg += " & reset Netsim scene"
+
+    print_result(
+        {
+            "status": "success",
+            "action": "mesh teardown",
+            "summary": summary_msg,
+            "total_nodes": res["total_nodes"],
+            "total_stopped": res["total_stopped"],
+            "serials": serials,
+            "stopped_serials": res["stopped_serials"],
+            "netsim_reset": res["netsim_reset"],
+            "nodes": res["nodes"],
             "markdown_table": table_md,
         },
         json_mode=json_mode,

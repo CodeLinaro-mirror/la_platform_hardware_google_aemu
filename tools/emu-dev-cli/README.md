@@ -126,6 +126,12 @@ emu-dev-cli mesh wait-ready --serials emulator-5554,emulator-5556 --timeout 120
 
 # Query immediate boot status and connected Netsim radio chips
 emu-dev-cli mesh status
+
+# Gracefully stop all mesh nodes and reset Netsim RF device scene
+emu-dev-cli mesh teardown --prefix bt-mesh --count 2
+
+# Stop all connected emulator instances and reset RF simulation
+emu-dev-cli mesh teardown --all
 ```
 
 ### 6. Automated CTS-Verifier Runner

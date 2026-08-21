@@ -33,7 +33,10 @@ from lib.mesh import (
     get_connected_adb_devices,
     get_device_avd_name,
     get_netsim_devices,
+    reset_netsim_state,
+    stop_emulator_device,
     summarize_netsim_chips,
+    teardown_mesh,
     unlock_device_screen,
     wait_for_mesh_ready,
 )
@@ -160,6 +163,40 @@ class MeshLibTest(unittest.TestCase):
         self.assertEqual(find_netsim_device_by_name(data, "node-2")["name"], "node-2")
         self.assertIsNone(find_netsim_device_by_name(data, "node-3"))
         self.assertIsNone(find_netsim_device_by_name(None, "node-1"))
+
+    def test_stop_emulator_device(self):
+        mock_res = MagicMock()
+        mock_res.returncode = 0
+        with patch("subprocess.run", return_value=mock_res) as mock_run:
+            self.assertTrue(stop_emulator_device("emulator-5554"))
+            mock_run.assert_called_once()
+            args = mock_run.call_args[0][0]
+            self.assertIn("-s", args)
+            self.assertIn("emulator-5554", args)
+            self.assertIn("emu", args)
+            self.assertIn("kill", args)
+
+    def test_reset_netsim_state(self):
+        mock_res = MagicMock()
+        mock_res.returncode = 0
+        with patch("lib.mesh.find_netsim_binary", return_value="/mock/netsim"):
+            with patch("subprocess.run", return_value=mock_res) as mock_run:
+                self.assertTrue(reset_netsim_state())
+                mock_run.assert_called_once()
+                args = mock_run.call_args[0][0]
+                self.assertIn("reset", args)
+
+    def test_teardown_mesh(self):
+        with patch("lib.mesh.stop_emulator_device", return_value=True):
+            with patch("lib.mesh.get_device_avd_name", return_value="mesh-node-1"):
+                with patch("lib.mesh.reset_netsim_state", return_value=True):
+                    with patch("lib.mesh.find_netsim_binary", return_value="/mock/netsim"):
+                        res = teardown_mesh(["emulator-5554", "emulator-5556"], reset_netsim=True)
+                        self.assertEqual(res["status"], "success")
+                        self.assertEqual(res["total_nodes"], 2)
+                        self.assertEqual(res["total_stopped"], 2)
+                        self.assertEqual(res["stopped_serials"], ["emulator-5554", "emulator-5556"])
+                        self.assertTrue(res["netsim_reset"])
 
 
 if __name__ == "__main__":

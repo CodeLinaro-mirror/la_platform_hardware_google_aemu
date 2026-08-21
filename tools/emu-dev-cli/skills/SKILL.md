@@ -171,6 +171,14 @@ Monitors mesh nodes, waits for boot completion, unlocks keyguards, and verifies 
   ```bash
   emu-dev-cli mesh status
   ```
+- **Gracefully stop mesh instances and reset Netsim RF scene:**
+  ```bash
+  emu-dev-cli mesh teardown --prefix bt-mesh --count 2
+  ```
+- **Stop all connected emulators:**
+  ```bash
+  emu-dev-cli mesh teardown --all
+  ```
 
 ---
 

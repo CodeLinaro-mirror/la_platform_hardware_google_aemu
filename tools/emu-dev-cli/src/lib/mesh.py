@@ -319,3 +319,90 @@ def wait_for_mesh_ready(
         "netsim_active": netsim_data is not None,
         "netsim_devices": netsim_data,
     }
+
+
+def stop_emulator_device(
+    serial: str, adb_path: Optional[str] = None, timeout: int = 10
+) -> bool:
+    """Stops a running emulator device gracefully via 'adb -s <serial> emu kill'."""
+    adb_bin = adb_path or find_adb_binary()
+    try:
+        res = subprocess.run(
+            [adb_bin, "-s", serial, "emu", "kill"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        return res.returncode == 0
+    except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
+        return False
+
+
+def reset_netsim_state(
+    netsim_bin: Optional[str] = None, port: Optional[int] = None
+) -> bool:
+    """Resets Netsim simulation state via 'netsim reset'."""
+    bin_path = netsim_bin or find_netsim_binary()
+    if not bin_path:
+        return False
+    cmd = [bin_path]
+    if port:
+        cmd.extend(["-p", str(port)])
+    cmd.append("reset")
+    try:
+        res = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=5, check=False
+        )
+        return res.returncode == 0
+    except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
+        return False
+
+
+def teardown_mesh(
+    serials: List[str],
+    reset_netsim: bool = True,
+    emu_dir: Optional[str] = None,
+    adb_path: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Gracefully stops a list of emulator serials and optionally resets Netsim RF simulation.
+    """
+    if not serials:
+        return {
+            "status": "success",
+            "total_nodes": 0,
+            "total_stopped": 0,
+            "stopped_serials": [],
+            "netsim_reset": False,
+            "nodes": [],
+        }
+
+    adb_bin = adb_path or find_adb_binary()
+    netsim_bin = find_netsim_binary(emu_dir) if reset_netsim else None
+
+    node_results = []
+    stopped = []
+    for s in serials:
+        avd_name = get_device_avd_name(s, adb_path=adb_bin)
+        ok = stop_emulator_device(s, adb_path=adb_bin)
+        node_results.append({
+            "serial": s,
+            "avd_name": avd_name,
+            "stopped": ok,
+        })
+        if ok:
+            stopped.append(s)
+
+    netsim_ok = False
+    if reset_netsim and netsim_bin:
+        netsim_ok = reset_netsim_state(netsim_bin)
+
+    return {
+        "status": "success",
+        "total_nodes": len(serials),
+        "total_stopped": len(stopped),
+        "stopped_serials": stopped,
+        "netsim_reset": netsim_ok,
+        "nodes": node_results,
+    }

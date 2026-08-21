@@ -24,7 +24,7 @@ SRC_DIR = os.path.join(
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-from commands.mesh import run_mesh_status, run_wait_ready
+from commands.mesh import run_mesh_status, run_mesh_teardown, run_wait_ready
 
 
 class MeshCmdTest(unittest.TestCase):
@@ -138,6 +138,60 @@ class MeshCmdTest(unittest.TestCase):
                 self.assertEqual(payload["status"], "success")
                 self.assertEqual(payload["total_nodes"], 0)
                 self.assertEqual(payload["serials"], [])
+
+    def test_run_mesh_teardown_success(self):
+        class Args:
+            serials = "emulator-5554,emulator-5556"
+            prefix = None
+            count = 2
+            base_port = 5554
+            all = False
+            no_netsim_reset = False
+            emulator_dir = None
+            json = True
+
+        mock_td_res = {
+            "status": "success",
+            "total_nodes": 2,
+            "total_stopped": 2,
+            "stopped_serials": ["emulator-5554", "emulator-5556"],
+            "netsim_reset": True,
+            "nodes": [
+                {"serial": "emulator-5554", "avd_name": "mesh-node-1", "stopped": True},
+                {"serial": "emulator-5556", "avd_name": "mesh-node-2", "stopped": True},
+            ],
+        }
+
+        with patch("commands.mesh.teardown_mesh", return_value=mock_td_res):
+            with patch("commands.mesh.print_result") as mock_print:
+                run_mesh_teardown(Args())
+                self.assertTrue(mock_print.called)
+                payload = mock_print.call_args[0][0]
+                self.assertEqual(payload["status"], "success")
+                self.assertEqual(payload["total_stopped"], 2)
+                self.assertEqual(payload["stopped_serials"], ["emulator-5554", "emulator-5556"])
+                self.assertTrue(payload["netsim_reset"])
+                self.assertIn("markdown_table", payload)
+
+    def test_run_mesh_teardown_empty(self):
+        class Args:
+            serials = None
+            prefix = None
+            count = 2
+            base_port = 5554
+            all = True
+            no_netsim_reset = False
+            emulator_dir = None
+            json = True
+
+        with patch("commands.mesh.get_connected_adb_devices", return_value=[]):
+            with patch("commands.mesh.print_result") as mock_print:
+                run_mesh_teardown(Args())
+                self.assertTrue(mock_print.called)
+                payload = mock_print.call_args[0][0]
+                self.assertEqual(payload["status"], "success")
+                self.assertEqual(payload["total_nodes"], 0)
+                self.assertEqual(payload["total_stopped"], 0)
 
 
 if __name__ == "__main__":
