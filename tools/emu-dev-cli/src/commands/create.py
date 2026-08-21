@@ -1,5 +1,6 @@
 import os
 import re
+import glob
 import shutil
 import sys
 from pathlib import Path
@@ -76,6 +77,34 @@ def find_actual_sysimg_dir(sysimg_dir):
             return root
 
     return sysimg_dir
+
+
+def find_cached_sysimg_dir(arch="x86_64"):
+    """
+    Scans /tmp and standard locations for existing extracted system-image directories.
+    """
+    candidates = []
+    search_patterns = [
+        "/tmp/system-image-*/extracted",
+        "/tmp/system-image-*",
+        "/tmp/sysimg-*",
+        os.path.expanduser("~/.android/system-images/*"),
+    ]
+    for pattern in search_patterns:
+        for p in glob.glob(pattern):
+            if os.path.isdir(p):
+                actual = find_actual_sysimg_dir(p)
+                if os.path.exists(os.path.join(actual, "kernel-ranchu")) or os.path.exists(
+                        os.path.join(actual, "system.img")):
+                    mtime = os.path.getmtime(p)
+                    is_matching_arch = arch in p.lower() or arch in actual.lower()
+                    candidates.append((1 if is_matching_arch else 0, mtime, actual))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return candidates[0][2]
 
 
 def detect_arch_and_abi(sysimg_dir):
@@ -156,23 +185,39 @@ def run_create_avd(args):
         print_device_profiles(json_mode)
         return
 
-    if not args.sysimg_dir:
-        if not json_mode and hasattr(args, "parser"):
-            args.parser.print_help()
-            sys.exit(0)
-        print_result({
-            "status": "error",
-            "action": "create avd",
-            "error_message": "--sysimg-dir is required when creating an AVD.",
-            "exit_code": 1
-        }, json_mode=json_mode, is_error=True)
+    sysimg_dir_arg = args.sysimg_dir
+    if not sysimg_dir_arg:
+        sysimg_dir_arg = find_cached_sysimg_dir()
+
+    if not sysimg_dir_arg:
+        name_val = args.name or "my-phone"
+        err_msg = (
+            f"No system-image directory specified (--sysimg-dir) and no cached system images were found in /tmp.\n\n"
+            f"💡 To download a prebuilt system image, run:\n"
+            f"   emu-dev-cli fetch-build system-image --latest\n\n"
+            f"   Then re-run create:\n"
+            f"   emu-dev-cli create avd --name {name_val}\n"
+        )
+        if json_mode:
+            print_result({
+                "status": "error",
+                "action": "create avd",
+                "error_message": "No system-image directory specified and no cached images found in /tmp.",
+                "suggestion": "emu-dev-cli fetch-build system-image --latest",
+                "exit_code": 1
+            }, json_mode=True, is_error=True)
+        else:
+            print(f"❌ Error: {err_msg}")
         sys.exit(1)
+
+    if not args.sysimg_dir and not json_mode:
+        print(f"ℹ️  Using auto-discovered system image: {sysimg_dir_arg}")
 
     profile_name = args.profile or "medium_phone"
     profile = DEVICE_PROFILES.get(profile_name, DEVICE_PROFILES["medium_phone"])
 
     avd_name = args.name or profile_name
-    raw_sysimg_dir = os.path.abspath(os.path.expanduser(args.sysimg_dir))
+    raw_sysimg_dir = os.path.abspath(os.path.expanduser(sysimg_dir_arg))
 
     if not os.path.isdir(raw_sysimg_dir):
         print_result({
