@@ -11,7 +11,8 @@ SRC_DIR = os.path.join(
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-from commands.create import create_single_avd, run_create_avd
+from lib.avd import create_single_avd
+from commands.create import run_create_avd
 
 
 class CreateMeshTest(unittest.TestCase):
