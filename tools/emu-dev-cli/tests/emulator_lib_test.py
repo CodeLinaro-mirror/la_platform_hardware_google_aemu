@@ -90,6 +90,12 @@ class EmulatorLibTest(unittest.TestCase):
         self.assertEqual(bin_path, self.emu_bin)
         self.assertEqual(emu_d, self.emu_dir)
 
+    def test_resolve_emulator_executable_nested(self):
+        # When passed parent dir where emulator is a subdirectory: parent/emulator/emulator
+        bin_path, emu_d = resolve_emulator_executable(self.temp_dir.name)
+        self.assertEqual(bin_path, self.emu_bin)
+        self.assertEqual(emu_d, self.emu_dir)
+
     def test_find_cached_emulator_dir(self):
         with patch("glob.glob", return_value=[self.emu_dir]):
             found = find_cached_emulator_dir()

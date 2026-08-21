@@ -155,7 +155,26 @@ library paths (`LD_LIBRARY_PATH` for Qt, Vulkan, and GLES) and verifies X11
 
 ---
 
-### 5. Automated CTS-Verifier Runner (`cts run-cts-verifier`)
+### 5. Mesh Health & Radio Verification (`mesh`)
+
+Monitors mesh nodes, waits for boot completion, unlocks keyguards, and verifies Netsim virtual radio chip registration (`ble`, `classic`, `wifi`):
+
+- **Wait for mesh nodes to boot and verify Netsim radio connectivity:**
+  ```bash
+  emu-dev-cli mesh wait-ready --prefix bt-mesh --count 2 --timeout 180
+  ```
+- **Wait for specific device serials:**
+  ```bash
+  emu-dev-cli mesh wait-ready --serials emulator-5554,emulator-5556 --timeout 120
+  ```
+- **Inspect immediate boot status and connected radio chips:**
+  ```bash
+  emu-dev-cli mesh status
+  ```
+
+---
+
+### 6. Automated CTS-Verifier Runner (`cts run-cts-verifier`)
 
 Downloads and executes automated CTS-Verifier test modules (`tts`,
 `battery_saver`, `vibrations`, `tile_service`, `screen_pinning`, `has_vibrator`,

@@ -48,7 +48,7 @@ class LaunchMeshTest(unittest.TestCase):
             prefix = "bt-mesh"
             count = 2
             base_port = 5554
-            packet_streamer = "default"
+            packet_streamer = "localhost:8877"
             no_window = True
             log_dir = os.path.join(self.temp_dir.name, "logs")
             dry_run = True
@@ -69,7 +69,7 @@ class LaunchMeshTest(unittest.TestCase):
             self.assertEqual(node1["console_port"], 5554)
             self.assertEqual(node1["adb_port"], 5555)
             self.assertIn("-packet-streamer-endpoint", node1["command"])
-            self.assertIn("default", node1["command"])
+            self.assertIn("localhost:8877", node1["command"])
             self.assertIn("-no-window", node1["command"])
             self.assertIn("-gpu", node1["command"])
 
@@ -84,14 +84,15 @@ class LaunchMeshTest(unittest.TestCase):
             prefix = "bt-mesh"
             count = 2
             base_port = 5554
-            packet_streamer = "default"
+            packet_streamer = None
             no_window = False
             log_dir = None
             dry_run = False
             emulator_args = []
             json = True
 
-        with patch("commands.launch.find_cached_emulator_dir", return_value=None):
+        with patch("lib.emulator.find_cached_emulator_dir", return_value=None), \
+             patch("commands.launch.find_cached_emulator_dir", return_value=None):
             with patch("commands.launch.print_result") as mock_print:
                 with self.assertRaises(SystemExit):
                     run_launch_mesh(Args())
@@ -106,7 +107,7 @@ class LaunchMeshTest(unittest.TestCase):
             prefix = "bt-mesh"
             count = 2
             base_port = 5554
-            packet_streamer = "default"
+            packet_streamer = None
             no_window = True
             log_dir = os.path.join(self.temp_dir.name, "logs")
             dry_run = False

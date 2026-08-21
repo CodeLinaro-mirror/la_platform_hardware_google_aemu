@@ -209,8 +209,8 @@ def register_parser(subparsers):
     mesh_parser.add_argument(
         "--packet-streamer",
         type=str,
-        default="default",
-        help="Packet streamer endpoint for Netsim/Bluetooth radio mesh sync (default: 'default')",
+        default=None,
+        help="Optional packet streamer endpoint for Netsim/Bluetooth radio mesh sync (e.g. 'localhost:8877')",
     )
     mesh_parser.add_argument(
         "--no-window",
@@ -374,7 +374,7 @@ def run_launch_mesh(args):
     count = getattr(args, "count", 2) or 2
     prefix = getattr(args, "prefix", "medium_phone") or "medium_phone"
     base_port = getattr(args, "base_port", 5554) or 5554
-    packet_streamer = getattr(args, "packet_streamer", "default")
+    packet_streamer = getattr(args, "packet_streamer", None)
     no_window = getattr(args, "no_window", False)
     dry_run = getattr(args, "dry_run", False)
 
@@ -474,6 +474,8 @@ def run_launch_mesh(args):
                 "log_file": log_file,
                 "command": node_cmd,
             })
+            if i < len(port_assignments) - 1:
+                time.sleep(0.5)
 
     summary_msg = (
         f"{'Planned' if dry_run else 'Launched'} mesh of {count} emulator"
