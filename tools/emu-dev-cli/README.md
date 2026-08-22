@@ -106,6 +106,13 @@ emu-dev-cli launch emulator \
   --emulator-dir /tmp/emulator-linux-x64-15942201/extracted/emulator/ \
   --detached \
   -- -avd my-phone -no-window
+
+# Launch a mesh of N isolated emulator instances with non-overlapping ports and Netsim packet streamer
+emu-dev-cli launch mesh \
+  --prefix bt-mesh \
+  --count 2 \
+  --packet-streamer default \
+  --no-window
 ```
 
 ### 5. Automated CTS-Verifier Runner

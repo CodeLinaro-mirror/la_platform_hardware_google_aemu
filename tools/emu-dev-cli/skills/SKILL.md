@@ -144,6 +144,14 @@ library paths (`LD_LIBRARY_PATH` for Qt, Vulkan, and GLES) and verifies X11
     --detached \
     -- -avd my-dev-phone -no-window
   ```
+- **Launch mesh of N isolated emulator daemons for multi-device radio testing:**
+  ```bash
+  emu-dev-cli launch mesh \
+    --prefix bt-mesh \
+    --count 2 \
+    --packet-streamer default \
+    --no-window
+  ```
 
 ---
 
