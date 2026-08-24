@@ -73,6 +73,8 @@ def find_cached_emulator_dir() -> Optional[str]:
         "/tmp/emulator-*/extracted/emulator",
         "/tmp/emulator-*/extracted",
         "/tmp/emulator-*",
+        "/tmp/emu/emulator",
+        "/tmp/emu",
     ]
     candidates = []
     for pattern in patterns:
@@ -119,12 +121,12 @@ def resolve_emulator_executable(
         )
 
     direct_bin = os.path.join(abs_dir, exe_name)
-    if os.path.exists(direct_bin):
+    if os.path.isfile(direct_bin):
         ensure_executable_permissions(abs_dir, direct_bin)
         return direct_bin, abs_dir
 
     sub_bin = os.path.join(abs_dir, "emulator", exe_name)
-    if os.path.exists(sub_bin):
+    if os.path.isfile(sub_bin):
         sub_dir = os.path.join(abs_dir, "emulator")
         ensure_executable_permissions(sub_dir, sub_bin)
         return sub_bin, sub_dir
@@ -158,6 +160,15 @@ def prepare_environment(emu_dir: str) -> Dict[str, str]:
         qt_plugins = os.path.join(lib64, "qt", "plugins")
         if os.path.exists(qt_plugins):
             env["QT_PLUGIN_PATH"] = qt_plugins
+
+        user = os.environ.get("USER", "")
+        if user:
+            android_user_dir = f"/tmp/android-{user}"
+            if os.path.isdir(android_user_dir):
+                try:
+                    os.chmod(android_user_dir, 0o755)
+                except Exception:
+                    pass
 
     elif system == "darwin":
         lib64 = os.path.join(emu_dir, "lib64")

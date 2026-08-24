@@ -16,6 +16,27 @@
 
 import json
 import sys
+import unicodedata
+
+
+def get_display_width(s: str) -> int:
+    """Returns visual terminal display width accounting for wide characters and emojis."""
+    width = 0
+    for char in s:
+        if unicodedata.east_asian_width(char) in ("F", "W"):
+            width += 2
+        elif 0x1F300 <= ord(char) <= 0x1FAFF or 0x2600 <= ord(char) <= 0x27BF:
+            width += 2
+        else:
+            width += 1
+    return width
+
+
+def pad_display_width(s: str, target_width: int) -> str:
+    """Pads string with spaces to reach target visual display width."""
+    current_width = get_display_width(s)
+    pad_len = max(0, target_width - current_width)
+    return s + (" " * pad_len)
 
 
 def format_markdown_table(headers: list, rows: list) -> str:
@@ -28,15 +49,18 @@ def format_markdown_table(headers: list, rows: list) -> str:
 
     num_cols = len(str_headers)
     # Calculate max width for each column (minimum 3 chars for standard separator '---')
-    col_widths = [max(3, len(str_headers[i])) for i in range(num_cols)]
+    col_widths = [
+        max(3, get_display_width(str_headers[i])) for i in range(num_cols)
+    ]
     for row in str_rows:
         for i in range(min(num_cols, len(row))):
-            col_widths[i] = max(col_widths[i], len(row[i]))
+            col_widths[i] = max(col_widths[i], get_display_width(row[i]))
 
     header_line = (
         "| "
         + " | ".join(
-            str_headers[i].ljust(col_widths[i]) for i in range(num_cols)
+            pad_display_width(str_headers[i], col_widths[i])
+            for i in range(num_cols)
         )
         + " |"
     )
@@ -46,7 +70,7 @@ def format_markdown_table(headers: list, rows: list) -> str:
     row_lines = [
         "| "
         + " | ".join(
-            (row[i] if i < len(row) else "").ljust(col_widths[i])
+            pad_display_width(row[i] if i < len(row) else "", col_widths[i])
             for i in range(num_cols)
         )
         + " |"
@@ -66,6 +90,7 @@ def print_result(data: dict, json_mode: bool = False, is_error: bool = False):
     else:
         status_symbol = "❌ ERROR" if is_error else "✅ SUCCESS"
         print(f"\n{status_symbol}: {data.get('summary', data.get('action', 'done'))}")
+        has_table = "markdown_table" in data
         for key, val in data.items():
             if key in ("summary", "status"):
                 continue
@@ -75,6 +100,15 @@ def print_result(data: dict, json_mode: bool = False, is_error: bool = False):
                 print(
                     f"\n--- Proposed Bug Report (Markdown Preview) ---\n\n{val}\n-------------------------------------------------\n"
                 )
+            elif has_table and key in (
+                "nodes",
+                "devices",
+                "serials",
+                "total_nodes",
+                "action",
+            ):
+                # Omit redundant summary lines when the structured markdown table already presents this data
+                continue
             elif isinstance(val, list):
                 print(f"  • {key}: [{len(val)} items]")
             elif isinstance(val, dict):
