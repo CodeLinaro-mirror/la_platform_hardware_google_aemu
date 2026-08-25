@@ -120,7 +120,9 @@ class AgentDispatcher:
 
         # Check if valid cached report already exists
         if rca_summary_path.exists():
-            existing_text = rca_summary_path.read_text(encoding="utf-8", errors="replace")
+            existing_text = rca_summary_path.read_text(
+                encoding="utf-8", errors="replace"
+            )
             if "```diff" in existing_text:
                 return
             try:
@@ -130,7 +132,12 @@ class AgentDispatcher:
 
         if self.is_agent_session_active():
             # Mode A: Active Agent Session -> Dispatch Subagent via agentapi
-            logger.info("Dispatching subagent via agentapi for %s (model=%s, profile=%s)", record.test_identifier, model, profile)
+            logger.info(
+                "Dispatching subagent via agentapi for %s (model=%s, profile=%s)",
+                record.test_identifier,
+                model,
+                profile,
+            )
             sys.stderr.write(
                 f"\n🤖 Active agent session detected. Dispatching subagent via agentapi to investigate {record.test_identifier}...\n"
             )
@@ -154,9 +161,15 @@ class AgentDispatcher:
 
             while elapsed < wait_timeout:
                 if rca_summary_path.exists():
-                    text = rca_summary_path.read_text(encoding="utf-8", errors="replace")
+                    text = rca_summary_path.read_text(
+                        encoding="utf-8", errors="replace"
+                    )
                     if "Proposed Code Patch" in text or "```diff" in text:
-                        logger.info("Subagent completed RCA investigation for %s in %.1fs", record.test_identifier, elapsed)
+                        logger.info(
+                            "Subagent completed RCA investigation for %s in %.1fs",
+                            record.test_identifier,
+                            elapsed,
+                        )
                         sys.stderr.write(
                             f"\n✅ Subagent completed RCA investigation in {elapsed:.1f}s!\n"
                         )
@@ -171,7 +184,11 @@ class AgentDispatcher:
             sys.stderr.write("\n")
 
             if not agent_completed:
-                logger.error("RCA investigation timed out for %s after %.0fs", record.test_identifier, wait_timeout)
+                logger.error(
+                    "RCA investigation timed out for %s after %.0fs",
+                    record.test_identifier,
+                    wait_timeout,
+                )
                 sys.stderr.write(
                     f"\n❌ Error: AI root-cause analysis for '{record.test_identifier}' timed out after {wait_timeout:.0f} seconds.\n"
                     f"   Prompt path: file://{prompt_path}\n"
@@ -184,9 +201,16 @@ class AgentDispatcher:
             # Mode B: Standalone Mode -> Invoke Jetski CLI Directly
             standalone_bin = self.resolve_standalone_cli()
             if not standalone_bin:
-                raise RuntimeError("Standalone mode: No 'jetski' or 'gemini' CLI binary found.")
+                raise RuntimeError(
+                    "Standalone mode: No 'jetski' or 'gemini' CLI binary found."
+                )
 
-            logger.info("Executing standalone Jetski CLI binary %s for %s (model=%s)", standalone_bin, record.test_identifier, model)
+            logger.info(
+                "Executing standalone Jetski CLI binary %s for %s (model=%s)",
+                standalone_bin,
+                record.test_identifier,
+                model,
+            )
 
             sys.stderr.write(
                 f"\n🚀 Standalone mode detected (outside agent session).\n"
@@ -203,8 +227,12 @@ class AgentDispatcher:
 
             with open(script_path, "w", encoding="utf-8") as f:
                 f.write("#!/usr/bin/env bash\n")
-                f.write(f"# Interactive/Standalone Jetski investigation for {record.test_identifier}\n\n")
-                f.write(f'exec {shlex.quote(standalone_bin)} --model={shlex.quote(model)} --prompt-interactive "$(< {shlex.quote(str(prompt_path))})"\n')
+                f.write(
+                    f"# Interactive/Standalone Jetski investigation for {record.test_identifier}\n\n"
+                )
+                f.write(
+                    f'exec {shlex.quote(standalone_bin)} --model={shlex.quote(model)} --prompt-interactive "$(< {shlex.quote(str(prompt_path))})"\n'
+                )
             script_path.chmod(0o755)
 
             sys.stderr.write(
@@ -221,3 +249,67 @@ class AgentDispatcher:
                 raise RuntimeError(
                     f"Standalone Jetski CLI execution failed for '{record.test_identifier}': {res.stderr or res.stdout}"
                 )
+
+    def dispatch_refactor_step(
+        self,
+        prompt: str,
+        title: str = "Tidy Refactor Step",
+        model: str = "auto",
+        profile: str = "emu_main_next_engineer",
+        retries: int = 2,
+    ) -> bool:
+        """Dispatches an automated semantic refactoring step to a subagent with tier escalation."""
+        if not self.is_agent_session_active():
+            standalone_bin = self.resolve_standalone_cli()
+            if standalone_bin:
+                logger.info(
+                    "Executing standalone agent CLI %s for %s", standalone_bin, title
+                )
+                cmd = [standalone_bin, f"--model={model}", "--prompt", prompt]
+                res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                return res.returncode == 0
+            logger.info(
+                "Standalone mode: No active agent session (ANTIGRAVITY_LS_ADDRESS unset) and no standalone CLI."
+            )
+            return False
+
+        # Mode A: Active Agent Session with Language Server IPC
+        model_tier = "flash" if model in ("auto", "flash", "flash_lite") else "pro"
+        logger.info(
+            "Dispatching refactor step to subagent (model=%s, profile=%s)",
+            model_tier,
+            profile,
+        )
+        client = AgentApiClient(cli_binary=self.cli_binary)
+
+        try:
+            res = client.start_conversation(
+                prompt=prompt,
+                model=model_tier,
+                profile=profile,
+                title=title,
+                retries=retries,
+            )
+            return res.returncode == 0
+        except Exception as e:
+            if model == "auto" and model_tier != "pro":
+                logger.warning(
+                    "Fast tier failed (%s). Escalating to Pro reasoning tier...", e
+                )
+                sys.stderr.write(
+                    "\n⚠️ Fast tier failed. Escalating to Pro reasoning model...\n"
+                )
+                try:
+                    res = client.start_conversation(
+                        prompt=prompt,
+                        model="pro",
+                        profile=profile,
+                        title=f"{title} (Pro Escalation)",
+                        retries=retries,
+                    )
+                    return res.returncode == 0
+                except Exception as e2:
+                    logger.error("Pro escalation also failed: %s", e2)
+                    return False
+            logger.error("Refactor step dispatch failed: %s", e)
+            return False

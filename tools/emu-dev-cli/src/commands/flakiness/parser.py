@@ -25,6 +25,7 @@ from .fix import handle_flakiness_fix
 from .history import handle_flakiness_history
 from .list_cmd import handle_flakiness_list
 from .reproduce import handle_flakiness_reproduce
+from .sponge import handle_flakiness_sponge
 from .triage import handle_flakiness_triage
 
 
@@ -489,4 +490,78 @@ Sample Invocations:
         help="Simulate fix and verification without modifying workspace files",
     )
     fix_parser.set_defaults(func=handle_flakiness_fix)
+
+    # Subcommand: sponge
+    sponge_parser = flakiness_subparsers.add_parser(
+        "sponge",
+        help="Inspect ResultStore / Sponge / Fusion2 invocation actions, errors, durations, and logs",
+        description="""
+Inspect Sponge & ResultStore Invocation Diagnostics (`emu-dev-cli flakiness sponge`)
+
+Queries ResultStore via Stubby RPC to inspect build/test actions, failure exit codes, error messages,
+durations, and diagnostic file URIs (test.log, test.xml) for any Sponge / Fusion2 invocation UUID or URL.
+
+Sample Invocations:
+  # Inspect invocation by UUID or full Fusion2 link:
+  emu-dev-cli flakiness sponge --invocation 82bbf192-5d6f-418c-bef7-fdecb58fba26
+
+  # Inspect invocation and filter for a specific test target:
+  emu-dev-cli flakiness sponge --invocation 82bbf192-5d6f-418c-bef7-fdecb58fba26 --test @@goldfish+//emulator/launcher:can_boot_with_minigbm
+
+  # Automatically inspect the latest 3 failed invocations for a flaky test on macOS:
+  emu-dev-cli flakiness sponge --test @@goldfish+//emulator/launcher:can_boot_with_minigbm --target emulator_mac_aarch64 --latest-failures 3
+
+  # Output machine-readable JSON for automated agent triage:
+  emu-dev-cli --json flakiness sponge --invocation 82bbf192-5d6f-418c-bef7-fdecb58fba26
+""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sponge_parser.add_argument(
+        "--invocation",
+        type=str,
+        default=None,
+        help="Invocation UUID, full Fusion2 URL, or Sponge URL",
+    )
+    sponge_parser.add_argument(
+        "--test",
+        type=str,
+        default=None,
+        help="Bazel test target filter (e.g. @@goldfish+//emulator/launcher:can_boot_with_minigbm)",
+    )
+    sponge_parser.add_argument(
+        "--target",
+        type=str,
+        default="emulator_linux_x64",
+        choices=SUPPORTED_TARGET_CHOICES,
+        help="Target platform matrix (default: emulator_linux_x64)",
+    )
+    sponge_parser.add_argument(
+        "--latest-failures",
+        "--latest_failures",
+        dest="latest_failures",
+        type=int,
+        default=0,
+        help="Automatically inspect the latest N failed invocations for the specified test target",
+    )
+    sponge_parser.add_argument(
+        "--days",
+        type=int,
+        default=7,
+        help="Historical window in days when querying latest failures (default: 7)",
+    )
+    sponge_parser.add_argument(
+        "--mode",
+        type=str,
+        default="all",
+        choices=["all", "presubmit", "postsubmit"],
+        help="Run type filter when querying latest failures (default: all)",
+    )
+    sponge_parser.add_argument(
+        "--token",
+        type=str,
+        default=None,
+        help="Explicit OAuth2 token for ATH queries",
+    )
+    sponge_parser.set_defaults(func=handle_flakiness_sponge)
+
 

@@ -351,6 +351,48 @@ def fetch_invocation_artifacts(
     files_to_download = type_to_files.get(artifact_type.upper(), ["logcat.txt"])
     downloaded_files: List[Dict[str, Any]] = []
 
+    # First attempt: Check if this is a Bazel Sponge / ResultStore invocation
+    from lib.resultstore_api import extract_uuid, query_resultstore_invocation
+    uuid = extract_uuid(invocation_id)
+    rs_invocation = None
+    if uuid and len(uuid) == 36:
+        try:
+            rs_invocation = query_resultstore_invocation(uuid)
+        except Exception as e:
+            logger.debug("ResultStore query note: %s", e)
+
+    if rs_invocation and rs_invocation.actions:
+        summary_lines = [
+            f"=== ResultStore / Sponge Invocation Diagnostics for {uuid} ===",
+            f"Fusion2 Link: {rs_invocation.fusion_url}",
+            f"Sponge2 Link: {rs_invocation.sponge_url}",
+            f"Total Actions: {len(rs_invocation.actions)}",
+            f"Failed Actions: {len(rs_invocation.failed_actions)}",
+            "\n--- Actions Breakdown ---",
+        ]
+        for a in rs_invocation.actions:
+            summary_lines.append(f"\nTarget: {a.target_id}")
+            summary_lines.append(f"Action: {a.action_id} | Status: {a.status} | Duration: {a.duration_seconds:.2f}s")
+            if a.description:
+                summary_lines.append(f"Description: {a.description}")
+            if a.error_messages:
+                summary_lines.append(f"Errors: {', '.join(a.error_messages)}")
+            if a.files:
+                summary_lines.append("Files:")
+                for f in a.files:
+                    summary_lines.append(f"  • {f.uid} ({f.length:,} bytes) -> {f.uri}")
+
+        summary_content = "\n".join(summary_lines)
+        summary_file = output_dir / "resultstore_summary.txt"
+        summary_file.write_text(summary_content, encoding="utf-8")
+        downloaded_files.append({
+            "file_name": "resultstore_summary.txt",
+            "file_path": str(summary_file.resolve()),
+            "size_bytes": summary_file.stat().st_size,
+            "source": "REMOTE",
+            "is_synthetic": False,
+        })
+
     artifacts_url = f"https://androidbuildinternal.googleapis.com/android/internal/build/v3/invocations/{invocation_id}/artifacts"
     remote_artifacts: List[Dict[str, Any]] = []
     try:
@@ -502,6 +544,7 @@ def query_ath_flaky_tests(
     records: List[FlakyTestRecord] = []
 
     try:
+        auth_token = get_android_build_token(user_token=token)
         invocations = fetch_ath_invocations(
             target=target,
             branch=branch,
@@ -665,7 +708,7 @@ def query_test_history(
             branch=branch,
             days=days,
             mode=mode,
-            token=token,
+            token=auth_token,
         )
 
         total_invs = len(all_invocations)

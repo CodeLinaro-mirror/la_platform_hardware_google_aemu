@@ -1,0 +1,11 @@
+load("@rules_python//python:defs.bzl", "py_library")
+
+package(default_visibility = ["//visibility:public"])
+
+py_library(
+    name = "aemu_py_proto",
+    srcs = glob(["*_pb2*.py"]),
+    deps = [
+        "@aemu//protos/services/emulator-controller:emulator_controller_py_proto",
+    ],
+)

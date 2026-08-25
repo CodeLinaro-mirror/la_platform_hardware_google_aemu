@@ -1,5 +1,20 @@
 #!/usr/bin/env python3
+# Copyright 2026 The Android Open Source Project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
+
 import os
 import platform
 import sys
@@ -21,12 +36,13 @@ from commands import (
     flakiness,
     init_cmd,
     launch,
+    mesh,
     source_directory,
+    tidy,
     update_cmd,
 )
 from install import installer
 from lib.logging_config import setup_logging
-
 
 
 def detect_default_host():
@@ -75,7 +91,9 @@ def main():
     init_cmd.register_parser(subparsers)
     installer.register_parser(subparsers)
     launch.register_parser(subparsers)
+    mesh.register_parser(subparsers)
     source_directory.register_parser(subparsers)
+    tidy.register_parser(subparsers)
     update_cmd.register_parser(subparsers)
 
     args = parser.parse_args()
