@@ -247,6 +247,7 @@ class BazelRunner:
     def build(
         self,
         targets: List[str],
+        flags: Optional[List[str]] = None,
         cwd: Optional[Union[str, Path]] = None,
         check: bool = True,
         capture_output: bool = False,
@@ -256,6 +257,7 @@ class BazelRunner:
 
         Args:
             targets: List of target strings.
+            flags: Optional extra build flags (e.g. ['--config=tidy']).
             cwd: Working directory to run Bazel from (defaults to self.source_dir).
             check: Whether to raise CalledProcessError if returncode != 0.
             capture_output: Whether to capture stdout/stderr.
@@ -264,7 +266,45 @@ class BazelRunner:
         Returns:
             CompletedProcess result.
         """
-        cmd = [self.bazel_binary, "build"] + targets
+        cmd = [self.bazel_binary, "build"]
+        if flags:
+            cmd.extend(flags)
+        cmd.extend(targets)
+        run_cwd = str(cwd or self.source_dir) if (cwd or self.source_dir) else None
+        return subprocess.run(
+            cmd,
+            cwd=run_cwd,
+            check=check,
+            capture_output=capture_output,
+            text=text,
+        )
+
+    def test(
+        self,
+        targets: List[str],
+        flags: Optional[List[str]] = None,
+        cwd: Optional[Union[str, Path]] = None,
+        check: bool = True,
+        capture_output: bool = False,
+        text: bool = True,
+    ) -> subprocess.CompletedProcess:
+        """Runs test targets (`bazel test <targets>`).
+
+        Args:
+            targets: List of test target strings.
+            flags: Optional extra flags (e.g. ['--config=tidy']).
+            cwd: Working directory.
+            check: Whether to raise if returncode != 0.
+            capture_output: Whether to capture output.
+            text: Text output mode.
+
+        Returns:
+            CompletedProcess result.
+        """
+        cmd = [self.bazel_binary, "test"]
+        if flags:
+            cmd.extend(flags)
+        cmd.extend(targets)
         run_cwd = str(cwd or self.source_dir) if (cwd or self.source_dir) else None
         return subprocess.run(
             cmd,

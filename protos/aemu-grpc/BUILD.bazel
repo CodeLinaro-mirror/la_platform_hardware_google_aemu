@@ -1,0 +1,31 @@
+load("@rules_python//python:defs.bzl", "py_library", "py_test")
+
+package(default_visibility = ["//visibility:public"])
+
+py_library(
+    name = "aemu_grpc_lib",
+    srcs = glob(
+        ["src/**/*.py"],
+        exclude = ["src/aemu/proto/**"],
+    ),
+    imports = ["src"],
+    deps = [
+        "//protos/aemu-grpc/src/aemu/proto:aemu_py_proto",
+        "@pypi_aemu//grpcio",
+        "@pypi_aemu//protobuf",
+        "@pypi_aemu//psutil",
+    ],
+)
+
+py_test(
+    name = "aemu_grpc_test",
+    srcs = glob(["tests/**/*.py"]),
+    main = "tests/run_tests.py",
+    deps = [
+        ":aemu_grpc_lib",
+        "@pypi_aemu//grpcio",
+        "@pypi_aemu//psutil",
+        "@pypi_aemu//pytest",
+        "@pypi_aemu//pytest_mock",
+    ],
+)

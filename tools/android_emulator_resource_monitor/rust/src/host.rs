@@ -38,31 +38,115 @@ pub struct HostStats {
 }
 
 
+fn extract_device_prop(s: &str, key: &str) -> Option<String> {
+    if let Some(pos) = s.find(key) {
+        let rest = &s[pos + key.len()..];
+        let val = if let Some(comma_pos) = rest.find(',') {
+            &rest[..comma_pos]
+        } else {
+            rest
+        };
+        let cleaned = val.trim_matches(|c| c == '\'' || c == '"');
+        if !cleaned.is_empty() {
+            return Some(cleaned.to_string());
+        }
+    }
+    None
+}
+
 pub fn parse_cmdline(cmdline: &[OsString]) -> (Option<u16>, Option<String>) {
     let mut port = None;
     let mut avd_name = None;
 
     for i in 0..cmdline.len() {
         let arg = cmdline[i].to_str().unwrap_or("");
-        if (arg == "-port" || arg == "-ports") && i + 1 < cmdline.len() {
-            let next_arg = cmdline[i+1].to_str().unwrap_or("");
-            if let Ok(p) = next_arg.parse::<u16>() {
+        if (arg == "-port" || arg == "-ports" || arg == "-fishtank") && i + 1 < cmdline.len() {
+            let next_arg = cmdline[i + 1].to_str().unwrap_or("");
+            let val = next_arg.split(',').next().unwrap_or("");
+            if let Ok(p) = val.parse::<u16>() {
                 port = Some(p);
             }
-        } else if let Some(idx) = arg.find("-avd") {
-            if arg == "-avd" && i + 1 < cmdline.len() {
-                let next_arg = cmdline[i+1].to_str().unwrap_or("");
-                avd_name = Some(next_arg.to_string());
+        } else if arg.starts_with("-port=") || arg.starts_with("-ports=") {
+            let val = arg.split('=').nth(1).unwrap_or("").split(',').next().unwrap_or("");
+            if let Ok(p) = val.parse::<u16>() {
+                port = Some(p);
+            }
+        } else if arg.starts_with("-fishtank=") {
+            let val = arg.split('=').nth(1).unwrap_or("").split(',').next().unwrap_or("");
+            if let Ok(p) = val.parse::<u16>() {
+                port = Some(p);
+            }
+        } else if (arg == "-avd" || arg == "-name") && i + 1 < cmdline.len() {
+            let next_arg = cmdline[i + 1].to_str().unwrap_or("").trim_matches(|c| c == '\'' || c == '"');
+            let next_clean = if let Some(stripped) = next_arg.strip_prefix("guest=") {
+                stripped
             } else {
-                let rest = &arg[idx + 4..];
+                next_arg
+            };
+            let val = next_clean.split(',').next().unwrap_or("");
+            if !val.is_empty() {
+                avd_name = Some(val.to_string());
+            }
+        } else if let Some(stripped) = arg.strip_prefix("-name=") {
+            let next_clean = stripped.trim_matches(|c| c == '\'' || c == '"');
+            let next_clean = if let Some(s) = next_clean.strip_prefix("guest=") {
+                s
+            } else {
+                next_clean
+            };
+            let val = next_clean.split(',').next().unwrap_or("");
+            if !val.is_empty() {
+                avd_name = Some(val.to_string());
+            }
+        } else if let Some(idx) = arg.find("-avd") {
+            if !arg.starts_with("-avd_name=") {
+                let rest = arg[idx + 4..].trim_matches(|c| c == '\'' || c == '"');
                 if let Some(end_idx) = rest.find('-') {
                     avd_name = Some(rest[..end_idx].to_string());
-                } else {
+                } else if !rest.is_empty() {
                     avd_name = Some(rest.to_string());
                 }
             }
-        } else if arg.starts_with("@") {
-            avd_name = Some(arg[1..].to_string());
+        } else if arg.starts_with('@') && arg.len() > 1 {
+            let val = arg[1..].trim_matches(|c| c == '\'' || c == '"');
+            if !val.is_empty() {
+                avd_name = Some(val.to_string());
+            }
+        }
+
+        if let Some(val) = extract_device_prop(arg, "serial_number=") {
+            if let Ok(p) = val.parse::<u16>() {
+                port = Some(p);
+            }
+        }
+        if let Some(val) = extract_device_prop(arg, "host_port=") {
+            if let Ok(hp) = val.parse::<u16>() {
+                if hp > 0 {
+                    port = Some(hp - 1);
+                }
+            }
+        }
+        if let Some(val) = extract_device_prop(arg, "avd_name=") {
+            avd_name = Some(val);
+        }
+
+        if arg == "-device" && i + 1 < cmdline.len() {
+            let next_arg = cmdline[i + 1].to_str().unwrap_or("");
+            if let Some(val) = extract_device_prop(next_arg, "serial_number=") {
+                if let Ok(p) = val.parse::<u16>() {
+                    port = Some(p);
+                }
+            }
+            if let Some(val) = extract_device_prop(next_arg, "host_port=") {
+                if let Ok(hp) = val.parse::<u16>() {
+                    if hp > 0 {
+                        port = Some(hp - 1);
+                    }
+                }
+            }
+            if let Some(val) = extract_device_prop(next_arg, "avd_name=") {
+                avd_name = Some(val);
+            }
         }
     }
 
@@ -267,9 +351,9 @@ impl crate::provider::HostProvider for RealHostProvider {
     let swap_total_gb = total_swap as f64 / (1024.0 * 1024.0 * 1024.0);
     let swap_percent = if total_swap > 0 { (used_swap as f32 / total_swap as f32) * 100.0 } else { 0.0 };
 
-    #[allow(unused_variables)]
+    #[allow(unused_variables, unused_mut)]
     let mut total_read_bytes = 0;
-    #[allow(unused_variables)]
+    #[allow(unused_variables, unused_mut)]
     let mut total_write_bytes = 0;
 
     let mut emu_gpu_stats = std::collections::HashMap::new();
@@ -294,32 +378,26 @@ impl crate::provider::HostProvider for RealHostProvider {
     }
 
     let mut accumulated_emus: std::collections::HashMap<u16, EmulatorProcess> = std::collections::HashMap::new();
-    let mut max_cpu_per_port: std::collections::HashMap<u16, f32> = std::collections::HashMap::new();
+    let mut max_metrics_per_port: std::collections::HashMap<u16, (f32, f64)> = std::collections::HashMap::new();
     let mut unmapped_emus: Vec<EmulatorProcess> = Vec::new();
     let mut netsim_cpu = 0.0;
     let mut netsim_ram_mb = 0.0;
     let mut netsim_count = 0;
 
     for (pid, process) in sys.processes() {
-        let usage = process.disk_usage();
-        total_read_bytes += usage.read_bytes;
-        total_write_bytes += usage.written_bytes;
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        {
+            let usage = process.disk_usage();
+            total_read_bytes += usage.read_bytes;
+            total_write_bytes += usage.written_bytes;
+        }
 
         let name = process.name().to_string_lossy().to_lowercase();
-        let is_emu = name.contains("qemu") || name.contains("emulator") || name.contains("crosvm");
+        let is_emu = name.contains("qemu") || name.contains("emulator") || name.contains("crosvm") || name.contains("fishtank");
         let is_netsim = name.contains("netsim");
         let is_excluded = name.contains("terminal") || name.contains("crash");
 
         if (is_emu || is_netsim) && !is_excluded {
-            // Skip sub-threads on Linux by checking if parent is also an emulator process
-            if let Some(parent_pid) = process.parent() {
-                if let Some(parent_proc) = sys.process(parent_pid) {
-                    let parent_name = parent_proc.name().to_string_lossy().to_lowercase();
-                    if parent_name.contains("qemu") || parent_name.contains("emulator") || parent_name.contains("crosvm") {
-                        continue; // This is a sub-thread, skip it
-                    }
-                }
-            }
             let cpu = process.cpu_usage();
             let ram = process.memory() as f64 / (1024.0 * 1024.0);
 
@@ -337,7 +415,9 @@ impl crate::provider::HostProvider for RealHostProvider {
                     if p.is_none() {
                         p = get_listening_port(pid.as_u32());
                     }
-                    self.pid_port_cache.insert(cache_key, (p, avd.clone()));
+                    if p.is_some() {
+                        self.pid_port_cache.insert(cache_key, (p, avd.clone()));
+                    }
                     (p, avd)
                 };
 
@@ -380,9 +460,10 @@ impl crate::provider::HostProvider for RealHostProvider {
                 };
 
                 if let Some(p) = port {
-                    let is_new_max = cpu > *max_cpu_per_port.get(&p).unwrap_or(&0.0);
+                    let (prev_max_cpu, prev_max_ram) = *max_metrics_per_port.get(&p).unwrap_or(&(-1.0, -1.0));
+                    let is_new_max = cpu > prev_max_cpu || (cpu == prev_max_cpu && emu.ram_mb > prev_max_ram);
                     if is_new_max {
-                        max_cpu_per_port.insert(p, cpu);
+                        max_metrics_per_port.insert(p, (cpu, emu.ram_mb));
                     }
 
                     accumulated_emus.entry(p)
@@ -393,13 +474,20 @@ impl crate::provider::HostProvider for RealHostProvider {
                             e.context_switches += emu.context_switches;
                             if is_new_max {
                                 e.pid = emu.pid;
+                                if emu.avd_name.is_some() {
+                                    e.avd_name = emu.avd_name.clone();
+                                }
+                            } else if e.avd_name.is_none() && emu.avd_name.is_some() {
                                 e.avd_name = emu.avd_name.clone();
                             }
                             if let Some(g) = emu.gpu_load {
                                 e.gpu_load = Some(e.gpu_load.unwrap_or(0.0) + g);
                             }
                         })
-                        .or_insert(emu.clone());
+                        .or_insert_with(|| {
+                            max_metrics_per_port.insert(p, (cpu, emu.ram_mb));
+                            emu.clone()
+                        });
                 } else {
                     unmapped_emus.push(emu);
                 }
@@ -793,5 +881,101 @@ mod tests {
         assert_eq!(out_val, 2000);
     }
 
+    #[test]
+    fn test_parse_cmdline_qemu_next_device_args() {
+        let cmdline = vec![
+            OsString::from("qemu-system-x86_64"),
+            OsString::from("-device"),
+            OsString::from("avdstart,serial_number=5554,avd_name=Pixel_7"),
+            OsString::from("-device"),
+            OsString::from("virtio-goldfish-adb,host_port=5555"),
+        ];
+        let (port, avd) = parse_cmdline(&cmdline);
+        assert_eq!(port, Some(5554));
+        assert_eq!(avd, Some("Pixel_7".to_string()));
+    }
 
+    #[test]
+    fn test_parse_cmdline_fishtank() {
+        let cmdline = vec![
+            OsString::from("fishtank"),
+            OsString::from("@Pixel_7"),
+            OsString::from("-fishtank"),
+            OsString::from("5554"),
+        ];
+        let (port, avd) = parse_cmdline(&cmdline);
+        assert_eq!(port, Some(5554));
+        assert_eq!(avd, Some("Pixel_7".to_string()));
+
+        let cmdline_no_avd = vec![
+            OsString::from("fishtank"),
+            OsString::from("-fishtank"),
+            OsString::from("5556"),
+        ];
+        let (port, avd) = parse_cmdline(&cmdline_no_avd);
+        assert_eq!(port, Some(5556));
+        assert_eq!(avd, None);
+    }
+
+    #[test]
+    fn test_parse_cmdline_name_flag() {
+        let cmdline = vec![
+            OsString::from("qemu-system-x86_64"),
+            OsString::from("-name"),
+            OsString::from("Pixel_Tablet"),
+            OsString::from("-device"),
+            OsString::from("virtio-goldfish-adb,host_port=5557"),
+        ];
+        let (port, avd) = parse_cmdline(&cmdline);
+        assert_eq!(port, Some(5556));
+        assert_eq!(avd, Some("Pixel_Tablet".to_string()));
+    }
+
+    #[test]
+    fn test_parse_cmdline_name_flag_guest_prefix() {
+        let cmdline = vec![
+            OsString::from("qemu-system-x86_64"),
+            OsString::from("-name"),
+            OsString::from("guest=Pixel_7_API_36,debug-threads=on"),
+            OsString::from("-port"),
+            OsString::from("5554"),
+        ];
+        let (port, avd) = parse_cmdline(&cmdline);
+        assert_eq!(port, Some(5554));
+        assert_eq!(avd, Some("Pixel_7_API_36".to_string()));
+    }
+
+    #[test]
+    fn test_parse_cmdline_equal_flags() {
+        let cmdline = vec![
+            OsString::from("qemu-system-x86_64"),
+            OsString::from("-name=guest=Pixel_Tablet,process=qemu"),
+            OsString::from("-port=5556"),
+        ];
+        let (port, avd) = parse_cmdline(&cmdline);
+        assert_eq!(port, Some(5556));
+        assert_eq!(avd, Some("Pixel_Tablet".to_string()));
+
+        let cmdline_fish = vec![
+            OsString::from("fishtank"),
+            OsString::from("@Pixel_7"),
+            OsString::from("-fishtank=5554"),
+        ];
+        let (port, avd) = parse_cmdline(&cmdline_fish);
+        assert_eq!(port, Some(5554));
+        assert_eq!(avd, Some("Pixel_7".to_string()));
+    }
+
+    #[test]
+    fn test_parse_cmdline_quoted_args() {
+        let cmdline = vec![
+            OsString::from("qemu-system-x86_64"),
+            OsString::from("-device"),
+            OsString::from("avdstart,serial_number=5554,avd_name=\"Pixel 7\""),
+            OsString::from("-device=virtio-goldfish-adb,host_port=5555"),
+        ];
+        let (port, avd) = parse_cmdline(&cmdline);
+        assert_eq!(port, Some(5554));
+        assert_eq!(avd, Some("Pixel 7".to_string()));
+    }
 }
