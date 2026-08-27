@@ -108,6 +108,12 @@ emu-dev-cli create avd \
   --sysimg-dir /tmp/system-image-x86_64-26Q2-emu-release-latest/extracted/ \
   --profile medium_phone \
   --force
+
+# Batch-create a mesh of N isolated AVD instances (e.g. bt-mesh-1, bt-mesh-2)
+emu-dev-cli create mesh \
+  --prefix bt-mesh \
+  --count 2 \
+  --profile medium_phone
 ```
 
 ---
@@ -138,10 +144,45 @@ library paths (`LD_LIBRARY_PATH` for Qt, Vulkan, and GLES) and verifies X11
     --detached \
     -- -avd my-dev-phone -no-window
   ```
+- **Launch mesh of N isolated emulator daemons for multi-device radio testing:**
+  ```bash
+  emu-dev-cli launch mesh \
+    --prefix bt-mesh \
+    --count 2 \
+    --packet-streamer default \
+    --no-window
+  ```
 
 ---
 
-### 5. Automated CTS-Verifier Runner (`cts run-cts-verifier`)
+### 5. Mesh Health & Radio Verification (`mesh`)
+
+Monitors mesh nodes, waits for boot completion, unlocks keyguards, and verifies Netsim virtual radio chip registration (`ble`, `classic`, `wifi`):
+
+- **Wait for mesh nodes to boot and verify Netsim radio connectivity:**
+  ```bash
+  emu-dev-cli mesh wait-ready --prefix bt-mesh --count 2 --timeout 180
+  ```
+- **Wait for specific device serials:**
+  ```bash
+  emu-dev-cli mesh wait-ready --serials emulator-5554,emulator-5556 --timeout 120
+  ```
+- **Inspect immediate boot status and connected radio chips:**
+  ```bash
+  emu-dev-cli mesh status
+  ```
+- **Gracefully stop mesh instances and reset Netsim RF scene:**
+  ```bash
+  emu-dev-cli mesh teardown --prefix bt-mesh --count 2
+  ```
+- **Stop all connected emulators:**
+  ```bash
+  emu-dev-cli mesh teardown --all
+  ```
+
+---
+
+### 6. Automated CTS-Verifier Runner (`cts run-cts-verifier`)
 
 Downloads and executes automated CTS-Verifier test modules (`tts`,
 `battery_saver`, `vibrations`, `tile_service`, `screen_pinning`, `has_vibrator`,

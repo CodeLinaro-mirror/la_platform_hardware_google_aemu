@@ -76,7 +76,7 @@ emu-dev-cli source-directory set emu-main-next /work/emu-main-next
 emu-dev-cli source-directory list
 ```
 
-### 3. Create an Android Virtual Device (AVD)
+### 3. Create an Android Virtual Device (AVD) or Mesh
 
 ```bash
 # Create an AVD matching official android-cli profile
@@ -85,6 +85,12 @@ emu-dev-cli create avd \
   --sysimg-dir /tmp/system-image-x86_64-26Q2-emu-release-latest/extracted/ \
   --profile medium_phone \
   --force
+
+# Batch-create a mesh of N isolated AVD instances (e.g. bt-mesh-1, bt-mesh-2)
+emu-dev-cli create mesh \
+  --prefix bt-mesh \
+  --count 2 \
+  --profile medium_phone
 ```
 
 ### 4. Launch Emulator Instance
@@ -100,9 +106,35 @@ emu-dev-cli launch emulator \
   --emulator-dir /tmp/emulator-linux-x64-15942201/extracted/emulator/ \
   --detached \
   -- -avd my-phone -no-window
+
+# Launch a mesh of N isolated emulator instances with non-overlapping ports and Netsim packet streamer
+emu-dev-cli launch mesh \
+  --prefix bt-mesh \
+  --count 2 \
+  --packet-streamer default \
+  --no-window
 ```
 
-### 5. Automated CTS-Verifier Runner
+### 5. Mesh Health & Radio Verification (`mesh`)
+
+```bash
+# Wait for all mesh instances to finish booting, unlock keyguards, and verify Netsim radio connectivity
+emu-dev-cli mesh wait-ready --prefix bt-mesh --count 2
+
+# Wait for specific device serials
+emu-dev-cli mesh wait-ready --serials emulator-5554,emulator-5556 --timeout 120
+
+# Query immediate boot status and connected Netsim radio chips
+emu-dev-cli mesh status
+
+# Gracefully stop all mesh nodes and reset Netsim RF device scene
+emu-dev-cli mesh teardown --prefix bt-mesh --count 2
+
+# Stop all connected emulator instances and reset RF simulation
+emu-dev-cli mesh teardown --all
+```
+
+### 6. Automated CTS-Verifier Runner
 
 ```bash
 # Run TTS module using public CDN release (default when --build-id omitted)
