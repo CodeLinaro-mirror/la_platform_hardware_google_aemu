@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package android.emulation.v2.media;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.media";
+
+import "common/common.proto";
+import "environment/display_service.proto";
+
+// Manages screen capture execution and interactions.
+service ScreenCaptureService {
+  // Pure Query: Instantly returns the last composited frame from
+  // SurfaceFlinger.
+  rpc GetScreenshot(GetScreenshotRequest) returns (Screenshot);
+
+  // Reactive Query: Pushes frames to the client as they are composited.
+  rpc StreamScreenshots(StreamScreenshotsRequest) returns (stream Screenshot);
+}
+
+message GetScreenshotRequest {
+  int32 display_id = 1;
+  // The format.
+  common.ImageFormat format = 2;
+}
+
+message StreamScreenshotsRequest {
+  int32 display_id = 1;
+  // The format.
+  common.ImageFormat format = 2;
+  // Throttles emission rate for AI vision inference.
+  optional float max_frames_per_second = 3;
+}
+
+message Screenshot {
+
+  // The image data.
+  bytes image_data = 1;
+  // The width.
+  int32 width = 2;
+  // The height.
+  int32 height = 3;
+  // Hardware GPU Row Stride: Prevents diagonal shearing in RAW_RGBA8888.
+  int32 row_stride_bytes = 4;
+  // SurfaceFlinger logical clock counter.
+  int64 frame_sequence_number = 5;
+  // The display context.
+  DisplaySnapshotContext display_context = 6;
+  // Normalized monotonic timestamp aligned with AudioChunk.timestamp_nanos.
+  int64 presentation_time_nanos = 7;
+}
+
+message DisplaySnapshotContext {
+  int32 logical_width = 1;
+  // The logical height.
+  int32 logical_height = 2;
+  // The rotation.
+  android.emulation.v2.environment.Rotation rotation = 3;
+  // The density scale.
+  float density_scale = 4;
+}

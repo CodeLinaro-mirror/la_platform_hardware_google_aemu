@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package android.emulation.v2.vm;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.vm";
+
+
+import "google/api/field_behavior.proto";
+
+// Manages vm execution and interactions.
+service VmService {
+  rpc GetVmState(GetVmStateRequest) returns (VmState);
+  // Streams the vm state continuously.
+  rpc StreamVmState(StreamVmStateRequest) returns (stream VmState);
+  // -- State Transition Methods --
+  rpc PauseVm(PauseVmRequest) returns (VmState);
+  // Resumes vm.
+  rpc ResumeVm(ResumeVmRequest) returns (VmState);
+  // Soft/warm reboot (ACPI restart)
+  rpc ResetVm(ResetVmRequest) returns (VmState);
+  // Cold power-cycle (RAM cleared, virtual hardware reset). VMs ONLY.
+  rpc HardResetVm(HardResetVmRequest) returns (VmState);
+  // Graceful emulator process termination (exit 0)
+  rpc StopVm(StopVmRequest) returns (VmState);
+}
+
+message GetVmStateRequest {}
+
+message StreamVmStateRequest {}
+
+message VmState {
+
+  // The state.
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    // Indicates running.
+    RUNNING = 1;
+    // Indicates paused.
+    PAUSED = 2;
+    // Indicates stopped.
+    STOPPED = 3;
+    // Indicates resetting.
+    RESETTING = 4;
+    // Indicates shutting down.
+    SHUTTING_DOWN = 5;
+  }
+  // Output only. The execution state of the hypervisor.
+  State state = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  int32 allocated_cpu_core_count = 2;
+  // The allocated ram bytes.
+  int64 allocated_ram_bytes = 3;
+}
+
+message PauseVmRequest {}
+
+message ResumeVmRequest {}
+
+message ResetVmRequest {}
+
+message HardResetVmRequest {}
+
+message StopVmRequest {
+  optional ShutdownOptions shutdown_options = 1;
+}
+
+message ShutdownOptions {
+  // If true, the hypervisor captures a final RAM and device state snapshot
+  // (the "Quickboot" snapshot) before process termination. On subsequent
+  // process launch, the emulator will automatically restore this state.
+  bool save_quickboot_snapshot = 1;
+}
