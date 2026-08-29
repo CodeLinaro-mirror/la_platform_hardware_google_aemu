@@ -1,0 +1,28 @@
+load(
+    "//protos/services_v2:defs.bzl",
+    "aemu_service_group_v2",
+    "aemu_service_v2",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+# Individual Service Target: Snapshot Management & Checkpointing
+aemu_service_v2(
+    name = "snapshot_service",
+    srcs = ["snapshot_service.proto"],
+    has_grpc = True,
+    deps = [
+        "@googleapis//google/api:field_behavior_proto",
+        "@googleapis//google/longrunning:operations_proto",
+        "@protobuf//:empty_proto",
+        "@protobuf//:timestamp_proto",
+    ],
+)
+
+# Package-level Group Target
+aemu_service_group_v2(
+    name = "snapshot",
+    grpc_cc_deps = [":snapshot_service_cc_grpc"],
+    grpc_java_deps = [":snapshot_service_java_grpc"],
+    proto_deps = [":snapshot_service_proto"],
+)

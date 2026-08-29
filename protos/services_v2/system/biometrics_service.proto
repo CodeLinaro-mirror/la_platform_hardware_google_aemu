@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package android.emulation.v2.system;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.system";
+
+import "google/protobuf/empty.proto";
+
+// Manages biometrics execution and interactions.
+service BiometricsService {
+  rpc InjectFingerprint(InjectFingerprintRequest)
+      returns (google.protobuf.Empty);
+}
+
+message InjectFingerprintRequest {
+  // Enrolled fingerprint identifier (e.g., 1 for "Finger 1", 2 for "Finger 2").
+  // Passing an unregistered finger_id simulates an unrecognized fingerprint.
+  int32 finger_id = 1;
+  // True = touch contact (default); False = finger lifted / sensor release.
+  optional bool touching = 2;
+}

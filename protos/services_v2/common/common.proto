@@ -1,0 +1,168 @@
+syntax = "proto3";
+
+package android.emulation.v2.common;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.common";
+
+// Note on AIP-126 (MIME Types vs Enums):
+// We explicitly use Enums rather than standard string MIME types here. The emulator
+// frequently streams raw, uncompressed memory buffers (e.g., RGBA8888, PCM16) for
+// low-latency computer vision/audio pipelines. These bare-metal memory layouts
+// lack standardized MIME representations, making Enums safer and more explicit for clients.
+enum ImageFormat {
+  IMAGE_FORMAT_UNSPECIFIED = 0;
+  // Compressed lossless PNG (standard for OCR/Vision models).
+  IMAGE_FORMAT_PNG = 1;
+  // Uncompressed 32-bit RGBA (fastest for local CV pipelines).
+  IMAGE_FORMAT_RAW_RGBA8888 = 2;
+  // Compressed JPEG.
+  IMAGE_FORMAT_JPEG = 3;
+}
+
+// The sample format.
+enum SampleFormat {
+  SAMPLE_FORMAT_UNSPECIFIED = 0;
+  // Signed 16-bit Little Endian (Standard).
+  SAMPLE_FORMAT_PCM16_BIT = 1;
+  // 32-bit floating point [-1.0, 1.0].
+  SAMPLE_FORMAT_F32_BIT = 2;
+}
+
+// The access mode.
+enum AccessMode {
+  ACCESS_MODE_UNSPECIFIED = 0;
+  // Telemetry can be read/streamed, but mutations are rejected with
+  // PERMISSION_DENIED.
+  ACCESS_MODE_READ_ONLY = 1;
+  // Full control over the hardware peripheral / HAL injection.
+  ACCESS_MODE_READ_WRITE = 2;
+  // Emulated via Android framework / dumpsys / mock provider (e.g. battery
+  // level mock on physical phone).
+  ACCESS_MODE_SOFTWARE_MOCK = 3;
+}
+
+// The concurrency profile.
+enum ConcurrencyProfile {
+  CONCURRENCY_PROFILE_UNSPECIFIED = 0;
+  // Local development mode: Permissive locking, sticky state persistence,
+  // human+agent co-piloting.
+  CONCURRENCY_PROFILE_SINGLE_TENANT_PERSISTENT = 1;
+  // Cloud / Lab shared pool mode: Strict connection-bound concurrency,
+  // automated rollback, zombie prevention.
+  CONCURRENCY_PROFILE_MULTI_TENANT_EPHEMERAL = 2;
+}
+
+// The charger source.
+enum ChargerSource {
+  CHARGER_SOURCE_UNSPECIFIED = 0;
+  // Indicates charger source none.
+  CHARGER_SOURCE_NONE = 1;
+  // Indicates charger source ac.
+  CHARGER_SOURCE_AC = 2;
+  // Indicates charger source usb.
+  CHARGER_SOURCE_USB = 3;
+  // Indicates charger source wireless.
+  CHARGER_SOURCE_WIRELESS = 4;
+  // Indicates charger source dock.
+  CHARGER_SOURCE_DOCK = 5;
+}
+
+// The sensor type.
+enum SensorType {
+  SENSOR_TYPE_UNSPECIFIED = 0;
+  // Indicates sensor type accelerometer.
+  SENSOR_TYPE_ACCELEROMETER = 1;
+  // Indicates sensor type gyroscope.
+  SENSOR_TYPE_GYROSCOPE = 2;
+  // Indicates sensor type magnetometer.
+  SENSOR_TYPE_MAGNETOMETER = 3;
+  // Indicates sensor type orientation.
+  SENSOR_TYPE_ORIENTATION = 4;
+  // Indicates sensor type ambient temperature.
+  SENSOR_TYPE_AMBIENT_TEMPERATURE = 5;
+  // Indicates sensor type proximity.
+  SENSOR_TYPE_PROXIMITY = 6;
+  // Indicates sensor type light.
+  SENSOR_TYPE_LIGHT = 7;
+  // Indicates sensor type pressure.
+  SENSOR_TYPE_PRESSURE = 8;
+  // Indicates sensor type relative humidity.
+  SENSOR_TYPE_RELATIVE_HUMIDITY = 9;
+  // Indicates sensor type heart rate.
+  SENSOR_TYPE_HEART_RATE = 10;
+  // Indicates sensor type rgbc light.
+  SENSOR_TYPE_RGBC_LIGHT = 11;
+  // Indicates sensor type wrist tilt.
+  SENSOR_TYPE_WRIST_TILT = 12;
+  // Indicates sensor type hinge angle.
+  SENSOR_TYPE_HINGE_ANGLE = 13;
+  // Indicates sensor type rollable.
+  SENSOR_TYPE_ROLLABLE = 14;
+  // Indicates sensor type uncalibrated accelerometer.
+  SENSOR_TYPE_ACCELEROMETER_UNCALIBRATED = 15;
+  // Indicates sensor type uncalibrated gyroscope.
+  SENSOR_TYPE_GYROSCOPE_UNCALIBRATED = 16;
+  // Indicates sensor type uncalibrated magnetic field.
+  SENSOR_TYPE_MAGNETOMETER_UNCALIBRATED = 17;
+  // Indicates sensor type heading / compass relative to true north.
+  SENSOR_TYPE_HEADING = 18;
+}
+
+// The posture type.
+enum PostureType {
+  POSTURE_TYPE_UNSPECIFIED = 0;
+  // Indicates posture type closed.
+  POSTURE_TYPE_CLOSED = 1;
+  // Tabletop / Tent mode.
+  POSTURE_TYPE_HALF_OPENED = 2;
+  // Flat unfolded tablet.
+  POSTURE_TYPE_OPENED = 3;
+  // Screen wrapped 360 degrees.
+  POSTURE_TYPE_FLIPPED = 4;
+  // Tent mode (inverted V posture).
+  POSTURE_TYPE_TENT = 5;
+}
+
+// The fold axis orientation of a foldable device.
+enum FoldAxis {
+  FOLD_AXIS_UNSPECIFIED = 0;
+  // Horizontal fold axis (clamshell / flip phones, folds top-to-bottom).
+  FOLD_AXIS_HORIZONTAL = 1;
+  // Vertical fold axis (book-fold devices, folds left-to-right).
+  FOLD_AXIS_VERTICAL = 2;
+}
+
+// The physical construction of the hinge.
+enum HingeConstruction {
+  HINGE_CONSTRUCTION_UNSPECIFIED = 0;
+  // Continuous flexible display folding on screen without physical separation.
+  HINGE_CONSTRUCTION_FOLD_ON_SCREEN = 1;
+  // Two distinct physical screens separated by a mechanical hinge gap.
+  HINGE_CONSTRUCTION_DUAL_SCREEN_DIVIDER = 2;
+}
+
+// The rolling direction for rollable / expandable displays.
+enum RollDirection {
+  ROLL_DIRECTION_UNSPECIFIED = 0;
+  // Unrolls from left to right.
+  ROLL_DIRECTION_LEFT_TO_RIGHT = 1;
+  // Unrolls from right to left.
+  ROLL_DIRECTION_RIGHT_TO_LEFT = 2;
+  // Unrolls from top to bottom.
+  ROLL_DIRECTION_TOP_TO_BOTTOM = 3;
+  // Unrolls from bottom to top.
+  ROLL_DIRECTION_BOTTOM_TO_TOP = 4;
+}
+
+// Universal Normalized 2D Bounding Rectangle [0.0, 1.0].
+message NormalizedRect {
+  // Left coordinate in range [0.0, 1.0].
+  float x = 1;
+  // Top coordinate in range [0.0, 1.0].
+  float y = 2;
+  // Width in range [0.0, 1.0].
+  float width = 3;
+  // Height in range [0.0, 1.0].
+  float height = 4;
+}

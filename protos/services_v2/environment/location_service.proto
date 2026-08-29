@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package android.emulation.v2.environment;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.environment";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/field_mask.proto";
+
+// Manages location execution and interactions.
+service LocationService {
+  rpc GetLocationState(GetLocationStateRequest) returns (LocationState);
+  // Streams the location state continuously.
+  rpc StreamLocationState(StreamLocationStateRequest)
+      returns (stream LocationState);
+  // Updates the location state.
+  rpc UpdateLocationState(UpdateLocationStateRequest)
+      returns (LocationState);
+  // Streams location updates bidirectionally.
+  rpc StreamLocationUpdates(stream UpdateLocationStateRequest)
+      returns (google.protobuf.Empty);
+}
+
+message GetLocationStateRequest {}
+
+message StreamLocationStateRequest {}
+
+message LocationState {
+
+  // The latitude.
+  double latitude = 1;
+  // The longitude.
+  double longitude = 2;
+  // The altitude meters.
+  double altitude_meters = 3;
+  // The speed meters per second.
+  float speed_meters_per_second = 4;
+  // The bearing degrees.
+  float bearing_degrees = 5;
+  // The accuracy meters.
+  float accuracy_meters = 6;
+  // Satellite count used for GPS fix in NMEA GPGGA (e.g. 8).
+  int32 satellite_count = 7;
+  // Monotonic timestamp when the GPS fix was sampled.
+  int64 timestamp_nanos = 8;
+}
+
+message UpdateLocationStateRequest {
+  LocationState location_state = 1;
+  // Field mask for partial updates. Paths MUST be relative to the resource
+  // (e.g., `level_percent`, NOT `location_state.level_percent`).
+  google.protobuf.FieldMask update_mask = 2;
+}
