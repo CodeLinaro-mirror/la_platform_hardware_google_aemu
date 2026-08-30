@@ -154,15 +154,3 @@ enum RollDirection {
   // Unrolls from bottom to top.
   ROLL_DIRECTION_BOTTOM_TO_TOP = 4;
 }
-
-// Universal Normalized 2D Bounding Rectangle [0.0, 1.0].
-message NormalizedRect {
-  // Left coordinate in range [0.0, 1.0].
-  float x = 1;
-  // Top coordinate in range [0.0, 1.0].
-  float y = 2;
-  // Width in range [0.0, 1.0].
-  float width = 3;
-  // Height in range [0.0, 1.0].
-  float height = 4;
-}

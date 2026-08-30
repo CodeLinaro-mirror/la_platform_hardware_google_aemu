@@ -51,11 +51,26 @@ message Screenshot {
 }
 
 message DisplaySnapshotContext {
+  // The logical display width in pixels.
   int32 logical_width = 1;
-  // The logical height.
+
+  // The logical display height in pixels.
   int32 logical_height = 2;
-  // The rotation.
+
+  // The device orientation / display rotation.
   android.emulation.v2.environment.Rotation rotation = 3;
-  // The density scale.
+
+  // The display density scale factor relative to the Android baseline density
+  // of 160 dpi (mdpi = 1.0).
+  //
+  // Calculated as:
+  //   density_scale = density_dpi / 160.0
+  //
+  // Common density scales:
+  //   - mdpi    (160 dpi): 1.0
+  //   - hdpi    (240 dpi): 1.5
+  //   - xhdpi   (320 dpi): 2.0
+  //   - xxhdpi  (480 dpi): 3.0
+  //   - xxxhdpi (640 dpi): 4.0
   float density_scale = 4;
 }

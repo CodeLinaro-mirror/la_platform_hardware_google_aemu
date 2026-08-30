@@ -44,6 +44,10 @@ message VmState {
     RESETTING = 4;
     // Indicates shutting down.
     SHUTTING_DOWN = 5;
+    // Indicates the hypervisor is paused while capturing/saving a snapshot.
+    SAVING_SNAPSHOT = 6;
+    // Indicates the hypervisor is restoring VM state from a snapshot.
+    RESTORING_SNAPSHOT = 7;
   }
   // Output only. The execution state of the hypervisor.
   State state = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
