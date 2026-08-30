@@ -22,6 +22,7 @@ load("@protobuf//bazel:java_proto_library.bzl", "java_proto_library")
 load("@protobuf//bazel:proto_library.bzl", "proto_library")
 load("@rules_cc//cc:defs.bzl", "cc_library")
 load("@rules_java//java:defs.bzl", "java_library")
+load("//protos/services_v2:ts_proto.bzl", "ts_proto_group", "ts_proto_library")
 
 def aemu_service_v2(
         name,
@@ -30,7 +31,7 @@ def aemu_service_v2(
         has_grpc = True,
         generate_mocks = True,
         visibility = ["//visibility:public"]):
-    """Generates proto, cc, java, and python library targets for a service.
+    """Generates proto, cc, java, python, and typescript library targets for a service.
 
     Variants generated:
       - <name>_proto (proto_library)
@@ -39,6 +40,7 @@ def aemu_service_v2(
       - <name>_java_proto (java_proto_library)
       - <name>_java_grpc (java_grpc_library, if has_grpc=True)
       - <name>_py_proto (py_proto_library)
+      - <name>_ts_proto (ts_proto_library)
 
     Args:
       name: Base name for generated target family.
@@ -54,6 +56,7 @@ def aemu_service_v2(
     java_proto_name = name + "_java_proto"
     java_grpc_name = name + "_java_grpc"
     py_proto_name = name + "_py_proto"
+    ts_proto_name = name + "_ts_proto"
 
     proto_library(
         name = proto_name,
@@ -99,6 +102,14 @@ def aemu_service_v2(
         visibility = visibility,
     )
 
+    ts_proto_library(
+        name = ts_proto_name,
+        proto = ":" + proto_name,
+        deps = deps,
+        has_grpc = has_grpc,
+        visibility = visibility,
+    )
+
 def aemu_service_group_v2(
         name,
         proto_deps = [],
@@ -114,6 +125,7 @@ def aemu_service_group_v2(
       - <name>_java_proto (java_proto_library)
       - <name>_java_grpc (java_library exporting grpc java targets)
       - <name>_py_proto (py_proto_library)
+      - <name>_ts_proto (ts_proto_group)
 
     Args:
       name: Base name for generated target family.
@@ -128,6 +140,7 @@ def aemu_service_group_v2(
     java_proto_name = name + "_java_proto"
     java_grpc_name = name + "_java_grpc"
     py_proto_name = name + "_py_proto"
+    ts_proto_name = name + "_ts_proto"
 
     proto_library(
         name = proto_name,
@@ -164,5 +177,14 @@ def aemu_service_group_v2(
     py_proto_library(
         name = py_proto_name,
         deps = [":" + proto_name],
+        visibility = visibility,
+    )
+
+    ts_proto_group(
+        name = ts_proto_name,
+        deps = [
+            d[:-len("_proto")] + "_ts_proto" if d.endswith("_proto") else d + "_ts_proto"
+            for d in proto_deps
+        ],
         visibility = visibility,
     )
