@@ -115,6 +115,7 @@ def aemu_service_group_v2(
         proto_deps = [],
         grpc_cc_deps = [],
         grpc_java_deps = [],
+        ts_proto_extra_deps = [],
         visibility = ["//visibility:public"]):
     """Aggregates multiple services into grouped targets.
 
@@ -132,6 +133,7 @@ def aemu_service_group_v2(
       proto_deps: List of proto_library targets to aggregate.
       grpc_cc_deps: List of cc_grpc targets to aggregate.
       grpc_java_deps: List of java_grpc targets to aggregate.
+      ts_proto_extra_deps: Additional ts_proto targets to include in the ts_proto_group.
       visibility: Visibility of generated targets.
     """
     proto_name = name + "_proto"
@@ -185,6 +187,6 @@ def aemu_service_group_v2(
         deps = [
             d[:-len("_proto")] + "_ts_proto" if d.endswith("_proto") else d + "_ts_proto"
             for d in proto_deps
-        ],
+        ] + ts_proto_extra_deps,
         visibility = visibility,
     )
