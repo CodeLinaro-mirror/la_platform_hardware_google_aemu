@@ -36,6 +36,7 @@ from commands import (
     flakiness,
     init_cmd,
     launch,
+    mesh,
     source_directory,
     tidy,
     update_cmd,
@@ -90,6 +91,7 @@ def main():
     init_cmd.register_parser(subparsers)
     installer.register_parser(subparsers)
     launch.register_parser(subparsers)
+    mesh.register_parser(subparsers)
     source_directory.register_parser(subparsers)
     tidy.register_parser(subparsers)
     update_cmd.register_parser(subparsers)

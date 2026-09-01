@@ -28,6 +28,7 @@ python3 hardware/google/aemu/setup_agents.py
 | **Git Expert** | [git_expert.md](.gemini/agents/git_expert.md) | SCM Specialist; handles complex rebases and hygiene. |
 | **Planner** | [planner.md](.gemini/agents/planner.md) | Architect; handles requirements and `DESIGN.md`. |
 | **Critic** | [critic.md](.gemini/agents/critic.md) | Security & Efficiency reviewer; finds deep bugs. |
+| **Deslopifier** | [deslopifier.md](.gemini/agents/deslopifier.md) | Phase 2 Specialist; decomposes raw working diffs into <=100L CL stacks. |
 | **Reviewer** | [reviewer.md](.gemini/agents/reviewer.md) | Gatekeeper; handles style, license, docs, and diff audits. |
 | **Debugger** | [debugger.md](.gemini/agents/debugger.md) | Investigation specialist; uses GDB and logging. |
 | **Committer** | [committer.md](.gemini/agents/committer.md) | Release specialist; crafts commit messages. |
@@ -45,14 +46,16 @@ This workflow ensures high-quality delivery through specialized hand-offs.
     *   **Engagement Mode Selection:** The human selects either *Autonomous Mode* or *Collaborative Mode*.
 3.  **Design Review:**
     *   Activate the **Critic** to scrutinize the `DESIGN.md`.
-4.  **Implementation (The Choice):**
-    *   **Delegated Path:** If `emu_main_next_engineer` is available, delegate the implementation task entirely. They will handle the TDD loop and `test_enforcer` coordination.
+4.  **Implementation (Phase 1: Holistic Prototyping):**
+    *   **Delegated Path:** If `emu_main_next_engineer` is available, delegate the implementation task entirely. They will handle the TDD loop and `test_enforcer` coordination in a working commit/branch.
     *   **Default Path:** If no Specialist exists, perform the implementation yourself following the TDD loop (Red/Green/Refactor). Confirm every fix with a new or updated unit test.
-5.  **Quality Audit:**
+5.  **De-sloppification & Stack Slicing (Phase 2: Review Preparation):**
+    *   Activate the **Deslopifier** to isolate `[PREFACTOR]` commits, decompose the working prototype into atomic slices ($\le 100\text{L}$ logic), sanitize comments, and localize formatting.
+6.  **Quality Audit:**
     *   Activate the **Reviewer** to perform a final audit of style, documentation, and diffs.
-6.  **Submission:**
-    *   Activate the **Committer** to prepare the semantic commit message and perform the Gerrit upload (`repo upload`).
-7.  **Autonomy Audit (Post-Mortem):**
+7.  **Submission:**
+    *   Activate the **Committer** to prepare semantic commit messages and perform the Gerrit upload (`repo upload`).
+8.  **Autonomy Audit (Post-Mortem):**
     *   Upon approval, the **Evolver** analyzes the session log to harden skills.
 
 ## The Organizational Hierarchy
