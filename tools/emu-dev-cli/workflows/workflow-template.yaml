@@ -1,0 +1,63 @@
+# ==============================================================================
+# Declarative Workflow Template (YAML)
+# ==============================================================================
+# This template serves as the standard specification and API documentation
+# for defining multi-step, state-persisted workflows in emu-dev-cli.
+#
+# Workflows are placed under: tools/emu-dev-cli/workflows/<workflow_name>/workflow.yaml
+# They are automatically discovered and executable via:
+#   emu-dev-cli workflow <workflow_name> init
+#   emu-dev-cli workflow <workflow_name> --state=<state_id>
+# ==============================================================================
+
+name: workflow-template
+description: Example workflow demonstrating state persistence, step progression, and verifier hooks.
+
+# ------------------------------------------------------------------------------
+# 1. Initialization (init)
+# ------------------------------------------------------------------------------
+# Evaluated ONCE when a session is initialized via 'emu-dev-cli workflow <name> init'.
+# Used to generate files, allocate resources, or define workflow constants.
+init:
+  hello-file:
+    cmd: >-
+      mkdir -p ~/.cache/emu-dev-cli/workflows/data && mktemp ~/.cache/emu-dev-cli/workflows/data/hello-workflow-XXXXXX.txt
+
+# ------------------------------------------------------------------------------
+# 2. Steps
+# ------------------------------------------------------------------------------
+# Array of step definitions executed in sequential index order (0, 1, 2, ...).
+steps:
+  # Step 0: Active step with automated shell verifier
+  - step: 0
+    title: Write Name
+    prompt:
+      - 'Created {hello-file}. Please write your name in the file as "Name: <your name>" (make up a funny name if you want)'
+    verifier_cmd: "grep -qi '^Name:' {hello-file}"
+    max_retries: 3
+    error_prompt:
+      - 'Error: Name not found in {hello-file} (attempt {retries} of {max_retries}). Please write your name in the file as "Name: <your name>" (make up a funny name if you want)'
+    stuck_prompt:
+      - 'Error: Name not found in {hello-file}. Workflow is now STUCK (retries reached {max_retries}). Please write your name in the file as "Name: <your name>" (make up a funny name if you want)'
+    stuck_reason: "Failed to find 'Name: <your name>' in {hello-file} after {retries} retries."
+
+  # Step 1: Second active step
+  - step: 1
+    title: Write Joke
+    prompt:
+      - 'Below your name on a new line, Write your best two-sentence joke as "Joke: <your-joke>"'
+    verifier_cmd: "grep -qi '^Joke:' {hello-file}"
+    max_retries: 3
+    error_prompt:
+      - 'Error: Joke not found in {hello-file} (attempt {retries} of {max_retries}). Below your name on a new line, Write your best two-sentence joke as "Joke: <your-joke>"'
+    stuck_prompt:
+      - 'Error: Joke not found in {hello-file}. Workflow is now STUCK (retries reached {max_retries}). Below your name on a new line, Write your best two-sentence joke as "Joke: <your-joke>"'
+    stuck_reason: "Failed to find 'Joke: <your-joke>' in {hello-file} after {retries} retries."
+
+  # Step 2: Terminal Step
+  - step: 2
+    title: Completion
+    prompt:
+      - Great joke! You are done! I will share this with the world!
+    verifier_cmd: null
+    max_retries: 0

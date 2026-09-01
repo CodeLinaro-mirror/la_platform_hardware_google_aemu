@@ -31,6 +31,11 @@ class EmuDevCliTest(unittest.TestCase):
             self.assertTrue(
                 os.path.exists(os.path.join(tmp_dir, "commands", "launch.py"))
             )
+            self.assertTrue(
+                os.path.exists(
+                    os.path.join(tmp_dir, "workflows", "hello_world_example", "workflow.yaml")
+                )
+            )
             # Verify copying when src and dst are the same directory does not raise SameFileError
             copy_src_to_release_lib(tmp_dir, tmp_dir)
 
