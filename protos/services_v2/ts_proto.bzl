@@ -52,14 +52,24 @@ def _ts_proto_library_impl(ctx):
         tools_list.extend(node_files)
     all_tools = depset(tools_list)
 
-    # Output directory for ts-proto
-    # Package is e.g. "protos/services_v2/media"
-    package_dir = out_files[0].dirname
-    package_name = ctx.label.package.split("/")[-1]
-    if ctx.label.package != "protos/services_v2" and package_dir.endswith("/" + package_name):
-        out_dir = package_dir[:-len("/" + package_name)]
+    # Find relative proto path for the first output
+    first_src = proto_info.direct_sources[0]
+    rel_proto = None
+    all_proto_paths = proto_info.transitive_proto_path.to_list()
+    for p in all_proto_paths:
+        if first_src.path.startswith(p + "/"):
+            rel_proto = first_src.path[len(p) + 1:]
+            break
+    if not rel_proto and "_virtual_imports/" in first_src.path:
+        rel_proto = first_src.path.split("_virtual_imports/")[1].split("/", 1)[1]
+    if not rel_proto:
+        rel_proto = first_src.basename
+
+    rel_ts = rel_proto[:-len(".proto")] + ".ts"
+    if out_files[0].path.endswith(rel_ts):
+        out_dir = out_files[0].path[:-len(rel_ts) - 1]
     else:
-        out_dir = package_dir
+        out_dir = out_files[0].dirname
 
     ts_proto_opt = [
         "outputServices=generic-definitions",
