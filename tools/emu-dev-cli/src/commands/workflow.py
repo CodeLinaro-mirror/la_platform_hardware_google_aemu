@@ -14,20 +14,6 @@ from commands.source_directory import get_source_directory
 from lib.output import print_result
 
 
-WORKFLOW_ALIASES = {
-    "hello-world-example": "hello_world_example",
-    "hello_world_example": "hello_world_example",
-    "hello-world": "hello_world_example",
-    "hello": "hello_world_example",
-}
-
-
-def normalize_workflow_name(name: str) -> str:
-    if name.startswith("-"):
-        return name
-    cleaned = name.strip().lower().replace("-", "_")
-    return WORKFLOW_ALIASES.get(name.strip().lower(), cleaned)
-
 
 def clean_description(desc: str) -> str:
     """Strips markdown syntax and normalizes whitespace for clean CLI help text."""
@@ -56,7 +42,7 @@ def discover_workflow_directories() -> List[str]:
         if src:
             wf_dir = os.path.join(
                 src, "hardware", "google", "aemu", "tools", "emu-dev-cli", "workflows"
-            )
+        )
             if os.path.isdir(wf_dir) and wf_dir not in candidates:
                 candidates.append(wf_dir)
 
@@ -137,10 +123,19 @@ def list_available_workflows() -> Dict[str, Dict[str, str]]:
                     except Exception:
                         pass
 
-            name = entry
-            if name not in workflows:
-                workflows[name] = {
-                    "name": name,
+            wf_name = entry.replace("_", "-")
+            if target_type == "yaml":
+                try:
+                    from workflows.core.yaml_runner import load_yaml
+                    spec = load_yaml(target_path)
+                    if "name" in spec:
+                        wf_name = spec["name"]
+                except Exception:
+                    pass
+
+            if wf_name not in workflows:
+                workflows[wf_name] = {
+                    "name": wf_name,
                     "description": desc,
                     "target_path": target_path,
                     "target_type": target_type,
@@ -152,28 +147,11 @@ def list_available_workflows() -> Dict[str, Dict[str, str]]:
 
 
 def find_workflow_target(workflow_name: str) -> Optional[Tuple[str, str]]:
-    """Resolves (target_type, target_path) for a given workflow name."""
-    target_name = normalize_workflow_name(workflow_name)
+    """Resolves (target_type, target_path) for an exact workflow name."""
     workflows = list_available_workflows()
-    if target_name in workflows:
-        wf = workflows[target_name]
+    if workflow_name in workflows:
+        wf = workflows[workflow_name]
         return wf.get("target_type", "script"), wf.get("target_path", wf.get("main_script", ""))
-
-    # Direct search across directories
-    for base_dir in discover_workflow_directories():
-        if not os.path.isdir(base_dir):
-            continue
-        entry_path = os.path.join(base_dir, target_name)
-        if not os.path.isdir(entry_path):
-            continue
-        for candidate, ttype in (
-            (os.path.join(entry_path, "workflow.yaml"), "yaml"),
-            (os.path.join(entry_path, "workflow.yml"), "yaml"),
-            (os.path.join(entry_path, "main.py"), "script"),
-        ):
-            if os.path.isfile(candidate):
-                return ttype, candidate
-
     return None
 
 
@@ -197,13 +175,11 @@ def run_workflow_main(main_script: str, args: List[str]) -> int:
 
 
 def register_parser(subparsers):
-    # Normalize aliases in sys.argv for workflow subcommands if invoked from CLI
+    # Insert '--' before option arguments if needed
     for i, a in enumerate(sys.argv):
         if a == "workflow" and i + 1 < len(sys.argv):
             if sys.argv[i + 1].startswith("-"):
                 break
-            target = normalize_workflow_name(sys.argv[i + 1])
-            sys.argv[i + 1] = target
             if (
                 i + 2 < len(sys.argv)
                 and sys.argv[i + 2] != "--"
@@ -237,48 +213,40 @@ def register_parser(subparsers):
         func=run_workflow_help,
     )
 
-    # Discovered workflows registered directly as subcommands
+    # Discovered workflows registered directly as subcommands (single canonical name with '-')
     workflows = list_available_workflows()
     for name, wf in workflows.items():
         desc = wf.get("description", "Automated development workflow")
         target_path = wf.get("target_path", wf.get("main_script"))
         target_type = wf.get("target_type", "script")
 
-        # Register both underscored and dashed names so either works out of the box
-        aliases_to_register = {name}
-        if "_" in name:
-            aliases_to_register.add(name.replace("_", "-"))
-        elif "-" in name:
-            aliases_to_register.add(name.replace("-", "_"))
+        wf_p = workflow_subparsers.add_parser(
+            name,
+            help=desc,
+        )
+        if target_path:
+            def make_help_func(path, ttype):
+                def _help(file=None):
+                    if ttype == "yaml" or path.endswith((".yaml", ".yml")):
+                        try:
+                            from workflows.core.yaml_runner import run_yaml_workflow
+                        except ImportError:
+                            from core.yaml_runner import run_yaml_workflow
+                        run_yaml_workflow(path, ["--help"])
+                    else:
+                        subprocess.run([sys.executable, path, "--help"])
+                return _help
+            wf_p.print_help = make_help_func(target_path, target_type)
 
-        for sub_name in aliases_to_register:
-            wf_p = workflow_subparsers.add_parser(
-                sub_name,
-                help=desc,
-            )
-            if target_path:
-                def make_help_func(path, ttype):
-                    def _help(file=None):
-                        if ttype == "yaml" or path.endswith((".yaml", ".yml")):
-                            try:
-                                from workflows.core.yaml_runner import run_yaml_workflow
-                            except ImportError:
-                                from core.yaml_runner import run_yaml_workflow
-                            run_yaml_workflow(path, ["--help"])
-                        else:
-                            subprocess.run([sys.executable, path, "--help"])
-                    return _help
-                wf_p.print_help = make_help_func(target_path, target_type)
-
-            wf_p.add_argument(
-                "workflow_args",
-                nargs=argparse.REMAINDER,
-                help=argparse.SUPPRESS,
-            )
-            wf_p.set_defaults(
-                func=run_workflow_direct,
-                workflow_target_name=name,
-            )
+        wf_p.add_argument(
+            "workflow_args",
+            nargs=argparse.REMAINDER,
+            help=argparse.SUPPRESS,
+        )
+        wf_p.set_defaults(
+            func=run_workflow_direct,
+            workflow_target_name=name,
+        )
 
 
 def run_workflow_help(args):

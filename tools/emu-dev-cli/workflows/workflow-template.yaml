@@ -1,30 +1,52 @@
 # ==============================================================================
 # Declarative Workflow Template (YAML)
+# Reference: tools/emu-dev-cli/workflows/WORKFLOW_API.md
 # ==============================================================================
-# This template serves as the standard specification and API documentation
-# for defining multi-step, state-persisted workflows in emu-dev-cli.
 #
-# Workflows are placed under: tools/emu-dev-cli/workflows/<workflow_name>/workflow.yaml
-# They are automatically discovered and executable via:
-#   emu-dev-cli workflow <workflow_name> init
-#   emu-dev-cli workflow <workflow_name> --state=<state_id>
+# Instructions:
+# 1. Copy this file to tools/emu-dev-cli/workflows/<your_workflow_name>/workflow.yaml
+# 2. Update 'name' and 'description' below.
+# 3. Define any positional/optional CLI arguments under 'args:'.
+# 4. If needed, define custom initialization values under 'init:'.
+#    (Note: Generic system metadata such as '{cache-dir}' is provisioned automatically).
+# 5. Define sequential steps with prompt instructions and verifier commands.
 # ==============================================================================
 
-name: workflow-template
-description: Example workflow demonstrating state persistence, step progression, and verifier hooks.
+name: example-workflow
+description: Example workflow demonstrating state persistence, step progression, and verifiers.
 
 # ------------------------------------------------------------------------------
-# 1. Initialization (init)
+# 1. Optional CLI Arguments (args)
+# ------------------------------------------------------------------------------
+# Arguments accepted by 'emu-dev-cli workflow <name> init [args...]'.
+# Parsed arguments are stored in session metadata and available as {arg_name}.
+# args:
+#   - name: bug-number
+#     help: "Target Buganizer issue ID"
+#     required: true
+
+# ------------------------------------------------------------------------------
+# 2. Optional Initialization (init)
 # ------------------------------------------------------------------------------
 # Evaluated ONCE when a session is initialized via 'emu-dev-cli workflow <name> init'.
-# Used to generate files, allocate resources, or define workflow constants.
-init:
-  hello-file:
-    cmd: >-
-      mkdir -p ~/.cache/emu-dev-cli/workflows/data && mktemp ~/.cache/emu-dev-cli/workflows/data/hello-workflow-XXXXXX.txt
+#
+# GENERIC SYSTEM METADATA:
+# The workflow engine automatically provisions standard generic metadata into
+# the session state before evaluating this section. These values are saved under
+# 'metadata' and are available via {key} across all steps and init commands:
+#   - {cache-dir}: Dedicated workflow cache directory (~/.cache/emu-dev-cli/workflows/<name>/)
+#   - Additional generic engine metadata may be provided in future updates.
+#
+# If your workflow only needs standard scratch/output storage, omit 'init:' completely!
+#
+# Used only when your workflow needs custom runtime generation or constants:
+# init:
+#   hello-file:
+#     cmd: "mktemp {cache-dir}/hello-workflow-XXXXXX.txt"
+#   max-attempts: 3
 
 # ------------------------------------------------------------------------------
-# 2. Steps
+# 3. Steps
 # ------------------------------------------------------------------------------
 # Array of step definitions executed in sequential index order (0, 1, 2, ...).
 steps:
@@ -49,15 +71,16 @@ steps:
     verifier_cmd: "grep -qi '^Joke:' {hello-file}"
     max_retries: 3
     error_prompt:
-      - 'Error: Joke not found in {hello-file} (attempt {retries} of {max_retries}). Below your name on a new line, Write your best two-sentence joke as "Joke: <your-joke>"'
+      - 'Error: Joke not found in {hello-file} (attempt {retries} of {max_retries}). Write your joke below your name as "Joke: <your-joke>"'
     stuck_prompt:
-      - 'Error: Joke not found in {hello-file}. Workflow is now STUCK (retries reached {max_retries}). Below your name on a new line, Write your best two-sentence joke as "Joke: <your-joke>"'
+      - 'Error: Joke not found in {hello-file}. Workflow is STUCK. Please add "Joke: <your-joke>" to {hello-file}'
     stuck_reason: "Failed to find 'Joke: <your-joke>' in {hello-file} after {retries} retries."
 
-  # Step 2: Terminal Step
+  # Step 2: Terminal Step (verifier_cmd is null)
   - step: 2
     title: Completion
     prompt:
-      - Great joke! You are done! I will share this with the world!
+      - "Congratulations! Both your name and joke have been verified in {hello-file}."
+      - "Workflow completed successfully."
     verifier_cmd: null
     max_retries: 0

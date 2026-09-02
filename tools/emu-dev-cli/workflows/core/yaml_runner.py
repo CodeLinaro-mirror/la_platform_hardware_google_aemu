@@ -23,6 +23,19 @@ def get_state_base_dir() -> Path:
     return base / "emu-dev-cli" / "workflows" / "state"
 
 
+def get_workflow_cache_dir(wf_name: str) -> Path:
+    """Returns the workflow-specific cache directory."""
+    override = os.environ.get("EMU_DEV_CLI_WORKFLOW_CACHE_DIR")
+    if override:
+        return Path(override) / wf_name
+    state_override = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
+    if state_override:
+        return Path(state_override) / "cache" / wf_name
+    cache_home = os.environ.get("XDG_CACHE_HOME")
+    base = Path(cache_home) if cache_home else Path.home() / ".cache"
+    return base / "emu-dev-cli" / "workflows" / wf_name
+
+
 STATE_BASE_DIR = get_state_base_dir()
 
 
@@ -138,7 +151,7 @@ def execute_init(init_spec: Dict[str, Any], init_context: Optional[Dict[str, Any
     metadata = {}
     ctx = dict(init_context or {})
     for key, val in init_spec.items():
-        if key.startswith("_"):
+        if key.startswith("_") or key == "args":
             continue
         if isinstance(val, dict) and "cmd" in val:
             cmd_args = build_cmd_args(val["cmd"], ctx)
@@ -158,10 +171,25 @@ def run_yaml_workflow(spec_path: Union[str, Path], argv: Optional[List[str]] = N
 
     path = Path(spec_path).resolve()
     spec = load_yaml(path)
-    wf_name = spec.get("name", path.stem)
+    wf_name = spec.get("name", path.stem).replace("_", "-")
     description = spec.get("description", "Automated workflow")
     init_spec = spec.get("init", {})
     steps = spec.get("steps", [])
+
+    # Extract CLI arguments specification from top-level or init
+    raw_args = spec.get("args") or init_spec.get("args") or []
+    workflow_args: List[Dict[str, Any]] = []
+    if isinstance(raw_args, dict):
+        for k, v in raw_args.items():
+            entry = dict(v) if isinstance(v, dict) else {}
+            entry["name"] = k
+            workflow_args.append(entry)
+    elif isinstance(raw_args, list):
+        for item in raw_args:
+            if isinstance(item, str):
+                workflow_args.append({"name": item, "required": True})
+            elif isinstance(item, dict):
+                workflow_args.append(item)
 
     state_dir = get_state_base_dir() / wf_name
 
@@ -176,10 +204,28 @@ def run_yaml_workflow(spec_path: Union[str, Path], argv: Optional[List[str]] = N
         help="Unique state identifier or path to state file",
     )
     subparsers = parser.add_subparsers(dest="subcommand", metavar="<command>")
-    subparsers.add_parser(
+    init_parser = subparsers.add_parser(
         "init",
         help=f"Initialize a new {wf_name} session",
     )
+    for arg_def in workflow_args:
+        arg_name = arg_def.get("name")
+        if not arg_name:
+            continue
+        arg_help = arg_def.get("help") or arg_def.get("description", f"{arg_name} parameter")
+        required = arg_def.get("required", True)
+        metavar = arg_def.get("metavar")
+        kwargs = {"help": arg_help}
+        if metavar:
+            kwargs["metavar"] = metavar
+        if required:
+            init_parser.add_argument(arg_name, **kwargs)
+        else:
+            default_val = arg_def.get("default", None)
+            kwargs["default"] = default_val
+            kwargs["required"] = False
+            kwargs["dest"] = arg_name.replace("-", "_")
+            init_parser.add_argument(f"--{arg_name}", **kwargs)
 
     # If invoked with no arguments at all, print help and exit
     if not argv:
@@ -191,19 +237,45 @@ def run_yaml_workflow(spec_path: Union[str, Path], argv: Optional[List[str]] = N
     # 1. Initialization via 'init' subcommand
     if args.subcommand == "init":
         unique_id = uuid.uuid4().hex[:8]
+        workflow_cache_dir = get_workflow_cache_dir(wf_name)
+        workflow_cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+
         init_ctx = {
             "workflow_name": wf_name,
             "workflow_dir": str(path.parent),
             "state_id": unique_id,
+            "cache-dir": str(workflow_cache_dir),
+            "cache_dir": str(workflow_cache_dir),
+            "output-dir": str(workflow_cache_dir),
+            "output_dir": str(workflow_cache_dir),
         }
-        metadata = execute_init(init_spec, init_ctx)
+        initial_metadata: Dict[str, Any] = {
+            "cache-dir": str(workflow_cache_dir),
+        }
+        for arg_def in workflow_args:
+            arg_name = arg_def.get("name")
+            if arg_name:
+                val = getattr(args, arg_name, None)
+                if val is None:
+                    val = getattr(args, arg_name.replace("-", "_"), None)
+                if val is not None:
+                    # Clean/normalize bug identifiers (e.g. b/123 or https://b/123 -> 123)
+                    if arg_name in ("bug", "bug_id", "bug_number", "bug-number", "bug-id") and isinstance(val, str):
+                        clean_val = re.sub(r"^(?:https?://)?b(?:/)?", "", val.strip(), flags=re.I)
+                    else:
+                        clean_val = str(val).strip()
+                    init_ctx[arg_name] = clean_val
+                    initial_metadata[arg_name] = clean_val
+
+        evaluated_metadata = execute_init(init_spec, init_ctx)
+        initial_metadata.update(evaluated_metadata)
 
         initial_state = {
             "state": "INIT",
             "step": 0,
             "retries": 0,
             "stuck_reason": "",
-            "metadata": metadata,
+            "metadata": initial_metadata,
         }
         state_file = state_dir / f"STATE-{unique_id}.yaml"
         save_state_yaml(state_file, initial_state)
@@ -238,6 +310,14 @@ def run_yaml_workflow(spec_path: Union[str, Path], argv: Optional[List[str]] = N
     context["step"] = current_step_index
     context["retries"] = retries
     context["verifier_error"] = ""
+    if "cache-dir" not in context:
+        context["cache-dir"] = str(get_workflow_cache_dir(wf_name))
+    if "cache_dir" not in context:
+        context["cache_dir"] = context["cache-dir"]
+    if "output-dir" not in context:
+        context["output-dir"] = context["cache-dir"]
+    if "output_dir" not in context:
+        context["output_dir"] = context["cache-dir"]
 
     # Find step specification
     step_spec = None
