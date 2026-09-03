@@ -8,7 +8,7 @@ description: An interactive, step-by-step example workflow demonstrating state p
 init:
   hello-file:
     cmd: >-
-      python3 -c 'import os, random; c=os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"); d=os.path.join(c, "emu-dev-cli", "workflows", "data"); os.makedirs(d, mode=0o700, exist_ok=True); p=f"{d}/hello-workflow-{random.randint(100000, 999999)}.txt"; open(p, "a").close(); print(p)'
+      python3 -c 'import random; p=f"{cache-dir}/hello-workflow-{random.randint(100000, 999999)}.txt"; open(p, "a").close(); print(p)'
 
 steps:
   # Step 0: Name Entry

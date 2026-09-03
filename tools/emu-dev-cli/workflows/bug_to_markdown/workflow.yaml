@@ -1,0 +1,44 @@
+# Bug to Markdown Workflow (YAML)
+# Guides developers and agents to collect Buganizer details and generate
+# a standardized b<bug-number>.md file in the user cache directory.
+
+name: bug-to-markdown
+description: Collect bug information and write b<bug number>.md into user cache.
+
+args:
+  - name: bug-number
+    help: "Buganizer issue ID (e.g. 553514805 or b/553514805)"
+    required: true
+
+steps:
+  # Step 0: Prompt agent to collect bug details and verify output
+  - step: 0
+    title: Collect Bug Details
+    prompt:
+      - >-
+        Please collect the bug information for bug b/{bug-number} and write a markdown file named 'b{bug-number}.md' into '{cache-dir}'.
+        The file must contain the following fields:
+        - Bug number: {bug-number}
+        - Status: <bug status>
+        - Assignee: <ldap or None>
+        - Problem: <Summary of the problem>
+        - Proposed Fix: <Proposed fix, or N/A if no proposed fix in bug>
+    verifier_cmd: "python3 {workflow_dir}/verify_bug_markdown.py {cache-dir} {bug-number}"
+    max_retries: 3
+    error_prompt:
+      - "Error: Bug markdown validation failed for b/{bug-number} in '{cache-dir}' (attempt {retries} of {max_retries})."
+      - "{verifier_error}"
+      - "Please ensure the file is named 'b{bug-number}.md' and contains all required fields: Bug number, Status, Assignee, Problem, Proposed Fix."
+    stuck_prompt:
+      - "Error: Bug markdown validation failed for b/{bug-number} in '{cache-dir}'. Workflow is now STUCK (retries reached {max_retries})."
+      - "{verifier_error}"
+      - "Please verify your 'b{bug-number}.md' file in '{cache-dir}'."
+    stuck_reason: "Failed to create a valid b{bug-number}.md with all required fields in {cache-dir} after {retries} retries."
+
+  # Step 1: Completion
+  - step: 1
+    title: Completion
+    prompt:
+      - "Great job! Bug information for b/{bug-number} has been successfully verified and saved to '{cache-dir}/b{bug-number}.md'."
+    verifier_cmd: null
+    max_retries: 0
