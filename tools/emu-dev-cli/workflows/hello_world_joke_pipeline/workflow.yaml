@@ -1,0 +1,28 @@
+# Hello World Joke Pipeline Workflow (YAML)
+# Composes hello-world-example and hello-world-joke-rating into an end-to-end pipeline.
+
+name: hello-world-joke-pipeline
+description: Generate a joke with hello-world-example, then review and rate it with hello-world-joke-rating.
+
+steps:
+  - step: 0
+    title: Generate Joke
+    workflow:
+      name: hello-world-example
+      outputs:
+        hello-file: joke_file
+
+  - step: 1
+    title: Rate Joke
+    workflow:
+      name: hello-world-joke-rating
+      args:
+        joke-file: "{hello-world-example.joke_file}"
+      outputs:
+        rating-file: final_rating
+
+  - step: 2
+    title: Completion
+    prompt:
+      - "Pipeline complete! Joke generated in '{hello-world-example.joke_file}' and rated in '{hello-world-joke-rating.final_rating}'."
+    verifier_cmd: null

@@ -84,3 +84,31 @@ steps:
       - "Workflow completed successfully."
     verifier_cmd: null
     max_retries: 0
+
+# ------------------------------------------------------------------------------
+# 4. Workflow Composition (Sub-Workflow Steps)
+# ------------------------------------------------------------------------------
+# Steps can also delegate to another workflow rather than running atomic prompts:
+#
+# steps:
+#   - step: 0
+#     title: Run Upstream Generator
+#     workflow:
+#       name: hello-world-example
+#       outputs:
+#         hello-file: joke_file # maps child metadata to parent metadata
+#
+#   - step: 1
+#     title: Run Downstream Consumer
+#     workflow:
+#       name: hello-world-joke-rating
+#       args:
+#         joke-file: "{hello-world-example.joke_file}" # dot-namespaced variable reference
+#       outputs:
+#         rating-file: final_rating
+#
+#   - step: 2
+#     title: Completion
+#     prompt:
+#       - "Pipeline complete! Rated joke in '{hello-world-joke-rating.final_rating}'."
+#     verifier_cmd: null

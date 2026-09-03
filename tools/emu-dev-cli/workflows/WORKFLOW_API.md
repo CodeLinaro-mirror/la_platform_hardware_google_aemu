@@ -139,6 +139,13 @@ Windows without relying on fragile shell escaping.
 - **Custom Init**: Evaluated from the workflow's `"init"` section (e.g.
   `{hello-file}`).
 
+#### 4. Workflow-Namespaced Variables (Dot Notation for Composed Pipelines)
+
+- `{workflow-name.key}`: References metadata and mapped outputs scoped to a
+  specific child workflow (e.g. `{hello-world-example.joke_file}` or
+  `{hello-world-joke-rating.final_rating}`).
+- Prevents variable collisions across distinct sub-workflows in a pipeline.
+
 ---
 
 ## 6. Step Specification Fields (`steps`)
@@ -158,7 +165,96 @@ Each entry in `steps` defines a discrete phase:
 
 ---
 
-## 7. Execution Lifecycle & Status Flow
+---
+
+## 7. Workflow Composition & Sub-Workflows (`workflow:` steps)
+
+Workflows can be composed into higher-order pipelines by declaring
+**sub-workflow steps** directly inside `steps:`.
+
+### Sub-Workflow Step Schema:
+
+```yaml
+steps:
+  - step: 0
+    title: Generate Joke
+    workflow:
+      name: hello-world-example
+      outputs:
+        hello-file: joke_file # maps child metadata['hello-file'] -> parent metadata['joke_file']
+
+  - step: 1
+    title: Rate Joke
+    workflow:
+      name: hello-world-joke-rating
+      args:
+        joke-file: "{hello-world-example.joke_file}" # references output nested in child workflow namespace
+      outputs:
+        rating-file: final_rating
+
+  - step: 2
+    title: Completion
+    prompt:
+      - "Pipeline finished! Joke generated in '{hello-world-example.joke_file}'
+        and rated in '{hello-world-joke-rating.final_rating}'."
+    verifier_cmd: null
+```
+
+#### Shorthand Syntax:
+
+If a sub-workflow requires no arguments or output mappings, a simple name can be
+used:
+
+```yaml
+- step: 0
+  title: Run Example
+  workflow: hello-world-example
+```
+
+### Composition Mechanics & Guarantees:
+
+1. **Single State ID Guarantee**: Developers and AI agents only ever invoke the
+   parent workflow:
+
+   ```bash
+   emu-dev-cli workflow hello-world-joke-pipeline --state=<parent_id>
+   ```
+
+   The runner automatically injects the parent command into child step prompts,
+   retry prompts, and STUCK messages. Child state IDs never leak to the agent.
+
+2. **Workflow-Namespaced Metadata & Output Scoping**:
+   - When a sub-workflow completes, all of its metadata and mapped `outputs:`
+     are nested directly inside `metadata[<workflow-name>]` (e.g.
+     `metadata["hello-world-example"]["joke_file"]`).
+   - Downstream steps and prompts reference these values cleanly using dot
+     notation: `{workflow-name.variable}` (e.g.
+     `{hello-world-example.joke_file}`).
+   - This prevents key collisions when multiple sub-workflows produce common
+     outputs (such as `cache-dir`, `output-file`, or `report`).
+   - Unambiguous fallback lookup is also supported for convenience.
+   - `args`: Can be passed as a named dictionary
+     (`joke-file: "{hello-world-example.joke_file}"`) or positional list
+     (`["{hello-world-example.joke_file}"]`).
+   - `outputs`: Strictly verified upon child completion. If a mapped child key
+     is missing from child metadata, `WorkflowOutputError` is raised immediately
+     with actionable error details.
+
+3. **Session Provenance & Audit History**:
+   - The active child session is recorded under parent `metadata._sub_workflow`
+     bound to `parent_step`.
+   - When the sub-workflow completes, its record is archived into
+     `metadata._sub_workflow_history` preserving full audit trail.
+
+4. **Safety & Cycle Detection**:
+   - **Static DAG Check**: Recursion and circular dependencies ($A 	o B 	o A$ or
+     $A 	o A$) are detected and rejected at load time.
+   - **Runtime Guard**: Execution stack enforces a maximum composition depth of
+     5 (`MAX_WORKFLOW_DEPTH`).
+
+---
+
+## 8. Execution Lifecycle & Status Flow
 
 ```mermaid
 stateDiagram-v2
@@ -180,7 +276,7 @@ stateDiagram-v2
 
 ---
 
-## 8. State Management & Persistence (`STATE-<id>.yaml`)
+## 9. State Management & Persistence (`STATE-<id>.yaml`)
 
 State files are saved per workflow under:
 
@@ -203,9 +299,14 @@ state: RUNNING # Lifecycle status: 'INIT', 'RUNNING', 'STUCK', or 'DONE'
 step: 1 # Current 0-indexed active step number
 retries: 0 # Consecutive verification failures for the current step
 stuck_reason: "" # Detailed failure message when stuck (supports multi-line block `|-`)
-metadata: # Key-value store seeded with generic metadata and populated during "init"
-  cache-dir: /home/user/.cache/emu-dev-cli/workflows/hello-world-example
-  hello-file: /home/user/.cache/emu-dev-cli/workflows/hello-world-example/hello-workflow-123456.txt
+metadata: # Key-value store seeded with generic metadata and workflow-namespaced outputs
+  cache-dir: /home/user/.cache/emu-dev-cli/workflows/hello-world-joke-pipeline
+  hello-world-example: # Workflow-specific metadata nested under the child workflow name
+    cache-dir: /home/user/.cache/emu-dev-cli/workflows/hello-world-example
+    hello-file: /home/user/.cache/emu-dev-cli/workflows/hello-world-example/hello-workflow-123456.txt
+    joke_file: /home/user/.cache/emu-dev-cli/workflows/hello-world-example/hello-workflow-123456.txt
+  hello-world-joke-rating:
+    final_rating: /home/user/.cache/emu-dev-cli/workflows/hello-world-joke-rating/joke-rating-987654.md
 ```
 
 ### State Fields Reference
