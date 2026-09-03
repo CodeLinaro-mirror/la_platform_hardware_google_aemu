@@ -1,0 +1,351 @@
+syntax = "proto3";
+
+package android.emulation.v2.discovery;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.discovery";
+
+import "common/common.proto";
+import "common/geometry.proto";
+import "google/protobuf/any.proto";
+import "grpc_endpoint_description.proto";
+
+// Manages capabilities execution and interactions.
+service CapabilitiesService {
+  // The single discovery handshake (One-shot, instant return).
+  // Static snapshot of immutable hardware limits and platform capabilities at
+  // connection time.
+  rpc GetDeviceCapabilities(GetDeviceCapabilitiesRequest)
+      returns (DeviceCapabilities);
+}
+
+// common.AccessMode describes the current caller's dynamic runtime authorization and
+// active driver routing.
+// Concurrency & Tenant Isolation Profile.
+message GetDeviceCapabilitiesRequest {}
+
+message DeviceCapabilities {
+  DeviceMetadata metadata = 1;
+
+  // The Stable Core: Nullable/Optional capability blocks.
+  // If a capability is omitted/null, that hardware subsystem is not supported
+  // on this device.
+  optional BatteryCapabilities battery = 2;
+  // The location.
+  optional LocationCapabilities location = 3;
+  // The display.
+  optional DisplayCapabilities display = 4;
+  // The sensors.
+  optional SensorsCapabilities sensors = 5;
+  // The input.
+  optional InputCapabilities input = 6;
+  // The posture.
+  optional PostureCapabilities posture = 7;
+  // The biometrics.
+  optional BiometricsCapabilities biometrics = 8;
+  // The telephony.
+  optional TelephonyCapabilities telephony = 9;
+  // The camera.
+  optional CameraCapabilities camera = 10;
+  // The audio.
+  optional AudioCapabilities audio = 11;
+  // The screen capture.
+  optional ScreenCaptureCapabilities screen_capture = 12;
+  // The clipboard.
+  optional ClipboardCapabilities clipboard = 13;
+  // The vm.
+  optional VmCapabilities vm = 14;
+  // The snapshot.
+  optional SnapshotCapabilities snapshot = 15;
+  // The system lifecycle and in-band reboot controls.
+  optional SystemCapabilities system = 17;
+
+  // The Frontier: Dynamic extensions (Key is the fully qualified service
+  // name, e.g. "netsim.frontend.FrontendService").
+  map<string, ServiceExtension> extensions = 16;
+}
+
+message DeviceMetadata {
+  string display_name = 1;
+  // The model id.
+  string model_id = 2;
+  // The api level.
+  int32 api_level = 3;
+  // The concurrency profile.
+  common.ConcurrencyProfile concurrency_profile = 4;
+
+  // CPU Architecture & Host Compute (e.g. "x86_64", "arm64-v8a", "x86").
+  string cpu_architecture = 5;
+  // The cpu core count.
+  int32 cpu_core_count = 6;
+  // The total ram bytes.
+  int64 total_ram_bytes = 7;
+
+  // Google Play Services Ecosystem.
+  bool supports_play_store = 8;
+
+  // Device hardware manufacturer (e.g. "Google").
+  string manufacturer = 9;
+  // Device brand (e.g. "Google").
+  string brand = 10;
+  // Total internal storage capacity in bytes.
+  int64 total_storage_bytes = 11;
+}
+
+message ServiceExtension {
+  common.AccessMode access_mode = 1;
+  // Dynamic descriptor pointing directly to an external gRPC microservice.
+  optional android.emulation.remote.Endpoint endpoint = 2;
+  // The details.
+  google.protobuf.Any details = 3;
+}
+
+message BatteryCapabilities {
+  common.AccessMode access_mode = 1;
+  // The supported chargers.
+  repeated common.ChargerSource supported_chargers = 2;
+}
+
+message LocationCapabilities {
+  common.AccessMode access_mode = 1;
+  // The supports altitude.
+  bool supports_altitude = 2;
+  // The supports speed.
+  bool supports_speed = 3;
+  // The supports bearing.
+  bool supports_bearing = 4;
+  // The supports accuracy.
+  bool supports_accuracy = 5;
+  // The supports satellites.
+  bool supports_satellites = 6;
+}
+
+message DisplayCapabilities {
+  common.AccessMode access_mode = 1;
+  // The supports virtual display creation.
+  bool supports_virtual_display_creation = 2;
+  // The max supported display count.
+  int32 max_supported_display_count = 3;
+  // The built in displays.
+  repeated DisplayHardware built_in_displays = 4;
+  // Display configurations detailing cutouts and corner radius.
+  repeated DisplayConfiguration display_configurations = 5;
+}
+
+message DisplayHardware {
+  int32 display_id = 1;
+  // Hardware dimensions and density (e.g., 1080x2424 @ 420dpi).
+  int32 width = 2;
+  // The height.
+  int32 height = 3;
+  // The density dpi.
+  int32 density_dpi = 4;
+  // WearOS circular dial mask.
+  bool circular = 5;
+  // Refresh rate in Hz (e.g. 60.0, 90.0, 120.0).
+  float refresh_rate_hz = 6;
+  // The supports dynamic resizing.
+  bool supports_dynamic_resizing = 7;
+}
+
+message DisplayConfiguration {
+  int32 display_id = 1;
+  uint32 width_pixels = 2;
+  uint32 height_pixels = 3;
+  uint32 density_dpi = 4;
+
+  // Exact cutout geometry for this display
+  repeated DisplayCutout cutouts = 5;
+
+  // Normalized corner radius [0.0, 1.0]
+  float corner_radius_normalized = 6;
+}
+
+message DisplayCutout {
+  enum CutoutShape {
+    SHAPE_UNSPECIFIED = 0;
+    PUNCH_HOLE_CIRCLE = 1;
+    NOTCH_WATERDROP = 2;
+    NOTCH_RECTANGULAR = 3;
+    CUSTOM_PATH = 4;
+  }
+  CutoutShape shape = 1;
+
+  // Normalized bounding box in range [0.0, 1.0]
+  common.NormalizedRect normalized_bounds = 2;
+
+  // Direct SVG vector path string for CSS clip-path (e.g. "M 0.5 0.04 a 0.012 ...")
+  string svg_path = 3;
+}
+
+message SensorsCapabilities {
+  common.AccessMode access_mode = 1;
+  // The available sensors.
+  repeated common.SensorType available_sensors = 2;
+}
+
+message InputCapabilities {
+  common.AccessMode access_mode = 1;
+  // The supports touch.
+  bool supports_touch = 2;
+  // The supports multi touch.
+  bool supports_multi_touch = 3;
+  // The max touch point count.
+  int32 max_touch_point_count = 4;
+  // The supports keyboard.
+  bool supports_keyboard = 5;
+  // The supports mouse pointer.
+  bool supports_mouse_pointer = 6;
+  // The supports rotary encoder.
+  bool supports_rotary_encoder = 7;
+  // The supports stylus.
+  bool supports_stylus = 8;
+  // The supports dpad.
+  bool supports_dpad = 9;
+  // The supports hardware navigation keys.
+  bool supports_hardware_navigation_keys = 10;
+  // Supports relative mouse movement deltas (e.g. pointer lock, FPS gaming, trackball).
+  bool supports_relative_mouse = 11;
+}
+
+message PostureCapabilities {
+  common.AccessMode access_mode = 1;
+  // The supported postures.
+  repeated common.PostureType supported_postures = 2;
+  // The supports hinge angle.
+  bool supports_hinge_angle = 3;
+  // The min hinge angle.
+  float min_hinge_angle = 4;
+  // The max hinge angle.
+  float max_hinge_angle = 5;
+
+  // Posture definitions with angle ranges and default UI jump angles.
+  repeated PostureDefinition posture_definitions = 6;
+
+  // Fold axis / orientation (e.g. horizontal for clamshell, vertical for book).
+  common.FoldAxis fold_axis = 7;
+  // Hinge physical construction (flexible folding screen vs dual separate displays).
+  common.HingeConstruction hinge_construction = 8;
+  // Configurations for each hinge (e.g. 1 for standard fold, 2 for tri-fold).
+  repeated HingeConfig hinges = 9;
+
+  // Rollable / expandable display capabilities.
+  bool supports_rollable = 10;
+  optional RollableConfig rollable = 11;
+}
+
+message PostureDefinition {
+  common.PostureType posture = 1;
+  // Lower bound angle in degrees for this posture state.
+  float min_angle_degrees = 2;
+  // Upper bound angle in degrees for this posture state.
+  float max_angle_degrees = 3;
+  // Default target angle in degrees for UI quick-jump buttons.
+  float default_angle_degrees = 4;
+}
+
+message HingeConfig {
+  // 0-indexed hinge identifier.
+  int32 hinge_id = 1;
+  float min_angle_degrees = 2;
+  float max_angle_degrees = 3;
+  float default_angle_degrees = 4;
+  // Screen area or crease boundary (percentage e.g. "50.0-0" or rect "x-y-w-h").
+  string crease_area = 5;
+}
+
+message RollableConfig {
+  common.RollDirection direction = 1;
+  float min_roll_percent = 2;
+  float max_roll_percent = 3;
+  float default_roll_percent = 4;
+  float roll_radius_px = 5;
+}
+
+message BiometricsCapabilities {
+  common.AccessMode access_mode = 1;
+  // The supports fingerprint.
+  bool supports_fingerprint = 2;
+}
+
+message TelephonyCapabilities {
+  common.AccessMode access_mode = 1;
+  // The supports radio power toggle.
+  bool supports_radio_power_toggle = 2;
+  // The supports signal strength simulation.
+  bool supports_signal_strength_simulation = 3;
+  // Virtual baseband only (Emulators).
+  bool supports_sms_simulation = 4;
+  // Virtual baseband only (Emulators).
+  bool supports_call_simulation = 5;
+}
+
+message CameraCapabilities {
+  common.AccessMode access_mode = 1;
+  // The supports frame injection.
+  bool supports_frame_injection = 2;
+  // The supports video stream injection.
+  bool supports_video_stream_injection = 3;
+  // Supported camera IDs (e.g. "0" = Back, "1" = Front).
+  repeated string supported_camera_ids = 4;
+  // The supported formats.
+  repeated common.ImageFormat supported_formats = 5;
+}
+
+message AudioCapabilities {
+  common.AccessMode access_mode = 1;
+  // The supports microphone.
+  bool supports_microphone = 2;
+  // The microphone profile.
+  AudioFormatProfile microphone_profile = 3;
+  // The supports speaker.
+  bool supports_speaker = 4;
+  // The speaker profile.
+  AudioFormatProfile speaker_profile = 5;
+}
+
+message AudioFormatProfile {
+  repeated common.SampleFormat supported_formats = 1;
+  // Supported sample rates in Hz (e.g., [16000, 44100, 48000]).
+  repeated int32 supported_sample_rates_hz = 2;
+  // Supported channel counts (e.g., 1 = Mono, 2 = Stereo, 6 = 5.1 Surround).
+  repeated int32 supported_channel_counts = 3;
+}
+
+message ScreenCaptureCapabilities {
+  common.AccessMode access_mode = 1;
+  // The supported formats.
+  repeated common.ImageFormat supported_formats = 2;
+  // The supports row stride.
+  bool supports_row_stride = 3;
+}
+
+message ClipboardCapabilities {
+  common.AccessMode access_mode = 1;
+}
+
+message VmCapabilities {
+  common.AccessMode access_mode = 1;
+  // The supports pause resume.
+  bool supports_pause_resume = 2;
+  // The supports hard reset.
+  bool supports_hard_reset = 3;
+  // The supports shutdown.
+  bool supports_shutdown = 4;
+}
+
+message SnapshotCapabilities {
+  common.AccessMode access_mode = 1;
+  // The supports local snapshots.
+  bool supports_local_snapshots = 2;
+  // The supports cloud storage.
+  bool supports_cloud_storage = 3;
+  // Supported cloud storage schemes (e.g. ["gs", "s3", "https"]).
+  repeated string supported_storage_schemes = 4;
+}
+
+message SystemCapabilities {
+  common.AccessMode access_mode = 1;
+  // True if in-band operating system reboot is supported.
+  bool supports_reboot = 2;
+}
