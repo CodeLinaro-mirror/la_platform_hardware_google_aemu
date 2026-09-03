@@ -14,7 +14,7 @@
 
 """Build definitions and macros for Goldfish Protobuf and gRPC services."""
 
-load("@grpc//bazel:cc_grpc_library.bzl", "cc_grpc_library")
+load("@grpc//bazel:generate_cc.bzl", "generate_cc")
 load("@grpc//bazel:python_rules.bzl", "py_proto_library")
 load("@grpc-java//:java_grpc_library.bzl", "java_grpc_library")
 load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
@@ -36,7 +36,7 @@ def aemu_service_v2(
     Variants generated:
       - <name>_proto (proto_library)
       - <name>_cc_proto (cc_proto_library)
-      - <name>_cc_grpc (cc_grpc_library, if has_grpc=True)
+      - <name>_cc_grpc (cc_library gRPC stubs, if has_grpc=True)
       - <name>_java_proto (java_proto_library)
       - <name>_java_grpc (java_grpc_library, if has_grpc=True)
       - <name>_py_proto (py_proto_library)
@@ -46,8 +46,8 @@ def aemu_service_v2(
       name: Base name for generated target family.
       srcs: List of .proto source files.
       deps: List of proto_library dependencies.
-      has_grpc: Whether to generate cc_grpc_library and java_grpc_library.
-      generate_mocks: Whether to generate gRPC test mocks in cc_grpc_library.
+      has_grpc: Whether to generate C++ and Java gRPC libraries.
+      generate_mocks: Whether to generate gRPC test mocks in C++ gRPC stubs.
       visibility: Visibility of generated targets.
     """
     proto_name = name + "_proto"
@@ -72,13 +72,34 @@ def aemu_service_v2(
         visibility = visibility,
     )
 
+    # We generate C++ gRPC stubs via generate_cc and cc_library directly
+    # instead of using upstream cc_grpc_library. This allows scoping
+    # local_defines = ["NOGDI"] on Windows to prevent Windows SDK <wingdi.h>
+    # macros (e.g. DeviceCapabilities) from clobbering protobuf message types
+    # adhering to Google AIP-131, without leaking defines to dependers or
+    # failing due to cc_grpc_library forwarding unknown kwargs to generate_cc.
     if has_grpc:
-        cc_grpc_library(
-            name = cc_grpc_name,
+        codegen_grpc_target = "_" + cc_grpc_name + "_grpc_codegen"
+        generate_cc(
+            name = codegen_grpc_target,
             srcs = [":" + proto_name],
+            plugin = Label("@grpc//src/compiler:grpc_cpp_plugin"),
             generate_mocks = generate_mocks,
-            grpc_only = True,
-            deps = [":" + cc_proto_name],
+            well_known_protos = False,
+            allow_deprecated = False,
+        )
+        cc_library(
+            name = cc_grpc_name,
+            srcs = [":" + codegen_grpc_target],
+            hdrs = [":" + codegen_grpc_target],
+            deps = [
+                ":" + cc_proto_name,
+                Label("@grpc//:grpc++_codegen_proto"),
+            ],
+            local_defines = select({
+                "@platforms//os:windows": ["NOGDI"],
+                "//conditions:default": [],
+            }),
             visibility = visibility,
         )
 
