@@ -1,0 +1,135 @@
+load(
+    "//protos/services_v2:defs.bzl",
+    "aemu_service_group_v2",
+    "aemu_service_v2",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+_COMMON = "//protos/services_v2/common:common_proto"
+
+# Individual Service Target: Display Configuration & Multi-Display Management
+aemu_service_v2(
+    name = "display_service",
+    srcs = ["display_service.proto"],
+    has_grpc = True,
+    deps = [
+        _COMMON,
+        "@protobuf//:empty_proto",
+        "@protobuf//:field_mask_proto",
+    ],
+)
+
+# Individual Service Target: Synthetic Camera HAL Feed & Injection
+aemu_service_v2(
+    name = "camera_service",
+    srcs = ["camera_service.proto"],
+    has_grpc = True,
+    deps = [
+        _COMMON,
+        "@protobuf//:empty_proto",
+    ],
+)
+
+# Individual Service Target: Lossless PCM Audio Injection & Capture
+aemu_service_v2(
+    name = "audio_service",
+    srcs = ["audio_service.proto"],
+    has_grpc = True,
+    deps = [
+        _COMMON,
+        "@protobuf//:empty_proto",
+    ],
+)
+
+# Individual Service Target: Cellular Telephony, Modem & SMS Simulation
+aemu_service_v2(
+    name = "telephony_service",
+    srcs = ["telephony_service.proto"],
+    has_grpc = True,
+    deps = [
+        "@protobuf//:empty_proto",
+        "@protobuf//:field_mask_proto",
+    ],
+)
+
+# Individual Service Target: Battery & Power Management Simulation
+aemu_service_v2(
+    name = "battery_service",
+    srcs = ["battery_service.proto"],
+    has_grpc = True,
+    deps = [
+        _COMMON,
+        "@protobuf//:empty_proto",
+        "@protobuf//:field_mask_proto",
+    ],
+)
+
+# Individual Service Target: GNSS, GPS & Route Simulation
+aemu_service_v2(
+    name = "location_service",
+    srcs = ["location_service.proto"],
+    has_grpc = True,
+    deps = [
+        "@protobuf//:empty_proto",
+        "@protobuf//:field_mask_proto",
+    ],
+)
+
+# Individual Service Target: 3D Kinematics & Environmental Sensors
+aemu_service_v2(
+    name = "sensors_service",
+    srcs = ["sensors_service.proto"],
+    has_grpc = True,
+    deps = [
+        "@protobuf//:empty_proto",
+        "@protobuf//:field_mask_proto",
+    ],
+)
+
+# Individual Service Target: Foldable Device Posture & Hinge Simulation
+aemu_service_v2(
+    name = "posture_service",
+    srcs = ["posture_service.proto"],
+    has_grpc = True,
+    deps = [
+        _COMMON,
+        "@protobuf//:empty_proto",
+        "@protobuf//:field_mask_proto",
+    ],
+)
+
+# Package-level Group Target
+aemu_service_group_v2(
+    name = "environment",
+    grpc_cc_deps = [
+        ":audio_service_cc_grpc",
+        ":battery_service_cc_grpc",
+        ":camera_service_cc_grpc",
+        ":display_service_cc_grpc",
+        ":location_service_cc_grpc",
+        ":posture_service_cc_grpc",
+        ":sensors_service_cc_grpc",
+        ":telephony_service_cc_grpc",
+    ],
+    grpc_java_deps = [
+        ":audio_service_java_grpc",
+        ":battery_service_java_grpc",
+        ":camera_service_java_grpc",
+        ":display_service_java_grpc",
+        ":location_service_java_grpc",
+        ":posture_service_java_grpc",
+        ":sensors_service_java_grpc",
+        ":telephony_service_java_grpc",
+    ],
+    proto_deps = [
+        ":audio_service_proto",
+        ":battery_service_proto",
+        ":camera_service_proto",
+        ":display_service_proto",
+        ":location_service_proto",
+        ":posture_service_proto",
+        ":sensors_service_proto",
+        ":telephony_service_proto",
+    ],
+)

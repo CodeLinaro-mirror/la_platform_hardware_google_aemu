@@ -1,0 +1,27 @@
+load(
+    "//protos/services_v2:defs.bzl",
+    "aemu_service_group_v2",
+    "aemu_service_v2",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+# Individual Service Target: Capabilities & Peripheral Discovery
+aemu_service_v2(
+    name = "capabilities_service",
+    srcs = ["capabilities_service.proto"],
+    has_grpc = True,
+    deps = [
+        "//protos/client:grpc_endpoint_description_proto",
+        "//protos/services_v2/common:common_proto",
+        "@protobuf//:any_proto",
+    ],
+)
+
+# Package-level Group Target
+aemu_service_group_v2(
+    name = "discovery",
+    grpc_cc_deps = [":capabilities_service_cc_grpc"],
+    grpc_java_deps = [":capabilities_service_java_grpc"],
+    proto_deps = [":capabilities_service_proto"],
+)

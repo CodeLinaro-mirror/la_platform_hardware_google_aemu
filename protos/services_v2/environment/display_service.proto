@@ -1,0 +1,139 @@
+syntax = "proto3";
+
+package android.emulation.v2.environment;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.environment";
+
+import "common/common.proto";
+import "common/geometry.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/field_mask.proto";
+
+// Manages display execution and interactions.
+service DisplayService {
+  rpc ListDisplays(ListDisplaysRequest) returns (ListDisplaysResponse);
+  // Gets the display.
+  rpc GetDisplay(GetDisplayRequest) returns (DisplayState);
+  // Streams the display state continuously.
+  rpc StreamDisplayState(StreamDisplayStateRequest)
+      returns (stream ListDisplaysResponse);
+  // Updates the display state.
+  rpc UpdateDisplayState(UpdateDisplayStateRequest)
+      returns (DisplayState);
+  // Streams display updates bidirectionally.
+  rpc StreamDisplayUpdates(stream UpdateDisplayStateRequest)
+      returns (google.protobuf.Empty);
+  // Creates a new display.
+  rpc CreateDisplay(CreateDisplayRequest) returns (DisplayState);
+  // Deletes the display.
+  rpc DeleteDisplay(DeleteDisplayRequest) returns (google.protobuf.Empty);
+}
+
+// The rotation.
+enum Rotation {
+  ROTATION_UNSPECIFIED = 0;
+  // Natural portrait (0 degrees).
+  ROTATION_DEG0 = 1;
+  // Landscape left (90 degrees CCW).
+  ROTATION_DEG90 = 2;
+  // Inverted portrait (180 degrees).
+  ROTATION_DEG180 = 3;
+  // Landscape right (270 degrees).
+  ROTATION_DEG270 = 4;
+}
+
+// The display flag.
+enum DisplayFlag {
+  DISPLAY_FLAG_UNSPECIFIED = 0;
+  // Indicates display flag public.
+  DISPLAY_FLAG_PUBLIC = 1;
+  // Indicates display flag presentation.
+  DISPLAY_FLAG_PRESENTATION = 2;
+  // DRM protected (screen capture / WebRTC blanked).
+  DISPLAY_FLAG_SECURE = 3;
+  // Indicates display flag own content only.
+  DISPLAY_FLAG_OWN_CONTENT_ONLY = 4;
+  // Indicates display flag auto mirror.
+  DISPLAY_FLAG_AUTO_MIRROR = 5;
+}
+
+message ListDisplaysRequest {}
+
+message ListDisplaysResponse {
+  repeated DisplayState displays = 1;
+}
+
+message GetDisplayRequest {
+  int32 display_id = 1;
+}
+
+message StreamDisplayStateRequest {
+  // If specified, filters streamed updates to the given display_id.
+  optional int32 display_id = 1;
+}
+
+message DisplayState {
+  int32 display_id = 1;
+  // The primary.
+  bool primary = 2;
+  // The width.
+  int32 width = 3;
+  // The height.
+  int32 height = 4;
+  // The density dpi.
+  int32 density_dpi = 5;
+  // The rotation.
+  Rotation rotation = 6;
+  // The brightness percent.
+  float brightness_percent = 7;
+  // The auto brightness enabled.
+  bool auto_brightness_enabled = 8;
+  // The flags.
+  repeated DisplayFlag flags = 9;
+}
+
+message UpdateDisplayStateRequest {
+  DisplayState display_state = 1;
+  // Field mask for partial updates. Paths MUST be relative to the resource
+  // (e.g., `level_percent`, NOT `display_state.level_percent`).
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message CreateDisplayRequest {
+  DisplayState display_state = 1;
+}
+
+message DeleteDisplayRequest {
+  int32 display_id = 1;
+}
+
+message DisplayConfiguration {
+  int32 display_id = 1;
+  uint32 width_pixels = 2;
+  uint32 height_pixels = 3;
+  uint32 density_dpi = 4;
+
+  // Exact cutout geometry for this display
+  repeated DisplayCutout cutouts = 5;
+
+  // Normalized corner radius [0.0, 1.0]
+  float corner_radius_normalized = 6;
+}
+
+message DisplayCutout {
+  enum CutoutShape {
+    SHAPE_UNSPECIFIED = 0;
+    PUNCH_HOLE_CIRCLE = 1;
+    NOTCH_WATERDROP = 2;
+    NOTCH_RECTANGULAR = 3;
+    CUSTOM_PATH = 4;
+  }
+  CutoutShape shape = 1;
+
+  // Normalized bounding box in range [0.0, 1.0]
+  common.NormalizedRect normalized_bounds = 2;
+
+  // Direct SVG vector path string for CSS clip-path (e.g. "M 0.5 0.04 a 0.012 ...")
+  string svg_path = 3;
+}

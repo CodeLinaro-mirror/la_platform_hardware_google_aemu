@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package android.emulation.v2.webrtc;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.webrtc";
+
+// WebRTC ICE server configuration (STUN/TURN).
+message IceServer {
+  // STUN or TURN URI(s).
+  repeated string urls = 1;
+
+  // Credential username for TURN server authentication.
+  string username = 2;
+
+  // Credential secret / password for TURN server authentication.
+  string credential = 3;
+}
