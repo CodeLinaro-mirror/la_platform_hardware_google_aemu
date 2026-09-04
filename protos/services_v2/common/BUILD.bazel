@@ -1,0 +1,30 @@
+load(
+    "//protos/services_v2:defs.bzl",
+    "aemu_service_group_v2",
+    "aemu_service_v2",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+# Individual Service Target: Common Enums & Types
+aemu_service_v2(
+    name = "common_types",
+    srcs = ["common.proto"],
+    has_grpc = False,
+)
+
+# Individual Service Target: Spatial 2D/3D Geometry Primitives
+aemu_service_v2(
+    name = "geometry",
+    srcs = ["geometry.proto"],
+    has_grpc = False,
+)
+
+# Package-level Group Target: Aggregates common types and spatial geometry
+aemu_service_group_v2(
+    name = "common",
+    proto_deps = [
+        ":common_types_proto",
+        ":geometry_proto",
+    ],
+)

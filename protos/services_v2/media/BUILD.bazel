@@ -1,0 +1,30 @@
+load(
+    "//protos/services_v2:defs.bzl",
+    "aemu_service_group_v2",
+    "aemu_service_v2",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+_COMMON = "//protos/services_v2/common:common_proto"
+
+_ENVIRONMENT = "//protos/services_v2/environment"
+
+# Individual Service Target: Screen Capture & Visual Extraction
+aemu_service_v2(
+    name = "screen_capture_service",
+    srcs = ["screen_capture_service.proto"],
+    has_grpc = True,
+    deps = [
+        _COMMON,
+        _ENVIRONMENT + ":display_service_proto",
+    ],
+)
+
+# Package-level Group Target
+aemu_service_group_v2(
+    name = "media",
+    grpc_cc_deps = [":screen_capture_service_cc_grpc"],
+    grpc_java_deps = [":screen_capture_service_java_grpc"],
+    proto_deps = [":screen_capture_service_proto"],
+)

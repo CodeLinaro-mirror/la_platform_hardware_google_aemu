@@ -242,6 +242,7 @@ def copy_src_to_release_lib(src_dir, release_lib_dir):
     """
     Copies python modules to release/lib/ directory.
     Includes .py source files and cleans up stale .pyc bytecodes.
+    Also copies workflows/ directory if present.
     """
     os.makedirs(release_lib_dir, exist_ok=True)
     for root, _, files in os.walk(release_lib_dir):
@@ -262,6 +263,23 @@ def copy_src_to_release_lib(src_dir, release_lib_dir):
             source_py = os.path.join(root, f)
             if os.path.abspath(source_py) != os.path.abspath(dest_py):
                 shutil.copy2(source_py, dest_py)
+
+    # Copy workflows/ directory into release/lib/workflows/ if present
+    if os.path.abspath(src_dir) != os.path.abspath(release_lib_dir):
+        parent_dir = os.path.dirname(src_dir)
+        workflows_dir = os.path.join(parent_dir, "workflows")
+        if os.path.isdir(workflows_dir):
+            dest_workflows = os.path.join(release_lib_dir, "workflows")
+            for root, _, files in os.walk(workflows_dir):
+                for f in files:
+                    if not (f.endswith(".py") or f.endswith(".md") or f.endswith(".yaml") or f.endswith(".yml")):
+                        continue
+                    rel_path = os.path.relpath(os.path.join(root, f), workflows_dir)
+                    dest_file = os.path.join(dest_workflows, rel_path)
+                    os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+                    source_file = os.path.join(root, f)
+                    if os.path.abspath(source_file) != os.path.abspath(dest_file):
+                        shutil.copy2(source_file, dest_file)
 
 
 def resolve_source_directory(source_dir=None):
