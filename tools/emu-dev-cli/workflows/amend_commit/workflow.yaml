@@ -1,0 +1,64 @@
+# Amend Commit Workflow (YAML)
+# Guides amending the latest commit while preserving its Gerrit Change-Id.
+
+name: amend-commit
+description: Guide amending the latest commit while preserving its Gerrit Change-Id.
+
+init:
+  current-msg-file: "{cache-dir}/current_commit_msg_{state_id}.txt"
+  proposed-msg-file: "{cache-dir}/proposed_commit_msg_{state_id}.txt"
+  base-commit-file: "{cache-dir}/base_commit_{state_id}.txt"
+  setup-files:
+    cmd: "python3 {workflow_dir}/setup_msg_files.py {current-msg-file} {proposed-msg-file}"
+
+steps:
+  - step: 0
+    title: Draft Proposed Commit Message
+    prompt: |
+      Please copy the current commit message for the commit you wish to amend into '{current-msg-file}',
+      and write the new proposed amended commit message into '{proposed-msg-file}'.
+      Follow Gerrit guidelines: craft a clear, concise subject line (50-72 characters), separate
+      the subject from the body with a blank line, and wrap body lines at 72 characters explaining
+      the rationale and impact. The proposed commit message must satisfy the following verification requirements:
+
+      - No 'Tag=' or 'CONV=' lines
+      - A 'Bug: ' line with a bug number (e.g. 'Bug: 12345678') or 'Bug: N/A'
+      - A 'Test: ' line describing the verification command or procedure, or 'TEST: N/A'
+      - Exactly one Gerrit Change-Id line must be present and unmodified: match the Change-Id from '{current-msg-file}' (do not duplicate or include multiple Change-Id lines)
+    verifier_cmd: "python3 {workflow_dir}/verify_proposed_msg.py {proposed-msg-file} --current-file {current-msg-file} --base-commit-file {base-commit-file} --cwd ."
+    error_prompt: |
+      Proposed commit message verification failed (attempt {retries} of {max_retries}):
+      {verifier_error}
+
+      Please update the proposed commit message in '{proposed-msg-file}' to resolve the errors and satisfy all verification requirements.
+    stuck_prompt: |
+      Proposed commit message verification failed. Workflow is now STUCK (retries reached {max_retries}):
+      {verifier_error}
+
+      Please ensure '{proposed-msg-file}' satisfies all verification requirements.
+    stuck_reason: "Proposed commit message verification failed after {retries} attempts: {verifier_error}"
+    max_retries: 3
+
+  - step: 1
+    title: Amend Commit
+    prompt: |
+      The proposed commit message in '{proposed-msg-file}' has been verified.
+      Please amend the commit using the verified commit message.
+    verifier_cmd: "python3 {workflow_dir}/verify_amend.py --current-file {current-msg-file} --proposed-file {proposed-msg-file} --base-commit-file {base-commit-file} --commit HEAD --cwd ."
+    error_prompt: |
+      Commit amendment verification failed (attempt {retries} of {max_retries}):
+      {verifier_error}
+
+      Please amend the commit using the verified message from '{proposed-msg-file}'.
+    stuck_prompt: |
+      Commit amendment verification failed. Workflow is now STUCK (retries reached {max_retries}):
+      {verifier_error}
+
+      Please ensure the commit has been amended with the verified message.
+    stuck_reason: "Commit amendment verification failed after {retries} attempts: {verifier_error}"
+    max_retries: 3
+
+  - step: 2
+    title: Completion
+    prompt: "Commit amended and verified successfully, preserving its Gerrit Change-Id."
+    verifier_cmd: null

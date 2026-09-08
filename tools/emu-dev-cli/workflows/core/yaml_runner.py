@@ -195,6 +195,16 @@ def interpolate(template: str, context: Dict[str, Any]) -> str:
     )
 
 
+def format_prompt_with_suffix(prompt: str, active_continuation: str, action: str = "for next steps.") -> str:
+    """Formats prompt with continuation command, placing it on a new line for multiline prompts."""
+    cleaned = prompt.strip()
+    if "\n" in cleaned:
+        return f'{cleaned}\n\nand run "{active_continuation}" {action}'
+    if cleaned.endswith("."):
+        cleaned = cleaned[:-1]
+    return f'{cleaned}, and run "{active_continuation}" {action}'
+
+
 def build_cmd_args(cmd_spec: Union[str, List[str]], context: Dict[str, Any]) -> List[str]:
     """Constructs a parameterized list of command arguments for safe shell=False execution."""
     if isinstance(cmd_spec, list):
@@ -221,7 +231,12 @@ def execute_init(init_spec: Dict[str, Any], init_context: Optional[Dict[str, Any
             continue
         if isinstance(val, dict) and "cmd" in val:
             cmd_args = build_cmd_args(val["cmd"], ctx)
-            output = subprocess.check_output(cmd_args, shell=False, text=True).strip()
+            try:
+                output = subprocess.check_output(cmd_args, shell=False, text=True).strip()
+            except subprocess.CalledProcessError as e:
+                raise RuntimeError(
+                    f"Init command for '{key}' failed with exit code {e.returncode}."
+                ) from None
             metadata[key] = output
             ctx[key] = output
         elif isinstance(val, str):
@@ -265,6 +280,11 @@ def build_init_argparser(prog_name: str, workflow_args: List[Dict[str, Any]]) ->
         if metavar:
             kwargs["metavar"] = metavar
         if required:
+            parser.add_argument(arg_name, **kwargs)
+        elif arg_def.get("positional", False):
+            default_val = arg_def.get("default", None)
+            kwargs["default"] = default_val
+            kwargs["nargs"] = "?"
             parser.add_argument(arg_name, **kwargs)
         else:
             default_val = arg_def.get("default", None)
@@ -373,6 +393,8 @@ def init_workflow_session(
             if val is not None:
                 if arg_name in ("bug", "bug_id", "bug_number", "bug-number", "bug-id") and isinstance(val, str):
                     clean_val = re.sub(r"^(?:https?://)?b(?:/)?", "", val.strip(), flags=re.I)
+                elif arg_name in ("repo", "repository", "repo-dir", "repo_dir") and isinstance(val, str):
+                    clean_val = str(Path(val).expanduser().resolve())
                 else:
                     clean_val = str(val).strip()
                 init_ctx[arg_name] = clean_val
@@ -380,6 +402,25 @@ def init_workflow_session(
     elif isinstance(args_input, list):
         parser = build_init_argparser(f"emu-dev-cli workflow {wf_name} init", workflow_args)
         parsed_args = parser.parse_args(args_input)
+
+        # Smart positional swap: if workflow expects repo and commit
+        arg_names = [a.get("name") for a in workflow_args if a.get("name")]
+        if "repo" in arg_names and "commit" in arg_names:
+            repo_val = getattr(parsed_args, "repo", None)
+            commit_val = getattr(parsed_args, "commit", None)
+            if repo_val and commit_val and isinstance(repo_val, str) and isinstance(commit_val, str):
+                if len(args_input) == 1:
+                    first_arg = args_input[0]
+                    if os.path.isdir(first_arg) or Path(first_arg).is_dir():
+                        setattr(parsed_args, "repo", first_arg)
+                        setattr(parsed_args, "commit", "HEAD")
+                    else:
+                        setattr(parsed_args, "commit", first_arg)
+                        setattr(parsed_args, "repo", ".")
+                elif not os.path.exists(repo_val) and (os.path.isdir(commit_val) or Path(commit_val).is_dir()):
+                    setattr(parsed_args, "repo", commit_val)
+                    setattr(parsed_args, "commit", repo_val)
+
         for arg_def in workflow_args:
             arg_name = arg_def.get("name")
             if arg_name:
@@ -389,6 +430,8 @@ def init_workflow_session(
                 if val is not None:
                     if arg_name in ("bug", "bug_id", "bug_number", "bug-number", "bug-id") and isinstance(val, str):
                         clean_val = re.sub(r"^(?:https?://)?b(?:/)?", "", val.strip(), flags=re.I)
+                    elif arg_name in ("repo", "repository", "repo-dir", "repo_dir") and isinstance(val, str):
+                        clean_val = str(Path(val).expanduser().resolve())
                     else:
                         clean_val = str(val).strip()
                     init_ctx[arg_name] = clean_val
@@ -594,8 +637,7 @@ def execute_workflow_step(
             # Next step is active atomic step
             raw_prompt = " ".join(next_spec.get("prompt", [])) if isinstance(next_spec.get("prompt"), list) else next_spec.get("prompt", "")
             prompt = interpolate(raw_prompt, context)
-            suffix = f', and run "{active_continuation}" for next steps.'
-            print(f"{prompt}{suffix}")
+            print(format_prompt_with_suffix(prompt, active_continuation, "for next steps."))
             return 0
 
         elif child_state.get("state") == "STUCK":
@@ -635,8 +677,7 @@ def execute_workflow_step(
 
         raw_prompt = " ".join(step_spec.get("prompt", [])) if isinstance(step_spec.get("prompt"), list) else step_spec.get("prompt", "")
         prompt = interpolate(raw_prompt, context)
-        suffix = f', and run "{active_continuation}" for next steps.'
-        print(f"{prompt}{suffix}")
+        print(format_prompt_with_suffix(prompt, active_continuation, "for next steps."))
         return 0
 
     # Case 2C: Active Step with verifier_cmd executed safely with shell=False
@@ -672,8 +713,7 @@ def execute_workflow_step(
             else:
                 raw_prompt = f"Error: Step {current_step_index} verification failed. Workflow is now STUCK (retries reached {retries})."
             prompt = interpolate(raw_prompt, context)
-            suffix = f', and run "{active_continuation}" to resume.'
-            print(f"{prompt}{suffix}", file=sys.stderr)
+            print(format_prompt_with_suffix(prompt, active_continuation, "to resume."), file=sys.stderr)
             return 1
         else:
             state_data["state"] = "RUNNING"
@@ -685,8 +725,7 @@ def execute_workflow_step(
             else:
                 raw_prompt = f"Error: Verification failed for step {current_step_index} (attempt {retries} of {max_retries})."
             prompt = interpolate(raw_prompt, context)
-            suffix = f', and run "{active_continuation}" for next steps.'
-            print(f"{prompt}{suffix}", file=sys.stderr)
+            print(format_prompt_with_suffix(prompt, active_continuation, "for next steps."), file=sys.stderr)
             return 1
 
     # Step Passed -> Advance to next step
@@ -720,8 +759,7 @@ def execute_workflow_step(
 
     raw_prompt = " ".join(next_spec.get("prompt", [])) if isinstance(next_spec.get("prompt"), list) else next_spec.get("prompt", "")
     prompt = interpolate(raw_prompt, context)
-    suffix = f', and run "{active_continuation}" for next steps.'
-    print(f"{prompt}{suffix}")
+    print(format_prompt_with_suffix(prompt, active_continuation, "for next steps."))
     return 0
 
 
@@ -782,7 +820,11 @@ def run_yaml_workflow(spec_path: Union[str, Path], argv: Optional[List[str]] = N
         # Extract init arguments from argv after "init"
         init_idx = argv.index("init")
         init_argv = argv[init_idx + 1:]
-        unique_id = init_workflow_session(path, init_argv)
+        try:
+            unique_id = init_workflow_session(path, init_argv)
+        except Exception as e:
+            print(f"Error initializing workflow '{wf_name}': {e}", file=sys.stderr)
+            return 1
         print(
             f"Please run 'emu-dev-cli workflow {wf_name} --state={unique_id}' for the next instructions"
         )
