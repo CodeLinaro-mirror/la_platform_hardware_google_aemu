@@ -1,0 +1,36 @@
+load(
+    "//protos/services_v2:defs.bzl",
+    "aemu_service_group_v2",
+    "aemu_service_v2",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+# Individual Service Target: WebRTC ICE Server Configuration
+aemu_service_v2(
+    name = "ice_config",
+    srcs = ["ice_config.proto"],
+    has_grpc = False,
+)
+
+# Individual Service Target: WebRTC RTC Service (JSEP Signaling)
+aemu_service_v2(
+    name = "rtc_service",
+    srcs = ["rtc_service.proto"],
+    has_grpc = True,
+    deps = [
+        ":ice_config_proto",
+        "@protobuf//:empty_proto",
+    ],
+)
+
+# Package-level Group Target
+aemu_service_group_v2(
+    name = "webrtc",
+    grpc_cc_deps = [":rtc_service_cc_grpc"],
+    grpc_java_deps = [":rtc_service_java_grpc"],
+    proto_deps = [
+        ":ice_config_proto",
+        ":rtc_service_proto",
+    ],
+)

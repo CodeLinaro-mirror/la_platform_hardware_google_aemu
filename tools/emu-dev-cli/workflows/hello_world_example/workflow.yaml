@@ -1,0 +1,46 @@
+# Hello World Example Workflow (YAML)
+# An interactive, step-by-step example workflow demonstrating state persistence and agent guidance.
+
+name: hello-world-example
+description: An interactive, step-by-step example workflow demonstrating state persistence and agent guidance.
+
+# Initialization: generates a unique hello file and captures the path
+init:
+  hello-file:
+    cmd: >-
+      python3 -c 'import random; p=f"{cache-dir}/hello-workflow-{random.randint(100000, 999999)}.txt"; open(p, "a").close(); print(p)'
+
+steps:
+  # Step 0: Name Entry
+  - step: 0
+    title: Write Name
+    prompt:
+      - 'Created {hello-file}. Please write your name in the file as "Name: <your name>" (make up a funny name if you want)'
+    verifier_cmd: "grep -qi '^Name:' {hello-file}"
+    max_retries: 3
+    error_prompt:
+      - 'Error: Name not found in {hello-file} (attempt {retries} of {max_retries}). Please write your name in the file as "Name: <your name>" (make up a funny name if you want)'
+    stuck_prompt:
+      - 'Error: Name not found in {hello-file}. Workflow is now STUCK (retries reached {max_retries}). Please write your name in the file as "Name: <your name>" (make up a funny name if you want)'
+    stuck_reason: "Failed to find 'Name: <your name>' in {hello-file} after {retries} retries."
+
+  # Step 1: Joke Entry
+  - step: 1
+    title: Write Joke
+    prompt:
+      - 'Below your name on a new line, Write your best two-sentence joke as "Joke: <your-joke>"'
+    verifier_cmd: "grep -qi '^Joke:' {hello-file}"
+    max_retries: 3
+    error_prompt:
+      - 'Error: Joke not found in {hello-file} (attempt {retries} of {max_retries}). Below your name on a new line, Write your best two-sentence joke as "Joke: <your-joke>"'
+    stuck_prompt:
+      - 'Error: Joke not found in {hello-file}. Workflow is now STUCK (retries reached {max_retries}). Below your name on a new line, Write your best two-sentence joke as "Joke: <your-joke>"'
+    stuck_reason: "Failed to find 'Joke: <your-joke>' in {hello-file} after {retries} retries."
+
+  # Step 2: Completion
+  - step: 2
+    title: Completion
+    prompt:
+      - Great joke! You are done! I will share this with the world!
+    verifier_cmd: null
+    max_retries: 0

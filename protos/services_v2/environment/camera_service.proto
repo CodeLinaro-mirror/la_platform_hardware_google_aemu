@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package android.emulation.v2.environment;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.environment";
+
+import "common/common.proto";
+import "google/protobuf/empty.proto";
+
+// Manages camera execution and interactions.
+service CameraService {
+  // Injects a single frame latched by the Camera HAL (static photo / QR code).
+  rpc InjectFrame(CameraFrame) returns (google.protobuf.Empty);
+
+  // Continuously streams dynamic video frames into the Camera HAL.
+  rpc StreamCameraFrames(stream CameraFrame) returns (google.protobuf.Empty);
+
+  // Restores the default synthetic test scene.
+  rpc ResetCamera(ResetCameraRequest) returns (google.protobuf.Empty);
+}
+
+message CameraFrame {
+  // Target camera identifier (e.g. "0" = Back, "1" = Front).
+  string camera_id = 1;
+
+  // Encoded container bytes (PNG/JPEG) or raw uncompressed pixel buffer.
+  bytes frame_data = 2;
+
+  // Format of the frame payload.
+  common.ImageFormat format = 3;
+
+  // Dimensions in pixels (optional for PNG/JPEG/WebP; required for RAW_* formats).
+  optional int32 width = 4;
+  // The height.
+  optional int32 height = 5;
+
+  // Row stride in bytes for raw uncompressed formats to handle memory alignment.
+  optional int32 row_stride_bytes = 6;
+
+  // Optional client generation timestamp in nanoseconds.
+  // Rebased by the Gateway onto the host monotonic clock for stream pacing.
+  optional int64 timestamp_nanos = 7;
+}
+
+message ResetCameraRequest {
+  string camera_id = 1;
+}

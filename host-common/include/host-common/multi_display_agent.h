@@ -71,6 +71,7 @@ typedef struct QAndroidMultiDisplayAgent {
     int (*getDisplayColorTransform)(uint32_t displayId, float outColorTransformMatrix[16]);
     int (*getDisplayPowerMode)(uint32_t displayId, uint32_t* mode);
     int (*setDisplayPowerMode)(uint32_t displayId, uint32_t mode);
+    void* (*getDisplayPowerModeEventListener)();
     int (*getDisplayColorBuffer)(uint32_t displayId, uint32_t* colorBuffer);
     int (*getColorBufferDisplay)(uint32_t colorBuffer, uint32_t* displayId);
     int (*setDisplayColorBuffer)(uint32_t displayId, uint32_t colorBuffer);

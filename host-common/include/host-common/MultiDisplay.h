@@ -83,6 +83,17 @@ struct DisplayChangeEvent {
     uint32_t displayId;
 };
 
+struct DisplayPowerModeChangeEvent {
+    uint32_t displayId;
+    DisplayPowerMode powerMode;
+};
+
+class DisplayPowerModeNotificationSupport
+    : public base::EventNotificationSupport<DisplayPowerModeChangeEvent> {
+   public:
+    void fire(DisplayPowerModeChangeEvent evt) { fireEvent(evt); }
+};
+
 class MultiDisplay :  public base::EventNotificationSupport<DisplayChangeEvent> {
 public:
     MultiDisplay(const QAndroidEmulatorWindowAgent* const windowAgent,
@@ -90,6 +101,9 @@ public:
                  const QAndroidVmOperations* const vmAgent,
                  bool isGuestMode);
     static MultiDisplay* getInstance();
+    DisplayPowerModeNotificationSupport* getDisplayPowerModeEventListener() {
+        return &mPowerModeNotificationSupport;
+    }
     bool isMultiDisplayEnabled() { base::AutoLock lock(mLock); return mMultiDisplay.size() > 1; }
     int setMultiDisplay(uint32_t id,
                          int32_t x,
@@ -174,6 +188,7 @@ private:
     int32_t  mRotation { 0 };
     std::map<uint32_t, MultiDisplayInfo> mMultiDisplay;
     android::base::Lock mLock;
+    DisplayPowerModeNotificationSupport mPowerModeNotificationSupport;
 
     void performRotationLocked(int rot);
     void recomputeLayoutLocked();

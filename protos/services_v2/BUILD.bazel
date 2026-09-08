@@ -1,0 +1,57 @@
+load(
+    "//protos/services_v2:defs.bzl",
+    "aemu_service_group_v2",
+)
+load("//protos/services_v2:ts_proto.bzl", "ts_proto_library")
+
+package(default_visibility = ["//visibility:public"])
+
+_SERVICES = "//protos/services_v2"
+
+# Comprehensive AEMU v2 Services Bundle Target
+aemu_service_group_v2(
+    name = "services_v2",
+    grpc_cc_deps = [
+        _SERVICES + "/discovery:capabilities_service_cc_grpc",
+        _SERVICES + "/environment:environment_cc_grpc",
+        _SERVICES + "/input:input_service_cc_grpc",
+        _SERVICES + "/media:screen_capture_service_cc_grpc",
+        _SERVICES + "/snapshot:snapshot_service_cc_grpc",
+        _SERVICES + "/system:system_cc_grpc",
+        _SERVICES + "/vm:vm_service_cc_grpc",
+        _SERVICES + "/webrtc:webrtc_cc_grpc",
+    ],
+    grpc_java_deps = [
+        _SERVICES + "/discovery:capabilities_service_java_grpc",
+        _SERVICES + "/environment:environment_java_grpc",
+        _SERVICES + "/input:input_service_java_grpc",
+        _SERVICES + "/media:screen_capture_service_java_grpc",
+        _SERVICES + "/snapshot:snapshot_service_java_grpc",
+        _SERVICES + "/system:system_java_grpc",
+        _SERVICES + "/vm:vm_service_java_grpc",
+        _SERVICES + "/webrtc:webrtc_java_grpc",
+    ],
+    proto_deps = [
+        _SERVICES + "/common:common_proto",
+        _SERVICES + "/discovery:capabilities_service_proto",
+        _SERVICES + "/environment:environment_proto",
+        _SERVICES + "/input:input_service_proto",
+        _SERVICES + "/media:screen_capture_service_proto",
+        _SERVICES + "/snapshot:snapshot_service_proto",
+        _SERVICES + "/system:system_proto",
+        _SERVICES + "/vm:vm_service_proto",
+        _SERVICES + "/webrtc:webrtc_proto",
+    ],
+    ts_proto_extra_deps = [
+        ":grpc_endpoint_description_ts_proto",
+        _SERVICES + "/google/longrunning:operations_ts_proto",
+        _SERVICES + "/google/protobuf:protobuf_ts_proto",
+        _SERVICES + "/google/rpc:status_ts_proto",
+    ],
+)
+
+ts_proto_library(
+    name = "grpc_endpoint_description_ts_proto",
+    has_grpc = False,
+    proto = "//protos/client:grpc_endpoint_description_proto",
+)

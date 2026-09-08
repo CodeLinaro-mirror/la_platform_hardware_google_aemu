@@ -40,6 +40,7 @@ from commands import (
     source_directory,
     tidy,
     update_cmd,
+    workflow,
 )
 from install import installer
 from lib.logging_config import setup_logging
@@ -95,6 +96,7 @@ def main():
     source_directory.register_parser(subparsers)
     tidy.register_parser(subparsers)
     update_cmd.register_parser(subparsers)
+    workflow.register_parser(subparsers)
 
     args = parser.parse_args()
 
