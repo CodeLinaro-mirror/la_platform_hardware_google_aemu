@@ -69,7 +69,7 @@ def list_available_workflows() -> Dict[str, Dict[str, str]]:
         if not os.path.isdir(base_dir):
             continue
         for entry in os.listdir(base_dir):
-            if entry in ("core", "tests", "__pycache__"):
+            if entry in ("core", "tests", "__pycache__", "ui"):
                 continue
             entry_path = os.path.join(base_dir, entry)
             if not os.path.isdir(entry_path):
@@ -178,7 +178,7 @@ def register_parser(subparsers):
     # Insert '--' before option arguments if needed
     for i, a in enumerate(sys.argv):
         if a == "workflow" and i + 1 < len(sys.argv):
-            if sys.argv[i + 1].startswith("-"):
+            if sys.argv[i + 1].startswith("-") or sys.argv[i + 1] in ("list", "ui"):
                 break
             if (
                 i + 2 < len(sys.argv)
@@ -211,6 +211,31 @@ def register_parser(subparsers):
     )
     list_parser.set_defaults(
         func=run_workflow_help,
+    )
+
+    ui_parser = workflow_subparsers.add_parser(
+        "ui",
+        help="Launch the web visualizer to inspect running and past workflow sessions",
+        description="Launch the single-page web visualizer for emu-dev-cli workflows.",
+    )
+    ui_parser.add_argument(
+        "--port",
+        type=int,
+        default=8080,
+        help="Port to run the web visualizer server on (default: 8080, auto-finds next available)",
+    )
+    ui_parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind the web server to (default: 127.0.0.1)",
+    )
+    ui_parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Do not automatically open the web browser upon startup",
+    )
+    ui_parser.set_defaults(
+        func=run_workflow_ui,
     )
 
     # Discovered workflows registered directly as subcommands (single canonical name with '-')
@@ -274,6 +299,26 @@ def run_workflow_help(args):
         print(f"  {wf['name'].ljust(max_len + 4)}{wf['description']}")
 
 
+def run_workflow_ui(args):
+    """Launches the workflow web UI visualizer."""
+    try:
+        from workflows.ui.server import start_server
+    except ImportError:
+        try:
+            from ui.server import start_server
+        except ImportError:
+            sys.path.insert(
+                0,
+                os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+            )
+            from workflows.ui.server import start_server
+
+    port = getattr(args, "port", 8080)
+    host = getattr(args, "host", "127.0.0.1")
+    no_browser = getattr(args, "no_browser", False)
+    start_server(host=host, port=port, open_browser=not no_browser, block=True)
+
+
 def run_workflow_direct(args):
     wf_name = getattr(args, "workflow_target_name", None) or getattr(
         args, "workflow_cmd", ""
@@ -310,6 +355,8 @@ def run_workflow_command(args):
     cmd = getattr(args, "workflow_cmd", None)
     if not cmd or cmd == "list":
         run_workflow_help(args)
+    elif cmd == "ui":
+        run_workflow_ui(args)
     elif cmd == "run":
         wf_name = getattr(args, "target_workflow", "")
         if not wf_name and getattr(args, "workflow_args", []):

@@ -272,7 +272,7 @@ def copy_src_to_release_lib(src_dir, release_lib_dir):
             dest_workflows = os.path.join(release_lib_dir, "workflows")
             for root, _, files in os.walk(workflows_dir):
                 for f in files:
-                    if not (f.endswith(".py") or f.endswith(".md") or f.endswith(".yaml") or f.endswith(".yml")):
+                    if not (f.endswith(".py") or f.endswith(".md") or f.endswith(".yaml") or f.endswith(".yml") or f.endswith(".html")):
                         continue
                     rel_path = os.path.relpath(os.path.join(root, f), workflows_dir)
                     dest_file = os.path.join(dest_workflows, rel_path)
