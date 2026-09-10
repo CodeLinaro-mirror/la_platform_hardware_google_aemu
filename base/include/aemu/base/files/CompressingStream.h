@@ -20,7 +20,7 @@
 namespace android {
 namespace base {
 
-class CompressingStream : public Stream {
+class CompressingStream : public StreamWithErrorLogger {
     DISALLOW_COPY_AND_ASSIGN(CompressingStream);
 
 public:

@@ -205,5 +205,135 @@ steps:
                     os.environ.pop("EMU_DEV_CLI_WORKFLOW_STATE_DIR", None)
 
 
+
+    def test_sub_workflow_output_mapping_and_history(self):
+        import tempfile
+        from workflows.core.yaml_runner import (
+            init_workflow_session,
+            execute_workflow_step,
+            load_state_yaml,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            state_dir = os.path.join(td, "state")
+            old_env = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
+            os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = state_dir
+            try:
+                # 1. Define child workflow
+                child_yaml = os.path.join(td, "child_wf.yaml")
+                with open(child_yaml, "w") as f:
+                    f.write("""name: test-child
+init:
+  child_out:
+    cmd: "echo generated_child_value"
+steps:
+  - step: 0
+    prompt: Child step 0 prompt
+    verifier_cmd: null
+""")
+                # 2. Define parent workflow
+                parent_yaml = os.path.join(td, "parent_wf.yaml")
+                with open(parent_yaml, "w") as f:
+                    f.write(f"""name: test-parent
+steps:
+  - step: 0
+    title: Delegate to child
+    workflow:
+      name: "{child_yaml}"
+      outputs:
+        child_out: mapped_parent_var
+  - step: 1
+    title: Completion
+    prompt: Parent step 1 with {{mapped_parent_var}}
+    verifier_cmd: null
+""")
+                p_id = init_workflow_session(parent_yaml, [])
+                rc = execute_workflow_step(parent_yaml, p_id)
+                self.assertEqual(rc, 0)
+
+                p_state_file = os.path.join(state_dir, "test-parent", f"STATE-{p_id}.yaml")
+                p_state = load_state_yaml(p_state_file)
+                self.assertEqual(p_state["state"], "DONE")
+                self.assertIn("test-child", p_state["metadata"])
+                self.assertIn("mapped_parent_var", p_state["metadata"]["test-child"])
+                self.assertEqual(p_state["metadata"]["test-child"]["mapped_parent_var"], "generated_child_value")
+                self.assertNotIn("_sub_workflow", p_state["metadata"])
+                self.assertEqual(len(p_state["metadata"]["_sub_workflow_history"]), 1)
+                self.assertEqual(p_state["metadata"]["_sub_workflow_history"][0]["status"], "DONE")
+            finally:
+                if old_env is not None:
+                    os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = old_env
+                else:
+                    os.environ.pop("EMU_DEV_CLI_WORKFLOW_STATE_DIR", None)
+
+    def test_missing_sub_workflow_output_key_raises_error(self):
+        import tempfile
+        from workflows.core.yaml_runner import (
+            init_workflow_session,
+            execute_workflow_step,
+            WorkflowOutputError,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            state_dir = os.path.join(td, "state")
+            old_env = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
+            os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = state_dir
+            try:
+                child_yaml = os.path.join(td, "child_wf.yaml")
+                with open(child_yaml, "w") as f:
+                    f.write("""name: test-child-missing
+steps:
+  - step: 0
+    prompt: Done
+    verifier_cmd: null
+""")
+                parent_yaml = os.path.join(td, "parent_wf.yaml")
+                with open(parent_yaml, "w") as f:
+                    f.write(f"""name: test-parent-missing
+steps:
+  - step: 0
+    workflow:
+      name: "{child_yaml}"
+      outputs:
+        non_existent_key: mapped_key
+""")
+                p_id = init_workflow_session(parent_yaml, [])
+                with self.assertRaises(WorkflowOutputError) as cm:
+                    execute_workflow_step(parent_yaml, p_id)
+                self.assertIn("non_existent_key", str(cm.exception))
+            finally:
+                if old_env is not None:
+                    os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = old_env
+                else:
+                    os.environ.pop("EMU_DEV_CLI_WORKFLOW_STATE_DIR", None)
+
+    def test_static_cycle_detection(self):
+        import tempfile
+        from workflows.core.yaml_runner import (
+            init_workflow_session,
+            WorkflowRecursionError,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            wf1 = os.path.join(td, "cycle1.yaml")
+            wf2 = os.path.join(td, "cycle2.yaml")
+
+            with open(wf1, "w") as f:
+                f.write(f"""name: cycle1
+steps:
+  - step: 0
+    workflow: "{wf2}"
+""")
+            with open(wf2, "w") as f:
+                f.write(f"""name: cycle2
+steps:
+  - step: 0
+    workflow: "{wf1}"
+""")
+            with self.assertRaises(WorkflowRecursionError) as cm:
+                init_workflow_session(wf1, [])
+            self.assertIn("Circular workflow dependency detected", str(cm.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
