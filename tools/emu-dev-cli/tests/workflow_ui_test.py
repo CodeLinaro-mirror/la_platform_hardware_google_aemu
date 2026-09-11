@@ -57,7 +57,7 @@ from commands.workflow import register_parser, run_workflow_command
 class WorkflowUITest(unittest.TestCase):
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp(prefix="workflow_ui_test_")
+        self.temp_dir = str(Path(tempfile.mkdtemp(prefix="workflow_ui_test_")).resolve())
         self.state_dir = Path(self.temp_dir) / "state"
         self.state_dir.mkdir(parents=True, exist_ok=True)
 
@@ -190,7 +190,7 @@ class WorkflowUITest(unittest.TestCase):
         artifacts = detail["artifacts"]
         self.assertEqual(len(artifacts), 1)
         self.assertEqual(artifacts[0]["filename"], "sample_output.txt")
-        self.assertEqual(artifacts[0]["path"], str(artifact_path))
+        self.assertEqual(artifacts[0]["path"], str(artifact_path.resolve()))
 
     def test_get_session_detail_stopped(self):
         self._create_mock_session(

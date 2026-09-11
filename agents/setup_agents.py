@@ -391,16 +391,25 @@ def setup():
                 [
                     bazel_cmd,
                     "build",
-                    "//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli",
+                    "@aemu//tools/emu-dev-cli:emu-dev-cli",
                     "@goldfish//emulator/crashreport/tool/advisor:advisor",
                     "@goldfish//emulator/crashreport/tool:crashreport",
                 ],
                 cwd=source_root, check=False
             )
             if res.returncode == 0:
-                built_bin = source_root / "bazel-bin/hardware/google/aemu/tools/emu-dev-cli/emu-dev-cli"
-                if sys.platform.startswith("win") and not built_bin.exists():
-                    built_bin = built_bin.with_suffix(".exe")
+                built_bin = None
+                if hasattr(installer, "resolve_built_artifact"):
+                    resolved = installer.resolve_built_artifact(
+                        str(source_root), "@aemu//tools/emu-dev-cli:emu-dev-cli", "emu-dev-cli"
+                    )
+                    if resolved and os.path.exists(resolved):
+                        built_bin = Path(resolved)
+
+                if not built_bin or not built_bin.exists():
+                    print("  ! Error: Could not locate built emu-dev-cli artifact via Bazel cquery.")
+                    return
+
                 dest_path = Path(install_path_str)
                 final_installed = None
                 try:

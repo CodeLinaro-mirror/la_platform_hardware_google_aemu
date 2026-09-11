@@ -65,7 +65,7 @@ class TestTestDrivenBugFixerWorkflow(unittest.TestCase):
 
     def test_detect_environment_emu_main_dev(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            dev_root = Path(tmpdir)
+            dev_root = Path(tmpdir).resolve()
             cmake_script = dev_root / "external" / "qemu" / "android" / "build" / "python" / "cmake.py"
             cmake_script.parent.mkdir(parents=True, exist_ok=True)
             cmake_script.write_text("#!/usr/bin/env python3\n")
@@ -85,7 +85,7 @@ class TestTestDrivenBugFixerWorkflow(unittest.TestCase):
 
     def test_detect_environment_emu_main_next(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            next_root = Path(tmpdir)
+            next_root = Path(tmpdir).resolve()
             (next_root / "MODULE.bazel").write_text("")
             (next_root / "hardware" / "generic" / "goldfish").mkdir(parents=True, exist_ok=True)
 
@@ -99,8 +99,8 @@ class TestTestDrivenBugFixerWorkflow(unittest.TestCase):
         import json
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg_file = Path(tmpdir) / "emu-dev-cli.json"
-            fake_dev = Path(tmpdir) / "fake-dev"
-            fake_next = Path(tmpdir) / "fake-next"
+            fake_dev = (Path(tmpdir) / "fake-dev").resolve()
+            fake_next = (Path(tmpdir) / "fake-next").resolve()
             fake_dev.mkdir()
             fake_next.mkdir()
 
@@ -133,7 +133,7 @@ class TestTestDrivenBugFixerWorkflow(unittest.TestCase):
 
     def test_detect_env_cli(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            dev_root = Path(tmpdir)
+            dev_root = Path(tmpdir).resolve()
             cmake_script = dev_root / "external" / "qemu" / "android" / "build" / "python" / "cmake.py"
             cmake_script.parent.mkdir(parents=True, exist_ok=True)
             cmake_script.write_text("#!/usr/bin/env python3\n")
