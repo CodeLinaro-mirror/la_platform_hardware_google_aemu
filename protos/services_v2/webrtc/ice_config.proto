@@ -16,3 +16,34 @@ message IceServer {
   // Credential secret / password for TURN server authentication.
   string credential = 3;
 }
+
+// Restricts which ICE candidate types a peer connection may gather.
+//
+// Mirrors the W3C RTCIceTransportPolicy enum:
+// https://www.w3.org/TR/webrtc/#rtcicetransportpolicy-enum
+enum IceTransportPolicy {
+  // Not specified; the peer connection uses ICE_TRANSPORT_POLICY_ALL.
+  ICE_TRANSPORT_POLICY_UNSPECIFIED = 0;
+
+  // Gather every candidate type: host, server-reflexive and relay.
+  ICE_TRANSPORT_POLICY_ALL = 1;
+
+  // Gather relay (TURN) candidates only. This forces all media through the
+  // TURN server, which hides host addresses from the peer and is the usual
+  // choice when the emulator must not learn the client's local addresses.
+  ICE_TRANSPORT_POLICY_RELAY = 2;
+}
+
+// A complete ICE configuration: the servers to use, plus how to use them.
+//
+// A configuration is ephemeral. TURN credentials are typically short lived, so
+// a config should not be cached or reused across peer connections.
+message IceServerConfig {
+  // STUN/TURN servers offered to the peer connection. When empty, the
+  // emulator falls back to its own configured defaults.
+  repeated IceServer ice_servers = 1;
+
+  // Candidate types the peer connection is allowed to gather. Meaningful even
+  // when ice_servers is empty, since it also constrains the defaults.
+  IceTransportPolicy ice_transport_policy = 2;
+}
