@@ -21,7 +21,7 @@
 namespace android {
 namespace base {
 
-class DecompressingStream : public Stream {
+class DecompressingStream : public StreamWithErrorLogger {
     DISALLOW_COPY_AND_ASSIGN(DecompressingStream);
 
 public:

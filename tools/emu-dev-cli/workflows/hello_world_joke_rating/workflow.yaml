@@ -1,0 +1,31 @@
+# Hello World Joke Rating Workflow (YAML)
+# Reviews a joke file, writes a one-paragraph summary of pros and cons, and provides a numerical rating.
+
+name: hello-world-joke-rating
+description: Review a joke file, write a pros/cons summary, and provide a numerical rating.
+
+args:
+  - name: joke-file
+    help: "Path to the joke file to rate"
+    required: true
+
+init:
+  rating-file: "{cache-dir}/joke-rating-{state_id}.md"
+
+steps:
+  - step: 0
+    title: Rate Joke
+    prompt: >-
+      Please read the joke in '{joke-file}'. Write a review into '{rating-file}' that includes
+      a one-paragraph summary of the pros and cons of the joke, followed by a rating on the last line
+      in the format: 'Rating: x.x / 10' (e.g. 'Rating: 8.5 / 10').
+    verifier_cmd: "python3 {workflow_dir}/verify_joke_rating.py {rating-file}"
+    error_prompt: >-
+      Rating validation failed for '{rating-file}' (attempt {retries} of {max_retries}). {verifier_error}
+      Please ensure '{rating-file}' contains a substantive pros/cons summary paragraph and ends with 'Rating: x.x / 10'.
+    max_retries: 3
+
+  - step: 1
+    title: Completion
+    prompt: "Joke rating verified and saved to '{rating-file}'. Rating workflow complete."
+    verifier_cmd: null
