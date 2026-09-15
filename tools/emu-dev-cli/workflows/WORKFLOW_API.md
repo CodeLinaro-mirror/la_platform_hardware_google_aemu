@@ -327,3 +327,56 @@ The `--state` CLI argument is resolved flexibly by the runner:
 - **File Basename**: `emu-dev-cli workflow <name> --state=STATE-38a492be.yaml`
 - **Absolute / Relative Path**:
   `emu-dev-cli workflow <name> --state=/path/to/STATE-38a492be.yaml`
+
+---
+
+## 8. Standard Git Workflows
+
+`emu-dev-cli` provides built-in declarative workflows for Git source control hygiene and Gerrit review readiness using a safe, two-step file-based draft and application process:
+
+### `create-commit`
+- **Purpose**: Guides developers and AI agents in drafting a proposed commit message into a cache file, validating it against Gerrit conventions (subject line $\le$ 72 chars, blank line separating title from body, body lines wrapped $\le$ 72 chars), and applying the commit to the repository.
+- **Initialization**: `emu-dev-cli workflow create-commit init` (no arguments; operates on current working directory).
+- **Files Created**:
+  - `proposed-msg-file`: Initialized as an empty file at `{cache-dir}/proposed_commit_msg_{state_id}.txt`.
+- **Workflow Steps**:
+  1. **Step 0 (`Draft Proposed Commit Message`)**:
+     - The agent drafts the proposed commit message directly into `{proposed-msg-file}`.
+     - Verifier checks that forbidden tags (`Tag=`, `CONV=`) are absent, and required `Bug: <number>` / `Bug: N/A` and `Test: <command>` / `TEST: N/A` lines are present.
+  2. **Step 1 (`Create Commit`)**:
+     - The agent creates the commit using the verified commit message.
+     - Verifier checks that a new commit exists in Git and that its message matches the verified proposed message (accommodating Gerrit hooks that add `Change-Id`).
+
+### `amend-commit`
+- **Purpose**: Guides amending the latest commit (`HEAD`) while preserving the original Gerrit `Change-Id`. Uses two dedicated cache files—one for the original commit message and one for the proposed amended message—enabling safe pre-flight validation before touching Git history.
+- **Initialization**: `emu-dev-cli workflow amend-commit init` (no arguments; sets up cache files and prompts the user/agent to copy the current commit message into `current-msg-file`).
+- **Files Created**:
+  - `current-msg-file`: Initialized at `{cache-dir}/current_commit_msg_{state_id}.txt` for the user/agent to write the current commit message.
+  - `proposed-msg-file`: Initialized as an empty file at `{cache-dir}/proposed_commit_msg_{state_id}.txt` for authoring the amended message.
+- **Workflow Steps**:
+  1. **Step 0 (`Draft Proposed Commit Message`)**:
+     - The agent reviews `{current-msg-file}` and writes the new proposed message into `{proposed-msg-file}`.
+     - Verifier checks `{current-msg-file}` is populated, validates Gerrit conventions on `{proposed-msg-file}`, `Bug:`, `Test:`, no `Tag=`/`CONV=`, and ensures exactly one `Change-Id` line matching the original commit's `Change-Id` is present.
+  2. **Step 1 (`Amend Commit`)**:
+     - The agent amends the commit using the verified message.
+     - Verifier locates the amended commit via its preserved `Change-Id`, verifies the commit hash changed, ensures the base commit is not an ancestor (preventing committing on top), and checks that the Git commit message matches `{proposed-msg-file}`.
+
+---
+
+## 9. Bug Fixing & TDD Workflows
+
+### `test-driven-bug-fixer`
+- **Purpose**: Autonomous test-driven bug-fixing workflow for Android Emulator codebases (`emu-main-dev` and `emu-main-next`).
+- **Initialization**: `emu-dev-cli workflow test-driven-bug-fixer init <bug-number>`
+  - Positional argument: `<bug-number>` (e.g. `553514805` or `b/553514805`).
+  - Optional arguments: `--repo <path>` (override target repo root), `--compile-cmd-override <command>` (override build command).
+- **Environment Detection**:
+  - Automatically identifies whether running in `emu-main-dev` (CMake incremental build in `external/qemu`) or `emu-main-next` (Bazel build `@goldfish//emulator/launcher:launch_emulator`).
+- **Workflow Steps**:
+  1. **Step 0 (`bug-to-markdown`)**: Sub-workflow fetches Buganizer issue details and generates a structured summary at `{cache-dir}/b{bug-number}.md`.
+  2. **Step 1 (`create-test`)**: Guides authoring a test exposing the bug (failing against unfixed code) and verifies that the codebase compiles cleanly.
+  3. **Step 2 (`commit-test`)**: Sub-workflow `create-commit` commits the failing test in its own atomic commit meeting Gerrit conventions.
+  4. **Step 3 (`apply-fix`)**: Guides implementing the fix from the markdown specification and verifies clean compilation.
+  5. **Step 4 (`commit-fix`)**: Sub-workflow `create-commit` commits the bug fix in its own atomic commit meeting Gerrit conventions.
+  6. **Step 5 (`summary`)**: Summarizes the completed commits and bug resolution.
+

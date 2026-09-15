@@ -272,7 +272,7 @@ def copy_src_to_release_lib(src_dir, release_lib_dir):
             dest_workflows = os.path.join(release_lib_dir, "workflows")
             for root, _, files in os.walk(workflows_dir):
                 for f in files:
-                    if not (f.endswith(".py") or f.endswith(".md") or f.endswith(".yaml") or f.endswith(".yml")):
+                    if not (f.endswith(".py") or f.endswith(".md") or f.endswith(".yaml") or f.endswith(".yml") or f.endswith(".html")):
                         continue
                     rel_path = os.path.relpath(os.path.join(root, f), workflows_dir)
                     dest_file = os.path.join(dest_workflows, rel_path)
@@ -292,13 +292,11 @@ def resolve_source_directory(source_dir=None):
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def resolve_built_artifact(source_workspace, target, binary_name):
-    """Dynamically resolves built artifact via BazelRunner cquery, with fallback to bazel-bin search."""
+def resolve_built_artifact(source_workspace, target, binary_name=None):
+    """Dynamically resolves built artifact via BazelRunner cquery."""
     is_windows = platform.system().lower() == "windows"
-    exe_name = f"{binary_name}.exe" if is_windows else binary_name
     src_path = Path(source_workspace)
 
-    # 1. Use BazelRunner to resolve artifact dynamically via cquery
     try:
         runner = BazelRunner(source_dir=src_path)
         artifacts = runner.query_artifacts([target], cwd=src_path)
@@ -307,18 +305,8 @@ def resolve_built_artifact(source_workspace, target, binary_name):
                 return str(art)
     except Exception as e:
         sys.stderr.write(
-            f"ℹ️ Note: dynamic Bazel cquery for {target} failed ({e}). Falling back to bazel-bin search.\n"
+            f"ℹ️ Note: dynamic Bazel cquery for {target} failed ({e}).\n"
         )
-
-    # 2. Resilient search in bazel-bin
-    bazel_bin = src_path / "bazel-bin"
-    if bazel_bin.is_dir():
-        for match in bazel_bin.glob(f"**/{exe_name}"):
-            if match.is_file() and not match.name.endswith(
-                (".runfiles", ".params", ".manifest")
-            ):
-                if is_windows or os.access(match, os.X_OK):
-                    return str(match)
 
     return None
 
@@ -342,6 +330,25 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
     # 2. Copy python source code to release/lib/ directory
     src_dir = resolve_source_directory(source_dir)
     copy_src_to_release_lib(src_dir, release_lib_dir)
+
+    # Copy third-party site-packages from runfiles if present
+    built_rf = built_bin + ".runfiles"
+    if os.path.exists(built_rf):
+        for root, _, _ in os.walk(built_rf):
+            if os.path.basename(root) == "site-packages":
+                for item in os.listdir(root):
+                    if item.startswith((".", "_")) and not item.endswith((".py", ".so")):
+                        continue
+                    item_path = os.path.join(root, item)
+                    dest_item = os.path.join(release_lib_dir, item)
+                    if not os.path.exists(dest_item):
+                        try:
+                            if os.path.isdir(item_path):
+                                shutil.copytree(item_path, dest_item, symlinks=False)
+                            else:
+                                shutil.copy2(item_path, dest_item)
+                        except OSError:
+                            pass
 
     # Copy advisor self-contained executable and runfiles if built
     source_workspace = source_dir or get_source_directory("emu-main-next")

@@ -1,11 +1,29 @@
-import os
-import re
+# Copyright 2026 The Android Open Source Project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import glob
-import shutil
-import zipfile
+import logging
+import os
 import platform
+import re
+import shutil
 import subprocess
+import zipfile
+
 from lib.output import print_result
+
+logger = logging.getLogger(__name__)
 
 FETCH_ARTIFACT_BIN = "/google/data/ro/projects/android/fetch_artifact"
 
@@ -75,7 +93,7 @@ def register_parser(subparser, default_host):
         "--host",
         type=str,
         default=default_host,
-        choices=["linux-x64"],
+        choices=["linux-x64", "mac-arm64", "mac-x64"],
         help=f"Target host OS platform (defaults to auto-detected '{default_host}')"
     )
     parser.add_argument(
@@ -84,6 +102,17 @@ def register_parser(subparser, default_host):
         type=str,
         default=None,
         help="Directory to store downloaded artifacts (defaults to /tmp/system-image-<arch>-<build-id>)"
+    )
+    parser.add_argument(
+        "--token",
+        type=str,
+        default=None,
+        help="Explicit OAuth2 access token for Android Build API (useful on macOS)"
+    )
+    parser.add_argument(
+        "--skip-auth-check",
+        action="store_true",
+        help="Skip preflight authentication readiness check"
     )
 
     def handler(args):
@@ -102,20 +131,28 @@ def run_system_image_fetch(args):
     is_latest = getattr(args, "latest", False)
     branch = getattr(args, "branch", "trunk-release")
     json_mode = getattr(args, "json", False)
+    token = getattr(args, "token", None)
 
-    target_name = args.target or (
-        "sdk_gphone16k_x86_64-user" if arch == "x86_64" else "sdk_gphone16k_arm64-user"
-    )
+    if not getattr(args, "skip_auth_check", False):
+        from lib.android_build_client import check_authentication_status
+        auth_status = check_authentication_status(token=token)
+        if not auth_status["valid"]:
+            res_data = {
+                "status": "error",
+                "action": "fetch-build system-image",
+                "summary": "Android Build API authentication check failed",
+                "auth_method": auth_status["auth_method"],
+                "error_message": auth_status["error_message"],
+                "procedure": auth_status["procedure"],
+                "exit_code": 1,
+            }
+            if auth_status.get("file_path"):
+                res_data["auth_file"] = auth_status["file_path"]
+                res_data["file_exists"] = auth_status["file_exists"]
+            print_result(res_data, json_mode=json_mode, is_error=True)
+            return
 
     fetch_tool = FETCH_ARTIFACT_BIN if os.path.exists(FETCH_ARTIFACT_BIN) else shutil.which("fetch_artifact")
-    if not fetch_tool:
-        print_result({
-            "status": "error",
-            "action": "fetch-build system-image",
-            "summary": "fetch_artifact tool not found",
-            "error_message": f"Neither {FETCH_ARTIFACT_BIN} nor 'fetch_artifact' in PATH is accessible.",
-            "exit_code": 1
-        }, json_mode=json_mode, is_error=True)
 
     custom_output_dir = args.output_dir
     if custom_output_dir:
@@ -126,40 +163,66 @@ def run_system_image_fetch(args):
 
     if is_latest:
         artifact_patterns = [
-            "sdk-repo-linux-system-images-[0-9]*.zip",
-            "sdk-repo-linux-system-images-*.zip",
+            "sdk-repo-*-system-images-[0-9]*.zip",
+            "sdk-repo-*-system-images-*.zip",
             "*.zip",
         ]
     else:
         artifact_patterns = [
-            f"sdk-repo-linux-system-images-{build_id}.zip",
-            "sdk-repo-linux-system-images-*.zip",
+            f"sdk-repo-*-system-images-{build_id}.zip",
+            "sdk-repo-*-system-images-*.zip",
             "*.zip",
         ]
 
     candidate_targets = [args.target] if args.target else TARGET_CANDIDATES.get(arch, TARGET_CANDIDATES["x86_64"])
     successful_target = None
+    resolved_build_id = build_id
     last_err = ""
 
-    for t_name in candidate_targets:
-        for pattern in artifact_patterns:
-            cmd = [fetch_tool, "--target", t_name, pattern, dest_dir]
-            if is_latest:
-                cmd.insert(1, "--latest")
-                cmd.insert(1, branch)
-                cmd.insert(1, "--branch")
-            else:
-                cmd.insert(1, build_id)
-                cmd.insert(1, "--bid")
+    # Strategy 1: CLI fetch_artifact if available
+    if fetch_tool:
+        for t_name in candidate_targets:
+            for pattern in artifact_patterns:
+                cmd = [fetch_tool, "--target", t_name, pattern, dest_dir]
+                if is_latest:
+                    cmd.insert(1, "--latest")
+                    cmd.insert(1, branch)
+                    cmd.insert(1, "--branch")
+                else:
+                    cmd.insert(1, build_id)
+                    cmd.insert(1, "--bid")
 
-            res = subprocess.run(cmd, capture_output=True, text=True, check=False)
-            if res.returncode == 0 and glob.glob(os.path.join(dest_dir, "*.zip")):
-                successful_target = t_name
+                res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                if res.returncode == 0 and glob.glob(os.path.join(dest_dir, "*.zip")):
+                    successful_target = t_name
+                    break
+                else:
+                    last_err = res.stderr.strip() or res.stdout.strip()
+            if successful_target:
                 break
-            else:
-                last_err = res.stderr.strip() or res.stdout.strip()
-        if successful_target:
-            break
+
+    # Strategy 2: Direct Android Build v4 REST API fallback
+    if not successful_target and not fetch_tool:
+        try:
+            from lib.android_build_client import AndroidBuildClient
+            client = AndroidBuildClient(token=token)
+
+            for t_name in candidate_targets:
+                try:
+                    if is_latest:
+                        resolved_build_id = client.get_latest_build_id(branch, t_name)
+                    else:
+                        resolved_build_id = build_id
+
+                    matched_art = client.find_matching_artifact(resolved_build_id, t_name, artifact_patterns)
+                    if matched_art:
+                        client.download_artifact(resolved_build_id, t_name, matched_art, dest_dir)
+                        successful_target = t_name
+                        break
+                except Exception as e:
+                    last_err = str(e)
+        except Exception as e:
+            last_err = str(e)
 
     if not successful_target:
         desc = f"latest on branch {branch}" if is_latest else f"build {build_id}"
@@ -167,15 +230,14 @@ def run_system_image_fetch(args):
             "status": "error",
             "action": "fetch-build system-image",
             "summary": f"Failed to fetch system-image artifact under targets {candidate_targets} for {desc}",
-            "last_error": last_err,
+            "error_message": last_err or "Artifact download failed.",
             "exit_code": 1
         }, json_mode=json_mode, is_error=True)
 
     all_zips = glob.glob(os.path.join(dest_dir, "*.zip"))
-    sys_zips = [z for z in all_zips if "sdk-repo-linux-system-images" in os.path.basename(z)]
+    sys_zips = [z for z in all_zips if "system-images" in os.path.basename(z)]
     zips = sys_zips if sys_zips else all_zips
 
-    resolved_build_id = build_id
     if zips and not resolved_build_id:
         m = re.search(r"-(\d+)\.zip$", os.path.basename(zips[0]))
         if m:
@@ -190,7 +252,7 @@ def run_system_image_fetch(args):
             shutil.move(dest_dir, final_dir)
             dest_dir = final_dir
             all_zips = glob.glob(os.path.join(dest_dir, "*.zip"))
-            sys_zips = [z for z in all_zips if "sdk-repo-linux-system-images" in os.path.basename(z)]
+            sys_zips = [z for z in all_zips if "system-images" in os.path.basename(z)]
             zips = sys_zips if sys_zips else all_zips
 
     extracted_dir = None

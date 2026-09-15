@@ -5,13 +5,10 @@ import platform
 import subprocess
 
 from commands.source_directory import get_source_directory, ensure_codesearch_urls_config
-from install.installer import install_launcher_wrapper, install_skill, detect_default_install_path
+from install.installer import install_launcher_wrapper, install_skill, detect_default_install_path, resolve_built_artifact
 from lib.output import print_result
 
-BAZEL_TARGET = "//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli"
-RELATIVE_BUILT_BIN = os.path.join("bazel-bin", "hardware", "google", "aemu", "tools", "emu-dev-cli", "emu-dev-cli")
-if platform.system().lower() == "windows":
-    RELATIVE_BUILT_BIN += ".exe"
+BAZEL_TARGET = "@aemu//tools/emu-dev-cli:emu-dev-cli"
 
 
 def register_parser(subparsers):
@@ -125,14 +122,14 @@ def run_update_cmd(args):
         sys.exit(1)
 
     # 2. Locate built executable binary
-    built_bin = os.path.abspath(os.path.join(source_dir, RELATIVE_BUILT_BIN))
-    if not os.path.exists(built_bin):
+    built_bin = resolve_built_artifact(source_dir, BAZEL_TARGET, "emu-dev-cli")
+    if not built_bin or not os.path.exists(built_bin):
         print_result({
             "status": "error",
             "action": "update",
             "source_directory": source_dir,
-            "built_bin": built_bin,
-            "error_message": f"Built executable not found at expected path: {built_bin}",
+            "built_bin": str(built_bin) if built_bin else None,
+            "error_message": f"Built executable for {BAZEL_TARGET} could not be resolved via Bazel cquery.",
             "exit_code": 1
         }, json_mode=json_mode, is_error=True)
         sys.exit(1)
