@@ -107,6 +107,7 @@ class PackageConfigPc:
         shim: Dict[str, str],
         target: str,
         headers: Optional[List[Path]] = None,
+        data: Optional[List[Path]] = None,
     ) -> None:
         """Initializes a PackageConfigPc object.
 
@@ -119,6 +120,7 @@ class PackageConfigPc:
             shim: A dictionary of shims to apply.
             target: The bazel target.
             headers: Optional list of header files to persist.
+            data: Optional list of data files to persist.
         """
         self.name = shim.get("name", name)
         self.release_dir = release_dir.as_posix()
@@ -127,6 +129,7 @@ class PackageConfigPc:
         self.link_flags = shim.get("link_flags", "")
         self.extra_vars = shim.get("extra_vars", {})
         self.headers = headers if headers else []
+        self.data = data if data else []
         self.target = target
         self.shim = shim
 
@@ -315,6 +318,19 @@ class PackageConfigPc:
                         self.include_dir, "${includedir}"
                     )
 
+        for data_file in self.data:
+            if data_file and data_file.name and data_file.exists():
+                dest_file = pkg_root / data_file.name
+                if dest_file.exists() or dest_file.is_symlink():
+                    dest_file.unlink()
+                if _is_ephemeral(data_file, workspace):
+                    safe_link(data_file, dest_file)
+                else:
+                    try:
+                        os.symlink(data_file.absolute(), dest_file)
+                    except OSError:
+                        safe_link(data_file, dest_file)
+
     def _template(self) -> str:
         """Returns the template for the .pc file."""
         amc_bin_target = (
@@ -344,7 +360,7 @@ class PackageConfigPc:
         return f"""prefix={prefix}
 includedir={prefix}/include
 libdir={libdir}
-bindir={{prefix}}/bin
+bindir={prefix}/bin
 {self.extra_args}
 amc_bazel_target={self.target}
 amc_bin_target={amc_bin_target}
