@@ -1,0 +1,106 @@
+# Test-Driven Bug Fixer Workflow (YAML)
+# Orchestrates test-driven bug fixing across emu-main-dev and emu-main-next:
+# 1) bug-to-markdown: Extract Buganizer issue context
+# 2) create-test: Author test exposing bug (compile check only; test verification TODO)
+# 3) commit-test: Commit test code via create-commit sub-workflow
+# 4) apply-fix: Implement fix for bug (compile check only; test verification TODO)
+# 5) commit-fix: Commit fix code via create-commit sub-workflow
+# 6) summary: Provide completion summary
+
+name: test-driven-bug-fixer
+description: Autonomous test-driven bug-fixing workflow for emulator repositories (emu-main-dev and emu-main-next).
+
+args:
+  - name: bug-number
+    help: "Buganizer issue ID (e.g. 553514805 or b/553514805)"
+    required: true
+  - name: repo
+    help: "Optional override for git repository root (defaults to auto-detected root)"
+    required: false
+    default: ""
+  - name: compile-cmd-override
+    help: "Optional override for compilation command (defaults to auto-detected build command)"
+    required: false
+    default: ""
+
+init:
+  repo-root:
+    cmd: "python3 {workflow_dir}/detect_env.py --target repo-root --cwd {repo}"
+  compile-cmd:
+    cmd: "python3 {workflow_dir}/detect_env.py --target compile-cmd --cwd {repo} --compile-cmd-override {compile-cmd-override}"
+  repo-dir:
+    cmd: "python3 {workflow_dir}/detect_env.py --target repo-dir --cwd {repo}"
+
+steps:
+  # Step 0: Extract bug context into markdown
+  - step: 0
+    name: bug-to-markdown
+    description: Fetch bug context and generate markdown issue summary
+    workflow:
+      name: bug-to-markdown
+      args:
+        bug-number: "{bug-number}"
+      outputs:
+        bug-markdown-file: bug-markdown-file
+
+  # Step 1: Create a test exposing the bug
+  # TODO: Add test execution verification to verify the test fails against unfixed code.
+  - step: 1
+    name: create-test
+    description: Author a test reproducing the problem that compiles but fails against unfixed code
+    prompt: |
+      Bug details and analysis are available in '{bug-markdown-file}'.
+      Please create a unit or integration test in the repository at '{repo-dir}' that reproduces the reported problem.
+      The test should fail against the current unfixed codebase.
+      Ensure your test code compiles cleanly without build errors.
+    verifier_cmd: 'python3 {workflow_dir}/verify_compile.py --cwd {repo-root} --cmd "{compile-cmd}" --phase test'
+    error_prompt: |
+      Compilation failed during test authoring verification (attempt {retries} of {max_retries}):
+      {verifier_error}
+
+      Please fix the compilation errors in your test code.
+
+  # Step 2: Commit the test code
+  - step: 2
+    name: commit-test
+    description: Commit the test code in its own commit meeting Gerrit standards
+    workflow:
+      name: create-commit
+      args:
+        repo: "{repo-dir}"
+
+  # Step 3: Implement fix for the bug
+  # TODO: Add test execution verification to verify the test passes against fixed code.
+  - step: 3
+    name: apply-fix
+    description: Implement the fix using the proposed solution from the markdown document
+    prompt: |
+      The test commit has been created.
+      Now, review '{bug-markdown-file}' and implement the fix for the bug in '{repo-dir}' (using any proposed fix if available).
+      Ensure the fix resolves the problem and production code compiles cleanly without build errors.
+    verifier_cmd: 'python3 {workflow_dir}/verify_compile.py --cwd {repo-root} --cmd "{compile-cmd}" --phase fix'
+    error_prompt: |
+      Compilation failed during bug fix verification (attempt {retries} of {max_retries}):
+      {verifier_error}
+
+      Please fix the compilation errors in your code.
+
+  # Step 4: Commit the bug fix
+  - step: 4
+    name: commit-fix
+    description: Commit the bug fix in its own commit meeting Gerrit standards
+    workflow:
+      name: create-commit
+      args:
+        repo: "{repo-dir}"
+
+  # Step 5: Summary
+  - step: 5
+    name: summary
+    description: Summary of completed test and fix workflow
+    prompt: |
+      Test-driven bug fixer workflow completed successfully for bug b/{bug-number}!
+      - Bug analysis: {bug-markdown-file}
+      - Test commit: Created and verified in {repo-dir}
+      - Fix commit: Created and verified in {repo-dir}
+    verifier_cmd: null

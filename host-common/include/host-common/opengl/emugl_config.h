@@ -93,15 +93,16 @@ void free_emugl_host_gpu_props(emugl_host_gpu_prop_list props);
 //
 // |config| is the instance to initialize.
 // |gpu_mode| is the value of the hw.gpu.mode hardware property.
-// |gpu_option| is the value of the '-gpu <mode>' option, or NULL.
 // |no_window| is true if the '-no-window' emulator flag was used.
+// |api_level| is the api level of the android image.
 //
 // Returns true on success, or false if there was an error (e.g. bad
 // mode or option value), in which case the |status| field will contain
 // a small error message.
 AEMU_EXPORT bool emuglConfig_init(EmuglConfig* config,
                                   const char* gpu_mode,
-                                  bool no_window);
+                                  bool no_window,
+                                  int api_level);
 
 // Setup GPU emulation according to a given |backend|.
 // |bitness| is the host bitness, and can be 0 (autodetect), 32 or 64.

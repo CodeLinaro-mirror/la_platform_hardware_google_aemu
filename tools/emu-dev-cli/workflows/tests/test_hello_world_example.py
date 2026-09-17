@@ -21,8 +21,8 @@ from commands.workflow import find_workflow_target, list_available_workflows
 class TestHelloWorldExampleWorkflow(unittest.TestCase):
 
     def setUp(self):
-        target = find_workflow_target("hello_world_example")
-        self.assertIsNotNone(target, "hello_world_example workflow target not found")
+        target = find_workflow_target("hello-world-example")
+        self.assertIsNotNone(target, "hello-world-example workflow target not found")
         self.target_type, self.workflow_yaml = target
         self.assertEqual(self.target_type, "yaml")
         self.assertTrue(os.path.isfile(self.workflow_yaml))
@@ -36,9 +36,9 @@ class TestHelloWorldExampleWorkflow(unittest.TestCase):
 
     def test_workflow_discovery(self):
         workflows = list_available_workflows()
-        self.assertIn("hello_world_example", workflows)
-        wf = workflows["hello_world_example"]
-        self.assertEqual(wf["name"], "hello_world_example")
+        self.assertIn("hello-world-example", workflows)
+        wf = workflows["hello-world-example"]
+        self.assertEqual(wf["name"], "hello-world-example")
         self.assertEqual(wf["target_type"], "yaml")
         self.assertTrue(os.path.isfile(wf["target_path"]))
         self.assertTrue(wf["target_path"].endswith("workflow.yaml"))
