@@ -258,6 +258,13 @@ HWCFG_INT(
   "Monitor Adb messages between guest and host. Default: Disabled.",
   "")
 
+HWCFG_BOOL(
+  hw_displayless,
+  "hw.displayless",
+  "false",
+  "Whether the device explicitly indicates it has no display. Default: false",
+  "")
+
 HWCFG_INT(
   hw_lcd_width,
   "hw.lcd.width",
@@ -294,6 +301,13 @@ HWCFG_INT(
   "A value used to roughly describe the density of the LCD screen for automatic resource/asset selection.")
 
 HWCFG_BOOL(
+  hw_lcd_transparent,
+  "hw.lcd.transparent",
+  "false",
+  "Display is transparent",
+  "Enable/Disable LCD transparency simulation. Default: false")
+
+HWCFG_BOOL(
   hw_lcd_backlight,
   "hw.lcd.backlight",
   "yes",
@@ -306,13 +320,6 @@ HWCFG_INT(
   60,
   "LCD VSYNC rate",
   "")
-
-HWCFG_BOOL(
-  hw_lcd_transparent,
-  "hw.lcd.transparent",
-  "false",
-  "LCD transparency",
-  "Enable/Disable LCD transparency simulation. Default: false")
 
 HWCFG_STRING(
   hw_gltransport,
