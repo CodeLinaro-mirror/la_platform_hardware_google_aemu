@@ -58,6 +58,9 @@ export class RtcController {
   private listeners: Map<string, Set<EventListener>> = new Map();
   private mediaStream: MediaStream | null = null;
   private streamCancelFn: (() => void) | null = null;
+  private pendingRemoteCandidates: any[] = [];
+  private isRemoteDescriptionSet = false;
+  private jsepProcessingChain: Promise<void> = Promise.resolve();
 
   constructor(options: RtcControllerOptions) {
     this.transport = options.transport;
@@ -117,7 +120,13 @@ export class RtcController {
     ) {
       return;
     }
+    if (this.peerConnection || this.streamCancelFn) {
+      this.disconnect();
+    }
 
+    this.pendingRemoteCandidates = [];
+    this.isRemoteDescriptionSet = false;
+    this.jsepProcessingChain = Promise.resolve();
     this.setState(RtcConnectionState.CONNECTING);
 
     try {
@@ -176,7 +185,7 @@ export class RtcController {
   }
 
   /**
-   * Disconnects WebRTC session and cleans up tracks.
+   * Processes an incoming JSEP message (SDP Answer or ICE Candidate) with candidate buffering.
    */
   public async handleJsepMessage(json: any): Promise<void> {
     if (json.type === "answer") {
@@ -184,10 +193,31 @@ export class RtcController {
         await this.peerConnection.setRemoteDescription(
           typeof RTCSessionDescription !== "undefined" ? new RTCSessionDescription(json) : json
         );
+        this.isRemoteDescriptionSet = true;
+        const queued = this.pendingRemoteCandidates.splice(0, this.pendingRemoteCandidates.length);
+        for (const cand of queued) {
+          try {
+            await this.peerConnection.addIceCandidate(
+              typeof RTCIceCandidate !== "undefined" ? new RTCIceCandidate(cand) : cand
+            );
+          } catch (err) {
+            console.warn("Ignored error adding buffered ICE candidate:", err);
+          }
+        }
       }
     } else if (json.candidate) {
       if (this.peerConnection) {
-        await this.peerConnection.addIceCandidate(typeof RTCIceCandidate !== "undefined" ? new RTCIceCandidate(json) : json);
+        if (!this.isRemoteDescriptionSet && !this.peerConnection.remoteDescription) {
+          this.pendingRemoteCandidates.push(json);
+        } else {
+          try {
+            await this.peerConnection.addIceCandidate(
+              typeof RTCIceCandidate !== "undefined" ? new RTCIceCandidate(json) : json
+            );
+          } catch (err) {
+            console.warn("Ignored error adding ICE candidate:", err);
+          }
+        }
       }
     }
   }
@@ -205,6 +235,9 @@ export class RtcController {
 
     this.mediaStream = null;
     this.sessionGuid = null;
+    this.pendingRemoteCandidates = [];
+    this.isRemoteDescriptionSet = false;
+    this.jsepProcessingChain = Promise.resolve();
     this.setState(RtcConnectionState.DISCONNECTED);
   }
 
@@ -226,10 +259,12 @@ export class RtcController {
     };
 
     pc.ontrack = (event) => {
-      if (!this.mediaStream) {
-        this.mediaStream = new MediaStream();
+      const existingTracks = this.mediaStream ? this.mediaStream.getTracks() : [];
+      const nextStream = new MediaStream(existingTracks);
+      if (!nextStream.getTracks().some((t) => t.id === event.track.id)) {
+        nextStream.addTrack(event.track);
       }
-      this.mediaStream.addTrack(event.track);
+      this.mediaStream = nextStream;
       this.emit("stream", this.mediaStream);
     };
 
@@ -265,26 +300,17 @@ export class RtcController {
       "android.emulation.v2.webrtc.RtcService",
       "ReceiveJsepMessageStream",
       sessionBytes,
-      async (bytes: Uint8Array) => {
-        try {
-          const { message } = this.decodeJsepMessage(bytes);
-          if (!message) return;
-
-          const json = JSON.parse(message);
-          if (json.type === "answer") {
-            if (this.peerConnection) {
-              await this.peerConnection.setRemoteDescription(
-                typeof RTCSessionDescription !== "undefined" ? new RTCSessionDescription(json) : json
-              );
-            }
-          } else if (json.candidate) {
-            if (this.peerConnection) {
-              await this.peerConnection.addIceCandidate(typeof RTCIceCandidate !== "undefined" ? new RTCIceCandidate(json) : json);
-            }
-          }
-        } catch (err) {
-          console.error("Error processing incoming JSEP message:", err);
-        }
+      (bytes: Uint8Array) => {
+        this.jsepProcessingChain = this.jsepProcessingChain
+          .then(async () => {
+            const { message } = this.decodeJsepMessage(bytes);
+            if (!message) return;
+            const json = JSON.parse(message);
+            await this.handleJsepMessage(json);
+          })
+          .catch((err) => {
+            console.error("Error processing incoming JSEP message:", err);
+          });
       },
       (err: any) => {
         console.error("JSEP stream error:", err);

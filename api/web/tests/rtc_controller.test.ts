@@ -229,6 +229,111 @@ describe('RtcController (TDD)', () => {
     expect(inputChannel.isReady).toBe(true);
   });
 
+  it('buffers remote ICE candidates received before SDP answer and flushes them after setRemoteDescription', async () => {
+    await rtcController.connect();
+
+    // Candidate arrives before SDP answer
+    await rtcController.handleJsepMessage({
+      candidate: 'candidate:early-1 1 UDP 2130706431 127.0.0.1 50000 typ host',
+      sdpMid: '0',
+      sdpMLineIndex: 0,
+    });
+
+    expect(mockPeerConnection.addedIceCandidates.length).toBe(0);
+
+    // Now SDP answer arrives
+    await rtcController.handleJsepMessage({
+      sdp: 'v=0\r\no=mock-server-answer',
+      type: 'answer',
+    });
+
+    expect(mockPeerConnection.addedIceCandidates.length).toBe(1);
+    expect(mockPeerConnection.addedIceCandidates[0].candidate).toContain('early-1');
+  });
+
+  it('serializes incoming ReceiveJsepMessageStream callbacks so slow setRemoteDescription finishes before candidate', async () => {
+    let streamCallback: ((bytes: Uint8Array) => void) | null = null;
+    mockTransport.stream.mockImplementation(
+      (_svc: string, _method: string, _req: Uint8Array, onData: (b: Uint8Array) => void) => {
+        streamCallback = onData;
+        return () => {};
+      }
+    );
+
+    const events: string[] = [];
+    mockPeerConnection.setRemoteDescription = async (desc: RTCSessionDescriptionInit) => {
+      await new Promise((r) => setTimeout(r, 15));
+      mockPeerConnection.remoteDescription = desc;
+      events.push('setRemoteDescription');
+    };
+    mockPeerConnection.addIceCandidate = async (cand: any) => {
+      mockPeerConnection.addedIceCandidates.push(cand);
+      events.push('addIceCandidate');
+    };
+
+    await rtcController.connect();
+    expect(streamCallback).toBeDefined();
+
+    // Helper to encode JsepMessage protobuf bytes via private helper
+    const encodeJsep = (rtcController as any).encodeJsepMessage.bind(rtcController);
+    const answerBytes = encodeJsep(
+      'session-123',
+      JSON.stringify({ type: 'answer', sdp: 'v=0\r\no=delayed-answer' })
+    );
+    const candidateBytes = encodeJsep(
+      'session-123',
+      JSON.stringify({
+        candidate: 'candidate:queued 1 tcp 1000 127.0.0.1 50000 typ host tcptype passive',
+        sdpMid: '0',
+        sdpMLineIndex: 0,
+      })
+    );
+
+    // Fire both stream messages back-to-back without awaiting
+    streamCallback!(answerBytes);
+    streamCallback!(candidateBytes);
+
+    // Wait for the processing chain to drain
+    await (rtcController as any).jsepProcessingChain;
+
+    expect(events).toEqual(['setRemoteDescription', 'addIceCandidate']);
+    expect(mockPeerConnection.addedIceCandidates.length).toBe(1);
+  });
+
+  it('clones MediaStream on incremental ontrack events so audio and video tracks trigger distinct stream emissions', async () => {
+    // Provide a lightweight global MediaStream mock for Node environment
+    const prevMediaStream = (globalThis as any).MediaStream;
+    class MockMediaStream {
+      private tracks: any[];
+      constructor(existing?: any[]) {
+        this.tracks = existing ? [...existing] : [];
+      }
+      getTracks() {
+        return [...this.tracks];
+      }
+      addTrack(track: any) {
+        this.tracks.push(track);
+      }
+    }
+    (globalThis as any).MediaStream = MockMediaStream;
+
+    try {
+      await rtcController.connect();
+      const emittedStreams: any[] = [];
+      rtcController.on('stream', (s) => emittedStreams.push(s));
+
+      mockPeerConnection.ontrack?.({ track: { id: 'video-0', kind: 'video' } });
+      mockPeerConnection.ontrack?.({ track: { id: 'audio-0', kind: 'audio' } });
+
+      expect(emittedStreams.length).toBe(2);
+      expect(emittedStreams[0]).not.toBe(emittedStreams[1]);
+      expect(emittedStreams[0].getTracks().length).toBe(1);
+      expect(emittedStreams[1].getTracks().length).toBe(2);
+    } finally {
+      (globalThis as any).MediaStream = prevMediaStream;
+    }
+  });
+
   it('disconnect() closes PeerConnection and transitions state to disconnected', async () => {
     await rtcController.connect();
     rtcController.disconnect();
