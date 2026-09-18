@@ -20,6 +20,7 @@
     "outDir": "_ts_out",
     "esModuleInterop": true,
     "paths": {
+      "vitest": ["./tests/vitest_shim.ts"],
       "@/*": ["./src/*"],
       "@android/web": [
         "./src/index.ts",

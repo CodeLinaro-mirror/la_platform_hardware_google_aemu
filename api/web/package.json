@@ -26,6 +26,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test _test_out/tests/run_tests.js",
     "services": "bash scripts/sync_services.sh"
   },
   "keywords": [

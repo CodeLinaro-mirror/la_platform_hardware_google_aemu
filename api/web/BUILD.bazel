@@ -14,7 +14,7 @@
 
 load("@aemu_web_npm//:defs.bzl", "npm_link_all_packages")
 load("@aspect_bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
-load("@aspect_rules_js//js:defs.bzl", "js_library")
+load("@aspect_rules_js//js:defs.bzl", "js_library", "js_test")
 load("@aspect_rules_ts//ts:defs.bzl", "ts_project")
 
 package(
@@ -46,38 +46,56 @@ exports_files([
     "package.json",
     "pnpm-lock.yaml",
     "tsconfig.json",
+    "tsconfig.test.json",
     "DESIGN.md",
 ])
+
+_SRC_FILES = [
+    "src/core/audio.ts",
+    "src/core/auth.ts",
+    "src/core/battery.ts",
+    "src/core/biometrics.ts",
+    "src/core/camera.ts",
+    "src/core/capabilities.ts",
+    "src/core/client.ts",
+    "src/core/clipboard.ts",
+    "src/core/display.ts",
+    "src/core/input_channel.ts",
+    "src/core/location.ts",
+    "src/core/posture.ts",
+    "src/core/rtc_controller.ts",
+    "src/core/screen_capture.ts",
+    "src/core/sensors.ts",
+    "src/core/snapshot.ts",
+    "src/core/system.ts",
+    "src/core/telephony.ts",
+    "src/core/transport.ts",
+    "src/core/vm.ts",
+    "src/index.ts",
+    "src/react/DeviceView.tsx",
+    "src/react/context.tsx",
+    "src/react/hooks.ts",
+]
+
+_COMMON_DEPS = [
+    ":emulator_services_pkg",
+    ":node_modules/@bufbuild/protobuf",
+    ":node_modules/@types/node",
+    ":node_modules/@types/react",
+    ":node_modules/@types/react-dom",
+    ":node_modules/grpc-web",
+    ":node_modules/loglevel",
+    ":node_modules/react",
+    ":node_modules/react-dom",
+    ":node_modules/rxjs",
+    ":node_modules/ts-proto",
+    ":node_modules/typescript",
+]
 
 # Core and React components library package
 ts_project(
     name = "web",
-    srcs = [
-        "src/core/audio.ts",
-        "src/core/auth.ts",
-        "src/core/battery.ts",
-        "src/core/biometrics.ts",
-        "src/core/camera.ts",
-        "src/core/capabilities.ts",
-        "src/core/client.ts",
-        "src/core/clipboard.ts",
-        "src/core/display.ts",
-        "src/core/input_channel.ts",
-        "src/core/location.ts",
-        "src/core/posture.ts",
-        "src/core/rtc_controller.ts",
-        "src/core/screen_capture.ts",
-        "src/core/sensors.ts",
-        "src/core/snapshot.ts",
-        "src/core/system.ts",
-        "src/core/telephony.ts",
-        "src/core/transport.ts",
-        "src/core/vm.ts",
-        "src/index.ts",
-        "src/react/DeviceView.tsx",
-        "src/react/context.tsx",
-        "src/react/hooks.ts",
-    ],
+    srcs = _SRC_FILES,
     declaration = True,
     declaration_dir = "_ts_out/types",
     out_dir = "_ts_out",
@@ -85,19 +103,7 @@ ts_project(
     tsconfig = "tsconfig.json",
     validate = False,
     visibility = ["//visibility:public"],
-    deps = [
-        ":emulator_services_pkg",
-        ":node_modules/@bufbuild/protobuf",
-        ":node_modules/@types/node",
-        ":node_modules/@types/react",
-        ":node_modules/@types/react-dom",
-        ":node_modules/grpc-web",
-        ":node_modules/loglevel",
-        ":node_modules/react",
-        ":node_modules/react-dom",
-        ":node_modules/rxjs",
-        ":node_modules/ts-proto",
-    ],
+    deps = _COMMON_DEPS,
 )
 
 alias(
@@ -123,4 +129,30 @@ copy_to_directory(
     ],
     target_compatible_with = _NOT_WINDOWS,
     visibility = ["//visibility:public"],
+)
+
+# Hermetic Node.js unit test compilation and execution
+ts_project(
+    name = "web_tests_ts",
+    srcs = _SRC_FILES + glob([
+        "tests/*.ts",
+        "tests/*.tsx",
+    ]) + ["tsconfig.json"],
+    declaration = False,
+    out_dir = "_test_out",
+    target_compatible_with = _NOT_WINDOWS,
+    tsconfig = "tsconfig.test.json",
+    validate = False,
+    deps = _COMMON_DEPS,
+)
+
+js_test(
+    name = "web_tests",
+    size = "small",
+    args = ["--test"],
+    data = [
+        ":web_tests_ts",
+    ] + _COMMON_DEPS,
+    entry_point = "_test_out/tests/run_tests.js",
+    target_compatible_with = _NOT_WINDOWS,
 )
