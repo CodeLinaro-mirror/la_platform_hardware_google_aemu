@@ -76,6 +76,43 @@ const defaultVideoStyle: CSSProperties = {
 };
 
 /**
+ * Computes normalized [0.0, 1.0] coordinates within an object-fit: contain video element,
+ * accounting for pillarbox (left/right) or letterbox (top/bottom) black bars.
+ */
+export function computeNormalizedCoordinates(
+  clientX: number,
+  clientY: number,
+  rect: { left: number; top: number; width: number; height: number },
+  videoWidth = 0,
+  videoHeight = 0
+): { x: number; y: number } {
+  if (rect.width === 0 || rect.height === 0) return { x: 0, y: 0 };
+
+  let contentLeft = rect.left;
+  let contentTop = rect.top;
+  let contentWidth = rect.width;
+  let contentHeight = rect.height;
+
+  if (videoWidth > 0 && videoHeight > 0) {
+    const videoRatio = videoWidth / videoHeight;
+    const elementRatio = rect.width / rect.height;
+    if (elementRatio > videoRatio) {
+      // Pillarboxed (black bars on left/right)
+      contentWidth = rect.height * videoRatio;
+      contentLeft = rect.left + (rect.width - contentWidth) / 2;
+    } else if (elementRatio < videoRatio) {
+      // Letterboxed (black bars on top/bottom)
+      contentHeight = rect.width / videoRatio;
+      contentTop = rect.top + (rect.height - contentHeight) / 2;
+    }
+  }
+
+  const x = Math.max(0, Math.min(1, (clientX - contentLeft) / contentWidth));
+  const y = Math.max(0, Math.min(1, (clientY - contentTop) / contentHeight));
+  return { x, y };
+}
+
+/**
  * Modern React Component for rendering and interacting with Android Devices and Emulators.
  */
 export function DeviceView({
@@ -100,7 +137,7 @@ export function DeviceView({
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
 
-  const prevStateRef = useRef<RtcConnectionState | null>(null);
+  const prevStateRef = useRef(null as RtcConnectionState | null);
   const prevStreamRef = useRef<MediaStream | null>(null);
   const prevErrorRef = useRef<Error | null>(null);
   const autoConnectAttemptedRef = useRef(false);
@@ -112,6 +149,13 @@ export function DeviceView({
       connect().catch((err) => {
         onErrorRef.current?.(err);
       });
+    } else if (autoConnect && state === RtcConnectionState.FAILED) {
+      const timer = setTimeout(() => {
+        connect().catch((err) => {
+          onErrorRef.current?.(err);
+        });
+      }, 1500);
+      return () => clearTimeout(timer);
     }
   }, [autoConnect, state, connect]);
 
@@ -129,9 +173,13 @@ export function DeviceView({
       prevStreamRef.current = stream;
       onStreamRef.current?.(stream);
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play().catch((err) => {
-          console.warn('Aquarium video playback warning:', err);
+        const video = videoRef.current;
+        video.srcObject = stream;
+        video.muted = false;
+        video.play().catch((err) => {
+          console.warn('Aquarium unmuted autoplay blocked, falling back to muted until interaction:', err);
+          video.muted = true;
+          video.play().catch((e) => console.warn('Aquarium video playback warning:', e));
         });
       }
     }
@@ -147,18 +195,24 @@ export function DeviceView({
 
   // Compute normalized coordinates [0.0, 1.0] from a PointerEvent
   const getNormalizedCoordinates = useCallback((e: PointerEvent<HTMLElement>) => {
-    const el = videoRef.current || containerRef.current;
+    const video = videoRef.current;
+    const el = video || containerRef.current;
     if (!el) return { x: 0, y: 0 };
     const rect = el.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return { x: 0, y: 0 };
-
-    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-    return { x, y };
+    return computeNormalizedCoordinates(
+      e.clientX,
+      e.clientY,
+      rect,
+      video?.videoWidth ?? 0,
+      video?.videoHeight ?? 0
+    );
   }, []);
 
   const handlePointerDown = useCallback(
     (e: PointerEvent<HTMLDivElement>) => {
+      if (videoRef.current && videoRef.current.muted) {
+        videoRef.current.muted = false;
+      }
       if (!client.input.isReady) return;
       e.currentTarget.setPointerCapture?.(e.pointerId);
       const { x, y } = getNormalizedCoordinates(e);
@@ -287,7 +341,6 @@ export function DeviceView({
         ref={videoRef}
         autoPlay
         playsInline
-        muted
         style={defaultVideoStyle}
       />
     </div>
