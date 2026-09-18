@@ -138,7 +138,7 @@ describe('RtcController (TDD)', () => {
     // Verify client sent its local offer
     expect(mockPeerConnection.localDescription).toEqual({
       type: 'offer',
-      sdp: 'v=0\r\no=mock-client-offer',
+      sdp: 'v=0\r\no=mock-client-offer\r\na=candidate:loopback-active 1 tcp 1000 127.0.0.1 9 typ host tcptype active\r\n',
     });
     expect(mockTransport.sendJsepMock).toHaveBeenCalledTimes(1);
 
@@ -153,6 +153,26 @@ describe('RtcController (TDD)', () => {
       type: 'answer',
       sdp: answerSdp,
     });
+  });
+
+  it('injects loopback active TCP candidate immediately after a=mid:0 and is idempotent', async () => {
+    const candidateLine =
+      'a=candidate:loopback-active 1 tcp 1000 127.0.0.1 9 typ host tcptype active\r\n';
+    mockPeerConnection.createOffer = async () => ({
+      type: 'offer',
+      sdp: 'v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\na=sendrecv\r\n',
+    });
+
+    await rtcController.connect();
+
+    expect(mockPeerConnection.localDescription?.sdp).toBe(
+      `v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\n${candidateLine}a=sendrecv\r\n`
+    );
+
+    // Verify idempotency when candidate line is already present
+    const injectFn = (rtcController as any).injectLoopbackActiveCandidate.bind(rtcController);
+    const once = injectFn(mockPeerConnection.localDescription!.sdp!);
+    expect(once).toBe(mockPeerConnection.localDescription?.sdp);
   });
 
   it('adds remote ICE candidate to PeerConnection', async () => {

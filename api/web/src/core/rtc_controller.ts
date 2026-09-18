@@ -162,11 +162,15 @@ export class RtcController {
       // 4. Start listening for incoming JSEP signaling stream
       this.startJsepStream(guid);
 
-      // 5. Create local SDP Offer
+      // 5. Create local SDP Offer and inject 127.0.0.1 loopback active TCP candidate
+      // so Chrome's Port::CanPairWith() pairs with the device's 127.0.0.1 adb forward passive candidate.
       const offer = await this.peerConnection.createOffer({
         offerToReceiveVideo: true,
         offerToReceiveAudio: true,
       });
+      if (offer.sdp) {
+        offer.sdp = this.injectLoopbackActiveCandidate(offer.sdp);
+      }
       await this.peerConnection.setLocalDescription(offer);
 
       // 6. Send SDP Offer to emulator
@@ -361,5 +365,20 @@ export class RtcController {
       handle: { sessionId: guid },
       message,
     }).finish();
+  }
+
+  private injectLoopbackActiveCandidate(sdp: string): string {
+    const candidateLine =
+      "a=candidate:loopback-active 1 tcp 1000 127.0.0.1 9 typ host tcptype active\r\n";
+    if (sdp.includes(candidateLine)) {
+      return sdp;
+    }
+    const mid0Marker = "a=mid:0\r\n";
+    if (sdp.includes(mid0Marker)) {
+      return sdp.replace(mid0Marker, `${mid0Marker}${candidateLine}`);
+    }
+    return sdp.endsWith("\r\n")
+      ? `${sdp}${candidateLine}`
+      : `${sdp}\r\n${candidateLine}`;
   }
 }
