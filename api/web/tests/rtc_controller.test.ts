@@ -15,6 +15,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RtcController, RtcConnectionState } from '../src/core/rtc_controller';
 import { InputChannel } from '../src/core/input_channel';
+import {
+  JsepMessage,
+  RtcStreamResponse,
+} from '@android/emulator-services/webrtc_service';
+import { FakeStream } from './fake_transport';
 
 // Mock WebRTC PeerConnection
 class MockRTCPeerConnection {
@@ -71,11 +76,13 @@ class MockRTCPeerConnection {
   }
 }
 
-// Mock RtcService transport
+// Mock RtcService transport. It implements the members the generated
+// RtcServiceClientImpl calls, so the encoding and decoding under test is the
+// real generated code.
 class MockRtcTransport {
   public requestStreamMock = vi.fn();
   public sendJsepMock = vi.fn();
-  public receiveStreamGenerator: any;
+  public readonly jsepStream = new FakeStream();
 
   async request(service: string, method: string, data: Uint8Array): Promise<Uint8Array> {
     if (method === 'RequestRtcStream') {
@@ -87,7 +94,14 @@ class MockRtcTransport {
     return new Uint8Array(0);
   }
 
-  public stream = vi.fn().mockReturnValue(() => {});
+  serverStreamingRequest(
+    _service: string,
+    _method: string,
+    _data: Uint8Array,
+    signal?: AbortSignal
+  ): AsyncIterable<Uint8Array> {
+    return this.jsepStream.iterate(signal);
+  }
 }
 
 describe('RtcController (TDD)', () => {
@@ -101,12 +115,10 @@ describe('RtcController (TDD)', () => {
     mockTransport = new MockRtcTransport();
     inputChannel = new InputChannel();
 
-    // Default mock response for RequestRtcStream
     mockTransport.requestStreamMock.mockResolvedValue(
-      // RtcStreamResponse with handle { guid: "session-123" } and 1 STUN server
-      new Uint8Array([
-        0x0A, 0x0D, 0x0A, 0x0B, 0x73, 0x65, 0x73, 0x73, 0x69, 0x6F, 0x6E, 0x2D, 0x31, 0x32, 0x33,
-      ])
+      RtcStreamResponse.encode(
+        RtcStreamResponse.fromPartial({ handle: { sessionId: 'session-123' } })
+      ).finish()
     );
 
     mockTransport.sendJsepMock.mockResolvedValue(new Uint8Array(0));
@@ -272,14 +284,6 @@ describe('RtcController (TDD)', () => {
   });
 
   it('serializes incoming ReceiveJsepMessageStream callbacks so slow setRemoteDescription finishes before candidate', async () => {
-    let streamCallback: ((bytes: Uint8Array) => void) | null = null;
-    mockTransport.stream.mockImplementation(
-      (_svc: string, _method: string, _req: Uint8Array, onData: (b: Uint8Array) => void) => {
-        streamCallback = onData;
-        return () => {};
-      }
-    );
-
     const events: string[] = [];
     mockPeerConnection.setRemoteDescription = async (desc: RTCSessionDescriptionInit) => {
       await new Promise((r) => setTimeout(r, 15));
@@ -292,28 +296,34 @@ describe('RtcController (TDD)', () => {
     };
 
     await rtcController.connect();
-    expect(streamCallback).toBeDefined();
 
-    // Helper to encode JsepMessage protobuf bytes via private helper
-    const encodeJsep = (rtcController as any).encodeJsepMessage.bind(rtcController);
-    const answerBytes = encodeJsep(
-      'session-123',
-      JSON.stringify({ type: 'answer', sdp: 'v=0\r\no=delayed-answer' })
+    // Both arrive back-to-back: the candidate must still wait for the answer.
+    mockTransport.jsepStream.push(
+      JsepMessage.encode(
+        JsepMessage.fromPartial({
+          handle: { sessionId: 'session-123' },
+          sdp: { type: 2 /* ANSWER */, sdp: 'v=0\r\no=delayed-answer' },
+        })
+      ).finish()
     );
-    const candidateBytes = encodeJsep(
-      'session-123',
-      JSON.stringify({
-        candidate: 'candidate:queued 1 tcp 1000 127.0.0.1 50000 typ host tcptype passive',
-        sdpMid: '0',
-        sdpMLineIndex: 0,
-      })
+    mockTransport.jsepStream.push(
+      JsepMessage.encode(
+        JsepMessage.fromPartial({
+          handle: { sessionId: 'session-123' },
+          iceCandidate: {
+            candidate: 'candidate:queued 1 tcp 1000 127.0.0.1 50000 typ host tcptype passive',
+            sdpMid: '0',
+            sdpMLineIndex: 0,
+          },
+        })
+      ).finish()
     );
 
-    // Fire both stream messages back-to-back without awaiting
-    streamCallback!(answerBytes);
-    streamCallback!(candidateBytes);
-
-    // Wait for the processing chain to drain
+    // Let the subscription hand both messages to the processing chain, then let
+    // the chain drain.
+    for (let i = 0; i < 5; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+    }
     await (rtcController as any).jsepProcessingChain;
 
     expect(events).toEqual(['setRemoteDescription', 'addIceCandidate']);

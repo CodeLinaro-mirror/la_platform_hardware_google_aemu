@@ -14,82 +14,115 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ClipboardClient } from '../src/core/clipboard';
-import { ClipboardState, UpdateClipboardStateRequest } from '@android/emulator-services/system/clipboard_service';
+import {
+  ClipboardState,
+  UpdateClipboardStateRequest,
+} from '@android/emulator-services/system_service';
+import { FakeTransport } from './fake_transport';
 
-describe('ClipboardClient (TDD)', () => {
-  let mockTransport: any;
+const SERVICE = 'android.emulation.v2.SystemService';
+
+describe('ClipboardClient', () => {
+  let transport: FakeTransport;
+  let client: ClipboardClient;
 
   beforeEach(() => {
-    mockTransport = {
-      request: vi.fn(),
-    };
+    transport = new FakeTransport();
+    client = new ClipboardClient(transport.asTransport());
   });
 
-  it('getClipboard fetches raw clipboard buffer', async () => {
-    const client = new ClipboardClient(mockTransport);
+  function encodeText(text: string): Uint8Array {
+    return ClipboardState.encode({ text, mimeType: 'text/plain' }).finish();
+  }
 
-    const testPayload = new TextEncoder().encode('Hello Android Device');
-    mockTransport.request.mockResolvedValue(
-      ClipboardState.encode({
-        data: testPayload,
-      }).finish()
+  it('calls GetClipboardState and decodes the clipboard text', async () => {
+    transport.respondWith(
+      ClipboardState.encode({ text: 'Hello Android Device', mimeType: 'text/plain' }).finish()
     );
 
-    const result = await client.getClipboard();
-    expect(mockTransport.request).toHaveBeenCalledTimes(1);
-    const [service, method] = mockTransport.request.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.system.ClipboardService');
-    expect(method).toBe('GetClipboardState');
-    expect(result.data).toEqual(testPayload);
+    const result = await client.GetClipboardState();
+
+    expect(transport.calls).toHaveLength(1);
+    expect(transport.lastCall.service).toBe(SERVICE);
+    expect(transport.lastCall.method).toBe('GetClipboardState');
+    expect(result.text).toBe('Hello Android Device');
+    expect(result.mimeType).toBe('text/plain');
   });
 
-  it('getClipboardText decodes UTF-8 text string', async () => {
-    const client = new ClipboardClient(mockTransport);
+  it('reports an empty clipboard as an empty string', async () => {
+    transport.respondWith(ClipboardState.encode({ text: '', mimeType: '' }).finish());
 
-    mockTransport.request.mockResolvedValue(
-      ClipboardState.encode({
-        data: new TextEncoder().encode('Test Clipboard String'),
-      }).finish()
-    );
+    const result = await client.GetClipboardState();
 
-    const text = await client.getClipboardText();
-    expect(text).toBe('Test Clipboard String');
+    expect(result.text).toBe('');
   });
 
-  it('setClipboardText encodes string and sends UpdateClipboardState request', async () => {
-    const client = new ClipboardClient(mockTransport);
+  it('sends the text payload to UpdateClipboardState', async () => {
+    transport.respondWith(encodeText('New Copied Text'));
 
-    mockTransport.request.mockResolvedValue(
-      ClipboardState.encode({
-        data: new TextEncoder().encode('New Copied Text'),
-      }).finish()
-    );
+    const result = await client.UpdateClipboardState({
+      text: 'New Copied Text',
+      mimeType: 'text/plain',
+    });
 
-    const result = await client.setClipboardText('New Copied Text');
-    expect(mockTransport.request).toHaveBeenCalledTimes(1);
-    const [service, method, data] = mockTransport.request.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.system.ClipboardService');
-    expect(method).toBe('UpdateClipboardState');
+    expect(transport.lastCall.service).toBe(SERVICE);
+    expect(transport.lastCall.method).toBe('UpdateClipboardState');
 
-    const decoded = UpdateClipboardStateRequest.decode(data);
-    expect(new TextDecoder().decode(decoded.clipboardState?.data)).toBe('New Copied Text');
-    expect(new TextDecoder().decode(result.data)).toBe('New Copied Text');
+    const request = UpdateClipboardStateRequest.decode(transport.lastCall.data);
+    expect(request.text).toBe('New Copied Text');
+    expect(result.text).toBe('New Copied Text');
   });
 
-  it('streamClipboard subscribes to live updates via transport.stream', () => {
-    mockTransport.stream = vi.fn();
-    const client = new ClipboardClient(mockTransport);
-
+  it('decodes each state pushed by StreamClipboardState', async () => {
     const onState = vi.fn();
-    client.streamClipboard(onState);
 
-    expect(mockTransport.stream).toHaveBeenCalledTimes(1);
-    const [service, method, , onMsg] = mockTransport.stream.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.system.ClipboardService');
-    expect(method).toBe('StreamClipboardState');
+    const unsubscribe = client.subscribeClipboardState(onState);
+    transport.stream().push(encodeText('Live Clipboard Stream'));
+    await settle();
 
-    const sampleBytes = new TextEncoder().encode('Live Clipboard Stream');
-    onMsg(ClipboardState.encode({ data: sampleBytes }).finish());
-    expect(onState).toHaveBeenCalledWith(expect.objectContaining({ data: sampleBytes }));
+    expect(transport.streamCalls[0].service).toBe(SERVICE);
+    expect(transport.streamCalls[0].method).toBe('StreamClipboardState');
+    expect(onState).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Live Clipboard Stream' })
+    );
+
+    unsubscribe();
+  });
+
+  it('aborts the underlying stream on unsubscribe', async () => {
+    const unsubscribe = client.subscribeClipboardState(() => {});
+    await settle();
+
+    expect(transport.streamCalls[0].signal?.aborted).toBe(false);
+
+    unsubscribe();
+
+    expect(transport.streamCalls[0].signal?.aborted).toBe(true);
+  });
+
+  it('yields decoded states from the iterator form', async () => {
+    const controller = new AbortController();
+    const states: ClipboardState[] = [];
+
+    const pump = (async () => {
+      for await (const state of client.StreamClipboardState({}, controller.signal)) {
+        states.push(state);
+        controller.abort();
+      }
+    })();
+
+    transport.stream().push(encodeText('Iterated'));
+    await pump;
+
+    expect(transport.streamCalls[0].method).toBe('StreamClipboardState');
+    expect(states).toHaveLength(1);
+    expect(states[0].text).toBe('Iterated');
   });
 });
+
+/** Lets the subscription's background task drain the queued messages. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}

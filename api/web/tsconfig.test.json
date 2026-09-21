@@ -24,8 +24,6 @@
       "@/*": ["./src/*"],
       "@android/web": ["./src/index.ts"],
       "@android/web/*": ["./src/*"],
-      "@android/aquarium": ["./src/index.ts"],
-      "@android/aquarium/*": ["./src/*"],
       "@android/emulator-services/*": [
         "./node_modules/@android/emulator-services/*"
       ]

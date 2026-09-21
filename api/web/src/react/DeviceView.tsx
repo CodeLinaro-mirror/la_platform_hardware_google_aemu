@@ -177,9 +177,9 @@ export function DeviceView({
         video.srcObject = stream;
         video.muted = false;
         video.play().catch((err) => {
-          console.warn('Aquarium unmuted autoplay blocked, falling back to muted until interaction:', err);
+          console.warn('DeviceView unmuted autoplay blocked, falling back to muted until interaction:', err);
           video.muted = true;
-          video.play().catch((e) => console.warn('Aquarium video playback warning:', e));
+          video.play().catch((e) => console.warn('DeviceView video playback warning:', e));
         });
       }
     }
@@ -219,12 +219,12 @@ export function DeviceView({
 
       client.input.sendPointer({
         displayId,
-        slot: e.pointerId,
-        action: PointerAction.DOWN,
+        pointerId: e.pointerId,
+        action: PointerAction.POINTER_ACTION_DOWN,
         x,
         y,
         pressure: e.pressure || 1.0,
-        toolType: e.pointerType === 'mouse' ? ToolType.MOUSE : ToolType.FINGER,
+        toolType: e.pointerType === 'mouse' ? ToolType.TOOL_TYPE_MOUSE : ToolType.TOOL_TYPE_FINGER,
       });
     },
     [client, displayId, getNormalizedCoordinates]
@@ -237,12 +237,12 @@ export function DeviceView({
 
       client.input.sendPointer({
         displayId,
-        slot: e.pointerId,
-        action: PointerAction.MOVE,
+        pointerId: e.pointerId,
+        action: PointerAction.POINTER_ACTION_MOVE,
         x,
         y,
         pressure: e.pressure || 1.0,
-        toolType: e.pointerType === 'mouse' ? ToolType.MOUSE : ToolType.FINGER,
+        toolType: e.pointerType === 'mouse' ? ToolType.TOOL_TYPE_MOUSE : ToolType.TOOL_TYPE_FINGER,
       });
     },
     [client, displayId, getNormalizedCoordinates]
@@ -256,12 +256,12 @@ export function DeviceView({
 
       client.input.sendPointer({
         displayId,
-        slot: e.pointerId,
-        action: PointerAction.UP,
+        pointerId: e.pointerId,
+        action: PointerAction.POINTER_ACTION_UP,
         x,
         y,
         pressure: 0,
-        toolType: e.pointerType === 'mouse' ? ToolType.MOUSE : ToolType.FINGER,
+        toolType: e.pointerType === 'mouse' ? ToolType.TOOL_TYPE_MOUSE : ToolType.TOOL_TYPE_FINGER,
       });
     },
     [client, displayId, getNormalizedCoordinates]
@@ -274,8 +274,8 @@ export function DeviceView({
 
       client.input.sendPointer({
         displayId,
-        slot: e.pointerId,
-        action: PointerAction.CANCEL,
+        pointerId: e.pointerId,
+        action: PointerAction.POINTER_ACTION_CANCEL,
         x,
         y,
       });
@@ -300,7 +300,7 @@ export function DeviceView({
       const code = e.code || e.key;
       client.input.sendKey({
         domCode: code,
-        action: KeyAction.DOWN,
+        action: KeyAction.KEY_ACTION_DOWN,
       });
       if (['Tab', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backspace'].includes(e.code)) {
         e.preventDefault();
@@ -314,7 +314,7 @@ export function DeviceView({
       const code = e.code || e.key;
       client.input.sendKey({
         domCode: code,
-        action: KeyAction.UP,
+        action: KeyAction.KEY_ACTION_UP,
       });
       if (['Tab', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backspace'].includes(e.code)) {
         e.preventDefault();
@@ -346,6 +346,3 @@ export function DeviceView({
     </div>
   );
 }
-
-// Backward compatibility aliases
-export { DeviceView as EmulatorView, type DeviceViewProps as EmulatorViewProps };

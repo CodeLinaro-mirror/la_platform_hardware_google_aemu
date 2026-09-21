@@ -13,93 +13,43 @@
 // limitations under the License.
 
 import {
-  InputEvent,
-  PointerEvent_Pointer,
   ButtonMask,
-} from "@android/emulator-services/input/input_service";
+  InputEvent,
+  KeyAction,
+  KeyEvent,
+  PointerAction,
+  PointerEvent_Pointer,
+  ToolType,
+} from "@android/emulator-services/input_service";
 
-export { InputEvent, ButtonMask };
+export { ButtonMask, InputEvent, KeyAction, KeyEvent, PointerAction, ToolType };
 
-export enum PointerAction {
-  UNSPECIFIED = 0,
-  DOWN = 1,
-  MOVE = 2,
-  UP = 3,
-  CANCEL = 4,
-  HOVER_ENTER = 5,
-  HOVER_MOVE = 6,
-  HOVER_EXIT = 7,
-  SCROLL = 8,
-  RELATIVE_MOVE = 9,
-  POINTER_ACTION_UNSPECIFIED = 0,
-  POINTER_ACTION_DOWN = 1,
-  POINTER_ACTION_MOVE = 2,
-  POINTER_ACTION_UP = 3,
-  POINTER_ACTION_CANCEL = 4,
-  POINTER_ACTION_HOVER_ENTER = 5,
-  POINTER_ACTION_HOVER_MOVE = 6,
-  POINTER_ACTION_HOVER_EXIT = 7,
-  POINTER_ACTION_SCROLL = 8,
-  POINTER_ACTION_RELATIVE_MOVE = 9,
-}
-
-export enum ToolType {
-  UNSPECIFIED = 0,
-  FINGER = 1,
-  STYLUS = 2,
-  ERASER = 3,
-  MOUSE = 4,
-  PALM = 5,
-  TOOL_TYPE_UNSPECIFIED = 0,
-  TOOL_TYPE_FINGER = 1,
-  TOOL_TYPE_STYLUS = 2,
-  TOOL_TYPE_ERASER = 3,
-  TOOL_TYPE_MOUSE = 4,
-  TOOL_TYPE_PALM = 5,
-}
-
-export enum KeyAction {
-  UNSPECIFIED = 0,
-  DOWN = 1,
-  UP = 2,
-  PRESS = 3,
-  KEY_ACTION_UNSPECIFIED = 0,
-  KEY_ACTION_DOWN = 1,
-  KEY_ACTION_UP = 2,
-  KEY_ACTION_PRESS = 3,
-}
-
-export enum KeyModifier {
-  UNSPECIFIED = 0,
-  SHIFT = 1,
-  ALT = 2,
-  CTRL = 3,
-  META = 4,
-  CAPS_LOCK = 5,
-  NUM_LOCK = 6,
-  SCROLL_LOCK = 7,
-}
+/**
+ * Input source id reserved for the human operator.
+ *
+ * `InputEvent.input_source_id` is a plain proto3 scalar, so `0` is both the
+ * wire default and the identifier for the human driving the device UI. This
+ * channel serves exactly that operator, so it always tags its events with `0`;
+ * automated agents sharing the same device pick a distinct non-zero id.
+ */
+const HUMAN_INPUT_SOURCE_ID = 0;
 
 export interface PointerEventPayload {
   displayId?: number;
-  slot?: number;
+  pointerId?: number;
   action: PointerAction;
   x?: number;
   y?: number;
   pressure?: number;
   toolType?: ToolType;
-  tiltX?: number;
-  tiltY?: number;
-  orientation?: number;
-  buttons?: number;
-  scrollDeltaX?: number;
-  scrollDeltaY?: number;
+  tiltRadians?: number;
+  orientationRadians?: number;
+  buttonMask?: number;
   scrollX?: number;
   scrollY?: number;
-  touchMajor?: number;
-  touchMinor?: number;
-  relativeDeltaX?: number;
-  relativeDeltaY?: number;
+  size?: number;
+  deltaX?: number;
+  deltaY?: number;
   pointers?: Array<{
     pointerId?: number;
     toolType?: ToolType;
@@ -120,10 +70,7 @@ export interface KeyEventPayload {
   domCode?: string;
   androidKeycode?: number;
   evdevCode?: number;
-  keycode?: number;
   text?: string;
-  modifiers?: KeyModifier[];
-  displayId?: number;
 }
 
 export interface InputChannelOptions {
@@ -210,8 +157,8 @@ export class InputChannel {
       x: event.x ?? 0,
       y: event.y ?? 0,
       action: PointerAction.POINTER_ACTION_SCROLL,
-      scrollDeltaX: event.deltaX ?? 0,
-      scrollDeltaY: event.deltaY ?? 0,
+      scrollX: event.deltaX ?? 0,
+      scrollY: event.deltaY ?? 0,
     });
   }
 
@@ -260,7 +207,7 @@ export class InputChannel {
       p.pointers && p.pointers.length > 0
         ? p.pointers.map((ptr) => ({
             pointerId: ptr.pointerId ?? 0,
-            toolType: (ptr.toolType ?? ToolType.FINGER) as any,
+            toolType: ptr.toolType ?? ToolType.TOOL_TYPE_FINGER,
             x: ptr.x ?? 0,
             y: ptr.y ?? 0,
             pressure: ptr.pressure ?? 1.0,
@@ -273,27 +220,28 @@ export class InputChannel {
           }))
         : [
             {
-              pointerId: p.slot ?? 0,
-              toolType: (p.toolType ?? ToolType.FINGER) as any,
+              pointerId: p.pointerId ?? 0,
+              toolType: p.toolType ?? ToolType.TOOL_TYPE_FINGER,
               x: p.x ?? 0,
               y: p.y ?? 0,
               pressure: p.pressure ?? 1.0,
-              size: p.touchMajor ?? 0,
-              orientationRadians: p.orientation ?? 0,
-              tiltRadians: p.tiltX ?? 0,
-              buttonMask: p.buttons ?? ButtonMask.BUTTON_MASK_NONE,
-              deltaX: p.relativeDeltaX ?? 0,
-              deltaY: p.relativeDeltaY ?? 0,
+              size: p.size ?? 0,
+              orientationRadians: p.orientationRadians ?? 0,
+              tiltRadians: p.tiltRadians ?? 0,
+              buttonMask: p.buttonMask ?? ButtonMask.BUTTON_MASK_NONE,
+              deltaX: p.deltaX ?? 0,
+              deltaY: p.deltaY ?? 0,
             },
           ];
 
     const inputEvent: InputEvent = {
+      inputSourceId: HUMAN_INPUT_SOURCE_ID,
       pointer: {
         displayId: p.displayId ?? 0,
-        action: p.action as any,
+        action: p.action,
         pointers,
-        scrollX: p.scrollDeltaX ?? p.scrollX,
-        scrollY: p.scrollDeltaY ?? p.scrollY,
+        scrollX: p.scrollX,
+        scrollY: p.scrollY,
       },
     };
 
@@ -304,25 +252,27 @@ export class InputChannel {
    * Serializes a KeyEvent into InputEvent protobuf binary using ts-proto.
    */
   private encodeKeyEvent(k: KeyEventPayload): Uint8Array {
-    if (k.text && !k.domCode && !k.androidKeycode) {
+    if (k.text && !k.domCode && k.androidKeycode === undefined && k.evdevCode === undefined) {
       return InputEvent.encode({
+        inputSourceId: HUMAN_INPUT_SOURCE_ID,
         text: { text: k.text },
       }).finish();
     }
 
-    const key: any = {
-      action: k.action as any,
+    const key: KeyEvent = {
+      action: k.action,
     };
 
     if (k.domCode) {
       key.domCode = k.domCode;
-    } else if (k.androidKeycode !== undefined || k.keycode !== undefined) {
-      key.androidKeycode = k.androidKeycode ?? k.keycode;
+    } else if (k.androidKeycode !== undefined) {
+      key.androidKeycode = k.androidKeycode;
     } else if (k.evdevCode !== undefined) {
       key.evdevCode = k.evdevCode;
     }
 
     const inputEvent: InputEvent = {
+      inputSourceId: HUMAN_INPUT_SOURCE_ID,
       key,
     };
 

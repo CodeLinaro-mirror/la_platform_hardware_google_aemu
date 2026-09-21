@@ -32,16 +32,6 @@
         "./_ts_out/src/*",
         "./_ts_out/types/src/*"
       ],
-      "@android/aquarium": [
-        "./src/index.ts",
-        "./_ts_out/src/index.js",
-        "./_ts_out/types/src/index.d.ts"
-      ],
-      "@android/aquarium/*": [
-        "./src/*",
-        "./_ts_out/src/*",
-        "./_ts_out/types/src/*"
-      ],
       "@android/emulator-services/*": [
         "./node_modules/@android/emulator-services/*"
       ]

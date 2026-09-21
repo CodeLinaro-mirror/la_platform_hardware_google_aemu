@@ -14,100 +14,93 @@
 
 import { GrpcWebTransport } from './transport';
 import {
-  Snapshot,
+  CreateSnapshotRequest,
+  DeepPartial,
+  DeleteSnapshotRequest,
+  DeleteSnapshotResponse,
+  ExportSnapshotRequest,
+  GetSnapshotRequest,
+  HypervisorService,
+  HypervisorServiceClientImpl,
+  ImportSnapshotRequest,
   ListSnapshotsRequest,
   ListSnapshotsResponse,
-  GetSnapshotRequest,
-  CreateSnapshotRequest,
   RestoreSnapshotRequest,
-  DeleteSnapshotRequest,
   SetQuickbootTargetRequest,
-} from '@android/emulator-services/snapshot/snapshot_service';
+  SetQuickbootTargetResponse,
+  Snapshot,
+  UpdateSnapshotRequest,
+} from '@android/emulator-services/hypervisor_service';
+import { Operation } from '@android/emulator-services/google/longrunning/operations';
 
-export { Snapshot };
+export {
+  Snapshot,
+  ListSnapshotsResponse,
+  Operation,
+  DeleteSnapshotResponse,
+  SetQuickbootTargetResponse,
+  UpdateSnapshotRequest,
+};
 
 /**
- * Headless API client for SnapshotService.
+ * Snapshot management client for the Android Emulator.
+ *
+ * Wraps snapshot RPCs on the gRPC-Web `HypervisorService`.
  */
 export class SnapshotClient {
-  private readonly transport: GrpcWebTransport;
+  private readonly rpc: HypervisorService;
 
   constructor(transport: GrpcWebTransport) {
-    this.transport = transport;
+    this.rpc = new HypervisorServiceClientImpl(transport);
   }
 
-  public async listSnapshots(compatibleOnly: boolean = false): Promise<Snapshot[]> {
-    const req: ListSnapshotsRequest = { compatibleOnly };
-    const reqBytes = ListSnapshotsRequest.encode(req).finish();
-    const resBytes = await this.transport.request(
-      'android.emulation.v2.snapshot.SnapshotService',
-      'ListSnapshots',
-      reqBytes
-    );
-    const res = ListSnapshotsResponse.decode(resBytes);
-    return res.snapshots ?? [];
+  public ListSnapshots(
+    request: DeepPartial<ListSnapshotsRequest> = {}
+  ): Promise<ListSnapshotsResponse> {
+    return this.rpc.ListSnapshots(ListSnapshotsRequest.fromPartial(request));
   }
 
-  public async getSnapshot(snapshotId: string): Promise<Snapshot> {
-    const req: GetSnapshotRequest = { snapshotId };
-    const reqBytes = GetSnapshotRequest.encode(req).finish();
-    const resBytes = await this.transport.request(
-      'android.emulation.v2.snapshot.SnapshotService',
-      'GetSnapshot',
-      reqBytes
-    );
-    return Snapshot.decode(resBytes);
+  public GetSnapshot(request: DeepPartial<GetSnapshotRequest> = {}): Promise<Snapshot> {
+    return this.rpc.GetSnapshot(GetSnapshotRequest.fromPartial(request));
   }
 
-  public async createSnapshot(
-    snapshotId: string,
-    displayName: string = snapshotId,
-    description: string = ''
-  ): Promise<Uint8Array> {
-    const req: CreateSnapshotRequest = {
-      snapshot: {
-        snapshotId,
-        displayName,
-        description,
-        sizeBytes: 0,
-        quickbootTarget: false,
-      },
-    };
-    const reqBytes = CreateSnapshotRequest.encode(req).finish();
-    return this.transport.request(
-      'android.emulation.v2.snapshot.SnapshotService',
-      'CreateSnapshot',
-      reqBytes
-    );
+  public UpdateSnapshot(request: DeepPartial<UpdateSnapshotRequest>): Promise<Snapshot> {
+    return this.rpc.UpdateSnapshot(UpdateSnapshotRequest.fromPartial(request));
   }
 
-  public async restoreSnapshot(snapshotId: string): Promise<Uint8Array> {
-    const req: RestoreSnapshotRequest = { snapshotId };
-    const reqBytes = RestoreSnapshotRequest.encode(req).finish();
-    return this.transport.request(
-      'android.emulation.v2.snapshot.SnapshotService',
-      'RestoreSnapshot',
-      reqBytes
-    );
+  /** Starts a snapshot capture. Omitting `snapshotId` requests a server-generated ID. */
+  public CreateSnapshot(request: DeepPartial<CreateSnapshotRequest> = {}): Promise<Operation> {
+    return this.rpc.CreateSnapshot(CreateSnapshotRequest.fromPartial(request));
   }
 
-  public async deleteSnapshot(snapshotId: string): Promise<Uint8Array> {
-    const req: DeleteSnapshotRequest = { snapshotId };
-    const reqBytes = DeleteSnapshotRequest.encode(req).finish();
-    return this.transport.request(
-      'android.emulation.v2.snapshot.SnapshotService',
-      'DeleteSnapshot',
-      reqBytes
-    );
+  /** Starts a restore. */
+  public RestoreSnapshot(request: DeepPartial<RestoreSnapshotRequest>): Promise<Operation> {
+    return this.rpc.RestoreSnapshot(RestoreSnapshotRequest.fromPartial(request));
   }
 
-  public async setQuickbootTarget(snapshotId?: string): Promise<Uint8Array> {
-    const req: SetQuickbootTargetRequest = { snapshotId };
-    const reqBytes = SetQuickbootTargetRequest.encode(req).finish();
-    return this.transport.request(
-      'android.emulation.v2.snapshot.SnapshotService',
-      'SetQuickbootTarget',
-      reqBytes
-    );
+  public DeleteSnapshot(
+    request: DeepPartial<DeleteSnapshotRequest>
+  ): Promise<DeleteSnapshotResponse> {
+    return this.rpc.DeleteSnapshot(DeleteSnapshotRequest.fromPartial(request));
+  }
+
+  /**
+   * Promotes a snapshot to the quickboot target. Omitting `snapshotId` clears
+   * the target, forcing a cold boot on the next launch.
+   */
+  public SetQuickbootTarget(
+    request: DeepPartial<SetQuickbootTargetRequest> = {}
+  ): Promise<SetQuickbootTargetResponse> {
+    return this.rpc.SetQuickbootTarget(SetQuickbootTargetRequest.fromPartial(request));
+  }
+
+  /** Starts an upload of a snapshot to the requested destination. */
+  public ExportSnapshot(request: DeepPartial<ExportSnapshotRequest>): Promise<Operation> {
+    return this.rpc.ExportSnapshot(ExportSnapshotRequest.fromPartial(request));
+  }
+
+  /** Starts a download of a snapshot from the requested source. */
+  public ImportSnapshot(request: DeepPartial<ImportSnapshotRequest>): Promise<Operation> {
+    return this.rpc.ImportSnapshot(ImportSnapshotRequest.fromPartial(request));
   }
 }

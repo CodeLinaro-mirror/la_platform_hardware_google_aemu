@@ -12,152 +12,117 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { GrpcWebTransport } from "./transport";
+import { GrpcWebTransport } from './transport';
 import {
-  DeviceCapabilities,
-  GetDeviceCapabilitiesRequest,
-  DeviceMetadata,
+  AudioCapabilities,
   BatteryCapabilities,
-  LocationCapabilities,
+  BiometricsCapabilities,
+  CameraCapabilities,
+  CameraInjectionMode,
+  CapabilitiesService,
+  CapabilitiesServiceClientImpl,
+  ClipboardCapabilities,
+  DeepPartial,
+  DeviceCapabilities,
+  DeviceMetadata,
   DisplayCapabilities,
   DisplayHardware,
-  SensorsCapabilities,
+  GetDeviceCapabilitiesRequest,
   InputCapabilities,
+  InputFeature,
+  LocationCapabilities,
   PostureCapabilities,
-  BiometricsCapabilities,
-  TelephonyCapabilities,
-  CameraCapabilities,
-  AudioCapabilities,
+  RtcCapabilities,
   ScreenCaptureCapabilities,
-  ClipboardCapabilities,
-  VmCapabilities,
+  SensorsCapabilities,
   SnapshotCapabilities,
+  SnapshotFeature,
   SystemCapabilities,
-  ServiceExtension,
-} from "@android/emulator-services/discovery/capabilities_service";
-import { AccessMode } from "@android/emulator-services/common/common";
+  TelephonyCapabilities,
+  TelephonyFeature,
+  VmCapabilities,
+  VmOperation,
+} from '@android/emulator-services/capabilities_service';
+import { AccessMode, DeviceKind, Fidelity } from '@android/emulator-services/common';
 
 export type {
-  DeviceCapabilities,
-  GetDeviceCapabilitiesRequest,
-  DeviceMetadata,
+  AudioCapabilities,
   BatteryCapabilities,
-  LocationCapabilities,
+  BiometricsCapabilities,
+  CameraCapabilities,
+  ClipboardCapabilities,
+  DeviceCapabilities,
+  DeviceMetadata,
   DisplayCapabilities,
   DisplayHardware,
-  SensorsCapabilities,
+  GetDeviceCapabilitiesRequest,
   InputCapabilities,
+  LocationCapabilities,
   PostureCapabilities,
-  BiometricsCapabilities,
-  TelephonyCapabilities,
-  CameraCapabilities,
-  AudioCapabilities,
+  RtcCapabilities,
   ScreenCaptureCapabilities,
-  ClipboardCapabilities,
-  VmCapabilities,
+  SensorsCapabilities,
   SnapshotCapabilities,
   SystemCapabilities,
-  ServiceExtension,
+  TelephonyCapabilities,
+  VmCapabilities,
 };
-export { AccessMode };
+export {
+  AccessMode,
+  CameraInjectionMode,
+  DeviceKind,
+  Fidelity,
+  InputFeature,
+  SnapshotFeature,
+  TelephonyFeature,
+  VmOperation,
+};
 
 /**
  * Headless API client for CapabilitiesService.
- * Queries device hardware limits and dynamically discovered service extensions.
+ *
+ * Queries device hardware limits and subsystem capabilities. Methods named
+ * in `PascalCase` are the RPCs of
+ * `CapabilitiesService`, spelled exactly as `capabilities_service.proto`
+ * declares them; `camelCase` methods are conveniences this package adds and
+ * have no RPC of their own.
+ *
+ * There are no per-subsystem accessors here. {@link DeviceCapabilities} is a
+ * single message and reaching into it (`caps.display`, `caps.sensors`) is both
+ * shorter and type-checked against the proto, whereas a wrapper per submessage
+ * is a list that has to be kept in step with it by hand.
  */
 export class CapabilitiesClient {
-  private readonly transport: GrpcWebTransport;
-  private cachedCapabilities: DeviceCapabilities | null = null;
+  private readonly rpc: CapabilitiesService;
+  private cached: DeviceCapabilities | null = null;
 
   constructor(transport: GrpcWebTransport) {
-    this.transport = transport;
+    this.rpc = new CapabilitiesServiceClientImpl(transport);
+  }
+
+  /** Always queries the device. */
+  public GetDeviceCapabilities(
+    request: DeepPartial<GetDeviceCapabilitiesRequest> = {}
+  ): Promise<DeviceCapabilities> {
+    return this.rpc.GetDeviceCapabilities(GetDeviceCapabilitiesRequest.fromPartial(request));
   }
 
   /**
-   * Fetches full device capabilities snapshot from upstream emulator.
+   * Serves the snapshot from memory after the first call.
+   *
+   * Separate from {@link CapabilitiesClient.GetDeviceCapabilities} rather than
+   * folded into it so that a caller can tell from the call site whether it is
+   * about to touch the wire. The snapshot is fixed for the lifetime of a
+   * connection, so the two agree; a caller that suspects otherwise should use
+   * the RPC.
    */
-  public async getCapabilities(): Promise<DeviceCapabilities> {
-    return this.getDeviceCapabilities();
+  public async getCachedDeviceCapabilities(): Promise<DeviceCapabilities> {
+    this.cached ??= await this.GetDeviceCapabilities();
+    return this.cached;
   }
 
-  public async getDeviceCapabilities(forceRefresh = false): Promise<DeviceCapabilities> {
-    if (this.cachedCapabilities && !forceRefresh) {
-      return this.cachedCapabilities;
-    }
-
-    const requestBytes = GetDeviceCapabilitiesRequest.encode({}).finish();
-    const responseBytes = await this.transport.request(
-      "android.emulation.v2.discovery.CapabilitiesService",
-      "GetDeviceCapabilities",
-      requestBytes
-    );
-
-    const caps = DeviceCapabilities.decode(responseBytes);
-    this.cachedCapabilities = caps;
-    return caps;
-  }
-
-  /**
-   * Returns metadata about the emulated hardware and OS.
-   */
-  public async getDeviceMetadata(): Promise<DeviceMetadata | undefined> {
-    const caps = await this.getDeviceCapabilities();
-    return caps.metadata;
-  }
-
-  /**
-   * Queries display capabilities and configurations.
-   */
-  public async getDisplayCapabilities(): Promise<DisplayCapabilities | undefined> {
-    const caps = await this.getDeviceCapabilities();
-    return caps.display;
-  }
-
-  /**
-   * Queries available hardware sensors.
-   */
-  public async getSensorsCapabilities(): Promise<SensorsCapabilities | undefined> {
-    const caps = await this.getDeviceCapabilities();
-    return caps.sensors;
-  }
-
-  /**
-   * Queries touch and input device capabilities.
-   */
-  public async getInputCapabilities(): Promise<InputCapabilities | undefined> {
-    const caps = await this.getDeviceCapabilities();
-    return caps.input;
-  }
-
-  /**
-   * Queries posture and hinge capabilities.
-   */
-  public async getPostureCapabilities(): Promise<PostureCapabilities | undefined> {
-    const caps = await this.getDeviceCapabilities();
-    return caps.posture;
-  }
-
-  /**
-   * Queries location and GPS capabilities.
-   */
-  public async getLocationCapabilities(): Promise<LocationCapabilities | undefined> {
-    const caps = await this.getDeviceCapabilities();
-    return caps.location;
-  }
-
-  /**
-   * Queries VM execution lifecycle capabilities.
-   */
-  public async getVmCapabilities(): Promise<VmCapabilities | undefined> {
-    const caps = await this.getDeviceCapabilities();
-    return caps.vm;
-  }
-
-  /**
-   * Queries snapshot capabilities.
-   */
-  public async getSnapshotCapabilities(): Promise<SnapshotCapabilities | undefined> {
-    const caps = await this.getDeviceCapabilities();
-    return caps.snapshot;
+  /** Drops the memoized snapshot, so the next cached read queries the device. */
+  public invalidateCache(): void {
+    this.cached = null;
   }
 }

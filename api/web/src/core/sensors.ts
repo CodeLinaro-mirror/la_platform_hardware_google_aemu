@@ -12,147 +12,81 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { GrpcWebTransport } from "./transport";
+import { GrpcWebTransport } from './transport';
+import { subscribe, Unsubscribe } from './streaming';
 import {
-  SensorsState,
+  AmbientEnvironment,
+  DeepPartial,
+  DevicePose,
   GetSensorsStateRequest,
+  ImuTelemetry,
+  RawSensorOverrides,
+  SensorsService,
+  SensorsServiceClientImpl,
+  SensorsState,
   StreamSensorsStateRequest,
+  TransitionMode,
   UpdateSensorsStateRequest,
   Vector3f,
-} from "@android/emulator-services/environment/sensors_service";
+} from '@android/emulator-services/sensors_service';
 
-export { SensorsState, Vector3f };
+export {
+  AmbientEnvironment,
+  DevicePose,
+  ImuTelemetry,
+  RawSensorOverrides,
+  SensorsState,
+  TransitionMode,
+  UpdateSensorsStateRequest,
+  Vector3f,
+};
 
-export interface SensorsStateUpdate {
-  acceleration?: Vector3f;
-  gyroscope?: Vector3f;
-  magnetometer?: Vector3f;
-  orientationDegrees?: Vector3f;
-  ambientTemperatureCelsius?: number;
-  proximityCentimeters?: number;
-  lightLux?: number;
-  pressureHpa?: number;
-  relativeHumidityPercent?: number;
-  heartRateBpm?: number;
-}
+/**
+ * The sensors a caller is allowed to drive.
+ */
+export type SensorsStateUpdate = DeepPartial<UpdateSensorsStateRequest>;
 
 /**
  * Headless API client for SensorsService.
+ *
+ * Methods named in `PascalCase` are the RPCs of `SensorsService`, spelled
+ * exactly as `sensors_service.proto` declares them. `camelCase` methods are
+ * conveniences this package adds and have no RPC of their own.
  */
 export class SensorsClient {
-  private readonly transport: GrpcWebTransport;
+  private readonly rpc: SensorsService;
 
   constructor(transport: GrpcWebTransport) {
-    this.transport = transport;
+    this.rpc = new SensorsServiceClientImpl(transport);
   }
 
-  public async getSensorsState(): Promise<SensorsState> {
-    const reqBytes = GetSensorsStateRequest.encode({}).finish();
-    const resBytes = await this.transport.request(
-      "android.emulation.v2.environment.SensorsService",
-      "GetSensorsState",
-      reqBytes
-    );
-    return SensorsState.decode(resBytes);
+  public GetSensorsState(
+    request: DeepPartial<GetSensorsStateRequest> = {}
+  ): Promise<SensorsState> {
+    return this.rpc.GetSensorsState(GetSensorsStateRequest.fromPartial(request));
   }
 
-  public streamSensors(
+  public StreamSensorsState(
+    request: DeepPartial<StreamSensorsStateRequest> = {},
+    signal?: AbortSignal
+  ): AsyncIterable<SensorsState> {
+    return this.rpc.StreamSensorsState(StreamSensorsStateRequest.fromPartial(request), signal);
+  }
+
+  /**
+   * Applies a partial update. Only the sensors present in `update` are driven;
+   * the rest keep whatever the emulator is already reporting.
+   */
+  public UpdateSensorsState(update: SensorsStateUpdate): Promise<SensorsState> {
+    return this.rpc.UpdateSensorsState(UpdateSensorsStateRequest.fromPartial(update));
+  }
+
+  /** Callback form of {@link SensorsClient.StreamSensorsState}. */
+  public subscribeSensorsState(
     onState: (state: SensorsState) => void,
-    onError?: (err: any) => void
-  ): () => void {
-    const reqBytes = StreamSensorsStateRequest.encode({}).finish();
-    return this.transport.stream(
-      "android.emulation.v2.environment.SensorsService",
-      "StreamSensorsState",
-      reqBytes,
-      (bytes) => onState(SensorsState.decode(bytes)),
-      onError
-    );
-  }
-
-  public streamSensorsIterator(): AsyncIterable<SensorsState> {
-    const reqBytes = StreamSensorsStateRequest.encode({}).finish();
-    const byteStream = this.transport.serverStream(
-      "android.emulation.v2.environment.SensorsService",
-      "StreamSensorsState",
-      reqBytes
-    );
-
-    return {
-      async *[Symbol.asyncIterator]() {
-        for await (const chunkBytes of byteStream) {
-          yield SensorsState.decode(chunkBytes);
-        }
-      },
-    };
-  }
-
-  public async updateSensorsState(update: SensorsStateUpdate): Promise<SensorsState> {
-    const paths: string[] = [];
-    const state: any = {
-      timestampNanos: Date.now() * 1000000,
-      ambientTemperatureCelsius: 0,
-      proximityCentimeters: 0,
-      lightLux: 0,
-      pressureHpa: 0,
-      relativeHumidityPercent: 0,
-      heartRateBpm: 0,
-      wristTilt: 0,
-      headingDegrees: 0,
-    };
-
-    if (update.acceleration) {
-      paths.push("accelerometer");
-      state.accelerometer = update.acceleration;
-    }
-    if (update.gyroscope) {
-      paths.push("gyroscope");
-      state.gyroscope = update.gyroscope;
-    }
-    if (update.magnetometer) {
-      paths.push("magnetometer");
-      state.magnetometer = update.magnetometer;
-    }
-    if (update.orientationDegrees) {
-      paths.push("orientation_degrees");
-      state.orientationDegrees = update.orientationDegrees;
-    }
-    if (update.ambientTemperatureCelsius !== undefined) {
-      paths.push("ambient_temperature_celsius");
-      state.ambientTemperatureCelsius = update.ambientTemperatureCelsius;
-    }
-    if (update.proximityCentimeters !== undefined) {
-      paths.push("proximity_centimeters");
-      state.proximityCentimeters = update.proximityCentimeters;
-    }
-    if (update.lightLux !== undefined) {
-      paths.push("light_lux");
-      state.lightLux = update.lightLux;
-    }
-    if (update.pressureHpa !== undefined) {
-      paths.push("pressure_hpa");
-      state.pressureHpa = update.pressureHpa;
-    }
-    if (update.relativeHumidityPercent !== undefined) {
-      paths.push("relative_humidity_percent");
-      state.relativeHumidityPercent = update.relativeHumidityPercent;
-    }
-    if (update.heartRateBpm !== undefined) {
-      paths.push("heart_rate_bpm");
-      state.heartRateBpm = update.heartRateBpm;
-    }
-
-    const req: UpdateSensorsStateRequest = {
-      sensorsState: state,
-      updateMask: paths,
-    };
-
-    const reqBytes = UpdateSensorsStateRequest.encode(req).finish();
-    const resBytes = await this.transport.request(
-      "android.emulation.v2.environment.SensorsService",
-      "UpdateSensorsState",
-      reqBytes
-    );
-    return SensorsState.decode(resBytes);
+    onError?: (err: unknown) => void,
+    request: DeepPartial<StreamSensorsStateRequest> = {}
+  ): Unsubscribe {
+    return subscribe((signal) => this.StreamSensorsState(request, signal), onState, onError);
   }
 }

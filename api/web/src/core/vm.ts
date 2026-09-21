@@ -12,92 +12,86 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { BinaryWriter } from '@bufbuild/protobuf/wire';
 import { GrpcWebTransport } from './transport';
+import { subscribe, Unsubscribe } from './streaming';
 import {
+  DeepPartial,
+  GetVmStateRequest,
+  HardResetVmRequest,
+  HypervisorService,
+  HypervisorServiceClientImpl,
+  PauseVmRequest,
+  ResetVmRequest,
+  ResumeVmRequest,
+  StopVmRequest,
+  StreamVmStateRequest,
   VmState,
   VmState_State,
-  StreamVmStateRequest,
-} from '@android/emulator-services/vm/vm_service';
+} from '@android/emulator-services/hypervisor_service';
 
-export { VmState, VmState_State };
-
-export enum VmStateEnum {
-  UNSPECIFIED = 0,
-  RUNNING = 1,
-  PAUSED = 2,
-  STARTING = 3,
-  STOPPING = 4,
-  STOPPED = 5,
-  SAVING_SNAPSHOT = 6,
-  RESTORING_SNAPSHOT = 7,
-}
+export { VmState, VmState_State, StopVmRequest };
 
 /**
- * Headless API client for VmService.
+ * Headless API client for VM lifecycle RPCs on HypervisorService.
+ *
+ * Methods named in `PascalCase` are the RPCs of `HypervisorService`, spelled
+ * exactly as `hypervisor_service.proto` declares them. `camelCase` methods are
+ * conveniences this package adds and have no RPC of their own.
  */
 export class VmClient {
-  private readonly transport: GrpcWebTransport;
+  private readonly rpc: HypervisorService;
 
   constructor(transport: GrpcWebTransport) {
-    this.transport = transport;
+    this.rpc = new HypervisorServiceClientImpl(transport);
   }
 
-  public async getVmState(): Promise<Uint8Array> {
-    return this.transport.request(
-      'android.emulation.v2.vm.VmService',
-      'GetVmState',
-      new Uint8Array(0)
-    );
+  public GetVmState(request: DeepPartial<GetVmStateRequest> = {}): Promise<VmState> {
+    return this.rpc.GetVmState(GetVmStateRequest.fromPartial(request));
   }
 
-  public streamVmState(
+  public StreamVmState(
+    request: DeepPartial<StreamVmStateRequest> = {},
+    signal?: AbortSignal
+  ): AsyncIterable<VmState> {
+    return this.rpc.StreamVmState(StreamVmStateRequest.fromPartial(request), signal);
+  }
+
+  /**
+   * Suspends the hypervisor. The guest stops executing but retains its state.
+   */
+  public PauseVm(request: DeepPartial<PauseVmRequest> = {}): Promise<VmState> {
+    return this.rpc.PauseVm(PauseVmRequest.fromPartial(request));
+  }
+
+  /** Resumes a paused hypervisor. */
+  public ResumeVm(request: DeepPartial<ResumeVmRequest> = {}): Promise<VmState> {
+    return this.rpc.ResumeVm(ResumeVmRequest.fromPartial(request));
+  }
+
+  /** Soft/warm reboot (ACPI restart). Virtual hardware and RAM are preserved. */
+  public ResetVm(request: DeepPartial<ResetVmRequest> = {}): Promise<VmState> {
+    return this.rpc.ResetVm(ResetVmRequest.fromPartial(request));
+  }
+
+  /**
+   * Cold power-cycle: RAM is cleared and the virtual hardware is reset. Only
+   * available on emulated devices.
+   */
+  public HardResetVm(request: DeepPartial<HardResetVmRequest> = {}): Promise<VmState> {
+    return this.rpc.HardResetVm(HardResetVmRequest.fromPartial(request));
+  }
+
+  /** Gracefully terminates the emulator process. */
+  public StopVm(request: DeepPartial<StopVmRequest> = {}): Promise<VmState> {
+    return this.rpc.StopVm(StopVmRequest.fromPartial(request));
+  }
+
+  /** Callback form of {@link VmClient.StreamVmState}. */
+  public subscribeVmState(
     onState: (state: VmState) => void,
-    onError?: (err: any) => void
-  ): () => void {
-    const reqBytes = StreamVmStateRequest.encode({}).finish();
-    return this.transport.stream(
-      'android.emulation.v2.vm.VmService',
-      'StreamVmState',
-      reqBytes,
-      (bytes) => onState(VmState.decode(bytes)),
-      onError
-    );
-  }
-
-  public streamVmStateIterator(): AsyncIterable<VmState> {
-    const reqBytes = StreamVmStateRequest.encode({}).finish();
-    const byteStream = this.transport.serverStream(
-      'android.emulation.v2.vm.VmService',
-      'StreamVmState',
-      reqBytes
-    );
-
-    return {
-      async *[Symbol.asyncIterator]() {
-        for await (const chunkBytes of byteStream) {
-          yield VmState.decode(chunkBytes);
-        }
-      },
-    };
-  }
-
-  public async setVmState(state: VmStateEnum): Promise<Uint8Array> {
-    const writer = new BinaryWriter();
-    // 1. target_state = 1
-    writer.uint32(8).int32(state);
-    return this.transport.request(
-      'android.emulation.v2.vm.VmService',
-      'SetVmState',
-      writer.finish()
-    );
-  }
-
-  public async pause(): Promise<Uint8Array> {
-    return this.setVmState(VmStateEnum.PAUSED);
-  }
-
-  public async resume(): Promise<Uint8Array> {
-    return this.setVmState(VmStateEnum.RUNNING);
+    onError?: (err: unknown) => void,
+    request: DeepPartial<StreamVmStateRequest> = {}
+  ): Unsubscribe {
+    return subscribe((signal) => this.StreamVmState(request, signal), onState, onError);
   }
 }

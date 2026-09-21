@@ -14,102 +14,120 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BatteryClient, BatteryState_State, ChargerSource } from '../src/core/battery';
-import { BatteryState, UpdateBatteryStateRequest } from '@android/emulator-services/environment/battery_service';
+import {
+  BatteryState,
+  UpdateBatteryStateRequest,
+} from '@android/emulator-services/battery_service';
+import { FakeTransport } from './fake_transport';
 
-describe('BatteryClient (TDD)', () => {
-  let mockTransport: any;
+const SERVICE = 'android.emulation.v2.BatteryService';
+
+describe('BatteryClient', () => {
+  let transport: FakeTransport;
+  let client: BatteryClient;
 
   beforeEach(() => {
-    mockTransport = {
-      request: vi.fn(),
-    };
+    transport = new FakeTransport();
+    client = new BatteryClient(transport.asTransport());
   });
 
-  it('calls GetBatteryState RPC correctly', async () => {
-    const batteryClient = new BatteryClient(mockTransport);
+  function encodeState(state: Partial<BatteryState>): Uint8Array {
+    return BatteryState.encode(BatteryState.fromPartial(state)).finish();
+  }
 
-    const mockResponse: BatteryState = {
-      levelPercent: 85,
-      state: BatteryState_State.DISCHARGING,
-      charger: ChargerSource.CHARGER_SOURCE_NONE,
-      health: 1, // GOOD
-    };
-    mockTransport.request.mockResolvedValue(BatteryState.encode(mockResponse).finish());
+  it('calls GetBatteryState and decodes the reply', async () => {
+    transport.respondWith(
+      encodeState({ levelPercent: 85, state: BatteryState_State.DISCHARGING })
+    );
 
-    const result = await batteryClient.getBatteryState();
-    expect(mockTransport.request).toHaveBeenCalledTimes(1);
-    const [service, method] = mockTransport.request.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.environment.BatteryService');
-    expect(method).toBe('GetBatteryState');
+    const result = await client.GetBatteryState();
+
+    expect(transport.calls).toHaveLength(1);
+    expect(transport.lastCall.service).toBe(SERVICE);
+    expect(transport.lastCall.method).toBe('GetBatteryState');
     expect(result.levelPercent).toBe(85);
     expect(result.state).toBe(BatteryState_State.DISCHARGING);
   });
 
-  it('updateBatteryState sets level and field mask', async () => {
-    const batteryClient = new BatteryClient(mockTransport);
+  it('sends only the updated level field', async () => {
+    transport.respondWith(encodeState({ levelPercent: 42 }));
 
-    const mockResponse: BatteryState = {
-      levelPercent: 42,
-      state: BatteryState_State.CHARGING,
-      charger: ChargerSource.CHARGER_SOURCE_AC,
-      health: 1,
-    };
-    mockTransport.request.mockResolvedValue(BatteryState.encode(mockResponse).finish());
+    const result = await client.UpdateBatteryState({ levelPercent: 42 });
 
-    const result = await batteryClient.setBatteryLevel(42);
-    expect(mockTransport.request).toHaveBeenCalledTimes(1);
-    const [service, method, data] = mockTransport.request.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.environment.BatteryService');
-    expect(method).toBe('UpdateBatteryState');
-
-    const decodedReq = UpdateBatteryStateRequest.decode(data);
-    expect(decodedReq.batteryState?.levelPercent).toBe(42);
-    expect(decodedReq.updateMask).toContain('level_percent');
+    expect(transport.lastCall.method).toBe('UpdateBatteryState');
+    const request = UpdateBatteryStateRequest.decode(transport.lastCall.data);
+    expect(request.levelPercent).toBe(42);
+    expect(request.state).toBeUndefined();
+    expect(request.charger).toBeUndefined();
+    expect(request.health).toBeUndefined();
     expect(result.levelPercent).toBe(42);
   });
 
-  it('setChargingState updates charging state and charger source', async () => {
-    const batteryClient = new BatteryClient(mockTransport);
+  it('sends only the fields a charging-state update touches', async () => {
+    transport.respondWith(encodeState({ state: BatteryState_State.FULL }));
 
-    mockTransport.request.mockResolvedValue(
-      BatteryState.encode({
-        levelPercent: 100,
-        state: BatteryState_State.FULL,
-        charger: ChargerSource.CHARGER_SOURCE_WIRELESS,
-        health: 1,
-      }).finish()
-    );
+    const result = await client.UpdateBatteryState({
+      state: BatteryState_State.FULL,
+      charger: ChargerSource.CHARGER_SOURCE_WIRELESS,
+    });
 
-    const result = await batteryClient.setChargingState(
-      BatteryState_State.FULL,
-      ChargerSource.CHARGER_SOURCE_WIRELESS
-    );
-    expect(mockTransport.request).toHaveBeenCalledTimes(1);
-    const [, , data] = mockTransport.request.mock.calls[0];
-    const decodedReq = UpdateBatteryStateRequest.decode(data);
-    expect(decodedReq.updateMask).toContain('state');
+    const request = UpdateBatteryStateRequest.decode(transport.lastCall.data);
+    expect(request.state).toBe(BatteryState_State.FULL);
+    expect(request.charger).toBe(ChargerSource.CHARGER_SOURCE_WIRELESS);
+    expect(request.levelPercent).toBeUndefined();
+    expect(request.health).toBeUndefined();
     expect(result.state).toBe(BatteryState_State.FULL);
   });
 
-  it('streamBatteryState subscribes to live updates via transport.stream', () => {
-    mockTransport.stream = vi.fn();
-    const batteryClient = new BatteryClient(mockTransport);
+  it('preserves explicit zero values via proto3 optional wire presence', async () => {
+    transport.respondWith(encodeState({}));
 
+    await client.UpdateBatteryState({ levelPercent: 0 });
+
+    const request = UpdateBatteryStateRequest.decode(transport.lastCall.data);
+    expect(request.levelPercent).toBe(0);
+    expect(request.state).toBeUndefined();
+    expect(request.charger).toBeUndefined();
+    expect(request.health).toBeUndefined();
+  });
+
+  it('leaves unsupplied fields undefined on the wire', async () => {
+    transport.respondWith(encodeState({}));
+
+    await client.UpdateBatteryState({ health: undefined, levelPercent: 10 });
+
+    const request = UpdateBatteryStateRequest.decode(transport.lastCall.data);
+    expect(request.levelPercent).toBe(10);
+    expect(request.health).toBeUndefined();
+  });
+
+  it('decodes each state pushed by StreamBatteryState', async () => {
     const onState = vi.fn();
-    batteryClient.streamBatteryState(onState);
 
-    expect(mockTransport.stream).toHaveBeenCalledTimes(1);
-    const [service, method, , onMsg] = mockTransport.stream.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.environment.BatteryService');
-    expect(method).toBe('StreamBatteryState');
+    const unsubscribe = client.subscribeBatteryState(onState);
+    transport.stream().push(encodeState({ levelPercent: 77 }));
+    await settle();
 
-    const sampleState: BatteryState = {
-      levelPercent: 77,
-      state: BatteryState_State.CHARGING,
-      charger: ChargerSource.CHARGER_SOURCE_AC,
-      health: 1,
-    };
-    onMsg(BatteryState.encode(sampleState).finish());
+    expect(transport.streamCalls[0].service).toBe(SERVICE);
+    expect(transport.streamCalls[0].method).toBe('StreamBatteryState');
     expect(onState).toHaveBeenCalledWith(expect.objectContaining({ levelPercent: 77 }));
+
+    unsubscribe();
+  });
+
+  it('aborts the underlying stream on unsubscribe', async () => {
+    const unsubscribe = client.subscribeBatteryState(() => {});
+    await settle();
+
+    unsubscribe();
+
+    expect(transport.streamCalls[0].signal?.aborted).toBe(true);
   });
 });
+
+/** Lets the subscription's background task drain the queued messages. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}

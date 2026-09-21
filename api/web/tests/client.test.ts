@@ -26,33 +26,33 @@ describe('DeviceClient & Subsystem Clients (TDD)', () => {
     };
   });
 
-  it('SensorsClient.updateSensorsState serializes sensor updates with field mask', async () => {
+  it('SensorsClient.UpdateSensorsState serializes sensor updates with field mask', async () => {
     const sensors = new SensorsClient(mockTransport);
 
     // Mock successful return of updated state
     mockTransport.request.mockResolvedValue(new Uint8Array([]));
 
-    await sensors.updateSensorsState({
-      acceleration: { x: 0, y: 9.81, z: 0 },
+    await sensors.UpdateSensorsState({
+      pose: { rotationDegrees: { x: 0, y: 0, z: 90 } },
     });
 
     expect(mockTransport.request).toHaveBeenCalledTimes(1);
     const [service, method, data] = mockTransport.request.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.environment.SensorsService');
+    expect(service).toBe('android.emulation.v2.SensorsService');
     expect(method).toBe('UpdateSensorsState');
     expect(data.byteLength).toBeGreaterThan(0);
   });
 
-  it('CapabilitiesClient.getCapabilities fetches hardware and display properties', async () => {
+  it('CapabilitiesClient.getCachedDeviceCapabilities fetches hardware and display properties', async () => {
     const capabilities = new CapabilitiesClient(mockTransport);
 
     mockTransport.request.mockResolvedValue(new Uint8Array([]));
 
-    await capabilities.getCapabilities();
+    await capabilities.getCachedDeviceCapabilities();
 
     expect(mockTransport.request).toHaveBeenCalledTimes(1);
     const [service, method] = mockTransport.request.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.discovery.CapabilitiesService');
+    expect(service).toBe('android.emulation.v2.CapabilitiesService');
     expect(method).toBe('GetDeviceCapabilities');
   });
 

@@ -13,120 +13,74 @@
 // limitations under the License.
 
 import { GrpcWebTransport } from './transport';
+import { subscribe, Unsubscribe } from './streaming';
 import {
+  BatteryService,
+  BatteryServiceClientImpl,
   BatteryState,
-  BatteryState_State,
   BatteryState_Health,
+  BatteryState_State,
+  ChargerSource,
+  DeepPartial,
   GetBatteryStateRequest,
   StreamBatteryStateRequest,
   UpdateBatteryStateRequest,
-} from '@android/emulator-services/environment/battery_service';
-import { ChargerSource } from '@android/emulator-services/common/common';
+} from '@android/emulator-services/battery_service';
 
-export { BatteryState, BatteryState_State, BatteryState_Health, ChargerSource };
+export {
+  BatteryState,
+  BatteryState_State,
+  BatteryState_Health,
+  ChargerSource,
+  UpdateBatteryStateRequest,
+};
 
-export interface BatteryStateUpdate {
-  levelPercent?: number;
-  state?: BatteryState_State;
-  charger?: ChargerSource;
-  health?: BatteryState_Health;
-}
+/**
+ * The fields of {@link BatteryState} a caller is allowed to change.
+ */
+export type BatteryStateUpdate = DeepPartial<UpdateBatteryStateRequest>;
 
 /**
  * Headless API client for BatteryService.
+ *
+ * Methods named in `PascalCase` are the RPCs of `BatteryService`, spelled
+ * exactly as `battery_service.proto` declares them. `camelCase` methods are
+ * conveniences this package adds and have no RPC of their own.
  */
 export class BatteryClient {
-  private readonly transport: GrpcWebTransport;
+  private readonly rpc: BatteryService;
 
   constructor(transport: GrpcWebTransport) {
-    this.transport = transport;
+    this.rpc = new BatteryServiceClientImpl(transport);
   }
 
-  public async getBatteryState(): Promise<BatteryState> {
-    const reqBytes = GetBatteryStateRequest.encode({}).finish();
-    const resBytes = await this.transport.request(
-      'android.emulation.v2.environment.BatteryService',
-      'GetBatteryState',
-      reqBytes
-    );
-    return BatteryState.decode(resBytes);
-  }
-
-  public streamBatteryState(
-    onState: (state: BatteryState) => void,
-    onError?: (err: any) => void
-  ): () => void {
-    const reqBytes = StreamBatteryStateRequest.encode({}).finish();
-    return this.transport.stream(
-      'android.emulation.v2.environment.BatteryService',
-      'StreamBatteryState',
-      reqBytes,
-      (bytes) => onState(BatteryState.decode(bytes)),
-      onError
-    );
-  }
-
-  public streamBatteryStateIterator(): AsyncIterable<BatteryState> {
-    const reqBytes = StreamBatteryStateRequest.encode({}).finish();
-    const byteStream = this.transport.serverStream(
-      'android.emulation.v2.environment.BatteryService',
-      'StreamBatteryState',
-      reqBytes
-    );
-
-    return {
-      async *[Symbol.asyncIterator]() {
-        for await (const chunkBytes of byteStream) {
-          yield BatteryState.decode(chunkBytes);
-        }
-      },
-    };
-  }
-
-  public async updateBatteryState(update: BatteryStateUpdate): Promise<BatteryState> {
-    const paths: string[] = [];
-    const state: BatteryState = {
-      levelPercent: update.levelPercent ?? 100,
-      state: update.state ?? BatteryState_State.DISCHARGING,
-      charger: update.charger ?? ChargerSource.CHARGER_SOURCE_UNSPECIFIED,
-      health: update.health ?? BatteryState_Health.GOOD,
-    };
-
-    if (update.levelPercent !== undefined) {
-      paths.push('level_percent');
-    }
-    if (update.state !== undefined) {
-      paths.push('state');
-    }
-    if (update.charger !== undefined) {
-      paths.push('charger');
-    }
-    if (update.health !== undefined) {
-      paths.push('health');
-    }
-
-    const req: UpdateBatteryStateRequest = {
-      batteryState: state,
-      updateMask: paths,
-    };
-
-    const reqBytes = UpdateBatteryStateRequest.encode(req).finish();
-    const resBytes = await this.transport.request(
-      'android.emulation.v2.environment.BatteryService',
-      'UpdateBatteryState',
-      reqBytes
-    );
-    return BatteryState.decode(resBytes);
-  }
-
-  public async setBatteryLevel(percent: number): Promise<BatteryState> {
-    return this.updateBatteryState({ levelPercent: percent });
-  }
-
-  public async setChargingState(
-    state: BatteryState_State,
-    charger: ChargerSource = ChargerSource.CHARGER_SOURCE_AC
+  public GetBatteryState(
+    request: DeepPartial<GetBatteryStateRequest> = {}
   ): Promise<BatteryState> {
-    return this.updateBatteryState({ state, charger });
+    return this.rpc.GetBatteryState(GetBatteryStateRequest.fromPartial(request));
+  }
+
+  public StreamBatteryState(
+    request: DeepPartial<StreamBatteryStateRequest> = {},
+    signal?: AbortSignal
+  ): AsyncIterable<BatteryState> {
+    return this.rpc.StreamBatteryState(StreamBatteryStateRequest.fromPartial(request), signal);
+  }
+
+  /**
+   * Applies a partial update. Only the fields present in `update` are changed;
+   * the rest are left alone by the server.
+   */
+  public UpdateBatteryState(update: BatteryStateUpdate): Promise<BatteryState> {
+    return this.rpc.UpdateBatteryState(UpdateBatteryStateRequest.fromPartial(update));
+  }
+
+  /** Callback form of {@link BatteryClient.StreamBatteryState}. */
+  public subscribeBatteryState(
+    onState: (state: BatteryState) => void,
+    onError?: (err: unknown) => void,
+    request: DeepPartial<StreamBatteryStateRequest> = {}
+  ): Unsubscribe {
+    return subscribe((signal) => this.StreamBatteryState(request, signal), onState, onError);
   }
 }

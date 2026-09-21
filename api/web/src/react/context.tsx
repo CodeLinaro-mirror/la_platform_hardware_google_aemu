@@ -75,10 +75,3 @@ export function useDeviceClient(): DeviceClient {
   }
   return client;
 }
-
-// Backward compatibility aliases
-export {
-  DeviceProvider as AquariumProvider,
-  useDeviceClient as useAquariumClient,
-  type DeviceProviderProps as AquariumProviderProps,
-};

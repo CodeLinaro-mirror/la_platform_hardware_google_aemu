@@ -15,13 +15,14 @@
 import { GrpcWebTransport } from "./transport";
 import { InputChannel } from "./input_channel";
 import { DeviceError } from "./auth";
+import { subscribe, Unsubscribe } from "./streaming";
+import { TrackType } from "@android/emulator-services/common";
 import {
-  RtcStreamRequest,
-  RtcStreamResponse,
-  RtcSession,
   JsepMessage,
-  TrackType,
-} from "@android/emulator-services/webrtc/rtc_service";
+  RtcService,
+  RtcServiceClientImpl,
+  SessionDescription_Type,
+} from "@android/emulator-services/webrtc_service";
 
 export { TrackType };
 
@@ -47,7 +48,7 @@ type EventListener = (...args: any[]) => void;
  * Coordinates WebRTC signaling, JSEP offer/answer, and media stream tracks.
  */
 export class RtcController {
-  private readonly transport: GrpcWebTransport;
+  private readonly rpc: RtcService;
   private readonly inputChannel: InputChannel;
   private readonly pcConfig?: RTCConfiguration;
   private readonly createPcFn: (config?: RTCConfiguration) => RTCPeerConnection;
@@ -57,13 +58,13 @@ export class RtcController {
   private connectionState: RtcConnectionState = RtcConnectionState.DISCONNECTED;
   private listeners: Map<string, Set<EventListener>> = new Map();
   private mediaStream: MediaStream | null = null;
-  private streamCancelFn: (() => void) | null = null;
+  private streamCancelFn: Unsubscribe | null = null;
   private pendingRemoteCandidates: any[] = [];
   private isRemoteDescriptionSet = false;
   private jsepProcessingChain: Promise<void> = Promise.resolve();
 
   constructor(options: RtcControllerOptions) {
-    this.transport = options.transport;
+    this.rpc = new RtcServiceClientImpl(options.transport);
     this.inputChannel = options.inputChannel;
     this.pcConfig = options.peerConnectionConfig;
     this.createPcFn =
@@ -131,17 +132,20 @@ export class RtcController {
 
     try {
       // 1. Request WebRTC session and ICE configurations
-      const reqBytes = this.encodeRtcStreamRequest([
-        TrackType.TRACK_TYPE_SCREEN_PRIMARY,
-        TrackType.TRACK_TYPE_AUDIO_SPEAKER,
-      ]);
-      const resBytes = await this.transport.request(
-        "android.emulation.v2.webrtc.RtcService",
-        "RequestRtcStream",
-        reqBytes
-      );
+      const response = await this.rpc.RequestRtcStream({
+        requestedTracks: [
+          TrackType.TRACK_TYPE_SCREEN_PRIMARY,
+          TrackType.TRACK_TYPE_AUDIO_SPEAKER,
+        ],
+        secondaryDisplayIds: [],
+      });
 
-      const { guid, iceServers } = this.decodeRtcStreamResponse(resBytes);
+      const guid = response.handle?.sessionId ?? "";
+      const iceServers: RTCIceServer[] = (response.iceServers || []).map((s) => ({
+        urls: s.urls,
+        username: s.username || undefined,
+        credential: s.credential || undefined,
+      }));
       this.sessionGuid = guid;
 
       // 2. Initialize RTCPeerConnection
@@ -174,12 +178,13 @@ export class RtcController {
       await this.peerConnection.setLocalDescription(offer);
 
       // 6. Send SDP Offer to emulator
-      const jsepBytes = this.encodeJsepMessage(guid, JSON.stringify(offer));
-      await this.transport.request(
-        "android.emulation.v2.webrtc.RtcService",
-        "SendJsepMessage",
-        jsepBytes
-      );
+      await this.rpc.SendJsepMessage({
+        handle: { sessionId: guid },
+        sdp: {
+          type: SessionDescription_Type.OFFER,
+          sdp: offer.sdp || "",
+        },
+      });
     } catch (err: any) {
       this.setState(RtcConnectionState.FAILED);
       this.emit("error", new DeviceError(`WebRTC connect failed: ${err.message}`));
@@ -209,7 +214,7 @@ export class RtcController {
           }
         }
       }
-    } else if (json.candidate) {
+    } else if (json.candidate !== undefined) {
       if (this.peerConnection) {
         if (!this.isRemoteDescriptionSet && !this.peerConnection.remoteDescription) {
           this.pendingRemoteCandidates.push(json);
@@ -227,9 +232,14 @@ export class RtcController {
   }
 
   public disconnect(): void {
+    const activeGuid = this.sessionGuid;
     if (this.streamCancelFn) {
       this.streamCancelFn();
       this.streamCancelFn = null;
+    }
+
+    if (activeGuid) {
+      this.rpc.CloseRtcStream({ handle: { sessionId: activeGuid } }).catch(() => {});
     }
 
     if (this.peerConnection) {
@@ -247,17 +257,18 @@ export class RtcController {
 
   private setupPeerConnectionEvents(pc: RTCPeerConnection) {
     pc.onicecandidate = (event) => {
-      if (event.candidate && this.sessionGuid) {
-        const jsepMsg = this.encodeJsepMessage(
-          this.sessionGuid,
-          JSON.stringify(event.candidate)
-        );
-        this.transport
-          .request(
-            "android.emulation.v2.webrtc.RtcService",
-            "SendJsepMessage",
-            jsepMsg
-          )
+      if (this.sessionGuid) {
+        const candidate = event.candidate;
+        this.rpc
+          .SendJsepMessage({
+            handle: { sessionId: this.sessionGuid },
+            iceCandidate: {
+              candidate: candidate?.candidate ?? "",
+              sdpMid: candidate?.sdpMid ?? "",
+              sdpMLineIndex: candidate?.sdpMLineIndex ?? 0,
+              usernameFragment: candidate?.usernameFragment ?? undefined,
+            },
+          })
           .catch((err) => console.error("Failed to send local ICE candidate:", err));
       }
     };
@@ -273,7 +284,6 @@ export class RtcController {
     };
 
     pc.ondatachannel = (event) => {
-      console.log(`[RtcController] ondatachannel event: label=${event.channel.label}, state=${event.channel.readyState}`);
       if (event.channel.label === "input_v2" || event.channel.label === "input") {
         this.inputChannel.attachDataChannel(event.channel);
       }
@@ -298,19 +308,26 @@ export class RtcController {
   }
 
   private startJsepStream(guid: string) {
-    const sessionBytes = this.encodeRtcSession(guid);
-
-    this.streamCancelFn = this.transport.stream(
-      "android.emulation.v2.webrtc.RtcService",
-      "ReceiveJsepMessageStream",
-      sessionBytes,
-      (bytes: Uint8Array) => {
+    // Messages are chained rather than handled concurrently: setRemoteDescription
+    // must complete before any candidate that follows it is added.
+    this.streamCancelFn = subscribe(
+      (signal) => this.rpc.ReceiveJsepMessageStream({ sessionId: guid }, signal),
+      (jsep: JsepMessage) => {
         this.jsepProcessingChain = this.jsepProcessingChain
           .then(async () => {
-            const { message } = this.decodeJsepMessage(bytes);
-            if (!message) return;
-            const json = JSON.parse(message);
-            await this.handleJsepMessage(json);
+            if (jsep.sdp) {
+              await this.handleJsepMessage({
+                type: jsep.sdp.type === SessionDescription_Type.ANSWER ? "answer" : "offer",
+                sdp: jsep.sdp.sdp,
+              });
+            } else if (jsep.iceCandidate) {
+              await this.handleJsepMessage({
+                candidate: jsep.iceCandidate.candidate,
+                sdpMid: jsep.iceCandidate.sdpMid,
+                sdpMLineIndex: jsep.iceCandidate.sdpMLineIndex,
+                usernameFragment: jsep.iceCandidate.usernameFragment,
+              });
+            }
           })
           .catch((err) => {
             console.error("Error processing incoming JSEP message:", err);
@@ -320,51 +337,8 @@ export class RtcController {
         console.error("JSEP stream error:", err);
         this.setState(RtcConnectionState.FAILED);
         this.emit("error", err);
-      },
-      () => {
-        console.log("JSEP stream completed.");
       }
     );
-  }
-
-  private encodeRtcStreamRequest(tracks: TrackType[]): Uint8Array {
-    return RtcStreamRequest.encode({
-      requestedTracks: tracks,
-      secondaryDisplayIds: [],
-    }).finish();
-  }
-
-  private decodeRtcStreamResponse(bytes: Uint8Array): {
-    guid: string;
-    iceServers: RTCIceServer[];
-  } {
-    const resp = RtcStreamResponse.decode(bytes);
-    const guid = resp.handle?.sessionId ?? "";
-    const iceServers: RTCIceServer[] = (resp.iceServers || []).map((s) => ({
-      urls: s.urls,
-      username: s.username || undefined,
-      credential: s.credential || undefined,
-    }));
-    return { guid, iceServers };
-  }
-
-  private encodeRtcSession(sessionId: string): Uint8Array {
-    return RtcSession.encode({ sessionId }).finish();
-  }
-
-  private decodeJsepMessage(bytes: Uint8Array): { sessionId: string; message: string } {
-    const jsep = JsepMessage.decode(bytes);
-    return {
-      sessionId: jsep.handle?.sessionId ?? "",
-      message: jsep.message,
-    };
-  }
-
-  private encodeJsepMessage(guid: string, message: string): Uint8Array {
-    return JsepMessage.encode({
-      handle: { sessionId: guid },
-      message,
-    }).finish();
   }
 
   private injectLoopbackActiveCandidate(sdp: string): string {

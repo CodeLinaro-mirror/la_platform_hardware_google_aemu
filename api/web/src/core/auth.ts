@@ -45,9 +45,6 @@ export class DeviceError extends Error {
   }
 }
 
-// Backward compatibility alias
-export { DeviceError as AquariumError };
-
 /**
  * Raised when authentication fails (HTTP 401 or gRPC UNAUTHENTICATED / 16).
  */

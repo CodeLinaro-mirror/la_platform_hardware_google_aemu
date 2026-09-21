@@ -13,57 +13,82 @@
 // limitations under the License.
 
 import { GrpcWebTransport } from './transport';
+import { subscribe, Unsubscribe } from './streaming';
 import {
   CameraFrame,
+  CameraService,
+  CameraServiceClientImpl,
+  CameraState,
+  CameraState_ActiveSource,
+  CameraState_SensorStatus,
+  DeepPartial,
+  GetCameraStateRequest,
+  InjectFrameResponse,
   ResetCameraRequest,
-} from '@android/emulator-services/environment/camera_service';
-import { ImageFormat } from '@android/emulator-services/common/common';
+  ResetCameraResponse,
+  StreamCameraStateRequest,
+} from '@android/emulator-services/camera_service';
+import { ImageFormat } from '@android/emulator-services/common';
 
-export { CameraFrame, ImageFormat };
-
-export interface InjectFrameOptions {
-  cameraId?: string;
-  frameData: Uint8Array;
-  format?: ImageFormat;
-  width?: number;
-  height?: number;
-  rowStrideBytes?: number;
-}
+export {
+  CameraFrame,
+  CameraState,
+  CameraState_ActiveSource,
+  CameraState_SensorStatus,
+  ImageFormat,
+  InjectFrameResponse,
+  ResetCameraRequest,
+  ResetCameraResponse,
+};
 
 /**
- * Headless API client for CameraService (Synthetic camera feed & static photo injection).
+ * Headless API client for CameraService (synthetic camera feed, state
+ * observation, and static photo injection).
+ *
+ * Methods named in `PascalCase` are the RPCs of `CameraService`, spelled
+ * exactly as `camera_service.proto` declares them.
  */
 export class CameraClient {
-  private readonly transport: GrpcWebTransport;
+  private readonly rpc: CameraService;
 
   constructor(transport: GrpcWebTransport) {
-    this.transport = transport;
+    this.rpc = new CameraServiceClientImpl(transport);
   }
 
-  public async injectFrame(options: InjectFrameOptions): Promise<Uint8Array> {
-    const frame: CameraFrame = {
-      cameraId: options.cameraId ?? '0',
-      frameData: options.frameData,
-      format: options.format ?? ImageFormat.IMAGE_FORMAT_PNG,
-      width: options.width,
-      height: options.height,
-      rowStrideBytes: options.rowStrideBytes,
-    };
-    const reqBytes = CameraFrame.encode(frame).finish();
-    return this.transport.request(
-      'android.emulation.v2.environment.CameraService',
-      'InjectFrame',
-      reqBytes
-    );
+  public GetCameraState(
+    request: DeepPartial<GetCameraStateRequest> = {}
+  ): Promise<CameraState> {
+    return this.rpc.GetCameraState(GetCameraStateRequest.fromPartial(request));
   }
 
-  public async resetCamera(cameraId: string = '0'): Promise<Uint8Array> {
-    const req: ResetCameraRequest = { cameraId };
-    const reqBytes = ResetCameraRequest.encode(req).finish();
-    return this.transport.request(
-      'android.emulation.v2.environment.CameraService',
-      'ResetCamera',
-      reqBytes
-    );
+  public StreamCameraState(
+    request: DeepPartial<StreamCameraStateRequest> = {},
+    signal?: AbortSignal
+  ): AsyncIterable<CameraState> {
+    return this.rpc.StreamCameraState(StreamCameraStateRequest.fromPartial(request), signal);
+  }
+
+  /**
+   * Pushes a single frame. `width`, `height` and `rowStrideBytes` are only
+   * needed for the `IMAGE_FORMAT_RAW_*` formats; encoded containers carry
+   * their own dimensions.
+   */
+  public InjectFrame(frame: DeepPartial<CameraFrame>): Promise<InjectFrameResponse> {
+    return this.rpc.InjectFrame(CameraFrame.fromPartial(frame));
+  }
+
+  public ResetCamera(
+    request: DeepPartial<ResetCameraRequest> = {}
+  ): Promise<ResetCameraResponse> {
+    return this.rpc.ResetCamera(ResetCameraRequest.fromPartial(request));
+  }
+
+  /** Callback form of {@link CameraClient.StreamCameraState}. */
+  public subscribeCameraState(
+    onState: (state: CameraState) => void,
+    onError?: (err: unknown) => void,
+    request: DeepPartial<StreamCameraStateRequest> = {}
+  ): Unsubscribe {
+    return subscribe((signal) => this.StreamCameraState(request, signal), onState, onError);
   }
 }

@@ -67,6 +67,7 @@ _SRC_FILES = [
     "src/core/screen_capture.ts",
     "src/core/sensors.ts",
     "src/core/snapshot.ts",
+    "src/core/streaming.ts",
     "src/core/system.ts",
     "src/core/telephony.ts",
     "src/core/transport.ts",
@@ -104,12 +105,6 @@ ts_project(
     validate = False,
     visibility = ["//visibility:public"],
     deps = _COMMON_DEPS,
-)
-
-alias(
-    name = "aquarium",
-    actual = ":web",
-    visibility = ["//visibility:public"],
 )
 
 # Packaged distribution of @android/web
@@ -152,6 +147,7 @@ js_test(
     args = ["--test"],
     data = [
         ":web_tests_ts",
+        "//protos/services_v2:services_v2_proto_srcs",
     ] + _COMMON_DEPS,
     entry_point = "_test_out/tests/run_tests.js",
     target_compatible_with = _NOT_WINDOWS,

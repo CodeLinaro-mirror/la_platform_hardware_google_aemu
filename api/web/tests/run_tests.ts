@@ -45,20 +45,26 @@ const originalResolveFilename = (Module as any)._resolveFilename;
   return originalResolveFilename.call(this, request, parent, isMain, options);
 };
 
-// Load all test suites
-require('./audio.test');
-require('./battery.test');
-require('./biometrics.test');
-require('./camera.test');
-require('./client.test');
-require('./clipboard.test');
-require('./display.test');
-require('./input_channel.test');
-require('./posture.test');
-require('./react.test');
-require('./rtc_controller.test');
-require('./screen_capture.test');
-require('./snapshot.test');
-require('./system.test');
-require('./telephony.test');
-require('./transport.test');
+// Load every compiled suite.
+//
+// This was a hand-maintained list of requires, which meant a new test file was
+// compiled by Bazel and then never run: the suite passed by not existing. The
+// glob in BUILD.bazel already decides what gets compiled, so this just honours
+// that decision.
+const suites = fs
+  .readdirSync(__dirname)
+  .filter((entry) => entry.endsWith('.test.js'))
+  .sort();
+
+// Guards against a layout change silently emptying the run.
+const MINIMUM_SUITES = 18;
+if (suites.length < MINIMUM_SUITES) {
+  throw new Error(
+    `Expected at least ${MINIMUM_SUITES} compiled test suites in ${__dirname}, found ${suites.length}: ${suites.join(', ')}`
+  );
+}
+
+for (const suite of suites) {
+  require(path.join(__dirname, suite));
+}
+

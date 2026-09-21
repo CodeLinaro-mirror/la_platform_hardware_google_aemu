@@ -13,89 +13,58 @@
 // limitations under the License.
 
 import { GrpcWebTransport } from './transport';
+import { subscribe, Unsubscribe } from './streaming';
 import {
-  Screenshot,
+  DeepPartial,
+  DisplayService,
+  DisplayServiceClientImpl,
   GetScreenshotRequest,
+  Screenshot,
   StreamScreenshotsRequest,
-} from '@android/emulator-services/media/screen_capture_service';
-import { ImageFormat } from '@android/emulator-services/common/common';
+} from '@android/emulator-services/display_service';
+import { ImageFormat } from '@android/emulator-services/common';
 
-export { Screenshot, ImageFormat };
-
-export interface ScreenshotOptions {
-  displayId?: number;
-  format?: ImageFormat;
-}
-
-export interface StreamScreenshotsOptions extends ScreenshotOptions {
-  maxFramesPerSecond?: number;
-}
+export { Screenshot, ImageFormat, GetScreenshotRequest, StreamScreenshotsRequest };
 
 /**
- * Headless API client for ScreenCaptureService (Screenshots & Frame Streaming).
+ * Headless API client for screenshot and frame streaming RPCs on DisplayService.
+ *
+ * Methods named in `PascalCase` are the RPCs of `DisplayService`, spelled
+ * exactly as `display_service.proto` declares them. `camelCase` methods
+ * are conveniences this package adds and have no RPC of their own.
  */
 export class ScreenCaptureClient {
-  private readonly transport: GrpcWebTransport;
+  private readonly rpc: DisplayService;
 
   constructor(transport: GrpcWebTransport) {
-    this.transport = transport;
+    this.rpc = new DisplayServiceClientImpl(transport);
   }
 
-  public async getScreenshot(options?: ScreenshotOptions): Promise<Screenshot> {
-    const req: GetScreenshotRequest = {
-      displayId: options?.displayId ?? 0,
-      format: options?.format ?? ImageFormat.IMAGE_FORMAT_PNG,
-    };
-    const reqBytes = GetScreenshotRequest.encode(req).finish();
-    const resBytes = await this.transport.request(
-      'android.emulation.v2.media.ScreenCaptureService',
-      'GetScreenshot',
-      reqBytes
-    );
-    return Screenshot.decode(resBytes);
+  /**
+   * An unset `format` asks the server for its default encoding; an unset
+   * `displayId` selects the primary display.
+   */
+  public GetScreenshot(request: DeepPartial<GetScreenshotRequest> = {}): Promise<Screenshot> {
+    return this.rpc.GetScreenshot(GetScreenshotRequest.fromPartial(request));
   }
 
-  public streamScreenshots(
-    options?: StreamScreenshotsOptions
+  /**
+   * `maxFramesPerSecond` is optional in the proto; leaving it out lets the
+   * server emit a frame per composite rather than throttling.
+   */
+  public StreamScreenshots(
+    request: DeepPartial<StreamScreenshotsRequest> = {},
+    signal?: AbortSignal
   ): AsyncIterable<Screenshot> {
-    const req: StreamScreenshotsRequest = {
-      displayId: options?.displayId ?? 0,
-      format: options?.format ?? ImageFormat.IMAGE_FORMAT_PNG,
-      maxFramesPerSecond: options?.maxFramesPerSecond ?? 10,
-    };
-    const reqBytes = StreamScreenshotsRequest.encode(req).finish();
-    const byteStream = this.transport.serverStream(
-      'android.emulation.v2.media.ScreenCaptureService',
-      'StreamScreenshots',
-      reqBytes
-    );
-
-    return {
-      async *[Symbol.asyncIterator]() {
-        for await (const chunkBytes of byteStream) {
-          yield Screenshot.decode(chunkBytes);
-        }
-      },
-    };
+    return this.rpc.StreamScreenshots(StreamScreenshotsRequest.fromPartial(request), signal);
   }
 
+  /** Callback form of {@link ScreenCaptureClient.StreamScreenshots}. */
   public subscribeScreenshots(
     onScreenshot: (screenshot: Screenshot) => void,
-    onError?: (err: any) => void,
-    options?: StreamScreenshotsOptions
-  ): () => void {
-    const req: StreamScreenshotsRequest = {
-      displayId: options?.displayId ?? 0,
-      format: options?.format ?? ImageFormat.IMAGE_FORMAT_PNG,
-      maxFramesPerSecond: options?.maxFramesPerSecond ?? 10,
-    };
-    const reqBytes = StreamScreenshotsRequest.encode(req).finish();
-    return this.transport.stream(
-      'android.emulation.v2.media.ScreenCaptureService',
-      'StreamScreenshots',
-      reqBytes,
-      (bytes) => onScreenshot(Screenshot.decode(bytes)),
-      onError
-    );
+    onError?: (err: unknown) => void,
+    request: DeepPartial<StreamScreenshotsRequest> = {}
+  ): Unsubscribe {
+    return subscribe((signal) => this.StreamScreenshots(request, signal), onScreenshot, onError);
   }
 }

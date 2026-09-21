@@ -13,87 +13,54 @@
 // limitations under the License.
 
 import { GrpcWebTransport } from './transport';
+import { subscribe, Unsubscribe } from './streaming';
 import {
   AudioChunk,
+  AudioService,
+  AudioServiceClientImpl,
+  DeepPartial,
+  InjectAudioClipResponse,
   StreamSpeakerAudioRequest,
-} from '@android/emulator-services/environment/audio_service';
-import { SampleFormat } from '@android/emulator-services/common/common';
+} from '@android/emulator-services/audio_service';
+import { SampleFormat } from '@android/emulator-services/common';
 
-export { AudioChunk, SampleFormat };
-
-export interface SpeakerAudioOptions {
-  sampleRateHz?: number;
-  format?: SampleFormat;
-}
+export { AudioChunk, InjectAudioClipResponse, SampleFormat };
 
 /**
- * Headless API client for AudioService (Speaker stream & Microphone audio injection).
+ * Headless API client for AudioService.
+ *
+ * Methods named in `PascalCase` are the RPCs of `AudioService`, spelled exactly
+ * as `audio_service.proto` declares them. `camelCase` methods are conveniences
+ * this package adds and have no RPC of their own.
  */
 export class AudioClient {
-  private readonly transport: GrpcWebTransport;
+  private readonly rpc: AudioService;
 
   constructor(transport: GrpcWebTransport) {
-    this.transport = transport;
+    this.rpc = new AudioServiceClientImpl(transport);
   }
 
-  public streamSpeakerAudio(options?: SpeakerAudioOptions): AsyncIterable<AudioChunk> {
-    const req: StreamSpeakerAudioRequest = {
-      sampleRateHz: options?.sampleRateHz ?? 44100,
-      format: options?.format ?? SampleFormat.SAMPLE_FORMAT_PCM16_BIT,
-    };
-    const reqBytes = StreamSpeakerAudioRequest.encode(req).finish();
-    const byteStream = this.transport.serverStream(
-      'android.emulation.v2.environment.AudioService',
-      'StreamSpeakerAudio',
-      reqBytes
-    );
-
-    return {
-      async *[Symbol.asyncIterator]() {
-        for await (const chunkBytes of byteStream) {
-          yield AudioChunk.decode(chunkBytes);
-        }
-      },
-    };
+  public InjectAudioClip(clip: DeepPartial<AudioChunk>): Promise<InjectAudioClipResponse> {
+    return this.rpc.InjectAudioClip(AudioChunk.fromPartial(clip));
   }
 
+  /**
+   * `sampleRateHz` and `format` are optional in the proto: leaving them out
+   * asks for the device's native rate and format, which avoids a resample.
+   */
+  public StreamSpeakerAudio(
+    request: DeepPartial<StreamSpeakerAudioRequest> = {},
+    signal?: AbortSignal
+  ): AsyncIterable<AudioChunk> {
+    return this.rpc.StreamSpeakerAudio(StreamSpeakerAudioRequest.fromPartial(request), signal);
+  }
+
+  /** Callback form of {@link AudioClient.StreamSpeakerAudio}. */
   public subscribeSpeakerAudio(
     onChunk: (chunk: AudioChunk) => void,
-    onError?: (err: any) => void,
-    options?: SpeakerAudioOptions
-  ): () => void {
-    const req: StreamSpeakerAudioRequest = {
-      sampleRateHz: options?.sampleRateHz ?? 44100,
-      format: options?.format ?? SampleFormat.SAMPLE_FORMAT_PCM16_BIT,
-    };
-    const reqBytes = StreamSpeakerAudioRequest.encode(req).finish();
-    return this.transport.stream(
-      'android.emulation.v2.environment.AudioService',
-      'StreamSpeakerAudio',
-      reqBytes,
-      (bytes) => onChunk(AudioChunk.decode(bytes)),
-      onError
-    );
-  }
-
-  public async sendMicrophoneChunk(chunk: {
-    pcmData: Uint8Array;
-    sampleRateHz?: number;
-    channelCount?: number;
-    format?: SampleFormat;
-  }): Promise<Uint8Array> {
-    const audioChunk: AudioChunk = {
-      pcmData: chunk.pcmData,
-      sampleRateHz: chunk.sampleRateHz ?? 16000,
-      channelCount: chunk.channelCount ?? 1,
-      format: chunk.format ?? SampleFormat.SAMPLE_FORMAT_PCM16_BIT,
-      timestampNanos: 0,
-    };
-    const reqBytes = AudioChunk.encode(audioChunk).finish();
-    return this.transport.request(
-      'android.emulation.v2.environment.AudioService',
-      'StreamMicrophoneAudio',
-      reqBytes
-    );
+    onError?: (err: unknown) => void,
+    request: DeepPartial<StreamSpeakerAudioRequest> = {}
+  ): Unsubscribe {
+    return subscribe((signal) => this.StreamSpeakerAudio(request, signal), onChunk, onError);
   }
 }

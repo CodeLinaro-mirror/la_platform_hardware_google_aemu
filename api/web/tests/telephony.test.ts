@@ -15,121 +15,200 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   TelephonyClient,
-  RadioState_Technology,
-  RadioState_Strength,
-  RadioState_Registration,
-  SimulateIncomingCallRequest_Action,
+  TelephonyState_Technology,
+  TelephonyState_Strength,
+  TelephonyState_Registration,
+  TransitionCallRequest_Action,
 } from '../src/core/telephony';
 import {
-  RadioState,
+  TelephonyState,
   SendSmsRequest,
-  SimulateIncomingCallRequest,
-  UpdateRadioStateRequest,
-} from '@android/emulator-services/environment/telephony_service';
+  TransitionCallRequest,
+  UpdateTelephonyStateRequest,
+} from '@android/emulator-services/telephony_service';
+import { FakeTransport } from './fake_transport';
 
-describe('TelephonyClient (TDD)', () => {
-  let mockTransport: any;
+const SERVICE = 'android.emulation.v2.TelephonyService';
+
+describe('TelephonyClient', () => {
+  let transport: FakeTransport;
+  let client: TelephonyClient;
 
   beforeEach(() => {
-    mockTransport = {
-      request: vi.fn(),
-    };
+    transport = new FakeTransport();
+    client = new TelephonyClient(transport.asTransport());
   });
 
-  it('getRadioState decodes radio status', async () => {
-    const client = new TelephonyClient(mockTransport);
+  function encodeTelephony(state: Partial<TelephonyState>): Uint8Array {
+    return TelephonyState.encode(TelephonyState.fromPartial(state)).finish();
+  }
 
-    const mockRadio: RadioState = {
-      radioPowered: true,
-      activeTechnology: RadioState_Technology.LTE,
-      signalStrength: RadioState_Strength.GREAT,
-      registrationState: RadioState_Registration.HOME_NETWORK,
-    };
-    mockTransport.request.mockResolvedValue(RadioState.encode(mockRadio).finish());
+  it('decodes the telephony status returned by GetTelephonyState', async () => {
+    transport.respondWith(
+      encodeTelephony({
+        radioPowered: true,
+        activeTechnology: TelephonyState_Technology.LTE,
+        signalStrength: TelephonyState_Strength.GREAT,
+        registrationState: TelephonyState_Registration.HOME_NETWORK,
+      })
+    );
 
-    const result = await client.getRadioState();
-    expect(mockTransport.request).toHaveBeenCalledTimes(1);
-    const [service, method] = mockTransport.request.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.environment.TelephonyService');
-    expect(method).toBe('GetRadioState');
-    expect(result.activeTechnology).toBe(RadioState_Technology.LTE);
+    const result = await client.GetTelephonyState();
+
+    expect(transport.calls).toHaveLength(1);
+    expect(transport.lastCall.service).toBe(SERVICE);
+    expect(transport.lastCall.method).toBe('GetTelephonyState');
+    expect(result.activeTechnology).toBe(TelephonyState_Technology.LTE);
     expect(result.radioPowered).toBe(true);
   });
 
-  it('updateRadioState sends updateMask and state values', async () => {
-    const client = new TelephonyClient(mockTransport);
-
-    mockTransport.request.mockResolvedValue(
-      RadioState.encode({
+  it('sends only the updated telephony state fields on the wire', async () => {
+    transport.respondWith(
+      encodeTelephony({
         radioPowered: false,
-        activeTechnology: RadioState_Technology.NR5G_SUB6,
-        signalStrength: RadioState_Strength.POOR,
-        registrationState: RadioState_Registration.ROAMING,
-      }).finish()
+        activeTechnology: TelephonyState_Technology.NR5G_SUB6,
+        signalStrength: TelephonyState_Strength.POOR,
+        registrationState: TelephonyState_Registration.ROAMING,
+      })
     );
 
-    const result = await client.updateRadioState({
+    const result = await client.UpdateTelephonyState({
       radioPowered: false,
-      activeTechnology: RadioState_Technology.NR5G_SUB6,
+      activeTechnology: TelephonyState_Technology.NR5G_SUB6,
     });
 
-    expect(mockTransport.request).toHaveBeenCalledTimes(1);
-    const [, , data] = mockTransport.request.mock.calls[0];
-    const decoded = UpdateRadioStateRequest.decode(data);
-    expect(decoded.updateMask).toContain('radio_powered');
-    expect(decoded.updateMask).toContain('active_technology');
+    expect(transport.calls).toHaveLength(1);
+    expect(transport.lastCall.method).toBe('UpdateTelephonyState');
+    const request = UpdateTelephonyStateRequest.decode(transport.lastCall.data);
+    expect(request.radioPowered).toBe(false);
+    expect(request.activeTechnology).toBe(TelephonyState_Technology.NR5G_SUB6);
+    expect(request.signalStrength).toBeUndefined();
+    expect(request.registrationState).toBeUndefined();
     expect(result.radioPowered).toBe(false);
   });
 
-  it('sendSms encodes sender and message body', async () => {
-    const client = new TelephonyClient(mockTransport);
-    mockTransport.request.mockResolvedValue(new Uint8Array([]));
+  it('sends every supplied field of a wider update', async () => {
+    transport.respondWith(encodeTelephony({}));
 
-    await client.sendSms('+16505551234', 'Verification code: 4242');
-    expect(mockTransport.request).toHaveBeenCalledTimes(1);
-    const [service, method, data] = mockTransport.request.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.environment.TelephonyService');
-    expect(method).toBe('SendSms');
-
-    const decoded = SendSmsRequest.decode(data);
-    expect(decoded.senderPhoneNumber).toBe('+16505551234');
-    expect(decoded.messageBody).toBe('Verification code: 4242');
-  });
-
-  it('simulateIncomingCall encodes caller and action', async () => {
-    const client = new TelephonyClient(mockTransport);
-    mockTransport.request.mockResolvedValue(new Uint8Array([]));
-
-    await client.simulateIncomingCall('+18005550199', SimulateIncomingCallRequest_Action.RING);
-    expect(mockTransport.request).toHaveBeenCalledTimes(1);
-    const [service, method, data] = mockTransport.request.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.environment.TelephonyService');
-    expect(method).toBe('SimulateIncomingCall');
-
-    const decoded = SimulateIncomingCallRequest.decode(data);
-    expect(decoded.callerPhoneNumber).toBe('+18005550199');
-    expect(decoded.action).toBe(SimulateIncomingCallRequest_Action.RING);
-  });
-
-  it('streamRadioState subscribes to live updates via transport.stream', () => {
-    mockTransport.stream = vi.fn();
-    const client = new TelephonyClient(mockTransport);
-
-    const onRadio = vi.fn();
-    client.streamRadioState(onRadio);
-
-    expect(mockTransport.stream).toHaveBeenCalledTimes(1);
-    const [service, method, , onMsg] = mockTransport.stream.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.environment.TelephonyService');
-    expect(method).toBe('StreamRadioState');
-
-    const sampleRadio: RadioState = {
+    await client.UpdateTelephonyState({
       radioPowered: true,
-      activeTechnology: RadioState_Technology.LTE,
-      signalStrength: RadioState_Strength.GREAT,
-      registrationState: RadioState_Registration.HOME_NETWORK,
-    };
-    onMsg(RadioState.encode(sampleRadio).finish());
-    expect(onRadio).toHaveBeenCalledWith(expect.objectContaining({ activeTechnology: RadioState_Technology.LTE }));
+      activeTechnology: TelephonyState_Technology.LTE,
+      signalStrength: TelephonyState_Strength.MODERATE,
+      registrationState: TelephonyState_Registration.HOME_NETWORK,
+    });
+
+    const request = UpdateTelephonyStateRequest.decode(transport.lastCall.data);
+    expect(request.radioPowered).toBe(true);
+    expect(request.activeTechnology).toBe(TelephonyState_Technology.LTE);
+    expect(request.signalStrength).toBe(TelephonyState_Strength.MODERATE);
+    expect(request.registrationState).toBe(TelephonyState_Registration.HOME_NETWORK);
+  });
+
+  it('preserves explicit falsy values via proto3 optional wire presence', async () => {
+    transport.respondWith(encodeTelephony({}));
+
+    await client.UpdateTelephonyState({ radioPowered: false, signalStrength: undefined });
+
+    const request = UpdateTelephonyStateRequest.decode(transport.lastCall.data);
+    expect(request.radioPowered).toBe(false);
+    expect(request.signalStrength).toBeUndefined();
+  });
+
+  it('encodes the sender and message body of SendSms', async () => {
+    transport.respondWith(new Uint8Array());
+
+    await client.SendSms({
+      senderPhoneNumber: '+16505551234',
+      messageBody: 'Verification code: 4242',
+    });
+
+    expect(transport.calls).toHaveLength(1);
+    expect(transport.lastCall.service).toBe(SERVICE);
+    expect(transport.lastCall.method).toBe('SendSms');
+
+    const request = SendSmsRequest.decode(transport.lastCall.data);
+    expect(request.senderPhoneNumber).toBe('+16505551234');
+    expect(request.messageBody).toBe('Verification code: 4242');
+  });
+
+  it('encodes the caller and action of TransitionCall', async () => {
+    transport.respondWith(new Uint8Array());
+
+    await client.TransitionCall({
+      callerPhoneNumber: '+18005550199',
+      action: TransitionCallRequest_Action.RING,
+    });
+
+    expect(transport.calls).toHaveLength(1);
+    expect(transport.lastCall.service).toBe(SERVICE);
+    expect(transport.lastCall.method).toBe('TransitionCall');
+
+    const request = TransitionCallRequest.decode(transport.lastCall.data);
+    expect(request.callerPhoneNumber).toBe('+18005550199');
+    expect(request.action).toBe(TransitionCallRequest_Action.RING);
+  });
+
+  it('encodes a non-ringing call action', async () => {
+    transport.respondWith(new Uint8Array());
+
+    await client.TransitionCall({
+      callerPhoneNumber: '+18005550199',
+      action: TransitionCallRequest_Action.DISCONNECT,
+    });
+
+    const request = TransitionCallRequest.decode(transport.lastCall.data);
+    expect(request.action).toBe(TransitionCallRequest_Action.DISCONNECT);
+  });
+
+  it('encodes ACCEPT, HOLD, and UNHOLD call lifecycle actions', async () => {
+    for (const action of [
+      TransitionCallRequest_Action.ACCEPT,
+      TransitionCallRequest_Action.HOLD,
+      TransitionCallRequest_Action.UNHOLD,
+    ]) {
+      transport.respondWith(new Uint8Array());
+      await client.TransitionCall({
+        callerPhoneNumber: '+18005550199',
+        action,
+      });
+      const request = TransitionCallRequest.decode(transport.lastCall.data);
+      expect(request.action).toBe(action);
+    }
+  });
+
+  it('decodes each state pushed by StreamTelephonyState', async () => {
+    const onTelephony = vi.fn();
+
+    const unsubscribe = client.subscribeTelephonyState(onTelephony);
+    transport
+      .stream()
+      .push(encodeTelephony({ activeTechnology: TelephonyState_Technology.LTE }));
+    await settle();
+
+    expect(transport.streamCalls[0].service).toBe(SERVICE);
+    expect(transport.streamCalls[0].method).toBe('StreamTelephonyState');
+    expect(onTelephony).toHaveBeenCalledWith(
+      expect.objectContaining({ activeTechnology: TelephonyState_Technology.LTE })
+    );
+
+    unsubscribe();
+  });
+
+  it('aborts the underlying stream on unsubscribe', async () => {
+    const unsubscribe = client.subscribeTelephonyState(() => {});
+    await settle();
+
+    expect(transport.streamCalls[0].signal?.aborted).toBe(false);
+
+    unsubscribe();
+
+    expect(transport.streamCalls[0].signal?.aborted).toBe(true);
   });
 });
+
+/** Lets the subscription's background task drain the queued messages. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
