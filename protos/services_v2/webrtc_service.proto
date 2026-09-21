@@ -1,0 +1,233 @@
+syntax = "proto3";
+
+package android.emulation.v2;
+
+option go_package = "google.golang.org/aemu/protos/services/v2;v2pb";
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2";
+
+import "common.proto";
+import "google/api/field_behavior.proto";
+
+// Negotiates WebRTC peer connections and media tracks for low-latency video and audio streaming.
+//
+// AVAILABILITY:
+//   Advertised by `DeviceCapabilities.rtc`, which is omitted if the device offers
+//   no WebRTC endpoint. Available on both emulated and physical devices, and is
+//   the recommended media path for remote and ADB-forwarded transports: encoded
+//   H.264/VP8 video costs roughly 2-5 Mbps at 1080p30, two to three orders of
+//   magnitude less than the raw frames `DisplayService.GetScreenshot` produces.
+//
+//   Choose between the three media paths as follows:
+//     - RtcService: continuous video and/or audio for human viewing. Lowest bandwidth.
+//     - DisplayService: single frames (`GetScreenshot`) or frame streams (`StreamScreenshots`)
+//       for pixel-exact inspection by vision models.
+//     - AudioService: raw PCM for programmatic audio consumers that cannot decode Opus.
+//   `DeviceCapabilities.rtc.supported_tracks` states which tracks this device can
+//   actually negotiate; it is not the same set on every device.
+service RtcService {
+  // Allocates a new WebRTC signaling session and returns ICE server configuration and track bindings.
+  //
+  // Expected gRPC status codes:
+  //   - INVALID_ARGUMENT: Empty `requested_tracks`, a track absent from
+  //     `DeviceCapabilities.rtc.supported_tracks`, or an invalid display ID in
+  //     `secondary_display_ids`.
+  //   - RESOURCE_EXHAUSTED: Maximum concurrent WebRTC peer connection limit
+  //     (`DeviceCapabilities.rtc.max_concurrent_sessions`) reached.
+  rpc RequestRtcStream(RtcStreamRequest) returns (RtcStreamResponse);
+
+  // Dynamically adds or removes media tracks on an active WebRTC session via renegotiation.
+  //
+  // Expected gRPC status codes:
+  //   - NOT_FOUND: `handle.session_id` does not match an active WebRTC session.
+  rpc UpdateRtcStream(RtcStreamUpdateRequest) returns (UpdateRtcStreamResponse);
+
+  // Explicitly tears down an active WebRTC PeerConnection session and releases encoder resources.
+  //
+  // Expected gRPC status codes:
+  //   - NOT_FOUND: `handle.session_id` does not match an active WebRTC session.
+  rpc CloseRtcStream(CloseRtcStreamRequest) returns (CloseRtcStreamResponse);
+
+  // Sends a client JSEP signaling message (SDP Answer or ICE Candidate) to the emulator peer connection.
+  //
+  // Expected gRPC status codes:
+  //   - INVALID_ARGUMENT: Missing payload or malformed SDP in `message`.
+  //   - NOT_FOUND: `handle.session_id` does not match an active WebRTC session.
+  rpc SendJsepMessage(JsepMessage) returns (SendJsepMessageResponse);
+
+  // Streams server-originated JSEP signaling messages (SDP Offers and ICE Candidates) for a session.
+  //
+  // STREAM LIFECYCLE:
+  //   1. Client calls `RequestRtcStream` to obtain an `RtcSession` handle.
+  //   2. Client opens `ReceiveJsepMessageStream(handle)`.
+  //   3. Server emits the initial SDP Offer followed by trickle ICE candidates as they are gathered.
+  //   4. Client responds to offers and candidates via `SendJsepMessage`.
+  //   5. Canceling or closing this signaling stream detaches the stream observer WITHOUT tearing down
+  //      the underlying WebRTC PeerConnection or active UDP/TURN media flows. Clients may re-subscribe
+  //      `ReceiveJsepMessageStream(handle)` to an active session for ICE restarts or track renegotiation.
+  //      Call `CloseRtcStream` (or let ICE consent / DTLS timeout expire) to tear down the PeerConnection.
+  //
+  // Expected gRPC status codes:
+  //   - NOT_FOUND: `session_id` does not match an active WebRTC session.
+  //   - ALREADY_EXISTS: Another signaling stream is concurrently attached to `session_id`.
+  rpc ReceiveJsepMessageStream(RtcSession) returns (stream JsepMessage);
+}
+
+// WebRTC ICE server configuration (STUN/TURN).
+message IceServer {
+  // STUN or TURN URI(s).
+  repeated string urls = 1;
+
+  // Credential username for TURN server authentication.
+  string username = 2;
+
+  // Credential secret / password for TURN server authentication.
+  string credential = 3;
+}
+
+// Restricts which ICE candidate types a peer connection may gather.
+//
+// Mirrors the W3C RTCIceTransportPolicy enum:
+// https://www.w3.org/TR/webrtc/#rtcicetransportpolicy-enum
+enum IceTransportPolicy {
+  // Not specified; the peer connection uses ICE_TRANSPORT_POLICY_ALL.
+  ICE_TRANSPORT_POLICY_UNSPECIFIED = 0;
+
+  // Gather every candidate type: host, server-reflexive and relay.
+  ICE_TRANSPORT_POLICY_ALL = 1;
+
+  // Gather relay (TURN) candidates only. This forces all media through the
+  // TURN server, which hides host addresses from the peer and is the usual
+  // choice when the emulator must not learn the client's local addresses.
+  ICE_TRANSPORT_POLICY_RELAY = 2;
+}
+
+// A complete ICE configuration: the servers to use, plus how to use them.
+//
+// A configuration is ephemeral. TURN credentials are typically short lived, so
+// a config should not be cached or reused across peer connections.
+message IceServerConfig {
+  // STUN/TURN servers offered to the peer connection. When empty, the
+  // emulator falls back to its own configured defaults.
+  repeated IceServer ice_servers = 1;
+
+  // Candidate types the peer connection is allowed to gather. Meaningful even
+  // when ice_servers is empty, since it also constrains the defaults.
+  IceTransportPolicy ice_transport_policy = 2;
+}
+
+// Uniquely identifies an active WebRTC signaling and peer connection session.
+message RtcSession {
+  // Server-assigned opaque UUID identifying the WebRTC session (must be non-empty).
+  string session_id = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+// Binds a negotiated WebRTC media transceiver (`mid`) to its logical track type and display ID.
+message RtcTrackBinding {
+  // Output only. SDP media identification tag matching `RTCRtpTransceiver.mid` in the SDP offer.
+  string mid = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Negotiated track category.
+  TrackType track_type = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Associated Android `display_id` (populated for screen video tracks).
+  optional int32 display_id = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Request message for initiating a new WebRTC streaming session.
+message RtcStreamRequest {
+  // Media tracks to attach to the initial PeerConnection offer (must be non-empty).
+  // Only tracks listed in `DeviceCapabilities.rtc.supported_tracks` may be requested;
+  // anything else fails with INVALID_ARGUMENT.
+  repeated TrackType requested_tracks = 1 [(google.api.field_behavior) = REQUIRED];
+  // Explicit secondary display IDs to bind when `TRACK_TYPE_SCREEN_SECONDARY` is requested.
+  repeated int32 secondary_display_ids = 2;
+
+  // Optional client-supplied STUN/TURN configuration and transport policy.
+  // When unset, the emulator uses its own default ICE server configuration.
+  IceServerConfig ice_server_config = 3;
+}
+
+// Response message containing the allocated WebRTC session handle, ICE server list, and track bindings.
+message RtcStreamResponse {
+  // Output only. Unique session handle used for subsequent signaling RPCs.
+  RtcSession handle = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. STUN/TURN servers to configure on the client RTCPeerConnection.
+  repeated IceServer ice_servers = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Explicit mapping between WebRTC transceiver `mid` values and Android display IDs / track types.
+  repeated RtcTrackBinding track_bindings = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Request message for adding or removing media tracks on an existing WebRTC session.
+message RtcStreamUpdateRequest {
+  // Handle identifying the active WebRTC session to modify.
+  RtcSession handle = 1 [(google.api.field_behavior) = REQUIRED];
+  // Media tracks to add to the peer connection (triggers server SDP renegotiation).
+  repeated TrackType added_tracks = 2;
+  // Media tracks to remove from the peer connection (triggers server SDP renegotiation).
+  repeated TrackType removed_tracks = 3;
+}
+
+// Response message for updating media tracks on a WebRTC session.
+message UpdateRtcStreamResponse {}
+
+// Request message for explicitly closing an active WebRTC session.
+message CloseRtcStreamRequest {
+  // Handle identifying the active WebRTC session to close.
+  RtcSession handle = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+// Response message for closing a WebRTC session.
+message CloseRtcStreamResponse {}
+
+// Response message for sending a client JSEP signaling message.
+message SendJsepMessageResponse {}
+
+// Represents a W3C RTCSessionDescription (SDP Offer or Answer).
+message SessionDescription {
+  // Classifies the SDP negotiation message role.
+  enum Type {
+    // Default unspecified SDP type.
+    TYPE_UNSPECIFIED = 0;
+    // Initial or renegotiation SDP offer (`"offer"`).
+    OFFER = 1;
+    // SDP answer responding to an offer (`"answer"`).
+    ANSWER = 2;
+    // Provisional SDP answer (`"pranswer"`).
+    PRANSWER = 3;
+    // Rollback to prior stable signaling state (`"rollback"`).
+    ROLLBACK = 4;
+  }
+  // SDP message role (OFFER or ANSWER).
+  Type type = 1;
+  // Complete SDP text payload (`v=0\r\n...`).
+  string sdp = 2;
+}
+
+// Represents a W3C RTCIceCandidate exchanged during trickle ICE gathering.
+message IceCandidate {
+  // SDP candidate attribute string (`"candidate:..."`).
+  //
+  // IMPORTANT: An EMPTY string (`""`) is the W3C end-of-candidates sentinel indicating
+  // that trickle ICE gathering has completed for this generation, and MUST be forwarded
+  // rather than rejected as empty/malformed.
+  string candidate = 1;
+  // Media stream identification tag (`mid`) associated with this candidate.
+  string sdp_mid = 2;
+  // Zero-based index of the m-line in the SDP associated with this candidate.
+  int32 sdp_m_line_index = 3;
+  // ICE username fragment (`ufrag`) disambiguating candidates across ICE restarts.
+  optional string username_fragment = 4;
+}
+
+// Encapsulates a strongly-typed JSEP signaling payload exchanged during WebRTC negotiation.
+message JsepMessage {
+  // Session handle identifying the target WebRTC peer connection.
+  RtcSession handle = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // Strongly-typed JSEP signaling payload (exactly one must be set).
+  oneof payload {
+    // SDP Offer or Answer description.
+    SessionDescription sdp = 2;
+    // Trickle ICE candidate (or end-of-candidates sentinel when `candidate == ""`).
+    IceCandidate ice_candidate = 3;
+  }
+}
