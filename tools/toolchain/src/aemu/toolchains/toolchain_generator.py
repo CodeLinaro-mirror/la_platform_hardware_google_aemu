@@ -27,6 +27,7 @@ from typing import Tuple, List, Dict, Any, Callable
 
 from aemu.command import CommandLineReconstructor
 from aemu.process.bazel import Bazel
+from aemu.util import safe_link
 
 
 def safe_symlink_dir(src: Path, dest: Path) -> None:
@@ -52,7 +53,19 @@ def safe_symlink_dir(src: Path, dest: Path) -> None:
         if item.is_dir():
             safe_symlink_dir(item, dest_item)
         else:
-            dest_item.symlink_to(item.resolve())
+            safe_link(item, dest_item)
+
+
+def strip_sandbox(path: Path) -> Path:
+    parts = list(path.parts)
+    i = 0
+    while i < len(parts) - 3:
+        if parts[i] == "sandbox" and parts[i + 2].isdigit() and parts[i + 3] == "execroot":
+            # Delete 'sandbox/<type>/<id>' while keeping 'execroot' (parts[i + 3]).
+            del parts[i : i + 3]
+        else:
+            i += 1
+    return Path(*parts)
 
 
 class ToolchainGenerator:
@@ -60,6 +73,15 @@ class ToolchainGenerator:
 
     PKGCFG_DIR = "pc-config"
     PACKAGES_DIR = "packages"
+
+    def wrapper_path(self, path: Path) -> Path:
+        """Normalizes a path to be relative to self.aosp."""
+        path = strip_sandbox(path)
+        if not path.is_absolute():
+            return self.aosp / path
+
+        return path
+
 
     def __init__(
         self, aosp: Path, dest: Path, prefix: str, versions: Dict[str, str] = None,
@@ -73,6 +95,7 @@ class ToolchainGenerator:
             versions: A dictionary of toolchain versions.
         """
         self.aosp = aosp.absolute()
+        self.aosp = strip_sandbox(self.aosp)
         # self.bazel = Bazel(self.aosp, dest)
         # This needs to be set externally now.
         self.bazel: Bazel = None
@@ -83,6 +106,11 @@ class ToolchainGenerator:
         self.ninja_bin = None
         self.pkg_config_bin = None
         self.compat_lib = None
+        self.compat_includes = []
+        self.meson_bin = None
+        self.clang_bin = None
+        self.sysroot = None
+        self.python_bin = None
 
         if versions:
             self.versions = versions
@@ -100,7 +128,6 @@ class ToolchainGenerator:
         self.toolchain_map: Dict[str, str] = {}
         self.dest.mkdir(exist_ok=True, parents=True)
         self.ccache = shutil.which("sccache") or shutil.which("ccache")
-        self.py_exe = Path(sys.executable).absolute()
 
         # Create pkgconfig directory.
         self.pkgconfig_directory = self.dest / ToolchainGenerator.PKGCFG_DIR
@@ -135,6 +162,8 @@ class ToolchainGenerator:
 
     def clang(self) -> Path:
         """Returns the path to the clang directory."""
+        if self.clang_bin:
+            return (self.aosp / self.clang_bin).parent.parent
         return (
             self.aosp
             / "prebuilts"
@@ -383,14 +412,21 @@ class ToolchainGenerator:
 
     def meson(self) -> Tuple[str, str]:
         """Returns the meson command and extra arguments."""
-        meson_py = self.aosp / "third_party" / "meson" / "meson.py"
-        exe = f"{self.py_exe} {meson_py} "
-        return exe, ""
+        py_exe, _ = self.python3()
+        meson_py = (
+            self.aosp / self.meson_bin
+            if self.meson_bin
+            else self.aosp / "third_party" / "meson" / "meson.py"
+        )
+        return f'"{py_exe}" "{meson_py}" ', ""
 
     def python3(self) -> Tuple[str, str]:
         """Returns the python3 command."""
-        exe = f"{self.py_exe}"
-        return exe, ""
+        if self.python_bin:
+            py_exe = self.aosp / self.python_bin
+            return f"{py_exe}", ""
+        py_exe = Path(sys.executable).resolve().absolute().as_posix()
+        return f"{py_exe}", ""
 
     def git(self) -> Tuple[str, str]:
         """Returns the system git command."""
@@ -408,9 +444,10 @@ class ToolchainGenerator:
         if self.pkg_config_bin:
             # Note PKG_CONFIG_PATH not set in the script as it should be overridden in this mode.
             assert(self.bazel == None)
+            exe = self.aosp / self.pkg_config_bin
             return (
                 f'PKG_CONFIG_LIBDIR="" '
-                f"{self.aosp / self.pkg_config_bin}",
+                f"{exe}",
                 "",
             )
 
@@ -433,12 +470,23 @@ class ToolchainGenerator:
             exe: The path to the script.
             cmd_generator_fn: A function that returns the command and extra arguments.
         """
-        self.toolchain_map[name] = exe.absolute().as_posix()
+        # Add only the exe name as the toolchain dir should be added to PATH.
+        self.toolchain_map[name] = exe.name
 
         logging.info("Generating %s", exe)
 
-        rem = "#"
+        # Rewrite absolute AOSP paths to be relative to the script's directory.
+        exe_stripped = strip_sandbox(exe.absolute())
+        dest_rel = os.path.relpath(self.aosp, exe_stripped.parent)
+        replacement = f"$MY_DIR/{dest_rel}"
+
         run, extra = cmd_generator_fn()
+        run_str = run.as_posix() if isinstance(run, Path) else run
+        aosp_str = self.aosp.as_posix()
+        run_rel = run_str.replace(aosp_str, replacement) if run_str else ""
+        extra_rel = extra.replace(aosp_str, replacement) if extra else ""
+
+        rem = "#"
         params = '"$@"'
 
         script = f"""#!/bin/sh
@@ -446,7 +494,8 @@ class ToolchainGenerator:
 {rem}
 {rem} Generated by: {self.command_line}
 {rem}
-{run} {params} {extra}
+MY_DIR=$(cd "$(dirname "$0")" && pwd)
+{run_rel} {params} {extra_rel}
 """
         with open(exe, "w", encoding="utf-8") as f:
             f.write(script)
@@ -572,8 +621,10 @@ class ToolchainGenerator:
         for cmd, fn in cmds.items():
             self.gen_script(cmd, self.dest / f"{self.prefix}{cmd}", fn)
 
-        for name, target in binaries.items():
-            self._generate_bazel_binary_wrapper(name, target)
+        if self.bazel:
+            # This won't ever run as part of gen_toolchain.py
+            for name, target in binaries.items():
+                self._generate_bazel_binary_wrapper(name, target)
 
         self.generate_pkg_config_files(packages)
         self.link_dirs()
@@ -587,7 +638,7 @@ class ToolchainGenerator:
             target: The Bazel target.
         """
         exe = self.dest / f"{self.prefix}{name}"
-        self.toolchain_map[name] = exe.absolute().as_posix()
+        self.toolchain_map[name] = exe.name
         bazel_exe = self.bazel.build_exe(target)
         script = f"""#!/bin/sh
 # Auto-generated by ToolchainGenerator, DO NOT EDIT!!

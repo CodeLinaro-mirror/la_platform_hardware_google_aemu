@@ -19,8 +19,7 @@ from typing import Any, Dict, List, Optional
 from aemu import jsonc
 from aemu.process.bazel import Bazel
 from aemu.configure.libraries import BazelLib, CMakeLib, Lib
-from aemu.toolchains.toolchain_generator import ToolchainGenerator
-from aemu.process.runner import run
+from aemu.toolchains.toolchain_generator import ToolchainGenerator, strip_sandbox
 from aemu.process.cmake import CMake
 from aemu.log import run_meson_command
 
@@ -90,6 +89,7 @@ class MesonProjectBuilder:
         bazel_startup_options: List[str],
         bazel_build_options: List[str],
         target: str,
+        source_path_override: Optional[str] = None,
     ) -> None:
         """Initializes the MesonProjectBuilder and sets up the build environment.
 
@@ -103,10 +103,11 @@ class MesonProjectBuilder:
             bazel_startup_options (list[str]): Startup options for Bazel.
             bazel_build_options (list[str]): Build options for Bazel.
             target (str): The canonical target platform (e.g., "linux-x64").
+            source_path_override (str, optional): Path to the source directory (overrides config).
         """
-        self.aosp = Path(aosp).absolute()
+        self.aosp = strip_sandbox(Path(aosp).absolute())
         self.dest = Path(dest).absolute()
-        self.toolchain = Path(toolchain_dir).absolute()
+        self.toolchain = strip_sandbox(Path(toolchain_dir).absolute())
         self.dest.mkdir(parents=True, exist_ok=True)
         self.target = target
 
@@ -121,6 +122,20 @@ class MesonProjectBuilder:
             self.toolchain_generator.bazel = self.bazel
 
         self._load_config(config_file)
+        # source_path is third_party/qemu, which doesn't exist inside the bazel sandbox so needs overriding
+        if source_path_override:
+            config_source = Path(self.config.get("source_path", ""))
+            resolved_source = Path(source_path_override)
+
+            for i in range(len(config_source.parts)):
+                suffix = Path(*config_source.parts[i:])
+                candidate = self.aosp / source_path_override / suffix
+
+                if candidate.exists():
+                    resolved_source = Path(source_path_override) / suffix
+                    break
+
+            self.config["source_path"] = resolved_source.as_posix()
         self.features = self.config.get("features", [])
         self.label_to_pkg_name = self._build_label_registry()
 
@@ -205,14 +220,14 @@ class MesonProjectBuilder:
         meson_opts = self.meson_config()
 
         # Build the meson command line
-        cmd = [self.toolchain / "meson", "setup", self.dest]
+        cmd = [self.toolchain / "meson", "setup", ".", source_path.as_posix()]
         cmd.append(f"--native-file={self.toolchain / 'aosp-cl.ini'}")
         cmd.extend([f"{k}={v}" if v else k for k, v in meson_opts.items()])
         cmd.append(f"-Dprefix={prefix}")
         cmd.extend(meson_flags)
 
         run_meson_command(
-            cmd, self.dest, cwd=source_path, toolchain_path=self.toolchain
+            cmd, self.dest, cwd=self.dest, toolchain_path=self.toolchain
         )
 
     def packages(self) -> List[Lib]:
