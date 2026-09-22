@@ -12,7 +12,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import configparser
 import json
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -219,9 +221,33 @@ class MesonProjectBuilder:
         source_path = self.aosp / self.config.get("source_path", "")
         meson_opts = self.meson_config()
 
+        # On Windows, compiler/ninja wrappers in the cached toolchain directory are Python
+        # scripts stored by filename (e.g., 'cc.py') in aosp-cl.ini to avoid baking build-time
+        # temporary paths into the cached artifact. Expand them to ['<python>', '<toolchain>/<script>.py']
+        # in the local build directory so Meson invokes Python directly via CreateProcess.
+        native_file = self.toolchain / "aosp-cl.ini"
+        if native_file.exists():
+            config = configparser.ConfigParser(delimiters=["="], interpolation=None)
+            config.optionxform = str
+            config.read(native_file, encoding="utf-8")
+            if "binaries" in config:
+                py_exe = strip_sandbox(Path(sys.executable).resolve()).as_posix()
+                modified = False
+                for key, val in config["binaries"].items():
+                    stripped = val.strip("'\"")
+                    if stripped.endswith(".py") and not val.strip().startswith("["):
+                        script_path = (self.toolchain / stripped).as_posix()
+                        config["binaries"][key] = f"['{py_exe}', '{script_path}']"
+                        modified = True
+                if modified:
+                    resolved_native_file = self.dest / "aosp-cl.ini"
+                    with open(resolved_native_file, "w", encoding="utf-8") as f:
+                        config.write(f)
+                    native_file = resolved_native_file
+
         # Build the meson command line
         cmd = [self.toolchain / "meson", "setup", ".", source_path.as_posix()]
-        cmd.append(f"--native-file={self.toolchain / 'aosp-cl.ini'}")
+        cmd.append(f"--native-file={native_file}")
         cmd.extend([f"{k}={v}" if v else k for k, v in meson_opts.items()])
         cmd.append(f"-Dprefix={prefix}")
         cmd.extend(meson_flags)
