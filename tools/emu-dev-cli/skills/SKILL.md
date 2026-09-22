@@ -527,10 +527,47 @@ automated remediation for `clang-tidy` diagnostics (e.g.
 
 ---
 
-### 12. Common Natural Language Requests & Agent Action Mapping
+### 12. Build Time & Bazel Profile Analysis (`build-times` / `profile`)
+
+Analyzes Android Build (`go/ab`) CI build times and Bazel Chrome Trace profiles (`logs/bazel/command.profile.gz` + `BUILD_INFO`) across all 8 `emu-main-next` targets (`emulator_linux_x64`, `emulator_linux_x64_asan`, `emulator_linux_x64_debug`, `emulator_linux_x64_tsan`, `emulator_mac_aarch64`, `emulator_mac_aarch64_debug`, `emulator_windows_x64`, `emulator_windows_x64_debug`).
+
+Decomposes every CI build into **4 layers**:
+1. **Queue Wait Time** (`sync_start_time - creationTimeMillis`): Time waiting for a builder worker (`adt-emu-m2-mac-*`, etc.).
+2. **Repo Sync Time** (`sync_finish_time - sync_start_time`): Git checkout duration.
+3. **`build.py` Wrapper Time** (`target_finish_time - target_start_time`): Outer build script duration.
+4. **Bazel Profile Wall Time & Critical Path** (`logs/bazel/command.profile.gz`): Phase breakdown (`Launch`, `Init`, `Evaluate`, `Load & Analyze`, `Execute`), `critical path component` chain, per-mnemonic statistics (`CppCompile`, `CcLtoBackendCompile`, `CppLTOIndexing`, `TestRunner`, `SymlinkTree`, `PackageZip`, `AmcGeneratorRun`), and RBE cache hit/execution telemetry.
+
+- **Inspect a Single Build (`build-times inspect`):**
+  ```bash
+  # How fast is build 16411294 on Linux x64?
+  emu-dev-cli build-times inspect --build-id 16411294 --target emulator_linux_x64
+
+  # Compare build 16411294 across all 8 emu-main-next targets side-by-side
+  emu-dev-cli build-times inspect --build-id 16411294 --target all
+  ```
+- **Inspect Multi-Build History & Trends (`build-times history`):**
+  ```bash
+  # What happened to the last 10 mac arm builds?
+  emu-dev-cli build-times history --target emulator_mac_aarch64 --limit 10
+  ```
+- **Diagnose Why Builds Became Slow (`build-times diagnose` / `compare`):**
+  ```bash
+  # Auto-detect regressed builds vs healthy baseline and attribute root causes (Queue vs Critical Path vs Mnemonics vs Git commits)
+  emu-dev-cli build-times diagnose --target emulator_mac_aarch64 --limit 10
+
+  # Explicitly compare two build IDs
+  emu-dev-cli build-times diagnose --target emulator_mac_aarch64 --baseline 16411294 --regressed 16405496
+  ```
+
+---
+
+### 13. Common Natural Language Requests & Agent Action Mapping
 
 | User Request                                                                                                                               | Target Command                                                                                                                                                                                     |
 | :----------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _"How fast is build 16411294?"_                                                                                                            | `emu-dev-cli build-times inspect --build-id 16411294 --target all`                                                                                                                                 |
+| _"What happened to the last 10 mac arm builds?"_                                                                                           | `emu-dev-cli build-times history --target emulator_mac_aarch64 --limit 10`                                                                                                                         |
+| _"Can you find out why the mac arm builds all of a sudden became slow?"_                                                                   | `emu-dev-cli build-times diagnose --target emulator_mac_aarch64 --limit 10`                                                                                                                        |
 | _"Please do an analysis of all the flaky tests of today on the linux tsan target and file bugs for failing tests for which no bug exists"_ | `emu-dev-cli flakiness triage --target emulator_linux_x64_tsan --days 1 --auto-file`                                                                                                               |
 | _"Show me what bugs would be filed for today's TSAN flaky tests without modifying Buganizer"_                                              | `emu-dev-cli flakiness triage --target emulator_linux_x64_tsan --days 1 --dry-run`                                                                                                                 |
 | _"List all flaky tests across all platforms with flake rate > 5% over the past 7 days"_                                                    | `emu-dev-cli flakiness list --target all --days 7 --min-flake-rate 5.0`                                                                                                                            |

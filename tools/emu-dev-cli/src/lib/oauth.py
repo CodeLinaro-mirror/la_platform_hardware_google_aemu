@@ -274,6 +274,16 @@ class OAuthTokenManager:
             logger.debug("Acquired OAuth2 token from environment variable")
             return env_token
 
+        has_internal_scope = any(
+            "androidbuild.internal" in s or "buganizer" in s for s in self.scopes
+        )
+        if has_internal_scope and sys.platform == "linux" and Path("/google/data").exists():
+            token = self.fetch_oauth2l_token()
+            if token:
+                logger.debug("Acquired OAuth2 token via oauth2l helper on GLinux")
+                self.save_cached_token(token)
+                return token
+
         # Application Default Credentials (ADC) resolution
         adc_token = self.fetch_adc_token()
         if adc_token:
