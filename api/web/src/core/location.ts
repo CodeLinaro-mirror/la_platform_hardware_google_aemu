@@ -12,117 +12,83 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { GrpcWebTransport } from "./transport";
+import { GrpcWebTransport } from './transport';
+import { subscribe, Unsubscribe } from './streaming';
 import {
-  LocationState,
+  DeepPartial,
   GetLocationStateRequest,
+  LocationService,
+  LocationServiceClientImpl,
+  LocationState,
+  PlayRouteRequest,
+  PlayRouteResponse,
+  RouteWaypoint,
   StreamLocationStateRequest,
   UpdateLocationStateRequest,
-} from "@android/emulator-services/environment/location_service";
+} from '@android/emulator-services/location_service';
 
-export { LocationState };
+export {
+  LocationState,
+  PlayRouteRequest,
+  PlayRouteResponse,
+  RouteWaypoint,
+  UpdateLocationStateRequest,
+};
 
-export interface LocationUpdate {
-  latitude: number;
-  longitude: number;
-  altitudeMeters?: number;
-  speedMetersPerSecond?: number;
-  bearingDegrees?: number;
-  accuracyMeters?: number;
-  satelliteCount?: number;
-}
+/**
+ * A GPS fix to push to the guest.
+ *
+ * Latitude and longitude are always sent; the remaining fields are only sent
+ * when supplied.
+ */
+export type LocationStateUpdate = Pick<LocationState, 'latitude' | 'longitude'> &
+  DeepPartial<UpdateLocationStateRequest>;
 
 /**
  * Headless API client for LocationService.
+ *
+ * Methods named in `PascalCase` are the RPCs of `LocationService`, spelled
+ * exactly as `location_service.proto` declares them. `camelCase` methods are
+ * conveniences this package adds and have no RPC of their own.
  */
 export class LocationClient {
-  private readonly transport: GrpcWebTransport;
+  private readonly rpc: LocationService;
 
   constructor(transport: GrpcWebTransport) {
-    this.transport = transport;
+    this.rpc = new LocationServiceClientImpl(transport);
   }
 
-  public async getLocationState(): Promise<LocationState> {
-    const reqBytes = GetLocationStateRequest.encode({}).finish();
-    const resBytes = await this.transport.request(
-      "android.emulation.v2.environment.LocationService",
-      "GetLocationState",
-      reqBytes
-    );
-    return LocationState.decode(resBytes);
+  public GetLocationState(
+    request: DeepPartial<GetLocationStateRequest> = {}
+  ): Promise<LocationState> {
+    return this.rpc.GetLocationState(GetLocationStateRequest.fromPartial(request));
   }
 
-  public streamLocation(
+  public StreamLocationState(
+    request: DeepPartial<StreamLocationStateRequest> = {},
+    signal?: AbortSignal
+  ): AsyncIterable<LocationState> {
+    return this.rpc.StreamLocationState(StreamLocationStateRequest.fromPartial(request), signal);
+  }
+
+  /**
+   * Moves the simulated device. Only the fields present in `update` are
+   * changed; the rest are left alone by the server.
+   */
+  public UpdateLocationState(update: LocationStateUpdate): Promise<LocationState> {
+    return this.rpc.UpdateLocationState(UpdateLocationStateRequest.fromPartial(update));
+  }
+
+  public PlayRoute(request: DeepPartial<PlayRouteRequest>): Promise<PlayRouteResponse> {
+    return this.rpc.PlayRoute(PlayRouteRequest.fromPartial(request));
+  }
+
+  /** Callback form of {@link LocationClient.StreamLocationState}. */
+  public subscribeLocationState(
     onState: (state: LocationState) => void,
-    onError?: (err: any) => void
-  ): () => void {
-    const reqBytes = StreamLocationStateRequest.encode({}).finish();
-    return this.transport.stream(
-      "android.emulation.v2.environment.LocationService",
-      "StreamLocationState",
-      reqBytes,
-      (bytes) => onState(LocationState.decode(bytes)),
-      onError
-    );
-  }
-
-  public streamLocationIterator(): AsyncIterable<LocationState> {
-    const reqBytes = StreamLocationStateRequest.encode({}).finish();
-    const byteStream = this.transport.serverStream(
-      "android.emulation.v2.environment.LocationService",
-      "StreamLocationState",
-      reqBytes
-    );
-
-    return {
-      async *[Symbol.asyncIterator]() {
-        for await (const chunkBytes of byteStream) {
-          yield LocationState.decode(chunkBytes);
-        }
-      },
-    };
-  }
-
-  public async setLocation(loc: LocationUpdate): Promise<LocationState> {
-    const paths = ["latitude", "longitude"];
-    const state: any = {
-      latitude: loc.latitude,
-      longitude: loc.longitude,
-      altitudeMeters: loc.altitudeMeters ?? 0,
-      speedMetersPerSecond: loc.speedMetersPerSecond ?? 0,
-      bearingDegrees: loc.bearingDegrees ?? 0,
-      accuracyMeters: loc.accuracyMeters ?? 0,
-      satelliteCount: loc.satelliteCount ?? 0,
-      timestampNanos: Date.now() * 1000000,
-    };
-
-    if (loc.altitudeMeters !== undefined) {
-      paths.push("altitude_meters");
-    }
-    if (loc.speedMetersPerSecond !== undefined) {
-      paths.push("speed_meters_per_second");
-    }
-    if (loc.bearingDegrees !== undefined) {
-      paths.push("bearing_degrees");
-    }
-    if (loc.accuracyMeters !== undefined) {
-      paths.push("accuracy_meters");
-    }
-    if (loc.satelliteCount !== undefined) {
-      paths.push("satellite_count");
-    }
-
-    const req: UpdateLocationStateRequest = {
-      locationState: state,
-      updateMask: paths,
-    };
-
-    const reqBytes = UpdateLocationStateRequest.encode(req).finish();
-    const resBytes = await this.transport.request(
-      "android.emulation.v2.environment.LocationService",
-      "UpdateLocationState",
-      reqBytes
-    );
-    return LocationState.decode(resBytes);
+    onError?: (err: unknown) => void,
+    request: DeepPartial<StreamLocationStateRequest> = {}
+  ): Unsubscribe {
+    return subscribe((signal) => this.StreamLocationState(request, signal), onState, onError);
   }
 }

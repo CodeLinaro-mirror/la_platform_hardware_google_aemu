@@ -20,79 +20,119 @@ import {
   SystemState_Lock,
 } from '../src/core/system';
 import {
-  SystemState,
   RebootDeviceRequest,
-} from '@android/emulator-services/system/system_service';
+  SystemState,
+} from '@android/emulator-services/system_service';
+import { Empty } from '@android/emulator-services/google/protobuf/empty';
+import { FakeTransport } from './fake_transport';
 
-describe('SystemClient (TDD)', () => {
-  let mockTransport: any;
+const SERVICE = 'android.emulation.v2.SystemService';
+
+describe('SystemClient', () => {
+  let transport: FakeTransport;
+  let client: SystemClient;
 
   beforeEach(() => {
-    mockTransport = {
-      request: vi.fn(),
-      serverStream: vi.fn(),
-    };
+    transport = new FakeTransport();
+    client = new SystemClient(transport.asTransport());
   });
 
-  it('getSystemState decodes OS lifecycle and connection state', async () => {
-    const client = new SystemClient(mockTransport);
+  function encodeState(state: Partial<SystemState>): Uint8Array {
+    return SystemState.encode(SystemState.fromPartial(state)).finish();
+  }
 
-    const mockState: SystemState = {
-      lifecycleState: SystemState_Lifecycle.BOOT_COMPLETED,
-      connectionState: SystemState_Connection.CONNECTED,
-      lockState: SystemState_Lock.UNLOCKED,
-      uptimeMs: 120000,
-      bootCompletedDurationMs: 15400,
-      heartbeatCounter: 99,
-    };
-    mockTransport.request.mockResolvedValue(SystemState.encode(mockState).finish());
+  it('calls GetSystemState and decodes the lifecycle and connection state', async () => {
+    transport.respondWith(
+      encodeState({
+        lifecycleState: SystemState_Lifecycle.BOOT_COMPLETED,
+        connectionState: SystemState_Connection.CONNECTED,
+        lockState: SystemState_Lock.UNLOCKED,
+        uptimeMs: 120000,
+        bootCompletedDurationMs: 15400,
+        heartbeatCounter: 99,
+      })
+    );
 
-    const result = await client.getSystemState();
-    expect(mockTransport.request).toHaveBeenCalledTimes(1);
-    const [service, method] = mockTransport.request.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.system.SystemService');
-    expect(method).toBe('GetSystemState');
+    const result = await client.GetSystemState();
+
+    expect(transport.calls).toHaveLength(1);
+    expect(transport.lastCall.service).toBe(SERVICE);
+    expect(transport.lastCall.method).toBe('GetSystemState');
     expect(result.lifecycleState).toBe(SystemState_Lifecycle.BOOT_COMPLETED);
+    expect(result.connectionState).toBe(SystemState_Connection.CONNECTED);
     expect(result.bootCompletedDurationMs).toBe(15400);
   });
 
-  it('rebootDevice sends RebootDeviceRequest', async () => {
-    const client = new SystemClient(mockTransport);
-    mockTransport.request.mockResolvedValue(new Uint8Array([]));
+  it('calls RebootDevice with an empty request', async () => {
+    transport.respondWith(Empty.encode({}).finish());
 
-    await client.rebootDevice();
-    expect(mockTransport.request).toHaveBeenCalledTimes(1);
-    const [service, method, data] = mockTransport.request.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.system.SystemService');
-    expect(method).toBe('RebootDevice');
+    await client.RebootDevice();
 
-    const decoded = RebootDeviceRequest.decode(data);
-    expect(decoded).toBeDefined();
+    expect(transport.calls).toHaveLength(1);
+    expect(transport.lastCall.service).toBe(SERVICE);
+    expect(transport.lastCall.method).toBe('RebootDevice');
+    expect(RebootDeviceRequest.decode(transport.lastCall.data)).toBeDefined();
   });
 
-  it('subscribeSystemState subscribes to live updates via transport.stream', () => {
-    mockTransport.stream = vi.fn();
-    const client = new SystemClient(mockTransport);
-
+  it('decodes each state pushed by StreamSystemState', async () => {
     const onState = vi.fn();
-    client.subscribeSystemState(onState);
 
-    expect(mockTransport.stream).toHaveBeenCalledTimes(1);
-    const [service, method, , onMsg] = mockTransport.stream.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.system.SystemService');
-    expect(method).toBe('StreamSystemState');
+    const unsubscribe = client.subscribeSystemState(onState);
+    transport.stream().push(
+      encodeState({
+        lifecycleState: SystemState_Lifecycle.BOOT_COMPLETED,
+        connectionState: SystemState_Connection.CONNECTED,
+        lockState: SystemState_Lock.UNLOCKED,
+        uptimeMs: 5000,
+        bootCompletedDurationMs: 4200,
+        heartbeatCounter: 1,
+      })
+    );
+    await settle();
 
-    const sampleState: SystemState = {
-      lifecycleState: SystemState_Lifecycle.BOOT_COMPLETED,
-      connectionState: SystemState_Connection.CONNECTED,
-      lockState: SystemState_Lock.UNLOCKED,
-      uptimeMs: 5000,
-      bootCompletedDurationMs: 4200,
-      heartbeatCounter: 1,
-    };
-    onMsg(SystemState.encode(sampleState).finish());
-    expect(onState).toHaveBeenCalledWith(expect.objectContaining({
-      lifecycleState: SystemState_Lifecycle.BOOT_COMPLETED,
-    }));
+    expect(transport.streamCalls[0].service).toBe(SERVICE);
+    expect(transport.streamCalls[0].method).toBe('StreamSystemState');
+    expect(onState).toHaveBeenCalledWith(
+      expect.objectContaining({ lifecycleState: SystemState_Lifecycle.BOOT_COMPLETED })
+    );
+
+    unsubscribe();
+  });
+
+  it('aborts the underlying stream on unsubscribe', async () => {
+    const unsubscribe = client.subscribeSystemState(() => {});
+    await settle();
+
+    expect(transport.streamCalls[0].signal?.aborted).toBe(false);
+
+    unsubscribe();
+
+    expect(transport.streamCalls[0].signal?.aborted).toBe(true);
+  });
+
+  it('yields decoded states from the iterator form', async () => {
+    const controller = new AbortController();
+    const states: SystemState[] = [];
+
+    const pump = (async () => {
+      for await (const state of client.StreamSystemState({}, controller.signal)) {
+        states.push(state);
+        controller.abort();
+      }
+    })();
+
+    transport.stream().push(encodeState({ heartbeatCounter: 7 }));
+    await pump;
+
+    expect(transport.streamCalls[0].method).toBe('StreamSystemState');
+    expect(states).toHaveLength(1);
+    expect(states[0].heartbeatCounter).toBe(7);
   });
 });
+
+/** Lets the subscription's background task drain the queued messages. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}

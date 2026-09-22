@@ -18,11 +18,11 @@
  */
 
 export const ANDROID_WEB_VERSION = '0.1.0';
-export const AQUARIUM_VERSION = ANDROID_WEB_VERSION;
 
 // Core SDK & Transport
 export * from './core/auth';
 export * from './core/transport';
+export * from './core/streaming';
 export * from './core/input_channel';
 export * from './core/rtc_controller';
 export * from './core/sensors';

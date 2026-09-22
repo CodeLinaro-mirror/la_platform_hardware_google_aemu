@@ -1,0 +1,147 @@
+syntax = "proto3";
+
+package android.emulation.v2;
+
+option go_package = "google.golang.org/protobuf/types/known/emulation/v2;emulationv2";
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2";
+
+import "common.proto";
+import "google/api/field_behavior.proto";
+
+// Observes camera sensor activity and injects still images and video frame streams into the device's virtual camera HAL.
+//
+// Note: CameraService currently supports camera state observation (`GetCameraState` /
+// `StreamCameraState`) and 2D image/video stream injection (e.g., static QR codes,
+// barcodes, document scans, and dynamic video feeds) across virtual devices.
+// Physical camera preview streaming and interactive 3D Virtual Scene controls
+// (6DoF camera pose navigation and wall posters) are transitional and will be added
+// in a future revision once their API design is finalized.
+service CameraService {
+  // Returns the current operational state and active source of each camera on the device.
+  //
+  // Recommended client deadline: >= 500ms.
+  rpc GetCameraState(GetCameraStateRequest) returns (CameraState);
+
+  // Streams real-time camera operational state changes (e.g., when guest apps open/close a camera or injection latches).
+  //
+  // STREAM LIFECYCLE:
+  //   1. Client initiates RPC with `StreamCameraStateRequest`.
+  //   2. Server immediately sends the current `CameraState` snapshot as the first message.
+  //   3. Server pushes subsequent `CameraState` snapshots whenever camera active state or source changes.
+  //   4. Client cancels the RPC context to unsubscribe.
+  rpc StreamCameraState(StreamCameraStateRequest) returns (stream CameraState);
+
+  // Injects a single still frame that is latched and repeated by the Camera HAL until replaced or reset.
+  //
+  // Recommended client deadline: >= 1000ms.
+  //
+  // Expected gRPC status codes:
+  //   - INVALID_ARGUMENT: Malformed image container or missing dimensions for raw formats.
+  //   - NOT_FOUND: Specified `camera_id` does not exist on this device.
+  //   - PERMISSION_DENIED: Caller lacks write permission (`ACCESS_MODE_READ_ONLY`).
+  rpc InjectFrame(CameraFrame) returns (InjectFrameResponse);
+
+  // Continuously streams dynamic video frames into the Camera HAL.
+  //
+  // STREAM LIFECYCLE:
+  //   1. Client opens client-streaming RPC and pushes `CameraFrame` messages.
+  //   2. Server paces frames using `timestamp_nanos` (rebased onto `CLOCK_MONOTONIC`) and feeds the Camera HAL.
+  //   3. If the client sends frames faster than the active camera sensor frame rate, intermediate frames are dropped.
+  //   4. Client half-closes or cancels the stream to stop video injection (last frame remains latched until `ResetCamera`).
+  //
+  // Expected gRPC status codes:
+  //   - INVALID_ARGUMENT: Unsupported image format or invalid dimensions.
+  //   - NOT_FOUND: Specified `camera_id` does not exist.
+  //   - PERMISSION_DENIED: Caller lacks write permission (`ACCESS_MODE_READ_ONLY`).
+  rpc StreamCameraFrames(stream CameraFrame) returns (StreamCameraFramesResponse);
+
+  // Clears injected frames and restores the default camera feed / synthetic test scene.
+  //
+  // Recommended client deadline: >= 500ms.
+  //
+  // Expected gRPC status codes:
+  //   - INVALID_ARGUMENT: Neither `camera_id` nor `reset_all = true` was specified.
+  //   - NOT_FOUND: Specified `camera_id` does not match any camera on the device.
+  rpc ResetCamera(ResetCameraRequest) returns (ResetCameraResponse);
+}
+
+// Request message for querying camera operational state.
+message GetCameraStateRequest {}
+
+// Request message for subscribing to camera operational state updates.
+message StreamCameraStateRequest {}
+
+// Describes the current runtime state and active frame source for all cameras on the device.
+message CameraState {
+  // Classifies the active frame source feeding a camera sensor.
+  enum ActiveSource {
+    // Default unspecified active source.
+    ACTIVE_SOURCE_UNSPECIFIED = 0;
+    // Default synthetic test scene or host webcam passthrough.
+    DEFAULT_SCENE = 1;
+    // Latched still frame injected via `InjectFrame`.
+    INJECTED_STILL = 2;
+    // Active video stream injected via `StreamCameraFrames`.
+    INJECTED_STREAM = 3;
+  }
+
+  // Runtime state of an individual camera sensor.
+  message SensorStatus {
+    // Logical camera identifier (e.g., "0" = Back, "1" = Front).
+    string camera_id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+    // True if an Android guest application currently has this camera open and capturing.
+    bool in_use_by_guest = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+    // Current frame source feeding this camera sensor.
+    ActiveSource active_source = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  }
+
+  // Output only. Runtime status for each camera sensor enumerated on the device.
+  repeated SensorStatus sensors = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Encapsulates an encoded still image or raw pixel buffer targeted at a specific camera sensor.
+message CameraFrame {
+  // Target logical camera identifier (e.g., "0" = Back, "1" = Front). Empty string defaults to "0" (back camera).
+  string camera_id = 1;
+
+  // Encoded image container bytes (PNG/JPEG) or raw uncompressed pixel buffer.
+  bytes frame_data = 2 [(google.api.field_behavior) = REQUIRED];
+
+  // Pixel or container format of `frame_data`. When set to `IMAGE_FORMAT_UNSPECIFIED`, the server
+  // inspects container magic bytes (supported only for PNG and JPEG).
+  ImageFormat format = 3;
+
+  // Frame width in pixels (optional for PNG/JPEG; required and must be > 0 for RAW_* formats).
+  optional int32 width = 4;
+  // Frame height in pixels (optional for PNG/JPEG; required and must be > 0 for RAW_* formats).
+  optional int32 height = 5;
+
+  // Byte offset between adjacent rows for raw uncompressed formats (defaults to `width * bytes_per_pixel` when unset).
+  optional int32 row_stride_bytes = 6;
+
+  // Optional client generation timestamp in nanoseconds (`CLOCK_MONOTONIC`), rebased by the gateway for stream pacing.
+  optional int64 timestamp_nanos = 7;
+}
+
+// Response message for InjectFrame.
+message InjectFrameResponse {}
+
+// Response message for StreamCameraFrames.
+message StreamCameraFramesResponse {
+  // Total number of frames accepted and delivered to the Camera HAL during the stream.
+  uint64 accepted_frame_count = 1;
+  // Total number of frames dropped due to sensor frame rate pacing.
+  uint64 dropped_frame_count = 2;
+}
+
+// Request message for resetting one or all cameras to their default scene.
+message ResetCameraRequest {
+  // Specific logical camera identifier to reset (e.g., "0").
+  optional string camera_id = 1;
+  // When true, resets all cameras on the device regardless of `camera_id`.
+  bool reset_all = 2;
+}
+
+// Response message for ResetCamera.
+message ResetCameraResponse {}

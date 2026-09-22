@@ -13,80 +13,67 @@
 // limitations under the License.
 
 import { GrpcWebTransport } from './transport';
+import { subscribe, Unsubscribe } from './streaming';
 import {
-  SystemState,
-  SystemState_Lifecycle,
-  SystemState_Connection,
-  SystemState_Lock,
+  DeepPartial,
   GetSystemStateRequest,
-  StreamSystemStateRequest,
   RebootDeviceRequest,
-} from '@android/emulator-services/system/system_service';
+  RebootDeviceResponse,
+  StreamSystemStateRequest,
+  SystemService,
+  SystemServiceClientImpl,
+  SystemState,
+  SystemState_Connection,
+  SystemState_Lifecycle,
+  SystemState_Lock,
+} from '@android/emulator-services/system_service';
 
 export {
   SystemState,
   SystemState_Lifecycle,
   SystemState_Connection,
   SystemState_Lock,
+  RebootDeviceResponse,
 };
 
 /**
- * Headless API client for SystemService (OS lifecycle, adb connection, lockscreen & reboot).
+ * Headless API client for SystemService (OS lifecycle, adb connection,
+ * lockscreen and reboot).
+ *
+ * Methods named in `PascalCase` are the RPCs of `SystemService`, spelled
+ * exactly as `system_service.proto` declares them. `camelCase` methods are
+ * conveniences this package adds and have no RPC of their own.
  */
 export class SystemClient {
-  private readonly transport: GrpcWebTransport;
+  private readonly rpc: SystemService;
 
   constructor(transport: GrpcWebTransport) {
-    this.transport = transport;
+    this.rpc = new SystemServiceClientImpl(transport);
   }
 
-  public async getSystemState(): Promise<SystemState> {
-    const reqBytes = GetSystemStateRequest.encode({}).finish();
-    const resBytes = await this.transport.request(
-      'android.emulation.v2.system.SystemService',
-      'GetSystemState',
-      reqBytes
-    );
-    return SystemState.decode(resBytes);
+  public GetSystemState(request: DeepPartial<GetSystemStateRequest> = {}): Promise<SystemState> {
+    return this.rpc.GetSystemState(GetSystemStateRequest.fromPartial(request));
   }
 
-  public streamSystemState(): AsyncIterable<SystemState> {
-    const reqBytes = StreamSystemStateRequest.encode({}).finish();
-    const byteStream = this.transport.serverStream(
-      'android.emulation.v2.system.SystemService',
-      'StreamSystemState',
-      reqBytes
-    );
-
-    return {
-      async *[Symbol.asyncIterator]() {
-        for await (const chunkBytes of byteStream) {
-          yield SystemState.decode(chunkBytes);
-        }
-      },
-    };
+  public StreamSystemState(
+    request: DeepPartial<StreamSystemStateRequest> = {},
+    signal?: AbortSignal
+  ): AsyncIterable<SystemState> {
+    return this.rpc.StreamSystemState(StreamSystemStateRequest.fromPartial(request), signal);
   }
 
+  public RebootDevice(
+    request: DeepPartial<RebootDeviceRequest> = {}
+  ): Promise<RebootDeviceResponse> {
+    return this.rpc.RebootDevice(RebootDeviceRequest.fromPartial(request));
+  }
+
+  /** Callback form of {@link SystemClient.StreamSystemState}. */
   public subscribeSystemState(
     onState: (state: SystemState) => void,
-    onError?: (err: any) => void
-  ): () => void {
-    const reqBytes = StreamSystemStateRequest.encode({}).finish();
-    return this.transport.stream(
-      'android.emulation.v2.system.SystemService',
-      'StreamSystemState',
-      reqBytes,
-      (bytes) => onState(SystemState.decode(bytes)),
-      onError
-    );
-  }
-
-  public async rebootDevice(): Promise<Uint8Array> {
-    const reqBytes = RebootDeviceRequest.encode({}).finish();
-    return this.transport.request(
-      'android.emulation.v2.system.SystemService',
-      'RebootDevice',
-      reqBytes
-    );
+    onError?: (err: unknown) => void,
+    request: DeepPartial<StreamSystemStateRequest> = {}
+  ): Unsubscribe {
+    return subscribe((signal) => this.StreamSystemState(request, signal), onState, onError);
   }
 }

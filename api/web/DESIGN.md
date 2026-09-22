@@ -209,13 +209,13 @@ const client = new DeviceClient({ endpoint: "http://localhost:8080" });
 await client.connect();
 
 // 2. Query current sensor state
-const state = await client.sensors.getSensorsState();
-console.log("Current Accelerometer:", state.acceleration); // { x: 0, y: 9.81, z: 0 }
+const state = await client.sensors.GetSensorsState();
+console.log("Current Accelerometer:", state.accelerometer); // { x: 0, y: 9.81, z: 0 }
 console.log("Current Orientation:", state.orientationDegrees);
 
-// 3. Update individual sensors with partial updates (using field masks under the hood)
-await client.sensors.updateSensorsState({
-  acceleration: { x: 0, y: 9.81, z: 0 },
+// 3. Update individual sensors with partial updates (proto3 optional wire presence)
+await client.sensors.UpdateSensorsState({
+  accelerometer: { x: 0, y: 9.81, z: 0 },
   orientationDegrees: { x: 0, y: 45, z: 0 },
   lightLux: 500, // 500 lux
   proximityCentimeters: 0, // 0 cm (object touching sensor)
@@ -223,13 +223,40 @@ await client.sensors.updateSensorsState({
 });
 
 // 4. Stream real-time sensor updates from the device
-const unsubscribe = client.sensors.streamSensors((updatedState) => {
+const unsubscribe = client.sensors.subscribeSensorsState((updatedState) => {
   console.log("Live sensor update from guest OS:", updatedState);
 });
 
 // Later: unsubscribe when done
 unsubscribe();
 ```
+
+#### Why `GetSensorsState` and not `getSensorsState`
+
+The casing is the API's one piece of load-bearing punctuation:
+
+- **`PascalCase` is an RPC**, named exactly as the `.proto` names it.
+  `client.vm.PauseVm()` is `VmService.PauseVm`. Nothing is translated, so the
+  `.proto` we ship alongside the emulator, the generated stub, and this binding
+  all use one vocabulary instead of three. A reader who has the service
+  definition open already knows what to call, and a name that does not exist is
+  a compile error rather than a 404 at runtime.
+- **`camelCase` is not an RPC.** `client.input.sendKey(...)` goes over the
+  WebRTC data channel; `client.rtc.connect()` drives a whole JSEP handshake;
+  `client.sensors.subscribeSensorsState(cb)` is a callback adapter over the
+  `StreamSensorsState` iterator. None of these has an RPC of its own.
+
+So the casing answers "does this call cross the wire, and if so under what
+name" without reading the implementation. `tests/proto_conformance.test.ts`
+enforces both halves: every `PascalCase` method must name an RPC on that
+client's own service, and no `camelCase` method may shadow one.
+
+Server-streaming RPCs come in both forms. `StreamSensorsState(request?, signal?)`
+returns the generated `AsyncIterable`; `subscribeSensorsState(cb, onError?)`
+returns an `Unsubscribe` for `useEffect`. Cancellation always goes through the
+`AbortSignal`, never through the iterator's `return()` — see `core/streaming.ts`
+for why that distinction is not stylistic.
+
 
 ---
 
@@ -243,7 +270,7 @@ HTTP layer. This avoids HTTP encapsulation overhead and enables sub-millisecond,
 low-latency input dispatch directly to the host's evdev pipeline.
 
 DOM events captured by `<DeviceView />` are serialized into binary
-`android.emulation.v2.input.InputEvent` protobuf messages and dispatched via
+`android.emulation.v2.InputEvent` protobuf messages and dispatched via
 `InputChannel.sendOrQueue()`:
 
 | Input Modality    | DOM Event Mapping                                          | Generated v2 Protobuf Event                                                                       | Key Advantage                                                            |
@@ -280,36 +307,33 @@ Signaling is performed directly over gRPC-Web using `RtcService`:
 
 ### 4.3 Discovery & Capabilities Subsystem (`CapabilitiesClient`)
 
-Automatically calls `CapabilitiesService.GetCapabilities()` upon connection to
-discover:
+Queries [`CapabilitiesService.GetDeviceCapabilities()`](file:///Users/jansene/src/emu-main-next/hardware/google/aemu/protos/services_v2/capabilities_service.proto#L18-L19) (with connection-scoped memoization via `getCachedDeviceCapabilities()`) to discover:
 
-- **Displays:** Total active displays, logical widths, heights, DPIs, refresh
-  rates, and primary flag.
-- **Hardware Features:** Cellular network, GPS, multi-touch support, physical
-  keyboard, biometric scanner, hinge sensor.
-- **Audio Devices:** Speaker output and microphone capture capability.
-- **Codecs:** Supported video decoders (H.264, VP8, VP9, AV1).
+- **Displays:** Built-in display hardware (`DisplayHardware`), dimensions, DPI, refresh rates, cutouts (`DisplayCutout`), corner radius, and rotation support.
+- **Hardware Features:** Cellular network, GPS, multi-touch support, physical keyboard, biometric scanner, foldable posture & hinge angle limits.
+- **Audio Devices:** Speaker output and microphone capture format profiles (`AudioFormatProfile`).
 
 ---
 
 ### 4.4 Environmental & Virtual Device Control
 
-Exposes gRPC-Web convenience clients for:
+All subsystem clients expose exact `PascalCase` proto RPC methods paired with flat `proto3 optional` partial update requests:
 
-- **Foldables & Posture (`SystemService` / `SensorsService`):**
-  - `setHingeAngle(degrees: number)` (0° = closed, 90° = tabletop, 180° = flat
-    open).
-  - `setDevicePosture(posture: 'CLOSED' | 'HALF_OPENED' | 'OPENED' | 'FLIPPED')`.
-- **Geolocation (`LocationService`):**
-  - `setGpsLocation({ latitude, longitude, altitude, speed, heading })`.
-- **Virtual Power & Battery (`BatteryService`):**
-  - `setBatteryLevel(percentage: number)`,
-    `setChargingState('CHARGING' | 'DISCHARGING')`.
-- **VM Snapshots & Lifecycle (`VmService`):**
-  - `createSnapshot(name: string)`, `restoreSnapshot(name: string)`,
-    `pauseVm()`, `resumeVm()`.
-- **Android Clipboard (`ClipboardService`):**
-  - `setClipboardText(text: string)`, `getClipboardText(): Promise<string>`.
+- **Native Partial Updates (`proto3 optional`):**
+  Callers pass a partial TypeScript object (e.g., `client.battery.UpdateBatteryState({ levelPercent: 0 })`). Every mutable field on `Update*StateRequest` is declared `optional`, so explicit falsy values (`0`, `false`) are serialized with wire presence while omitted keys remain unset on the device.
+- **Zero Shadowed Enums or Types:**
+  All enums (`VmState_State`, `PointerAction`, `KeyAction`, `PostureType`, etc.) and message interfaces are re-exported directly from the generated `@android/emulator-services` package so client code and wire definitions can never drift.
+- **Foldables & Posture (`PostureClient`):**
+  - `UpdatePostureState({ hingeAngleDegrees: 90 })`, `UpdatePostureState({ posture: PostureType.POSTURE_TYPE_HALF_OPENED })`, `StreamPostureState()`.
+- **Geolocation (`LocationClient`):**
+  - `UpdateLocationState({ latitude, longitude, altitudeMeters, speedMetersPerSecond, bearingDegrees })`, `StreamLocationState()`.
+- **Virtual Power & Battery (`BatteryClient`):**
+  - `UpdateBatteryState({ levelPercent, state, charger, health })`, `StreamBatteryState()`.
+- **VM Snapshots & Lifecycle (`VmClient` & `SnapshotClient`):**
+  - Discrete state transition RPCs: `PauseVm()`, `ResumeVm()`, `ResetVm()`, `HardResetVm()`, `StopVm({ saveQuickbootSnapshot })`.
+  - Long-running snapshot operations: `CreateSnapshot()`, `RestoreSnapshot()`, `ExportSnapshot()`, `ImportSnapshot()`.
+- **Android Clipboard (`ClipboardClient`):**
+  - `GetClipboardState()`, `UpdateClipboardState({ data })`, `StreamClipboardState()`.
 
 ---
 

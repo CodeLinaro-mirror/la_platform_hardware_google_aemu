@@ -16,16 +16,16 @@ import { useState, useEffect, useCallback } from 'react';
 import { useDeviceClient } from './context';
 import { RtcConnectionState } from '../core/rtc_controller';
 import { SensorsState, SensorsStateUpdate } from '../core/sensors';
-import { LocationState, LocationUpdate } from '../core/location';
+import { LocationState, LocationStateUpdate } from '../core/location';
 import { DeviceCapabilities } from '../core/capabilities';
 import { VmState } from '../core/vm';
 import { BatteryState, BatteryState_State, ChargerSource } from '../core/battery';
 import { PostureState, PostureType } from '../core/posture';
 import { Snapshot } from '../core/snapshot';
-import { DisplayState } from '../core/display';
-import { RadioState, SimulateIncomingCallRequest_Action } from '../core/telephony';
-import { ScreenshotOptions } from '../core/screen_capture';
-import { InjectFrameOptions } from '../core/camera';
+import { Display } from '../core/display';
+import { TelephonyState, TransitionCallRequest_Action } from '../core/telephony';
+import { GetScreenshotRequest } from '../core/screen_capture';
+import { CameraFrame } from '../core/camera';
 import { SystemState } from '../core/system';
 
 /**
@@ -103,7 +103,7 @@ export function useSensors(options: { stream?: boolean } = { stream: true }) {
     setIsUpdating(true);
     setError(null);
     try {
-      const state = await client.sensors.getSensorsState();
+      const state = await client.sensors.GetSensorsState();
       setSensors(state);
       return state;
     } catch (err: any) {
@@ -118,9 +118,9 @@ export function useSensors(options: { stream?: boolean } = { stream: true }) {
     fetchSensors().catch(() => {});
     if (options.stream === false) return;
 
-    const cancel = client.sensors.streamSensors(
+    const cancel = client.sensors.subscribeSensorsState(
       (state) => setSensors(state),
-      (err) => setError(err)
+      (err) => setError(err as Error)
     );
     return cancel;
   }, [client, fetchSensors, options.stream]);
@@ -130,7 +130,7 @@ export function useSensors(options: { stream?: boolean } = { stream: true }) {
       setIsUpdating(true);
       setError(null);
       try {
-        const updated = await client.sensors.updateSensorsState(update);
+        const updated = await client.sensors.UpdateSensorsState(update);
         setSensors(updated);
         return updated;
       } catch (err: any) {
@@ -145,30 +145,30 @@ export function useSensors(options: { stream?: boolean } = { stream: true }) {
 
   const setAccelerometer = useCallback(
     (vec: { x: number; y: number; z: number }) =>
-      updateSensors({ acceleration: vec }),
+      updateSensors({ rawOverrides: { accelerometer: vec } }),
     [updateSensors]
   );
 
   const setOrientation = useCallback(
     (rot: { azimuth: number; pitch: number; roll: number }) =>
       updateSensors({
-        orientationDegrees: { x: rot.azimuth, y: rot.pitch, z: rot.roll },
+        pose: { rotationDegrees: { x: rot.pitch, y: rot.azimuth, z: rot.roll } },
       }),
     [updateSensors]
   );
 
   const setAmbientLight = useCallback(
-    (lux: number) => updateSensors({ lightLux: lux }),
+    (lux: number) => updateSensors({ environment: { lightLux: lux } }),
     [updateSensors]
   );
 
   const setProximity = useCallback(
-    (distanceCm: number) => updateSensors({ proximityCentimeters: distanceCm }),
+    (distanceCm: number) => updateSensors({ environment: { proximityCentimeters: distanceCm } }),
     [updateSensors]
   );
 
   const setTemperature = useCallback(
-    (celsius: number) => updateSensors({ ambientTemperatureCelsius: celsius }),
+    (celsius: number) => updateSensors({ environment: { ambientTemperatureCelsius: celsius } }),
     [updateSensors]
   );
 
@@ -199,7 +199,7 @@ export function useLocation(options: { stream?: boolean } = { stream: true }) {
     setIsUpdating(true);
     setError(null);
     try {
-      const state = await client.location.getLocationState();
+      const state = await client.location.GetLocationState();
       setLocationState(state);
       return state;
     } catch (err: any) {
@@ -214,19 +214,19 @@ export function useLocation(options: { stream?: boolean } = { stream: true }) {
     fetchLocation().catch(() => {});
     if (options.stream === false) return;
 
-    const cancel = client.location.streamLocation(
+    const cancel = client.location.subscribeLocationState(
       (state) => setLocationState(state),
-      (err) => setError(err)
+      (err) => setError(err as Error)
     );
     return cancel;
   }, [client, fetchLocation, options.stream]);
 
   const setLocation = useCallback(
-    async (loc: LocationUpdate) => {
+    async (loc: LocationStateUpdate) => {
       setIsUpdating(true);
       setError(null);
       try {
-        await client.location.setLocation(loc);
+        await client.location.UpdateLocationState(loc);
       } catch (err: any) {
         setError(err);
         throw err;
@@ -259,7 +259,7 @@ export function useCapabilities() {
     setIsLoading(true);
     setError(null);
     try {
-      const caps = await client.capabilities.getDeviceCapabilities();
+      const caps = await client.capabilities.getCachedDeviceCapabilities();
       setCapabilities(caps);
       return caps;
     } catch (err: any) {
@@ -290,9 +290,9 @@ export function useVm(options: { stream?: boolean } = { stream: true }) {
   useEffect(() => {
     if (options.stream === false) return;
 
-    const cancel = client.vm.streamVmState(
+    const cancel = client.vm.subscribeVmState(
       (state) => setVmState(state),
-      (err) => setError(err)
+      (err) => setError(err as Error)
     );
     return cancel;
   }, [client, options.stream]);
@@ -301,7 +301,7 @@ export function useVm(options: { stream?: boolean } = { stream: true }) {
     setIsBusy(true);
     setError(null);
     try {
-      await client.vm.pause();
+      await client.vm.PauseVm();
     } catch (err: any) {
       setError(err);
       throw err;
@@ -314,7 +314,7 @@ export function useVm(options: { stream?: boolean } = { stream: true }) {
     setIsBusy(true);
     setError(null);
     try {
-      await client.vm.resume();
+      await client.vm.ResumeVm();
     } catch (err: any) {
       setError(err);
       throw err;
@@ -345,7 +345,7 @@ export function useBattery(options: { stream?: boolean } = { stream: true }) {
     setIsUpdating(true);
     setError(null);
     try {
-      const state = await client.battery.getBatteryState();
+      const state = await client.battery.GetBatteryState();
       setBattery(state);
       return state;
     } catch (err: any) {
@@ -360,9 +360,9 @@ export function useBattery(options: { stream?: boolean } = { stream: true }) {
     fetchBattery().catch(() => {});
     if (options.stream === false) return;
 
-    const cancel = client.battery.streamBatteryState(
+    const cancel = client.battery.subscribeBatteryState(
       (state) => setBattery(state),
-      (err) => setError(err)
+      (err) => setError(err as Error)
     );
     return cancel;
   }, [client, fetchBattery, options.stream]);
@@ -372,7 +372,7 @@ export function useBattery(options: { stream?: boolean } = { stream: true }) {
       setIsUpdating(true);
       setError(null);
       try {
-        const state = await client.battery.setBatteryLevel(percent);
+        const state = await client.battery.UpdateBatteryState({ levelPercent: percent });
         setBattery(state);
         return state;
       } catch (err: any) {
@@ -386,11 +386,11 @@ export function useBattery(options: { stream?: boolean } = { stream: true }) {
   );
 
   const setChargingState = useCallback(
-    async (state: BatteryState_State, charger?: ChargerSource) => {
+    async (state: BatteryState_State, charger: ChargerSource = ChargerSource.CHARGER_SOURCE_AC) => {
       setIsUpdating(true);
       setError(null);
       try {
-        const res = await client.battery.setChargingState(state, charger);
+        const res = await client.battery.UpdateBatteryState({ state, charger });
         setBattery(res);
         return res;
       } catch (err: any) {
@@ -426,7 +426,7 @@ export function usePosture(options: { stream?: boolean } = { stream: true }) {
     setIsUpdating(true);
     setError(null);
     try {
-      const state = await client.posture.getPostureState();
+      const state = await client.posture.GetPostureState();
       setPosture(state);
       return state;
     } catch (err: any) {
@@ -441,19 +441,21 @@ export function usePosture(options: { stream?: boolean } = { stream: true }) {
     fetchPosture().catch(() => {});
     if (options.stream === false) return;
 
-    const cancel = client.posture.streamPostureState(
+    const cancel = client.posture.subscribePostureState(
       (state) => setPosture(state),
-      (err) => setError(err)
+      (err) => setError(err as Error)
     );
     return cancel;
   }, [client, fetchPosture, options.stream]);
 
   const setHingeAngle = useCallback(
-    async (degrees: number) => {
+    async (degrees: number, hingeId = 0) => {
       setIsUpdating(true);
       setError(null);
       try {
-        const state = await client.posture.setHingeAngle(degrees);
+        const state = await client.posture.UpdatePostureState({
+          hinges: [{ hingeId, angleDegrees: degrees }],
+        });
         setPosture(state);
         return state;
       } catch (err: any) {
@@ -471,7 +473,7 @@ export function usePosture(options: { stream?: boolean } = { stream: true }) {
       setIsUpdating(true);
       setError(null);
       try {
-        const state = await client.posture.setDevicePosture(type);
+        const state = await client.posture.UpdatePostureState({ posture: type });
         setPosture(state);
         return state;
       } catch (err: any) {
@@ -507,7 +509,8 @@ export function useClipboard(options: { stream?: boolean } = { stream: true }) {
     setIsUpdating(true);
     setError(null);
     try {
-      const text = await client.clipboard.getClipboardText();
+      const state = await client.clipboard.GetClipboardState();
+      const text = state.text || '';
       setClipboardTextState(text);
       return text;
     } catch (err: any) {
@@ -522,15 +525,9 @@ export function useClipboard(options: { stream?: boolean } = { stream: true }) {
     fetchClipboard().catch(() => {});
     if (options.stream === false) return;
 
-    const cancel = client.clipboard.streamClipboard(
-      (state) => {
-        if (state.data && state.data.length > 0) {
-          setClipboardTextState(new TextDecoder().decode(state.data));
-        } else {
-          setClipboardTextState('');
-        }
-      },
-      (err) => setError(err)
+    const cancel = client.clipboard.subscribeClipboardState(
+      (state) => setClipboardTextState(state.text || ''),
+      (err) => setError(err as Error)
     );
     return cancel;
   }, [client, fetchClipboard, options.stream]);
@@ -540,7 +537,10 @@ export function useClipboard(options: { stream?: boolean } = { stream: true }) {
       setIsUpdating(true);
       setError(null);
       try {
-        await client.clipboard.setClipboardText(text);
+        await client.clipboard.UpdateClipboardState({
+          text,
+          mimeType: 'text/plain',
+        });
         setClipboardTextState(text);
       } catch (err: any) {
         setError(err);
@@ -575,7 +575,7 @@ export function useSnapshots() {
       setIsLoading(true);
       setError(null);
       try {
-        const list = await client.snapshots.listSnapshots(compatibleOnly);
+        const { snapshots: list } = await client.snapshots.ListSnapshots({ compatibleOnly });
         setSnapshots(list);
         return list;
       } catch (err: any) {
@@ -593,7 +593,11 @@ export function useSnapshots() {
       setIsLoading(true);
       setError(null);
       try {
-        await client.snapshots.createSnapshot(snapshotId, displayName, description);
+        await client.snapshots.CreateSnapshot({
+          snapshotId,
+          displayName,
+          description,
+        });
         await fetchSnapshots();
       } catch (err: any) {
         setError(err);
@@ -610,7 +614,7 @@ export function useSnapshots() {
       setIsLoading(true);
       setError(null);
       try {
-        await client.snapshots.restoreSnapshot(snapshotId);
+        await client.snapshots.RestoreSnapshot({ snapshotId });
       } catch (err: any) {
         setError(err);
         throw err;
@@ -626,7 +630,7 @@ export function useSnapshots() {
       setIsLoading(true);
       setError(null);
       try {
-        await client.snapshots.deleteSnapshot(snapshotId);
+        await client.snapshots.DeleteSnapshot({ snapshotId });
         await fetchSnapshots();
       } catch (err: any) {
         setError(err);
@@ -654,7 +658,7 @@ export function useSnapshots() {
  */
 export function useDisplay(options: { stream?: boolean } = { stream: true }) {
   const client = useDeviceClient();
-  const [displays, setDisplays] = useState<DisplayState[]>([]);
+  const [displays, setDisplays] = useState<Display[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
@@ -662,7 +666,7 @@ export function useDisplay(options: { stream?: boolean } = { stream: true }) {
     setIsLoading(true);
     setError(null);
     try {
-      const list = await client.display.listDisplays();
+      const { displays: list } = await client.display.ListDisplays();
       setDisplays(list);
       return list;
     } catch (err: any) {
@@ -677,9 +681,9 @@ export function useDisplay(options: { stream?: boolean } = { stream: true }) {
     fetchDisplays().catch(() => {});
     if (options.stream === false) return;
 
-    const cancel = client.display.streamDisplays(
-      (list) => setDisplays(list),
-      (err) => setError(err)
+    const cancel = client.display.subscribeDisplayState(
+      (response) => setDisplays(response.displays),
+      (err) => setError(err as Error)
     );
     return cancel;
   }, [client, fetchDisplays, options.stream]);
@@ -689,7 +693,11 @@ export function useDisplay(options: { stream?: boolean } = { stream: true }) {
       setIsLoading(true);
       setError(null);
       try {
-        const created = await client.display.createDisplay(width, height, densityDpi);
+        const created = await client.display.CreateDisplay({
+          width,
+          height,
+          densityDpi,
+        });
         await fetchDisplays();
         return created;
       } catch (err: any) {
@@ -707,7 +715,7 @@ export function useDisplay(options: { stream?: boolean } = { stream: true }) {
       setIsLoading(true);
       setError(null);
       try {
-        await client.display.deleteDisplay(displayId);
+        await client.display.DeleteDisplay({ displayId });
         await fetchDisplays();
       } catch (err: any) {
         setError(err);
@@ -730,32 +738,6 @@ export function useDisplay(options: { stream?: boolean } = { stream: true }) {
 }
 
 /**
- * Hook to manage audio streaming and microphone input.
- */
-export function useAudio() {
-  const client = useDeviceClient();
-  const [error, setError] = useState<Error | null>(null);
-
-  const sendMicrophoneData = useCallback(
-    async (pcmData: Uint8Array, sampleRateHz: number = 16000) => {
-      setError(null);
-      try {
-        await client.audio.sendMicrophoneChunk({ pcmData, sampleRateHz });
-      } catch (err: any) {
-        setError(err);
-        throw err;
-      }
-    },
-    [client]
-  );
-
-  return {
-    error,
-    sendMicrophoneData,
-  };
-}
-
-/**
  * Hook to inject biometric fingerprint events into the guest OS.
  */
 export function useBiometrics() {
@@ -768,10 +750,7 @@ export function useBiometrics() {
       setIsInjecting(true);
       setError(null);
       try {
-        await client.biometrics.sendFingerprint(fingerId, true);
-        setTimeout(() => {
-          client.biometrics.sendFingerprint(fingerId, false).catch(() => {});
-        }, 100);
+        await client.biometrics.InjectFingerprint({ fingerId });
       } catch (err: any) {
         setError(err);
         throw err;
@@ -790,20 +769,20 @@ export function useBiometrics() {
 }
 
 /**
- * Hook to read and control cellular radio state, send SMS, and simulate calls.
+ * Hook to read and control cellular telephony state, send SMS, and simulate calls.
  */
 export function useTelephony(options: { stream?: boolean } = { stream: true }) {
   const client = useDeviceClient();
-  const [radio, setRadio] = useState<RadioState | null>(null);
+  const [telephony, setTelephony] = useState<TelephonyState | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const fetchRadioState = useCallback(async () => {
+  const fetchTelephonyState = useCallback(async () => {
     setIsUpdating(true);
     setError(null);
     try {
-      const state = await client.telephony.getRadioState();
-      setRadio(state);
+      const state = await client.telephony.GetTelephonyState();
+      setTelephony(state);
       return state;
     } catch (err: any) {
       setError(err);
@@ -814,21 +793,21 @@ export function useTelephony(options: { stream?: boolean } = { stream: true }) {
   }, [client]);
 
   useEffect(() => {
-    fetchRadioState().catch(() => {});
+    fetchTelephonyState().catch(() => {});
     if (options.stream === false) return;
 
-    const cancel = client.telephony.streamRadioState(
-      (state) => setRadio(state),
-      (err) => setError(err)
+    const cancel = client.telephony.subscribeTelephonyState(
+      (state) => setTelephony(state),
+      (err) => setError(err as Error)
     );
     return cancel;
-  }, [client, fetchRadioState, options.stream]);
+  }, [client, fetchTelephonyState, options.stream]);
 
   const sendSms = useCallback(
-    async (sender: string, message: string) => {
+    async (senderPhoneNumber: string, messageBody: string) => {
       setError(null);
       try {
-        await client.telephony.sendSms(sender, message);
+        await client.telephony.SendSms({ senderPhoneNumber, messageBody });
       } catch (err: any) {
         setError(err);
         throw err;
@@ -837,11 +816,11 @@ export function useTelephony(options: { stream?: boolean } = { stream: true }) {
     [client]
   );
 
-  const simulateIncomingCall = useCallback(
-    async (caller: string, action?: SimulateIncomingCallRequest_Action) => {
+  const transitionCall = useCallback(
+    async (callerPhoneNumber: string, action?: TransitionCallRequest_Action) => {
       setError(null);
       try {
-        await client.telephony.simulateIncomingCall(caller, action);
+        await client.telephony.TransitionCall({ callerPhoneNumber, action });
       } catch (err: any) {
         setError(err);
         throw err;
@@ -851,10 +830,10 @@ export function useTelephony(options: { stream?: boolean } = { stream: true }) {
   );
 
   return {
-    radio,
-    fetchRadioState,
+    telephony,
+    fetchTelephonyState,
     sendSms,
-    simulateIncomingCall,
+    transitionCall,
     isUpdating,
     error,
   };
@@ -869,11 +848,11 @@ export function useScreenCapture() {
   const [error, setError] = useState<Error | null>(null);
 
   const captureScreenshot = useCallback(
-    async (options?: ScreenshotOptions) => {
+    async (request?: GetScreenshotRequest) => {
       setIsCapturing(true);
       setError(null);
       try {
-        return await client.screenCapture.getScreenshot(options);
+        return await client.screenCapture.GetScreenshot(request);
       } catch (err: any) {
         setError(err);
         throw err;
@@ -900,11 +879,11 @@ export function useCamera() {
   const [error, setError] = useState<Error | null>(null);
 
   const injectImage = useCallback(
-    async (options: InjectFrameOptions) => {
+    async (frame: CameraFrame) => {
       setIsInjecting(true);
       setError(null);
       try {
-        await client.camera.injectFrame(options);
+        await client.camera.InjectFrame(frame);
       } catch (err: any) {
         setError(err);
         throw err;
@@ -916,10 +895,10 @@ export function useCamera() {
   );
 
   const resetCamera = useCallback(
-    async (cameraId: string = '0') => {
+    async (cameraId?: string) => {
       setError(null);
       try {
-        await client.camera.resetCamera(cameraId);
+        await client.camera.ResetCamera({ cameraId });
       } catch (err: any) {
         setError(err);
         throw err;
@@ -949,7 +928,7 @@ export function useSystem(options: { stream?: boolean } = { stream: true }) {
     setIsLoading(true);
     setError(null);
     try {
-      const state = await client.system.getSystemState();
+      const state = await client.system.GetSystemState();
       setSystemState(state);
       return state;
     } catch (err: any) {
@@ -966,7 +945,7 @@ export function useSystem(options: { stream?: boolean } = { stream: true }) {
 
     const cancel = client.system.subscribeSystemState(
       (state) => setSystemState(state),
-      (err) => setError(err)
+      (err) => setError(err as Error)
     );
     return cancel;
   }, [client, fetchSystemState, options.stream]);
@@ -974,7 +953,7 @@ export function useSystem(options: { stream?: boolean } = { stream: true }) {
   const rebootDevice = useCallback(async () => {
     setError(null);
     try {
-      await client.system.rebootDevice();
+      await client.system.RebootDevice();
     } catch (err: any) {
       setError(err);
       throw err;
@@ -989,6 +968,3 @@ export function useSystem(options: { stream?: boolean } = { stream: true }) {
     error,
   };
 }
-
-// Backward compatibility aliases
-export { useDevice as useAquarium };

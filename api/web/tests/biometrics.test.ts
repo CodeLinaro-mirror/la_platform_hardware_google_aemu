@@ -12,32 +12,52 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { BiometricsClient } from '../src/core/biometrics';
-import { InjectFingerprintRequest } from '@android/emulator-services/system/biometrics_service';
+import { InjectFingerprintRequest } from '@android/emulator-services/system_service';
+import { Empty } from '@android/emulator-services/google/protobuf/empty';
+import { FakeTransport } from './fake_transport';
 
-describe('BiometricsClient (TDD)', () => {
-  let mockTransport: any;
+const SERVICE = 'android.emulation.v2.SystemService';
+
+describe('BiometricsClient', () => {
+  let transport: FakeTransport;
+  let client: BiometricsClient;
 
   beforeEach(() => {
-    mockTransport = {
-      request: vi.fn(),
-    };
+    transport = new FakeTransport();
+    client = new BiometricsClient(transport.asTransport());
+    transport.respondWith(Empty.encode({}).finish());
   });
 
-  it('sendFingerprint sends InjectFingerprintRequest with fingerId and touching flag', async () => {
-    const client = new BiometricsClient(mockTransport);
-    mockTransport.request.mockResolvedValue(new Uint8Array([]));
+  it('sends InjectFingerprint with the finger id and the touching flag', async () => {
+    await client.InjectFingerprint({ fingerId: 1, touching: true });
 
-    await client.sendFingerprint(1, true);
+    expect(transport.calls).toHaveLength(1);
+    expect(transport.lastCall.service).toBe(SERVICE);
+    expect(transport.lastCall.method).toBe('InjectFingerprint');
 
-    expect(mockTransport.request).toHaveBeenCalledTimes(1);
-    const [service, method, data] = mockTransport.request.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.system.BiometricsService');
-    expect(method).toBe('InjectFingerprint');
+    const request = InjectFingerprintRequest.decode(transport.lastCall.data);
+    expect(request.fingerId).toBe(1);
+    expect(request.touching).toBe(true);
+  });
 
-    const decoded = InjectFingerprintRequest.decode(data);
-    expect(decoded.fingerId).toBe(1);
-    expect(decoded.touching).toBe(true);
+  // Nothing is filled in on the client any more: an empty request reaches the
+  // server as an empty request, leaving the finger id at the proto3 default and
+  // `touching` — which is `optional` — absent, for the server to interpret.
+  it('sends nothing the caller did not ask for', async () => {
+    await client.InjectFingerprint({});
+
+    const request = InjectFingerprintRequest.decode(transport.lastCall.data);
+    expect(request.fingerId).toBe(0);
+    expect(request.touching).toBeUndefined();
+  });
+
+  it('forwards a finger lift', async () => {
+    await client.InjectFingerprint({ fingerId: 2, touching: false });
+
+    const request = InjectFingerprintRequest.decode(transport.lastCall.data);
+    expect(request.fingerId).toBe(2);
+    expect(request.touching).toBe(false);
   });
 });

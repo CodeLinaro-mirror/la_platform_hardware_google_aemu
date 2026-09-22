@@ -136,6 +136,3 @@ export class DeviceClient {
     this.rtc.disconnect();
   }
 }
-
-// Backward compatibility aliases
-export { DeviceClient as AquariumClient, type DeviceClientOptions as AquariumClientOptions };

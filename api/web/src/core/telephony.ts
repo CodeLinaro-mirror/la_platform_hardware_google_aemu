@@ -13,143 +13,99 @@
 // limitations under the License.
 
 import { GrpcWebTransport } from './transport';
+import { subscribe, Unsubscribe } from './streaming';
 import {
-  RadioState,
-  RadioState_Technology,
-  RadioState_Strength,
-  RadioState_Registration,
-  GetRadioStateRequest,
-  StreamRadioStateRequest,
-  UpdateRadioStateRequest,
+  CallState,
+  CallState_Status,
+  DeepPartial,
+  GetTelephonyStateRequest,
   SendSmsRequest,
-  SimulateIncomingCallRequest,
-  SimulateIncomingCallRequest_Action,
-} from '@android/emulator-services/environment/telephony_service';
+  SendSmsResponse,
+  StreamTelephonyStateRequest,
+  TelephonyService,
+  TelephonyServiceClientImpl,
+  TelephonyState,
+  TelephonyState_Registration,
+  TelephonyState_Strength,
+  TelephonyState_Technology,
+  TransitionCallRequest,
+  TransitionCallRequest_Action,
+  TransitionCallResponse,
+  UpdateTelephonyStateRequest,
+} from '@android/emulator-services/telephony_service';
 
 export {
-  RadioState,
-  RadioState_Technology,
-  RadioState_Strength,
-  RadioState_Registration,
-  SimulateIncomingCallRequest_Action,
+  CallState,
+  CallState_Status,
+  TelephonyState,
+  TelephonyState_Technology,
+  TelephonyState_Strength,
+  TelephonyState_Registration,
+  SendSmsRequest,
+  SendSmsResponse,
+  TransitionCallRequest,
+  TransitionCallRequest_Action,
+  TransitionCallResponse,
+  UpdateTelephonyStateRequest,
 };
 
-export interface RadioStateUpdate {
-  radioPowered?: boolean;
-  activeTechnology?: RadioState_Technology;
-  signalStrength?: RadioState_Strength;
-  registrationState?: RadioState_Registration;
-}
+/**
+ * The fields of {@link TelephonyState} a caller is allowed to change.
+ */
+export type TelephonyStateUpdate = DeepPartial<UpdateTelephonyStateRequest>;
 
 /**
- * Headless API client for TelephonyService (Modem, Cellular radio, SMS, and Call simulation).
+ * Headless API client for TelephonyService (modem, cellular radio, SMS and
+ * call simulation).
+ *
+ * Methods named in `PascalCase` are the RPCs of `TelephonyService`, spelled
+ * exactly as `telephony_service.proto` declares them. `camelCase` methods are
+ * conveniences this package adds and have no RPC of their own.
  */
 export class TelephonyClient {
-  private readonly transport: GrpcWebTransport;
+  private readonly rpc: TelephonyService;
 
   constructor(transport: GrpcWebTransport) {
-    this.transport = transport;
+    this.rpc = new TelephonyServiceClientImpl(transport);
   }
 
-  public async getRadioState(): Promise<RadioState> {
-    const reqBytes = GetRadioStateRequest.encode({}).finish();
-    const resBytes = await this.transport.request(
-      'android.emulation.v2.environment.TelephonyService',
-      'GetRadioState',
-      reqBytes
-    );
-    return RadioState.decode(resBytes);
+  public GetTelephonyState(
+    request: DeepPartial<GetTelephonyStateRequest> = {}
+  ): Promise<TelephonyState> {
+    return this.rpc.GetTelephonyState(GetTelephonyStateRequest.fromPartial(request));
   }
 
-  public streamRadioState(
-    onState: (state: RadioState) => void,
-    onError?: (err: any) => void
-  ): () => void {
-    const reqBytes = StreamRadioStateRequest.encode({}).finish();
-    return this.transport.stream(
-      'android.emulation.v2.environment.TelephonyService',
-      'StreamRadioState',
-      reqBytes,
-      (bytes) => onState(RadioState.decode(bytes)),
-      onError
-    );
+  public StreamTelephonyState(
+    request: DeepPartial<StreamTelephonyStateRequest> = {},
+    signal?: AbortSignal
+  ): AsyncIterable<TelephonyState> {
+    return this.rpc.StreamTelephonyState(StreamTelephonyStateRequest.fromPartial(request), signal);
   }
 
-  public streamRadioStateIterator(): AsyncIterable<RadioState> {
-    const reqBytes = StreamRadioStateRequest.encode({}).finish();
-    const byteStream = this.transport.serverStream(
-      'android.emulation.v2.environment.TelephonyService',
-      'StreamRadioState',
-      reqBytes
-    );
-
-    return {
-      async *[Symbol.asyncIterator]() {
-        for await (const chunkBytes of byteStream) {
-          yield RadioState.decode(chunkBytes);
-        }
-      },
-    };
+  /**
+   * Applies a partial update. Only the fields present in `update` are changed;
+   * the rest are left alone by the server.
+   */
+  public UpdateTelephonyState(update: TelephonyStateUpdate): Promise<TelephonyState> {
+    return this.rpc.UpdateTelephonyState(UpdateTelephonyStateRequest.fromPartial(update));
   }
 
-  public async updateRadioState(update: RadioStateUpdate): Promise<RadioState> {
-    const paths: string[] = [];
-    const state: RadioState = {
-      radioPowered: update.radioPowered ?? true,
-      activeTechnology: update.activeTechnology ?? RadioState_Technology.LTE,
-      signalStrength: update.signalStrength ?? RadioState_Strength.GREAT,
-      registrationState:
-        update.registrationState ?? RadioState_Registration.HOME_NETWORK,
-    };
-
-    if (update.radioPowered !== undefined) paths.push('radio_powered');
-    if (update.activeTechnology !== undefined) paths.push('active_technology');
-    if (update.signalStrength !== undefined) paths.push('signal_strength');
-    if (update.registrationState !== undefined)
-      paths.push('registration_state');
-
-    const req: UpdateRadioStateRequest = {
-      radioState: state,
-      updateMask: paths,
-    };
-    const reqBytes = UpdateRadioStateRequest.encode(req).finish();
-    const resBytes = await this.transport.request(
-      'android.emulation.v2.environment.TelephonyService',
-      'UpdateRadioState',
-      reqBytes
-    );
-    return RadioState.decode(resBytes);
+  public SendSms(request: DeepPartial<SendSmsRequest>): Promise<SendSmsResponse> {
+    return this.rpc.SendSms(SendSmsRequest.fromPartial(request));
   }
 
-  public async sendSms(
-    senderPhoneNumber: string,
-    messageBody: string
-  ): Promise<Uint8Array> {
-    const req: SendSmsRequest = {
-      senderPhoneNumber,
-      messageBody,
-    };
-    const reqBytes = SendSmsRequest.encode(req).finish();
-    return this.transport.request(
-      'android.emulation.v2.environment.TelephonyService',
-      'SendSms',
-      reqBytes
-    );
+  public TransitionCall(
+    request: DeepPartial<TransitionCallRequest>
+  ): Promise<TransitionCallResponse> {
+    return this.rpc.TransitionCall(TransitionCallRequest.fromPartial(request));
   }
 
-  public async simulateIncomingCall(
-    callerPhoneNumber: string,
-    action: SimulateIncomingCallRequest_Action = SimulateIncomingCallRequest_Action.RING
-  ): Promise<Uint8Array> {
-    const req: SimulateIncomingCallRequest = {
-      callerPhoneNumber,
-      action,
-    };
-    const reqBytes = SimulateIncomingCallRequest.encode(req).finish();
-    return this.transport.request(
-      'android.emulation.v2.environment.TelephonyService',
-      'SimulateIncomingCall',
-      reqBytes
-    );
+  /** Callback form of {@link TelephonyClient.StreamTelephonyState}. */
+  public subscribeTelephonyState(
+    onState: (state: TelephonyState) => void,
+    onError?: (err: unknown) => void,
+    request: DeepPartial<StreamTelephonyStateRequest> = {}
+  ): Unsubscribe {
+    return subscribe((signal) => this.StreamTelephonyState(request, signal), onState, onError);
   }
 }

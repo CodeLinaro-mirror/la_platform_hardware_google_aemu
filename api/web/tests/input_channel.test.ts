@@ -75,12 +75,12 @@ describe('InputChannel (TDD)', () => {
 
     inputChannel.sendPointer({
       displayId: 0,
-      slot: 0,
-      action: PointerAction.DOWN,
+      pointerId: 0,
+      action: PointerAction.POINTER_ACTION_DOWN,
       x: 0.5,
       y: 0.25,
       pressure: 1.0,
-      toolType: ToolType.FINGER,
+      toolType: ToolType.TOOL_TYPE_FINGER,
     });
 
     expect(mockChannel.sentData.length).toBe(1);
@@ -92,7 +92,7 @@ describe('InputChannel (TDD)', () => {
     expect(decoded.pointer).toBeDefined();
     expect(decoded.pointer?.displayId).toBe(0);
     expect(decoded.pointer?.pointers?.[0]?.pointerId).toBe(0);
-    expect(decoded.pointer?.action).toBe(PointerAction.DOWN);
+    expect(decoded.pointer?.action).toBe(PointerAction.POINTER_ACTION_DOWN);
     expect(decoded.pointer?.pointers?.[0]?.x).toBeCloseTo(0.5);
     expect(decoded.pointer?.pointers?.[0]?.y).toBeCloseTo(0.25);
     expect(decoded.pointer?.pointers?.[0]?.pressure).toBeCloseTo(1.0);
@@ -104,14 +104,14 @@ describe('InputChannel (TDD)', () => {
 
     inputChannel.sendKey({
       domCode: 'Enter',
-      action: KeyAction.DOWN,
+      action: KeyAction.KEY_ACTION_DOWN,
     });
 
     expect(mockChannel.sentData.length).toBe(1);
     const decoded = inputChannel.decodeEvent(mockChannel.sentData[0]);
     expect(decoded.key).toBeDefined();
     expect(decoded.key?.domCode).toBe('Enter');
-    expect(decoded.key?.action).toBe(KeyAction.DOWN);
+    expect(decoded.key?.action).toBe(KeyAction.KEY_ACTION_DOWN);
   });
 
   it('serializes and sends scroll wheel events', () => {
@@ -127,7 +127,7 @@ describe('InputChannel (TDD)', () => {
     expect(mockChannel.sentData.length).toBe(1);
     const decoded = inputChannel.decodeEvent(mockChannel.sentData[0]);
     expect(decoded.pointer).toBeDefined();
-    expect(decoded.pointer?.action).toBe(PointerAction.SCROLL);
+    expect(decoded.pointer?.action).toBe(PointerAction.POINTER_ACTION_SCROLL);
     expect(decoded.pointer?.scrollY).toBe(-120);
   });
 
@@ -138,15 +138,15 @@ describe('InputChannel (TDD)', () => {
     // Send while connecting
     inputChannel.sendPointer({
       displayId: 0,
-      slot: 0,
-      action: PointerAction.DOWN,
+      pointerId: 0,
+      action: PointerAction.POINTER_ACTION_DOWN,
       x: 0.1,
       y: 0.2,
     });
     inputChannel.sendPointer({
       displayId: 0,
-      slot: 0,
-      action: PointerAction.UP,
+      pointerId: 0,
+      action: PointerAction.POINTER_ACTION_UP,
       x: 0.1,
       y: 0.2,
     });
@@ -160,7 +160,7 @@ describe('InputChannel (TDD)', () => {
     expect(mockChannel.sentData.length).toBe(2);
     const ev1 = inputChannel.decodeEvent(mockChannel.sentData[0]);
     const ev2 = inputChannel.decodeEvent(mockChannel.sentData[1]);
-    expect(ev1.pointer?.action).toBe(PointerAction.DOWN);
-    expect(ev2.pointer?.action).toBe(PointerAction.UP);
+    expect(ev1.pointer?.action).toBe(PointerAction.POINTER_ACTION_DOWN);
+    expect(ev2.pointer?.action).toBe(PointerAction.POINTER_ACTION_UP);
   });
 });

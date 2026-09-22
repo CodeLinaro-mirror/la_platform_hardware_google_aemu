@@ -13,166 +13,100 @@
 // limitations under the License.
 
 import { GrpcWebTransport } from './transport';
+import { subscribe, Unsubscribe } from './streaming';
 import {
-  DisplayState,
-  Rotation,
+  CreateDisplayRequest,
+  DeepPartial,
+  DeleteDisplayRequest,
+  DeleteDisplayResponse,
+  Display,
   DisplayFlag,
+  DisplayService,
+  DisplayServiceClientImpl,
+  GetDisplayRequest,
   ListDisplaysRequest,
   ListDisplaysResponse,
-  GetDisplayRequest,
-  StreamDisplayStateRequest,
-  CreateDisplayRequest,
-  DeleteDisplayRequest,
-  UpdateDisplayStateRequest,
-} from '@android/emulator-services/environment/display_service';
+  StreamDisplaysRequest,
+  UpdateDisplayRequest,
+} from '@android/emulator-services/display_service';
+import { Rotation } from '@android/emulator-services/common';
 
-export { DisplayState, Rotation, DisplayFlag };
-
-export interface DisplayStateUpdate {
-  displayId: number;
-  width?: number;
-  height?: number;
-  densityDpi?: number;
-  rotation?: Rotation;
-  brightnessPercent?: number;
-  autoBrightnessEnabled?: boolean;
-}
+export {
+  Display,
+  ListDisplaysResponse,
+  Rotation,
+  DisplayFlag,
+  UpdateDisplayRequest,
+  DeleteDisplayResponse,
+};
 
 /**
- * Headless API client for DisplayService (Multi-display and resolution controls).
+ * The fields of {@link Display} a caller is allowed to change.
+ */
+export type DisplayUpdate = Pick<UpdateDisplayRequest, 'displayId'> &
+  DeepPartial<UpdateDisplayRequest>;
+
+/**
+ * Headless API client for DisplayService (multi-display and resolution
+ * controls).
+ *
+ * Methods named in `PascalCase` are the RPCs of `DisplayService`, spelled
+ * exactly as `display_service.proto` declares them, and return the response
+ * message the proto declares. `camelCase` methods are conveniences this package
+ * adds and have no RPC of their own.
  */
 export class DisplayClient {
-  private readonly transport: GrpcWebTransport;
+  private readonly rpc: DisplayService;
 
   constructor(transport: GrpcWebTransport) {
-    this.transport = transport;
+    this.rpc = new DisplayServiceClientImpl(transport);
   }
 
-  public async listDisplays(): Promise<DisplayState[]> {
-    const reqBytes = ListDisplaysRequest.encode({}).finish();
-    const resBytes = await this.transport.request(
-      'android.emulation.v2.environment.DisplayService',
-      'ListDisplays',
-      reqBytes
-    );
-    const res = ListDisplaysResponse.decode(resBytes);
-    return res.displays ?? [];
+  public ListDisplays(
+    request: DeepPartial<ListDisplaysRequest> = {}
+  ): Promise<ListDisplaysResponse> {
+    return this.rpc.ListDisplays(ListDisplaysRequest.fromPartial(request));
   }
 
-  public streamDisplays(
-    onDisplays: (displays: DisplayState[]) => void,
-    onError?: (err: any) => void
-  ): () => void {
-    const reqBytes = StreamDisplayStateRequest.encode({}).finish();
-    return this.transport.stream(
-      'android.emulation.v2.environment.DisplayService',
-      'StreamDisplayState',
-      reqBytes,
-      (bytes) => {
-        const res = ListDisplaysResponse.decode(bytes);
-        onDisplays(res.displays ?? []);
-      },
-      onError
-    );
+  public GetDisplay(request: DeepPartial<GetDisplayRequest> = {}): Promise<Display> {
+    return this.rpc.GetDisplay(GetDisplayRequest.fromPartial(request));
   }
 
-  public streamDisplaysIterator(): AsyncIterable<DisplayState[]> {
-    const reqBytes = StreamDisplayStateRequest.encode({}).finish();
-    const byteStream = this.transport.serverStream(
-      'android.emulation.v2.environment.DisplayService',
-      'StreamDisplayState',
-      reqBytes
-    );
-
-    return {
-      async *[Symbol.asyncIterator]() {
-        for await (const chunkBytes of byteStream) {
-          const res = ListDisplaysResponse.decode(chunkBytes);
-          yield res.displays ?? [];
-        }
-      },
-    };
+  /**
+   * Each message carries the whole display list, not a delta, so a consumer
+   * that misses a message has not missed a state.
+   */
+  public StreamDisplays(
+    request: DeepPartial<StreamDisplaysRequest> = {},
+    signal?: AbortSignal
+  ): AsyncIterable<ListDisplaysResponse> {
+    return this.rpc.StreamDisplays(StreamDisplaysRequest.fromPartial(request), signal);
   }
 
-  public async getDisplay(displayId: number): Promise<DisplayState> {
-    const req: GetDisplayRequest = { displayId };
-    const reqBytes = GetDisplayRequest.encode(req).finish();
-    const resBytes = await this.transport.request(
-      'android.emulation.v2.environment.DisplayService',
-      'GetDisplay',
-      reqBytes
-    );
-    return DisplayState.decode(resBytes);
+  /**
+   * Applies a partial update to one display. Only the fields present in
+   * `update` are changed; the rest are left alone by the server.
+   */
+  public UpdateDisplay(update: DisplayUpdate): Promise<Display> {
+    return this.rpc.UpdateDisplay(UpdateDisplayRequest.fromPartial(update));
   }
 
-  public async createDisplay(
-    width: number,
-    height: number,
-    densityDpi: number
-  ): Promise<DisplayState> {
-    const req: CreateDisplayRequest = {
-      displayState: {
-        displayId: 0,
-        primary: false,
-        width,
-        height,
-        densityDpi,
-        rotation: Rotation.ROTATION_DEG0,
-        brightnessPercent: 100,
-        autoBrightnessEnabled: false,
-        flags: [],
-      },
-    };
-    const reqBytes = CreateDisplayRequest.encode(req).finish();
-    const resBytes = await this.transport.request(
-      'android.emulation.v2.environment.DisplayService',
-      'CreateDisplay',
-      reqBytes
-    );
-    return DisplayState.decode(resBytes);
+  public CreateDisplay(request: DeepPartial<CreateDisplayRequest>): Promise<Display> {
+    return this.rpc.CreateDisplay(CreateDisplayRequest.fromPartial(request));
   }
 
-  public async deleteDisplay(displayId: number): Promise<Uint8Array> {
-    const req: DeleteDisplayRequest = { displayId };
-    const reqBytes = DeleteDisplayRequest.encode(req).finish();
-    return this.transport.request(
-      'android.emulation.v2.environment.DisplayService',
-      'DeleteDisplay',
-      reqBytes
-    );
+  public DeleteDisplay(
+    request: DeepPartial<DeleteDisplayRequest> = {}
+  ): Promise<DeleteDisplayResponse> {
+    return this.rpc.DeleteDisplay(DeleteDisplayRequest.fromPartial(request));
   }
 
-  public async updateDisplay(update: DisplayStateUpdate): Promise<DisplayState> {
-    const paths: string[] = ['display_id'];
-    const state: DisplayState = {
-      displayId: update.displayId,
-      primary: false,
-      width: update.width ?? 0,
-      height: update.height ?? 0,
-      densityDpi: update.densityDpi ?? 0,
-      rotation: update.rotation ?? Rotation.ROTATION_UNSPECIFIED,
-      brightnessPercent: update.brightnessPercent ?? 100,
-      autoBrightnessEnabled: update.autoBrightnessEnabled ?? false,
-      flags: [],
-    };
-
-    if (update.width !== undefined) paths.push('width');
-    if (update.height !== undefined) paths.push('height');
-    if (update.densityDpi !== undefined) paths.push('density_dpi');
-    if (update.rotation !== undefined) paths.push('rotation');
-    if (update.brightnessPercent !== undefined) paths.push('brightness_percent');
-    if (update.autoBrightnessEnabled !== undefined) paths.push('auto_brightness_enabled');
-
-    const req: UpdateDisplayStateRequest = {
-      displayState: state,
-      updateMask: paths,
-    };
-    const reqBytes = UpdateDisplayStateRequest.encode(req).finish();
-    const resBytes = await this.transport.request(
-      'android.emulation.v2.environment.DisplayService',
-      'UpdateDisplayState',
-      reqBytes
-    );
-    return DisplayState.decode(resBytes);
+  /** Callback form of {@link DisplayClient.StreamDisplays}. */
+  public subscribeDisplayState(
+    onDisplays: (response: ListDisplaysResponse) => void,
+    onError?: (err: unknown) => void,
+    request: DeepPartial<StreamDisplaysRequest> = {}
+  ): Unsubscribe {
+    return subscribe((signal) => this.StreamDisplays(request, signal), onDisplays, onError);
   }
 }

@@ -40,6 +40,7 @@
   "author": "The Android Open Source Project",
   "license": "Apache-2.0",
   "peerDependencies": {
+    "@android/emulator-services": "*",
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0"
   },

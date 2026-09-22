@@ -13,106 +13,76 @@
 // limitations under the License.
 
 import { GrpcWebTransport } from './transport';
+import { subscribe, Unsubscribe } from './streaming';
 import {
-  PostureState,
+  DeepPartial,
   GetPostureStateRequest,
+  HingeState,
+  PostureState,
+  PostureType,
+  RollableState,
+  SensorsService,
+  SensorsServiceClientImpl,
   StreamPostureStateRequest,
+  TransitionMode,
   UpdatePostureStateRequest,
-} from '@android/emulator-services/environment/posture_service';
-import { PostureType } from '@android/emulator-services/common/common';
+} from '@android/emulator-services/sensors_service';
 
-export { PostureState, PostureType };
-
-export interface PostureStateUpdate {
-  posture?: PostureType;
-  hingeAngleDegrees?: number;
-}
+export {
+  HingeState,
+  PostureState,
+  PostureType,
+  RollableState,
+  TransitionMode,
+  UpdatePostureStateRequest,
+};
 
 /**
- * Headless API client for PostureService (Foldables & Hinge Angle).
+ * The fields of {@link PostureState} a caller is allowed to change.
+ */
+export type PostureStateUpdate = DeepPartial<UpdatePostureStateRequest>;
+
+/**
+ * Headless API client for foldable posture and hinge angle RPCs on SensorsService.
+ *
+ * Methods named in `PascalCase` are the RPCs of `SensorsService`, spelled
+ * exactly as `sensors_service.proto` declares them. `camelCase` methods are
+ * conveniences this package adds and have no RPC of their own.
  */
 export class PostureClient {
-  private readonly transport: GrpcWebTransport;
+  private readonly rpc: SensorsService;
 
   constructor(transport: GrpcWebTransport) {
-    this.transport = transport;
+    this.rpc = new SensorsServiceClientImpl(transport);
   }
 
-  public async getPostureState(): Promise<PostureState> {
-    const reqBytes = GetPostureStateRequest.encode({}).finish();
-    const resBytes = await this.transport.request(
-      'android.emulation.v2.environment.PostureService',
-      'GetPostureState',
-      reqBytes
-    );
-    return PostureState.decode(resBytes);
+  public GetPostureState(
+    request: DeepPartial<GetPostureStateRequest> = {}
+  ): Promise<PostureState> {
+    return this.rpc.GetPostureState(GetPostureStateRequest.fromPartial(request));
   }
 
-  public streamPostureState(
+  public StreamPostureState(
+    request: DeepPartial<StreamPostureStateRequest> = {},
+    signal?: AbortSignal
+  ): AsyncIterable<PostureState> {
+    return this.rpc.StreamPostureState(StreamPostureStateRequest.fromPartial(request), signal);
+  }
+
+  /**
+   * Applies a partial update. Only the fields present in `update` are changed;
+   * the rest are left alone by the server.
+   */
+  public UpdatePostureState(update: PostureStateUpdate): Promise<PostureState> {
+    return this.rpc.UpdatePostureState(UpdatePostureStateRequest.fromPartial(update));
+  }
+
+  /** Callback form of {@link PostureClient.StreamPostureState}. */
+  public subscribePostureState(
     onState: (state: PostureState) => void,
-    onError?: (err: any) => void
-  ): () => void {
-    const reqBytes = StreamPostureStateRequest.encode({}).finish();
-    return this.transport.stream(
-      'android.emulation.v2.environment.PostureService',
-      'StreamPostureState',
-      reqBytes,
-      (bytes) => onState(PostureState.decode(bytes)),
-      onError
-    );
-  }
-
-  public streamPostureStateIterator(): AsyncIterable<PostureState> {
-    const reqBytes = StreamPostureStateRequest.encode({}).finish();
-    const byteStream = this.transport.serverStream(
-      'android.emulation.v2.environment.PostureService',
-      'StreamPostureState',
-      reqBytes
-    );
-
-    return {
-      async *[Symbol.asyncIterator]() {
-        for await (const chunkBytes of byteStream) {
-          yield PostureState.decode(chunkBytes);
-        }
-      },
-    };
-  }
-
-  public async updatePostureState(update: PostureStateUpdate): Promise<PostureState> {
-    const paths: string[] = [];
-    const state: PostureState = {
-      posture: update.posture ?? PostureType.POSTURE_TYPE_UNSPECIFIED,
-      hingeAngleDegrees: update.hingeAngleDegrees ?? 0,
-      timestampNanos: 0,
-    };
-
-    if (update.posture !== undefined) {
-      paths.push('posture');
-    }
-    if (update.hingeAngleDegrees !== undefined) {
-      paths.push('hinge_angle_degrees');
-    }
-
-    const req: UpdatePostureStateRequest = {
-      postureState: state,
-      updateMask: paths,
-    };
-
-    const reqBytes = UpdatePostureStateRequest.encode(req).finish();
-    const resBytes = await this.transport.request(
-      'android.emulation.v2.environment.PostureService',
-      'UpdatePostureState',
-      reqBytes
-    );
-    return PostureState.decode(resBytes);
-  }
-
-  public async setHingeAngle(degrees: number): Promise<PostureState> {
-    return this.updatePostureState({ hingeAngleDegrees: degrees });
-  }
-
-  public async setDevicePosture(posture: PostureType): Promise<PostureState> {
-    return this.updatePostureState({ posture });
+    onError?: (err: unknown) => void,
+    request: DeepPartial<StreamPostureStateRequest> = {}
+  ): Unsubscribe {
+    return subscribe((signal) => this.StreamPostureState(request, signal), onState, onError);
   }
 }

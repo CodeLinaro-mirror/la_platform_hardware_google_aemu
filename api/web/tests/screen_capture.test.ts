@@ -13,79 +13,154 @@
 // limitations under the License.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ScreenCaptureClient, ImageFormat } from '../src/core/screen_capture';
+import { ScreenCaptureClient, ImageFormat, Screenshot } from '../src/core/screen_capture';
 import {
-  Screenshot,
   GetScreenshotRequest,
   StreamScreenshotsRequest,
-} from '@android/emulator-services/media/screen_capture_service';
+} from '@android/emulator-services/display_service';
+import { FakeTransport } from './fake_transport';
 
-describe('ScreenCaptureClient (TDD)', () => {
-  let mockTransport: any;
+const SERVICE = 'android.emulation.v2.DisplayService';
+
+describe('ScreenCaptureClient', () => {
+  let transport: FakeTransport;
+  let client: ScreenCaptureClient;
 
   beforeEach(() => {
-    mockTransport = {
-      request: vi.fn(),
-      serverStream: vi.fn(),
-    };
+    transport = new FakeTransport();
+    client = new ScreenCaptureClient(transport.asTransport());
   });
 
-  it('getScreenshot requests screenshot and decodes frame bytes', async () => {
-    const client = new ScreenCaptureClient(mockTransport);
+  function encodeFrame(frame: Partial<Screenshot>): Uint8Array {
+    return Screenshot.encode(Screenshot.fromPartial(frame)).finish();
+  }
 
-    const mockFrame: Screenshot = {
-      imageData: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
-      width: 1080,
-      height: 2400,
-      rowStrideBytes: 4320,
-      frameSequenceNumber: 42,
-      presentationTimeNanos: 123456789,
-    };
-    mockTransport.request.mockResolvedValue(Screenshot.encode(mockFrame).finish());
+  it('requests a screenshot and decodes the frame', async () => {
+    transport.respondWith(
+      encodeFrame({
+        imageData: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+        width: 1080,
+        height: 2400,
+        rowStrideBytes: 4320,
+        frameSequenceNumber: 42,
+        presentationTimeNanos: 123456789,
+      })
+    );
 
-    const result = await client.getScreenshot({ displayId: 0, format: ImageFormat.IMAGE_FORMAT_PNG });
-    expect(mockTransport.request).toHaveBeenCalledTimes(1);
-    const [service, method, data] = mockTransport.request.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.media.ScreenCaptureService');
-    expect(method).toBe('GetScreenshot');
+    const result = await client.GetScreenshot({
+      displayId: 0,
+      format: ImageFormat.IMAGE_FORMAT_PNG,
+    });
 
-    const decodedReq = GetScreenshotRequest.decode(data);
-    expect(decodedReq.displayId).toBe(0);
-    expect(decodedReq.format).toBe(ImageFormat.IMAGE_FORMAT_PNG);
+    expect(transport.calls).toHaveLength(1);
+    expect(transport.lastCall.service).toBe(SERVICE);
+    expect(transport.lastCall.method).toBe('GetScreenshot');
+
+    const request = GetScreenshotRequest.decode(transport.lastCall.data);
+    expect(request.displayId).toBe(0);
+    expect(request.format).toBe(ImageFormat.IMAGE_FORMAT_PNG);
     expect(result.width).toBe(1080);
     expect(result.frameSequenceNumber).toBe(42);
   });
 
-  it('streamScreenshots streams continuous frames with fps throttle', async () => {
-    const client = new ScreenCaptureClient(mockTransport);
+  // The client no longer substitutes PNG on display 0 for an unspecified
+  // request, so the format and display the caller picks are what get encoded.
+  it('sends the requested format and display verbatim', async () => {
+    transport.respondWith(encodeFrame({}));
 
-    const mockFrame: Screenshot = {
-      imageData: new Uint8Array([0xff, 0xd8]),
-      width: 720,
-      height: 1280,
-      rowStrideBytes: 2880,
-      frameSequenceNumber: 1,
-      presentationTimeNanos: 1000,
-    };
-    const encoded = Screenshot.encode(mockFrame).finish();
+    await client.GetScreenshot({ displayId: 2, format: ImageFormat.IMAGE_FORMAT_JPEG });
 
-    mockTransport.serverStream.mockReturnValue((async function* () {
-      yield encoded;
-    })());
+    const request = GetScreenshotRequest.decode(transport.lastCall.data);
+    expect(request.displayId).toBe(2);
+    expect(request.format).toBe(ImageFormat.IMAGE_FORMAT_JPEG);
+  });
 
+  it('streams continuous frames with the requested fps throttle', async () => {
+    const stream = transport.stream();
+    const controller = new AbortController();
     const frames: Screenshot[] = [];
-    for await (const frame of client.streamScreenshots({ displayId: 0, maxFramesPerSecond: 15 })) {
-      frames.push(frame);
-    }
 
-    expect(mockTransport.serverStream).toHaveBeenCalledTimes(1);
-    const [service, method, data] = mockTransport.serverStream.mock.calls[0];
-    expect(service).toBe('android.emulation.v2.media.ScreenCaptureService');
-    expect(method).toBe('StreamScreenshots');
+    const consumed = (async () => {
+      for await (const frame of client.StreamScreenshots(
+        { displayId: 0, maxFramesPerSecond: 15 },
+        controller.signal
+      )) {
+        frames.push(frame);
+        controller.abort();
+      }
+    })();
 
-    const decodedReq = StreamScreenshotsRequest.decode(data);
-    expect(decodedReq.maxFramesPerSecond).toBe(15);
+    stream.push(
+      encodeFrame({
+        imageData: new Uint8Array([0xff, 0xd8]),
+        width: 720,
+        height: 1280,
+        rowStrideBytes: 2880,
+        frameSequenceNumber: 1,
+        presentationTimeNanos: 1000,
+      })
+    );
+    await consumed;
+
+    expect(transport.streamCalls).toHaveLength(1);
+    expect(transport.streamCalls[0].service).toBe(SERVICE);
+    expect(transport.streamCalls[0].method).toBe('StreamScreenshots');
+
+    const request = StreamScreenshotsRequest.decode(transport.streamCalls[0].data);
+    expect(request.maxFramesPerSecond).toBe(15);
     expect(frames).toHaveLength(1);
     expect(frames[0].width).toBe(720);
   });
+
+  // There is no client-side 10fps/PNG default any more: a subscription sends
+  // exactly the request the caller handed it.
+  it('sends the subscription request the caller supplied', () => {
+    const unsubscribe = client.subscribeScreenshots(() => {}, undefined, {
+      displayId: 1,
+      format: ImageFormat.IMAGE_FORMAT_JPEG,
+      maxFramesPerSecond: 5,
+    });
+
+    const request = StreamScreenshotsRequest.decode(transport.streamCalls[0].data);
+    expect(request.displayId).toBe(1);
+    expect(request.format).toBe(ImageFormat.IMAGE_FORMAT_JPEG);
+    expect(request.maxFramesPerSecond).toBe(5);
+
+    unsubscribe();
+  });
+
+  it('decodes each frame pushed to a subscription', async () => {
+    const onScreenshot = vi.fn();
+
+    const unsubscribe = client.subscribeScreenshots(onScreenshot, undefined, {
+      maxFramesPerSecond: 30,
+    });
+    transport.stream().push(encodeFrame({ width: 540, frameSequenceNumber: 7 }));
+    await settle();
+
+    expect(transport.streamCalls[0].method).toBe('StreamScreenshots');
+    expect(onScreenshot).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 540, frameSequenceNumber: 7 })
+    );
+
+    unsubscribe();
+  });
+
+  it('aborts the underlying stream on unsubscribe', async () => {
+    const unsubscribe = client.subscribeScreenshots(() => {});
+    await settle();
+
+    expect(transport.streamCalls[0].signal?.aborted).toBe(false);
+
+    unsubscribe();
+
+    expect(transport.streamCalls[0].signal?.aborted).toBe(true);
+  });
 });
+
+/** Lets the subscription's background task drain the queued messages. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}

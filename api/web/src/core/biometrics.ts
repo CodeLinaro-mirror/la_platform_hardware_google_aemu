@@ -13,36 +13,37 @@
 // limitations under the License.
 
 import { GrpcWebTransport } from './transport';
-import { InjectFingerprintRequest } from '@android/emulator-services/system/biometrics_service';
+import {
+  DeepPartial,
+  InjectFingerprintRequest,
+  InjectFingerprintResponse,
+  SystemService,
+  SystemServiceClientImpl,
+} from '@android/emulator-services/system_service';
 
-export interface FingerprintInjectionOptions {
-  fingerId: number;
-  touching?: boolean;
-}
+export { InjectFingerprintRequest, InjectFingerprintResponse };
 
 /**
- * Headless API client for BiometricsService (Fingerprint simulation).
+ * Headless API client for biometric simulation RPCs on SystemService.
+ *
+ * Methods named in `PascalCase` are the RPCs of `SystemService`, spelled
+ * exactly as `system_service.proto` declares them.
  */
 export class BiometricsClient {
-  private readonly transport: GrpcWebTransport;
+  private readonly rpc: SystemService;
 
   constructor(transport: GrpcWebTransport) {
-    this.transport = transport;
+    this.rpc = new SystemServiceClientImpl(transport);
   }
 
-  public async sendFingerprint(
-    fingerId: number = 1,
-    touching: boolean = true
-  ): Promise<Uint8Array> {
-    const req: InjectFingerprintRequest = {
-      fingerId,
-      touching,
-    };
-    const reqBytes = InjectFingerprintRequest.encode(req).finish();
-    return this.transport.request(
-      'android.emulation.v2.system.BiometricsService',
-      'InjectFingerprint',
-      reqBytes
-    );
+  /**
+   * `fingerId` selects an enrolled finger; an unenrolled id simulates a
+   * rejected scan. When `touching` is omitted, performs a synchronous atomic
+   * touch-and-release scan cycle (~100ms hold).
+   */
+  public InjectFingerprint(
+    request: DeepPartial<InjectFingerprintRequest>
+  ): Promise<InjectFingerprintResponse> {
+    return this.rpc.InjectFingerprint(InjectFingerprintRequest.fromPartial(request));
   }
 }
