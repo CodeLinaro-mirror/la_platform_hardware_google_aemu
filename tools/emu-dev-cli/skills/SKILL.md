@@ -598,5 +598,4 @@ test, follow this standard loop:
 5. **Verify:** Re-run
    `emu-dev-cli flakiness reproduce --test <target> --target <target> --iterations 50`
    until **0% flake rate (PASSED)** is achieved.
-6. **Submit:** Upload the fix to Gerrit with semantic commit tags
-   (`BUG=b/... TAG=agy CONV=...`).
+6. **Submit:** Author the commit using `emu-dev-cli workflow create-commit` ensuring full compliance with Gerrit format protocol (no `TAG=` or `CONV=` tags, line lengths <= 72, clean footer tags `Bug:` and `Test:`).
