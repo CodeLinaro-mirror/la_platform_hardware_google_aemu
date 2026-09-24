@@ -30,6 +30,7 @@ py_library(
             "workflows/**/*.yaml",
             "workflows/**/*.yml",
             "workflows/**/*.md",
+            "workflows/**/*.html",
         ],
         allow_empty = True,
     ),

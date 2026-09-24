@@ -15,9 +15,11 @@
 """Reusable OAuth2 token management module for emu-dev-cli."""
 
 import getpass
+import json
 import logging
 import os
 from pathlib import Path
+import ssl
 import subprocess
 import sys
 from typing import List, Optional
@@ -25,9 +27,44 @@ from typing import List, Optional
 logger = logging.getLogger(__name__)
 
 
+def get_ssl_context() -> ssl.SSLContext:
+    """Returns an SSL context configured with macOS and Linux standard root CA certs."""
+    ctx = ssl.create_default_context()
+    if not ctx.get_ca_certs():
+        for ca_file in ["/etc/ssl/cert.pem", "/etc/pki/tls/cert.pem"]:
+            if os.path.exists(ca_file):
+                try:
+                    ctx.load_verify_locations(cafile=ca_file)
+                    break
+                except Exception:
+                    pass
+    return ctx
+
+
+def get_quota_project() -> str:
+    """Resolves quota project from environment variables or Application Default Credentials,
+    defaulting to 'emulator-builds' if unspecified.
+    """
+    for var in ["GOOGLE_CLOUD_QUOTA_PROJECT", "CLOUDSDK_CORE_PROJECT", "GOOGLE_CLOUD_PROJECT"]:
+        if os.environ.get(var):
+            return os.environ[var].strip()
+    adc_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.path.expanduser(
+        "~/.config/gcloud/application_default_credentials.json"
+    )
+    if os.path.exists(adc_path):
+        try:
+            with open(adc_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("quota_project_id"):
+                return data["quota_project_id"].strip()
+        except Exception:
+            pass
+    return "emulator-builds"
+
+
 class OAuthTokenManager:
     """Reusable OAuth2 token manager providing fallback resolution via explicit tokens,
-    environment variables, automated `oauth2l` SSO fetch/refresh routines, and remote SSH GLinux retrieval.
+    environment variables, Application Default Credentials (ADC), and automated oauth2l routines.
     """
 
     DEFAULT_SCOPES: List[str] = [
@@ -47,7 +84,7 @@ class OAuthTokenManager:
             env_vars: List of environment variable names to check for pre-set tokens.
         """
         self.scopes = scopes or list(self.DEFAULT_SCOPES)
-        self.env_vars = env_vars or ["BUGANIZER_TOKEN", "OAUTH2_TOKEN"]
+        self.env_vars = env_vars or ["BUGANIZER_TOKEN", "ANDROID_BUILD_TOKEN", "OAUTH2_TOKEN"]
         self._cached_token: Optional[str] = None
 
     def save_cached_token(self, token: str) -> None:
@@ -79,6 +116,75 @@ class OAuthTokenManager:
                 cleaned = self.clean_token(val)
                 if cleaned:
                     return cleaned
+        return None
+
+    def fetch_adc_token(self) -> Optional[str]:
+        """Attempts to load token from Application Default Credentials (ADC)."""
+        # 1. Try google.auth if installed
+        try:
+            import google.auth
+            from google.auth.transport.requests import Request
+
+            credentials, _ = google.auth.default(scopes=self.scopes)
+            credentials.refresh(Request())
+            if credentials.token:
+                cleaned = self.clean_token(credentials.token)
+                if cleaned:
+                    self.save_cached_token(cleaned)
+                    return cleaned
+        except Exception as e:
+            logger.debug("google.auth ADC resolution note: %s", e)
+
+        # 2. Try direct ADC file refresh via https://oauth2.googleapis.com/token
+        adc_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.path.expanduser(
+            "~/.config/gcloud/application_default_credentials.json"
+        )
+        if os.path.exists(adc_path):
+            try:
+                import urllib.parse
+                import urllib.request
+
+                with open(adc_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if data.get("type") == "authorized_user":
+                    client_id = data.get("client_id")
+                    client_secret = data.get("client_secret")
+                    refresh_token = data.get("refresh_token")
+                    if client_id and refresh_token:
+                        body = urllib.parse.urlencode({
+                            "client_id": client_id,
+                            "client_secret": client_secret or "",
+                            "refresh_token": refresh_token,
+                            "grant_type": "refresh_token",
+                        }).encode("utf-8")
+                        req = urllib.request.Request("https://oauth2.googleapis.com/token", data=body)
+                        with urllib.request.urlopen(req, context=get_ssl_context(), timeout=10.0) as resp:
+                            res = json.loads(resp.read().decode("utf-8"))
+                            access_token = res.get("access_token")
+                            cleaned = self.clean_token(access_token)
+                            if cleaned:
+                                self.save_cached_token(cleaned)
+                                return cleaned
+            except Exception as e:
+                logger.debug("Direct ADC file refresh failed: %s", e)
+
+        # 3. Try gcloud auth application-default print-access-token
+        try:
+            res = subprocess.run(
+                ["gcloud", "auth", "application-default", "print-access-token"],
+                capture_output=True,
+                text=True,
+                timeout=10.0,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                for line in reversed(res.stdout.strip().splitlines()):
+                    cleaned = self.clean_token(line)
+                    if cleaned:
+                        self.save_cached_token(cleaned)
+                        return cleaned
+        except Exception as e:
+            logger.debug("gcloud print-access-token failed: %s", e)
+
         return None
 
     def fetch_oauth2l_token(self) -> Optional[str]:
@@ -147,8 +253,10 @@ class OAuthTokenManager:
                     except Exception:
                         pass
 
+        return None
+
     def acquire_token(self, user_token: Optional[str] = None) -> Optional[str]:
-        """Resolves OAuth2 token from explicit CLI argument, environment variables, or oauth2l SSO."""
+        """Resolves OAuth2 token from explicit CLI argument, environment variables, ADC, or oauth2l."""
         if user_token:
             cleaned = self.clean_token(user_token)
             if cleaned:
@@ -165,6 +273,12 @@ class OAuthTokenManager:
         if env_token:
             logger.debug("Acquired OAuth2 token from environment variable")
             return env_token
+
+        # Application Default Credentials (ADC) resolution
+        adc_token = self.fetch_adc_token()
+        if adc_token:
+            logger.debug("Acquired OAuth2 token via Application Default Credentials (ADC)")
+            return adc_token
 
         token = self.fetch_oauth2l_token()
         if token:

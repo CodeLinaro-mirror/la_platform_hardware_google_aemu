@@ -23,12 +23,13 @@ namespace android {
 namespace base {
 
 // An implementation of the Stream interface on top of a vector.
-class MemStream : public Stream {
+class MemStream : public StreamWithErrorLogger {
 public:
     using Buffer = std::vector<char>;
 
-    MemStream(size_t reserveSize = 512);
-    MemStream(Buffer&& data);
+    MemStream() : MemStream(512) {}
+    explicit MemStream(size_t reserveSize);
+    explicit MemStream(Buffer&& data);
 
     MemStream(MemStream&& other) = default;
     MemStream& operator=(MemStream&& other) = default;

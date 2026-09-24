@@ -23,9 +23,9 @@
 namespace android {
 namespace base {
 
-// An implementation of android::base::Stream interface on top of an
+// An implementation of stream interface on top of an
 // stdio FILE* instance.
-class StdioStream : public Stream {
+class StdioStream : public StreamWithErrorLogger {
 public:
     enum Ownership { kNotOwner, kOwner };
 

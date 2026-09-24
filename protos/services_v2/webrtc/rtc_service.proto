@@ -40,6 +40,13 @@ message RtcStreamRequest {
   repeated TrackType requested_tracks = 1;
   // Explicit display IDs for multi-display.
   repeated int32 secondary_display_ids = 2;
+
+  // ICE configuration proposed by the client, for cases where the client knows
+  // better than the emulator which STUN/TURN servers are reachable, or needs
+  // to force relay-only transport.
+  //
+  // Optional. When unset the emulator uses its own configuration.
+  IceServerConfig ice_server_config = 3;
 }
 
 message RtcStreamResponse {

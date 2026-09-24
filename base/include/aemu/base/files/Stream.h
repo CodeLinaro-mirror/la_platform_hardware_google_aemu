@@ -7,8 +7,11 @@
 
 #include "aemu/base/msvc.h"
 
+#include <optional>
 #include <string>
 
+#include <cstdarg>
+#include <cstdio>
 #include <inttypes.h>
 #include <sys/types.h>
 
@@ -33,6 +36,20 @@ public:
     // number of bytes that were actually transferred, or -errno value on
     // error.
     virtual ssize_t write(const void* buffer, size_t size) = 0;
+
+    // Error handling interface.
+    virtual bool hasErrors() const = 0;
+    virtual const std::optional<std::string>& getErrors() const = 0;
+    virtual void addErrorV(const char* fmt, va_list args) const
+        __attribute__((format(printf, 2, 0))) = 0;
+
+    void addError(const char* fmt, ...) const
+        __attribute__((format(printf, 2, 3))) {
+        va_list args;
+        va_start(args, fmt);
+        addErrorV(fmt, args);
+        va_end(args);
+    }
 
     virtual void* getProtobuf() { return nullptr; }
 
@@ -107,6 +124,44 @@ public:
     static void fromBe16(uint8_t*);
     static void fromBe32(uint8_t*);
     static void fromBe64(uint8_t*);
+};
+
+// Mix-in class that implements the error logging interface for Stream.
+class StreamWithErrorLogger : public Stream {
+public:
+    bool hasErrors() const override { return mError.has_value(); }
+    const std::optional<std::string>& getErrors() const override { return mError; }
+
+    void addErrorV(const char* fmt, va_list args) const override {
+        char stackBuf[256];
+        va_list argsCopy;
+        va_copy(argsCopy, args);
+        int len = vsnprintf(stackBuf, sizeof(stackBuf), fmt, argsCopy);
+        va_end(argsCopy);
+
+        if (len < 0) {
+            return;
+        }
+
+        if (!mError.has_value()) {
+            mError.emplace();
+        } else if (!mError->empty()) {
+            mError->push_back('\n');
+        }
+
+        if (static_cast<size_t>(len) < sizeof(stackBuf)) {
+            mError->append(stackBuf, static_cast<size_t>(len));
+        } else {
+            size_t oldSize = mError->size();
+            mError->resize(oldSize + len + 1);
+            vsnprintf(mError->data() + oldSize, len + 1, fmt, args);
+            mError->resize(oldSize + len);
+        }
+    }
+
+   protected:
+    // mutable, to support logging within 'const' functions
+    mutable std::optional<std::string> mError;
 };
 
 }  // namespace base

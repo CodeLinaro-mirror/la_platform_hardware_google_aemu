@@ -140,42 +140,47 @@ def _amc_pkg_config_impl(ctx):
     # Extract archives (supporting both static and shared libraries)
     # Use archive_library if provided (useful when include and archive targets are separate)
     archive_dep = ctx.attr.archive_library if ctx.attr.archive_library else ctx.attr.library
-    cc_info_archive = archive_dep[CcInfo]
-
     archives = []
-    for li in cc_info_archive.linking_context.linker_inputs.to_list():
-        for lib in li.libraries:
-            if lib.static_library:
-                archives.append(lib.static_library)
-            elif lib.pic_static_library:
-                archives.append(lib.pic_static_library)
-            elif lib.dynamic_library:
-                archives.append(lib.dynamic_library)
-            elif lib.interface_library:
-                archives.append(lib.interface_library)
+    if archive_dep:
+        cc_info_archive = archive_dep[CcInfo]
+        for li in cc_info_archive.linking_context.linker_inputs.to_list():
+            for lib in li.libraries:
+                if lib.static_library:
+                    archives.append(lib.static_library)
+                elif lib.pic_static_library:
+                    archives.append(lib.pic_static_library)
+                elif lib.dynamic_library:
+                    archives.append(lib.dynamic_library)
+                elif lib.interface_library:
+                    archives.append(lib.interface_library)
 
     # Extract headers and include paths
-    cc_info = ctx.attr.library[CcInfo]
-    compilation_context = cc_info.compilation_context
-    headers = compilation_context.headers.to_list()
-
-    # Collect all include paths
+    headers = []
     includes = []
-    for inc in compilation_context.includes.to_list():
-        includes.append(inc)
-    for inc in compilation_context.system_includes.to_list():
-        includes.append(inc)
-    for inc in compilation_context.quote_includes.to_list():
-        includes.append(inc)
-    for inc in compilation_context.external_includes.to_list():
-        includes.append(inc)
+    if ctx.attr.library:
+        cc_info = ctx.attr.library[CcInfo]
+        compilation_context = cc_info.compilation_context
+        headers = compilation_context.headers.to_list()
 
-    # Deduplicate includes
-    includes = depset(includes).to_list()
+        # Collect all include paths
+        for inc in compilation_context.includes.to_list():
+            includes.append(inc)
+        for inc in compilation_context.system_includes.to_list():
+            includes.append(inc)
+        for inc in compilation_context.quote_includes.to_list():
+            includes.append(inc)
+        for inc in compilation_context.external_includes.to_list():
+            includes.append(inc)
+
+        # Deduplicate includes
+        includes = depset(includes).to_list()
+
+    data_files = ctx.files.data
+    bazel_label = archive_dep.label if archive_dep else ctx.label
 
     args = ctx.actions.args()
     args.add("--name", ctx.attr.package_name or ctx.attr.name)
-    args.add("--bazel_label", archive_dep.label)
+    args.add("--bazel_label", bazel_label)
     args.add("--version", ctx.attr.version)
     args.add("--out", output_dir.path)
     if archives:
@@ -184,6 +189,10 @@ def _amc_pkg_config_impl(ctx):
         args.add_all("--includes", includes)
     if headers:
         args.add_all("--headers", headers)
+    if data_files:
+        args.add_all("--data", data_files)
+    for k, v in ctx.attr.extra_vars.items():
+        args.add("--extra-var=" + k + "=" + v)
     for req in ctx.attr.requires:
         args.add("--requires=" + req)
     if ctx.attr.link_flags:
@@ -200,6 +209,7 @@ def _amc_pkg_config_impl(ctx):
     inputs = []
     inputs.extend(archives)
     inputs.extend(headers)
+    inputs.extend(data_files)
 
     ctx.actions.run(
         outputs = [output_dir],
@@ -222,21 +232,28 @@ amc_pkg_config = rule(
     implementation = _amc_pkg_config_impl,
     doc = "Generates a pkg-config (.pc) file and persists the library artifacts inside a package directory.",
     attrs = {
-        "library": attr.label(
-            doc = "The cc_library target to generate the pkg-config for. Headers and include paths are extracted from this.",
+        "package_name": attr.string(
+            doc = "Name of the package.",
             mandatory = True,
+        ),
+        "library": attr.label(
+            doc = "Optional cc_library target to generate the pkg-config for. Headers and include paths are extracted from this.",
             providers = [CcInfo],
         ),
-        "archive_library": attr.label(
-            doc = "Optional cc_library target to extract archives from, if different from 'library'.",
-            providers = [CcInfo],
+        "data": attr.label_list(
+            doc = "Optional list of data or tool files to persist into the package directory.",
+            allow_files = True,
+        ),
+        "extra_vars": attr.string_dict(
+            doc = "Extra variables to include in the .pc file.",
         ),
         "version": attr.string(
             doc = "The version of the package.",
             mandatory = True,
         ),
-        "package_name": attr.string(
-            doc = "Optional name of the package. Defaults to the target name.",
+        "archive_library": attr.label(
+            doc = "Optional cc_library target to extract archives from, if different from 'library'.",
+            providers = [CcInfo],
         ),
         "requires": attr.string_list(
             doc = "List of package dependencies (Requires field in .pc file).",
