@@ -215,13 +215,22 @@ class AndroidBuildClient:
             headers["X-Goog-User-Project"] = self.quota_project
         return headers
 
-    def _make_request(self, url: str) -> Dict[str, Any]:
+    def _make_request(self, url: str, _retried: bool = False) -> Dict[str, Any]:
         req = urllib.request.Request(url, headers=self._get_headers())
         try:
             with urllib.request.urlopen(req, context=get_ssl_context(), timeout=60) as resp:
                 data = resp.read().decode("utf-8")
                 return json.loads(data)
         except HTTPError as e:
+            if e.code in (401, 403) and not _retried:
+                token_manager = OAuthTokenManager(
+                    scopes=["https://www.googleapis.com/auth/androidbuild.internal"],
+                    env_vars=["ANDROID_BUILD_TOKEN", "BUGANIZER_TOKEN", "OAUTH2_TOKEN"],
+                )
+                fallback_token = token_manager.fetch_oauth2l_token()
+                if fallback_token and fallback_token != self.token:
+                    self.token = fallback_token
+                    return self._make_request(url, _retried=True)
             if e.code in (401, 403):
                 msg = (
                     f"Android Build API authentication error (HTTP {e.code}: {e.reason}).\n"
@@ -240,6 +249,71 @@ class AndroidBuildClient:
         except Exception as e:
             logger.error("Failed request to %s: %s", url, e)
             raise
+
+    def list_builds(
+        self,
+        branch: str,
+        target: str,
+        limit: int = 10,
+        build_type: str = "SUBMITTED",
+        include_building: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Retrieves recent build objects for a branch and target."""
+        branches_to_try = [branch]
+        if not branch.startswith("git_"):
+            branches_to_try.append(f"git_{branch}")
+
+        page_size = max(limit * 2, 15)
+        for b in branches_to_try:
+            params: Dict[str, Any] = {
+                "branches": b,
+                "targets": target,
+                "buildType": build_type,
+                "pageSize": page_size,
+            }
+            url = f"{BUILD_API_BASE_URL}/builds?{urllib.parse.urlencode(params)}"
+            try:
+                response = self._make_request(url)
+                builds = response.get("builds", [])
+                if not builds:
+                    continue
+                filtered: List[Dict[str, Any]] = []
+                for build in builds:
+                    status = build.get("buildAttemptStatus", "")
+                    if not include_building and (
+                        status not in ("COMPLETE", "SUCCESSFUL")
+                        or not build.get("completionTimestamp")
+                    ):
+                        continue
+                    filtered.append(build)
+                    if len(filtered) >= limit:
+                        break
+                if filtered:
+                    return filtered
+            except Exception as e:
+                logger.debug("Querying branch '%s' note: %s", b, e)
+
+        return []
+
+    def get_build(self, build_id: str, target: str) -> Optional[Dict[str, Any]]:
+        """Retrieves metadata for a specific build ID and target."""
+        params = urllib.parse.urlencode({
+            "buildId": build_id,
+            "targets": target,
+            "pageSize": 5,
+        })
+        url = f"{BUILD_API_BASE_URL}/builds?{params}"
+        try:
+            response = self._make_request(url)
+            builds = response.get("builds", [])
+            for b in builds:
+                if str(b.get("buildId", "")) == str(build_id):
+                    return b
+            if builds:
+                return builds[0]
+        except Exception as e:
+            logger.debug("get_build(%s, %s) failed: %s", build_id, target, e)
+        return None
 
     def get_latest_build_id(self, branch: str, target: str) -> str:
         """Retrieves the latest submitted build ID for a branch and target."""
@@ -305,11 +379,32 @@ class AndroidBuildClient:
         """
         os.makedirs(dest_dir, exist_ok=True)
         dest_file = os.path.join(dest_dir, artifact)
+        os.makedirs(os.path.dirname(dest_file), exist_ok=True)
 
+        # 0. Use fetch_artifact CLI if available on GLinux (fastest & handles LOAS)
+        fetch_tool = FETCH_ARTIFACT_BIN if os.path.exists(FETCH_ARTIFACT_BIN) else shutil.which("fetch_artifact")
+        if fetch_tool and os.path.exists("/google/data"):
+            try:
+                cmd = [
+                    fetch_tool,
+                    "--bid",
+                    str(build_id),
+                    "--target",
+                    str(target),
+                    artifact,
+                    dest_file,
+                ]
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+                if res.returncode == 0 and os.path.exists(dest_file) and os.path.getsize(dest_file) > 0:
+                    return dest_file
+            except Exception as e:
+                logger.debug("fetch_artifact fallback to REST for %s: %s", artifact, e)
+
+        encoded_artifact = urllib.parse.quote(artifact, safe="")
         # 1. Try to obtain a signed URL
         download_url = None
         try:
-            url_endpoint = f"{BUILD_API_BASE_URL}/builds/{build_id}/{target}/attempts/latest/artifacts/{artifact}/url"
+            url_endpoint = f"{BUILD_API_BASE_URL}/builds/{build_id}/{target}/attempts/latest/artifacts/{encoded_artifact}/url"
             url_resp = self._make_request(url_endpoint)
             download_url = url_resp.get("signedUrl")
         except Exception as e:
@@ -317,7 +412,7 @@ class AndroidBuildClient:
 
         headers = {}
         if not download_url:
-            download_url = f"{BUILD_API_BASE_URL}/builds/{build_id}/{target}/attempts/latest/artifacts/{artifact}?alt=media"
+            download_url = f"{BUILD_API_BASE_URL}/builds/{build_id}/{target}/attempts/latest/artifacts/{encoded_artifact}?alt=media"
             if self.token:
                 headers["Authorization"] = f"Bearer {self.token}"
             if self.quota_project:

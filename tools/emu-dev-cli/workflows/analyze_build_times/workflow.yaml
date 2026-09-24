@@ -1,0 +1,51 @@
+# Analyze Build Times Workflow (YAML)
+# Guides developers and AI agents through inspecting Android Build (go/ab)
+# build times and Bazel command.profile.gz traces across emu-main-next targets,
+# diagnosing regressions, and generating a structured root-cause report.
+
+name: analyze-build-times
+description: Analyze CI build times and Bazel command.profile.gz profiles across emu-main-next targets and diagnose regressions.
+
+args:
+  - name: target
+    help: "Target platform (e.g. emulator_mac_aarch64, emulator_linux_x64, emulator_windows_x64, or all)"
+    required: false
+    default: "emulator_mac_aarch64"
+  - name: limit
+    help: "Number of recent builds to analyze (default: 10)"
+    required: false
+    default: "10"
+
+init:
+  report-file: "{cache-dir}/build_time_report_{target}.md"
+
+steps:
+  - step: 0
+    title: Analyze Build History & Diagnose Regressions
+    prompt:
+      - >-
+        Run `emu-dev-cli build-times history --target {target} --limit {limit}` and
+        `emu-dev-cli build-times diagnose --target {target} --limit {limit}` to inspect
+        the recent build times and Bazel `command.profile.gz` profiles for `{target}`.
+      - >-
+        Write a concise Markdown summary report to `{report-file}` containing:
+        - Target: {target}
+        - Baseline Performance: <summary of normal Total CI, Bazel Wall, and Critical Path duration>
+        - Regression Findings: <summary of any slow builds, Queue Wait vs Bazel Execution delta, and #1 Critical Path bottleneck>
+        - Root Cause & Actionable Next Steps: <root cause attribution from BUILD_INFO / command.profile.gz>
+    verifier_cmd: "python3 {workflow_dir}/verify_report.py {report-file}"
+    max_retries: 3
+    error_prompt:
+      - "Error: Build time report verification failed for '{report-file}' (attempt {retries} of {max_retries})."
+      - "{verifier_error}"
+      - "Ensure '{report-file}' exists and contains Target, Baseline Performance, Regression Findings, and Root Cause sections."
+    stuck_prompt:
+      - "Workflow is STUCK after {retries} retries. Please check '{report-file}'."
+    stuck_reason: "Failed to produce a verified build time report at {report-file}."
+
+  - step: 1
+    title: Completion
+    prompt:
+      - "Build time analysis completed and verified in '{report-file}'."
+    verifier_cmd: null
+    max_retries: 0
