@@ -731,7 +731,173 @@ class WorkflowUITest(unittest.TestCase):
             server_module.resolve_jetski_cli = old_resolve
             server_module.subprocess.Popen = old_popen
 
+    def test_scan_all_conversations_and_poke_conversation(self):
+        import sqlite3
+        import workflows.ui.server as server_module
+        from workflows.ui.server import poke_conversation, scan_all_conversations
+
+        fake_jetski_root = Path(self.temp_dir) / "jetski_home"
+        fake_brain = fake_jetski_root / "brain"
+        fake_brain.mkdir(parents=True, exist_ok=True)
+
+        # Create mock conversation_summaries.db
+        db_path = fake_jetski_root / "conversation_summaries.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            """
+            CREATE TABLE conversation_summaries (
+                conversation_id TEXT PRIMARY KEY,
+                title TEXT,
+                preview TEXT,
+                step_count INTEGER,
+                last_modified_time TEXT,
+                workspace_uris TEXT,
+                status TEXT,
+                not_fully_idle INTEGER,
+                parent_conversation_id TEXT,
+                nesting_depth INTEGER,
+                killed INTEGER
+            )
+            """
+        )
+        # 1. Running conversation
+        cid_running = "11111111-1111-1111-1111-111111111111"
+        conn.execute(
+            "INSERT INTO conversation_summaries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                cid_running,
+                "Investigate WebRTC audio glitch",
+                "Running unit tests...",
+                12,
+                "2026-09-25T16:50:00Z",
+                json.dumps(["file:///tmp/emu-main-next"]),
+                "CASCADE_RUN_STATUS_RUNNING",
+                1,
+                "",
+                0,
+                0,
+            ),
+        )
+        # 2. Waiting for input conversation (turn finished with PLANNER_RESPONSE DONE and no tool calls)
+        cid_waiting = "22222222-2222-2222-2222-222222222222"
+        conn.execute(
+            "INSERT INTO conversation_summaries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                cid_waiting,
+                "Fix macOS codesign Entitlements",
+                "Should I update the plist file now?",
+                8,
+                "2026-09-25T16:48:00Z",
+                json.dumps(["file:///tmp/emu-main-dev"]),
+                "CASCADE_RUN_STATUS_IDLE",
+                0,
+                "",
+                0,
+                0,
+            ),
+        )
+        # 3. Interrupted conversation (idle in DB, but transcript stopped mid-turn after GENERIC tool output)
+        cid_interrupted = "33333333-3333-3333-3333-333333333333"
+        conn.execute(
+            "INSERT INTO conversation_summaries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                cid_interrupted,
+                "Reproduce snapshot load crash",
+                "Tool output finished",
+                5,
+                "2026-09-25T16:45:00Z",
+                json.dumps(["file:///tmp/emu-main-next"]),
+                "CASCADE_RUN_STATUS_IDLE",
+                0,
+                "",
+                0,
+                0,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        # Write transcripts for cid_waiting and cid_interrupted
+        w_logs = fake_brain / cid_waiting / ".system_generated" / "logs"
+        w_logs.mkdir(parents=True, exist_ok=True)
+        (w_logs / "transcript.jsonl").write_text(
+            json.dumps({
+                "step_index": 7,
+                "type": "PLANNER_RESPONSE",
+                "status": "DONE",
+                "content": "Should I update the plist file now?",
+                "tool_calls": [],
+            })
+            + "\n",
+            encoding="utf-8",
+        )
+
+        i_logs = fake_brain / cid_interrupted / ".system_generated" / "logs"
+        i_logs.mkdir(parents=True, exist_ok=True)
+        (i_logs / "transcript.jsonl").write_text(
+            json.dumps({
+                "step_index": 4,
+                "type": "GENERIC",
+                "status": "DONE",
+                "content": "Command completed with exit code 0",
+            })
+            + "\n",
+            encoding="utf-8",
+        )
+
+        old_brain = os.environ.get("JETSKI_BRAIN_DIR")
+        os.environ["JETSKI_BRAIN_DIR"] = str(fake_brain)
+        try:
+            convs = scan_all_conversations(state_base_dir=self.state_dir)
+            by_id = {c["conversation_id"]: c for c in convs}
+            self.assertIn(cid_running, by_id)
+            self.assertIn(cid_waiting, by_id)
+            self.assertIn(cid_interrupted, by_id)
+
+            self.assertEqual(by_id[cid_running]["status"], "RUNNING")
+            self.assertEqual(by_id[cid_waiting]["status"], "WAITING_INPUT")
+            self.assertEqual(by_id[cid_interrupted]["status"], "INTERRUPTED")
+
+            # Test poke_conversation on standalone conversation
+            captured_cmds = []
+
+            class FakeProc:
+                pid = 888888
+                returncode = 0
+                stdout = iter([])
+
+                def poll(self):
+                    return 0
+
+                def wait(self):
+                    return 0
+
+            old_resolve = server_module.resolve_jetski_cli
+            old_popen = server_module.subprocess.Popen
+            server_module.resolve_jetski_cli = lambda: "/fake/jetski_cli"
+            server_module.subprocess.Popen = lambda cmd, **kw: (captured_cmds.append(cmd), FakeProc())[1]
+            try:
+                ok, msg = poke_conversation(
+                    conversation_id=cid_waiting,
+                    prompt="Yes, please update the plist file.",
+                    state_base_dir=self.state_dir,
+                )
+                self.assertTrue(ok)
+                time.sleep(0.05)
+                self.assertEqual(len(captured_cmds), 1)
+                self.assertIn(cid_waiting, captured_cmds[0])
+                self.assertIn("Yes, please update the plist file.", captured_cmds[0])
+            finally:
+                server_module.resolve_jetski_cli = old_resolve
+                server_module.subprocess.Popen = old_popen
+        finally:
+            if old_brain is not None:
+                os.environ["JETSKI_BRAIN_DIR"] = old_brain
+            else:
+                os.environ.pop("JETSKI_BRAIN_DIR", None)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

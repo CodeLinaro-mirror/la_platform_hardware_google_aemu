@@ -39,6 +39,7 @@ for d in (str(_SRC_DIR), str(_EMU_DEV_CLI_DIR), str(_WORKFLOWS_DIR)):
         sys.path.insert(0, d)
 
 import shutil
+import sqlite3
 import subprocess
 import time
 import uuid
@@ -204,6 +205,22 @@ def get_known_source_directories() -> List[Dict[str, Any]]:
 # In-memory registry of background jetski_cli processes spawned by this UI server
 _ACTIVE_AGENT_PROCS: Dict[str, subprocess.Popen] = {}
 _STARTING_AGENTS: set = set()
+_ACTIVE_CONV_PROCS: Dict[str, subprocess.Popen] = {}
+_STARTING_CONVS: set = set()
+
+
+def _is_conv_agent_alive(conversation_id: str) -> bool:
+    """Determines if a background jetski_cli process for conversation_id is actively running."""
+    if not conversation_id:
+        return False
+    if conversation_id in _STARTING_CONVS:
+        return True
+    proc = _ACTIVE_CONV_PROCS.get(conversation_id)
+    if proc is not None:
+        if proc.poll() is None:
+            return True
+        _ACTIVE_CONV_PROCS.pop(conversation_id, None)
+    return False
 
 
 def _is_agent_pid_alive(pid: Any) -> bool:
@@ -922,11 +939,19 @@ def get_conversation_transcript(
                 try:
                     with open(t_path, "r", encoding="utf-8", errors="replace") as f:
                         raw_lines = f.readlines()
+                    non_empty_lines = [
+                        (idx, line.strip())
+                        for idx, line in enumerate(raw_lines)
+                        if line.strip()
+                    ]
+                    total_steps = len(non_empty_lines)
+                    tail_lines = (
+                        non_empty_lines[-limit:]
+                        if limit and total_steps > limit
+                        else non_empty_lines
+                    )
                     parsed_steps: List[Dict[str, Any]] = []
-                    for idx, line in enumerate(raw_lines):
-                        stripped = line.strip()
-                        if not stripped:
-                            continue
+                    for idx, stripped in tail_lines:
                         try:
                             obj = json.loads(stripped)
                             if not isinstance(obj, dict):
@@ -953,8 +978,7 @@ def get_conversation_transcript(
                             })
                         except Exception:
                             continue
-                    total_steps = len(parsed_steps)
-                    steps = parsed_steps[-limit:] if limit and total_steps > limit else parsed_steps
+                    steps = parsed_steps
                 except Exception:
                     pass
 
@@ -1021,10 +1045,13 @@ def get_session_transcript(
                     pass
                 break
     elif resolved_cid:
-        is_interrupted, interrupt_reason = _inspect_transcript_interruption(resolved_cid)
-        if is_interrupted:
-            agent_status = "INTERRUPTED"
-            agent_status_reason = interrupt_reason
+        db_map = _query_conversation_summaries_db()
+        db_row = db_map.get(resolved_cid)
+        agent_status, agent_status_reason = resolve_conversation_status(resolved_cid, db_row=db_row)
+        # Check if there is a poke log file for standalone conversation
+        poke_log = get_jetski_brain_dir() / resolved_cid / ".system_generated" / "logs" / "ui_poke.log"
+        if poke_log.is_file():
+            log_file = str(poke_log)
 
     result = get_conversation_transcript(conversation_id=resolved_cid, log_file=log_file)
     result["workflow_name"] = workflow_name or ""
@@ -1032,6 +1059,482 @@ def get_session_transcript(
     result["agent_status"] = agent_status or ""
     result["agent_status_reason"] = agent_status_reason or ""
     return result
+
+
+def _clean_conversation_text(text: str, max_len: int = 140) -> str:
+    """Cleans up raw user prompt or response text for concise conversation titles/previews."""
+    if not text:
+        return ""
+    cleaned = re.sub(r"</?USER_REQUEST>", "", str(text))
+    cleaned = re.sub(r"<CONTEXT_SUMMARY>[\s\S]*?(?:</CONTEXT_SUMMARY>|$)", "", cleaned)
+    cleaned = re.sub(r"<ADDITIONAL_METADATA>[\s\S]*?(?:</ADDITIONAL_METADATA>|$)", "", cleaned)
+    cleaned = " ".join(cleaned.strip().split())
+    if len(cleaned) > max_len:
+        return cleaned[: max_len - 1] + "…"
+    return cleaned
+
+
+def _query_conversation_summaries_db(limit: int = 100) -> Dict[str, Dict[str, Any]]:
+    """Queries ~/.gemini/jetski/conversation_summaries.db for live conversation metadata."""
+    db_path = get_jetski_brain_dir().parent / "conversation_summaries.db"
+    if not db_path.is_file():
+        return {}
+    rows_by_id: Dict[str, Dict[str, Any]] = {}
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=1.5)
+        conn.row_factory = sqlite3.Row
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT conversation_id, title, preview, step_count, last_modified_time,
+                       workspace_uris, status, not_fully_idle, parent_conversation_id,
+                       nesting_depth, killed
+                FROM conversation_summaries
+                ORDER BY last_modified_time DESC
+                LIMIT ?
+                """,
+                (max(50, limit * 2),),
+            )
+            for row in cur.fetchall():
+                cid = str(row["conversation_id"] or "").strip()
+                if not cid:
+                    continue
+                ws_raw = row["workspace_uris"] or "[]"
+                workspace_path = ""
+                try:
+                    uris = json.loads(ws_raw)
+                    if isinstance(uris, list) and uris:
+                        first_uri = str(uris[0])
+                        if first_uri.startswith("file://"):
+                            workspace_path = urllib.parse.unquote(first_uri[len("file://") :])
+                        else:
+                            workspace_path = first_uri
+                except Exception:
+                    pass
+                rows_by_id[cid] = {
+                    "conversation_id": cid,
+                    "title": str(row["title"] or ""),
+                    "preview": str(row["preview"] or ""),
+                    "step_count": int(row["step_count"] or 0),
+                    "last_modified_time": str(row["last_modified_time"] or ""),
+                    "workspace": workspace_path,
+                    "status": str(row["status"] or ""),
+                    "not_fully_idle": int(row["not_fully_idle"] or 0),
+                    "parent_conversation_id": str(row["parent_conversation_id"] or ""),
+                    "nesting_depth": int(row["nesting_depth"] or 0),
+                    "killed": int(row["killed"] or 0),
+                }
+        finally:
+            conn.close()
+    except Exception:
+        return {}
+    return rows_by_id
+
+
+def _inspect_conversation_transcript_meta(
+    conversation_id: str,
+    need_title: bool = True,
+    need_preview: bool = True,
+) -> Dict[str, Any]:
+    """Reads tail (and optional header) of transcript.jsonl to determine turn state."""
+    info: Dict[str, Any] = {
+        "exists": False,
+        "mtime": 0.0,
+        "step_count": 0,
+        "first_user_prompt": "",
+        "last_preview": "",
+        "last_type": "",
+        "last_status": "",
+        "last_tool_calls": [],
+        "is_mid_turn": False,
+        "mid_turn_reason": "",
+    }
+    if not conversation_id or "/" in conversation_id or "\\" in conversation_id or ".." in conversation_id:
+        return info
+
+    t_path = get_jetski_brain_dir() / conversation_id / ".system_generated" / "logs" / "transcript.jsonl"
+    if not t_path.is_file():
+        return info
+
+    try:
+        st = t_path.stat()
+        info["exists"] = True
+        info["mtime"] = st.st_mtime
+        size = st.st_size
+        if size == 0:
+            return info
+
+        with open(t_path, "rb") as f:
+            if need_title:
+                head_text = f.read(min(size, 8192)).decode("utf-8", errors="replace")
+                for ln in head_text.splitlines():
+                    ln_s = ln.strip()
+                    if not ln_s:
+                        continue
+                    try:
+                        obj = json.loads(ln_s)
+                        if isinstance(obj, dict) and str(obj.get("type", "")).upper() == "USER_INPUT":
+                            c = str(obj.get("content", "")).strip()
+                            if c:
+                                info["first_user_prompt"] = _clean_conversation_text(c, 100)
+                                break
+                    except Exception:
+                        continue
+
+            # Read tail 16KB to inspect latest step
+            seek_pos = max(0, size - 16384)
+            f.seek(seek_pos)
+            tail_text = f.read().decode("utf-8", errors="replace")
+
+        lines = [ln.strip() for ln in tail_text.splitlines() if ln.strip()]
+        if not lines:
+            return info
+
+        last_obj = None
+        for ln in reversed(lines):
+            try:
+                candidate = json.loads(ln)
+                if isinstance(candidate, dict):
+                    if last_obj is None:
+                        last_obj = candidate
+                    if need_preview and not info["last_preview"]:
+                        c_text = str(candidate.get("content", "")).strip()
+                        if c_text:
+                            info["last_preview"] = _clean_conversation_text(c_text, 140)
+                    if last_obj is not None and (not need_preview or info["last_preview"]):
+                        break
+            except Exception:
+                continue
+
+        if not isinstance(last_obj, dict):
+            return info
+
+        step_idx = last_obj.get("step_index", 0)
+        try:
+            info["step_count"] = int(step_idx) + 1
+        except Exception:
+            info["step_count"] = len(lines)
+
+        step_type = str(last_obj.get("type", "")).upper()
+        step_status = str(last_obj.get("status", "")).upper()
+        tool_calls = last_obj.get("tool_calls") or []
+        info["last_type"] = step_type
+        info["last_status"] = step_status
+        info["last_tool_calls"] = tool_calls if isinstance(tool_calls, list) else []
+
+        if step_status in ("INTERRUPTED", "CANCELED", "CANCELLED", "ERROR", "FAILED"):
+            info["is_mid_turn"] = True
+            info["mid_turn_reason"] = f"Conversation interrupted at step #{step_idx} ({step_type}: {step_status})."
+        elif step_status and step_status != "DONE":
+            info["is_mid_turn"] = True
+            info["mid_turn_reason"] = f"Conversation stopped mid-step at step #{step_idx} ({step_type}: {step_status})."
+        elif step_type == "GENERIC":
+            info["is_mid_turn"] = True
+            info["mid_turn_reason"] = (
+                f"Conversation interrupted mid-turn after tool execution (step #{step_idx}) — waiting for agent continuation."
+            )
+        elif step_type == "PLANNER_RESPONSE" and isinstance(tool_calls, list) and len(tool_calls) > 0:
+            tc_name = tool_calls[0].get("name", "tool") if isinstance(tool_calls[0], dict) else "tool"
+            info["is_mid_turn"] = True
+            info["mid_turn_reason"] = f"Conversation interrupted during tool call '{tc_name}' (step #{step_idx})."
+        elif step_type == "USER_INPUT":
+            info["is_mid_turn"] = True
+            info["mid_turn_reason"] = f"Conversation interrupted after prompt (step #{step_idx}) before agent responded."
+    except Exception:
+        pass
+
+    return info
+
+
+def resolve_conversation_status(
+    conversation_id: str,
+    db_row: Optional[Dict[str, Any]] = None,
+    t_meta: Optional[Dict[str, Any]] = None,
+    linked_wf: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, str]:
+    """Determines whether a Jetski conversation is RUNNING, WAITING_INPUT, or INTERRUPTED."""
+    if _is_conv_agent_alive(conversation_id):
+        return "RUNNING", "Agent process is actively running."
+    if linked_wf and linked_wf.get("agent_status") == "RUNNING":
+        return "RUNNING", "Workflow agent process is actively running."
+
+    if t_meta is None:
+        t_meta = _inspect_conversation_transcript_meta(conversation_id, need_title=False, need_preview=False)
+
+    db_status = str((db_row or {}).get("status", ""))
+    not_fully_idle = bool((db_row or {}).get("not_fully_idle", 0))
+    is_mid_turn = bool(t_meta.get("is_mid_turn", False))
+    mid_turn_reason = str(t_meta.get("mid_turn_reason", ""))
+    last_status = str(t_meta.get("last_status", "")).upper()
+    last_type = str(t_meta.get("last_type", "")).upper()
+    mtime = float(t_meta.get("mtime", 0.0) or 0.0)
+    age_sec = max(0.0, time.time() - mtime) if mtime > 0 else 999999.0
+
+    if last_status in ("INTERRUPTED", "CANCELED", "CANCELLED", "ERROR", "FAILED"):
+        return "INTERRUPTED", mid_turn_reason or f"Conversation stopped with status {last_status}."
+
+    if is_mid_turn:
+        if not_fully_idle or db_status == "CASCADE_RUN_STATUS_RUNNING":
+            if last_type in ("GENERIC", "USER_INPUT") and age_sec > 180:
+                return "INTERRUPTED", mid_turn_reason
+            return "RUNNING", "Agent is actively executing a turn."
+        return "INTERRUPTED", mid_turn_reason or "Conversation stopped mid-turn and needs a poke to continue."
+
+    if not_fully_idle or db_status == "CASCADE_RUN_STATUS_RUNNING":
+        return "RUNNING", "Agent is actively executing a turn."
+
+    if linked_wf and linked_wf.get("state") == "RUNNING" and linked_wf.get("agent_status") == "INTERRUPTED":
+        return (
+            "INTERRUPTED",
+            linked_wf.get("agent_status_reason") or "Workflow is still RUNNING while conversation stopped.",
+        )
+
+    return "WAITING_INPUT", "Agent finished its turn and is waiting for your input to continue."
+
+
+def scan_all_conversations(
+    limit: int = 50,
+    include_subagents: bool = False,
+    state_base_dir: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    """Scans all Jetski conversations on the system and returns their live status and metadata."""
+    db_rows = _query_conversation_summaries_db(limit=limit)
+    brain_dir = get_jetski_brain_dir()
+
+    # Map conversation_id -> linked workflow session
+    wf_sessions = scan_all_sessions(state_base_dir=state_base_dir, include_sub_workflows=True)
+    conv_to_wf: Dict[str, Dict[str, Any]] = {}
+    for s in wf_sessions:
+        cid = s.get("conversation_id")
+        if cid and str(cid).strip():
+            cid_str = str(cid).strip()
+            existing = conv_to_wf.get(cid_str)
+            if not existing or (existing.get("is_sub_workflow") and not s.get("is_sub_workflow")):
+                conv_to_wf[cid_str] = {
+                    "workflow_name": s.get("workflow_name", ""),
+                    "state_id": s.get("state_id", ""),
+                    "state": s.get("state", ""),
+                    "custom_title": s.get("custom_title", ""),
+                    "agent_status": s.get("agent_status", ""),
+                    "agent_status_reason": s.get("agent_status_reason", ""),
+                    "is_sub_workflow": s.get("is_sub_workflow", False),
+                }
+
+    # Combine conversation IDs from DB, workflow sessions, and fallback brain_dir
+    candidate_ids: List[str] = list(db_rows.keys())
+    seen_ids = set(candidate_ids)
+
+    for cid in conv_to_wf:
+        if cid not in seen_ids:
+            candidate_ids.append(cid)
+            seen_ids.add(cid)
+
+    # Only scan brain_dir on disk if DB had fewer entries than limit (e.g. in tests or standalone CLI)
+    if len(candidate_ids) < limit and brain_dir.is_dir():
+        brain_entries = []
+        for d in brain_dir.iterdir():
+            if d.is_dir() and not d.name.startswith(".") and d.name not in seen_ids:
+                t_file = d / ".system_generated" / "logs" / "transcript.jsonl"
+                if t_file.is_file():
+                    try:
+                        brain_entries.append((t_file.stat().st_mtime, d.name))
+                    except Exception:
+                        pass
+        brain_entries.sort(reverse=True)
+        for _, cid in brain_entries[:limit]:
+            candidate_ids.append(cid)
+            seen_ids.add(cid)
+
+    conversations: List[Dict[str, Any]] = []
+    for cid in candidate_ids:
+        if limit and len(conversations) >= limit:
+            break
+        db_row = db_rows.get(cid)
+        parent_cid = str((db_row or {}).get("parent_conversation_id", "")).strip()
+        nesting = int((db_row or {}).get("nesting_depth", 0) or 0)
+        is_subagent = bool(parent_cid or nesting > 0)
+        if is_subagent and not include_subagents:
+            continue
+
+        has_db_title = bool((db_row or {}).get("title"))
+        t_meta = _inspect_conversation_transcript_meta(
+            cid,
+            need_title=not has_db_title,
+            need_preview=True,
+        )
+        if not db_row and not t_meta.get("exists") and cid not in conv_to_wf:
+            continue
+
+        linked_wf = conv_to_wf.get(cid)
+        status, status_reason = resolve_conversation_status(
+            cid, db_row=db_row, t_meta=t_meta, linked_wf=linked_wf
+        )
+
+        raw_title = (db_row or {}).get("title") or t_meta.get("first_user_prompt") or ""
+        if not raw_title and linked_wf:
+            raw_title = linked_wf.get("custom_title") or linked_wf.get("workflow_name") or ""
+        title = _clean_conversation_text(raw_title, 100) or f"Conversation {cid[:8]}"
+
+        db_preview = (db_row or {}).get("preview") or ""
+        raw_preview = (
+            t_meta.get("last_preview")
+            if (t_meta.get("last_preview") and db_preview == (db_row or {}).get("title"))
+            else (db_preview or t_meta.get("last_preview") or "")
+        )
+        preview = _clean_conversation_text(raw_preview, 140)
+
+        step_count = max(
+            int((db_row or {}).get("step_count", 0) or 0),
+            int(t_meta.get("step_count", 0) or 0),
+        )
+
+        mtime = float(t_meta.get("mtime", 0.0) or 0.0)
+        db_iso = str((db_row or {}).get("last_modified_time", "")).strip()
+        if db_iso:
+            try:
+                parsed_dt = datetime.fromisoformat(db_iso.replace("Z", "+00:00"))
+                mtime = max(mtime, parsed_dt.timestamp())
+            except Exception:
+                pass
+        if mtime <= 0:
+            mtime = time.time()
+        iso_time = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+
+        workspace = str((db_row or {}).get("workspace", "")).strip()
+        workspace_name = Path(workspace).name if workspace else ""
+
+        conversations.append({
+            "conversation_id": cid,
+            "title": title,
+            "preview": preview,
+            "step_count": step_count,
+            "mtime": mtime,
+            "updated_at": iso_time,
+            "workspace": workspace,
+            "workspace_name": workspace_name,
+            "status": status,
+            "status_reason": status_reason,
+            "is_subagent": is_subagent,
+            "parent_conversation_id": parent_cid,
+            "linked_workflow": linked_wf,
+        })
+
+    conversations.sort(key=lambda c: c["mtime"], reverse=True)
+    return conversations
+
+
+def poke_conversation(
+    conversation_id: str,
+    prompt: Optional[str] = None,
+    cwd: Optional[str] = None,
+    state_base_dir: Optional[Path] = None,
+) -> Tuple[bool, str]:
+    """Sends a prompt or continuation poke to any Jetski conversation on the system."""
+    if not conversation_id or not str(conversation_id).strip():
+        return False, "Missing conversation_id."
+    cid = str(conversation_id).strip()
+    if "/" in cid or "\\" in cid or ".." in cid:
+        return False, "Invalid conversation_id."
+
+    # Check if this conversation is attached to an active workflow session
+    wf_sessions = scan_all_sessions(state_base_dir=state_base_dir, include_sub_workflows=True)
+    for s in wf_sessions:
+        if s.get("conversation_id") == cid and s.get("state") in ("RUNNING", "STUCK", "INIT", "STOPPED"):
+            ok, msg, _ = launch_jetski_for_session(
+                workflow_name=s["workflow_name"],
+                state_id=s["state_id"],
+                resume=True,
+                poke=True,
+                custom_prompt=prompt,
+                state_base_dir=state_base_dir,
+            )
+            return ok, msg
+
+    jetski_bin = resolve_jetski_cli()
+    if not jetski_bin:
+        return False, "Could not locate jetski_cli (/google/bin/releases/jetski-devs/tools/cli)."
+
+    effective_prompt = (
+        prompt.strip()
+        if prompt and str(prompt).strip()
+        else "Your previous turn was interrupted or paused. Please continue from where you left off."
+    )
+
+    # Resolve working directory from explicit cwd, DB workspace_uris, or current working directory
+    effective_cwd = os.getcwd()
+    if cwd and os.path.isdir(str(cwd)):
+        effective_cwd = str(Path(str(cwd)).resolve())
+    else:
+        db_row = _query_conversation_summaries_db().get(cid)
+        ws = (db_row or {}).get("workspace", "")
+        if ws and os.path.isdir(ws):
+            effective_cwd = str(Path(ws).resolve())
+
+    log_dir = get_jetski_brain_dir() / cid / ".system_generated" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    log_path = log_dir / "ui_poke.log"
+
+    cmd = [
+        jetski_bin,
+        "--dangerously-skip-permissions",
+        "--output-format",
+        "stream-json",
+        "--conversation",
+        cid,
+        "--prompt",
+        effective_prompt,
+    ]
+
+    prev_proc = _ACTIVE_CONV_PROCS.pop(cid, None)
+    if prev_proc is not None and prev_proc.poll() is None:
+        try:
+            prev_proc.terminate()
+        except Exception:
+            pass
+
+    _STARTING_CONVS.add(cid)
+
+    def _run_conv():
+        proc = None
+        try:
+            with open(log_path, "a", encoding="utf-8") as log_f:
+                ts = datetime.now(timezone.utc).isoformat()
+                log_f.write(f"\n=== [{ts}] Poking conversation {cid} ===\n")
+                log_f.write(f"Command: {' '.join(cmd)}\nCwd: {effective_cwd}\n\n")
+                log_f.flush()
+
+                proc = subprocess.Popen(
+                    cmd,
+                    cwd=effective_cwd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+                _ACTIVE_CONV_PROCS[cid] = proc
+                _STARTING_CONVS.discard(cid)
+
+                if proc.stdout:
+                    for line in proc.stdout:
+                        log_f.write(line)
+                        log_f.flush()
+                proc.wait()
+                log_f.write(f"\n=== jetski_cli finished (exit code {proc.returncode}) ===\n")
+                log_f.flush()
+        except Exception as exc:
+            try:
+                with open(log_path, "a", encoding="utf-8") as log_f:
+                    log_f.write(f"\n=== Error poking conversation {cid}: {exc} ===\n")
+            except Exception:
+                pass
+        finally:
+            _STARTING_CONVS.discard(cid)
+            if proc is not None and _ACTIVE_CONV_PROCS.get(cid) is proc:
+                _ACTIVE_CONV_PROCS.pop(cid, None)
+
+    t = threading.Thread(target=_run_conv, daemon=True)
+    t.start()
+    return True, f"Sent message to conversation {cid[:8]} in {effective_cwd}"
 
 
 def launch_jetski_for_session(
@@ -1402,6 +1905,8 @@ class WorkflowUIHandler(http.server.BaseHTTPRequestHandler):
                 body["poke"] = True
                 body["resume"] = True
             self.handle_api_session_launch_agent(body)
+        elif path == "/api/conversation/poke":
+            self.handle_api_conversation_poke(body)
         else:
             self.send_error(404, "Endpoint not found")
 
@@ -1412,6 +1917,8 @@ class WorkflowUIHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/api/sessions":
             self.handle_api_sessions(params)
+        elif path == "/api/conversations":
+            self.handle_api_conversations(params)
         elif path == "/api/session":
             wf = params.get("workflow", [None])[0]
             sid = params.get("id", [None])[0]
@@ -1437,6 +1944,46 @@ class WorkflowUIHandler(http.server.BaseHTTPRequestHandler):
             include_subs = params["include_sub_workflows"][0].lower() in ("true", "1", "yes")
         sessions = scan_all_sessions(include_sub_workflows=include_subs)
         self.send_json({"sessions": sessions, "count": len(sessions)})
+
+    def handle_api_conversations(self, params: Optional[Dict[str, List[str]]] = None):
+        limit = 50
+        include_subagents = False
+        if params:
+            if "limit" in params:
+                try:
+                    limit = max(1, min(200, int(params["limit"][0])))
+                except Exception:
+                    pass
+            if "include_subagents" in params:
+                include_subagents = params["include_subagents"][0].lower() in ("true", "1", "yes")
+        conversations = scan_all_conversations(
+            limit=limit,
+            include_subagents=include_subagents,
+            state_base_dir=get_state_base_dir(),
+        )
+        self.send_json({"conversations": conversations, "count": len(conversations)})
+
+    def handle_api_conversation_poke(self, body: Dict[str, Any]):
+        cid = body.get("conversation_id") or body.get("id")
+        prompt = body.get("prompt") or body.get("message")
+        cwd = body.get("cwd") or body.get("workspace")
+        if not cid:
+            self.send_json({"error": "Missing conversation_id parameter"}, status=400)
+            return
+        ok, msg = poke_conversation(
+            conversation_id=str(cid),
+            prompt=prompt,
+            cwd=cwd,
+            state_base_dir=get_state_base_dir(),
+        )
+        if ok:
+            self.send_json({
+                "status": "success",
+                "message": msg,
+                "conversation_id": str(cid),
+            })
+        else:
+            self.send_json({"error": msg}, status=400)
 
     def handle_api_session_detail(self, wf: Optional[str], sid: Optional[str]):
         if not wf or not sid:
