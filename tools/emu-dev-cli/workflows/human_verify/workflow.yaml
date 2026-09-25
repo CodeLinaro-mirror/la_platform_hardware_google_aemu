@@ -1,0 +1,20 @@
+# Human Verifier Barrier Workflow (YAML)
+# Pauses workflow execution until a human verifies and approves progression in the UI or CLI.
+
+name: human-verify
+description: Pause workflow execution at a barrier until approved by a human verifier.
+
+steps:
+  - step: 0
+    title: Await Human Verification
+    description: Pause and wait for human approval in the Workflow UI or CLI before continuing
+    human_verify: true
+    prompt: |
+      Please pause execution and summarize what you have accomplished and verified so far.
+      Wait for the human to verify the results and approve continuation in the Workflow UI.
+    verifier_cmd: null
+
+  - step: 1
+    title: Completion
+    prompt: "Human verification approved. Continuing workflow."
+    verifier_cmd: null

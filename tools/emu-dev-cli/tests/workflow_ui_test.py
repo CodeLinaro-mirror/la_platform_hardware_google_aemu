@@ -448,6 +448,290 @@ class WorkflowUITest(unittest.TestCase):
         self.assertEqual(args.host, "0.0.0.0")
         self.assertTrue(args.no_browser)
 
+    def test_create_composed_session_and_approve(self):
+        from workflows.ui.server import create_composed_session
+        from workflows.core.yaml_runner import execute_workflow_step, approve_workflow_session
+
+        old_env = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
+        os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = str(self.state_dir)
+        try:
+            res = create_composed_session(
+                steps_payload=[
+                    {
+                        "type": "workflow",
+                        "workflow_name": "reproduce-bug",
+                        "title": "Reproduce Bug",
+                        "custom_instructions": "Run emulator with -gpu host and trigger snapshot save.",
+                    },
+                    {
+                        "type": "human_verify",
+                        "workflow_name": "human-verify",
+                        "title": "Verify Reproduction",
+                        "custom_instructions": "Check crash log before fixing.",
+                    },
+                    {
+                        "type": "workflow",
+                        "workflow_name": "fix-bug",
+                        "title": "Fix Bug",
+                        "custom_instructions": "Add null check in Snapshot.cpp.",
+                    },
+                ],
+                shared_args={"bug-number": "471234567", "repo": "hardware/google/aemu"},
+                title="Fix Snapshot Crash",
+                launch_jetski=False,
+                state_base_dir=self.state_dir,
+            )
+            self.assertEqual(res["workflow_name"], "custom-workflow")
+            state_id = res["state_id"]
+            self.assertTrue(state_id)
+
+            detail = get_session_detail("custom-workflow", state_id, state_base_dir=self.state_dir)
+            self.assertIsNotNone(detail)
+            self.assertEqual(detail["custom_title"], "Fix Snapshot Crash")
+            self.assertEqual(detail["state"], "RUNNING")
+            self.assertEqual(detail["step"], 0)
+            self.assertEqual(
+                detail["steps"][0]["custom_instructions"],
+                "Run emulator with -gpu host and trigger snapshot save.",
+            )
+
+            # Advance step 0 (reproduce-bug pass-through verifier succeeds -> advances to step 1: human_verify barrier)
+            spec_path = detail["metadata"]["_workflow_spec_path"]
+            old_stdout = sys.stdout
+            sys.stdout = io.StringIO()
+            try:
+                execute_workflow_step(spec_path, state_id)
+            finally:
+                sys.stdout = old_stdout
+
+            detail_waiting = get_session_detail("custom-workflow", state_id, state_base_dir=self.state_dir)
+            self.assertEqual(detail_waiting["state"], "WAITING_HUMAN")
+            self.assertEqual(detail_waiting["step"], 1)
+            self.assertEqual(detail_waiting["steps"][1]["status"], "waiting_human")
+
+            # Approve the human barrier -> advances to step 2 (fix-bug)
+            old_stdout = sys.stdout
+            sys.stdout = io.StringIO()
+            try:
+                ok, msg = approve_workflow_session(
+                    state_id=state_id,
+                    workflow_name="custom-workflow",
+                    feedback="Confirmed crash reproduction!",
+                    state_base_dir=self.state_dir,
+                    advance=True,
+                )
+            finally:
+                sys.stdout = old_stdout
+            self.assertTrue(ok)
+
+            detail_after = get_session_detail("custom-workflow", state_id, state_base_dir=self.state_dir)
+            self.assertEqual(detail_after["state"], "RUNNING")
+            self.assertEqual(detail_after["step"], 2)
+        finally:
+            if old_env is not None:
+                os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = old_env
+            else:
+                os.environ.pop("EMU_DEV_CLI_WORKFLOW_STATE_DIR", None)
+
+    def test_get_known_source_directories(self):
+        from workflows.ui.server import get_known_source_directories
+
+        cfg_path = Path(self.temp_dir) / "emu-dev-cli.json"
+        fake_dev = Path(self.temp_dir) / "emu-main-dev"
+        fake_next = Path(self.temp_dir) / "emu-main-next"
+        fake_dev.mkdir(parents=True, exist_ok=True)
+        fake_next.mkdir(parents=True, exist_ok=True)
+
+        cfg_path.write_text(
+            json.dumps({
+                "source_directories": {
+                    "emu-main-dev": str(fake_dev),
+                    "emu-main-next": str(fake_next),
+                    "trunk-release": "",
+                }
+            }),
+            encoding="utf-8",
+        )
+
+        old_cfg = os.environ.get("EMU_DEV_CLI_CONFIG_PATH")
+        os.environ["EMU_DEV_CLI_CONFIG_PATH"] = str(cfg_path)
+        try:
+            dirs = get_known_source_directories()
+            self.assertEqual(len(dirs), 2)
+            by_branch = {d["branch"]: d for d in dirs}
+            self.assertIn("emu-main-dev", by_branch)
+            self.assertIn("emu-main-next", by_branch)
+            self.assertNotIn("trunk-release", by_branch)
+            self.assertEqual(by_branch["emu-main-dev"]["path"], str(fake_dev.resolve()))
+            self.assertTrue(by_branch["emu-main-dev"]["exists"])
+        finally:
+            if old_cfg is not None:
+                os.environ["EMU_DEV_CLI_CONFIG_PATH"] = old_cfg
+            else:
+                os.environ.pop("EMU_DEV_CLI_CONFIG_PATH", None)
+
+    def test_get_conversation_transcript_and_api(self):
+        from workflows.ui.server import get_conversation_transcript, get_session_transcript
+        import workflows.ui.server as server_module
+
+        fake_brain = Path(self.temp_dir) / "brain"
+        conv_id = "613b389e-dc47-49b5-906b-b2a766e5f38f"
+        logs_dir = fake_brain / conv_id / ".system_generated" / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        transcript_file = logs_dir / "transcript.jsonl"
+
+        steps_lines = [
+            json.dumps({
+                "step_index": 0,
+                "source": "USER_EXPLICIT",
+                "type": "USER_INPUT",
+                "status": "DONE",
+                "created_at": "2026-09-25T06:44:12Z",
+                "content": "You are executing workflow session abc12345.",
+            }),
+            json.dumps({
+                "step_index": 1,
+                "source": "MODEL",
+                "type": "PLANNER_RESPONSE",
+                "status": "DONE",
+                "created_at": "2026-09-25T06:44:16Z",
+                "thinking": "Let's run the reproduction test first.",
+                "content": "I will run the reproduction command now.",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "name": "run_command",
+                        "args": {"CommandLine": "pytest tests/repro_test.py", "toolSummary": "Run repro test"},
+                    }
+                ],
+            }),
+            json.dumps({
+                "step_index": 2,
+                "source": "SYSTEM",
+                "type": "GENERIC",
+                "status": "DONE",
+                "created_at": "2026-09-25T06:44:20Z",
+                "content": "1 failed in 0.12s",
+            }),
+        ]
+        transcript_file.write_text("\n".join(steps_lines) + "\n", encoding="utf-8")
+
+        self._create_mock_session(
+            workflow_name="custom-workflow",
+            state_id="conv_sess",
+            state="RUNNING",
+            step=0,
+            metadata={"conversation_id": conv_id, "_agent_status": "RUNNING"},
+        )
+
+        old_brain = os.environ.get("JETSKI_BRAIN_DIR")
+        old_base_dir = getattr(server_module, "get_state_base_dir", None)
+        os.environ["JETSKI_BRAIN_DIR"] = str(fake_brain)
+        server_module.get_state_base_dir = lambda: self.state_dir
+
+        try:
+            direct = get_conversation_transcript(conversation_id=conv_id)
+            self.assertEqual(direct["total_steps"], 3)
+            self.assertEqual(len(direct["steps"]), 3)
+            self.assertEqual(direct["steps"][0]["type"], "USER_INPUT")
+            self.assertEqual(direct["steps"][1]["type"], "PLANNER_RESPONSE")
+            self.assertEqual(direct["steps"][1]["thinking"], "Let's run the reproduction test first.")
+            self.assertEqual(direct["steps"][1]["tool_calls"][0]["name"], "run_command")
+
+            # 1. When no background process is alive and transcript ends at GENERIC tool output,
+            #    resolve_live_agent_status detects INTERRUPTED and updates the state file.
+            by_sess = get_session_transcript(
+                workflow_name="custom-workflow",
+                state_id="conv_sess",
+                state_base_dir=self.state_dir,
+            )
+            self.assertEqual(by_sess["conversation_id"], conv_id)
+            self.assertEqual(by_sess["agent_status"], "INTERRUPTED")
+            self.assertIn("interrupted mid-turn", by_sess["agent_status_reason"])
+            self.assertEqual(by_sess["total_steps"], 3)
+
+            # 2. When background agent is actively running, agent_status is RUNNING
+            server_module._STARTING_AGENTS.add("conv_sess")
+            try:
+                by_sess_running = get_session_transcript(
+                    workflow_name="custom-workflow",
+                    state_id="conv_sess",
+                    state_base_dir=self.state_dir,
+                )
+                self.assertEqual(by_sess_running["agent_status"], "RUNNING")
+            finally:
+                server_module._STARTING_AGENTS.discard("conv_sess")
+        finally:
+            if old_brain is not None:
+                os.environ["JETSKI_BRAIN_DIR"] = old_brain
+            else:
+                os.environ.pop("JETSKI_BRAIN_DIR", None)
+            if old_base_dir:
+                server_module.get_state_base_dir = old_base_dir
+
+    def test_poke_session_attaches_existing_conversation(self):
+        import workflows.ui.server as server_module
+        from workflows.ui.server import launch_jetski_for_session
+
+        conv_id = "613b389e-dc47-49b5-906b-b2a766e5f38f"
+        self._create_mock_session(
+            workflow_name="custom-workflow",
+            state_id="poke_sess",
+            state="RUNNING",
+            step=0,
+            metadata={
+                "conversation_id": conv_id,
+                "_agent_status": "INTERRUPTED",
+                "_last_step_prompt": "Run reproduce test.",
+            },
+        )
+
+        captured_cmds = []
+
+        class FakeProc:
+            pid = 999999
+            returncode = 0
+            stdout = iter([])
+
+            def poll(self):
+                return 0
+
+            def wait(self):
+                return 0
+
+        old_resolve = server_module.resolve_jetski_cli
+        old_popen = server_module.subprocess.Popen
+        server_module.resolve_jetski_cli = lambda: "/fake/jetski_cli"
+
+        def fake_popen(cmd, **kwargs):
+            captured_cmds.append(cmd)
+            return FakeProc()
+
+        server_module.subprocess.Popen = fake_popen
+        try:
+            ok, msg, returned_cid = launch_jetski_for_session(
+                workflow_name="custom-workflow",
+                state_id="poke_sess",
+                resume=True,
+                poke=True,
+                custom_prompt="Please continue running the test.",
+                state_base_dir=self.state_dir,
+            )
+            self.assertTrue(ok)
+            self.assertEqual(returned_cid, conv_id)
+            self.assertIn("Poked", msg)
+            time.sleep(0.05)
+            self.assertEqual(len(captured_cmds), 1)
+            cmd = captured_cmds[0]
+            self.assertIn("--conversation", cmd)
+            self.assertIn(conv_id, cmd)
+            prompt_idx = cmd.index("--prompt") + 1
+            self.assertIn("Please continue running the test.", cmd[prompt_idx])
+        finally:
+            server_module.resolve_jetski_cli = old_resolve
+            server_module.subprocess.Popen = old_popen
+
 
 if __name__ == "__main__":
     unittest.main()
+

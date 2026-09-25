@@ -1,0 +1,31 @@
+# Reproduce Bug Workflow (YAML)
+# Guides the agent to investigate and reproduce a reported bug before attempting a fix.
+
+name: reproduce-bug
+description: Investigate and reproduce a bug to confirm the failure mode before fixing.
+
+args:
+  - name: bug-number
+    help: "Optional Buganizer issue ID (e.g. 553514805 or b/553514805)"
+    required: false
+    default: ""
+  - name: repo
+    help: "Target git repository path (defaults to current working directory)"
+    required: false
+    default: "."
+
+steps:
+  - step: 0
+    title: Reproduce Bug
+    description: Investigate the issue and reproduce the failure locally or via automated tests
+    prompt: |
+      Please investigate and reproduce the bug in the repository at '{repo}' (Bug ID: '{bug-number}').
+      If a bug markdown file exists in session metadata (such as '{bug-markdown-file}'), review it first for context.
+      Reproduce the issue using the appropriate method for this bug (e.g., running or authoring a unit test, running `emu-dev-cli flakiness reproduce`, `emu-dev-cli crash reproduce`, or launching the emulator) and confirm you can observe the failure before making any production fix.
+    verifier_cmd: "python3 -c \"import sys; sys.exit(0)\""
+    max_retries: 3
+
+  - step: 1
+    title: Completion
+    prompt: "Bug reproduction step completed."
+    verifier_cmd: null
