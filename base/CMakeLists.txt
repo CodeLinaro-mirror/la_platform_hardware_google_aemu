@@ -146,6 +146,7 @@ if (ENABLE_VKCEREAL_TESTS)
             LayoutResolver_unittest.cpp
             LruCache_unittest.cpp
             ManagedDescriptor_unittest.cpp
+            MessageChannel_unittest.cpp
             Optional_unittest.cpp
             ring_buffer_unittest.cpp
             StringFormat_unittest.cpp
