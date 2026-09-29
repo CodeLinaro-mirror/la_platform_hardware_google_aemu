@@ -10,6 +10,9 @@ args:
     help: "Buganizer issue ID (e.g. 553514805 or b/553514805)"
     required: true
 
+init:
+  bug-markdown-file: "{cache-dir}/b{bug-number}.md"
+
 steps:
   # Step 0: Prompt agent to collect bug details and verify output
   - step: 0

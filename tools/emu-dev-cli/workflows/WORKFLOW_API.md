@@ -360,3 +360,23 @@ The `--state` CLI argument is resolved flexibly by the runner:
   2. **Step 1 (`Amend Commit`)**:
      - The agent amends the commit using the verified message.
      - Verifier locates the amended commit via its preserved `Change-Id`, verifies the commit hash changed, ensures the base commit is not an ancestor (preventing committing on top), and checks that the Git commit message matches `{proposed-msg-file}`.
+
+---
+
+## 9. Bug Fixing & TDD Workflows
+
+### `test-driven-bug-fixer`
+- **Purpose**: Autonomous test-driven bug-fixing workflow for Android Emulator codebases (`emu-main-dev` and `emu-main-next`).
+- **Initialization**: `emu-dev-cli workflow test-driven-bug-fixer init <bug-number>`
+  - Positional argument: `<bug-number>` (e.g. `553514805` or `b/553514805`).
+  - Optional arguments: `--repo <path>` (override target repo root), `--compile-cmd-override <command>` (override build command).
+- **Environment Detection**:
+  - Automatically identifies whether running in `emu-main-dev` (CMake incremental build in `external/qemu`) or `emu-main-next` (Bazel build `@goldfish//emulator/launcher:launch_emulator`).
+- **Workflow Steps**:
+  1. **Step 0 (`bug-to-markdown`)**: Sub-workflow fetches Buganizer issue details and generates a structured summary at `{cache-dir}/b{bug-number}.md`.
+  2. **Step 1 (`create-test`)**: Guides authoring a test exposing the bug (failing against unfixed code) and verifies that the codebase compiles cleanly.
+  3. **Step 2 (`commit-test`)**: Sub-workflow `create-commit` commits the failing test in its own atomic commit meeting Gerrit conventions.
+  4. **Step 3 (`apply-fix`)**: Guides implementing the fix from the markdown specification and verifies clean compilation.
+  5. **Step 4 (`commit-fix`)**: Sub-workflow `create-commit` commits the bug fix in its own atomic commit meeting Gerrit conventions.
+  6. **Step 5 (`summary`)**: Summarizes the completed commits and bug resolution.
+

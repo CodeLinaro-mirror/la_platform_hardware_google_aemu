@@ -38,6 +38,53 @@ def _amc_toolchain_impl(ctx):
             inputs.append(pkg_config_exe)
             args.add("--pkg-config", pkg_config_exe.path)
 
+    if ctx.attr.meson:
+        meson_file = None
+        for f in ctx.files.meson:
+            if f.basename == "meson.py":
+                meson_file = f
+                break
+        if meson_file:
+            inputs.extend(ctx.files.meson)
+            args.add("--meson", meson_file.path)
+
+    python_toolchain = ctx.toolchains["@bazel_tools//tools/python:toolchain_type"]
+    if python_toolchain and python_toolchain.py3_runtime:
+        py3_runtime = python_toolchain.py3_runtime
+        if py3_runtime.interpreter:
+            inputs.append(py3_runtime.interpreter)
+            args.add("--python", py3_runtime.interpreter.path)
+        elif py3_runtime.interpreter_path:
+            args.add("--python", py3_runtime.interpreter_path)
+        if py3_runtime.files:
+            inputs.extend(py3_runtime.files.to_list())
+
+    if ctx.attr.clang:
+        clang_file = None
+        for f in ctx.files.clang:
+            parts = f.path.split("/")
+            if len(parts) >= 2 and parts[-2] == "bin" and parts[-1] in ("clang", "clang.exe"):
+                clang_file = f
+                break
+        if clang_file:
+            inputs.extend(ctx.files.clang)
+            args.add("--clang", clang_file.path)
+
+    if ctx.attr.sysroot and ctx.files.sysroot:
+        sysroot_files = ctx.files.sysroot
+        inputs.extend(sysroot_files)
+        sysroot_dir = None
+        for f in sysroot_files:
+            parent = f.dirname
+            i = parent.find("sysroot")
+            if i >= 0:
+                sysroot_dir = parent[0:i + 7]
+                break
+        if not sysroot_dir:
+            fail("sysroot target %s must output a directory." % ctx.attr.sysroot)
+        args.add("--sysroot", sysroot_dir)
+
+    compat_files = []
     if ctx.attr.compat_lib:
         # We need the archive file (.a) from the compat_lib
         cc_info = ctx.attr.compat_lib[CcInfo]
@@ -51,10 +98,25 @@ def _amc_toolchain_impl(ctx):
         if static_libs:
             compat_file = static_libs[0]
             inputs.append(compat_file)
+            compat_files.append(compat_file)
             args.add("--compat-lib", compat_file.path)
 
-    env = {}
-    path = ctx.configuration.default_shell_env.get("PATH", "")
+        compat_includes = depset(
+            transitive = [
+                cc_info.compilation_context.includes,
+                cc_info.compilation_context.system_includes,
+                cc_info.compilation_context.quote_includes,
+                cc_info.compilation_context.external_includes,
+            ],
+        ).to_list()
+        for inc in compat_includes:
+            args.add("--compat-include", inc)
+        compat_headers = cc_info.compilation_context.headers.to_list()
+        inputs.extend(compat_headers)
+        compat_files.extend(compat_headers)
+
+    path_entries = []
+
     if ctx.attr.rustc:
         rustc_file = None
         for f in ctx.files.rustc:
@@ -63,13 +125,27 @@ def _amc_toolchain_impl(ctx):
                 break
         if rustc_file:
             inputs.extend(ctx.files.rustc)
-            rustc_dir = rustc_file.dirname
-            if path:
-                path = rustc_dir + ctx.configuration.host_path_separator + path
-            else:
-                path = rustc_dir
+            path_entries.append(rustc_file.dirname)
+
+    if ctx.attr.cargo:
+        cargo_file = None
+        for f in ctx.files.cargo:
+            if f.basename == "cargo" or f.basename == "cargo.exe":
+                cargo_file = f
+                break
+        if cargo_file:
+            inputs.extend(ctx.files.cargo)
+            cargo_dir = cargo_file.dirname
+            if cargo_dir not in path_entries:
+                path_entries.append(cargo_dir)
+
+    path = ctx.configuration.default_shell_env.get("PATH", "")
     if path:
-        env["PATH"] = path
+        path_entries.append(path)
+
+    env = {}
+    if path_entries:
+        env["PATH"] = ctx.configuration.host_path_separator.join(path_entries)
 
     ctx.actions.run(
         outputs = [output_dir],
@@ -79,14 +155,31 @@ def _amc_toolchain_impl(ctx):
         mnemonic = "AmcToolchainGen",
         progress_message = "Generating AMC toolchain for %s" % ctx.attr.target_platform,
         env = env,
-        execution_requirements = {
-            "no-sandbox": "1",
-            "no-cache": "1",
-            "local": "1",
-        },
     )
 
-    return [DefaultInfo(files = depset([output_dir]))]
+    toolchain_files = [output_dir]
+    if ctx.attr.clang:
+        toolchain_files.extend(ctx.files.clang)
+    if ctx.attr.sysroot:
+        toolchain_files.extend(ctx.files.sysroot)
+    if ctx.attr.meson:
+        toolchain_files.extend(ctx.files.meson)
+    if ctx.attr.pkg_config:
+        pkg_config_info = ctx.attr.pkg_config[DefaultInfo]
+        if pkg_config_info.files_to_run and pkg_config_info.files_to_run.executable:
+            toolchain_files.append(pkg_config_info.files_to_run.executable)
+    if ctx.attr.ninja:
+        ninja_info = ctx.attr.ninja[DefaultInfo]
+        if ninja_info.files_to_run and ninja_info.files_to_run.executable:
+            toolchain_files.append(ninja_info.files_to_run.executable)
+
+    if python_toolchain and python_toolchain.py3_runtime and python_toolchain.py3_runtime.files:
+        toolchain_files.extend(python_toolchain.py3_runtime.files.to_list())
+
+    if compat_files:
+        toolchain_files.extend(compat_files)
+
+    return [DefaultInfo(files = depset(toolchain_files))]
 
 amc_toolchain = rule(
     implementation = _amc_toolchain_impl,
@@ -109,6 +202,10 @@ amc_toolchain = rule(
             doc = "Optional rustc compiler target (e.g. @rules_rust//rust/toolchain:current_rustc_files).",
             allow_files = True,
         ),
+        "cargo": attr.label(
+            doc = "Optional cargo package manager target (e.g. @rules_rust//rust/toolchain:current_cargo_files).",
+            allow_files = True,
+        ),
         "ninja": attr.label(
             doc = "The ninja executable target.",
             default = Label("@ninja"),
@@ -121,12 +218,28 @@ amc_toolchain = rule(
             executable = True,
             cfg = "exec",
         ),
+        "meson": attr.label(
+            doc = "The meson target.",
+            default = Label("@meson"),
+            allow_files = True,
+        ),
+        "clang": attr.label(
+            doc = "The clang target containing compiler and headers.",
+            default = Label("//tools/toolchain:clang_files"),
+            allow_files = True,
+        ),
+        "sysroot": attr.label(
+            doc = "The sysroot target containing sysroot files.",
+            default = Label("//tools/toolchain:gcc_files"),
+            allow_files = True,
+        ),
         "_gen_toolchain_tool": attr.label(
             default = Label("//tools/toolchain:gen_toolchain"),
             executable = True,
             cfg = "exec",
         ),
     },
+    toolchains = ["@bazel_tools//tools/python:toolchain_type"],
 )
 
 def _amc_pkg_config_impl(ctx):
@@ -140,42 +253,47 @@ def _amc_pkg_config_impl(ctx):
     # Extract archives (supporting both static and shared libraries)
     # Use archive_library if provided (useful when include and archive targets are separate)
     archive_dep = ctx.attr.archive_library if ctx.attr.archive_library else ctx.attr.library
-    cc_info_archive = archive_dep[CcInfo]
-
     archives = []
-    for li in cc_info_archive.linking_context.linker_inputs.to_list():
-        for lib in li.libraries:
-            if lib.static_library:
-                archives.append(lib.static_library)
-            elif lib.pic_static_library:
-                archives.append(lib.pic_static_library)
-            elif lib.dynamic_library:
-                archives.append(lib.dynamic_library)
-            elif lib.interface_library:
-                archives.append(lib.interface_library)
+    if archive_dep:
+        cc_info_archive = archive_dep[CcInfo]
+        for li in cc_info_archive.linking_context.linker_inputs.to_list():
+            for lib in li.libraries:
+                if lib.static_library:
+                    archives.append(lib.static_library)
+                elif lib.pic_static_library:
+                    archives.append(lib.pic_static_library)
+                elif lib.dynamic_library:
+                    archives.append(lib.dynamic_library)
+                elif lib.interface_library:
+                    archives.append(lib.interface_library)
 
     # Extract headers and include paths
-    cc_info = ctx.attr.library[CcInfo]
-    compilation_context = cc_info.compilation_context
-    headers = compilation_context.headers.to_list()
-
-    # Collect all include paths
+    headers = []
     includes = []
-    for inc in compilation_context.includes.to_list():
-        includes.append(inc)
-    for inc in compilation_context.system_includes.to_list():
-        includes.append(inc)
-    for inc in compilation_context.quote_includes.to_list():
-        includes.append(inc)
-    for inc in compilation_context.external_includes.to_list():
-        includes.append(inc)
+    if ctx.attr.library:
+        cc_info = ctx.attr.library[CcInfo]
+        compilation_context = cc_info.compilation_context
+        headers = compilation_context.headers.to_list()
 
-    # Deduplicate includes
-    includes = depset(includes).to_list()
+        # Collect all include paths
+        for inc in compilation_context.includes.to_list():
+            includes.append(inc)
+        for inc in compilation_context.system_includes.to_list():
+            includes.append(inc)
+        for inc in compilation_context.quote_includes.to_list():
+            includes.append(inc)
+        for inc in compilation_context.external_includes.to_list():
+            includes.append(inc)
+
+        # Deduplicate includes
+        includes = depset(includes).to_list()
+
+    data_files = ctx.files.data
+    bazel_label = archive_dep.label if archive_dep else ctx.label
 
     args = ctx.actions.args()
     args.add("--name", ctx.attr.package_name or ctx.attr.name)
-    args.add("--bazel_label", archive_dep.label)
+    args.add("--bazel_label", bazel_label)
     args.add("--version", ctx.attr.version)
     args.add("--out", output_dir.path)
     if archives:
@@ -184,6 +302,10 @@ def _amc_pkg_config_impl(ctx):
         args.add_all("--includes", includes)
     if headers:
         args.add_all("--headers", headers)
+    if data_files:
+        args.add_all("--data", data_files)
+    for k, v in ctx.attr.extra_vars.items():
+        args.add("--extra-var=" + k + "=" + v)
     for req in ctx.attr.requires:
         args.add("--requires=" + req)
     if ctx.attr.link_flags:
@@ -191,15 +313,24 @@ def _amc_pkg_config_impl(ctx):
     if ctx.attr.cflags:
         args.add("--cflags=" + ctx.attr.cflags)
 
-    # objdump is needed on Linux.
-    # TODO fix this by passing in bazel targets.
-    env = {}
-    if "PATH" in ctx.configuration.default_shell_env:
-        env["PATH"] = ctx.configuration.default_shell_env["PATH"]
-
     inputs = []
     inputs.extend(archives)
     inputs.extend(headers)
+    inputs.extend(data_files)
+
+    toolchain_files = ctx.files.toolchain
+    inputs.extend(toolchain_files)
+    toolchain_dir = None
+    for f in toolchain_files:
+        if f.is_directory:
+            toolchain_dir = f
+            break
+    if not toolchain_dir:
+        fail("Toolchain target %s must output a directory." % ctx.attr.toolchain)
+
+    # Simple host path is still needed for access to bash
+    path = ctx.configuration.default_shell_env.get("PATH", "")
+    env = {"PATH": toolchain_dir.path + ctx.configuration.host_path_separator + path}
 
     ctx.actions.run(
         outputs = [output_dir],
@@ -209,11 +340,6 @@ def _amc_pkg_config_impl(ctx):
         mnemonic = "AmcPkgConfigGen",
         progress_message = "Generating pkg-config for %s" % ctx.attr.name,
         env = env,
-        execution_requirements = {
-            "no-sandbox": "1",
-            "no-cache": "1",
-            "local": "1",
-        },
     )
 
     return [DefaultInfo(files = depset([output_dir]))]
@@ -222,21 +348,33 @@ amc_pkg_config = rule(
     implementation = _amc_pkg_config_impl,
     doc = "Generates a pkg-config (.pc) file and persists the library artifacts inside a package directory.",
     attrs = {
-        "library": attr.label(
-            doc = "The cc_library target to generate the pkg-config for. Headers and include paths are extracted from this.",
+        "package_name": attr.string(
+            doc = "Name of the package.",
             mandatory = True,
+        ),
+        "library": attr.label(
+            doc = "Optional cc_library target to generate the pkg-config for. Headers and include paths are extracted from this.",
             providers = [CcInfo],
         ),
-        "archive_library": attr.label(
-            doc = "Optional cc_library target to extract archives from, if different from 'library'.",
-            providers = [CcInfo],
+        "data": attr.label_list(
+            doc = "Optional list of data or tool files to persist into the package directory.",
+            allow_files = True,
+        ),
+        "extra_vars": attr.string_dict(
+            doc = "Extra variables to include in the .pc file.",
         ),
         "version": attr.string(
             doc = "The version of the package.",
             mandatory = True,
         ),
-        "package_name": attr.string(
-            doc = "Optional name of the package. Defaults to the target name.",
+        "toolchain": attr.label(
+            doc = "amc_toolchain target containing the generated wrappers.",
+            providers = [DefaultInfo],
+            mandatory = True,
+        ),
+        "archive_library": attr.label(
+            doc = "Optional cc_library target to extract archives from, if different from 'library'.",
+            providers = [CcInfo],
         ),
         "requires": attr.string_list(
             doc = "List of package dependencies (Requires field in .pc file).",
@@ -261,10 +399,14 @@ def _amc_generator_impl(ctx):
     This rule runs the gen_bazel tool to configure the Meson project using the
     generated toolchain and packages, and outputs the generated Bazel build files.
     """
-    toolchain_files = ctx.attr.toolchain[DefaultInfo].files.to_list()
-    if not toolchain_files:
+    toolchain_files = ctx.files.toolchain
+    toolchain_dir = None
+    for f in toolchain_files:
+        if f.is_directory:
+            toolchain_dir = f
+            break
+    if not toolchain_dir:
         fail("Toolchain target %s must output a directory." % ctx.attr.toolchain)
-    toolchain_dir = toolchain_files[0]
 
     # Collect individual package directories
     package_dirs = []
@@ -281,14 +423,18 @@ def _amc_generator_impl(ctx):
     args.add("--out=" + output_dir.path)
     args.add("--config=" + ctx.file.config.path)
     args.add("--prebuilt-toolchain=" + toolchain_dir.path)
+
+    # We assume that meson should be run from the source workspace root (this is where it expects meson.build file to be)
+    source_root = ctx.attr.srcs[0].label.workspace_root if ctx.attr.srcs else ctx.label.workspace_root
+    args.add("--source-path=" + (source_root or "."))
     for pdir in package_dirs:
         args.add("--prebuilt-packages=" + pdir.path)
     args.add("-v")
 
     inputs = [
         ctx.file.config,
-        toolchain_dir,
     ]
+    inputs.extend(toolchain_files)
     inputs.extend(package_dirs)
     inputs.extend(ctx.files.srcs)
     if ctx.executable.ninja:
@@ -296,6 +442,7 @@ def _amc_generator_impl(ctx):
 
     env = {
         # The meson backends call ninja directly after checking this var.
+        # TODO this should be toolchain_dir / "ninja"
         "NINJA": ctx.executable.ninja.path if ctx.executable.ninja else "ninja",
         "MESON_FORCE_BACKTRACE": "1",
     }
@@ -324,11 +471,6 @@ def _amc_generator_impl(ctx):
         mnemonic = "AmcGeneratorRun",
         progress_message = "Running AMC generator: %s" % ctx.file.config.short_path,
         env = env,
-        execution_requirements = {
-            "no-sandbox": "1",
-            "no-cache": "1",
-            "local": "1",
-        },
     )
 
     return [DefaultInfo(files = depset([output_dir]))]

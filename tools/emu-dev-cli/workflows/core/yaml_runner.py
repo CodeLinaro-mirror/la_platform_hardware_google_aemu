@@ -442,6 +442,10 @@ def init_workflow_session(
 
     if parent_context and "_call_stack" in parent_context:
         initial_metadata["_call_stack"] = list(parent_context["_call_stack"]) + [wf_name]
+        if "workflow_name" in parent_context:
+            initial_metadata["_parent_workflow"] = parent_context["workflow_name"]
+        if "state_id" in parent_context:
+            initial_metadata["_parent_state_id"] = parent_context["state_id"]
     else:
         initial_metadata["_call_stack"] = [wf_name]
 
