@@ -15,6 +15,7 @@
 import { AuthProvider } from './auth';
 import { GrpcWebTransport } from './transport';
 import { InputChannel } from './input_channel';
+import { SensorsChannel } from './sensors_channel';
 import { RtcController } from './rtc_controller';
 import { SensorsClient } from './sensors';
 import { CapabilitiesClient } from './capabilities';
@@ -68,6 +69,7 @@ export interface DeviceClientOptions {
 export class DeviceClient {
   public readonly transport: GrpcWebTransport;
   public readonly input: InputChannel;
+  public readonly sensorsChannel: SensorsChannel;
   public readonly rtc: RtcController;
   public readonly sensors: SensorsClient;
   public readonly capabilities: CapabilitiesClient;
@@ -94,14 +96,16 @@ export class DeviceClient {
     });
 
     this.input = new InputChannel();
+    this.sensorsChannel = new SensorsChannel();
 
     this.rtc = new RtcController({
       transport: this.transport,
       inputChannel: this.input,
+      sensorsChannel: this.sensorsChannel,
       peerConnectionConfig: options.rtcConfig,
     });
 
-    this.sensors = new SensorsClient(this.transport);
+    this.sensors = new SensorsClient(this.transport, this.sensorsChannel);
     this.capabilities = new CapabilitiesClient(this.transport);
     this.location = new LocationClient(this.transport);
     this.vm = new VmClient(this.transport);

@@ -4,6 +4,7 @@ mod ui;
 mod chart;
 mod summary;
 mod provider;
+mod netsim;
 
 use clap::Parser;
 use std::path::PathBuf;
@@ -32,6 +33,15 @@ pub struct Args {
 
     #[arg(long, default_value_t = 5)]
     pub auto_save_interval: u32,
+
+    #[arg(long, num_args = 0..=1, default_missing_value = "")]
+    pub netsim_pcap: Option<String>,
+
+    #[arg(long, default_value_t = 500)]
+    pub netsim_pcap_max_mb: u64,
+
+    #[arg(long)]
+    pub no_netsim_log: bool,
 }
 
 pub fn update_device_cache(
@@ -80,11 +90,10 @@ pub async fn run<H: HostProvider + 'static, G: GuestProvider + 'static>(
     guest_prov: G,
     args: Args,
     hardware_specs: String,
-) {
+) -> summary::SessionSummary {
     let interval = args.interval.clamp(1.0, 10.0);
     let mut prev_stats = std::collections::HashMap::new();
     let mut summary = summary::SessionSummary::new();
-    let mut elapsed_total = 0.0;
 
     let mut device_names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut disconnect_times: std::collections::HashMap<String, tokio::time::Instant> = std::collections::HashMap::new();
@@ -111,6 +120,8 @@ pub async fn run<H: HostProvider + 'static, G: GuestProvider + 'static>(
         netsim_cpu: 0.0,
         netsim_ram_mb: 0.0,
         netsim_count: 0,
+        netsim_daemons: vec![],
+        emu_groups: std::collections::HashMap::new(),
         gpu_percent: None,
         gpu_memory_mb: None,
         thermal_temp: None,
@@ -146,12 +157,36 @@ pub async fn run<H: HostProvider + 'static, G: GuestProvider + 'static>(
     let mut last_host_task_start = tokio::time::Instant::now();
     let loop_start_time = tokio::time::Instant::now();
     let mut last_auto_save = tokio::time::Instant::now();
+    let netsim_tracker = std::sync::Arc::new(std::sync::Mutex::new(netsim::NetsimTracker::new(
+        args.netsim_pcap.as_deref(),
+        args.netsim_pcap_max_mb,
+        !args.no_netsim_log,
+        &args.out_dir,
+    )));
+
+    let wait_shutdown = async {
+        #[cfg(unix)]
+        {
+            if let Ok(mut sigterm) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                tokio::select! {
+                    _ = tokio::signal::ctrl_c() => {}
+                    _ = sigterm.recv() => {}
+                }
+            } else {
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = tokio::signal::ctrl_c().await;
+        }
+    };
 
     tokio::select! {
         _ = async {
             loop {
                 let now = tokio::time::Instant::now();
-                elapsed_total = now.duration_since(loop_start_time).as_secs_f64();
+                let elapsed_total = now.duration_since(loop_start_time).as_secs_f64();
 
                 // Poll Host Task
                 if let Some(ref h) = active_host_task {
@@ -184,6 +219,19 @@ pub async fn run<H: HostProvider + 'static, G: GuestProvider + 'static>(
                     active_devices_task = Some(tokio::spawn(async move {
                         guest_clone.get_devices().await
                     }));
+                }
+
+                if summary.iterations == 0 || args.once {
+                    if let Some(h) = active_host_task.take() {
+                        if let Ok(res) = h.await {
+                            stats = res;
+                        }
+                    }
+                    if let Some(d) = active_devices_task.take() {
+                        if let Ok(res) = d.await {
+                            devices = res;
+                        }
+                    }
                 }
 
                 let connected: std::collections::HashSet<String> = devices.keys().cloned().collect();
@@ -265,11 +313,23 @@ pub async fn run<H: HostProvider + 'static, G: GuestProvider + 'static>(
                     }
                 }
 
+                if summary.iterations == 0 || args.once {
+                    let pending_serials: Vec<String> = active_guest_tasks.keys().cloned().collect();
+                    for s in pending_serials {
+                        if let Some(h) = active_guest_tasks.remove(&s) {
+                            if let Ok(res) = h.await {
+                                last_guest_res.insert(s, res);
+                            }
+                        }
+                    }
+                }
+
                 // Process Guest Results
                 for (serial, _) in &devices {
                     if let Some(result) = last_guest_res.get(serial) {
                         let model = result.0.clone();
                         let is_booting = result.1;
+                        let was_booting_saved = *is_booting_state.get(serial).unwrap_or(&true);
                         is_booting_state.insert(serial.clone(), is_booting);
 
                         if !model.is_empty() && !model.contains("Unknown") {
@@ -323,7 +383,7 @@ pub async fn run<H: HostProvider + 'static, G: GuestProvider + 'static>(
                         ts_entry.insert(format!("emu_disk_pct_{}", storage_key), data_pct.unwrap_or(0.0));
                         ts_entry.insert(format!("emu_errs_{}", storage_key), err_count as f32);
 
-                        let was_booting = is_booting; // approximation
+                        let was_booting = was_booting_saved;
                         if was_booting && !is_booting {
                             boot_completed.insert(serial.clone(), true);
                             boot_finished_time.insert(serial.clone(), tokio::time::Instant::now());
@@ -366,7 +426,7 @@ pub async fn run<H: HostProvider + 'static, G: GuestProvider + 'static>(
                                     guest_swap.as_deref().unwrap_or("N/A")
                                 );
 
-                                summary.boot_logs.entry(serial.clone())
+                                summary.boot_logs.entry(storage_key.clone())
                                     .or_insert_with(Vec::new)
                                     .push((delta_str, stats_str));
 
@@ -397,8 +457,10 @@ pub async fn run<H: HostProvider + 'static, G: GuestProvider + 'static>(
                     }
                 }
 
+                let mut summary_emulators: Vec<(String, String, u32, f64)> = Vec::new();
                 for emu in &stats.emulators {
-                    for (serial, _) in &devices {
+                    let mut matched_serial = None;
+                    for serial in devices.keys() {
                         let port = serial.split('-').nth(1).and_then(|s| s.parse::<u16>().ok());
                         if port == emu.port {
                             let storage_key = if let Some(ref avd) = emu.avd_name {
@@ -410,10 +472,61 @@ pub async fn run<H: HostProvider + 'static, G: GuestProvider + 'static>(
                             ts_entry.insert(format!("qemu_ram_{}", storage_key), emu.ram_mb as f32);
                             ts_entry.insert(format!("qemu_cs_{}", storage_key), emu.context_switches as f32);
                             if let Some(g) = emu.gpu_load { ts_entry.insert(format!("qemu_gpu_{}", storage_key), g); }
+                            let fs_mono = first_seen_times
+                                .get(serial)
+                                .map(|t| t.duration_since(loop_start_time).as_secs_f64())
+                                .unwrap_or(elapsed_total);
+                            summary_emulators.push((storage_key, serial.clone(), emu.pid, fs_mono));
+                            matched_serial = Some(serial.clone());
                             break;
                         }
                     }
+                    if let Some(port) = emu.port.filter(|_| matched_serial.is_none()) {
+                        let serial = format!("emulator-{}", port);
+                        let storage_key = if let Some(ref avd) = emu.avd_name {
+                            format!("{}_{}", avd, serial)
+                        } else {
+                            serial.clone()
+                        };
+                        summary_emulators.push((storage_key, serial, emu.pid, elapsed_total));
+                    }
                 }
+
+                let now_wall = netsim::now_wall_secs();
+                let now_mono = tokio::time::Instant::now().duration_since(loop_start_time).as_secs_f64();
+                let ns_tracker_clone = netsim_tracker.clone();
+                let ns_daemons = stats.netsim_daemons.clone();
+                let ns_emu_groups = stats.emu_groups.clone();
+                let ns_devices = devices.clone();
+                let (ns_str_fields, ns_summary_lines, ns_snap, has_connecting) =
+                    tokio::task::spawn_blocking(move || {
+                        let mut tracker = ns_tracker_clone.lock().unwrap_or_else(|e| e.into_inner());
+                        tracker.update(
+                            &ns_daemons,
+                            &ns_emu_groups,
+                            &summary_emulators,
+                            &ns_devices,
+                            now_wall,
+                            now_mono,
+                        );
+                        (
+                            tracker.get_csv_fields(),
+                            tracker.format_summary_sections(now_mono),
+                            tracker.get_dashboard_snapshot(now_wall),
+                            tracker.has_any_connecting(),
+                        )
+                    })
+                    .await
+                    .unwrap_or_else(|_| {
+                        (
+                            std::collections::BTreeMap::new(),
+                            Vec::new(),
+                            Default::default(),
+                            false,
+                        )
+                    });
+                summary.time_series_str.push(ns_str_fields);
+                summary.netsim_summary_lines = ns_summary_lines;
 
                 summary.iterations += 1;
                 summary.host_cpu_sum += stats.cpu_usage;
@@ -426,8 +539,13 @@ pub async fn run<H: HostProvider + 'static, G: GuestProvider + 'static>(
                 ts_entry.insert("host_swap".to_string(), stats.swap_percent);
                 ts_entry.insert("host_disk_read".to_string(), stats.disk_read_mbs as f32);
                 ts_entry.insert("host_disk_write".to_string(), stats.disk_write_mbs as f32);
-                ts_entry.insert("netsim_cpu".to_string(), stats.netsim_cpu);
-                ts_entry.insert("netsim_ram".to_string(), stats.netsim_ram_mb as f32);
+                if stats.netsim_count > 0 {
+                    ts_entry.insert("netsim_cpu".to_string(), stats.netsim_cpu);
+                    ts_entry.insert("netsim_ram".to_string(), stats.netsim_ram_mb as f32);
+                } else {
+                    ts_entry.insert("netsim_cpu".to_string(), f32::NAN);
+                    ts_entry.insert("netsim_ram".to_string(), f32::NAN);
+                }
                 ts_entry.insert("host_paging_in".to_string(), stats.paging_in as f32);
                 ts_entry.insert("host_paging_out".to_string(), stats.paging_out as f32);
                 if let Some(b) = stats.battery_percent { ts_entry.insert("host_battery".to_string(), b); }
@@ -440,7 +558,7 @@ pub async fn run<H: HostProvider + 'static, G: GuestProvider + 'static>(
                     let term_width = crossterm::terminal::size().map(|(w, _)| w).unwrap_or(80);
                     let force_clear = summary.iterations == 1 || term_width != prev_term_width;
                     prev_term_width = term_width;
-                    ui::print_dashboard(&stats, &guest_results, &mut prev_stats, summary.iterations, term_width, args.once, &hardware_specs, force_clear, &online_indicator_until);
+                    ui::print_dashboard(&stats, &guest_results, &mut prev_stats, summary.iterations, term_width, args.once, &hardware_specs, force_clear, &online_indicator_until, Some(&ns_snap));
                 }
 
                 summary.time_series.push(ts_entry);
@@ -454,10 +572,25 @@ pub async fn run<H: HostProvider + 'static, G: GuestProvider + 'static>(
                     break;
                 }
 
-                tokio::time::sleep(std::time::Duration::from_secs_f64(interval)).await;
+                if has_connecting {
+                    let step = (interval / 5.0).max(0.1);
+                    for _ in 0..5 {
+                        tokio::time::sleep(std::time::Duration::from_secs_f64(step)).await;
+                        let ns_tracker_clone = netsim_tracker.clone();
+                        let ns_emu_groups = stats.emu_groups.clone();
+                        let _ = tokio::task::spawn_blocking(move || {
+                            let mut tracker =
+                                ns_tracker_clone.lock().unwrap_or_else(|e| e.into_inner());
+                            tracker.poll_sockets_fast(&ns_emu_groups, netsim::now_wall_secs());
+                        })
+                        .await;
+                    }
+                } else {
+                    tokio::time::sleep(std::time::Duration::from_secs_f64(interval)).await;
+                }
             }
         } => {}
-        _ = tokio::signal::ctrl_c() => {
+        _ = wait_shutdown => {
             println!("\nCtrl+C received, exiting...");
         }
     }
@@ -470,8 +603,20 @@ pub async fn run<H: HostProvider + 'static, G: GuestProvider + 'static>(
         );
     }
 
+    let end_mono = tokio::time::Instant::now().duration_since(loop_start_time).as_secs_f64();
+    let ns_tracker_clone = netsim_tracker.clone();
+    if let Ok(lines) = tokio::task::spawn_blocking(move || {
+        let mut tracker = ns_tracker_clone.lock().unwrap_or_else(|e| e.into_inner());
+        tracker.cleanup();
+        tracker.format_summary_sections(end_mono)
+    })
+    .await
+    {
+        summary.netsim_summary_lines = lines;
+    }
 
     summary::save_summary(&summary, args.out_dir.to_str().unwrap_or("."), args.csv, !args.no_summary, &hardware_specs, cpu_cores, false);
+    summary
 }
 
 #[tokio::main]
@@ -507,6 +652,7 @@ async fn main() {
         last_disk_read: 0,
         last_disk_write: 0,
         intel_gpu_failed: false,
+        nvidia_smi_failed: false,
         mac_gpu_failed: false,
         pid_port_cache: std::collections::HashMap::new(),
         is_first_run: true,
@@ -551,6 +697,8 @@ mod tests {
                 netsim_cpu: 0.0,
                 netsim_ram_mb: 0.0,
                 netsim_count: 0,
+                netsim_daemons: vec![],
+                emu_groups: HashMap::new(),
                 gpu_percent: None,
                 gpu_memory_mb: None,
                 thermal_temp: None,
@@ -586,10 +734,16 @@ mod tests {
             interval: 1.0,
             headless: true,
             auto_save_interval: 5,
+            netsim_pcap: None,
+            netsim_pcap_max_mb: 500,
+            no_netsim_log: true,
         };
 
         // If this finishes without hanging, dependency injection is working properly!
-        run(MockHostProvider, MockGuestProvider, args, "Mock Specs".to_string()).await;
+        let summary = run(MockHostProvider, MockGuestProvider, args, "Mock Specs".to_string()).await;
+        assert_eq!(summary.iterations, 2);
+        assert_eq!(summary.time_series[0].get("host_cpu"), Some(&10.0));
+        assert_eq!(summary.time_series[0].get("emu_cpu_tot_emulator-5554"), Some(&50.0));
     }
 
     #[tokio::test]
@@ -602,6 +756,9 @@ mod tests {
             interval: 1.0,
             headless: false,
             auto_save_interval: 5,
+            netsim_pcap: None,
+            netsim_pcap_max_mb: 500,
+            no_netsim_log: true,
         };
         run(MockHostProvider, MockGuestProvider, args, "Mock Specs".to_string()).await;
     }
@@ -616,6 +773,9 @@ mod tests {
             interval: 1.0,
             headless: true,
             auto_save_interval: 5,
+            netsim_pcap: None,
+            netsim_pcap_max_mb: 500,
+            no_netsim_log: true,
         };
         run(MockHostProvider, MockGuestProvider, args, "Mock Specs".to_string()).await;
     }
@@ -642,6 +802,9 @@ mod tests {
             interval: 1.0,
             headless: true,
             auto_save_interval: 5,
+            netsim_pcap: None,
+            netsim_pcap_max_mb: 500,
+            no_netsim_log: true,
         };
         run(MockHostProvider, MockBootingGuestProvider, args, "Mock Specs".to_string()).await;
     }
@@ -668,6 +831,9 @@ mod tests {
             interval: 1.0,
             headless: true,
             auto_save_interval: 5,
+            netsim_pcap: None,
+            netsim_pcap_max_mb: 500,
+            no_netsim_log: true,
         };
         run(MockHostProvider, MockOfflineGuestProvider, args, "Mock Specs".to_string()).await;
     }
@@ -682,6 +848,9 @@ mod tests {
             interval: 1.0,
             headless: true,
             auto_save_interval: 5,
+            netsim_pcap: None,
+            netsim_pcap_max_mb: 500,
+            no_netsim_log: true,
         };
         run(MockHostProvider, MockGuestProvider, args, "Mock Specs".to_string()).await;
     }
@@ -696,6 +865,9 @@ mod tests {
             interval: 1.0,
             headless: true,
             auto_save_interval: 5,
+            netsim_pcap: None,
+            netsim_pcap_max_mb: 500,
+            no_netsim_log: true,
         };
         run(MockHostProvider, MockGuestProvider, args, "Mock Specs".to_string()).await;
     }
@@ -710,6 +882,9 @@ mod tests {
             interval: 1.0,
             headless: true,
             auto_save_interval: 5,
+            netsim_pcap: None,
+            netsim_pcap_max_mb: 500,
+            no_netsim_log: true,
         };
 
         struct MigratingGuestProvider;
@@ -749,6 +924,9 @@ mod tests {
             interval: 1.0,
             headless: true,
             auto_save_interval: 5,
+            netsim_pcap: None,
+            netsim_pcap_max_mb: 500,
+            no_netsim_log: true,
         };
         run(MockHostProvider, MockPhysicalDeviceGuestProvider, args, "Mock Specs".to_string()).await;
     }
@@ -971,6 +1149,8 @@ mod tests {
                 netsim_cpu: 0.0,
                 netsim_ram_mb: 0.0,
                 netsim_count: 0,
+                netsim_daemons: vec![],
+                emu_groups: HashMap::new(),
                 gpu_percent: None,
                 gpu_memory_mb: None,
                 thermal_temp: None,
@@ -1010,9 +1190,16 @@ mod tests {
             interval: 1.0,
             headless: true,
             auto_save_interval: 5,
+            netsim_pcap: None,
+            netsim_pcap_max_mb: 500,
+            no_netsim_log: true,
         };
 
-        run(MockCollisionHostProvider, MockCollisionGuestProvider, args, "Mock Specs".to_string()).await;
+        let summary = run(MockCollisionHostProvider, MockCollisionGuestProvider, args, "Mock Specs".to_string()).await;
+        assert!(summary.device_names.contains_key("Pixel_6_emulator-5554"));
+        assert!(summary.device_names.contains_key("Pixel_6_emulator-5556"));
+        assert_eq!(summary.time_series[0].get("emu_cpu_tot_Pixel_6_emulator-5554"), Some(&50.0));
+        assert_eq!(summary.time_series[0].get("emu_cpu_tot_Pixel_6_emulator-5556"), Some(&60.0));
     }
 
     struct MockDynamicHostProvider {
@@ -1052,6 +1239,8 @@ mod tests {
                 netsim_cpu: 0.0,
                 netsim_ram_mb: 0.0,
                 netsim_count: 0,
+                netsim_daemons: vec![],
+                emu_groups: HashMap::new(),
                 gpu_percent: None,
                 gpu_memory_mb: None,
                 thermal_temp: None,
@@ -1096,11 +1285,15 @@ mod tests {
             interval: 1.0,
             headless: true,
             auto_save_interval: 5,
+            netsim_pcap: None,
+            netsim_pcap_max_mb: 500,
+            no_netsim_log: true,
         };
 
         let host_prov = MockDynamicHostProvider { iteration: std::sync::Mutex::new(0) };
         let guest_prov = MockDynamicGuestProvider { iteration: std::sync::Mutex::new(0) };
 
-        run(host_prov, guest_prov, args, "Mock Specs".to_string()).await;
+        let summary = run(host_prov, guest_prov, args, "Mock Specs".to_string()).await;
+        assert!(summary.boot_logs.get("Pixel_6_emulator-5554").map(|v| !v.is_empty()).unwrap_or(false));
     }
 }

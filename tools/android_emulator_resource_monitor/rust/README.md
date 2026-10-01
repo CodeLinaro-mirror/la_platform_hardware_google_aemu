@@ -10,7 +10,7 @@ A lightweight, cross-platform terminal tool to monitor resource consumption (CPU
 *   **Host & Guest Monitoring**: Tracks CPU and RAM for your computer and all connected Android devices simultaneously.
 *   **Per-Device QEMU Tracking**: Automatically maps host QEMU emulator processes to their corresponding guest devices for precise resource attribution.
 *   **Host GPU Monitoring**: Tracks GPU load and memory usage (graceful fallback if not available).
-*   **Network Simulator Tracking**: Monitors CPU and RAM usage for Netsim, including process counts.
+*   **Network Simulator Tracking & PCAP Capture**: Monitors `netsimd` CPU/RAM, standalone daemon lifecycle outside AVDs, per-emulator transport & chip attach latency (`BT`, `WIFI`, `UWB`), live PCAP status/sizes, and opt-in PCAP harvesting (`--netsim-pcap`).
 *   **Terminal Plotting**: Displays live sparklines in the dashboard and full ASCII charts in the summary file.
 *   **CSV Data Export**: Supports exporting time-series data to CSV for easy analysis.
 *   **Auto-Discovery**: Automatically detects when devices are connected or disconnected.
@@ -57,6 +57,9 @@ Or run the compiled binary directly:
 *   `-i <seconds>` or `--interval <seconds>`: Adjustable refresh rate (default: 2.0s).
 *   `--headless`: Suppresses terminal UI updates completely.
 *   `--auto-save-interval <minutes>`: Sets the auto-save frequency in minutes (default: 5, use 0 to disable).
+*   `--netsim-pcap[=<dir>]`: Enables `netsim` packet capture for connected emulators, harvests `.pcap` files and rotation `.zip` archives into `<dir>` (default: `<out-dir>/netsim_pcaps`), and restores capture state on exit.
+*   `--netsim-pcap-max-mb <mb>`: Maximum total disk space in MB to harvest under `--netsim-pcap` (default: 500).
+*   `--no-netsim-log`: Disables parsing `netsim_*.log` files (falls back to socket/process inspection only).
 
 ## Running Tests
 

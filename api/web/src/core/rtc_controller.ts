@@ -14,6 +14,7 @@
 
 import { GrpcWebTransport } from "./transport";
 import { InputChannel } from "./input_channel";
+import { SensorsChannel } from "./sensors_channel";
 import { DeviceError } from "./auth";
 import { subscribe, Unsubscribe } from "./streaming";
 import { TrackType } from "@android/emulator-services/common";
@@ -38,6 +39,7 @@ export enum RtcConnectionState {
 export interface RtcControllerOptions {
   transport: GrpcWebTransport;
   inputChannel: InputChannel;
+  sensorsChannel?: SensorsChannel;
   peerConnectionConfig?: RTCConfiguration;
   createPeerConnection?: (config?: RTCConfiguration) => RTCPeerConnection;
 }
@@ -50,6 +52,7 @@ type EventListener = (...args: any[]) => void;
 export class RtcController {
   private readonly rpc: RtcService;
   private readonly inputChannel: InputChannel;
+  private readonly sensorsChannel?: SensorsChannel;
   private readonly pcConfig?: RTCConfiguration;
   private readonly createPcFn: (config?: RTCConfiguration) => RTCPeerConnection;
 
@@ -66,6 +69,7 @@ export class RtcController {
   constructor(options: RtcControllerOptions) {
     this.rpc = new RtcServiceClientImpl(options.transport);
     this.inputChannel = options.inputChannel;
+    this.sensorsChannel = options.sensorsChannel;
     this.pcConfig = options.peerConnectionConfig;
     this.createPcFn =
       options.createPeerConnection ||
@@ -157,11 +161,18 @@ export class RtcController {
       this.peerConnection = this.createPcFn(rtcConfig);
       this.setupPeerConnectionEvents(this.peerConnection);
 
-      // 3. Create input_v2 DataChannel
+      // 3. Create input_v2 and sensors_v2 DataChannels
       const dataChannel = this.peerConnection.createDataChannel("input_v2", {
         ordered: true,
       });
       this.inputChannel.attachDataChannel(dataChannel);
+      if (this.sensorsChannel) {
+        const sensorsDataChannel = this.peerConnection.createDataChannel("sensors_v2", {
+          ordered: false,
+          maxRetransmits: 0,
+        });
+        this.sensorsChannel.attachDataChannel(sensorsDataChannel);
+      }
 
       // 4. Start listening for incoming JSEP signaling stream
       this.startJsepStream(guid);
@@ -286,6 +297,8 @@ export class RtcController {
     pc.ondatachannel = (event) => {
       if (event.channel.label === "input_v2" || event.channel.label === "input") {
         this.inputChannel.attachDataChannel(event.channel);
+      } else if (event.channel.label === "sensors_v2") {
+        this.sensorsChannel?.attachDataChannel(event.channel);
       }
     };
 

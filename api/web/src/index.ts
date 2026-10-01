@@ -24,6 +24,7 @@ export * from './core/auth';
 export * from './core/transport';
 export * from './core/streaming';
 export * from './core/input_channel';
+export * from './core/sensors_channel';
 export * from './core/rtc_controller';
 export * from './core/sensors';
 export * from './core/capabilities';

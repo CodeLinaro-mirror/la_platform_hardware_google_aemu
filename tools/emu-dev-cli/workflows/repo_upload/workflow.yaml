@@ -1,0 +1,27 @@
+# Repo Upload Workflow (YAML)
+# Guides the agent to upload the current branch commit(s) to Gerrit via repo upload.
+
+name: repo-upload
+description: Upload committed changes in the current branch to Gerrit via repo upload.
+
+args:
+  - name: repo
+    help: "Target git repository path (defaults to current working directory)"
+    required: false
+    default: "."
+
+steps:
+  - step: 0
+    title: Upload Changes to Gerrit
+    description: Run repo upload --cbr . in the target repository and confirm upload
+    prompt: |
+      Please upload the committed changes in '{repo}' to Gerrit by running:
+      `repo upload --cbr -y --verify .` (or `yes | repo upload --cbr .` if an interactive yes/no prompt appears) inside '{repo}'.
+      Verify that the Gerrit CL URL is output and the upload succeeds.
+    verifier_cmd: "python3 -c \"import sys; sys.exit(0)\""
+    max_retries: 3
+
+  - step: 1
+    title: Completion
+    prompt: "Changes uploaded to Gerrit successfully."
+    verifier_cmd: null

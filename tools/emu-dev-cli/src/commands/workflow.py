@@ -59,6 +59,15 @@ def discover_workflow_directories() -> List[str]:
         if os.path.isdir(wf_dir) and wf_dir not in candidates:
             candidates.append(wf_dir)
 
+    # 5. Also check state base dir for dynamically created custom workflows
+    try:
+        from workflows.core.yaml_runner import get_state_base_dir
+        state_base = str(get_state_base_dir())
+        if os.path.isdir(state_base) and state_base not in candidates:
+            candidates.append(state_base)
+    except Exception:
+        pass
+
     return candidates
 
 
@@ -178,7 +187,7 @@ def register_parser(subparsers):
     # Insert '--' before option arguments if needed
     for i, a in enumerate(sys.argv):
         if a == "workflow" and i + 1 < len(sys.argv):
-            if sys.argv[i + 1].startswith("-") or sys.argv[i + 1] in ("list", "ui"):
+            if sys.argv[i + 1].startswith("-") or sys.argv[i + 1] in ("list", "ui", "approve"):
                 break
             if (
                 i + 2 < len(sys.argv)
@@ -236,6 +245,32 @@ def register_parser(subparsers):
     )
     ui_parser.set_defaults(
         func=run_workflow_ui,
+    )
+
+    approve_parser = workflow_subparsers.add_parser(
+        "approve",
+        help="Approve a workflow session paused at a human verification barrier",
+        description="Approve a workflow session paused at a human verification barrier.",
+    )
+    approve_parser.add_argument(
+        "--state",
+        dest="state_id",
+        required=True,
+        help="State ID of the workflow session to approve",
+    )
+    approve_parser.add_argument(
+        "--workflow",
+        dest="workflow_name",
+        default=None,
+        help="Optional workflow name if disambiguating state ID",
+    )
+    approve_parser.add_argument(
+        "--feedback",
+        default=None,
+        help="Optional feedback message to pass to the agent for the next step",
+    )
+    approve_parser.set_defaults(
+        func=run_workflow_approve,
     )
 
     # Discovered workflows registered directly as subcommands (single canonical name with '-')
@@ -319,6 +354,25 @@ def run_workflow_ui(args):
     start_server(host=host, port=port, open_browser=not no_browser, block=True)
 
 
+def run_workflow_approve(args):
+    """Approves a workflow session paused at a human verification barrier."""
+    try:
+        from workflows.core.yaml_runner import approve_workflow_session
+    except ImportError:
+        from core.yaml_runner import approve_workflow_session
+
+    state_id = getattr(args, "state_id", "")
+    wf_name = getattr(args, "workflow_name", None)
+    feedback = getattr(args, "feedback", None)
+    ok, msg = approve_workflow_session(state_id=state_id, workflow_name=wf_name, feedback=feedback)
+    if ok:
+        print(msg)
+        sys.exit(0)
+    else:
+        print(f"Error: {msg}", file=sys.stderr)
+        sys.exit(1)
+
+
 def run_workflow_direct(args):
     wf_name = getattr(args, "workflow_target_name", None) or getattr(
         args, "workflow_cmd", ""
@@ -357,6 +411,8 @@ def run_workflow_command(args):
         run_workflow_help(args)
     elif cmd == "ui":
         run_workflow_ui(args)
+    elif cmd == "approve":
+        run_workflow_approve(args)
     elif cmd == "run":
         wf_name = getattr(args, "target_workflow", "")
         if not wf_name and getattr(args, "workflow_args", []):
