@@ -2,10 +2,12 @@
 name: emu_dev_cli
 description:
   CLI tool for fetching prebuilt emulator binaries and system images from Android Build (go/ab),
-  creating AVDs, launching emulator instances, executing automated CTS-Verifier tests, investigating
-  crashes with LLDB and autonomous AI fixes, querying Android Test Hub (ATH) flakiness, inspecting
-  test execution history, reproducing flaky Bazel tests under ASAN/TSAN/Windows/macOS, triaging
-  Buganizer issues with AI patches, and fixing flaky tests.
+  creating AVDs, launching emulator instances, executing automated CTS-Verifier tests, discovering
+  production qemu-next crashes from go/crash (crash list-crashes --unassigned-only), linking
+  Buganizer issues back to go/crash (crash link-bug), investigating crashes with LLDB and autonomous
+  AI fixes, querying Android Test Hub (ATH) flakiness, inspecting test execution history,
+  reproducing flaky Bazel tests under ASAN/TSAN/Windows/macOS, triaging Buganizer issues with AI
+  patches, and fixing flaky tests.
 ---
 
 # Android Emulator Developer CLI (`emu-dev-cli`)
@@ -240,6 +242,7 @@ Provides a persistent **LLM Wiki** interface (`Query → Ingest → Lint`) acros
   emu-dev-cli docs playbook-build-and-tidy
   emu-dev-cli docs playbook-git-and-gerrit
   emu-dev-cli docs playbook-threading-and-invariants
+  emu-dev-cli docs playbook-crash-triage
   emu-dev-cli docs goldfish-architecture
   emu-dev-cli docs cts-verifier-automation
   ```
@@ -257,25 +260,63 @@ emu-dev-cli update
 
 ---
 
-### 9. Crash Investigation & Automated Fixing (`crash`)
+### 9. Crash Investigation, Triage & Automated Fixing (`crash`)
 
-Integrates CrashAdvisor minidump diagnostics, normalized stack fingerprinting, Buganizer issue
-deduplication across open and closed tickets, older repository build revision checking, and
-autonomous AI engineer fixing:
+Provides end-to-end production `qemu-next` crash discovery (`list-crashes`), `go/crash` bug
+annotation linking (`link-bug`), CrashAdvisor minidump diagnostics, normalized stack fingerprinting,
+Buganizer issue deduplication across open and closed tickets (`find-bug`), automated issue filing
+(`file-bug`), and autonomous AI engineer fixing (`autofix`).
 
-- **Find existing / duplicate Buganizer issues (`find-bug`):** Symbolicates crash minidump, parses
-  stack fingerprint (top faulting frame & calling functions), queries Buganizer Component 29601
-  across both open and closed issues, identifies if the crash was built against an older repository
-  version than current HEAD, and reports whether the bug has already been fixed
-  (`[ALREADY FIXED / RESOLVED ✅]` vs `[OPEN]`):
+See `emu-dev-cli docs playbook-crash-triage` for full architectural details on F1 SQL filtering and
+`blade:crash-queryapi` integration.
+
+- **Discover production `qemu-next` crashes (`list-crashes`):** Queries `crash.prod.latest` joined
+  with `crash_annotations.prod.latest` via F1 SQL (`/google/bin/releases/f1-team/public/f1-sql`) and
+  cross-checks live `QueryAPIService.SearchAnnotations` on `blade:crash-queryapi`. Isolates
+  `qemu-next` by matching `product.Version` (`--version-regex '0\.0\.1-|37'`) and excluding classic
+  emulator / `adb` / `netsimd` modules (`--exclude-modules 'Qt6|libandroid-emu|adb|netsimd'`).
+  Returns clusters grouped by `stable_signature` with occurrence counts, `latest_report_id`,
+  `build_ids`, host OS, top emulator crash location, custom keys (`internal-msg`,
+  `looper_registrations`, `list_annotations`), and linked `bug_urls`:
+  ```bash
+  # List all qemu-next crash clusters in the last 48 hours (default)
+  emu-dev-cli crash list-crashes
+
+  # List only untriaged (unassigned) qemu-next crash clusters over the last 7 days
+  emu-dev-cli crash list-crashes --unassigned-only --days 7
+
+  # Output machine-readable JSON for automated agent triage loops
+  emu-dev-cli crash list-crashes --unassigned-only --days 7 --json
+  ```
+- **Associate or unlink a Buganizer issue in `go/crash` (`link-bug`):** Calls
+  `QueryAPIService.UpdateAnnotation` on `blade:crash-queryapi` to attach (or `--unlink`) a Buganizer
+  issue URL to a crash `stable_signature` (or 16-hex `ReportID`) so triaged signatures are
+  immediately excluded by `list-crashes --unassigned-only`:
+  ```bash
+  emu-dev-cli crash link-bug "virtio_gpu_rutabaga_load-e709a6ba" b/567125517
+  emu-dev-cli crash link-bug 9dd7b05170400000 567125517
+  emu-dev-cli crash link-bug "virtio_gpu_rutabaga_load-e709a6ba" b/567125517 --unlink
+  ```
+- **Find existing / duplicate Buganizer issues (`find-bug`):** Checks `go/crash` annotations via
+  `blade:crash-queryapi`, symbolicates the crash minidump, parses the stack fingerprint (top
+  faulting frame & calling functions), queries Buganizer Component 29601 across both open and closed
+  issues, identifies if the crash was built against an older repository version than current HEAD,
+  and reports whether the bug has already been fixed (`[ALREADY FIXED / RESOLVED ✅]` vs `[OPEN]`):
   ```bash
   emu-dev-cli crash find-bug 05d8356e2f800000
   emu-dev-cli crash find-bug https://crash.corp.google.com/05d8356e2f800000
   ```
-- **File or update Buganizer issue (`file-bug`):** Runs CrashAdvisor RCA analysis for a Crash ID,
-  creates a new issue in Component 29601 or updates an existing issue with looper timelines, stack
-  traces, and older build revision context:
+- **File or update Buganizer issue (`file-bug`):** Either files/updates a Buganizer issue in
+  Component 29601 directly from an agent-authored RCA Markdown file (`--from-rca <file.md>`,
+  bypassing nested AI subprocesses and symbol downloads) or runs full standalone CrashAdvisor RCA
+  analysis, and automatically links the Buganizer issue back to the crash signature in `go/crash`:
   ```bash
+  # Direct token-efficient filing from an agent-authored RCA markdown file:
+  emu-dev-cli crash file-bug 05d8356e2f800000 \
+    --signature "virtio_gpu_rutabaga_load-e709a6ba" \
+    --from-rca /tmp/rca_05d8356e2f800000.md
+
+  # Full standalone CrashAdvisor symbolication + nested AI RCA + filing:
   emu-dev-cli crash file-bug 05d8356e2f800000
   ```
 - **Attempt autonomous fix (`autofix`):** Parses RCA actionability YAML for a Crash ID, maps target
@@ -598,10 +639,13 @@ Decomposes every CI build into **4 layers + Per-Stage Breakdown**:
 | _"Reproduce hal_plug_adapter_unittests locally under TSAN"_                                                                                | `emu-dev-cli flakiness reproduce --test @goldfish//emulator/plugin/hal/plug:hal_plug_adapter_unittests --target emulator_linux_x64_tsan --iterations 30`                                           |
 | _"Reproduce and stress-test Windows flaky test on Linux"_                                                                                  | `emu-dev-cli flakiness reproduce --test @goldfish//emulator/libs/async:loop_handoff_test --target emulator_windows_x64 --iterations 30` _(uses RBE `--config=rbe-win-x64` automatically on Linux)_ |
 | _"Fix flaky test bug b/123456789 and upload the CL"_                                                                                       | `emu-dev-cli flakiness fix --bug 123456789 --iterations 50 --upload`                                                                                                                               |
+| _"Run the daily untriaged production crash triage workflow"_                                                                               | `emu-dev-cli workflow triage-crashes init -- --days 2`                                                                                                                                             |
+| _"List untriaged production qemu-next crashes from the last 7 days"_                                                                       | `emu-dev-cli crash list-crashes --unassigned-only --days 7`                                                                                                                                        |
+| _"Associate Buganizer issue b/567125517 with crash signature virtio_gpu_rutabaga_load-e709a6ba in go/crash"_                               | `emu-dev-cli crash link-bug "virtio_gpu_rutabaga_load-e709a6ba" b/567125517`                                                                                                                       |
 
 ---
 
-## 🤖 Agent Autonomous Remediation Protocol
+## 🤖 Agent Autonomous Flakiness Remediation Protocol
 
 When an AI pair programmer or autonomous agent is tasked with fixing a flaky test, follow this
 standard loop:
@@ -621,3 +665,47 @@ standard loop:
 6. **Submit:** Author the commit using `emu-dev-cli workflow create-commit` ensuring full compliance
    with Gerrit format protocol (no `TAG=` or `CONV=` tags, line lengths <= 72, clean footer tags
    `Bug:` and `Test:`).
+
+---
+
+## 🤖 Agent Autonomous Crash Triage Protocol (`qemu-next`)
+
+When tasked with triaging production `qemu-next` crashes from `go/crash` (see also
+`emu-dev-cli docs playbook-crash-triage`), use the token-efficient daily workflow
+`emu-dev-cli workflow triage-crashes`:
+
+1. **Initialize Daily Triage Batch & Generate Compact Dossier:**
+   ```bash
+   emu-dev-cli workflow triage-crashes init -- --days 2
+   ```
+   - Queries `crash.prod.latest` joined with `crash_annotations.prod.latest` (`--unassigned-only`)
+     and cross-checks live `QueryAPIService.SearchAnnotations` on `blade:crash-queryapi`.
+   - Automatically searches Buganizer Component `29601` for exact signature matches and links any
+     pre-existing tickets in `go/crash` before waking the agent.
+   - Generates a single compact Markdown **Triage Dossier** (`dossier-<state_id>.md`) containing the
+     top 8 symbolicated F1 stack frames, `looper_registrations`, `internal-msg`, `list_annotations`,
+     and `build_ids` for each remaining untriaged cluster.
+2. **Triage Each Cluster from the Dossier:**
+   - Read `dossier-<state_id>.md` once and inspect the cited source files in the local workspace.
+   - If the crash is a duplicate of an existing Buganizer issue `b/<BUG_ID>`, link it directly:
+     ```bash
+     emu-dev-cli crash link-bug "<stable_signature>" b/<BUG_ID>
+     ```
+   - If the crash requires a new Buganizer ticket, write a concise `/tmp/rca_<report_id>.md` and
+     file + auto-link directly (bypassing nested AI subprocesses and symbol downloads):
+     ```bash
+     emu-dev-cli crash file-bug <latest_report_id> \
+       --signature "<stable_signature>" \
+       --from-rca /tmp/rca_<latest_report_id>.md
+     ```
+3. **Verify 100% `go/crash` Linkage & Complete Workflow:**
+   ```bash
+   emu-dev-cli workflow triage-crashes next --id <state_id>
+   emu-dev-cli workflow triage-crashes next --id <state_id>
+   ```
+   - Queries `QueryAPIService.SearchAnnotations` on `blade:crash-queryapi` and blocks completion if
+     any signature in the batch is still missing a `BugUrl`.
+4. **Remediate (If Actionable):**
+   If the crash is still reproducible at `HEAD`, dispatch or implement the fix via
+   `emu-dev-cli crash autofix <latest_report_id>`.
+

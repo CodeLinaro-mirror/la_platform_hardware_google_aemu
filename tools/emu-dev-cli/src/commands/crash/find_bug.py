@@ -21,18 +21,20 @@ import subprocess
 import sys
 from pathlib import Path
 
+from lib.output import print_result
+
 from commands.crash.advisor import ensure_crashadvisor_imports, run_crashadvisor_bazel
 from commands.crash.fix_checker import (
     evaluate_crash_fix_status,
     extract_crash_version_info,
 )
+from commands.crash.link_bug import search_crash_annotations
 from commands.crash.utils import (
     acquire_auth_token,
     extract_top_fault_frame,
     parse_crash_id,
 )
 from commands.source_directory import get_source_directory
-from lib.output import print_result
 
 CLOSED_STATUSES = {"FIXED", "VERIFIED", "OBSOLETE", "CLOSED", "DONE"}
 
@@ -118,18 +120,57 @@ def run_find_bug(args: argparse.Namespace) -> None:
 
     candidates = []
 
+    # Tier 0: Direct go/crash Annotation Link (blade:crash-queryapi SearchAnnotations)
+    if (
+        stable_sig
+        and stable_sig != "Unknown"
+        and re.search(r"-[0-9a-fA-F]{7,8}$", stable_sig)
+    ):
+        try:
+            linked_bugs = search_crash_annotations([stable_sig]).get(stable_sig, [])
+            for linked in linked_bugs:
+                b_id = linked.get("bug_id", "").strip()
+                if b_id:
+                    status_val = "ASSIGNED"
+                    try:
+                        fetched_status = client.get_issue_status(int(b_id))
+                        if isinstance(fetched_status, str) and fetched_status:
+                            status_val = fetched_status
+                    except Exception:
+                        pass
+                    candidates.append(
+                        {
+                            "confidence": "EXACT (Linked in go/crash)",
+                            "issue": {
+                                "issueId": b_id,
+                                "issueState": {
+                                    "title": f"[Linked in go/crash] {stable_sig}",
+                                    "status": status_val,
+                                },
+                            },
+                        }
+                    )
+        except Exception:
+            pass
+
     # Tier 1: Signature Match
     if stable_sig and stable_sig != "Unknown":
         clean_sig = re.sub(r"[^\w::]", " ", stable_sig).strip()
         try:
             issue_t1 = client.search_issue_by_signature(clean_sig or stable_sig)
             if issue_t1:
-                candidates.append(
-                    {
-                        "confidence": "HIGH (Signature Match)",
-                        "issue": issue_t1,
-                    }
-                )
+                issue_t1_id = str(issue_t1.get("issueId") or issue_t1.get("id") or "")
+                if not any(
+                    str(c["issue"].get("issueId") or c["issue"].get("id"))
+                    == issue_t1_id
+                    for c in candidates
+                ):
+                    candidates.append(
+                        {
+                            "confidence": "HIGH (Signature Match)",
+                            "issue": issue_t1,
+                        }
+                    )
         except Exception as e:
             if getattr(args, "verbose", False):
                 sys.stderr.write(f"⚠️ Buganizer signature search notice: {e}\n")
@@ -144,9 +185,8 @@ def run_find_bug(args: argparse.Namespace) -> None:
             for q in queries:
                 issues = []
                 if client.cli_binary and not client.token:
-                    if (
-                        Path(str(client.cli_binary)).name == "issues"
-                        and hasattr(client, "_cli_search")
+                    if Path(str(client.cli_binary)).name == "issues" and hasattr(
+                        client, "_cli_search"
                     ):
                         issues = client._cli_search(q)
                     else:
@@ -162,9 +202,7 @@ def run_find_bug(args: argparse.Namespace) -> None:
                         issues = [found]
 
                 added_t2 = False
-                for issue_t2 in (
-                    issues if isinstance(issues, list) else [issues]
-                ):
+                for issue_t2 in issues if isinstance(issues, list) else [issues]:
                     if not isinstance(issue_t2, dict):
                         continue
                     issue_t2_id = issue_t2.get("issueId") or issue_t2.get("id")
@@ -191,10 +229,10 @@ def run_find_bug(args: argparse.Namespace) -> None:
     for c in candidates:
         iss = c["issue"]
         iss_id = str(iss.get("issueId") or iss.get("id", ""))
-        state = iss.get("issueState", {})
+        state = iss.get("issueState") or {}
         status = (state.get("status") or iss.get("status", "UNKNOWN")).upper()
         title = state.get("title") or iss.get("title", "Untitled")
-        assignee = state.get("assignee", {}).get("emailAddress", "Unassigned")
+        assignee = (state.get("assignee") or {}).get("emailAddress", "Unassigned")
         normalized_candidates.append(
             {
                 "issue_id": iss_id,

@@ -1,0 +1,78 @@
+# Copyright 2026 The Android Open Source Project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: triage-crashes
+description: Discover untriaged qemu-next production crashes, pre-build a compact triage dossier, and verify every signature is linked to a Buganizer issue in go/crash.
+
+args:
+  - name: hours
+    help: "Lookback window in hours for crash.prod.latest (default: 48)"
+    required: false
+    default: "48"
+  - name: limit
+    help: "Maximum number of untriaged crash signature clusters to include in the batch (default: 10)"
+    required: false
+    default: "10"
+
+init:
+  queue-file: "{cache-dir}/queue-{state_id}.json"
+  dossier-file: "{cache-dir}/dossier-{state_id}.md"
+  batch-summary:
+    cmd: "python3 {workflow_dir}/prepare_triage_batch.py --hours {hours} --limit {limit} --queue-file {queue-file} --dossier-file {dossier-file}"
+
+steps:
+  - step: 0
+    title: Triage & Link All Unassigned Crash Clusters
+    description: Analyze each crash cluster in the pre-built dossier, file or update its Buganizer issue, and link it in go/crash
+    prompt: |
+      Daily qemu-next crash triage batch initialized:
+      - Summary: {batch-summary}
+      - Pre-built Triage Dossier: {dossier-file}
+      - Queue State File: {queue-file}
+
+      If the summary indicates 0 remaining untriaged clusters, immediately run the continuation command below to complete the workflow.
+
+      Otherwise, read '{dossier-file}' once and process every untriaged crash cluster in the batch:
+      1. Inspect the faulting source file and line shown in the cluster's stack trace in '{dossier-file}'.
+         - If the crash occurred on an older build ID, check `git log -n 5 -- <source_file>` to see if it is already fixed at HEAD.
+      2. Write a concise Root Cause Analysis markdown file to '{cache-dir}/rca-<latest_report_id>.md' containing:
+         - Signature, Latest Report ID (`http://go/crash/<latest_report_id>`), Build IDs, and Host OS
+         - Crashing stack frames and looper/annotation context
+         - Root Cause Analysis and Faulting Component/File (or fixing commit if already fixed at HEAD)
+      3. File (or update) the Buganizer ticket and link it to go/crash in a single command (no nested AI session):
+           emu-dev-cli crash file-bug <latest_report_id> --signature "<stable_signature>" --from-rca "{cache-dir}/rca-<latest_report_id>.md"
+         (Or if linking directly to an existing Buganizer issue without adding an RCA comment:
+           emu-dev-cli crash link-bug "<stable_signature>" b/<BUG_ID>)
+    verifier_cmd: "python3 {workflow_dir}/verify_triage_batch.py --queue-file {queue-file} --dossier-file {dossier-file}"
+    max_retries: 5
+    error_prompt: |
+      Some crash signatures in '{queue-file}' are still not linked to a Buganizer issue in go/crash (attempt {retries} of {max_retries}):
+      {verifier_error}
+
+      Please finish filing/linking the remaining unassigned signatures listed above using:
+        emu-dev-cli crash file-bug <report_id> --signature "<stable_signature>" --from-rca "{cache-dir}/rca-<report_id>.md"
+      or:
+        emu-dev-cli crash link-bug "<stable_signature>" b/<BUG_ID>
+    stuck_prompt: |
+      Workflow is STUCK after {retries} attempts because one or more crash signatures remain unlinked in go/crash:
+      {verifier_error}
+    stuck_reason: "Unlinked crash signatures remain in {queue-file} after {retries} verification attempts."
+
+  - step: 1
+    title: Completion
+    prompt: |
+      All qemu-next crash clusters in this batch have been triaged and verified as linked to Buganizer issues in go/crash!
+      - Dossier & Summary: {dossier-file}
+      - Verified Queue State: {queue-file}
+    verifier_cmd: null

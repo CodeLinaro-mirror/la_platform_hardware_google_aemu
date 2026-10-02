@@ -1,15 +1,31 @@
+# Copyright 2026 The Android Open Source Project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
 import os
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
+
+from lib.output import print_result
+
 from commands.source_directory import (
     build_codesearch_url,
     find_file_in_source_directories,
     get_all_source_directories,
     get_source_directory,
 )
-from lib.output import print_result
 
 # Named documentation & playbook targets
 DOC_TARGETS = {
@@ -44,6 +60,10 @@ DOC_TARGETS = {
     "playbook-threading-and-invariants": (
         "emu-main-next",
         "hardware/google/aemu/tools/emu-dev-cli/docs/playbooks/threading_and_invariants.md",
+    ),
+    "playbook-crash-triage": (
+        "emu-main-next",
+        "hardware/google/aemu/tools/emu-dev-cli/docs/playbooks/crash_triage.md",
     ),
 }
 
@@ -482,9 +502,7 @@ def register_parser(subparsers):
         action="store_true",
         help="Outputs the Code Search web URL instead of local file path",
     )
-    docs_parser.set_defaults(
-        func=lambda args: docs_parser.print_help() or sys.exit(0)
-    )
+    docs_parser.set_defaults(func=lambda args: docs_parser.print_help() or sys.exit(0))
 
     docs_subparsers = docs_parser.add_subparsers(
         dest="docs_cmd", help="Available wiki actions and doc targets"
@@ -528,7 +546,7 @@ def register_parser(subparsers):
     lint_parser.set_defaults(func=run_docs_lint)
 
     # 4. Named doc targets
-    for target_name in DOC_TARGETS.keys():
+    for target_name in DOC_TARGETS:
         sub_parser = docs_subparsers.add_parser(target_name)
         sub_parser.add_argument(
             "--codesearch-url",

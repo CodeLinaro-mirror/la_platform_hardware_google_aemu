@@ -25,12 +25,14 @@ SRC_DIR = os.path.join(
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-from commands.crash.parser import register_parser
-from commands.crash.find_bug import run_find_bug
-from commands.crash.file_bug import run_file_bug
-from commands.crash.autofix import run_autofix
-from commands.crash.reproduce import run_reproduce
 from commands.crash.analyze import run_analyze
+from commands.crash.autofix import run_autofix
+from commands.crash.file_bug import run_file_bug
+from commands.crash.find_bug import run_find_bug
+from commands.crash.link_bug import run_link_bug
+from commands.crash.list_crashes import run_list_crashes
+from commands.crash.parser import register_parser
+from commands.crash.reproduce import run_reproduce
 
 
 class CrashParserTest(unittest.TestCase):
@@ -40,6 +42,38 @@ class CrashParserTest(unittest.TestCase):
         self.parser = argparse.ArgumentParser()
         self.subparsers = self.parser.add_subparsers(dest="subcommand")
         register_parser(self.subparsers)
+
+    def test_list_crashes_subcommand(self):
+        """Tests parsing `crash list-crashes` arguments and defaults."""
+        args = self.parser.parse_args(
+            ["crash", "list-crashes", "--hours", "72", "--unassigned-only", "--json"]
+        )
+        self.assertEqual(args.subcommand, "crash")
+        self.assertEqual(args.crash_cmd, "list-crashes")
+        self.assertEqual(args.hours, 72)
+        self.assertTrue(args.unassigned_only)
+        self.assertTrue(args.json)
+        self.assertEqual(args.exclude_modules, r"Qt6|libandroid-emu|adb|netsimd")
+        self.assertEqual(args.version_regex, r"0\.0\.1-|37")
+        self.assertEqual(args.func, run_list_crashes)
+
+    def test_link_bug_subcommand(self):
+        """Tests parsing `crash link-bug` arguments."""
+        args = self.parser.parse_args(
+            [
+                "crash",
+                "link-bug",
+                "virtio_gpu_rutabaga_load-e709a6ba",
+                "b/567125517",
+                "--unlink",
+            ]
+        )
+        self.assertEqual(args.subcommand, "crash")
+        self.assertEqual(args.crash_cmd, "link-bug")
+        self.assertEqual(args.target, "virtio_gpu_rutabaga_load-e709a6ba")
+        self.assertEqual(args.bug, "b/567125517")
+        self.assertTrue(args.unlink)
+        self.assertEqual(args.func, run_link_bug)
 
     def test_find_bug_subcommand(self):
         """Tests parsing `crash find-bug` arguments."""
