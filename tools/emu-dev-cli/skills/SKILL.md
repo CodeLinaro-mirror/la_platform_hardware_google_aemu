@@ -529,28 +529,37 @@ Engine.
 
 ### 12. Build Time & Bazel Profile Analysis (`build-times` / `profile`)
 
-Analyzes Android Build (`go/ab`) CI build times and Bazel Chrome Trace profiles
-(`logs/bazel/command.profile.gz` + `BUILD_INFO`) across all 8 `emu-main-next` targets
+Analyzes Android Build (`go/ab`) CI build times and **all** Bazel Chrome Trace stage profiles under
+`logs/bazel/*.profile.gz` (plus `BUILD_INFO`) across all 8 `emu-main-next` targets
 (`emulator_linux_x64`, `emulator_linux_x64_asan`, `emulator_linux_x64_debug`,
 `emulator_linux_x64_tsan`, `emulator_mac_aarch64`, `emulator_mac_aarch64_debug`,
 `emulator_windows_x64`, `emulator_windows_x64_debug`).
 
-Decomposes every CI build into **4 layers**:
+Dynamically discovers and reports on every Bazel stage profile generated during a build:
+- `logs/bazel/clang_tidy.profile.gz` (`clang_tidy` — Clang-Tidy Pre-Pass)
+- `logs/bazel/aosp_build.profile.gz` (`aosp_build` — AOSP Minimal Release)
+- `logs/bazel/command.profile.gz` (`release` — Release Packaging & Boot Tests)
+- `logs/bazel/unit_tests.profile.gz` (`unit_tests` — Fast-Fail Unit Tests)
+- `logs/bazel/ets.profile.gz` (`ets` — ETS Integration Tests)
+- Any future or custom `logs/bazel/*.profile.gz` stage artifacts.
+
+Decomposes every CI build into **4 layers + Per-Stage Breakdown**:
 
 1. **Queue Wait Time** (`sync_start_time - creationTimeMillis`): Time waiting for a builder worker
    (`adt-emu-m2-mac-*`, etc.).
 2. **Repo Sync Time** (`sync_finish_time - sync_start_time`): Git checkout duration.
 3. **`build.py` Wrapper Time** (`target_finish_time - target_start_time`): Outer build script
    duration.
-4. **Bazel Profile Wall Time & Critical Path** (`logs/bazel/command.profile.gz`): Phase breakdown
-   (`Launch`, `Init`, `Evaluate`, `Load & Analyze`, `Execute`), `critical path component` chain,
-   per-mnemonic statistics (`CppCompile`, `CcLtoBackendCompile`, `CppLTOIndexing`, `TestRunner`,
-   `SymlinkTree`, `PackageZip`, `AmcGeneratorRun`), and RBE cache hit/execution telemetry.
+4. **Per-Stage & Aggregate Bazel Profile Wall Time & Critical Path** (`logs/bazel/*.profile.gz`):
+   Stage-by-stage and aggregate phase breakdown (`Launch`, `Init`, `Evaluate`, `Load & Analyze`,
+   `Execute`), `critical path component` chain, per-mnemonic statistics (`CppCompile`,
+   `CcLtoBackendCompile`, `CppLTOIndexing`, `TestRunner`, `SymlinkTree`, `PackageZip`,
+   `AmcGeneratorRun`), and RBE cache hit/execution telemetry.
 
 - **Inspect a Single Build (`build-times inspect`):**
 
   ```bash
-  # How fast is build 16411294 on Linux x64?
+  # How fast is build 16411294 on Linux x64 across all stages?
   emu-dev-cli build-times inspect --build-id 16411294 --target emulator_linux_x64
 
   # Compare build 16411294 across all 8 emu-main-next targets side-by-side
