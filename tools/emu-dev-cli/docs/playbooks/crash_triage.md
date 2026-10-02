@@ -102,6 +102,7 @@ emu-dev-cli workflow triage-crashes init -- --days 2
 #      (without spawning a nested AI subprocess):
 emu-dev-cli crash file-bug <latest_report_id> \
   --signature "<stable_signature>" \
+  --title "[Crash][<OS>] <Subsystem>: <Symptom> (<stable_signature>)" \
   --from-rca /tmp/rca_<latest_report_id>.md
 #    - Or link an existing/duplicate/WontFix Buganizer issue:
 emu-dev-cli crash link-bug "<stable_signature>" b/<BUG_ID>
@@ -173,15 +174,40 @@ emu-dev-cli crash find-bug <latest_report_id>
 # (bypasses nested AI subprocess and symbol archive download):
 emu-dev-cli crash file-bug <latest_report_id> \
   --signature "<stable_signature>" \
+  --title "[Crash][<OS>] <Subsystem>: <Symptom> (<stable_signature>)" \
   --from-rca /tmp/rca_<latest_report_id>.md
 
 # Option B: Full standalone CrashAdvisor symbolication + nested AI RCA + filing:
-emu-dev-cli crash file-bug <latest_report_id>
+emu-dev-cli crash file-bug <latest_report_id> \
+  --title "[Crash][<OS>] <Subsystem>: <Symptom> (<stable_signature>)"
 ```
 
 - Creates or updates the Buganizer issue in Component `29601` and
   **automatically links the Buganizer URL to the `stable_signature` in
   `go/crash`**.
+
+#### Title Authoring Rules & Conventions
+
+Issue titles must be descriptive, concise, and actionable:
+
+- **Format:** `[Crash][<OS>] <Subsystem>: <Symptom> (<stable_signature>)`
+- **Examples:**
+  - `[Crash][Linux] Launcher: Failed to bind gRPC discovery port (FailWithoutStackTrace-7a37e8e9)`
+  - `[Crash][macOS] Rutabaga: Out of bounds texture allocation (virtio_gpu_rutabaga_load-e709a6ba)`
+  - `[Crash][Windows] Snapshot: Access violation during state deserialization (vmstate_load_state-8c29b1fa)`
+- **Anti-Patterns (Prohibited):**
+  - **Never** leave generic boilerplate abort/logging symbols as the title: e.g. `[Crash] absl::...::FailWithoutStackTrace-7a37e8e9`, `[Crash] __pthread_kill`, `[Crash] abort`. Always identify the first non-generic emulator domain frame.
+  - **Never** leave template placeholders in the title: e.g. `<Subsystem>`, `<Symptom>`, `<OS>`.
+  - Verification (`workflow triage-crashes next`) audits linked issue titles and will block completion if any issue has generic boilerplate or unresolved placeholders.
+
+#### Updating an Existing Issue Title via CLI
+
+If an issue was created with an uninformative title, update it directly via:
+
+```bash
+/google/bin/releases/issues-cli/issues mutate update title <issue_id> \
+  "[Crash][<OS>] <Subsystem>: <Symptom> (<stable_signature>)"
+```
 
 ### Step 4: Explicitly Link (or Unlink) a Bug in `go/crash` (`crash link-bug`)
 

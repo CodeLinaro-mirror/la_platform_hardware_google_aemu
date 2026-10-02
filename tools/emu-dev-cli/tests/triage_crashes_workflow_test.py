@@ -135,6 +135,55 @@ class TriageCrashesWorkflowTest(unittest.TestCase):
         self.assertIn("#0: virtio_gpu_rutabaga_load (rutabaga.c:42)", md)
         self.assertIn('--from-rca "/tmp/triage-cache/rca-7ebbb53ff0400000.md"', md)
 
+    def test_render_dossier_markdown_handles_null_os_and_empty_metadata(self):
+        remaining = [
+            {
+                "stable_signature": "null_os_sig",
+                "occurrences": 1,
+                "latest_report_id": "1122334455667788",
+                "os": None,
+                "versions": None,
+                "build_ids": None,
+            },
+            {
+                "stable_signature": "none_in_os_list_sig",
+                "occurrences": 1,
+                "latest_report_id": "9988776655443322",
+                "os": [None],
+            },
+        ]
+        md = prepare_triage_batch.render_dossier_markdown(
+            hours=24,
+            remaining=remaining,
+            auto_linked=[],
+            cache_dir="/tmp/triage-cache",
+        )
+        self.assertIn("null_os_sig", md)
+        self.assertIn("none_in_os_list_sig", md)
+        self.assertIn("**Host OS:** `N/A`", md)
+
+    def test_render_dossier_markdown_handles_missing_latest_report_id(self):
+        remaining = [
+            {
+                "stable_signature": "missing_rep_sig",
+                "occurrences": 2,
+                "latest_report_id": None,
+                "os": ["Linux"],
+            }
+        ]
+        md = prepare_triage_batch.render_dossier_markdown(
+            hours=24,
+            remaining=remaining,
+            auto_linked=[],
+            cache_dir="/tmp/triage-cache",
+        )
+        self.assertIn("missing_rep_sig", md)
+        self.assertIn("rca-<latest_report_id>.md", md)
+        self.assertIn(
+            'emu-dev-cli crash file-bug <latest_report_id> --signature "missing_rep_sig"',
+            md,
+        )
+
     @patch("verify_triage_batch.search_crash_annotations")
     def test_verify_queue_blocks_unlinked_and_passes_when_linked(
         self, mock_search_anno
@@ -177,11 +226,91 @@ class TriageCrashesWorkflowTest(unittest.TestCase):
                     }
                 ]
             }
-            ok, msg, _ = verify_triage_batch.verify_queue(q_path, d_path)
-            self.assertTrue(ok)
-            self.assertIn(
-                "Verified `go/crash` Bug Links", d_path.read_text(encoding="utf-8")
+            with patch("verify_triage_batch.audit_linked_bug_titles", return_value=[]):
+                ok, msg, _ = verify_triage_batch.verify_queue(q_path, d_path)
+                self.assertTrue(ok)
+                self.assertIn(
+                    "Verified `go/crash` Bug Links", d_path.read_text(encoding="utf-8")
+                )
+
+    @patch("verify_triage_batch.ensure_crashadvisor_imports")
+    def test_audit_linked_bug_titles_catches_placeholders_and_aborts(
+        self, mock_ensure_imports
+    ):
+        mock_client = MagicMock()
+        mock_buganizer = MagicMock()
+        mock_buganizer.BuganizerClient.return_value = mock_client
+        mock_ensure_imports.return_value = {"buganizer": mock_buganizer}
+
+        titles = {
+            101: "[Crash][Linux] <Subsystem>: <Symptom> (sig_1)",
+            102: "[Crash] absl::lts_20260526::log_internal::LogMessage::FailWithoutStackTrace-7a37e8e9",
+            103: "[Crash][macOS] Launcher: Port conflict (FailWithoutStackTrace-7a37e8e9)",
+            104: "[Crash][Linux] GfxStream: std::vector<uint8_t> out of bounds",
+            105: "[Crash][Windows] Host: std::unique_ptr<Texture> null dereference",
+            106: "[Crash] FailWithoutStackTrace-7a37e8e9",
+            107: "[Crash][Linux] FailWithoutStackTrace-7a37e8e9",
+            108: "[Crash][macOS] Subsystem: <Concise failure description> (sig_8)",
+            109: "[Crash] <descriptive_title> (sig_9)",
+            110: "[Crash] Launcher: <latest_report_id> error",
+            111: "[Crash] Subsystem: <stable_signature> error",
+            112: "[Crash] Host: <report_id> crash",
+        }
+        mock_client.get_issue_title.side_effect = lambda issue_id: titles.get(issue_id, "")
+
+        verified = {
+            f"sig_{i}": [f"https://b.corp.google.com/issues/{i}"] for i in titles
+        }
+        violations = verify_triage_batch.audit_linked_bug_titles(verified)
+        v_ids = [v["bug_id"] for v in violations]
+        self.assertEqual(len(violations), 9)
+        for bad_id in ["101", "102", "106", "107", "108", "109", "110", "111", "112"]:
+            self.assertIn(bad_id, v_ids)
+        self.assertNotIn("103", v_ids)
+        self.assertNotIn("104", v_ids)
+        self.assertNotIn("105", v_ids)
+        self.assertIn("issues mutate update title 101", violations[0]["suggested_fix"])
+
+    @patch("verify_triage_batch.audit_linked_bug_titles")
+    @patch("verify_triage_batch.search_crash_annotations")
+    def test_verify_queue_blocks_on_title_violations(
+        self, mock_search_anno, mock_audit
+    ):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            q_path = Path(tmpdir) / "queue-test.json"
+            d_path = Path(tmpdir) / "dossier-test.md"
+            q_path.write_text(
+                json.dumps(
+                    {
+                        "remaining_signatures": ["sig_bad"],
+                        "remaining_crashes": [],
+                        "verified_links": {},
+                    }
+                ),
+                encoding="utf-8",
             )
+            mock_search_anno.return_value = {
+                "sig_bad": [
+                    {
+                        "bug_id": "555123",
+                        "bug_url": "https://b.corp.google.com/issues/555123",
+                    }
+                ]
+            }
+            mock_audit.return_value = [
+                {
+                    "bug_id": "555123",
+                    "url": "https://b.corp.google.com/issues/555123",
+                    "title": "[Crash] FailWithoutStackTrace-7a37e8e9",
+                    "signature": "sig_bad",
+                    "reason": "Generic boilerplate abort signature",
+                    "suggested_fix": '/google/bin/releases/issues-cli/issues mutate update title 555123 "[Crash] Launcher: Port conflict (sig_bad)"',
+                }
+            ]
+            ok, msg, _ = verify_triage_batch.verify_queue(q_path, d_path)
+            self.assertFalse(ok)
+            self.assertIn("Verification failed: 1 linked Buganizer issue(s)", msg)
+            self.assertIn("issues mutate update title 555123", msg)
 
 
 if __name__ == "__main__":

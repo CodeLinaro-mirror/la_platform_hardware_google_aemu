@@ -55,6 +55,8 @@ class CrashFileBugTest(unittest.TestCase):
                 "/tmp/rca.md",
                 "--signature",
                 "sig-123",
+                "--title",
+                "[Crash][macOS] Launcher: port failure",
                 "--bug-id",
                 "b/567125517",
             ]
@@ -65,6 +67,7 @@ class CrashFileBugTest(unittest.TestCase):
         self.assertTrue(args.qa)
         self.assertEqual(args.from_rca, "/tmp/rca.md")
         self.assertEqual(args.signature, "sig-123")
+        self.assertEqual(args.title, "[Crash][macOS] Launcher: port failure")
         self.assertEqual(args.bug_id, "b/567125517")
         self.assertEqual(args.func, run_file_bug)
 
@@ -131,10 +134,54 @@ class CrashFileBugTest(unittest.TestCase):
             )
             run_file_bug(args)
 
-        mock_client.create_issue.assert_called_once()
+        mock_client.create_issue.assert_called_once_with(
+            "virtio_gpu_rutabaga_load-e709a6ba",
+            "## Root Cause\nNull pointer in Rutabaga.",
+            title=None,
+        )
         mock_update_anno.assert_called_once_with(
             stable_signature="virtio_gpu_rutabaga_load-e709a6ba",
             bug_url="https://b.corp.google.com/issues/568999111",
+        )
+
+    @patch("commands.crash.file_bug.update_crash_annotation")
+    @patch("commands.crash.file_bug.ensure_crashadvisor_imports")
+    @patch("commands.crash.file_bug.acquire_auth_token")
+    def test_run_file_bug_from_rca_with_custom_title(
+        self, mock_acquire_token, mock_ensure_imports, mock_update_anno
+    ):
+        """Tests that --from-rca passes explicit --title to create_issue."""
+        mock_acquire_token.return_value = "tok_direct"
+        mock_update_anno.return_value = (True, "status_code: SUCCESS")
+
+        mock_buganizer = MagicMock()
+        mock_client = MagicMock()
+        mock_client.search_issue_by_signature.return_value = None
+        mock_client.create_issue.return_value = {"issueId": "568999222"}
+        mock_buganizer.BuganizerClient.return_value = mock_client
+        mock_ensure_imports.return_value = {"buganizer": mock_buganizer}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rca_file = Path(tmpdir) / "rca.md"
+            rca_file.write_text("## Root Cause\nOOM in Rutabaga.", encoding="utf-8")
+
+            args = argparse.Namespace(
+                crash_id="05d8356e2f800000",
+                from_rca=str(rca_file),
+                signature="virtio_gpu_rutabaga_load-e709a6ba",
+                title="[Crash][Linux] Rutabaga: OOM during texture load",
+                bug_id=None,
+                token="tok_direct",
+                qa=False,
+                verbose=False,
+                json=False,
+            )
+            run_file_bug(args)
+
+        mock_client.create_issue.assert_called_once_with(
+            "virtio_gpu_rutabaga_load-e709a6ba",
+            "## Root Cause\nOOM in Rutabaga.",
+            title="[Crash][Linux] Rutabaga: OOM during texture load",
         )
 
     @patch("commands.crash.file_bug.update_crash_annotation")

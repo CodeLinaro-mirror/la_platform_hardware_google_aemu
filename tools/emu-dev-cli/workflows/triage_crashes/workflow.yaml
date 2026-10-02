@@ -47,13 +47,23 @@ steps:
       1. Inspect the faulting source file and line shown in the cluster's stack trace in '{dossier-file}'.
          - If the crash occurred on an older build ID, check `git log -n 5 -- <source_file>` to see if it is already fixed at HEAD.
       2. Write a concise Root Cause Analysis markdown file to '{cache-dir}/rca-<latest_report_id>.md' containing:
+         - # Title: [Crash][<OS/Platform>] <Subsystem/Function>: <Concise failure description> (<signature>)
          - Signature, Latest Report ID (`http://go/crash/<latest_report_id>`), Build IDs, and Host OS
          - Crashing stack frames and looper/annotation context
          - Root Cause Analysis and Faulting Component/File (or fixing commit if already fixed at HEAD)
       3. File (or update) the Buganizer ticket and link it to go/crash in a single command (no nested AI session):
-           emu-dev-cli crash file-bug <latest_report_id> --signature "<stable_signature>" --from-rca "{cache-dir}/rca-<latest_report_id>.md"
+           emu-dev-cli crash file-bug <latest_report_id> --signature "<stable_signature>" --title "<descriptive_title>" --from-rca "{cache-dir}/rca-<latest_report_id>.md"
          (Or if linking directly to an existing Buganizer issue without adding an RCA comment:
            emu-dev-cli crash link-bug "<stable_signature>" b/<BUG_ID>)
+
+      CRITICAL Buganizer Title Instructions:
+      - Always craft an informative, actionable title identifying the real faulting subsystem or function.
+      - FORMAT: [Crash][<OS>] <Subsystem/Function>: <Failure description> (<signature>)
+      - ❌ Anti-pattern: "[Crash] absl::...::FailWithoutStackTrace-7a37e8e9" (generic abort boilerplate)
+      - ❌ Anti-pattern: "[Crash] __pthread_kill-7a37e8e9" (generic libc signal frame)
+      - ✅ Good example: "[Crash][macOS] Launcher: LOG(FATAL) on port binding conflict in launcher.cc (FailWithoutStackTrace-7a37e8e9)"
+      - ✅ Good example: "[Crash][Windows] MFVideoEncoderH264: heap corruption in ProcessInputFrame (RtlpAllocateNTHeapInternal-5d556b87)"
+      - ✅ Good example: "[Crash][Vulkan] Snapshot restore: failed to unbox VkImage in vulkan_boxed_handles.cpp"
     verifier_cmd: "python3 {workflow_dir}/verify_triage_batch.py --queue-file {queue-file} --dossier-file {dossier-file}"
     max_retries: 5
     error_prompt: |

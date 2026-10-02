@@ -195,7 +195,10 @@ def _run_file_bug_from_rca(
                 existing_issue = None
 
             if not existing_issue:
-                created = client.create_issue(stable_sig, rca_content)
+                explicit_title = getattr(args, "title", None)
+                created = client.create_issue(
+                    stable_sig, rca_content, title=explicit_title
+                )
                 if isinstance(created, dict):
                     bug_id = int(created.get("id") or created.get("issueId") or 0)
                 else:
@@ -276,6 +279,8 @@ def run_file_bug(args: argparse.Namespace) -> None:
         cmd_args.append("--qa")
     if getattr(args, "verbose", False):
         cmd_args.append("--verbose")
+    if getattr(args, "title", None):
+        cmd_args.extend(["--title", args.title])
 
     print(
         f"🚀 Filing/updating Buganizer issue for Crash ID {crash_id} via CrashAdvisor..."
@@ -318,6 +323,10 @@ def register_file_bug_parser(crash_subparsers) -> None:
         "--from-rca",
         dest="from_rca",
         help="Path to an existing Markdown RCA file; files/updates Buganizer and links go/crash directly without spawning a nested AI session",
+    )
+    file_bug_parser.add_argument(
+        "--title",
+        help="Descriptive Buganizer issue title. If omitted, will be extracted from RCA (# Title: ...) or derived from faulting frame",
     )
     file_bug_parser.add_argument(
         "--signature",

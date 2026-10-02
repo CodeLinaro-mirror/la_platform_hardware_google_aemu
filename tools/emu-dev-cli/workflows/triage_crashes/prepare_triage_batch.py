@@ -157,11 +157,12 @@ def render_dossier_markdown(
 
     for idx, item in enumerate(remaining, 1):
         sig = item["stable_signature"]
-        rep_id = item.get("latest_report_id", "")
+        rep_id = item.get("latest_report_id") or "<latest_report_id>"
         occ = item.get("occurrences", 1)
-        versions = ", ".join(item.get("versions", [])) or "N/A"
-        build_ids = ", ".join(item.get("build_ids", [])) or "N/A"
-        os_names = ", ".join(item.get("os", [])) or "N/A"
+        versions = ", ".join(str(x) for x in (item.get("versions") or []) if x) or "N/A"
+        build_ids = ", ".join(str(x) for x in (item.get("build_ids") or []) if x) or "N/A"
+        os_list = [str(x) for x in (item.get("os") or []) if x]
+        os_names = ", ".join(os_list) or "N/A"
         loc = item.get("crash_location") or "N/A"
         rca_path = os.path.join(cache_dir, f"rca-{rep_id}.md")
 
@@ -190,13 +191,24 @@ def render_dossier_markdown(
                 lines.append(f"  {frame}")
             lines.append("  ```")
 
+        primary_os = (os_list[0] or "") if os_list else "Unknown"
+        if "Mac" in primary_os:
+            os_tag = "macOS"
+        elif "Windows" in primary_os:
+            os_tag = "Windows"
+        elif "Linux" in primary_os:
+            os_tag = "Linux"
+        else:
+            os_tag = primary_os or "General"
+
         lines.extend(
             [
                 "- **Target RCA Path:** `" + rca_path + "`",
                 "- **One-Shot File & Link Command:**",
                 "  ```bash",
-                f'  emu-dev-cli crash file-bug {rep_id} --signature "{sig}" --from-rca "{rca_path}"',
+                f'  emu-dev-cli crash file-bug {rep_id} --signature "{sig}" --title "[Crash][{os_tag}] <Subsystem>: <Symptom> ({sig})" --from-rca "{rca_path}"',
                 "  ```",
+                "  *(Replace `<Subsystem>: <Symptom>` with the real faulting component/function and failure symptom from your RCA, e.g. `Launcher: port binding failure in launcher.cc` - avoid generic `FailWithoutStackTrace`)*",
                 "",
             ]
         )
