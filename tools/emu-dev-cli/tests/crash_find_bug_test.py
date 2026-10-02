@@ -45,11 +45,16 @@ class CrashFindBugTest(unittest.TestCase):
         self.assertEqual(args.component_id, 29601)
         self.assertEqual(args.func, run_find_bug)
 
+    @patch("commands.crash.find_bug.run_crashadvisor_bazel")
     @patch("commands.crash.find_bug.ensure_crashadvisor_imports")
     @patch("commands.crash.find_bug.acquire_auth_token")
     @patch("commands.crash.find_bug.print_result")
     def test_run_find_bug_json(
-        self, mock_print_res, mock_acquire_token, mock_ensure_imports
+        self,
+        mock_print_res,
+        mock_acquire_token,
+        mock_ensure_imports,
+        mock_run_advisor,
     ):
         """Tests run_find_bug handler execution in JSON output mode."""
         mock_acquire_token.return_value = "token_xyz"
@@ -170,11 +175,16 @@ class CrashFindBugTest(unittest.TestCase):
         # Should only have 1 candidate because 12345678 was already added in Tier 1
         self.assertEqual(res_arg["candidates_found"], 1)
 
+    @patch("commands.crash.find_bug.run_crashadvisor_bazel")
     @patch("commands.crash.find_bug.ensure_crashadvisor_imports")
     @patch("commands.crash.find_bug.acquire_auth_token")
     @patch("commands.crash.find_bug.print_result")
     def test_run_find_bug_fixed_issue_and_older_build(
-        self, mock_print_res, mock_acquire_token, mock_ensure_imports
+        self,
+        mock_print_res,
+        mock_acquire_token,
+        mock_ensure_imports,
+        mock_run_advisor,
     ):
         """Tests that find_bug detects already fixed issues and includes build/version metadata."""
         mock_acquire_token.return_value = "tok_123"

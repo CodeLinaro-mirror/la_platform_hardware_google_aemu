@@ -142,29 +142,47 @@ def run_find_bug(args: argparse.Namespace) -> None:
                 f'componentid:{component_id} status:open "{top_func}"',
             ]
             for q in queries:
+                issues = []
                 if client.cli_binary and not client.token:
-                    cmd = [client.cli_binary, "search", q, "--format=json"]
-                    res = subprocess.run(
-                        cmd, capture_output=True, text=True, timeout=10
-                    )
-                    if res.returncode == 0 and res.stdout.strip():
-                        issues = json.loads(res.stdout)
-                        for issue_t2 in (
-                            issues if isinstance(issues, list) else [issues]
-                        ):
-                            issue_t2_id = issue_t2.get("issueId") or issue_t2.get("id")
-                            if issue_t2_id and not any(
-                                str(c["issue"].get("issueId") or c["issue"].get("id"))
-                                == str(issue_t2_id)
-                                for c in candidates
-                            ):
-                                candidates.append(
-                                    {
-                                        "confidence": "MEDIUM (Top Stack Frame Function)",
-                                        "issue": issue_t2,
-                                    }
-                                )
-                                break
+                    if (
+                        Path(str(client.cli_binary)).name == "issues"
+                        and hasattr(client, "_cli_search")
+                    ):
+                        issues = client._cli_search(q)
+                    else:
+                        cmd = [client.cli_binary, "search", q, "--format=json"]
+                        res = subprocess.run(
+                            cmd, capture_output=True, text=True, timeout=10
+                        )
+                        if res.returncode == 0 and res.stdout.strip():
+                            issues = json.loads(res.stdout)
+                else:
+                    found = client.search_issue_by_signature(top_func)
+                    if found:
+                        issues = [found]
+
+                added_t2 = False
+                for issue_t2 in (
+                    issues if isinstance(issues, list) else [issues]
+                ):
+                    if not isinstance(issue_t2, dict):
+                        continue
+                    issue_t2_id = issue_t2.get("issueId") or issue_t2.get("id")
+                    if issue_t2_id and not any(
+                        str(c["issue"].get("issueId") or c["issue"].get("id"))
+                        == str(issue_t2_id)
+                        for c in candidates
+                    ):
+                        candidates.append(
+                            {
+                                "confidence": "MEDIUM (Top Stack Frame Function)",
+                                "issue": issue_t2,
+                            }
+                        )
+                        added_t2 = True
+                        break
+                if added_t2:
+                    break
         except Exception:
             pass
 

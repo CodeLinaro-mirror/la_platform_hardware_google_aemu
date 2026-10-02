@@ -215,6 +215,28 @@ class OAuthTokenManager:
             except Exception:
                 pass
 
+        # Fallback for gLinux / capsule environments without oauth2l: use OnePlatform sso CLI
+        sso_bin = Path("/google/data/ro/teams/oneplatform/sso")
+        if sys.platform == "linux" and sso_bin.exists():
+            try:
+                full_scopes = [
+                    s if s.startswith("https://") else f"https://www.googleapis.com/auth/{s}"
+                    for s in self.scopes
+                ]
+                res = subprocess.run(
+                    [str(sso_bin), sso_email] + full_scopes,
+                    capture_output=True,
+                    text=True,
+                    timeout=10.0,
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    cleaned = self.clean_token(res.stdout)
+                    if cleaned:
+                        self.save_cached_token(cleaned)
+                        return cleaned
+            except Exception:
+                pass
+
         # Remote GLinux SSH Fallback (for macOS workstations)
         if sys.platform == "darwin" or not Path("/google/data").exists():
             glinux_hosts = []

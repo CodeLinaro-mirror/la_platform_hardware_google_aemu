@@ -30,6 +30,19 @@ class StackTraceParser:
         r"signal_handler",
         r"libc\.so",
         r"libpthread\.so",
+        r"libsystem_",
+        r"AbslFailureSignalHandler",
+        r"LogMessage::",
+        r"Voidify::",
+        r"PthreadWaiter::",
+        r"FutexWaiter::",
+        r"PerThreadSem::",
+        r"AbslInternalPerThreadSem",
+        r"Semaphore::",
+        r"Mutex::",
+        r"CondVar::",
+        r"Notification::",
+        r"EventLoop::PostAndWait",
     ]
 
     def __init__(self, ignore_patterns: Optional[List[str]] = None) -> None:
@@ -46,7 +59,8 @@ class StackTraceParser:
     ) -> Tuple[Optional[str], Optional[str]]:
         """Extracts top faulting function and source file from crash dump text.
 
-        Filters out runtime / libc / signal handler frames.
+        Filters out runtime / libc / signal handler frames. Supports both
+        GDB/LLDB (#0 ...) and Breakpad crashreport.txt (0 module!func [file : line + offset]) formats.
 
         Args:
             crash_dump_text: Full text contents of crash report dump.
@@ -86,6 +100,33 @@ class StackTraceParser:
 
                         if func_name:
                             return func_name, file_name
+
+                bp_match = re.match(
+                    r"^\s*\d+\s+(?:[^\s!]+\!)?(.+?)\s+\[([^\]]+)\]", line
+                )
+                if bp_match:
+                    raw_func = bp_match.group(1).strip()
+                    raw_loc = bp_match.group(2).strip()
+                    should_ignore = any(
+                        re.search(pat, raw_func) or re.search(pat, line)
+                        for pat in self.ignore_patterns
+                    )
+                    if not should_ignore:
+                        clean_func = (
+                            raw_func.replace("(anonymous namespace)::", "")
+                            .split("(")[0]
+                            .strip()
+                        )
+                        if clean_func.startswith("void "):
+                            clean_func = clean_func[5:].strip()
+                        loc_m = re.match(r"([^\s:]+)\s*:\s*(\d+)", raw_loc)
+                        clean_loc = (
+                            f"{loc_m.group(1)}:{loc_m.group(2)}"
+                            if loc_m
+                            else raw_loc
+                        )
+                        if clean_func:
+                            return clean_func, clean_loc
 
         return None, None
 

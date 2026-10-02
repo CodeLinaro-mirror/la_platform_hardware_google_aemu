@@ -83,6 +83,19 @@ class OAuthTokenManagerTest(unittest.TestCase):
         self.assertEqual(token, "ssh_fetched_token")
         self.assertEqual(manager._cached_token, "ssh_fetched_token")
 
+    @patch("pathlib.Path.exists")
+    @patch("subprocess.run")
+    def test_fetch_oauth2l_token_sso_fallback(self, mock_run, mock_exists):
+        """Tests fallback to /google/data/ro/teams/oneplatform/sso when oauth2l fails."""
+        mock_exists.return_value = True
+        local_fail = MagicMock(returncode=1, stdout="")
+        sso_success = MagicMock(returncode=0, stdout="sso_token_456\n")
+        mock_run.side_effect = [local_fail, local_fail, sso_success]
+        manager = OAuthTokenManager()
+        token = manager.fetch_oauth2l_token()
+        self.assertEqual(token, "sso_token_456")
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -47,6 +47,27 @@ Pass the generated token in using the --token option.
     token_proc = shutil.which("oauth2l")
     if not token_proc:
         token_proc = shutil.which("oauth2l", path=Path.home() / "go" / "bin")
+    if not token_proc:
+        sso_proc = shutil.which("sso", path="/google/data/ro/teams/oneplatform")
+        if sso_proc:
+            full_scope = (
+                scope
+                if scope.startswith("https://")
+                else f"https://www.googleapis.com/auth/{scope}"
+            )
+            try:
+                return (
+                    subprocess.check_output(
+                        [sso_proc, f"{getuser()}@google.com", full_scope],
+                        timeout=60,
+                    )
+                    .decode("utf-8")
+                    .strip()
+                )
+            except subprocess.TimeoutExpired:
+                logging.error(
+                    "Timeout while trying to retrieve token via sso, have you run gcert?"
+                )
     raise_if_none(
         token_proc,
         "Unable to find oauth2l on the path or in ~/go/bin, please install it. See http://go/oauth2l for details.",
