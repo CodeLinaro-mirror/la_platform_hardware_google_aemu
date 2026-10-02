@@ -361,11 +361,20 @@ platforms.
 | `emulator_mac_aarch64`         | Apple Silicon ARM64 host build         | `bazel test <test> --config=macos_arm64`                                                       |
 | `all`                          | Aggregates runs across all 5 platforms | _(Queries all CI targets)_                                                                     |
 
+#### Test Identifiers (`--config` / `--test-id` / `--suite`)
+
+| Test Identifier | Shorthand Alias | Bazel Targets / Scope | Total Tests |
+| :--- | :--- | :--- | :--- |
+| `android_emulator/ets` | `ets` | `@goldfish_test//testlib/...`, `@goldfish_test//ets:{presubmit,postsubmit}`, `@goldfish_test//xts:postsubmit` | 21 |
+| `android_emulator/release` | `release` | `@goldfish//emulator:release_build_test`, `@goldfish_build//:sanity_checks`, `@goldfish//emulator/launcher:boot_tests`, `@qemu//google/toolchain:generated_diff` | 4 |
+| `android_emulator/unit_tests` | `unit_tests` | `@goldfish//...`, `@aemu//...`, `@gfxstream//...` host unit tests | 7,114 |
+| `all` (default) | `all` | Queries across all 3 test identifiers (auto-inferred from `--test` for `history` and `sponge`) | All |
+
 #### Query Modes (`--mode`)
 
-- `all` (default): Examines both pre-submit Gerrit tryjobs and post-submit merged CI runs.
+- `all` (default for `history` and `sponge`): Examines both pre-submit Gerrit tryjobs and post-submit merged CI runs.
 - `presubmit`: Restricts queries to pre-submit tryjob builds (`P...`).
-- `postsubmit`: Restricts queries to merged post-submit CI builds.
+- `postsubmit` (default for `list` and `triage`): Restricts queries to merged post-submit CI builds.
 
 #### Authentication Protocol & macOS Workstation Handling (`--token`)
 

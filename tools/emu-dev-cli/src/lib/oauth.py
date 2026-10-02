@@ -326,8 +326,12 @@ class OAuthTokenManager:
         """Convenience method to acquire token, optionally forcing cache refresh."""
         if force_refresh:
             self._cached_token = None
+            for var in self.env_vars:
+                os.environ.pop(var, None)
+            os.environ.pop("OAUTH2_TOKEN", None)
             try:
                 subprocess.run(["oauth2l", "reset"], capture_output=True, timeout=5.0)
             except Exception:
                 pass
         return self.acquire_token(user_token=user_token)
+
