@@ -45,6 +45,7 @@ class CrashFindBugTest(unittest.TestCase):
         self.assertEqual(args.component_id, 29601)
         self.assertEqual(args.func, run_find_bug)
 
+    @patch("commands.crash.find_bug.search_crash_annotations")
     @patch("commands.crash.find_bug.run_crashadvisor_bazel")
     @patch("commands.crash.find_bug.ensure_crashadvisor_imports")
     @patch("commands.crash.find_bug.acquire_auth_token")
@@ -54,10 +55,19 @@ class CrashFindBugTest(unittest.TestCase):
         mock_print_res,
         mock_acquire_token,
         mock_ensure_imports,
-        mock_run_advisor,
+        mock_run_bazel,
+        mock_search_anno,
     ):
-        """Tests run_find_bug handler execution in JSON output mode."""
+        """Tests run_find_bug handler execution in JSON output mode including Tier 0 go/crash annotations."""
         mock_acquire_token.return_value = "token_xyz"
+        mock_search_anno.return_value = {
+            "android::FrameBuffer::post-a030f826": [
+                {
+                    "bug_id": "12345678",
+                    "bug_url": "https://b.corp.google.com/issues/12345678",
+                }
+            ]
+        }
         mock_api = MagicMock()
         mock_buganizer = MagicMock()
         mock_buganizer.EMULATOR_COMPONENT_ID = 29601
@@ -67,11 +77,12 @@ class CrashFindBugTest(unittest.TestCase):
 
         # Mock metadata object
         mock_meta_instance = MagicMock()
-        mock_meta_instance.primary_signature = "android::FrameBuffer::post"
+        mock_meta_instance.primary_signature = "android::FrameBuffer::post-a030f826"
         mock_metadata.CrashMetadata.return_value = mock_meta_instance
 
         # Mock client search return
         mock_client_instance = MagicMock()
+        mock_client_instance.get_issue_status.return_value = "ASSIGNED"
         mock_client_instance.search_issue_by_signature.return_value = {
             "issueId": "12345678",
             "issueState": {"title": "Crash in FrameBuffer", "status": "ASSIGNED"},
@@ -102,6 +113,10 @@ class CrashFindBugTest(unittest.TestCase):
         self.assertEqual(res_arg["status"], "success")
         self.assertEqual(res_arg["crash_id"], "05d8356e2f800000")
         self.assertEqual(res_arg["candidates_found"], 1)
+        self.assertEqual(
+            res_arg["candidates"][0]["confidence"],
+            "EXACT (Linked in go/crash)",
+        )
 
     @patch("commands.crash.find_bug.extract_top_fault_frame")
     @patch("pathlib.Path.exists")
@@ -184,7 +199,7 @@ class CrashFindBugTest(unittest.TestCase):
         mock_print_res,
         mock_acquire_token,
         mock_ensure_imports,
-        mock_run_advisor,
+        mock_run_bazel,
     ):
         """Tests that find_bug detects already fixed issues and includes build/version metadata."""
         mock_acquire_token.return_value = "tok_123"
