@@ -34,7 +34,7 @@ if [ -z "${EMU_ROOT}" ]; then
 fi
 
 echo "Building @android/emulator-services with Bazel from ${EMU_ROOT}..."
-(cd "${EMU_ROOT}" && bazel build @@aemu+//api/web:emulator_services_node_module)
+(cd "${EMU_ROOT}" && bazel build @@aemu+//api/web:emulator_services_node_module @@aemu+//protos/services/emulator-controller:emulator_controller_ts_proto)
 
 DEST_DIR="${WEB_DIR}/node_modules/@android/emulator-services"
 chmod -R u+w "${DEST_DIR}" 2>/dev/null || true
@@ -55,6 +55,18 @@ echo "Syncing generated TypeScript services into ${DEST_DIR}..."
 cp -R "${SRC_DIR}/"* "${DEST_DIR}/"
 chmod -R u+w "${DEST_DIR}"
 
+# Sync deprecated v1 emulator_controller proto codegen into src/deprecated/v1
+V1_SRC_FILE="${EMU_ROOT}/bazel-bin/external/aemu+/protos/services/emulator-controller/emulator_controller.ts"
+if [ ! -f "${V1_SRC_FILE}" ]; then
+  V1_SRC_FILE="${EMU_ROOT}/bazel-bin/hardware/google/aemu/protos/services/emulator-controller/emulator_controller.ts"
+fi
+
+V1_DEST_DIR="${WEB_DIR}/src/deprecated/v1"
+mkdir -p "${V1_DEST_DIR}/google/protobuf"
+cp "${V1_SRC_FILE}" "${V1_DEST_DIR}/emulator_controller.ts"
+cp "${SRC_DIR}/google/protobuf/empty.ts" "${V1_DEST_DIR}/google/protobuf/empty.ts"
+chmod -R u+w "${V1_DEST_DIR}"
+
 # Write module descriptor for node module resolution
 cat << 'EOF' > "${DEST_DIR}/package.json"
 {
@@ -67,3 +79,4 @@ cat << 'EOF' > "${DEST_DIR}/package.json"
 EOF
 
 echo "Successfully synced @android/emulator-services for local IDE development."
+

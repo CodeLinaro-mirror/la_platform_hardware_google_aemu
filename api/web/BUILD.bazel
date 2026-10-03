@@ -73,6 +73,8 @@ _SRC_FILES = [
     "src/core/telephony.ts",
     "src/core/transport.ts",
     "src/core/vm.ts",
+    "src/deprecated/v1/emulator_controller.ts",
+    "src/deprecated/v1/google/protobuf/empty.ts",
     "src/index.ts",
     "src/react/DeviceView.tsx",
     "src/react/context.tsx",
