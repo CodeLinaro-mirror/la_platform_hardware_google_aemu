@@ -4,6 +4,12 @@
 name: amend-commit
 description: Guide amending the latest commit while preserving its Gerrit Change-Id.
 
+args:
+  - name: repo
+    required: false
+    default: "."
+    help: "Target Git repository directory (default: .)"
+
 init:
   current-msg-file: "{cache-dir}/current_commit_msg_{state_id}.txt"
   proposed-msg-file: "{cache-dir}/proposed_commit_msg_{state_id}.txt"
@@ -31,7 +37,7 @@ steps:
       - No leading spaces on subject or footer lines
       - No '#' git comment lines
       - No consecutive blank lines
-    verifier_cmd: "python3 {workflow_dir}/verify_proposed_msg.py {proposed-msg-file} --current-file {current-msg-file} --base-commit-file {base-commit-file} --cwd ."
+    verifier_cmd: "python3 {workflow_dir}/verify_proposed_msg.py {proposed-msg-file} --current-file {current-msg-file} --base-commit-file {base-commit-file} --cwd \"{repo}\""
     error_prompt: |
       Proposed commit message verification failed (attempt {retries} of {max_retries}):
       {verifier_error}
@@ -50,7 +56,7 @@ steps:
     prompt: |
       The proposed commit message in '{proposed-msg-file}' has been verified.
       Please amend the commit using the verified commit message.
-    verifier_cmd: "python3 {workflow_dir}/verify_amend.py --current-file {current-msg-file} --proposed-file {proposed-msg-file} --base-commit-file {base-commit-file} --commit HEAD --cwd ."
+    verifier_cmd: "python3 {workflow_dir}/verify_amend.py --current-file {current-msg-file} --proposed-file {proposed-msg-file} --base-commit-file {base-commit-file} --commit HEAD --cwd \"{repo}\""
     error_prompt: |
       Commit amendment verification failed (attempt {retries} of {max_retries}):
       {verifier_error}

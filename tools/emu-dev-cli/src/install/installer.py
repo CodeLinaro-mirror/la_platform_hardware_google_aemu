@@ -256,6 +256,14 @@ def get_release_package_directory(dest_path):
         return os.path.join(home_dir, ".android", "emu-dev-cli")
 
 
+def _safe_copy2(src: str, dst: str) -> None:
+    """Copies file contents and permissions while tolerating sandbox xattr EACCES."""
+    try:
+        shutil.copy2(src, dst)
+    except PermissionError:
+        shutil.copyfile(src, dst)
+
+
 def copy_src_to_release_lib(src_dir, release_lib_dir):
     """
     Copies python modules to release/lib/ directory.
@@ -280,7 +288,7 @@ def copy_src_to_release_lib(src_dir, release_lib_dir):
             os.makedirs(os.path.dirname(dest_py), exist_ok=True)
             source_py = os.path.join(root, f)
             if os.path.abspath(source_py) != os.path.abspath(dest_py):
-                shutil.copy2(source_py, dest_py)
+                _safe_copy2(source_py, dest_py)
 
     # Copy workflows/ directory into release/lib/workflows/ if present
     if os.path.abspath(src_dir) != os.path.abspath(release_lib_dir):
@@ -297,7 +305,7 @@ def copy_src_to_release_lib(src_dir, release_lib_dir):
                     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
                     source_file = os.path.join(root, f)
                     if os.path.abspath(source_file) != os.path.abspath(dest_file):
-                        shutil.copy2(source_file, dest_file)
+                        _safe_copy2(source_file, dest_file)
 
         docs_dir = os.path.join(parent_dir, "docs")
         if os.path.isdir(docs_dir):
@@ -311,7 +319,7 @@ def copy_src_to_release_lib(src_dir, release_lib_dir):
                     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
                     source_file = os.path.join(root, f)
                     if os.path.abspath(source_file) != os.path.abspath(dest_file):
-                        shutil.copy2(source_file, dest_file)
+                        _safe_copy2(source_file, dest_file)
 
 
 def resolve_source_directory(source_dir=None):
