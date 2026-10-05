@@ -480,7 +480,114 @@ steps:
                 else:
                     os.environ.pop("EMU_DEV_CLI_WORKFLOW_STATE_DIR", None)
 
+    def test_loop_to_step_and_conversation_binding_and_resume(self):
+        import tempfile
+        from workflows.core.yaml_runner import (
+            init_workflow_session,
+            execute_workflow_step,
+            resume_workflow_session,
+            load_state_yaml,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            state_dir = os.path.join(td, "state")
+            flag_file = os.path.join(td, "round_flag.txt")
+            with open(flag_file, "w") as f:
+                f.write("round1")
+
+            old_env = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
+            old_conv = os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
+            os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = state_dir
+            os.environ["ANTIGRAVITY_CONVERSATION_ID"] = "conv-test-1234"
+            try:
+                wf_yaml = os.path.join(td, "loop_wf.yaml")
+                with open(wf_yaml, "w") as f:
+                    f.write(f"""name: loop-wf
+steps:
+  - step: 0
+    title: Address Feedback
+    prompt: "Address comments (iteration {{iteration}})."
+    verifier_cmd: "python3 -c \\"import sys; sys.exit(0)\\""
+  - step: 1
+    title: Upload and Check New Comments
+    prompt: "Upload patchset and check for new comments."
+    loop_to_step: 0
+    loop_exit_code: 2
+    max_iterations: 3
+    loop_prompt: "New review comments arrived ({{verifier_output}})! Looping back to Step 0."
+    verifier_cmd: "python3 -c \\"import pathlib, sys; p = pathlib.Path('{flag_file}'); val = p.read_text().strip(); p.write_text('round2'); sys.exit(2 if val == 'round1' else 0)\\""
+  - step: 2
+    title: Done
+    prompt: "All review rounds complete!"
+    verifier_cmd: null
+""")
+                old_stdout = sys.stdout
+                sys.stdout = io.StringIO()
+                try:
+                    s_id = init_workflow_session(wf_yaml, [])
+                    state_file = os.path.join(state_dir, "loop-wf", f"STATE-{s_id}.yaml")
+                    st = load_state_yaml(state_file)
+                    self.assertEqual(st["metadata"].get("conversation_id"), "conv-test-1234")
+
+                    # Enter Step 0
+                    execute_workflow_step(wf_yaml, s_id)
+                    # Pass Step 0 -> advance to Step 1
+                    execute_workflow_step(wf_yaml, s_id)
+                    st = load_state_yaml(state_file)
+                    self.assertEqual(st["step"], 1)
+
+                    # Execute Step 1 verifier -> returns exit code 2 -> loops back to Step 0!
+                    rc_loop = execute_workflow_step(wf_yaml, s_id)
+                    loop_out = sys.stdout.getvalue()
+                finally:
+                    sys.stdout = old_stdout
+
+                self.assertEqual(rc_loop, 0)
+                self.assertIn("New review comments arrived", loop_out)
+                st = load_state_yaml(state_file)
+                self.assertEqual(st["state"], "RUNNING")
+                self.assertEqual(st["step"], 0)
+                self.assertEqual(st["iteration"], 1)
+                self.assertEqual(st["retries"], 0)
+
+                # Pass Step 0 again -> advance to Step 1 -> verifier returns 0 -> advance to Step 2 (DONE)
+                old_stdout = sys.stdout
+                sys.stdout = io.StringIO()
+                try:
+                    execute_workflow_step(wf_yaml, s_id)
+                    execute_workflow_step(wf_yaml, s_id)
+                finally:
+                    sys.stdout = old_stdout
+
+                st = load_state_yaml(state_file)
+                self.assertEqual(st["state"], "DONE")
+                self.assertEqual(st["step"], 2)
+
+                # Now resume the completed session for a new review round without waking external process
+                ok, msg, info = resume_workflow_session(
+                    state_id=s_id,
+                    workflow_name="loop-wf",
+                    target_step=0,
+                    wake_conversation=False,
+                )
+                self.assertTrue(ok)
+                self.assertEqual(info["conversation_id"], "conv-test-1234")
+                st = load_state_yaml(state_file)
+                self.assertEqual(st["state"], "RUNNING")
+                self.assertEqual(st["step"], 0)
+                self.assertEqual(st["iteration"], 2)
+            finally:
+                if old_env is not None:
+                    os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = old_env
+                else:
+                    os.environ.pop("EMU_DEV_CLI_WORKFLOW_STATE_DIR", None)
+                if old_conv is not None:
+                    os.environ["ANTIGRAVITY_CONVERSATION_ID"] = old_conv
+                else:
+                    os.environ.pop("ANTIGRAVITY_CONVERSATION_ID", None)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

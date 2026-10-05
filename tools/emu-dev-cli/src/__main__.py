@@ -35,6 +35,7 @@ from commands import (
     docs,
     fetch_build,
     flakiness,
+    gerrit,
     init_cmd,
     launch,
     mesh,
@@ -91,6 +92,7 @@ def main():
     docs.register_parser(subparsers)
     fetch_build.register_parser(subparsers, default_host)
     flakiness.register_parser(subparsers)
+    gerrit.register_parser(subparsers)
     init_cmd.register_parser(subparsers)
     installer.register_parser(subparsers)
     launch.register_parser(subparsers)

@@ -518,6 +518,10 @@ def init_workflow_session(
     evaluated_metadata = execute_init(init_spec, init_ctx)
     initial_metadata.update(evaluated_metadata)
 
+    detected_cid = detect_active_conversation_id()
+    if detected_cid and not initial_metadata.get("conversation_id"):
+        initial_metadata["conversation_id"] = detected_cid
+
     if parent_context and "_call_stack" in parent_context:
         initial_metadata["_call_stack"] = list(parent_context["_call_stack"]) + [wf_name]
         if "workflow_name" in parent_context:
@@ -528,12 +532,15 @@ def init_workflow_session(
             initial_metadata["_custom_instructions"] = parent_context["_custom_instructions"]
         if parent_context.get("_human_feedback"):
             initial_metadata["_human_feedback"] = parent_context["_human_feedback"]
+        if parent_context.get("conversation_id") and not initial_metadata.get("conversation_id"):
+            initial_metadata["conversation_id"] = parent_context["conversation_id"]
     else:
         initial_metadata["_call_stack"] = [wf_name]
 
     initial_state = {
         "state": "INIT",
         "step": 0,
+        "iteration": 0,
         "retries": 0,
         "stuck_reason": "",
         "metadata": initial_metadata,
@@ -543,6 +550,178 @@ def init_workflow_session(
     state_file = state_dir / f"STATE-{unique_id}.yaml"
     save_state_yaml(state_file, initial_state)
     return unique_id
+
+
+def detect_active_conversation_id() -> Optional[str]:
+    """Detects the active Jetski/Antigravity conversation ID from environment variables."""
+    for env_key in ("ANTIGRAVITY_CONVERSATION_ID", "JETSKI_CONVERSATION_ID"):
+        val = os.environ.get(env_key, "").strip()
+        if val:
+            return val
+    src_meta = os.environ.get("ANTIGRAVITY_SOURCE_METADATA", "").strip()
+    if src_meta:
+        try:
+            import json
+            parsed = json.loads(src_meta)
+            cid = (parsed.get("tool") or {}).get("conversationId")
+            if cid and str(cid).strip():
+                return str(cid).strip()
+        except Exception:
+            pass
+    return None
+
+
+def resume_workflow_session(
+    state_id: str,
+    workflow_name: Optional[str] = None,
+    target_step: int = 0,
+    custom_prompt: Optional[str] = None,
+    wake_conversation: bool = True,
+    state_base_dir: Optional[Path] = None,
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """Resets a completed, paused, or stuck workflow session back to RUNNING and optionally wakes its Jetski conversation."""
+    base_dir = state_base_dir or get_state_base_dir()
+    target_state_file: Optional[Path] = None
+    resolved_wf_name = workflow_name
+    clean_id = state_id.strip()
+    if clean_id.startswith("STATE-"):
+        clean_id = clean_id[len("STATE-"):]
+
+    if workflow_name:
+        clean_id, cand = resolve_state_file(base_dir / workflow_name, clean_id)
+        if cand.is_file():
+            target_state_file = cand
+    else:
+        for wf_dir in base_dir.iterdir() if base_dir.is_dir() else []:
+            if not wf_dir.is_dir():
+                continue
+            cid, cand = resolve_state_file(wf_dir, clean_id)
+            if cand.is_file():
+                clean_id = cid
+                target_state_file = cand
+                resolved_wf_name = wf_dir.name
+                break
+
+    if not target_state_file or not target_state_file.is_file():
+        return False, f"Session '{state_id}' not found.", {}
+
+    state_data = load_state_yaml(target_state_file)
+    metadata = state_data.setdefault("metadata", {})
+    detected_cid = detect_active_conversation_id()
+    if detected_cid and not metadata.get("conversation_id"):
+        metadata["conversation_id"] = detected_cid
+
+    next_iteration = int(state_data.get("iteration", 0) or 0) + 1
+    state_data["state"] = "RUNNING"
+    state_data["step"] = int(target_step)
+    state_data["retries"] = 0
+    state_data["iteration"] = next_iteration
+    state_data["stuck_reason"] = ""
+    metadata.pop("_sub_workflow", None)
+
+    continuation_cmd = f"emu-dev-cli workflow {resolved_wf_name} --state={clean_id}"
+    spec_path_str = metadata.get("_workflow_spec_path")
+    spec_file = (
+        Path(spec_path_str)
+        if spec_path_str and Path(spec_path_str).is_file()
+        else (resolve_workflow_file(resolved_wf_name) if resolved_wf_name else None)
+    )
+    step_prompt = ""
+    if spec_file and spec_file.is_file():
+        spec = load_yaml(spec_file)
+        steps = spec.get("steps", [])
+        if 0 <= target_step < len(steps):
+            ctx = dict(metadata)
+            ctx["workflow_name"] = resolved_wf_name or ""
+            ctx["workflow_dir"] = str(spec_file.parent)
+            ctx["state_id"] = clean_id
+            ctx["step"] = target_step
+            ctx["iteration"] = next_iteration
+            ctx["retries"] = 0
+            ctx["continuation_cmd"] = continuation_cmd
+            step_prompt = format_Prompt_for_resume(steps[target_step], ctx, continuation_cmd)
+            metadata["_last_step_prompt"] = step_prompt
+
+    save_state_yaml(target_state_file, state_data)
+
+    conv_id = str(metadata.get("conversation_id", "") or "").strip()
+    wake_status = "not_requested"
+    wake_detail = ""
+    if wake_conversation and conv_id:
+        effective_msg = (
+            custom_prompt.strip()
+            if custom_prompt and custom_prompt.strip()
+            else (
+                f"Workflow session '{clean_id}' ({resolved_wf_name}, iteration {next_iteration}) has been resumed with new work.\n\n"
+                f"{step_prompt or f'Please run `{continuation_cmd}` to continue.'}"
+            )
+        )
+        woke = False
+        if os.environ.get("ANTIGRAVITY_LS_ADDRESS") and conv_id != detected_cid:
+            try:
+                from lib.agent import AgentApiClient
+                AgentApiClient().send_message(
+                    recipient_id=conv_id,
+                    message=effective_msg,
+                    title=f"Resume {resolved_wf_name} ({clean_id})",
+                )
+                woke = True
+                wake_status = "agentapi_sent"
+                wake_detail = f"Sent wake message via agentapi to conversation {conv_id}"
+            except Exception as exc:
+                wake_detail = f"agentapi send_message note: {exc}"
+
+        if not woke:
+            try:
+                from workflows.ui.server import launch_jetski_for_session
+                ok_launch, launch_msg, _ = launch_jetski_for_session(
+                    workflow_name=resolved_wf_name or "",
+                    state_id=clean_id,
+                    resume=True,
+                    poke=True,
+                    custom_prompt=effective_msg,
+                    state_base_dir=base_dir,
+                )
+                if ok_launch:
+                    woke = True
+                    wake_status = "jetski_cli_launched"
+                    wake_detail = launch_msg
+                else:
+                    wake_status = "manual_required"
+                    wake_detail = launch_msg
+            except Exception as exc:
+                wake_status = "manual_required"
+                wake_detail = str(exc)
+
+    info = {
+        "workflow_name": resolved_wf_name,
+        "state_id": clean_id,
+        "state_file": str(target_state_file),
+        "step": target_step,
+        "iteration": next_iteration,
+        "conversation_id": conv_id,
+        "continuation_cmd": continuation_cmd,
+        "wake_status": wake_status,
+        "wake_detail": wake_detail,
+        "step_prompt": step_prompt,
+    }
+    msg = (
+        f"Resumed workflow '{resolved_wf_name}' (session {clean_id}, iteration {next_iteration}) at step {target_step}."
+        + (f" Conversation: {conv_id} ({wake_status})." if conv_id else "")
+    )
+    return True, msg, info
+
+
+def format_Prompt_for_resume(
+    step_spec: Dict[str, Any],
+    context: Dict[str, Any],
+    continuation_cmd: str,
+) -> str:
+    """Formats a step prompt with continuation instructions for session resumption."""
+    prompt = format_step_prompt(step_spec, context)
+    if not prompt:
+        return f'Run "{continuation_cmd}" for next steps.'
+    return format_prompt_with_suffix(prompt, continuation_cmd, "for next steps.")
 
 
 def approve_workflow_session(
@@ -641,7 +820,11 @@ def execute_workflow_step(
         return 1
 
     state_data = load_state_yaml(state_file)
-    metadata = state_data.get("metadata", {})
+    metadata = state_data.setdefault("metadata", {})
+    detected_cid = detect_active_conversation_id()
+    if detected_cid and not metadata.get("conversation_id"):
+        metadata["conversation_id"] = detected_cid
+        save_state_yaml(state_file, state_data)
 
     # Support session-specific composed workflow YAML override
     custom_spec_path = metadata.get("_workflow_spec_path")
@@ -654,6 +837,7 @@ def execute_workflow_step(
     current_step_index = state_data.get("step", 0)
     current_state = state_data.get("state", "INIT")
     retries = state_data.get("retries", 0)
+    iteration = int(state_data.get("iteration", 0) or 0)
 
     active_continuation = continuation_cmd or f'emu-dev-cli workflow {wf_name} --state={clean_id}'
 
@@ -663,8 +847,10 @@ def execute_workflow_step(
     context["workflow_dir"] = str(path.parent)
     context["state_id"] = clean_id
     context["step"] = current_step_index
+    context["iteration"] = iteration
     context["retries"] = retries
     context["verifier_error"] = ""
+    context["verifier_output"] = ""
     context["continuation_cmd"] = active_continuation
     if "cache-dir" not in context:
         context["cache-dir"] = str(get_workflow_cache_dir(wf_name))
@@ -924,6 +1110,59 @@ def execute_workflow_step(
             stdout="",
             stderr=str(e),
         )
+
+    verifier_out = (check_res.stdout.strip() or check_res.stderr.strip())
+    context["verifier_output"] = verifier_out
+
+    if step_spec.get("loop_to_step") is not None:
+        loop_exit_code = int(step_spec.get("loop_exit_code", 2))
+        max_iterations = int(step_spec.get("max_iterations", 5))
+        if check_res.returncode == loop_exit_code:
+            next_iter = iteration + 1
+            if next_iter >= max_iterations:
+                state_data["state"] = "STUCK"
+                state_data["stuck_reason"] = (
+                    f"Reached maximum loop iterations ({max_iterations}) at step {current_step_index}: {verifier_out}"
+                )
+                save_state_yaml(state_file, state_data)
+                print(
+                    format_prompt_with_suffix(
+                        state_data["stuck_reason"], active_continuation, "to resume."
+                    ),
+                    file=sys.stderr,
+                )
+                return 1
+
+            target_step_idx = int(step_spec["loop_to_step"])
+            state_data["iteration"] = next_iter
+            state_data["step"] = target_step_idx
+            state_data["retries"] = 0
+            state_data["stuck_reason"] = ""
+            state_data["state"] = "RUNNING"
+            save_state_yaml(state_file, state_data)
+
+            context["iteration"] = next_iter
+            context["step"] = target_step_idx
+            context["retries"] = 0
+
+            loop_header = ""
+            if "loop_prompt" in step_spec:
+                raw_lp = (
+                    " ".join(step_spec["loop_prompt"])
+                    if isinstance(step_spec["loop_prompt"], list)
+                    else str(step_spec["loop_prompt"])
+                )
+                loop_header = interpolate(raw_lp, context).strip()
+
+            target_spec = steps[target_step_idx] if 0 <= target_step_idx < len(steps) else step_spec
+            target_prompt = format_step_prompt(target_spec, context)
+            combined_prompt = (
+                f"{loop_header}\n\n{target_prompt}".strip()
+                if loop_header
+                else target_prompt
+            )
+            print(format_prompt_with_suffix(combined_prompt, active_continuation, "for next steps."))
+            return 0
 
     if check_res.returncode != 0:
         retries += 1
