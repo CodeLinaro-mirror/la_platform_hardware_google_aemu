@@ -56,8 +56,13 @@ class TriageCrashesWorkflowTest(unittest.TestCase):
         def fake_search(sig):
             if sig == "sig_already_in_buganizer":
                 return {
-                    "issueId": "567125517",
+                    "issueId": "b/567125517",
                     "issueState": {"title": "Existing crash", "status": "ASSIGNED"},
+                }
+            if sig == "sig_with_int_version":
+                return {
+                    "issueId": "567125518",
+                    "issueState": {"title": "Crash with int version", "status": "ASSIGNED"},
                 }
             if sig == "FailWithoutStackTrace-7a37e8e9":
                 return {
@@ -70,6 +75,9 @@ class TriageCrashesWorkflowTest(unittest.TestCase):
             return None
 
         mock_client.search_issue_by_signature.side_effect = fake_search
+        mock_client.clean_version_string.side_effect = (
+            lambda v: str(v).split("-")[0] if v is not None else None
+        )
         mock_buganizer.BuganizerClient.return_value = mock_client
         mock_ensure_imports.return_value = {"buganizer": mock_buganizer}
 
@@ -78,6 +86,13 @@ class TriageCrashesWorkflowTest(unittest.TestCase):
                 "stable_signature": "sig_already_in_buganizer",
                 "occurrences": 5,
                 "latest_report_id": "aaaa000011112222",
+                "versions": "37.1.3-16373346",  # string format test with b/ bug id
+            },
+            {
+                "stable_signature": "sig_with_int_version",
+                "occurrences": 3,
+                "latest_report_id": "dddd000011112222",
+                "versions": 37,  # non-iterable integer version
             },
             {
                 "stable_signature": "FailWithoutStackTrace-7a37e8e9",
@@ -94,17 +109,34 @@ class TriageCrashesWorkflowTest(unittest.TestCase):
         remaining, auto_linked = (
             prepare_triage_batch.try_auto_link_existing_buganizer_matches(clusters)
         )
-        self.assertEqual(len(auto_linked), 1)
+        self.assertEqual(len(auto_linked), 2)
         self.assertEqual(auto_linked[0]["bug_ids"], ["567125517"])
+        self.assertEqual(
+            auto_linked[0]["bug_urls"], ["https://b.corp.google.com/issues/567125517"]
+        )
+        self.assertEqual(auto_linked[1]["bug_ids"], ["567125518"])
         self.assertEqual(len(remaining), 2)
         self.assertEqual(
             [r["stable_signature"] for r in remaining],
             ["FailWithoutStackTrace-7a37e8e9", "sig_needs_agent_triage"],
         )
-        mock_update_anno.assert_called_once_with(
+        mock_client.clean_version_string.assert_any_call("37.1.3-16373346")
+        mock_client.clean_version_string.assert_any_call("37")
+        mock_client.ensure_crash_hotlists.assert_any_call(
+            567125517, version="37.1.3"
+        )
+        mock_client.ensure_crash_hotlists.assert_any_call(
+            567125518, version="37"
+        )
+        mock_update_anno.assert_any_call(
             stable_signature="sig_already_in_buganizer",
             bug_url="https://b.corp.google.com/issues/567125517",
         )
+        mock_update_anno.assert_any_call(
+            stable_signature="sig_with_int_version",
+            bug_url="https://b.corp.google.com/issues/567125518",
+        )
+        self.assertEqual(mock_update_anno.call_count, 2)
 
     def test_render_dossier_markdown_includes_stack_frames_and_commands(self):
         remaining = [
@@ -134,6 +166,8 @@ class TriageCrashesWorkflowTest(unittest.TestCase):
         self.assertIn("virtio_gpu_rutabaga_load-e709a6ba", md)
         self.assertIn("#0: virtio_gpu_rutabaga_load (rutabaga.c:42)", md)
         self.assertIn('--from-rca "/tmp/triage-cache/rca-7ebbb53ff0400000.md"', md)
+        self.assertIn("qemu-next-crashes", md)
+        self.assertIn("Deduplication Policy", md)
 
     def test_render_dossier_markdown_handles_null_os_and_empty_metadata(self):
         remaining = [

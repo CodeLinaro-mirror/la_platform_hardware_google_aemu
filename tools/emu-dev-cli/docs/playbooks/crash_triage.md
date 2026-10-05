@@ -235,3 +235,25 @@ If the crash RCA indicates an actionable emulator bug that still exists at
 emu-dev-cli crash autofix <latest_report_id>
 ```
 
+---
+
+## 4. Hotlist Organization & High-Volume Deduplication
+
+To manage large numbers of crash reports for the same bug without thread spam or loss of signal:
+
+### A. Crash Hotlists
+All production `qemu-next` crash bugs in Component `29601` are automatically organized into two hotlists:
+1. **General Hotlist:** `qemu-next-crashes` — tracks all production `qemu-next` crash issues.
+2. **Version Hotlist:** `qemu-next-crashes-version-<version>` — tracks crashes discovered for a specific milestone release (e.g. `qemu-next-crashes-version-37.1.3`, stripping build suffixes).
+
+### B. Duplicate Handling & Information-Gain Policy
+When a new crash report arrives that matches an existing Buganizer issue:
+- **`go/crash` as Occurrence Counter:** The `stable_signature` is linked to `b/<id>` in `go/crash`, which automatically tallies total occurrence counts, timeline distribution, and report links in `go/crash`.
+- **Buganizer Noise Suppression:** If the crash has identical information (same crashing stack, same host OS, no novel error messages or breadcrumbs), duplicate Buganizer comments are skipped.
+- **Novel Information Updates:** A concise update comment is added to Buganizer **only** when genuinely new diagnostics are found:
+  1. **New Host OS Platform:** First reproduction on a different OS (e.g., first macOS occurrence for a Linux-only bug).
+  2. **Potential Regression:** Crash reproduced on a bug already marked `FIXED` or `VERIFIED`.
+  3. **Novel Breadcrumbs / Error Messages:** New `internal-msg`, distinct crash annotations, or new assertions.
+  4. **Divergent Fault Location:** Top faulting emulator function differs from previously recorded frames.
+
+
