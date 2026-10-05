@@ -218,6 +218,10 @@ class BuildTimesAnalyzerTest(unittest.TestCase):
             ("unit_tests", "Fast-Fail Unit Tests"),
         )
         self.assertEqual(
+            resolve_stage_metadata("logs/bazel/symbols.profile.gz")[:2],
+            ("symbols", "Crashpad Symbol Upload"),
+        )
+        self.assertEqual(
             resolve_stage_metadata("logs/bazel/ets.profile.gz")[:2],
             ("ets", "ETS Integration Tests"),
         )
@@ -233,6 +237,7 @@ class BuildTimesAnalyzerTest(unittest.TestCase):
                     "logs/bazel/ets.profile.gz",
                     "logs/bazel/jvm.out",
                     "logs/bazel/custom_smoke.profile.gz",
+                    "logs/bazel/symbols.profile.gz",
                     "logs/bazel/command.profile.gz",
                     "logs/bazel/unit_tests.profile.gz",
                     "logs/bazel/clang_tidy.profile.gz",
@@ -246,6 +251,7 @@ class BuildTimesAnalyzerTest(unittest.TestCase):
             [
                 "logs/bazel/clang_tidy.profile.gz",
                 "logs/bazel/command.profile.gz",
+                "logs/bazel/symbols.profile.gz",
                 "logs/bazel/unit_tests.profile.gz",
                 "logs/bazel/ets.profile.gz",
                 "logs/bazel/custom_smoke.profile.gz",
