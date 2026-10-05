@@ -41,6 +41,7 @@ KNOWN_STAGE_PROFILES: Dict[str, Tuple[str, str, int]] = {
     "aosp_build": ("aosp_build", "AOSP Minimal Release", 20),
     "command": ("release", "Release Packaging & Boot Tests", 30),
     "release": ("release", "Release Packaging & Boot Tests", 30),
+    "symbols": ("symbols", "Crashpad Symbol Upload", 35),
     "unit_tests": ("unit_tests", "Fast-Fail Unit Tests", 40),
     "ets": ("ets", "ETS Integration Tests", 50),
 }
