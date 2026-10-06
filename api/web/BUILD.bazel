@@ -66,6 +66,7 @@ _SRC_FILES = [
     "src/core/rtc_controller.ts",
     "src/core/screen_capture.ts",
     "src/core/sensors.ts",
+    "src/core/sensors_channel.ts",
     "src/core/snapshot.ts",
     "src/core/streaming.ts",
     "src/core/system.ts",
