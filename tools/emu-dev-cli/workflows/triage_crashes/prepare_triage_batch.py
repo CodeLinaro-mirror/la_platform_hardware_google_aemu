@@ -97,14 +97,36 @@ def try_auto_link_existing_buganizer_matches(
             matched_bug_id = ""
 
         if matched_bug_id:
-            bug_url = f"https://b.corp.google.com/issues/{matched_bug_id}"
+            clean_bug_id = str(matched_bug_id).removeprefix("b/").strip()
+            bug_url = f"https://b.corp.google.com/issues/{clean_bug_id if clean_bug_id else matched_bug_id}"
             ok, _ = update_crash_annotation(
                 stable_signature=sig,
                 bug_url=bug_url,
             )
             if ok:
+                try:
+                    raw_ver = cluster.get("versions")
+                    ver_list = (
+                        raw_ver
+                        if isinstance(raw_ver, (list, tuple))
+                        else ([raw_ver] if raw_ver is not None else [])
+                    )
+                    first_ver = (
+                        str(ver_list[0]).strip()
+                        if ver_list and ver_list[0] is not None
+                        else None
+                    )
+                    if first_ver and hasattr(client, "clean_version_string"):
+                        first_ver = client.clean_version_string(first_ver)
+                    if hasattr(client, "ensure_crash_hotlists") and clean_bug_id.isdigit():
+                        client.ensure_crash_hotlists(
+                            int(clean_bug_id), version=first_ver
+                        )
+                except Exception:  # noqa: BLE001
+                    pass
+
                 enriched = dict(cluster)
-                enriched["bug_ids"] = [matched_bug_id]
+                enriched["bug_ids"] = [clean_bug_id if clean_bug_id else matched_bug_id]
                 enriched["bug_urls"] = [bug_url]
                 enriched["bug_title"] = matched_title
                 enriched["bug_status"] = matched_status
@@ -128,6 +150,8 @@ def render_dossier_markdown(
         "",
         f"- **Untriaged Clusters Requiring Action:** {len(remaining)}",
         f"- **Auto-Linked Existing Buganizer Matches:** {len(auto_linked)}",
+        "- **Hotlists Maintained:** `qemu-next-crashes` & `qemu-next-crashes-version-<version>`",
+        "- **Deduplication Policy:** Do not comment on existing bugs unless novel info (new OS platform, distinct breadcrumbs, regression) is observed. Occurrences are tracked in `go/crash`.",
         "",
     ]
 
