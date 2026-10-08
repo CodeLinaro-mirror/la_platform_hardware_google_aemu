@@ -42,6 +42,7 @@ from commands import (
     source_directory,
     tidy,
     update_cmd,
+    update_prebuilt,
     workflow,
 )
 from install import installer
@@ -100,6 +101,7 @@ def main():
     source_directory.register_parser(subparsers)
     tidy.register_parser(subparsers)
     update_cmd.register_parser(subparsers)
+    update_prebuilt.register_parser(subparsers, default_host)
     workflow.register_parser(subparsers)
 
     args = parser.parse_args()

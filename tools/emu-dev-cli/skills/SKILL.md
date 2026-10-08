@@ -63,6 +63,29 @@ Auto-detects host CPU architecture (`x86_64` vs `arm64`).
   emu-dev-cli fetch-build system-image --build-id 15900270
   ```
 
+#### C. Update Checked-in Prebuilts (`update-prebuilt`)
+
+Fetches prebuilt artifacts or archive entries from Android Build (`go/ab`) and drops them into `prebuilts/android-emulator-build/common/`:
+
+- **List all registered prebuilt packages and supported targets:**
+  ```bash
+  emu-dev-cli update-prebuilt --list
+  ```
+- **Update Lavapipe prebuilts across all targets (`linux-x64`, `mac-arm64`, `win-x64`) when `--target` is omitted:**
+  ```bash
+  emu-dev-cli update-prebuilt lavapipe --build-number=16534139
+  ```
+- **Update a specific target (`linux-x64`, `mac-arm64`, or `win-x64`):**
+  ```bash
+  emu-dev-cli update-prebuilt lavapipe --target=linux-x64 --build-number=16534139
+  emu-dev-cli update-prebuilt lavapipe --target=mac-arm64 --build-number=16534139
+  emu-dev-cli update-prebuilt lavapipe --target=win-x64 --build-number=16534139
+  ```
+- **Dry-run preview without modifying workspace files:**
+  ```bash
+  emu-dev-cli update-prebuilt lavapipe --build-number=16534139 --dry-run
+  ```
+
 ---
 
 ### 2. Source Directory Registry (`source-directory`)
