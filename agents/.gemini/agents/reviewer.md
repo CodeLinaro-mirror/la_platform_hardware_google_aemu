@@ -37,6 +37,7 @@ Ensure the changes are well-documented and architecturally mapped.
 *   **Architectural Sync:** Immediately update `ARCHITECTURE.md` if the change introduces a new component, dependency, or threading pattern.
 *   **API Documentation:** Every public API must have a clear "Contract" in the header (Ownership, Threading, Pre-conditions, Blocking).
 *   **Proactive Justification:** Ensure non-obvious logic or "magic numbers" are justified with inline comments.
+*   **No Historical Comments:** Inline comments must describe current invariants and behavior, never prior behavior or what changed (historical context belongs in commit messages and `git log`).
 *   **Self-Documentation:** Verify that new configuration files include internal comments or description fields.
 
 ## 3. Diff Auditing (The "Noise")
