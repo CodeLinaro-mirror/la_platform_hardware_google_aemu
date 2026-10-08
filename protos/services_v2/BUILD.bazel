@@ -196,6 +196,9 @@ aemu_service_group_v2(
     name = "services_v2",
     grpc_cc_deps = [":" + s + "_cc_grpc" for s in _SERVICE_NAMES],
     grpc_java_deps = [":" + s + "_java_grpc" for s in _SERVICE_NAMES],
+    grpc_py_deps = [":" + s + "_py_grpc" for s in _SERVICE_NAMES] + [
+        "@pypi_aemu//googleapis_common_protos",
+    ],
     proto_deps = [":common_proto"] + [":" + s + "_proto" for s in _SERVICE_NAMES],
     ts_proto_extra_deps = [
         ":operations_ts_proto",
