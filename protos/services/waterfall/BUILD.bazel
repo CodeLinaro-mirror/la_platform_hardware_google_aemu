@@ -1,4 +1,5 @@
 load("@grpc//bazel:cc_grpc_library.bzl", "cc_grpc_library")
+load("@grpc//bazel:python_rules.bzl", "py_grpc_library", "py_proto_library")
 load("@grpc-java//:java_grpc_library.bzl", "java_grpc_library")
 load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
 load("@protobuf//bazel:java_proto_library.bzl", "java_proto_library")
@@ -26,6 +27,18 @@ cc_grpc_library(
     deps = [":waterfall_cc_proto"],
 )
 
+py_proto_library(
+    name = "waterfall_py_proto",
+    deps = [":waterfall_proto"],
+)
+
+py_grpc_library(
+    name = "waterfall_py_grpc",
+    srcs = [":waterfall_proto"],
+    grpc_library = "@pypi_aemu//grpcio",
+    deps = [":waterfall_py_proto"],
+)
+
 proto_library(
     name = "control_socket_proto",
     srcs = ["control_socket.proto"],
@@ -34,6 +47,11 @@ proto_library(
 
 cc_proto_library(
     name = "control_socket_cc_proto",
+    deps = [":control_socket_proto"],
+)
+
+py_proto_library(
+    name = "control_socket_py_proto",
     deps = [":control_socket_proto"],
 )
 

@@ -1,9 +1,10 @@
 load("@grpc//bazel:cc_grpc_library.bzl", "cc_grpc_library")
-load("@grpc//bazel:python_rules.bzl", "py_proto_library")
+load("@grpc//bazel:python_rules.bzl", "py_grpc_library", "py_proto_library")
 load("@grpc-java//:java_grpc_library.bzl", "java_grpc_library")
 load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
 load("@protobuf//bazel:java_proto_library.bzl", "java_proto_library")
 load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("//protos/services_v2:ts_proto.bzl", "ts_proto_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -41,4 +42,17 @@ java_grpc_library(
 py_proto_library(
     name = "emulator_controller_py_proto",
     deps = [":emulator_controller_proto"],
+)
+
+py_grpc_library(
+    name = "emulator_controller_py_grpc",
+    srcs = [":emulator_controller_proto"],
+    grpc_library = "@pypi_aemu//grpcio",
+    deps = [":emulator_controller_py_proto"],
+)
+
+ts_proto_library(
+    name = "emulator_controller_ts_proto",
+    proto = ":emulator_controller_proto",
+    deps = ["@protobuf//:empty_proto"],
 )

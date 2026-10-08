@@ -40,6 +40,10 @@
       --color-pending-bg: rgba(100, 116, 139, 0.12);
       --color-pending-border: rgba(100, 116, 139, 0.35);
 
+      --color-waiting: #fb923c;
+      --color-waiting-bg: rgba(251, 146, 60, 0.14);
+      --color-waiting-border: rgba(251, 146, 60, 0.45);
+
       --accent: #60a5fa;
       --accent-hover: #3b82f6;
       --accent-bg: rgba(96, 165, 250, 0.15);
@@ -488,6 +492,122 @@
       border: 1px solid var(--color-pending-border);
     }
 
+    .status-badge.WAITING_HUMAN, .status-badge.waiting_human {
+      color: var(--color-waiting);
+      background-color: var(--color-waiting-bg);
+      border: 1px solid var(--color-waiting-border);
+    }
+
+    .status-badge.INTERRUPTED, .status-badge.interrupted, .status-badge.EXITED, .status-badge.ERROR {
+      color: #fbbf24;
+      background-color: rgba(245, 158, 11, 0.16);
+      border: 1px solid rgba(245, 158, 11, 0.45);
+    }
+
+    .status-badge.WAITING_INPUT, .status-badge.waiting_input {
+      color: #34d399;
+      background-color: rgba(52, 211, 153, 0.14);
+      border: 1px solid rgba(52, 211, 153, 0.4);
+    }
+
+    .sidebar-mode-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      background-color: var(--bg-base);
+      padding: 3px;
+      border-radius: 7px;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .sidebar-mode-tab {
+      padding: 6px 8px;
+      border-radius: 5px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+
+    .sidebar-mode-tab:hover {
+      color: var(--text-main);
+    }
+
+    .sidebar-mode-tab.active {
+      background-color: var(--bg-surface-raised);
+      color: var(--accent);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+
+    .btn-sub-bell {
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid var(--border-strong);
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      transition: all 0.15s;
+      line-height: 1.2;
+    }
+
+    .btn-sub-bell:hover {
+      border-color: var(--accent);
+      color: var(--text-main);
+    }
+
+    .btn-sub-bell.subscribed {
+      background: rgba(56, 189, 248, 0.16);
+      border-color: rgba(56, 189, 248, 0.5);
+      color: #38bdf8;
+      font-weight: 600;
+    }
+
+    .btn-star {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 14px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+
+    .btn-star:hover {
+      color: #fbbf24;
+      background: rgba(251, 191, 36, 0.12);
+      border-color: rgba(251, 191, 36, 0.35);
+    }
+
+    .btn-star.starred {
+      color: #fbbf24;
+      text-shadow: 0 0 8px rgba(251, 191, 36, 0.35);
+    }
+
+    .conv-preview {
+      font-size: 11px;
+      color: var(--text-dim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     .pulse-dot {
       width: 6px;
       height: 6px;
@@ -500,6 +620,33 @@
       0% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.4; transform: scale(0.85); }
       100% { opacity: 1; transform: scale(1); }
+    }
+
+    .loading-state-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 48px 24px;
+      text-align: center;
+      color: var(--text-muted);
+      background: var(--bg-surface);
+      border: 1px dashed var(--border-subtle);
+      border-radius: 8px;
+    }
+
+    .loading-spinner {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 3px solid rgba(56, 189, 248, 0.2);
+      border-top-color: var(--accent);
+      animation: spin 0.75s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
     }
 
     /* Right Main Inspector */
@@ -610,6 +757,26 @@
     }
 
     .alert-stopped strong {
+      color: #fbbf24;
+    }
+
+    .alert-waiting {
+      background-color: rgba(251, 146, 60, 0.12);
+      border: 1px solid var(--color-waiting-border);
+      color: #fed7aa;
+    }
+
+    .alert-waiting strong {
+      color: #fb923c;
+    }
+
+    .alert-interrupted {
+      background-color: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.45);
+      color: #fde68a;
+    }
+
+    .alert-interrupted strong {
       color: #fbbf24;
     }
 
@@ -770,6 +937,13 @@
       box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
     }
 
+    .stepper-step.waiting_human .stepper-icon-wrap {
+      border-color: var(--color-waiting);
+      background-color: var(--color-waiting-bg);
+      color: var(--color-waiting);
+      box-shadow: 0 0 10px rgba(251, 146, 60, 0.35);
+    }
+
     .stepper-step.stuck .stepper-icon-wrap {
       border-color: var(--color-stuck);
       background-color: var(--color-stuck-bg);
@@ -794,6 +968,10 @@
 
     .stepper-step.running .stepper-card {
       border-color: var(--color-running-border);
+    }
+
+    .stepper-step.waiting_human .stepper-card {
+      border-color: var(--color-waiting-border);
     }
 
     .stepper-step.stuck .stepper-card {
@@ -1087,9 +1265,344 @@
       gap: 10px;
       background-color: var(--bg-surface-raised);
     }
+
+    /* Workflow Builder Modal Styles */
+    .builder-section {
+      margin-bottom: 16px;
+    }
+
+    .builder-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      display: block;
+    }
+
+    .builder-input, .builder-select, .builder-textarea {
+      width: 100%;
+      background-color: var(--bg-base);
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 12px;
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .builder-input:focus, .builder-select:focus, .builder-textarea:focus {
+      border-color: var(--accent);
+    }
+
+    .builder-textarea {
+      resize: vertical;
+      min-height: 46px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .preset-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .preset-chip {
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      background-color: var(--bg-surface-raised);
+      border: 1px solid var(--border-strong);
+      color: var(--text-main);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .preset-chip:hover {
+      border-color: var(--accent);
+      background-color: var(--accent-bg);
+      color: #fff;
+    }
+
+    .builder-steps-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .builder-step-item {
+      background-color: var(--bg-surface-raised);
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: border-color 0.15s, background-color 0.15s, opacity 0.15s;
+    }
+
+    .builder-step-item.dragging {
+      opacity: 0.45;
+      border-color: var(--accent);
+    }
+
+    .builder-step-item.drag-over {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+
+    .builder-step-item.human-barrier {
+      border-color: var(--color-waiting-border);
+      background-color: rgba(251, 146, 60, 0.08);
+    }
+
+    .builder-step-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .builder-drag-handle {
+      cursor: grab;
+      color: var(--text-dim);
+      font-size: 14px;
+      user-select: none;
+      padding: 0 4px;
+    }
+
+    .builder-drag-handle:active {
+      cursor: grabbing;
+    }
+
+    .custom-instructions-chip {
+      background-color: rgba(96, 165, 250, 0.1);
+      border: 1px solid rgba(96, 165, 250, 0.3);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 12px;
+      color: #bfdbfe;
+    }
+
+    .btn-success {
+      background-color: #059669;
+      border-color: #10b981;
+      color: #ffffff;
+    }
+
+    .btn-success:hover {
+      background-color: #047857;
+      border-color: #34d399;
+    }
+
+    /* Live Conversation Transcript Styles */
+    .transcript-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      max-width: 960px;
+    }
+
+    .transcript-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 10px 14px;
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      font-size: 12px;
+    }
+
+    .transcript-feed {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .transcript-card {
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .transcript-card.user-step {
+      border-color: rgba(96, 165, 250, 0.45);
+      background-color: rgba(30, 58, 138, 0.16);
+    }
+
+    .transcript-card.planner-step {
+      border-color: var(--border-strong);
+    }
+
+    .transcript-card.tool-output-step {
+      border-color: rgba(148, 163, 184, 0.25);
+      background-color: rgba(15, 23, 42, 0.65);
+    }
+
+    .transcript-card-header {
+      padding: 8px 14px;
+      background-color: rgba(30, 41, 59, 0.75);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 11px;
+    }
+
+    .transcript-card-body {
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      font-size: 13px;
+    }
+
+    .transcript-text {
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.55;
+      color: var(--text-main);
+      font-family: var(--font-sans);
+    }
+
+    .thinking-block {
+      background-color: rgba(15, 23, 42, 0.75);
+      border: 1px dashed rgba(148, 163, 184, 0.35);
+      border-radius: 6px;
+      padding: 8px 12px;
+    }
+
+    .thinking-content {
+      display: none;
+      margin-top: 8px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      line-height: 1.55;
+      color: var(--text-muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 320px;
+      overflow-y: auto;
+    }
+
+    .thinking-content.open {
+      display: block;
+    }
+
+    .tool-call-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .tool-call-item {
+      background-color: var(--bg-base);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 6px;
+      padding: 8px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .tool-call-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .tool-name-badge {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      color: #38bdf8;
+      background-color: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+
+    .tool-summary-code {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #e2e8f0;
+      background-color: rgba(30, 41, 59, 0.7);
+      padding: 6px 8px;
+      border-radius: 4px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* Toast Notifications */
+    .toast-container {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      z-index: 2000;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-width: 390px;
+      width: calc(100vw - 40px);
+      pointer-events: none;
+    }
+
+    .toast-card {
+      pointer-events: auto;
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-left: 4px solid var(--accent);
+      border-radius: 8px;
+      padding: 12px 14px;
+      box-shadow: 0 12px 28px -4px rgba(0, 0, 0, 0.7);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      animation: toastSlideIn 0.2s ease-out;
+    }
+
+    .toast-card.toast-warning {
+      border-left-color: #f59e0b;
+      background-color: #1c1917;
+    }
+
+    .toast-card.toast-success {
+      border-left-color: #10b981;
+    }
+
+    .toast-card.toast-error {
+      border-left-color: #ef4444;
+    }
+
+    @keyframes toastSlideIn {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
   </style>
 </head>
 <body>
+  <!-- In-App Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
   <!-- App Header -->
   <header class="app-header">
     <div class="brand">
@@ -1098,6 +1611,14 @@
       <span class="badge-prototype">Prototype</span>
     </div>
     <div class="header-controls">
+      <button class="btn btn-sm btn-primary" id="btnNewWorkflow" onclick="openNewWorkflowModal()">
+        + Start New Workflow
+      </button>
+
+      <button class="btn btn-sm" id="btnNotifications" onclick="handleNotificationButtonClick()" title="Enable or test desktop and in-app popup notifications">
+        🔔 Enable Alerts
+      </button>
+
       <!-- Cleanup Dropdown -->
       <div class="dropdown" id="cleanupDropdown">
         <button class="btn btn-sm" onclick="toggleDropdown('cleanupDropdownMenu')">
@@ -1149,20 +1670,48 @@
 
   <!-- App Main -->
   <div class="app-main">
-    <!-- Left Sidebar: Session List -->
+    <!-- Left Sidebar: Session / Conversation List -->
     <aside class="sidebar">
       <div class="sidebar-header">
-        <input type="text" id="searchInput" class="search-box" placeholder="Filter workflows, ID, or args..." oninput="applyFilter()">
-        <div class="filter-pills">
+        <div class="sidebar-mode-tabs">
+          <button class="sidebar-mode-tab active" id="modeTabWorkflows" onclick="setSidebarMode('workflows')">
+            🔄 Workflows (<span id="sidebarWorkflowCount">0</span>)
+          </button>
+          <button class="sidebar-mode-tab" id="modeTabConversations" onclick="setSidebarMode('conversations')">
+            💬 Conversations (<span id="sidebarConvCount">0</span>)
+          </button>
+        </div>
+        <input type="text" id="searchInput" class="search-box" placeholder="Filter workflows, conversations, ID..." oninput="applyFilter()">
+        <div class="filter-pills" id="workflowFilterPills">
           <button class="filter-pill active" data-filter="all" onclick="setFilter('all')">All</button>
+          <button class="filter-pill" data-filter="STARRED" onclick="setFilter('STARRED')">★ Starred (<span id="starredSessionCount">0</span>)</button>
           <button class="filter-pill" data-filter="RUNNING" onclick="setFilter('RUNNING')">Running</button>
+          <button class="filter-pill" data-filter="WAITING_HUMAN" onclick="setFilter('WAITING_HUMAN')">Waiting</button>
           <button class="filter-pill" data-filter="STUCK" onclick="setFilter('STUCK')">Stuck</button>
           <button class="filter-pill" data-filter="DONE" onclick="setFilter('DONE')">Done</button>
           <button class="filter-pill" data-filter="STOPPED" onclick="setFilter('STOPPED')">Stopped</button>
         </div>
+        <div id="convFilterSection" style="display: none; flex-direction: column; gap: 8px;">
+          <div class="filter-pills" id="convFilterPills">
+            <button class="filter-pill active" data-conv-filter="all" onclick="setConvFilter('all')">All</button>
+            <button class="filter-pill" data-conv-filter="STARRED" onclick="setConvFilter('STARRED')">★ Starred (<span id="starredConvCount">0</span>)</button>
+            <button class="filter-pill" data-conv-filter="RUNNING" onclick="setConvFilter('RUNNING')">Running</button>
+            <button class="filter-pill" data-conv-filter="NEEDS_INPUT" onclick="setConvFilter('NEEDS_INPUT')">Needs Input</button>
+            <button class="filter-pill" data-conv-filter="SUBSCRIBED" onclick="setConvFilter('SUBSCRIBED')">🔔 Subscribed (<span id="subscribedConvCount">0</span>)</button>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--text-muted);">
+            <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none;" title="Automatically subscribe to any conversation seen actively running so you get notified when it stops">
+              <input type="checkbox" id="autoSubRunningCheck" onchange="toggleAutoSubscribeRunning(this.checked)" style="accent-color: var(--accent);">
+              Auto-subscribe running
+            </label>
+            <button class="btn btn-sm" style="padding: 2px 7px; font-size: 10px;" onclick="subscribeAllRunningConversations()" title="Subscribe to all currently running conversations">
+              🔔 Sub All Running
+            </button>
+          </div>
+        </div>
       </div>
       <div class="session-list" id="sessionList">
-        <!-- Sessions rendered dynamically -->
+        <!-- Sessions or Conversations rendered dynamically -->
       </div>
     </aside>
 
@@ -1173,8 +1722,8 @@
           <path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
         </svg>
         <div>
-          <h3 style="font-size: 15px; font-weight: 600; color: var(--text-muted); margin-bottom: 4px;">No Workflow Selected</h3>
-          <p style="font-size: 12px; color: var(--text-dim);">Select an in-flight, completed, or stopped workflow session from the sidebar to inspect its live stepper graph, stuck status, and artifacts.</p>
+          <h3 style="font-size: 15px; font-weight: 600; color: var(--text-muted); margin-bottom: 4px;">No Workflow or Conversation Selected</h3>
+          <p style="font-size: 12px; color: var(--text-dim);">Select a workflow session or Jetski conversation from the sidebar, or click <strong>+ Start New Workflow</strong> to compose a new pipeline.</p>
         </div>
       </div>
 
@@ -1196,11 +1745,21 @@
 
           <div class="inspector-title-row">
             <div class="inspector-title-group">
+              <button class="btn-star" id="btnStarCurrent" onclick="toggleCurrentStar()" title="Star or unstar this item" style="font-size: 17px; padding: 2px 6px;">☆</button>
               <h2 class="inspector-title" id="wfTitle">workflow-name</h2>
               <span class="status-badge" id="wfStatusBadge">RUNNING</span>
             </div>
             <div class="inspector-actions">
               <span class="id-chip">ID: <span id="wfStateId">--</span></span>
+              <button class="btn btn-sm" id="btnSubscribeCurrentConv" style="display: none;" onclick="toggleCurrentConversationSubscription()" title="Subscribe to get a notification popup whenever this conversation stops and needs your input">
+                🔕 Subscribe Alerts
+              </button>
+              <button class="btn btn-sm" id="btnOpenLinkedWorkflow" style="display: none; background: rgba(167, 139, 250, 0.2); border-color: rgba(167, 139, 250, 0.45); color: #c4b5fd;" onclick="openLinkedWorkflowForCurrentConv()">
+                🔄 Open Linked Workflow
+              </button>
+              <button class="btn btn-sm btn-primary" id="btnLaunchAgent" onclick="launchAgentForCurrentSession()" title="Start or resume a background jetski_cli conversation for this session">
+                🤖 Run with jetski_cli
+              </button>
               <button class="btn btn-sm btn-warning" id="btnStopCurrent" onclick="stopCurrentSession()" title="Mark this workflow session as Stopped">
                 🛑 Stop
               </button>
@@ -1210,6 +1769,42 @@
             </div>
           </div>
           <div class="inspector-desc" id="wfDesc"></div>
+
+          <!-- Waiting for Human Verification Alert -->
+          <div class="alert-banner alert-waiting" id="waitingAlert" style="display: none; flex-direction: column; gap: 10px;">
+            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; width: 100%;">
+              <div>
+                <strong>⏸️ Waiting for Human Verification:</strong>
+                <span id="waitingReason">Workflow paused at a Human Verifier barrier. Inspect the work and click Approve &amp; Continue when ready.</span>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; width: 100%; flex-wrap: wrap;">
+              <input type="text" id="humanApprovalFeedback" class="builder-input" style="flex: 1; min-width: 220px;" placeholder="Optional feedback or instructions for the next step...">
+              <label style="display: flex; align-items: center; gap: 5px; font-size: 12px; color: #fed7aa; cursor: pointer; user-select: none;">
+                <input type="checkbox" id="resumeJetskiOnApprove" checked style="accent-color: #fb923c;">
+                Auto-resume jetski_cli
+              </label>
+              <button class="btn btn-sm btn-success" id="btnApproveContinue" onclick="approveCurrentSession()">
+                ✅ Approve &amp; Continue
+              </button>
+            </div>
+          </div>
+
+          <!-- Agent Interrupted / Idle Alert -->
+          <div class="alert-banner alert-interrupted" id="agentInterruptedAlert" style="display: none; flex-direction: column; gap: 10px;">
+            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; width: 100%;">
+              <div>
+                <strong id="agentInterruptedTitle">⚠️ Agent Conversation Interrupted:</strong>
+                <span id="agentInterruptedReason">The background jetski_cli conversation stopped mid-turn before completing the workflow.</span>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; width: 100%; flex-wrap: wrap;">
+              <input type="text" id="pokeAgentPromptInput" class="builder-input" style="flex: 1; min-width: 240px;" placeholder="Optional message or hint for the agent (leave blank to continue from where it left off)..." onkeydown="if(event.key==='Enter') pokeCurrentSession('pokeAgentPromptInput', 'btnPokeBanner')">
+              <button class="btn btn-sm btn-warning" id="btnPokeBanner" onclick="pokeCurrentSession('pokeAgentPromptInput', 'btnPokeBanner')">
+                👉 Poke Agent to Continue
+              </button>
+            </div>
+          </div>
 
           <!-- Stuck Alert -->
           <div class="alert-banner alert-stuck" id="stuckAlert" style="display: none;">
@@ -1235,6 +1830,26 @@
             </div>
           </div>
 
+          <!-- Jetski Conversation Banner -->
+          <div class="command-banner" id="jetskiBanner" style="display: none; border-color: rgba(96, 165, 250, 0.35); background-color: rgba(37, 99, 235, 0.08);">
+            <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+              <span style="font-size: 11px; color: var(--accent); text-transform: uppercase; font-weight: 700;">🤖 Jetski Agent:</span>
+              <span class="status-badge" id="jetskiStatusBadge" style="font-size: 9px; padding: 1px 5px;">IDLE</span>
+              <code class="command-code" id="jetskiConvCmd" style="color: #93c5fd;">jetski_cli --conversation ...</code>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+              <button class="btn btn-sm btn-warning" id="btnQuickPokeAgent" onclick="pokeCurrentSession(null, 'btnQuickPokeAgent')" title="Send a continuation prompt to jetski_cli to resume this conversation">
+                👉 Poke Agent
+              </button>
+              <button class="btn btn-sm btn-primary" id="btnWatchLiveConv" onclick="switchTab('tab-conversation')">
+                💬 Watch Live Conversation
+              </button>
+              <button class="btn btn-sm" id="btnCopyJetskiCmd" onclick="copyJetskiCmd()">
+                Copy Resume Cmd
+              </button>
+            </div>
+          </div>
+
           <!-- Continuation Command -->
           <div class="command-banner" id="continuationBanner">
             <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
@@ -1248,14 +1863,17 @@
         </div>
 
         <!-- Navigation Tabs -->
-        <div class="inspector-tabs">
-          <button class="tab-btn active" data-tab="tab-stepper" onclick="switchTab('tab-stepper')">
+        <div class="inspector-tabs" id="inspectorTabsBar">
+          <button class="tab-btn active" id="tabBtnStepper" data-tab="tab-stepper" onclick="switchTab('tab-stepper')">
             Pipeline Stepper
           </button>
-          <button class="tab-btn" data-tab="tab-metadata" onclick="switchTab('tab-metadata')">
+          <button class="tab-btn" id="tabBtnConversation" data-tab="tab-conversation" onclick="switchTab('tab-conversation')">
+            💬 Live Conversation (<span id="transcriptStepCount">0</span>)
+          </button>
+          <button class="tab-btn" id="tabBtnMetadata" data-tab="tab-metadata" onclick="switchTab('tab-metadata')">
             Metadata
           </button>
-          <button class="tab-btn" data-tab="tab-artifacts" onclick="switchTab('tab-artifacts')">
+          <button class="tab-btn" id="tabBtnArtifacts" data-tab="tab-artifacts" onclick="switchTab('tab-artifacts')">
             Artifacts (<span id="artifactCount">0</span>)
           </button>
         </div>
@@ -1266,6 +1884,36 @@
           <div class="tab-content active" id="tab-stepper">
             <div class="stepper-container" id="stepperContainer">
               <!-- Steps rendered dynamically -->
+            </div>
+          </div>
+
+          <!-- Live Conversation Tab -->
+          <div class="tab-content" id="tab-conversation">
+            <div class="transcript-wrapper">
+              <div class="transcript-toolbar">
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                  <span style="font-weight: 600; color: var(--text-main);">Conversation ID:</span>
+                  <code id="transcriptConvIdLabel" style="font-family: var(--font-mono); color: #93c5fd;">None</code>
+                  <span class="status-badge PENDING" id="transcriptAgentStatusBadge" style="font-size: 9px; padding: 1px 6px;">IDLE</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span id="transcriptShowingLabel" style="font-size: 11px; color: var(--text-muted);">Newest first</span>
+                  <button class="btn btn-sm" id="btnResetTranscriptLimit" style="display: none;" onclick="resetTranscriptLimit()">
+                    Collapse to latest 5
+                  </button>
+                  <button class="btn btn-sm" onclick="fetchCurrentTranscript(false)">Refresh Feed</button>
+                </div>
+              </div>
+              <div class="transcript-poke-bar" id="transcriptPokeBar" style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px; flex-wrap: wrap;">
+                <span style="font-size: 12px; font-weight: 600; color: var(--text-muted); white-space: nowrap;">👉 Poke / Message Agent:</span>
+                <input type="text" id="transcriptPokeInput" class="builder-input" style="flex: 1; min-width: 220px;" placeholder="Optional instruction (or leave blank to poke agent to continue from where it left off)..." onkeydown="if(event.key==='Enter') pokeCurrentSession('transcriptPokeInput', 'btnTranscriptPoke')">
+                <button class="btn btn-sm btn-warning" id="btnTranscriptPoke" onclick="pokeCurrentSession('transcriptPokeInput', 'btnTranscriptPoke')">
+                  👉 Poke Agent to Continue
+                </button>
+              </div>
+              <div class="transcript-feed" id="transcriptFeed">
+                <div style="padding: 24px; text-align: center; color: var(--text-dim);">No live conversation attached to this session yet.</div>
+              </div>
             </div>
           </div>
 
@@ -1295,6 +1943,92 @@
     </main>
   </div>
 
+  <!-- Start New Workflow Modal -->
+  <div class="modal-overlay" id="newWorkflowModal" onclick="closeNewWorkflowModal(event)">
+    <div class="modal-container" style="max-width: 720px;" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div class="modal-title">🚀 Start New Workflow</div>
+        <button class="btn btn-sm" onclick="closeNewWorkflowModal()">Close</button>
+      </div>
+      <div class="modal-body">
+        <!-- Quick Presets -->
+        <div class="builder-section">
+          <span class="builder-label">Quick Presets</span>
+          <div class="preset-bar">
+            <button class="preset-chip" onclick="applyBuilderPreset('bug_fix_full')">
+              🐛 Reproduce → Fix → Commit → Upload
+            </button>
+            <button class="preset-chip" onclick="applyBuilderPreset('bug_fix_gated')">
+              ⏸️ Reproduce → [Human Verify] → Fix → [Human Verify] → Commit → Upload
+            </button>
+            <button class="preset-chip" onclick="applyBuilderPreset('commit_upload')">
+              📦 Commit → Repo Upload
+            </button>
+          </div>
+        </div>
+
+        <!-- Shared Context Inputs -->
+        <div class="builder-section" style="display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 10px;">
+          <div>
+            <label class="builder-label" for="builderTitle">Session Title (Optional)</label>
+            <input type="text" id="builderTitle" class="builder-input" placeholder="e.g., Fix Vulkan swapchain crash">
+          </div>
+          <div>
+            <label class="builder-label" for="builderBugNumber">Bug Number (Optional)</label>
+            <input type="text" id="builderBugNumber" class="builder-input" placeholder="e.g., 471234567">
+          </div>
+          <div>
+            <label class="builder-label" for="builderRepoPath">Source Directory</label>
+            <select id="builderRepoPath" class="builder-select">
+              <option value="">Loading source directories...</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Ordered Workflow Steps List -->
+        <div class="builder-section">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+            <span class="builder-label" style="margin-bottom: 0;">Workflow Pipeline (Drag to reorder)</span>
+            <span style="font-size: 11px; color: var(--text-dim);" id="builderStepCount">0 steps</span>
+          </div>
+          <div class="builder-steps-list" id="builderStepsList">
+            <!-- Populated dynamically -->
+          </div>
+
+          <!-- Append Step Controls -->
+          <div style="display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
+            <select id="builderAddWorkflowSelect" class="builder-select" style="width: auto; min-width: 210px;">
+              <option value="reproduce-bug">reproduce-bug (Reproduce Bug)</option>
+              <option value="fix-bug">fix-bug (Implement Fix)</option>
+              <option value="create-commit">create-commit (Create Git Commit)</option>
+              <option value="repo-upload">repo-upload (Upload CL to Gerrit)</option>
+            </select>
+            <button class="btn btn-sm" onclick="addSelectedWorkflowStep()">
+              + Add Workflow Step
+            </button>
+            <button class="btn btn-sm btn-warning" onclick="addHumanVerifyStep()">
+              + Add ⏸️ Human Verifier
+            </button>
+          </div>
+        </div>
+
+        <!-- Launch Option -->
+        <div class="builder-section" style="margin-bottom: 0; padding: 10px 12px; border-radius: 6px; background-color: rgba(37, 99, 235, 0.1); border: 1px solid rgba(96, 165, 250, 0.3);">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-size: 12px; color: var(--text-main); font-weight: 500;">
+            <input type="checkbox" id="builderLaunchJetski" checked style="accent-color: var(--accent);">
+            <span>Automatically start a new <code>jetski_cli</code> conversation in the background to execute this workflow</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm" onclick="closeNewWorkflowModal()">Cancel</button>
+        <button class="btn btn-sm btn-primary" id="btnSubmitNewWorkflow" onclick="submitNewWorkflow()">
+          🚀 Start Workflow
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Artifact Preview Modal -->
   <div class="modal-overlay" id="artifactModal" onclick="closeArtifactModal(event)">
     <div class="modal-container" onclick="event.stopPropagation()">
@@ -1314,27 +2048,297 @@
 
   <script>
     let allSessions = [];
+    let allConversations = [];
+    let sidebarMode = 'workflows'; // 'workflows' | 'conversations'
     let activeFilter = 'all';
+    let activeConvFilter = 'all';
     let currentSelectedWorkflow = null;
     let currentSelectedId = null;
+    let currentSelectedConversationId = null;
     let currentDetailData = null;
     let autoRefreshTimer = null;
     const expandedPrompts = new Set();
+    const expandedThinking = new Set();
+    const expandedToolOutputs = new Set();
+    const expandedToolArgs = new Set();
+    let visibleTranscriptLimit = 5;
+    let lastTranscriptData = null;
+    const knownSessionStates = new Map();
+    let hasCompletedInitialSessionLoad = false;
+    const knownConversationStates = new Map();
+    let hasCompletedInitialConvLoad = false;
+
+    // Persistent set of subscribed conversation IDs and starred items
+    const SUBSCRIBED_CONVS_STORAGE_KEY = 'emu_dev_cli_subscribed_convs';
+    const AUTO_SUB_RUNNING_STORAGE_KEY = 'emu_dev_cli_auto_sub_running';
+    const STARRED_SESSIONS_STORAGE_KEY = 'emu_dev_cli_starred_sessions';
+    const STARRED_CONVS_STORAGE_KEY = 'emu_dev_cli_starred_convs';
+    const subscribedConversations = new Set();
+    const starredSessions = new Set(); // "${workflow_name}:${state_id}"
+    const starredConversations = new Set(); // "${conversation_id}"
+    let autoSubscribeRunningConvs = false;
+    let lastWorkflowAttentionCount = 0;
+    let lastConvAttentionCount = 0;
+
+    function loadSubscriptionSettings() {
+      try {
+        const raw = localStorage.getItem(SUBSCRIBED_CONVS_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach(cid => {
+              if (cid && typeof cid === 'string') subscribedConversations.add(cid);
+            });
+          }
+        }
+        const autoRaw = localStorage.getItem(AUTO_SUB_RUNNING_STORAGE_KEY);
+        autoSubscribeRunningConvs = autoRaw === 'true';
+        const checkEl = document.getElementById('autoSubRunningCheck');
+        if (checkEl) checkEl.checked = autoSubscribeRunningConvs;
+
+        const rawStarSessions = localStorage.getItem(STARRED_SESSIONS_STORAGE_KEY);
+        if (rawStarSessions) {
+          const parsed = JSON.parse(rawStarSessions);
+          if (Array.isArray(parsed)) {
+            parsed.forEach(k => {
+              if (k && typeof k === 'string') starredSessions.add(k);
+            });
+          }
+        }
+        const rawStarConvs = localStorage.getItem(STARRED_CONVS_STORAGE_KEY);
+        if (rawStarConvs) {
+          const parsed = JSON.parse(rawStarConvs);
+          if (Array.isArray(parsed)) {
+            parsed.forEach(cid => {
+              if (cid && typeof cid === 'string') starredConversations.add(cid);
+            });
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load subscription/starred settings:', e);
+      }
+      updateSubscribedCountBadge();
+      updateStarredCountBadges();
+    }
+
+    function saveStarredState() {
+      try {
+        localStorage.setItem(
+          STARRED_SESSIONS_STORAGE_KEY,
+          JSON.stringify(Array.from(starredSessions))
+        );
+        localStorage.setItem(
+          STARRED_CONVS_STORAGE_KEY,
+          JSON.stringify(Array.from(starredConversations))
+        );
+      } catch (e) {
+        console.error('Failed to save starred state:', e);
+      }
+      updateStarredCountBadges();
+      updateCurrentStarButton();
+    }
+
+    function updateStarredCountBadges() {
+      const wfEl = document.getElementById('starredSessionCount');
+      if (wfEl) {
+        wfEl.textContent = hasCompletedInitialSessionLoad
+          ? allSessions.filter(s => isSessionStarred(s.workflow_name, s.state_id)).length
+          : starredSessions.size;
+      }
+      const convEl = document.getElementById('starredConvCount');
+      if (convEl) {
+        convEl.textContent = hasCompletedInitialConvLoad
+          ? allConversations.filter(c => starredConversations.has(c.conversation_id)).length
+          : starredConversations.size;
+      }
+    }
+
+    function isSessionStarred(wf, sid) {
+      return starredSessions.has(`${wf}:${sid}`);
+    }
+
+    function toggleSessionStar(event, wf, sid) {
+      if (event) event.stopPropagation();
+      if (!wf || !sid) return;
+      const key = `${wf}:${sid}`;
+      if (starredSessions.has(key)) {
+        starredSessions.delete(key);
+      } else {
+        starredSessions.add(key);
+      }
+      saveStarredState();
+      renderSidebarList();
+    }
+
+    function toggleConversationStar(event, cid) {
+      if (event) event.stopPropagation();
+      if (!cid) return;
+      if (starredConversations.has(cid)) {
+        starredConversations.delete(cid);
+      } else {
+        starredConversations.add(cid);
+      }
+      saveStarredState();
+      renderSidebarList();
+    }
+
+    function toggleCurrentStar() {
+      if (currentSelectedConversationId) {
+        toggleConversationStar(null, currentSelectedConversationId);
+      } else if (currentSelectedWorkflow && currentSelectedId) {
+        toggleSessionStar(null, currentSelectedWorkflow, currentSelectedId);
+      }
+    }
+
+    function updateCurrentStarButton() {
+      const btn = document.getElementById('btnStarCurrent');
+      if (!btn) return;
+      let isStar = false;
+      if (currentSelectedConversationId) {
+        isStar = starredConversations.has(currentSelectedConversationId);
+      } else if (currentSelectedWorkflow && currentSelectedId) {
+        isStar = isSessionStarred(currentSelectedWorkflow, currentSelectedId);
+      }
+      btn.textContent = isStar ? '★' : '☆';
+      btn.classList.toggle('starred', isStar);
+      btn.title = isStar ? 'Unstar' : 'Star';
+    }
+
+    function saveSubscribedConversations() {
+      try {
+        localStorage.setItem(
+          SUBSCRIBED_CONVS_STORAGE_KEY,
+          JSON.stringify(Array.from(subscribedConversations))
+        );
+      } catch (e) {
+        console.error('Failed to save subscribed conversations:', e);
+      }
+      updateSubscribedCountBadge();
+      updateCurrentConvSubscribeButton();
+    }
+
+    function updateSubscribedCountBadge() {
+      const el = document.getElementById('subscribedConvCount');
+      if (el) el.textContent = subscribedConversations.size;
+    }
+
+    function toggleAutoSubscribeRunning(checked) {
+      autoSubscribeRunningConvs = !!checked;
+      try {
+        localStorage.setItem(AUTO_SUB_RUNNING_STORAGE_KEY, autoSubscribeRunningConvs ? 'true' : 'false');
+      } catch (e) {}
+      if (autoSubscribeRunningConvs) {
+        subscribeAllRunningConversations(true);
+      }
+    }
+
+    function subscribeAllRunningConversations(silent = false) {
+      let added = 0;
+      for (const c of allConversations) {
+        if (c.status === 'RUNNING' && !subscribedConversations.has(c.conversation_id)) {
+          subscribedConversations.add(c.conversation_id);
+          added++;
+        }
+      }
+      saveSubscribedConversations();
+      renderSidebarList();
+      if (!silent) {
+        const runningTotal = allConversations.filter(c => c.status === 'RUNNING').length;
+        showToastNotification({
+          title: '🔔 Subscribed to Running Conversations',
+          body: runningTotal > 0
+            ? `Subscribed to ${runningTotal} running conversation(s). You will receive a popup when any of them stops and needs your input.`
+            : 'No conversations are currently running. Toggle 🔔 on any conversation card to subscribe.',
+          type: 'info',
+          durationMs: 6000,
+        });
+      }
+    }
+
+    function toggleConversationSubscription(event, cid) {
+      if (event) event.stopPropagation();
+      if (!cid) return;
+      const conv = allConversations.find(c => c.conversation_id === cid);
+      const title = conv ? conv.title : cid.substring(0, 8);
+      if (subscribedConversations.has(cid)) {
+        subscribedConversations.delete(cid);
+        saveSubscribedConversations();
+        renderSidebarList();
+        showToastNotification({
+          title: `🔕 Unsubscribed: ${title}`,
+          body: `You will no longer receive stop/input notifications for conversation #${cid.substring(0, 8)}.`,
+          type: 'info',
+          durationMs: 4500,
+        });
+      } else {
+        subscribedConversations.add(cid);
+        saveSubscribedConversations();
+        renderSidebarList();
+        const statusMsg = conv && conv.status === 'RUNNING'
+          ? 'Currently RUNNING — you will get a notification popup as soon as it stops and needs your input.'
+          : `Currently ${conv ? conv.status : 'idle'} — you will get a notification popup whenever it transitions from running to needing input.`;
+        showToastNotification({
+          title: `🔔 Subscribed: ${title}`,
+          body: statusMsg,
+          type: 'success',
+          conversationId: cid,
+          durationMs: 6500,
+        });
+      }
+    }
+
+    function getActiveConversationId() {
+      if (currentSelectedConversationId) return currentSelectedConversationId;
+      if (currentDetailData && currentDetailData.conversation_id) return currentDetailData.conversation_id;
+      return null;
+    }
+
+    function toggleCurrentConversationSubscription() {
+      const cid = getActiveConversationId();
+      if (!cid) return;
+      toggleConversationSubscription(null, cid);
+    }
+
+    function updateCurrentConvSubscribeButton() {
+      const btn = document.getElementById('btnSubscribeCurrentConv');
+      if (!btn) return;
+      const cid = getActiveConversationId();
+      if (!cid) {
+        btn.style.display = 'none';
+        return;
+      }
+      btn.style.display = 'inline-flex';
+      const isSub = subscribedConversations.has(cid);
+      btn.textContent = isSub ? '🔔 Subscribed (Alerts On)' : '🔕 Subscribe Alerts';
+      btn.style.borderColor = isSub ? 'rgba(56, 189, 248, 0.55)' : '';
+      btn.style.color = isSub ? '#38bdf8' : '';
+      btn.style.background = isSub ? 'rgba(56, 189, 248, 0.14)' : '';
+    }
 
     async function init() {
+      loadSubscriptionSettings();
+      updateNotificationButtonState();
       parseHash();
-      await fetchSessions();
+      await Promise.all([fetchSessions(), fetchConversations()]);
       setupAutoRefresh();
 
-      if (currentSelectedWorkflow && currentSelectedId) {
+      if (currentSelectedConversationId) {
+        setSidebarMode('conversations', false);
+        selectConversation(currentSelectedConversationId);
+      } else if (currentSelectedWorkflow && currentSelectedId) {
         loadSessionDetail(currentSelectedWorkflow, currentSelectedId);
       } else if (allSessions.length > 0) {
         selectSession(allSessions[0].workflow_name, allSessions[0].state_id);
+      } else if (allConversations.length > 0) {
+        setSidebarMode('conversations', false);
+        selectConversation(allConversations[0].conversation_id);
       }
 
       window.addEventListener('hashchange', () => {
         parseHash();
-        if (currentSelectedWorkflow && currentSelectedId) {
+        if (currentSelectedConversationId) {
+          renderConversationInspector(currentSelectedConversationId);
+        } else if (currentSelectedWorkflow && currentSelectedId) {
           loadSessionDetail(currentSelectedWorkflow, currentSelectedId);
         }
       });
@@ -1345,6 +2349,349 @@
           document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('open'));
         }
       });
+    }
+
+    function updateNotificationButtonState() {
+      const btn = document.getElementById('btnNotifications');
+      if (!btn) return;
+      if (!('Notification' in window)) {
+        btn.textContent = '🔔 In-App Alerts On';
+        return;
+      }
+      if (Notification.permission === 'granted') {
+        btn.textContent = '🔔 Alerts On';
+        btn.style.borderColor = 'rgba(52, 211, 153, 0.45)';
+        btn.style.color = '#34d399';
+      } else if (Notification.permission === 'denied') {
+        btn.textContent = '🔕 Desktop Blocked (In-App Active)';
+        btn.style.borderColor = 'rgba(245, 158, 11, 0.45)';
+        btn.style.color = '#fbbf24';
+      } else {
+        btn.textContent = '🔔 Enable Desktop Alerts';
+      }
+    }
+
+    async function handleNotificationButtonClick() {
+      if (!('Notification' in window)) {
+        showToastNotification({
+          title: '🔔 In-App Notifications Active',
+          body: 'Browser desktop Notification API is unavailable in this context; in-app popup alerts will still appear.',
+          type: 'info',
+        });
+        return;
+      }
+      if (Notification.permission === 'default') {
+        try {
+          const perm = await Notification.requestPermission();
+          updateNotificationButtonState();
+          if (perm === 'granted') {
+            fireWorkflowNotification({
+              title: '🔔 Desktop Notifications Enabled',
+              body: 'You will now receive popups when a workflow or subscribed conversation needs your attention.',
+              type: 'success',
+              tag: 'test-notif',
+            });
+          }
+        } catch (e) {
+          console.error('Failed to request notification permission:', e);
+        }
+      } else if (Notification.permission === 'granted') {
+        fireWorkflowNotification({
+          title: '🔔 Notifications Active',
+          body: 'Test notification: Desktop and in-app alerts are active for workflows and subscribed conversations.',
+          type: 'info',
+          tag: 'test-notif-' + Date.now(),
+        });
+      } else {
+        showToastNotification({
+          title: '🔕 Desktop Notifications Blocked by Browser',
+          body: 'In-app toast popups are active. To enable OS desktop popups, allow Notifications for this site in your browser address bar.',
+          type: 'warning',
+        });
+      }
+    }
+
+    function showToastNotification({
+      title,
+      body,
+      type = 'info',
+      workflowName = null,
+      stateId = null,
+      conversationId = null,
+      durationMs = 10000,
+    }) {
+      const container = document.getElementById('toastContainer');
+      if (!container) return;
+
+      const card = document.createElement('div');
+      card.className = `toast-card toast-${type}`;
+      const ts = new Date().toLocaleTimeString();
+
+      let actionBtnHtml = '';
+      if (workflowName && stateId) {
+        actionBtnHtml = `
+          <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
+            <button class="btn btn-sm btn-primary" data-wf="${escapeHtml(workflowName)}" data-sid="${escapeHtml(stateId)}">
+              Inspect Session →
+            </button>
+          </div>
+        `;
+      } else if (conversationId) {
+        actionBtnHtml = `
+          <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
+            <button class="btn btn-sm btn-primary" data-cid="${escapeHtml(conversationId)}">
+              Open Conversation →
+            </button>
+          </div>
+        `;
+      }
+
+      card.innerHTML = `
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;">
+          <div style="font-weight: 700; font-size: 13px; color: var(--text-main);">${escapeHtml(title)}</div>
+          <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+            <span style="font-size: 10px; color: var(--text-dim); font-family: var(--font-mono);">${escapeHtml(ts)}</span>
+            <button class="btn-card-del" style="opacity: 1; font-size: 15px;" title="Dismiss">×</button>
+          </div>
+        </div>
+        <div style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">${escapeHtml(body)}</div>
+        ${actionBtnHtml}
+      `;
+
+      const closeBtn = card.querySelector('.btn-card-del');
+      if (closeBtn) {
+        closeBtn.onclick = () => card.remove();
+      }
+      const inspectBtn = card.querySelector('button[data-wf]');
+      if (inspectBtn) {
+        inspectBtn.onclick = () => {
+          setSidebarMode('workflows', false);
+          selectSession(workflowName, stateId);
+          card.remove();
+        };
+      }
+      const convBtn = card.querySelector('button[data-cid]');
+      if (convBtn) {
+        convBtn.onclick = () => {
+          setSidebarMode('conversations', false);
+          selectConversation(conversationId);
+          card.remove();
+        };
+      }
+
+      container.appendChild(card);
+      if (durationMs > 0) {
+        setTimeout(() => {
+          if (card.parentNode) card.remove();
+        }, durationMs);
+      }
+    }
+
+    function fireWorkflowNotification({
+      title,
+      body,
+      type = 'info',
+      workflowName = null,
+      stateId = null,
+      conversationId = null,
+      tag = null,
+      requireInteraction = false,
+    }) {
+      // 1. Always show in-app toast notification popup
+      showToastNotification({
+        title,
+        body,
+        type,
+        workflowName,
+        stateId,
+        conversationId,
+        durationMs: requireInteraction ? 18000 : 9000,
+      });
+
+      // 2. Also fire OS/Browser Web Notification popup if permission is granted
+      if ('Notification' in window && Notification.permission === 'granted') {
+        try {
+          const defaultTag = workflowName && stateId
+            ? `wf-${stateId}-${type}`
+            : (conversationId ? `conv-${conversationId}-${type}` : undefined);
+          const n = new Notification(title, {
+            body: body,
+            tag: tag || defaultTag,
+            requireInteraction: !!requireInteraction,
+          });
+          n.onclick = () => {
+            window.focus();
+            if (workflowName && stateId) {
+              setSidebarMode('workflows', false);
+              selectSession(workflowName, stateId);
+            } else if (conversationId) {
+              setSidebarMode('conversations', false);
+              selectConversation(conversationId);
+            }
+            n.close();
+          };
+        } catch (e) {
+          console.error('Browser Notification error:', e);
+        }
+      }
+    }
+
+    function updateDocumentTitleAttention() {
+      const total = lastWorkflowAttentionCount + lastConvAttentionCount;
+      document.title = total > 0
+        ? `⚠️ (${total}) Needs Attention — emu-dev-cli Workflow Visualizer`
+        : 'emu-dev-cli Workflow Visualizer';
+    }
+
+    function checkSessionNotifications(sessions) {
+      let attentionCount = 0;
+
+      for (const s of sessions) {
+        const key = `${s.workflow_name}:${s.state_id}`;
+        const sState = (s.state || '').toUpperCase();
+        const agStatus = (s.agent_status || '').toUpperCase();
+        const label = s.custom_title || s.workflow_name;
+        const shortId = '#' + (s.state_id || '').substring(0, 8);
+
+        if (
+          sState === 'WAITING_HUMAN' ||
+          sState === 'STUCK' ||
+          (sState === 'RUNNING' && (agStatus === 'INTERRUPTED' || agStatus === 'ERROR' || agStatus.startsWith('EXITED')))
+        ) {
+          attentionCount++;
+        }
+
+        const prev = knownSessionStates.get(key);
+        if (hasCompletedInitialSessionLoad) {
+          if (!prev) {
+            if (['RUNNING', 'INIT', 'WAITING_HUMAN'].includes(sState)) {
+              fireWorkflowNotification({
+                title: `🚀 Workflow Started: ${label}`,
+                body: `Session ${shortId} has started (${sState}).`,
+                type: 'info',
+                workflowName: s.workflow_name,
+                stateId: s.state_id,
+                tag: `wf-${s.state_id}-started`,
+                requireInteraction: false,
+              });
+            }
+          } else {
+            if (prev.state !== 'DONE' && sState === 'DONE') {
+              fireWorkflowNotification({
+                title: `✅ Workflow Finished: ${label}`,
+                body: `Session ${shortId} completed all steps successfully!`,
+                type: 'success',
+                workflowName: s.workflow_name,
+                stateId: s.state_id,
+                tag: `wf-${s.state_id}-done`,
+                requireInteraction: true,
+              });
+            } else if (prev.state !== 'WAITING_HUMAN' && sState === 'WAITING_HUMAN') {
+              fireWorkflowNotification({
+                title: `⏸️ Human Verification Needed: ${label}`,
+                body: `Session ${shortId} reached a Human Verifier barrier at Step ${s.step}. Click to review and approve.`,
+                type: 'warning',
+                workflowName: s.workflow_name,
+                stateId: s.state_id,
+                tag: `wf-${s.state_id}-waiting-human-${s.step}`,
+                requireInteraction: true,
+              });
+            } else if (prev.state !== 'STUCK' && sState === 'STUCK') {
+              fireWorkflowNotification({
+                title: `🛑 Workflow Stuck: ${label}`,
+                body: s.stuck_reason || `Session ${shortId} is stuck at Step ${s.step}.`,
+                type: 'error',
+                workflowName: s.workflow_name,
+                stateId: s.state_id,
+                tag: `wf-${s.state_id}-stuck-${s.step}`,
+                requireInteraction: true,
+              });
+            } else if (
+              sState === 'RUNNING' &&
+              prev.agent_status !== 'INTERRUPTED' &&
+              (agStatus === 'INTERRUPTED' || agStatus === 'ERROR' || agStatus.startsWith('EXITED'))
+            ) {
+              fireWorkflowNotification({
+                title: `⚠️ Workflow Interrupted: ${label}`,
+                body: s.agent_status_reason || `Agent conversation for ${shortId} was interrupted. Click to poke the agent to continue.`,
+                type: 'warning',
+                workflowName: s.workflow_name,
+                stateId: s.state_id,
+                tag: `wf-${s.state_id}-interrupted-${s.step}`,
+                requireInteraction: true,
+              });
+            }
+          }
+        }
+
+        knownSessionStates.set(key, {
+          state: sState,
+          agent_status: agStatus,
+          step: s.step,
+        });
+      }
+
+      hasCompletedInitialSessionLoad = true;
+      lastWorkflowAttentionCount = attentionCount;
+      updateDocumentTitleAttention();
+    }
+
+    function checkConversationNotifications(conversations) {
+      let subChanged = false;
+      let convAttention = 0;
+
+      for (const c of conversations) {
+        const cid = c.conversation_id;
+        const cStatus = (c.status || '').toUpperCase();
+        const shortId = '#' + cid.substring(0, 8);
+
+        if (autoSubscribeRunningConvs && cStatus === 'RUNNING' && !subscribedConversations.has(cid)) {
+          subscribedConversations.add(cid);
+          subChanged = true;
+        }
+
+        const isSubscribed = subscribedConversations.has(cid);
+        if (isSubscribed && (cStatus === 'WAITING_INPUT' || cStatus === 'INTERRUPTED')) {
+          convAttention++;
+        }
+
+        const prev = knownConversationStates.get(cid);
+        if (hasCompletedInitialConvLoad && isSubscribed && prev) {
+          if (prev.status === 'RUNNING' && cStatus === 'WAITING_INPUT') {
+            fireWorkflowNotification({
+              title: `💬 Conversation Needs Input: ${c.title}`,
+              body: c.preview
+                ? `(${shortId}) ${c.preview}`
+                : `Conversation ${shortId} finished its turn and is waiting for your input to continue.`,
+              type: 'success',
+              conversationId: cid,
+              tag: `conv-${cid}-waiting-${c.step_count}`,
+              requireInteraction: true,
+            });
+          } else if (prev.status !== 'INTERRUPTED' && cStatus === 'INTERRUPTED') {
+            fireWorkflowNotification({
+              title: `⚠️ Conversation Interrupted: ${c.title}`,
+              body: c.status_reason || `Conversation ${shortId} stopped mid-turn and needs your input or a poke to continue.`,
+              type: 'warning',
+              conversationId: cid,
+              tag: `conv-${cid}-interrupted-${c.step_count}`,
+              requireInteraction: true,
+            });
+          }
+        }
+
+        knownConversationStates.set(cid, {
+          status: cStatus,
+          step_count: c.step_count,
+        });
+      }
+
+      if (subChanged) {
+        saveSubscribedConversations();
+      }
+      hasCompletedInitialConvLoad = true;
+      lastConvAttentionCount = convAttention;
+      updateDocumentTitleAttention();
     }
 
     function toggleDropdown(id) {
@@ -1358,14 +2705,22 @@
       const params = new URLSearchParams(hash);
       const wf = params.get('workflow');
       const id = params.get('id');
-      if (wf && id) {
+      const cid = params.get('conversation');
+      if (cid) {
+        currentSelectedConversationId = cid;
+        currentSelectedWorkflow = null;
+        currentSelectedId = null;
+      } else if (wf && id) {
         currentSelectedWorkflow = wf;
         currentSelectedId = id;
+        currentSelectedConversationId = null;
       }
     }
 
-    function setHash(wf, id) {
-      if (wf && id) {
+    function setHash(wf, id, cid = null) {
+      if (cid) {
+        window.location.hash = `conversation=${encodeURIComponent(cid)}`;
+      } else if (wf && id) {
         window.location.hash = `workflow=${encodeURIComponent(wf)}&id=${encodeURIComponent(id)}`;
       } else {
         window.location.hash = '';
@@ -1388,7 +2743,10 @@
       stopPolling();
       autoRefreshTimer = setInterval(() => {
         fetchSessions(true);
-        if (currentSelectedWorkflow && currentSelectedId) {
+        fetchConversations(true);
+        if (currentSelectedConversationId) {
+          renderConversationInspector(currentSelectedConversationId, true);
+        } else if (currentSelectedWorkflow && currentSelectedId) {
           loadSessionDetail(currentSelectedWorkflow, currentSelectedId, true);
         }
       }, 2000);
@@ -1403,7 +2761,10 @@
 
     function refreshData() {
       fetchSessions();
-      if (currentSelectedWorkflow && currentSelectedId) {
+      fetchConversations();
+      if (currentSelectedConversationId) {
+        renderConversationInspector(currentSelectedConversationId, false);
+      } else if (currentSelectedWorkflow && currentSelectedId) {
         loadSessionDetail(currentSelectedWorkflow, currentSelectedId);
       }
     }
@@ -1422,22 +2783,274 @@
         if (!res.ok) return;
         const data = await res.json();
         allSessions = data.sessions || [];
-        renderSessionList();
+        const countEl = document.getElementById('sidebarWorkflowCount');
+        if (countEl) countEl.textContent = allSessions.length;
+        checkSessionNotifications(allSessions);
+        updateStarredCountBadges();
+        if (sidebarMode === 'workflows') {
+          renderSessionList();
+        }
       } catch (e) {
         console.error('Failed to fetch sessions:', e);
       }
     }
 
+    async function fetchConversations(isBackground = false) {
+      try {
+        const res = await fetch('/api/conversations?limit=60');
+        if (!res.ok) return;
+        const data = await res.json();
+        allConversations = data.conversations || [];
+        const countEl = document.getElementById('sidebarConvCount');
+        if (countEl) countEl.textContent = allConversations.length;
+        checkConversationNotifications(allConversations);
+        updateStarredCountBadges();
+        if (sidebarMode === 'conversations') {
+          renderConversationList();
+        }
+      } catch (e) {
+        console.error('Failed to fetch conversations:', e);
+      }
+    }
+
+    function setSidebarMode(mode, autoSelectFirst = true) {
+      sidebarMode = mode === 'conversations' ? 'conversations' : 'workflows';
+      document.getElementById('modeTabWorkflows').classList.toggle('active', sidebarMode === 'workflows');
+      document.getElementById('modeTabConversations').classList.toggle('active', sidebarMode === 'conversations');
+      document.getElementById('workflowFilterPills').style.display = sidebarMode === 'workflows' ? 'flex' : 'none';
+      document.getElementById('convFilterSection').style.display = sidebarMode === 'conversations' ? 'flex' : 'none';
+      renderSidebarList();
+      if (autoSelectFirst) {
+        if (sidebarMode === 'conversations' && !currentSelectedConversationId && allConversations.length > 0) {
+          selectConversation(allConversations[0].conversation_id);
+        } else if (sidebarMode === 'workflows' && !currentSelectedWorkflow && allSessions.length > 0) {
+          selectSession(allSessions[0].workflow_name, allSessions[0].state_id);
+        }
+      }
+    }
+
+    function renderSidebarList() {
+      if (sidebarMode === 'conversations') {
+        renderConversationList();
+      } else {
+        renderSessionList();
+      }
+    }
+
     function setFilter(filter) {
       activeFilter = filter;
-      document.querySelectorAll('.filter-pill').forEach(pill => {
+      document.querySelectorAll('#workflowFilterPills .filter-pill').forEach(pill => {
         pill.classList.toggle('active', pill.dataset.filter === filter);
       });
       renderSessionList();
     }
 
+    function setConvFilter(filter) {
+      activeConvFilter = filter;
+      document.querySelectorAll('#convFilterPills .filter-pill').forEach(pill => {
+        pill.classList.toggle('active', pill.dataset.convFilter === filter);
+      });
+      renderConversationList();
+    }
+
     function applyFilter() {
-      renderSessionList();
+      renderSidebarList();
+    }
+
+    function renderConversationList() {
+      const listEl = document.getElementById('sessionList');
+      const search = (document.getElementById('searchInput').value || '').toLowerCase().trim();
+
+      const filtered = allConversations.filter(c => {
+        const cStatus = (c.status || '').toUpperCase();
+        const isSub = subscribedConversations.has(c.conversation_id);
+        const isStar = starredConversations.has(c.conversation_id);
+        if (activeConvFilter === 'STARRED' && !isStar) return false;
+        if (activeConvFilter === 'RUNNING' && cStatus !== 'RUNNING') return false;
+        if (activeConvFilter === 'NEEDS_INPUT' && cStatus !== 'WAITING_INPUT' && cStatus !== 'INTERRUPTED') return false;
+        if (activeConvFilter === 'SUBSCRIBED' && !isSub) return false;
+
+        if (search) {
+          const matchTitle = (c.title || '').toLowerCase().includes(search);
+          const matchPreview = (c.preview || '').toLowerCase().includes(search);
+          const matchId = (c.conversation_id || '').toLowerCase().includes(search);
+          const matchWs = (c.workspace_name || '').toLowerCase().includes(search);
+          if (!matchTitle && !matchPreview && !matchId && !matchWs) return false;
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        listEl.innerHTML = '<div style="padding: 24px 16px; text-align: center; color: var(--text-dim); font-size: 12px;">No conversations match filter</div>';
+        return;
+      }
+
+      listEl.innerHTML = filtered.map(c => {
+        const cid = c.conversation_id;
+        const isSelected = currentSelectedConversationId === cid;
+        const isSubscribed = subscribedConversations.has(cid);
+        const isStarred = starredConversations.has(cid);
+        const cStatus = (c.status || 'WAITING_INPUT').toUpperCase();
+
+        let statusBadgeHtml = '';
+        if (cStatus === 'RUNNING') {
+          statusBadgeHtml = `<span class="status-badge RUNNING"><span class="pulse-dot"></span> RUNNING</span>`;
+        } else if (cStatus === 'INTERRUPTED') {
+          statusBadgeHtml = `<span class="status-badge INTERRUPTED" title="${escapeHtml(c.status_reason || '')}">⚠️ INTERRUPTED</span>`;
+        } else {
+          statusBadgeHtml = `<span class="status-badge WAITING_INPUT" title="${escapeHtml(c.status_reason || '')}">💬 NEEDS INPUT</span>`;
+        }
+
+        let linkedWfChip = '';
+        if (c.linked_workflow && c.linked_workflow.state_id) {
+          const wfLabel = c.linked_workflow.custom_title || c.linked_workflow.workflow_name;
+          linkedWfChip = `<span class="sub-wf-chip" title="Linked workflow: ${escapeHtml(wfLabel)}">🔗 ${escapeHtml(wfLabel.substring(0, 22))}</span>`;
+        }
+
+        const wsChip = c.workspace_name
+          ? `<span style="color: var(--text-muted); font-size: 10px;">📁 ${escapeHtml(c.workspace_name)}</span>`
+          : '';
+
+        return `
+          <div class="session-card ${isSelected ? 'selected' : ''}" onclick="selectConversation('${escapeHtml(cid)}')">
+            <div class="card-top">
+              <div style="display: flex; align-items: center; gap: 4px; min-width: 0;">
+                <button class="btn-star ${isStarred ? 'starred' : ''}"
+                        onclick="toggleConversationStar(event, '${escapeHtml(cid)}')"
+                        title="${isStarred ? 'Unstar conversation' : 'Star conversation'}">
+                  ${isStarred ? '★' : '☆'}
+                </button>
+                <div class="card-wf-name" title="${escapeHtml(c.title)}">💬 ${escapeHtml(c.title)}</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 5px; flex-shrink: 0;">
+                ${statusBadgeHtml}
+                <button class="btn-sub-bell ${isSubscribed ? 'subscribed' : ''}"
+                        onclick="toggleConversationSubscription(event, '${escapeHtml(cid)}')"
+                        title="${isSubscribed ? 'Subscribed: You will get a notification popup when this conversation stops and needs your input. Click to unsubscribe.' : 'Click to subscribe to notifications when this conversation stops and needs input'}">
+                  ${isSubscribed ? '🔔' : '🔕'}
+                </button>
+              </div>
+            </div>
+            <div class="card-meta">
+              <span>#${escapeHtml(cid.substring(0, 8))} • ${c.step_count || 0} msgs</span>
+              <span>${formatTime(c.mtime)}</span>
+            </div>
+            ${c.preview ? `<div class="conv-preview">${escapeHtml(c.preview)}</div>` : ''}
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+              ${wsChip}
+              ${linkedWfChip}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function selectConversation(cid) {
+      const isSwitching = currentSelectedConversationId !== cid;
+      if (isSwitching) {
+        expandedPrompts.clear();
+        expandedThinking.clear();
+        expandedToolOutputs.clear();
+        expandedToolArgs.clear();
+        visibleTranscriptLimit = 5;
+        lastTranscriptData = null;
+      }
+      currentSelectedConversationId = cid;
+      currentSelectedWorkflow = null;
+      currentSelectedId = null;
+      currentDetailData = null;
+      setHash('', '', cid);
+      renderSidebarList();
+      if (isSwitching) {
+        showTranscriptLoadingSpinner(cid.substring(0, 8));
+      }
+      renderConversationInspector(cid, false);
+    }
+
+    function openLinkedWorkflowForCurrentConv() {
+      const conv = allConversations.find(c => c.conversation_id === currentSelectedConversationId);
+      if (conv && conv.linked_workflow && conv.linked_workflow.workflow_name && conv.linked_workflow.state_id) {
+        setSidebarMode('workflows', false);
+        selectSession(conv.linked_workflow.workflow_name, conv.linked_workflow.state_id);
+      }
+    }
+
+    function renderConversationInspector(cid, isBackground = false) {
+      const conv = allConversations.find(c => c.conversation_id === cid) || {
+        conversation_id: cid,
+        title: `Conversation #${cid.substring(0, 8)}`,
+        status: 'WAITING_INPUT',
+        status_reason: '',
+        workspace: '',
+      };
+
+      document.getElementById('emptyState').style.display = 'none';
+      document.getElementById('sessionDetail').style.display = 'block';
+
+      document.getElementById('wfTitle').textContent = conv.title || `Conversation #${cid.substring(0, 8)}`;
+      document.getElementById('wfDesc').textContent = conv.workspace ? `Workspace: ${conv.workspace}` : 'Standalone Jetski Conversation';
+      document.getElementById('wfStateId').textContent = cid.substring(0, 8);
+
+      const cStatus = (conv.status || 'WAITING_INPUT').toUpperCase();
+      const badge = document.getElementById('wfStatusBadge');
+      badge.className = `status-badge ${cStatus}`;
+      if (cStatus === 'RUNNING') {
+        badge.innerHTML = '<span class="pulse-dot"></span> RUNNING';
+      } else if (cStatus === 'INTERRUPTED') {
+        badge.innerHTML = '⚠️ INTERRUPTED';
+      } else {
+        badge.innerHTML = '💬 WAITING FOR INPUT';
+      }
+
+      // Hide workflow-specific buttons, show conversation controls
+      document.getElementById('btnStopCurrent').style.display = 'none';
+      document.getElementById('btnDeleteCurrent').style.display = 'none';
+      document.getElementById('btnLaunchAgent').style.display = 'none';
+      document.getElementById('waitingAlert').style.display = 'none';
+      document.getElementById('stuckAlert').style.display = 'none';
+      document.getElementById('stoppedAlert').style.display = 'none';
+      document.getElementById('parentBreadcrumbBanner').style.display = 'none';
+      document.getElementById('continuationBanner').style.display = 'none';
+
+      const linkedBtn = document.getElementById('btnOpenLinkedWorkflow');
+      if (conv.linked_workflow && conv.linked_workflow.workflow_name && conv.linked_workflow.state_id) {
+        linkedBtn.style.display = 'inline-flex';
+        linkedBtn.textContent = `🔄 Open Workflow (#${conv.linked_workflow.state_id.substring(0, 8)})`;
+      } else {
+        linkedBtn.style.display = 'none';
+      }
+
+      updateCurrentConvSubscribeButton();
+      updateCurrentStarButton();
+
+      // Interrupted / Needs Input banner
+      const interruptedAlert = document.getElementById('agentInterruptedAlert');
+      if (cStatus === 'INTERRUPTED') {
+        interruptedAlert.style.display = 'flex';
+        document.getElementById('agentInterruptedTitle').textContent = '⚠️ Conversation Interrupted Mid-Turn:';
+        document.getElementById('agentInterruptedReason').textContent =
+          conv.status_reason || 'This conversation stopped mid-turn. Send a message or poke the agent below to continue.';
+      } else {
+        interruptedAlert.style.display = 'none';
+      }
+
+      // Jetski CLI command banner
+      const jetskiBanner = document.getElementById('jetskiBanner');
+      jetskiBanner.style.display = 'flex';
+      const statusBadge = document.getElementById('jetskiStatusBadge');
+      statusBadge.innerHTML = cStatus === 'RUNNING'
+        ? '<span class="pulse-dot"></span> RUNNING'
+        : (cStatus === 'INTERRUPTED' ? '⚠️ INTERRUPTED' : '💬 WAITING INPUT');
+      statusBadge.className = `status-badge ${cStatus}`;
+      document.getElementById('jetskiConvCmd').textContent = `jetski_cli --conversation ${cid}`;
+      document.getElementById('btnWatchLiveConv').style.display = 'none';
+
+      // Show only the Live Conversation tab in standalone conversation mode
+      document.getElementById('tabBtnStepper').style.display = 'none';
+      document.getElementById('tabBtnMetadata').style.display = 'none';
+      document.getElementById('tabBtnArtifacts').style.display = 'none';
+      switchTab('tab-conversation', false);
+      fetchCurrentTranscript(isBackground);
     }
 
     function renderSessionList() {
@@ -1446,16 +3059,19 @@
 
       const filtered = allSessions.filter(s => {
         const sState = (s.state || '').toUpperCase();
-        if (activeFilter === 'STOPPED') {
+        if (activeFilter === 'STARRED') {
+          if (!isSessionStarred(s.workflow_name, s.state_id)) return false;
+        } else if (activeFilter === 'STOPPED') {
           if (sState !== 'STOPPED' && sState !== 'CANCELLED') return false;
         } else if (activeFilter !== 'all' && sState !== activeFilter) {
           return false;
         }
         if (search) {
           const matchName = s.workflow_name.toLowerCase().includes(search);
+          const matchTitle = (s.custom_title || '').toLowerCase().includes(search);
           const matchId = s.state_id.toLowerCase().includes(search);
           const matchArgs = JSON.stringify(s.key_args || {}).toLowerCase().includes(search);
-          if (!matchName && !matchId && !matchArgs) return false;
+          if (!matchName && !matchTitle && !matchId && !matchArgs) return false;
         }
         return true;
       });
@@ -1471,6 +3087,7 @@
           currentDetailData.parent.workflow_name === s.workflow_name &&
           currentDetailData.parent.state_id === s.state_id;
         const isSelected = isDirectlySelected || isParentOfCurrent;
+        const isStarred = isSessionStarred(s.workflow_name, s.state_id);
         const total = s.total_steps || 1;
         const current = s.state === 'DONE' ? total : (s.step || 0);
         const percent = Math.min(100, Math.round((current / total) * 100));
@@ -1486,14 +3103,26 @@
           subWfChip = `<span class="sub-wf-chip">↳ ${escapeHtml(s.sub_workflow_name)}</span>`;
         }
 
+        const displayName = s.custom_title || s.workflow_name;
+        const agentBadge = s.conversation_id ? `<span title="jetski_cli conversation: ${escapeHtml(s.conversation_id)}" style="font-size: 10px;">🤖</span>` : '';
+        const isAgentInterrupted = s.state === 'RUNNING' && s.agent_status === 'INTERRUPTED';
+
         return `
           <div class="session-card ${isSelected ? 'selected' : ''}" onclick="selectSession('${escapeHtml(s.workflow_name)}', '${escapeHtml(s.state_id)}')">
             <div class="card-top">
-              <div class="card-wf-name">${escapeHtml(s.workflow_name)}</div>
-              <div style="display: flex; align-items: center; gap: 6px;">
+              <div style="display: flex; align-items: center; gap: 4px; min-width: 0;">
+                <button class="btn-star ${isStarred ? 'starred' : ''}"
+                        onclick="toggleSessionStar(event, '${escapeHtml(s.workflow_name)}', '${escapeHtml(s.state_id)}')"
+                        title="${isStarred ? 'Unstar workflow' : 'Star workflow'}">
+                  ${isStarred ? '★' : '☆'}
+                </button>
+                <div class="card-wf-name" title="${escapeHtml(displayName)}">${agentBadge} ${escapeHtml(displayName)}</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 5px;">
+                ${isAgentInterrupted ? `<span class="status-badge INTERRUPTED" title="${escapeHtml(s.agent_status_reason || 'Agent conversation interrupted')}">⚠️ INTERRUPTED</span>` : ''}
                 <span class="status-badge ${escapeHtml(s.state)}">
-                  ${s.state === 'RUNNING' ? '<span class="pulse-dot"></span>' : ''}
-                  ${escapeHtml(s.state)}
+                  ${(s.state === 'RUNNING' && !isAgentInterrupted) ? '<span class="pulse-dot"></span>' : ''}
+                  ${s.state === 'WAITING_HUMAN' ? '⏸ WAITING' : escapeHtml(s.state)}
                 </span>
                 <button class="btn-card-del" onclick="confirmDeleteCard(event, '${escapeHtml(s.workflow_name)}', '${escapeHtml(s.state_id)}')" title="Delete session">×</button>
               </div>
@@ -1517,20 +3146,67 @@
       }).join('');
     }
 
-    function selectSession(workflow, id) {
-      if (currentSelectedWorkflow !== workflow || currentSelectedId !== id) {
-        expandedPrompts.clear();
+    function renderLoadingBoxHtml(title, subtitle = '') {
+      return `
+        <div class="loading-state-box">
+          <div class="loading-spinner"></div>
+          <div style="font-size: 13px; font-weight: 600; color: var(--text-main);">${escapeHtml(title)}</div>
+          ${subtitle ? `<div style="font-size: 11px; color: var(--text-dim); font-family: var(--font-mono);">${escapeHtml(subtitle)}</div>` : ''}
+        </div>
+      `;
+    }
+
+    function showTranscriptLoadingSpinner(targetLabel = '') {
+      const feedEl = document.getElementById('transcriptFeed');
+      if (feedEl) {
+        feedEl.innerHTML = renderLoadingBoxHtml(
+          'Loading conversation transcript...',
+          targetLabel ? `#${targetLabel}` : ''
+        );
       }
+      const convIdEl = document.getElementById('transcriptConvIdLabel');
+      if (convIdEl) {
+        convIdEl.textContent = currentSelectedConversationId || (targetLabel ? `#${targetLabel}` : 'Loading...');
+      }
+      const stepCountEl = document.getElementById('transcriptStepCount');
+      if (stepCountEl) stepCountEl.textContent = '…';
+      const showingLabel = document.getElementById('transcriptShowingLabel');
+      if (showingLabel) showingLabel.textContent = 'Loading messages...';
+      const resetBtn = document.getElementById('btnResetTranscriptLimit');
+      if (resetBtn) resetBtn.style.display = 'none';
+    }
+
+    function selectSession(workflow, id) {
+      const isSwitching = currentSelectedWorkflow !== workflow || currentSelectedId !== id || !!currentSelectedConversationId;
+      if (isSwitching) {
+        expandedPrompts.clear();
+        expandedThinking.clear();
+        expandedToolOutputs.clear();
+        expandedToolArgs.clear();
+        visibleTranscriptLimit = 5;
+        lastTranscriptData = null;
+      }
+      currentSelectedConversationId = null;
       currentSelectedWorkflow = workflow;
       currentSelectedId = id;
       setHash(workflow, id);
-      renderSessionList();
-      loadSessionDetail(workflow, id);
+      renderSidebarList();
+      if (isSwitching) {
+        const stepperEl = document.getElementById('stepperContainer');
+        if (stepperEl) {
+          stepperEl.innerHTML = renderLoadingBoxHtml('Loading workflow session...', `${workflow} (#${id.substring(0, 8)})`);
+        }
+        showTranscriptLoadingSpinner(id.substring(0, 8));
+      }
+      loadSessionDetail(workflow, id, false);
     }
 
     async function loadSessionDetail(workflow, id, isBackground = false) {
       try {
         const res = await fetch(`/api/session?workflow=${encodeURIComponent(workflow)}&id=${encodeURIComponent(id)}`);
+        if (currentSelectedConversationId || currentSelectedWorkflow !== workflow || currentSelectedId !== id) {
+          return;
+        }
         if (!res.ok) {
           if (res.status === 404) {
             currentSelectedWorkflow = null;
@@ -1546,30 +3222,88 @@
           return;
         }
         const data = await res.json();
+        if (currentSelectedConversationId || currentSelectedWorkflow !== workflow || currentSelectedId !== id) {
+          return;
+        }
         currentDetailData = data;
         renderSessionDetail(data, isBackground);
-        renderSessionList();
+        if (sidebarMode === 'workflows') {
+          renderSessionList();
+        }
       } catch (e) {
         console.error('Failed to load session detail:', e);
       }
+    }
+
+    function getAgentBadgeClass(agStatus) {
+      const s = (agStatus || '').toUpperCase();
+      if (s === 'RUNNING') return 'RUNNING';
+      if (s === 'WAITING_INPUT') return 'WAITING_INPUT';
+      if (s === 'INTERRUPTED' || s.startsWith('EXITED') || s === 'ERROR') return 'INTERRUPTED';
+      return 'PENDING';
     }
 
     function renderSessionDetail(data, isBackground = false) {
       document.getElementById('emptyState').style.display = 'none';
       document.getElementById('sessionDetail').style.display = 'block';
 
-      document.getElementById('wfTitle').textContent = data.workflow_name;
+      // Restore workflow tabs if coming from standalone conversation mode
+      document.getElementById('tabBtnStepper').style.display = 'inline-flex';
+      document.getElementById('tabBtnMetadata').style.display = 'inline-flex';
+      document.getElementById('tabBtnArtifacts').style.display = 'inline-flex';
+      document.getElementById('btnDeleteCurrent').style.display = 'inline-flex';
+      document.getElementById('continuationBanner').style.display = 'flex';
+      document.getElementById('btnOpenLinkedWorkflow').style.display = 'none';
+      document.getElementById('btnWatchLiveConv').style.display = 'inline-flex';
+
+      document.getElementById('wfTitle').textContent = data.custom_title || data.workflow_name;
       document.getElementById('wfDesc').textContent = data.workflow_description || '';
       document.getElementById('wfStateId').textContent = data.state_id;
+      updateCurrentConvSubscribeButton();
+      updateCurrentStarButton();
+
+      const agStatus = data.agent_status || '';
+      const isInterrupted = agStatus === 'INTERRUPTED' || agStatus.startsWith('EXITED') || agStatus === 'ERROR';
 
       const badge = document.getElementById('wfStatusBadge');
       badge.className = `status-badge ${data.state}`;
-      badge.innerHTML = (data.state === 'RUNNING' ? '<span class="pulse-dot"></span>' : '') + data.state;
+      badge.innerHTML = ((data.state === 'RUNNING' && !isInterrupted) ? '<span class="pulse-dot"></span>' : '') + data.state;
 
       // Stop button visibility
       const stopBtn = document.getElementById('btnStopCurrent');
-      const isStoppable = ['RUNNING', 'INIT', 'STUCK'].includes((data.state || '').toUpperCase());
+      const isStoppable = ['RUNNING', 'INIT', 'STUCK', 'WAITING_HUMAN'].includes((data.state || '').toUpperCase());
       stopBtn.style.display = isStoppable ? 'inline-flex' : 'none';
+
+      // Launch/Resume jetski_cli button
+      const launchBtn = document.getElementById('btnLaunchAgent');
+      const isTerminal = ['DONE', 'STOPPED', 'CANCELLED'].includes((data.state || '').toUpperCase());
+      launchBtn.style.display = isTerminal ? 'none' : 'inline-flex';
+      launchBtn.textContent = data.conversation_id ? '🤖 Poke / Resume jetski_cli' : '🤖 Run with jetski_cli';
+
+      // Waiting for Human Verification alert
+      const waitingAlert = document.getElementById('waitingAlert');
+      if (data.state === 'WAITING_HUMAN') {
+        waitingAlert.style.display = 'flex';
+        document.getElementById('waitingReason').textContent =
+          data.stuck_reason || 'Workflow paused at a Human Verifier barrier. Inspect the work and click Approve & Continue when ready.';
+      } else {
+        waitingAlert.style.display = 'none';
+      }
+
+      // Agent Interrupted / Idle alert
+      const interruptedAlert = document.getElementById('agentInterruptedAlert');
+      const showInterruptedBanner = data.state !== 'DONE' && data.state !== 'WAITING_HUMAN' && (
+        isInterrupted || (data.state === 'RUNNING' && data.conversation_id && agStatus === 'IDLE')
+      );
+      if (showInterruptedBanner) {
+        interruptedAlert.style.display = 'flex';
+        document.getElementById('agentInterruptedTitle').textContent =
+          isInterrupted ? '⚠️ Agent Conversation Interrupted:' : '⏸️ Agent Turn Idle (Workflow Still Running):';
+        document.getElementById('agentInterruptedReason').textContent =
+          data.agent_status_reason || 'The background jetski_cli conversation stopped before completing the workflow. Poke the agent to continue.';
+      } else {
+        interruptedAlert.style.display = 'none';
+      }
 
       // Stuck alert
       const stuckAlert = document.getElementById('stuckAlert');
@@ -1587,6 +3321,24 @@
         document.getElementById('stoppedReason').textContent = data.stuck_reason || 'Workflow marked as stopped by user.';
       } else {
         stoppedAlert.style.display = 'none';
+      }
+
+      // Jetski conversation banner
+      const jetskiBanner = document.getElementById('jetskiBanner');
+      if (data.conversation_id || data.agent_status) {
+        jetskiBanner.style.display = 'flex';
+        const statusBadge = document.getElementById('jetskiStatusBadge');
+        const labelStatus = agStatus || 'IDLE';
+        statusBadge.innerHTML = labelStatus === 'RUNNING'
+          ? '<span class="pulse-dot"></span> RUNNING'
+          : (labelStatus === 'INTERRUPTED' ? '⚠️ INTERRUPTED' : escapeHtml(labelStatus));
+        statusBadge.className = `status-badge ${getAgentBadgeClass(labelStatus)}`;
+        const convCmd = data.conversation_id
+          ? `jetski_cli --conversation ${data.conversation_id}`
+          : 'Starting jetski_cli conversation...';
+        document.getElementById('jetskiConvCmd').textContent = convCmd;
+      } else {
+        jetskiBanner.style.display = 'none';
       }
 
       // Continuation cmd
@@ -1612,6 +3364,322 @@
       renderStepper(data);
       renderMetadata(data.metadata || {});
       renderArtifacts(data.artifacts || []);
+      fetchCurrentTranscript(isBackground);
+    }
+
+    async function fetchCurrentTranscript(isBackground = false) {
+      const expectedConvId = currentSelectedConversationId;
+      const expectedWf = currentSelectedWorkflow;
+      const expectedId = currentSelectedId;
+      let url = null;
+      let targetLabel = '';
+      if (expectedConvId) {
+        url = `/api/transcript?conversation_id=${encodeURIComponent(expectedConvId)}`;
+        targetLabel = expectedConvId.substring(0, 8);
+      } else if (expectedWf && expectedId) {
+        url = `/api/transcript?workflow=${encodeURIComponent(expectedWf)}&id=${encodeURIComponent(expectedId)}`;
+        targetLabel = expectedId.substring(0, 8);
+      }
+      if (!url) return;
+      if (!isBackground && !lastTranscriptData) {
+        showTranscriptLoadingSpinner(targetLabel);
+      }
+      try {
+        const res = await fetch(url);
+        if (
+          currentSelectedConversationId !== expectedConvId ||
+          currentSelectedWorkflow !== expectedWf ||
+          currentSelectedId !== expectedId
+        ) {
+          return;
+        }
+        if (!res.ok) return;
+        const tData = await res.json();
+        if (
+          currentSelectedConversationId !== expectedConvId ||
+          currentSelectedWorkflow !== expectedWf ||
+          currentSelectedId !== expectedId
+        ) {
+          return;
+        }
+        lastTranscriptData = tData;
+        renderTranscript(tData, isBackground);
+      } catch (e) {
+        console.error('Failed to fetch conversation transcript:', e);
+      }
+    }
+
+    function showOlderTranscriptMessages(count = 10) {
+      visibleTranscriptLimit += count;
+      if (lastTranscriptData) {
+        renderTranscript(lastTranscriptData, false);
+      }
+    }
+
+    function resetTranscriptLimit() {
+      visibleTranscriptLimit = 5;
+      if (lastTranscriptData) {
+        renderTranscript(lastTranscriptData, false);
+      }
+    }
+
+    function summarizeToolArgs(toolName, args) {
+      if (!args || typeof args !== 'object') return '';
+      if (args.CommandLine) return `$ ${args.CommandLine}`;
+      if (args.AbsolutePath) return `📄 ${args.AbsolutePath}`;
+      if (args.TargetFile) return `✏️ ${args.TargetFile}`;
+      if (args.Query || args.query) return `🔍 ${args.Query || args.query}`;
+      if (args.Url) return `🌐 ${args.Url}`;
+      if (args.toolSummary) return args.toolSummary;
+      const keys = Object.keys(args);
+      if (keys.length === 0) return '';
+      return JSON.stringify(args);
+    }
+
+    function renderTranscript(tData, isBackground = false) {
+      const steps = tData.steps || [];
+      const total = tData.total_steps || steps.length;
+      document.getElementById('transcriptStepCount').textContent = total;
+
+      const convIdEl = document.getElementById('transcriptConvIdLabel');
+      convIdEl.textContent = tData.conversation_id || 'Not started';
+
+      const statusBadge = document.getElementById('transcriptAgentStatusBadge');
+      const agStatus = tData.agent_status || (tData.conversation_id ? 'IDLE' : 'NONE');
+      statusBadge.innerHTML = agStatus === 'RUNNING'
+        ? '<span class="pulse-dot"></span> RUNNING'
+        : (agStatus === 'INTERRUPTED' ? '⚠️ INTERRUPTED' : escapeHtml(agStatus));
+      statusBadge.className = `status-badge ${getAgentBadgeClass(agStatus)}`;
+
+      const showingLabel = document.getElementById('transcriptShowingLabel');
+      const resetBtn = document.getElementById('btnResetTranscriptLimit');
+
+      const feedEl = document.getElementById('transcriptFeed');
+      if (steps.length === 0) {
+        if (showingLabel) showingLabel.textContent = '0 messages';
+        if (resetBtn) resetBtn.style.display = 'none';
+        if (tData.raw_log && tData.raw_log.trim()) {
+          feedEl.innerHTML = `
+            <div class="transcript-card">
+              <div class="transcript-card-header">
+                <span style="font-weight: 700; color: var(--accent);">📟 Agent CLI Log Output</span>
+              </div>
+              <div class="transcript-card-body">
+                <pre class="modal-code" style="max-height: 450px; overflow-y: auto;">${escapeHtml(tData.raw_log)}</pre>
+              </div>
+            </div>
+          `;
+        } else {
+          feedEl.innerHTML = `
+            <div style="padding: 28px; text-align: center; color: var(--text-dim); background: var(--bg-surface); border: 1px dashed var(--border-strong); border-radius: 8px;">
+              No live <code>jetski_cli</code> conversation transcript found for this session yet.<br>
+              <span style="font-size: 11px;">Click <strong>🤖 Run with jetski_cli</strong> in the header above or <strong>👉 Poke Agent to Continue</strong> above to start the agent.</span>
+            </div>
+          `;
+        }
+        return;
+      }
+
+      // Reverse so the newest messages are at the top and older messages descend below
+      const reversedSteps = [...steps].reverse();
+      const visibleSteps = reversedSteps.slice(0, visibleTranscriptLimit);
+      const remainingCount = Math.max(0, reversedSteps.length - visibleSteps.length);
+
+      if (showingLabel) {
+        showingLabel.textContent = `Showing latest ${visibleSteps.length} of ${reversedSteps.length} messages (newest at top)`;
+      }
+      if (resetBtn) {
+        resetBtn.style.display = (visibleTranscriptLimit > 5 && reversedSteps.length > 5) ? 'inline-flex' : 'none';
+      }
+
+      let interruptedFeedBanner = '';
+      if (agStatus === 'INTERRUPTED') {
+        const reasonText = tData.agent_status_reason || 'The agent conversation stopped mid-turn.';
+        interruptedFeedBanner = `
+          <div class="alert-banner alert-interrupted" style="align-items: center; justify-content: space-between; flex-wrap: wrap;">
+            <div>
+              <strong>⚠️ Turn Interrupted:</strong> ${escapeHtml(reasonText)}
+            </div>
+            <button class="btn btn-sm btn-warning" onclick="pokeCurrentSession('transcriptPokeInput', 'btnTranscriptPoke')">
+              👉 Poke Agent Now
+            </button>
+          </div>
+        `;
+      }
+
+      const cardsHtml = visibleSteps.map((st, i) => {
+        const sIdx = st.step_index !== undefined ? st.step_index : (reversedSteps.length - 1 - i);
+        const sType = st.type || 'STEP';
+        const sStatus = st.status || '';
+        const ts = st.created_at ? new Date(st.created_at).toLocaleTimeString() : '';
+        const isLatest = i === 0;
+        const latestBadge = isLatest
+          ? '<span class="badge-prototype" style="font-size: 9px; background: rgba(52, 211, 153, 0.15); color: #34d399; border-color: rgba(52, 211, 153, 0.4);">LATEST</span>'
+          : '';
+
+        if (sType === 'USER_INPUT' || st.source === 'USER_EXPLICIT') {
+          return `
+            <div class="transcript-card user-step">
+              <div class="transcript-card-header">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-weight: 700; color: #93c5fd;">👤 User / Workflow Prompt</span>
+                  <span style="color: var(--text-dim);">#${sIdx}</span>
+                  ${latestBadge}
+                </div>
+                <span style="color: var(--text-dim); font-family: var(--font-mono);">${escapeHtml(ts)}</span>
+              </div>
+              <div class="transcript-card-body">
+                <div class="transcript-text">${escapeHtml(st.content || '')}</div>
+              </div>
+            </div>
+          `;
+        }
+
+        if (sType === 'PLANNER_RESPONSE') {
+          const isThinkOpen = expandedThinking.has(sIdx);
+          let thinkingHtml = '';
+          if (st.thinking && st.thinking.trim()) {
+            const preview = st.thinking.trim().split('\n')[0].substring(0, 95);
+            thinkingHtml = `
+              <div class="thinking-block">
+                <button class="details-toggle" onclick="toggleThinking(${sIdx})">
+                  <span id="thinkingToggle-${sIdx}">${isThinkOpen ? '▾ Hide Thinking' : `▸ 💭 Thinking: ${escapeHtml(preview)}...`}</span>
+                </button>
+                <div class="thinking-content ${isThinkOpen ? 'open' : ''}" id="thinkingBox-${sIdx}">${escapeHtml(st.thinking)}</div>
+              </div>
+            `;
+          }
+
+          let toolsHtml = '';
+          const tCalls = st.tool_calls || [];
+          if (tCalls.length > 0) {
+            toolsHtml = `
+              <div class="tool-call-list">
+                ${tCalls.map((tc, tIdx) => {
+                  const argKey = `${sIdx}-${tIdx}`;
+                  const isArgOpen = expandedToolArgs.has(argKey);
+                  const summary = summarizeToolArgs(tc.name, tc.args);
+                  const actionDesc = (tc.args && (tc.args.toolAction || tc.args.toolSummary)) ? String(tc.args.toolAction || tc.args.toolSummary) : '';
+                  return `
+                    <div class="tool-call-item">
+                      <div class="tool-call-header">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <span class="tool-name-badge">🔧 ${escapeHtml(tc.name || 'tool')}</span>
+                          ${actionDesc ? `<span style="font-size: 11px; color: var(--text-muted);">${escapeHtml(actionDesc)}</span>` : ''}
+                        </div>
+                        <button class="details-toggle" style="font-size: 11px;" onclick="toggleToolArgs('${argKey}')">
+                          <span id="toolArgsToggle-${argKey}">${isArgOpen ? '▾ Hide Args' : '▸ Full Args'}</span>
+                        </button>
+                      </div>
+                      ${summary ? `<div class="tool-summary-code">${escapeHtml(summary)}</div>` : ''}
+                      <div class="thinking-content ${isArgOpen ? 'open' : ''}" id="toolArgsBox-${argKey}">${escapeHtml(JSON.stringify(tc.args || {}, null, 2))}</div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            `;
+          }
+
+          let contentHtml = '';
+          if (st.content && st.content.trim()) {
+            contentHtml = `<div class="transcript-text">${escapeHtml(st.content)}</div>`;
+          }
+
+          return `
+            <div class="transcript-card planner-step">
+              <div class="transcript-card-header">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-weight: 700; color: #34d399;">🤖 Jetski Agent</span>
+                  <span style="color: var(--text-dim);">#${sIdx}</span>
+                  ${sStatus ? `<span class="status-badge ${sStatus === 'DONE' ? 'DONE' : 'RUNNING'}" style="font-size: 9px; padding: 1px 5px;">${escapeHtml(sStatus)}</span>` : ''}
+                  ${latestBadge}
+                </div>
+                <span style="color: var(--text-dim); font-family: var(--font-mono);">${escapeHtml(ts)}</span>
+              </div>
+              <div class="transcript-card-body">
+                ${thinkingHtml}
+                ${toolsHtml}
+                ${contentHtml}
+              </div>
+            </div>
+          `;
+        }
+
+        // GENERIC / Tool Output step
+        const isOutOpen = expandedToolOutputs.has(sIdx);
+        const rawOut = st.content || '';
+        const firstLine = rawOut.trim().split('\n').find(l => !l.startsWith('Created At:') && !l.startsWith('Completed At:')) || rawOut.trim().split('\n')[0] || '(empty output)';
+        return `
+          <div class="transcript-card tool-output-step">
+            <div class="transcript-card-header" style="cursor: pointer;" onclick="toggleToolOutput(${sIdx})">
+              <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+                <span style="font-weight: 600; color: var(--text-muted);">📋 Tool Output #${sIdx}</span>
+                ${latestBadge}
+                <span style="color: var(--text-dim); font-family: var(--font-mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 520px;">
+                  ${escapeHtml(firstLine.substring(0, 100))}
+                </span>
+              </div>
+              <span class="details-toggle" style="font-size: 11px;" id="toolOutToggle-${sIdx}">${isOutOpen ? '▾ Hide' : '▸ Expand'}</span>
+            </div>
+            <div class="thinking-content ${isOutOpen ? 'open' : ''}" id="toolOutBox-${sIdx}" style="padding: 10px 14px; margin-top: 0;">${escapeHtml(rawOut)}</div>
+          </div>
+        `;
+      }).join('');
+
+      let loadMoreHtml = '';
+      if (remainingCount > 0) {
+        const nextBatch = Math.min(10, remainingCount);
+        loadMoreHtml = `
+          <div style="display: flex; align-items: center; justify-content: center; gap: 10px; padding: 8px 0;">
+            <button class="btn btn-sm btn-primary" onclick="showOlderTranscriptMessages(10)">
+              ↓ Show ${nextBatch === 10 ? '10' : nextBatch} older messages (${remainingCount} older remaining)
+            </button>
+            ${remainingCount > 10 ? `
+              <button class="btn btn-sm" onclick="showOlderTranscriptMessages(${remainingCount})">
+                Show all (${reversedSteps.length})
+              </button>
+            ` : ''}
+          </div>
+        `;
+      }
+
+      feedEl.innerHTML = interruptedFeedBanner + cardsHtml + loadMoreHtml;
+    }
+
+    function toggleThinking(sIdx) {
+      if (expandedThinking.has(sIdx)) {
+        expandedThinking.delete(sIdx);
+      } else {
+        expandedThinking.add(sIdx);
+      }
+      const box = document.getElementById(`thinkingBox-${sIdx}`);
+      const label = document.getElementById(`thinkingToggle-${sIdx}`);
+      if (box) box.classList.toggle('open', expandedThinking.has(sIdx));
+      if (label) label.textContent = expandedThinking.has(sIdx) ? '▾ Hide Thinking' : '▸ 💭 Show Thinking';
+    }
+
+    function toggleToolOutput(sIdx) {
+      if (expandedToolOutputs.has(sIdx)) {
+        expandedToolOutputs.delete(sIdx);
+      } else {
+        expandedToolOutputs.add(sIdx);
+      }
+      const box = document.getElementById(`toolOutBox-${sIdx}`);
+      const label = document.getElementById(`toolOutToggle-${sIdx}`);
+      if (box) box.classList.toggle('open', expandedToolOutputs.has(sIdx));
+      if (label) label.textContent = expandedToolOutputs.has(sIdx) ? '▾ Hide' : '▸ Expand';
+    }
+
+    function toggleToolArgs(argKey) {
+      if (expandedToolArgs.has(argKey)) {
+        expandedToolArgs.delete(argKey);
+      } else {
+        expandedToolArgs.add(argKey);
+      }
+      const box = document.getElementById(`toolArgsBox-${argKey}`);
+      const label = document.getElementById(`toolArgsToggle-${argKey}`);
+      if (box) box.classList.toggle('open', expandedToolArgs.has(argKey));
+      if (label) label.textContent = expandedToolArgs.has(argKey) ? '▾ Hide Args' : '▸ Full Args';
     }
 
     function renderStepper(data) {
@@ -1624,14 +3692,33 @@
           iconContent = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>';
         } else if (s.status === 'running') {
           iconContent = '<span class="pulse-dot"></span>';
+        } else if (s.status === 'waiting_human') {
+          iconContent = '⏸';
         } else if (s.status === 'stuck') {
           iconContent = '!';
         } else if (s.status === 'stopped') {
           iconContent = '⏹';
         }
 
+        let customInstrHtml = '';
+        if (s.custom_instructions) {
+          customInstrHtml = `
+            <div class="custom-instructions-chip">
+              <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--accent); margin-bottom: 2px;">📌 Custom Instructions</div>
+              <div style="white-space: pre-wrap; font-family: var(--font-mono); font-size: 11px;">${escapeHtml(s.custom_instructions)}</div>
+            </div>
+          `;
+        }
+
         let verifierHtml = '';
-        if (s.verifier_cmd) {
+        if (s.human_verify) {
+          verifierHtml = `
+            <div class="verifier-chip" style="border-color: var(--color-waiting-border); color: #fed7aa;">
+              <span class="verifier-label" style="color: #fb923c;">Human Gate</span>
+              <span>Pauses execution until human clicks Approve &amp; Continue</span>
+            </div>
+          `;
+        } else if (s.verifier_cmd) {
           verifierHtml = `
             <div class="verifier-chip">
               <span class="verifier-label">Verifier</span>
@@ -1747,6 +3834,7 @@
               </div>
               <div class="step-card-body">
                 ${s.description ? `<div class="step-desc">${escapeHtml(s.description)}</div>` : ''}
+                ${customInstrHtml}
                 ${verifierHtml}
                 ${subWfHtml}
                 ${promptHtml}
@@ -1871,13 +3959,410 @@
       setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
     }
 
-    function switchTab(tabId) {
+    function copyJetskiCmd() {
+      const text = document.getElementById('jetskiConvCmd').textContent;
+      navigator.clipboard.writeText(text);
+      const btn = document.getElementById('btnCopyJetskiCmd');
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = 'Copy Resume Cmd'; }, 1500);
+    }
+
+    function switchTab(tabId, triggerFetch = true) {
       document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tabId);
       });
       document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.toggle('active', content.id === tabId);
       });
+      if (triggerFetch && tabId === 'tab-conversation') {
+        fetchCurrentTranscript(true);
+      }
+    }
+
+    /* Actions: Approve Human Barrier, Launch / Poke Jetski Agent */
+    async function approveCurrentSession() {
+      if (!currentSelectedWorkflow || !currentSelectedId) return;
+      const feedback = (document.getElementById('humanApprovalFeedback').value || '').trim();
+      const resumeJetski = document.getElementById('resumeJetskiOnApprove').checked;
+      const btn = document.getElementById('btnApproveContinue');
+      btn.disabled = true;
+      btn.textContent = 'Approving...';
+
+      try {
+        const res = await fetch('/api/session/approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workflow: currentSelectedWorkflow,
+            id: currentSelectedId,
+            feedback: feedback,
+            resume_jetski: resumeJetski,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          document.getElementById('humanApprovalFeedback').value = '';
+          await fetchSessions();
+          await loadSessionDetail(currentSelectedWorkflow, currentSelectedId);
+        } else {
+          alert('Failed to approve session: ' + (data.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Error approving session: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '✅ Approve & Continue';
+      }
+    }
+
+    async function pokeCurrentSession(inputId, btnId) {
+      if (!currentSelectedConversationId && (!currentSelectedWorkflow || !currentSelectedId)) return;
+      const inputEl = inputId ? document.getElementById(inputId) : null;
+      const customPrompt = inputEl ? (inputEl.value || '').trim() : '';
+      const btn = btnId ? document.getElementById(btnId) : null;
+      const prevBtnText = btn ? btn.textContent : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '👉 Poking Agent...';
+      }
+
+      try {
+        if (currentSelectedConversationId) {
+          const cid = currentSelectedConversationId;
+          const res = await fetch('/api/conversation/poke', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              conversation_id: cid,
+              prompt: customPrompt,
+            }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            if (inputEl) inputEl.value = '';
+            // Automatically subscribe so the user gets notified when this turn finishes
+            if (!subscribedConversations.has(cid)) {
+              subscribedConversations.add(cid);
+              saveSubscribedConversations();
+            }
+            await fetchConversations();
+            renderConversationInspector(cid, false);
+          } else {
+            alert('Failed to poke conversation: ' + (data.error || 'Unknown error'));
+          }
+        } else {
+          const res = await fetch('/api/session/poke', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              workflow: currentSelectedWorkflow,
+              id: currentSelectedId,
+              poke: true,
+              resume: true,
+              prompt: customPrompt,
+            }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            if (inputEl) inputEl.value = '';
+            await Promise.all([fetchSessions(), fetchConversations()]);
+            await loadSessionDetail(currentSelectedWorkflow, currentSelectedId);
+          } else {
+            alert('Failed to poke jetski_cli: ' + (data.error || 'Unknown error'));
+          }
+        }
+      } catch (e) {
+        alert('Error poking jetski_cli: ' + e.message);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = prevBtnText || '👉 Poke Agent to Continue';
+        }
+      }
+    }
+
+    async function launchAgentForCurrentSession() {
+      if (!currentSelectedWorkflow || !currentSelectedId) return;
+      const hasExistingConv = !!(currentDetailData && currentDetailData.conversation_id);
+      if (hasExistingConv) {
+        await pokeCurrentSession(null, 'btnLaunchAgent');
+        return;
+      }
+      const btn = document.getElementById('btnLaunchAgent');
+      btn.disabled = true;
+      btn.textContent = '🤖 Launching...';
+
+      try {
+        const res = await fetch('/api/session/launch_agent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workflow: currentSelectedWorkflow,
+            id: currentSelectedId,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          await fetchSessions();
+          await loadSessionDetail(currentSelectedWorkflow, currentSelectedId);
+        } else {
+          alert('Failed to launch jetski_cli: ' + (data.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Error launching jetski_cli: ' + e.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    /* Workflow Builder Modal Logic */
+    let builderSteps = [];
+    let workflowCatalog = [];
+    let draggedStepIndex = null;
+
+    const DEFAULT_STEP_PLACEHOLDERS = {
+      'reproduce-bug': 'e.g., Run ./emu-dev-cli test ... or launch AVD API 36 and check logcat for crash signature...',
+      'fix-bug': 'e.g., Null-check the swapchain pointer in VulkanDisplay.cpp and re-run the reproduction command...',
+      'create-commit': 'e.g., Include Bug: 471234567 and Test: verified Vulkan swapchain test passes...',
+      'repo-upload': 'e.g., Run repo upload --cbr -y --verify . in hardware/google/aemu...',
+      'human-verify': 'e.g., Check that the reproduction test fails with the expected crash before fixing...',
+    };
+
+    async function fetchWorkflowCatalog() {
+      try {
+        const res = await fetch('/api/workflows');
+        if (!res.ok) return;
+        const data = await res.json();
+        workflowCatalog = data.workflows || [];
+        const select = document.getElementById('builderAddWorkflowSelect');
+        if (select && workflowCatalog.length > 0) {
+          const filtered = workflowCatalog.filter(w => w.name !== 'custom-workflow' && w.name !== 'human-verify');
+          select.innerHTML = filtered.map(w =>
+            `<option value="${escapeHtml(w.name)}">${escapeHtml(w.name)}${w.description ? ' — ' + escapeHtml(w.description.substring(0, 55)) : ''}</option>`
+          ).join('');
+        }
+
+        const repoSelect = document.getElementById('builderRepoPath');
+        const sourceDirs = data.source_directories || [];
+        if (repoSelect && sourceDirs.length > 0) {
+          const prevVal = repoSelect.value;
+          repoSelect.innerHTML = sourceDirs.map(sd => {
+            const label = `${sd.branch} (${sd.path})${sd.exists === false ? ' [missing]' : ''}`;
+            const isSelected = prevVal ? (sd.path === prevVal) : !!sd.is_current;
+            return `<option value="${escapeHtml(sd.path)}" data-branch="${escapeHtml(sd.branch)}" ${isSelected ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+          }).join('');
+        }
+      } catch (e) {
+        console.error('Failed to load workflow catalog:', e);
+      }
+    }
+
+    function openNewWorkflowModal() {
+      fetchWorkflowCatalog();
+      if (builderSteps.length === 0) {
+        applyBuilderPreset('bug_fix_gated');
+      } else {
+        renderBuilderSteps();
+      }
+      document.getElementById('newWorkflowModal').classList.add('open');
+    }
+
+    function closeNewWorkflowModal(event) {
+      document.getElementById('newWorkflowModal').classList.remove('open');
+    }
+
+    function applyBuilderPreset(presetName) {
+      if (presetName === 'bug_fix_full') {
+        builderSteps = [
+          { type: 'workflow', workflow_name: 'reproduce-bug', title: 'Reproduce Bug', custom_instructions: '' },
+          { type: 'workflow', workflow_name: 'fix-bug', title: 'Fix Bug', custom_instructions: '' },
+          { type: 'workflow', workflow_name: 'create-commit', title: 'Create Git Commit', custom_instructions: '' },
+          { type: 'workflow', workflow_name: 'repo-upload', title: 'Repo Upload CL', custom_instructions: '' },
+        ];
+      } else if (presetName === 'bug_fix_gated') {
+        builderSteps = [
+          { type: 'workflow', workflow_name: 'reproduce-bug', title: 'Reproduce Bug', custom_instructions: '' },
+          { type: 'human_verify', workflow_name: 'human-verify', title: 'Human Verifier (Verify Reproduction)', custom_instructions: 'Verify that the bug has been reproduced as expected before proceeding to the fix.' },
+          { type: 'workflow', workflow_name: 'fix-bug', title: 'Fix Bug', custom_instructions: '' },
+          { type: 'human_verify', workflow_name: 'human-verify', title: 'Human Verifier (Verify Fix)', custom_instructions: 'Verify the code changes and test results before creating a commit and uploading.' },
+          { type: 'workflow', workflow_name: 'create-commit', title: 'Create Git Commit', custom_instructions: '' },
+          { type: 'workflow', workflow_name: 'repo-upload', title: 'Repo Upload CL', custom_instructions: '' },
+        ];
+      } else if (presetName === 'commit_upload') {
+        builderSteps = [
+          { type: 'workflow', workflow_name: 'create-commit', title: 'Create Git Commit', custom_instructions: '' },
+          { type: 'workflow', workflow_name: 'repo-upload', title: 'Repo Upload CL', custom_instructions: '' },
+        ];
+      }
+      renderBuilderSteps();
+    }
+
+    function addSelectedWorkflowStep() {
+      const select = document.getElementById('builderAddWorkflowSelect');
+      const wfName = select ? select.value : 'reproduce-bug';
+      builderSteps.push({
+        type: 'workflow',
+        workflow_name: wfName,
+        title: wfName,
+        custom_instructions: '',
+      });
+      renderBuilderSteps();
+    }
+
+    function addHumanVerifyStep() {
+      builderSteps.push({
+        type: 'human_verify',
+        workflow_name: 'human-verify',
+        title: 'Human Verifier Barrier',
+        custom_instructions: '',
+      });
+      renderBuilderSteps();
+    }
+
+    function removeBuilderStep(idx) {
+      builderSteps.splice(idx, 1);
+      renderBuilderSteps();
+    }
+
+    function moveBuilderStep(idx, dir) {
+      const targetIdx = idx + dir;
+      if (targetIdx < 0 || targetIdx >= builderSteps.length) return;
+      const temp = builderSteps[idx];
+      builderSteps[idx] = builderSteps[targetIdx];
+      builderSteps[targetIdx] = temp;
+      renderBuilderSteps();
+    }
+
+    function updateBuilderStepInstructions(idx, val) {
+      if (builderSteps[idx]) {
+        builderSteps[idx].custom_instructions = val;
+      }
+    }
+
+    function onStepDragStart(e, idx) {
+      draggedStepIndex = idx;
+      e.currentTarget.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    }
+
+    function onStepDragOver(e, idx) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      document.querySelectorAll('.builder-step-item').forEach((el, i) => {
+        el.classList.toggle('drag-over', i === idx && i !== draggedStepIndex);
+      });
+    }
+
+    function onStepDrop(e, idx) {
+      e.preventDefault();
+      if (draggedStepIndex === null || draggedStepIndex === idx) return;
+      const [moved] = builderSteps.splice(draggedStepIndex, 1);
+      builderSteps.splice(idx, 0, moved);
+      draggedStepIndex = null;
+      renderBuilderSteps();
+    }
+
+    function onStepDragEnd(e) {
+      draggedStepIndex = null;
+      document.querySelectorAll('.builder-step-item').forEach(el => {
+        el.classList.remove('dragging', 'drag-over');
+      });
+    }
+
+    function renderBuilderSteps() {
+      const listEl = document.getElementById('builderStepsList');
+      const countEl = document.getElementById('builderStepCount');
+      countEl.textContent = `${builderSteps.length} step${builderSteps.length === 1 ? '' : 's'}`;
+
+      if (builderSteps.length === 0) {
+        listEl.innerHTML = '<div style="padding: 16px; text-align: center; color: var(--text-dim); border: 1px dashed var(--border-strong); border-radius: 8px; font-size: 12px;">No steps in pipeline. Choose a preset above or click + Add Workflow Step.</div>';
+        return;
+      }
+
+      listEl.innerHTML = builderSteps.map((step, idx) => {
+        const isHuman = step.type === 'human_verify' || step.workflow_name === 'human-verify';
+        const badgeHtml = isHuman
+          ? '<span class="status-badge WAITING_HUMAN">⏸ HUMAN BARRIER</span>'
+          : `<span class="badge-prototype">${escapeHtml(step.workflow_name)}</span>`;
+        const placeholder = DEFAULT_STEP_PLACEHOLDERS[step.workflow_name] || 'Optional custom instructions or context for this step...';
+
+        return `
+          <div class="builder-step-item ${isHuman ? 'human-barrier' : ''}"
+               draggable="true"
+               ondragstart="onStepDragStart(event, ${idx})"
+               ondragover="onStepDragOver(event, ${idx})"
+               ondrop="onStepDrop(event, ${idx})"
+               ondragend="onStepDragEnd(event)">
+            <div class="builder-step-top">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="builder-drag-handle" title="Drag to reorder">☰</span>
+                <span style="font-weight: 700; font-size: 12px; color: var(--text-main);">Step ${idx + 1}:</span>
+                ${badgeHtml}
+              </div>
+              <div style="display: flex; align-items: center; gap: 4px;">
+                <button class="btn btn-sm" onclick="moveBuilderStep(${idx}, -1)" ${idx === 0 ? 'disabled' : ''} title="Move Up" style="padding: 2px 6px;">↑</button>
+                <button class="btn btn-sm" onclick="moveBuilderStep(${idx}, 1)" ${idx === builderSteps.length - 1 ? 'disabled' : ''} title="Move Down" style="padding: 2px 6px;">↓</button>
+                <button class="btn btn-sm btn-danger" onclick="removeBuilderStep(${idx})" title="Remove Step" style="padding: 2px 6px;">×</button>
+              </div>
+            </div>
+            <div>
+              <textarea class="builder-textarea"
+                        placeholder="${escapeHtml(placeholder)}"
+                        oninput="updateBuilderStepInstructions(${idx}, this.value)">${escapeHtml(step.custom_instructions || '')}</textarea>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function submitNewWorkflow() {
+      if (builderSteps.length === 0) {
+        alert('Please add at least one step to the workflow pipeline.');
+        return;
+      }
+
+      const title = (document.getElementById('builderTitle').value || '').trim();
+      const bugNum = (document.getElementById('builderBugNumber').value || '').trim();
+      const repoSelect = document.getElementById('builderRepoPath');
+      const repoPath = (repoSelect ? repoSelect.value : '').trim();
+      const selectedOpt = repoSelect && repoSelect.selectedOptions && repoSelect.selectedOptions[0];
+      const branchName = selectedOpt ? (selectedOpt.getAttribute('data-branch') || '') : '';
+      const launchJetski = document.getElementById('builderLaunchJetski').checked;
+
+      const args = {};
+      if (bugNum) args['bug-number'] = bugNum;
+      if (repoPath) args['repo'] = repoPath;
+      if (branchName && branchName !== 'current') args['branch'] = branchName;
+
+      const btn = document.getElementById('btnSubmitNewWorkflow');
+      btn.disabled = true;
+      btn.textContent = 'Starting...';
+
+      try {
+        const res = await fetch('/api/session/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: title || undefined,
+            args: args,
+            steps: builderSteps,
+            launch_jetski: launchJetski,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data.state_id) {
+          closeNewWorkflowModal();
+          await fetchSessions();
+          selectSession(data.workflow_name || 'custom-workflow', data.state_id);
+        } else {
+          alert('Failed to start workflow: ' + (data.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Error creating workflow session: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🚀 Start Workflow';
+      }
     }
 
     /* Actions: Stop, Delete, Clear */

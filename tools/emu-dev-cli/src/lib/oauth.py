@@ -215,6 +215,28 @@ class OAuthTokenManager:
             except Exception:
                 pass
 
+        # Fallback for gLinux / capsule environments without oauth2l: use OnePlatform sso CLI
+        sso_bin = Path("/google/data/ro/teams/oneplatform/sso")
+        if sys.platform == "linux" and sso_bin.exists():
+            try:
+                full_scopes = [
+                    s if s.startswith("https://") else f"https://www.googleapis.com/auth/{s}"
+                    for s in self.scopes
+                ]
+                res = subprocess.run(
+                    [str(sso_bin), sso_email] + full_scopes,
+                    capture_output=True,
+                    text=True,
+                    timeout=10.0,
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    cleaned = self.clean_token(res.stdout)
+                    if cleaned:
+                        self.save_cached_token(cleaned)
+                        return cleaned
+            except Exception:
+                pass
+
         # Remote GLinux SSH Fallback (for macOS workstations)
         if sys.platform == "darwin" or not Path("/google/data").exists():
             glinux_hosts = []
@@ -274,6 +296,16 @@ class OAuthTokenManager:
             logger.debug("Acquired OAuth2 token from environment variable")
             return env_token
 
+        has_internal_scope = any(
+            "androidbuild.internal" in s or "buganizer" in s for s in self.scopes
+        )
+        if has_internal_scope and sys.platform == "linux" and Path("/google/data").exists():
+            token = self.fetch_oauth2l_token()
+            if token:
+                logger.debug("Acquired OAuth2 token via oauth2l helper on GLinux")
+                self.save_cached_token(token)
+                return token
+
         # Application Default Credentials (ADC) resolution
         adc_token = self.fetch_adc_token()
         if adc_token:
@@ -294,8 +326,12 @@ class OAuthTokenManager:
         """Convenience method to acquire token, optionally forcing cache refresh."""
         if force_refresh:
             self._cached_token = None
+            for var in self.env_vars:
+                os.environ.pop(var, None)
+            os.environ.pop("OAUTH2_TOKEN", None)
             try:
                 subprocess.run(["oauth2l", "reset"], capture_output=True, timeout=5.0)
             except Exception:
                 pass
         return self.acquire_token(user_token=user_token)
+

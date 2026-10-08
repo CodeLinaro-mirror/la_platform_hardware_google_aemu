@@ -74,6 +74,11 @@ def get_toolchain_generator(
     ninja_bin: Path = None,
     pkg_config_bin: Path = None,
     compat_lib: Path = None,
+    compat_includes: list = None,
+    meson_bin: Path = None,
+    clang_bin: Path = None,
+    sysroot: Path = None,
+    python_bin: Path = None,
 ) -> ToolchainGenerator:
     """Factory method for ToolchainGenerator objects.
 
@@ -88,6 +93,7 @@ def get_toolchain_generator(
         ninja_bin: Path to prebuilt ninja binary.
         pkg_config_bin: Path to prebuilt pkg-config binary.
         compat_lib: Path to prebuilt compat library.
+        compat_includes: List of paths to compat include directories.
 
     Returns:
         A ToolchainGenerator object for the specified target.
@@ -119,4 +125,14 @@ def get_toolchain_generator(
         generator.pkg_config_bin = Path(pkg_config_bin)
     if compat_lib:
         generator.compat_lib = Path(compat_lib)
+    if compat_includes:
+        generator.compat_includes = [Path(p) for p in compat_includes]
+    if meson_bin:
+        generator.meson_bin = Path(meson_bin)
+    if clang_bin:
+        generator.clang_bin = Path(clang_bin)
+    if sysroot:
+        generator.sysroot = Path(sysroot)
+    if python_bin:
+        generator.python_bin = Path(python_bin)
     return generator

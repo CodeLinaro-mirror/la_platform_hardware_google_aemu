@@ -50,6 +50,8 @@ def _deduplicate_archives(archives: List[Path]) -> List[Path]:
 
 def _is_ephemeral(path: Path, workspace: Optional[Path]) -> bool:
     """Checks if the path is likely ephemeral (in sandbox, cache, or workspace)."""
+    if not path.is_absolute() or path.is_symlink():
+        return True
     path_str = path.as_posix()
     if workspace:
         try:
@@ -61,6 +63,8 @@ def _is_ephemeral(path: Path, workspace: Optional[Path]) -> bool:
         "/.cache/bazel/" in path_str
         or "bazel-out/" in path_str
         or "external/" in path_str
+        or "/sandbox/" in path_str
+        or "/execroot/" in path_str
     ):
         return True
     return False
@@ -334,7 +338,7 @@ class PackageConfigPc:
     def _template(self) -> str:
         """Returns the template for the .pc file."""
         amc_bin_target = (
-            self.archives[0].absolute().as_posix() if self.archives else ""
+            self.archives[0].as_posix() if self.archives else ""
         )
 
         # Use relative paths relative to pcfiledir.
@@ -356,6 +360,11 @@ class PackageConfigPc:
             libdir = libdir.replace(pkg_root, prefix) if libdir else ""
             cflags = cflags.replace(pkg_root, prefix) if cflags else ""
             libs = libs.replace(pkg_root, prefix) if libs else ""
+            amc_bin_target = (
+                amc_bin_target.replace(pkg_root, prefix)
+                if amc_bin_target
+                else ""
+            )
 
         return f"""prefix={prefix}
 includedir={prefix}/include

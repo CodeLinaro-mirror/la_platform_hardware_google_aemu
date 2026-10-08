@@ -34,22 +34,68 @@ def raise_if_none(x, msg):
         raise ValueError(msg)
 
 
+def obtain_token(scope="androidbuild.internal", reset=False):
+    if platform.system() != "Linux":
+        raise ValueError(
+            f"""You will have to manually generate a token on glinux by running:
+
+~/go/bin/oauth2l fetch --sso $USER@google.com {scope}
+
+Pass the generated token in using the --token option.
+"""
+        )
+    token_proc = shutil.which("oauth2l")
+    if not token_proc:
+        token_proc = shutil.which("oauth2l", path=Path.home() / "go" / "bin")
+    if not token_proc:
+        sso_proc = shutil.which("sso", path="/google/data/ro/teams/oneplatform")
+        if sso_proc:
+            full_scope = (
+                scope
+                if scope.startswith("https://")
+                else f"https://www.googleapis.com/auth/{scope}"
+            )
+            try:
+                return (
+                    subprocess.check_output(
+                        [sso_proc, f"{getuser()}@google.com", full_scope],
+                        timeout=60,
+                    )
+                    .decode("utf-8")
+                    .strip()
+                )
+            except subprocess.TimeoutExpired:
+                logging.error(
+                    "Timeout while trying to retrieve token via sso, have you run gcert?"
+                )
+    raise_if_none(
+        token_proc,
+        "Unable to find oauth2l on the path or in ~/go/bin, please install it. See http://go/oauth2l for details.",
+    )
+    if reset:
+        logging.info("Resetting oauth2l token cache...")
+        subprocess.run([token_proc, "reset"], check=False)
+    try:
+        return subprocess.check_output(
+            [
+                token_proc,
+                "fetch",
+                "--sso",
+                f"{getuser()}@google.com",
+                scope,
+            ],
+            timeout=60,
+        ).decode("utf-8").strip()
+    except subprocess.TimeoutExpired:
+        logging.error("Timeout while trying to retrieve token, have you run gcert?")
+
+
 class AndroidBuildClient(object):
     """A client to talk to go/ab via Android Build API v4."""
 
     def __init__(self, token):
         if not token:
-            if platform.system() != "Linux":
-                raise ValueError(
-                    """You will have to manually generate a token on glinux by running:
-
-~/go/bin/oauth2l fetch --sso $USER@google.com androidbuild.internal
-
-Pass the generated token in using the --token option.
-"""
-                )
-            else:
-                token = self.obtain_token()
+            token = self.obtain_token()
 
         logging.debug("Using token: %s", token)
         self.token = token.strip()
@@ -65,38 +111,27 @@ Pass the generated token in using the --token option.
             logging.debug("Could not build discovery service: %s", e)
             self.service = None
 
-    def obtain_token(self):
-        token_proc = shutil.which("oauth2l")
-        if not token_proc:
-            token_proc = shutil.which("oauth2l", path=Path.home() / "go" / "bin")
-        raise_if_none(
-            token_proc,
-            "Unable to find oauth2l on the path or in ~/go/bin, please install it. See http://go/oauth2l for details.",
-        )
-        try:
-            return subprocess.check_output(
-                [
-                    token_proc,
-                    "fetch",
-                    "--sso",
-                    f"{getuser()}@google.com",
-                    "androidbuild.internal",
-                ],
-                timeout=60,
-            ).decode("utf-8")
-        except subprocess.TimeoutExpired:
-            logging.error("Timeout while trying to retrieve token, have you run gcert?")
+    def obtain_token(self, scope="androidbuild.internal", reset=False):
+        return obtain_token(scope, reset=reset)
 
     def _make_v4_request(self, url):
-        req = urllib.request.Request(
-            url,
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Accept": "application/json",
-            },
-        )
-        with urllib.request.urlopen(req) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+        for attempt in range(2):
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "Authorization": f"Bearer {self.token}",
+                    "Accept": "application/json",
+                },
+            )
+            try:
+                with urllib.request.urlopen(req) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                if attempt == 0 and e.code in (401, 403) and platform.system() == "Linux":
+                    logging.warning("HTTP %d from Android Build API; refreshing oauth2l token...", e.code)
+                    self.token = self.obtain_token(reset=True)
+                    continue
+                raise
 
     def get_latest_build_id(self, branch, build_target):
         raise_if_none(branch, "branch")
