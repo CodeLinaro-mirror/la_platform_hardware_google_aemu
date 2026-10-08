@@ -22,6 +22,10 @@ import {
   VmState,
   VmState_State,
 } from '@android/emulator-services/hypervisor_service';
+import {
+  EmulatorControllerClientImpl,
+  EmulatorStatus,
+} from '../src/deprecated/v1/emulator_controller';
 
 import { DeviceError } from '../src/core/auth';
 import { GrpcWebTransport } from '../src/core/transport';
@@ -32,8 +36,10 @@ describe('generated client compatibility', () => {
 
     // A compile error here is the point of the test.
     const hypervisor = new HypervisorServiceClientImpl(transport);
+    const v1Controller = new EmulatorControllerClientImpl(transport);
 
     expect(hypervisor).toBeDefined();
+    expect(v1Controller).toBeDefined();
   });
 
   it('routes a unary call to the service and method named in the proto', async () => {
@@ -60,6 +66,32 @@ describe('generated client compatibility', () => {
     expect(state.allocatedCpuCoreCount).toBe(4);
   });
 
+  it('routes a deprecated v1 EmulatorController unary call', async () => {
+    const request = vi.fn().mockResolvedValue(
+      EmulatorStatus.encode(
+        EmulatorStatus.fromPartial({
+          version: '35.1.0',
+          uptime: 1000,
+          booted: true,
+        })
+      ).finish()
+    );
+    const controller = new EmulatorControllerClientImpl({
+      request,
+      clientStreamingRequest: vi.fn(),
+      serverStreamingRequest: vi.fn(),
+      bidirectionalStreamingRequest: vi.fn(),
+    });
+
+    const status = await controller.getStatus({});
+
+    const [service, method] = request.mock.calls[0];
+    expect(service).toBe('android.emulation.control.EmulatorController');
+    expect(method).toBe('getStatus');
+    expect(status.version).toBe('35.1.0');
+    expect(status.booted).toBe(true);
+  });
+
   it('rejects client-streaming RPCs with UNIMPLEMENTED', async () => {
     const transport = new GrpcWebTransport({ endpoint: 'http://localhost:8554' });
     const audio = new AudioServiceClientImpl(transport);
@@ -74,3 +106,4 @@ describe('generated client compatibility', () => {
     await expect(attempt).rejects.toThrow(/not supported over gRPC-Web/);
   });
 });
+

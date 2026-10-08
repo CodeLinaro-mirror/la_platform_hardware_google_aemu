@@ -155,14 +155,30 @@ emu-dev-cli init
 
 ---
 
-### 7. Query Documentation Paths (`docs`)
+### 7. Codebase Wiki & Documentation Engine (`docs`)
 
-Accesses documentation files using configured branch source directory paths in `~/.android/emu-dev-cli.json`:
+Provides a persistent **LLM Wiki** interface (`Query → Ingest → Lint`) across all `ARCHITECTURE.md`, `DESIGN.md`, and operational playbooks in the workspace:
 
-* **Get path to CTS Verifier automation documentation (`README.md`):**
+* **List all indexed architecture docs and playbooks (`docs index`):**
   ```bash
+  emu-dev-cli docs index
+  ```
+* **Search across architecture docs and playbooks by keyword (`docs search`):**
+  ```bash
+  emu-dev-cli docs search VideoRecorder
+  ```
+* **Audit `ARCHITECTURE.md` and `DESIGN.md` for drift (`docs lint`):**
+  ```bash
+  emu-dev-cli docs lint
+  ```
+* **Resolve named documentation & operational playbooks:**
+  ```bash
+  emu-dev-cli docs playbook-index
+  emu-dev-cli docs playbook-build-and-tidy
+  emu-dev-cli docs playbook-git-and-gerrit
+  emu-dev-cli docs playbook-threading-and-invariants
+  emu-dev-cli docs goldfish-architecture
   emu-dev-cli docs cts-verifier-automation
-  # Output: /work/emu-main-next/third_party/adt-infra/goldfish_test/xts/verifier/README.md
   ```
 
 ---

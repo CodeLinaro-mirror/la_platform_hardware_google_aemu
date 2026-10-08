@@ -41,8 +41,8 @@ def handle_flakiness_history(args):
         limit=getattr(args, "limit", 50),
         token=getattr(args, "token", None),
         progress_callback=cb,
+        config_name=getattr(args, "config", None),
     )
-
 
     headers = [
         "#",
@@ -51,6 +51,7 @@ def handle_flakiness_history(args):
         "Run Type",
         "Build ID",
         "Invocation ID",
+        "Test Identifier",
         "Target Platform",
         "Link",
     ]
@@ -68,6 +69,7 @@ def handle_flakiness_history(args):
                 e.run_type,
                 f"`{e.build_id or 'N/A'}`",
                 f"`{e.invocation_id}`",
+                f"`{getattr(e, 'test_identifier', 'N/A') or 'N/A'}`",
                 f"`{e.target}`",
                 link_fmt,
             ]
@@ -75,6 +77,7 @@ def handle_flakiness_history(args):
 
     summary_rows = [
         ["Test Target", f"`{summary['test_target']}`"],
+        ["Test Identifier", f"`{summary.get('test_identifier', 'all')}`"],
         ["Target Platform", f"`{summary['target']}`"],
         ["Branch", f"`{summary['branch']}`"],
         ["Time Window", f"{summary['days']} days ({summary['mode']})"],
@@ -96,6 +99,7 @@ def handle_flakiness_history(args):
     data = {
         "summary": f"Fetched history for '{args.test}' on target '{args.target}' ({summary['failed_runs']}/{summary['total_runs']} failed, {summary['flake_rate_pct']:.1f}% flake rate)",
         "test_target": summary["test_target"],
+        "test_identifier": summary.get("test_identifier", "all"),
         "target": summary["target"],
         "total_runs": summary["total_runs"],
         "passed_runs": summary["passed_runs"],
