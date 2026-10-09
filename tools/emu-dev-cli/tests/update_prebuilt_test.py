@@ -24,7 +24,7 @@ import zipfile
 
 from commands import update_prebuilt
 from lib import prebuilt_updater
-from prebuilts import lavapipe
+from prebuilts import kosmickrisp, lavapipe
 
 
 class UpdatePrebuiltTest(unittest.TestCase):
@@ -441,6 +441,81 @@ class UpdatePrebuiltTest(unittest.TestCase):
         self.assertEqual(
             res["prebuilts"]["lavapipe"]["module"], "prebuilts.lavapipe"
         )
+        self.assertIn("kosmickrisp", res["prebuilts"])
+        self.assertEqual(
+            res["prebuilts"]["kosmickrisp"]["module"], "prebuilts.kosmickrisp"
+        )
+        self.assertEqual(
+            res["prebuilts"]["kosmickrisp"]["targets"], ["mac-arm64"]
+        )
+
+    @patch("commands.update_prebuilt.check_authentication_status")
+    @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
+    @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
+    @patch("commands.update_prebuilt.print_result")
+    def test_update_kosmickrisp_mac_arm64(
+        self,
+        mock_print_result,
+        mock_download,
+        mock_find_fetch_tool,
+        mock_check_auth,
+    ):
+        mock_check_auth.return_value = {"valid": True}
+
+        def fake_download(bid, target, art, dest_dir):
+            zip_file = Path(dest_dir) / art
+            self._create_fake_zip(
+                zip_file,
+                {
+                    "emulator/lib64/vulkan/libvulkan_kosmickrisp.dylib": b"new-kk-dylib",
+                    "emulator/lib64/vulkan/libkosmickrisp_icd.json": b'{"icd": "kk"}\n',
+                },
+            )
+            return str(zip_file)
+
+        mock_download.side_effect = fake_download
+
+        with tempfile.TemporaryDirectory() as tmp_dest:
+            dest_path = Path(tmp_dest)
+            (dest_path / "libvulkan_kosmickrisp.dylib").write_bytes(b"old-kk")
+            (dest_path / "libkosmickrisp_icd.json").write_bytes(b'{"icd": "kk"}\n')
+
+            args = self.parser.parse_args(
+                [
+                    "update-prebuilt",
+                    "kosmickrisp",
+                    "--build-number=16476462",
+                    "--token=fake-token",
+                    f"--dest-dir={tmp_dest}",
+                ]
+            )
+            args.func(args)
+
+            mock_print_result.assert_called_once()
+            self.assertFalse(mock_print_result.call_args[1].get("is_error", False))
+            res = mock_print_result.call_args[0][0]
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(res["prebuilt"], "kosmickrisp")
+            self.assertEqual(res["target"], "mac-arm64")
+            self.assertEqual(res["build_number"], "16476462")
+            self.assertEqual(
+                res["updated_files"], ["libvulkan_kosmickrisp.dylib"]
+            )
+            self.assertEqual(
+                (dest_path / "libvulkan_kosmickrisp.dylib").read_bytes(),
+                b"new-kk-dylib",
+            )
+
+    def test_kosmickrisp_rejects_non_mac_arm64_target(self):
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(
+                [
+                    "update-prebuilt",
+                    "kosmickrisp",
+                    "--target=linux-x64",
+                    "--build-number=16476462",
+                ]
+            )
 
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
     @patch("lib.prebuilt_updater.AndroidBuildClient.get_latest_build_id")
@@ -456,9 +531,10 @@ class UpdatePrebuiltTest(unittest.TestCase):
             "studio-main", "studio-linux"
         )
 
-    def test_lavapipe_module_exposes_update_prebuilt(self):
-        self.assertTrue(hasattr(lavapipe, "update_prebuilt"))
-        self.assertTrue(callable(lavapipe.update_prebuilt))
+    def test_prebuilt_modules_expose_update_prebuilt(self):
+        for mod in (lavapipe, kosmickrisp):
+            self.assertTrue(hasattr(mod, "update_prebuilt"))
+            self.assertTrue(callable(mod.update_prebuilt))
 
 
 if __name__ == "__main__":

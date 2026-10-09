@@ -81,6 +81,10 @@ Fetches prebuilt artifacts or archive entries from Android Build (`go/ab`) and d
   emu-dev-cli update-prebuilt lavapipe --target=mac-arm64 --build-number=16534139
   emu-dev-cli update-prebuilt lavapipe --target=win-x64 --build-number=16534139
   ```
+- **Update KosmicKrisp Vulkan ICD prebuilts (`mac-arm64` only):**
+  ```bash
+  emu-dev-cli update-prebuilt kosmickrisp --build-number=16476462
+  ```
 - **Dry-run preview without modifying workspace files:**
   ```bash
   emu-dev-cli update-prebuilt lavapipe --build-number=16534139 --dry-run
