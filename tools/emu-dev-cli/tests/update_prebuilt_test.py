@@ -24,7 +24,7 @@ import zipfile
 
 from commands import update_prebuilt
 from lib import prebuilt_updater
-from prebuilts import kosmickrisp, lavapipe
+from prebuilts import android_device_hub, kosmickrisp, lavapipe
 
 
 class UpdatePrebuiltTest(unittest.TestCase):
@@ -448,6 +448,15 @@ class UpdatePrebuiltTest(unittest.TestCase):
         self.assertEqual(
             res["prebuilts"]["kosmickrisp"]["targets"], ["mac-arm64"]
         )
+        self.assertIn("android-device-hub", res["prebuilts"])
+        self.assertEqual(
+            res["prebuilts"]["android-device-hub"]["module"],
+            "prebuilts.android_device_hub",
+        )
+        self.assertEqual(
+            res["prebuilts"]["android-device-hub"]["default_branch"],
+            "studio-main",
+        )
 
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
@@ -517,6 +526,77 @@ class UpdatePrebuiltTest(unittest.TestCase):
                 ]
             )
 
+    @patch("commands.update_prebuilt.check_authentication_status")
+    @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
+    @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
+    @patch("commands.update_prebuilt.print_result")
+    def test_update_android_device_hub_all_targets(
+        self,
+        mock_print_result,
+        mock_download,
+        mock_find_fetch_tool,
+        mock_check_auth,
+    ):
+        mock_check_auth.return_value = {"valid": True}
+
+        def fake_download(bid, target, art, dest_dir):
+            zip_file = Path(dest_dir) / art
+            zip_file.parent.mkdir(parents=True, exist_ok=True)
+            self._create_fake_zip(
+                zip_file,
+                {
+                    "device-hub_pack.zip": f"pack-bytes-{target}".encode(
+                        "utf-8"
+                    ),
+                },
+            )
+            return str(zip_file)
+
+        mock_download.side_effect = fake_download
+
+        with tempfile.TemporaryDirectory() as tmp_root:
+            root_path = Path(tmp_root)
+            for tgt in ("linux-x64", "mac-arm64", "win-x64"):
+                (root_path / tgt).mkdir(parents=True, exist_ok=True)
+
+            args = self.parser.parse_args(
+                [
+                    "update-prebuilt",
+                    "android-device-hub",
+                    "--build-number=16557439",
+                    "--token=fake-token",
+                    f"--dest-dir={tmp_root}",
+                ]
+            )
+            self.assertEqual(args.target, "all")
+            args.func(args)
+
+            mock_print_result.assert_called_once()
+            self.assertFalse(mock_print_result.call_args[1].get("is_error", False))
+            res = mock_print_result.call_args[0][0]
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(res["prebuilt"], "android-device-hub")
+            self.assertEqual(res["target"], "all")
+            self.assertEqual(res["build_number"], "16557439")
+            self.assertEqual(
+                (
+                    root_path / "linux-x64" / "device-hub_pack_linux_x64.zip"
+                ).read_bytes(),
+                b"pack-bytes-studio-linux",
+            )
+            self.assertEqual(
+                (
+                    root_path / "mac-arm64" / "device-hub_pack_darwin_arm64.zip"
+                ).read_bytes(),
+                b"pack-bytes-studio-mac-arm",
+            )
+            self.assertEqual(
+                (
+                    root_path / "win-x64" / "device-hub_pack_win32_x64.zip"
+                ).read_bytes(),
+                b"pack-bytes-studio-win",
+            )
+
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
     @patch("lib.prebuilt_updater.AndroidBuildClient.get_latest_build_id")
     def test_resolve_build_number_latest(
@@ -532,7 +612,7 @@ class UpdatePrebuiltTest(unittest.TestCase):
         )
 
     def test_prebuilt_modules_expose_update_prebuilt(self):
-        for mod in (lavapipe, kosmickrisp):
+        for mod in (lavapipe, kosmickrisp, android_device_hub):
             self.assertTrue(hasattr(mod, "update_prebuilt"))
             self.assertTrue(callable(mod.update_prebuilt))
 

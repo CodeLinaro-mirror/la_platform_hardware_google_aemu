@@ -344,6 +344,9 @@ emu-dev-cli update-prebuilt lavapipe --target=win-x64 --build-number=16534139
 # Update KosmicKrisp ICD prebuilt (mac-arm64)
 emu-dev-cli update-prebuilt kosmickrisp --build-number=16476462
 
+# Update Android Device Hub prebuilts from studio-main (linux-x64, mac-arm64, win-x64)
+emu-dev-cli update-prebuilt android-device-hub --latest
+
 # Preview prebuilt changes without modifying workspace files
 emu-dev-cli update-prebuilt lavapipe --build-number=16534139 --dry-run
 ```

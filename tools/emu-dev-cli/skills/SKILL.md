@@ -85,6 +85,10 @@ Fetches prebuilt artifacts or archive entries from Android Build (`go/ab`) and d
   ```bash
   emu-dev-cli update-prebuilt kosmickrisp --build-number=16476462
   ```
+- **Update Android Device Hub prebuilts from `studio-main` (`linux-x64`, `mac-arm64`, `win-x64`):**
+  ```bash
+  emu-dev-cli update-prebuilt android-device-hub --latest
+  ```
 - **Dry-run preview without modifying workspace files:**
   ```bash
   emu-dev-cli update-prebuilt lavapipe --build-number=16534139 --dry-run
