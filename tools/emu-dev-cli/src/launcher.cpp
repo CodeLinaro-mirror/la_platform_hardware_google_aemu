@@ -51,10 +51,15 @@ int main(int argc, char *argv[]) {
     std::string direct_py = exe_dir + "/__main__.py";
 
     // Lookups: check Bazel runfiles and relative source paths
-    std::string aemu_runfiles_main = exe_path + ".runfiles/aemu/tools/emu-dev-cli/src/__main__.py";
-    std::string aemu_runfiles_src = exe_path + ".runfiles/aemu/tools/emu-dev-cli/src";
-    std::string aemu_plus_runfiles_main = exe_path + ".runfiles/_main/external/aemu+/tools/emu-dev-cli/src/__main__.py";
-    std::string aemu_plus_runfiles_src = exe_path + ".runfiles/_main/external/aemu+/tools/emu-dev-cli/src";
+    std::string aemu_runfiles_root = exe_path + ".runfiles/aemu/tools/emu-dev-cli";
+    std::string aemu_runfiles_main = aemu_runfiles_root + "/src/__main__.py";
+    std::string aemu_runfiles_src = aemu_runfiles_root + "/src:" + aemu_runfiles_root;
+    std::string aemu_bzlmod_root = exe_path + ".runfiles/aemu+/tools/emu-dev-cli";
+    std::string aemu_bzlmod_runfiles_main = aemu_bzlmod_root + "/src/__main__.py";
+    std::string aemu_bzlmod_runfiles_src = aemu_bzlmod_root + "/src:" + aemu_bzlmod_root;
+    std::string aemu_plus_root = exe_path + ".runfiles/_main/external/aemu+/tools/emu-dev-cli";
+    std::string aemu_plus_runfiles_main = aemu_plus_root + "/src/__main__.py";
+    std::string aemu_plus_runfiles_src = aemu_plus_root + "/src:" + aemu_plus_root;
 
     std::string target_script;
     std::string pythonpath_dir = lib_dir;
@@ -74,6 +79,9 @@ int main(int argc, char *argv[]) {
     } else if (access(aemu_runfiles_main.c_str(), F_OK) == 0) {
         target_script = aemu_runfiles_main;
         pythonpath_dir = aemu_runfiles_src;
+    } else if (access(aemu_bzlmod_runfiles_main.c_str(), F_OK) == 0) {
+        target_script = aemu_bzlmod_runfiles_main;
+        pythonpath_dir = aemu_bzlmod_runfiles_src;
     } else if (access(aemu_plus_runfiles_main.c_str(), F_OK) == 0) {
         target_script = aemu_plus_runfiles_main;
         pythonpath_dir = aemu_plus_runfiles_src;
@@ -82,8 +90,9 @@ int main(int argc, char *argv[]) {
         std::string curr = exe_dir;
         bool found = false;
         for (int i = 0; i < 7; ++i) {
-            std::string cand = curr + "/hardware/google/aemu/tools/emu-dev-cli/src/__main__.py";
-            std::string cand_src = curr + "/hardware/google/aemu/tools/emu-dev-cli/src";
+            std::string cand_root = curr + "/hardware/google/aemu/tools/emu-dev-cli";
+            std::string cand = cand_root + "/src/__main__.py";
+            std::string cand_src = cand_root + "/src:" + cand_root;
             if (access(cand.c_str(), F_OK) == 0) {
                 target_script = cand;
                 pythonpath_dir = cand_src;
@@ -113,6 +122,9 @@ int main(int argc, char *argv[]) {
         new_pythonpath += ":" + existing_pythonpath;
     }
     setenv("PYTHONPATH", new_pythonpath.c_str(), 1);
+    if (!exe_path.empty()) {
+        setenv("EMU_DEV_CLI_LAUNCHER_EXE", exe_path.c_str(), 1);
+    }
 
     std::vector<char*> new_argv;
     new_argv.push_back(const_cast<char*>(python_bin.c_str()));

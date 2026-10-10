@@ -1,0 +1,125 @@
+# Copyright 2026 The Android Open Source Project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: compare-perf
+description: Run cross-platform A/B emulator performance benchmarks (e.g. stable vs latest:emu-main-next or tree), verify the 4-part scorecard, and generate a weekly qualification report.
+
+args:
+  - name: baseline
+    help: "Baseline emulator target: 'stable' (default), 'latest:emu-main-dev', build ID, or directory"
+    required: false
+    default: "stable"
+  - name: candidate
+    help: "Candidate emulator target: 'latest:emu-main-next' (default), 'tree', 'local', build ID, or directory"
+    required: false
+    default: "latest:emu-main-next"
+  - name: suite
+    help: "Comma-separated performance suites to run (default: 'all' — boot, idle, adb, input, disk, memory, cpu, display, snapshot)"
+    required: false
+    default: "all"
+  - name: iterations
+    help: "Number of measured iterations per workload (default: 5)"
+    required: false
+    default: "5"
+  - name: avd
+    help: "Template AVD name for system image & hardware specs (default: 'auto')"
+    required: false
+    default: "auto"
+
+init:
+  comparison-json: "{cache-dir}/perf-comparison-{state_id}.json"
+  raw-scorecard: "{cache-dir}/perf-scorecard-{state_id}.md"
+  report-file: "{cache-dir}/weekly-perf-report-{state_id}.md"
+  env-summary:
+    cmd: "python3 {workflow_dir}/prepare_perf_batch.py --baseline {baseline} --candidate {candidate} --suite {suite} --avd {avd}"
+
+steps:
+  - step: 0
+    title: Run A/B Performance Benchmark & Generate Scorecard
+    description: Execute the cross-platform A/B benchmark between baseline and candidate and capture the full comparison JSON, 4-part scorecard, and weekly qualification report in a single command
+    prompt: |
+      Weekly Emulator Performance Qualification session initialized:
+      - Environment & Pre-flight: {env-summary}
+      - Baseline Target: `{baseline}`
+      - Candidate Target: `{candidate}`
+      - Workload Suite(s): `{suite}` ({iterations} iterations per workload)
+      - Output Comparison JSON: `{comparison-json}`
+      - Output 4-Part Scorecard: `{raw-scorecard}`
+      - Output Weekly Report: `{report-file}`
+
+      1. If `{env-summary}` indicates `AVD=MISSING`, first fetch a matching system image for this host:
+           emu-dev-cli fetch-build system-image --latest
+      2. Execute the A/B performance comparison and generate all artifacts in a single command:
+           emu-dev-cli perf compare {baseline} {candidate} --suite {suite} --iterations {iterations} --avd {avd} --output {comparison-json} --scorecard {raw-scorecard} --report {report-file}
+         (Note: On macOS, if `go/ab` returns HTTP 403 when fetching `{candidate}`, ask the user to run `oauth2l fetch --sso $USER@google.com androidbuild.internal` and export `ANDROID_BUILD_TOKEN`, or pass `--candidate tree` / a local emulator path.)
+      3. Once `{comparison-json}` is written, run the continuation command below to verify the run.
+    verifier_cmd: "python3 {workflow_dir}/verify_perf_run.py --comparison-json {comparison-json} --raw-scorecard {raw-scorecard} --report-file {report-file} --suite {suite}"
+    max_retries: 3
+    error_prompt: |
+      Benchmark run verification failed (attempt {retries} of {max_retries}):
+      {verifier_error}
+
+      Please ensure `emu-dev-cli perf compare {baseline} {candidate} --suite {suite} --iterations {iterations} --avd {avd} --output {comparison-json} --scorecard {raw-scorecard} --report {report-file}` completed cleanly and wrote `{comparison-json}`.
+    stuck_prompt: |
+      Workflow is STUCK after {retries} attempts because `{comparison-json}` could not be verified:
+      {verifier_error}
+    stuck_reason: "Benchmark comparison JSON at {comparison-json} failed verification after {retries} attempts."
+
+  - step: 1
+    title: Analyze Regressions, Telemetry & Author Weekly Qualification Report
+    description: Inspect the 4-part scorecard and host/guest telemetry, attribute any regressions or broken workloads, and write the complete weekly qualification report
+    prompt: |
+      The A/B benchmark run succeeded and the 4-part scorecard has been generated:
+      - Pre-rendered 4-Part Scorecard: `{raw-scorecard}`
+      - Raw Comparison JSON: `{comparison-json}`
+      - Target Weekly Report File: `{report-file}`
+
+      Read `{raw-scorecard}` (and `{comparison-json}` if deeper per-metric inspection is needed) and write a comprehensive Markdown report to `{report-file}` containing:
+      1. `# Weekly Emulator Performance Qualification Report`
+      2. `## Executive Summary & Environment`
+         - Host OS / Architecture, Baseline vs Candidate versions, engines (`qemu-now` vs `qemu-next`), and build IDs.
+         - Overall verdict tally (`WIN`, `REGRESSION`, `PARITY`, `NOISE`, `BROKEN`).
+      3. `## Full 4-Part Performance Scorecard`
+         - Include the complete, unredacted tables from `{raw-scorecard}` so ALL measured workloads and numbers are preserved:
+           1. Throughput & Latency Scorecard
+           2. Host CPU, Memory & Thread Efficiency (including 3-way vCPU Guest / Kernel-Exit / Userspace-Exit split)
+           3. Guest Kernel & Hypervisor Telemetry (`virtio` IRQs, Reschedule IPIs, TLB shootdowns, `pgfault`, KVM exits)
+           4. Automated Diagnostic Insights
+      4. `## Key Wins & Architectural Improvements`
+         - Highlight statistically significant (`p < 0.05`) throughput, latency, CPU efficiency, or memory footprint improvements and explain why they occurred based on the host/guest telemetry.
+      5. `## Regressions, Broken Workloads & Root-Cause Attribution`
+         - Detail every `BROKEN` workload or statistically significant `REGRESSION` (`p < 0.05`).
+         - Attribute root causes using the hypervisor/guest telemetry deltas (e.g., KVM exit amplification, `virtio_blk` / QCOW2 `fdatasync` overhead, `streamScreenshot` readback cost, or known Buganizer issues such as `b/572356854`) and list concrete next steps.
+    verifier_cmd: "python3 {workflow_dir}/verify_perf_report.py --comparison-json {comparison-json} --report-file {report-file}"
+    max_retries: 3
+    error_prompt: |
+      Weekly qualification report verification failed (attempt {retries} of {max_retries}):
+      {verifier_error}
+
+      Please update `{report-file}` so it includes all required sections (`Executive Summary`, `Scorecard`, `Telemetry`, `Regressions`) and every measured workload from `{raw-scorecard}`.
+    stuck_prompt: |
+      Workflow is STUCK after {retries} attempts because `{report-file}` failed verification:
+      {verifier_error}
+    stuck_reason: "Weekly performance report at {report-file} failed verification after {retries} attempts."
+
+  - step: 2
+    title: Completion
+    prompt: |
+      Weekly Emulator Performance Qualification completed and verified!
+      - Weekly Qualification Report: `{report-file}`
+      - 4-Part Scorecard Markdown: `{raw-scorecard}`
+      - Raw Comparison JSON: `{comparison-json}`
+
+      Present the full report from `{report-file}` to the user.
+    verifier_cmd: null

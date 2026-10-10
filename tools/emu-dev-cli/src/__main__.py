@@ -39,6 +39,7 @@ from commands import (
     init_cmd,
     launch,
     mesh,
+    perf,
     source_directory,
     tidy,
     update_cmd,
@@ -98,6 +99,7 @@ def main():
     installer.register_parser(subparsers)
     launch.register_parser(subparsers)
     mesh.register_parser(subparsers)
+    perf.register_parser(subparsers)
     source_directory.register_parser(subparsers)
     tidy.register_parser(subparsers)
     update_cmd.register_parser(subparsers)
