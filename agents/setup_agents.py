@@ -21,6 +21,11 @@ import sys
 
 
 def main():
+    if sys.version_info < (3, 10):
+        sys.stderr.write(
+            f"ERROR: setup_agents requires Python 3.10 or newer (detected {sys.version.split()[0]} at {sys.executable}).\n"
+        )
+        sys.exit(1)
     script_dir = Path(__file__).resolve().parent
     install_script = (
         script_dir.parent / "tools" / "emu-dev-cli" / "install.py"
