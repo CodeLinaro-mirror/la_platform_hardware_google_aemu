@@ -257,11 +257,24 @@ def get_release_package_directory(dest_path):
 
 
 def _safe_copy2(src: str, dst: str) -> None:
-    """Copies file contents and permissions while tolerating sandbox xattr EACCES."""
+    """Copies file contents and permissions while tolerating sandbox xattr EACCES and read-only targets."""
+    if os.path.abspath(src) == os.path.abspath(dst):
+        return
+    if os.path.exists(dst) or os.path.islink(dst):
+        try:
+            os.unlink(dst)
+        except OSError:
+            pass
     try:
         shutil.copy2(src, dst)
     except PermissionError:
         shutil.copyfile(src, dst)
+    if platform.system().lower() != "windows":
+        try:
+            mode = os.stat(dst).st_mode
+            os.chmod(dst, mode | 0o600)
+        except OSError:
+            pass
 
 
 def copy_src_to_release_lib(src_dir, release_lib_dir):
@@ -361,20 +374,31 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
     release_bin = os.path.join(release_dir, "emu-dev-cli")
     if platform.system().lower() == "windows":
         release_bin += ".exe"
-    if os.path.exists(release_bin) or os.path.islink(release_bin):
-        os.unlink(release_bin)
-    shutil.copy2(built_bin, release_bin)
-    if platform.system().lower() != "windows":
-        os.chmod(release_bin, 0o755)
+    if (
+        os.path.exists(built_bin)
+        and os.path.abspath(built_bin) != os.path.abspath(release_bin)
+        and not built_bin.endswith(".py")
+    ):
+        if os.path.exists(release_bin) or os.path.islink(release_bin):
+            os.unlink(release_bin)
+        _safe_copy2(built_bin, release_bin)
+        if platform.system().lower() != "windows":
+            os.chmod(release_bin, 0o755)
 
     # 2. Copy python source code to release/lib/ directory
     src_dir = resolve_source_directory(source_dir)
     copy_src_to_release_lib(src_dir, release_lib_dir)
 
-    # Copy third-party site-packages from runfiles if present
-    built_rf = built_bin + ".runfiles"
-    if os.path.exists(built_rf):
-        for root, _, _ in os.walk(built_rf):
+    # Copy third-party site-packages, aemu gRPC modules, and bundled APKs from runfiles if present
+    rf_candidates = [built_bin + ".runfiles"]
+    if built_bin.endswith("emu-dev-cli"):
+        rf_candidates.append(built_bin + "-backend.runfiles")
+    for built_rf in rf_candidates:
+        if not os.path.exists(built_rf):
+            continue
+        pb_overlay_dirs: list[str] = []
+        for root, _, files in os.walk(built_rf):
+            norm_root = root.replace("\\", "/")
             if os.path.basename(root) == "site-packages":
                 for item in os.listdir(root):
                     if item.startswith((".", "_")) and not item.endswith((".py", ".so")):
@@ -384,11 +408,76 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
                     if not os.path.exists(dest_item):
                         try:
                             if os.path.isdir(item_path):
-                                shutil.copytree(item_path, dest_item, symlinks=False)
+                                shutil.copytree(
+                                    item_path,
+                                    dest_item,
+                                    symlinks=False,
+                                    copy_function=_safe_copy2,
+                                )
                             else:
-                                shutil.copy2(item_path, dest_item)
+                                _safe_copy2(item_path, dest_item)
                         except OSError:
                             pass
+            if norm_root.endswith("/python/google/protobuf"):
+                pb_overlay_dirs.append(root)
+            if (
+                norm_root.endswith("/bin")
+                and "rules_python" in norm_root
+                and "python3" in files
+            ):
+                py_target = os.path.realpath(os.path.join(root, "python3"))
+                py_link = os.path.join(release_lib_dir, "python3")
+                try:
+                    if os.path.exists(py_link) or os.path.islink(py_link):
+                        os.unlink(py_link)
+                    os.symlink(py_target, py_link)
+                except OSError:
+                    pass
+            if norm_root.endswith("/protos/aemu-grpc/src/aemu"):
+                dest_aemu = os.path.join(release_lib_dir, "aemu")
+                try:
+                    shutil.copytree(
+                        root,
+                        dest_aemu,
+                        symlinks=False,
+                        dirs_exist_ok=True,
+                        copy_function=_safe_copy2,
+                    )
+                except OSError:
+                    pass
+            if "/protos/" in norm_root:
+                proto_dir = os.path.join(release_lib_dir, "aemu", "proto")
+                os.makedirs(proto_dir, exist_ok=True)
+                for f in files:
+                    if f.endswith(("_pb2.py", "_pb2_grpc.py")):
+                        src_pb = os.path.join(root, f)
+                        try:
+                            _safe_copy2(src_pb, os.path.join(release_lib_dir, f))
+                            _safe_copy2(src_pb, os.path.join(proto_dir, f))
+                        except OSError:
+                            pass
+            if "perf_probe.apk" in files:
+                apks_dir = os.path.join(release_lib_dir, "apks")
+                os.makedirs(apks_dir, exist_ok=True)
+                try:
+                    _safe_copy2(
+                        os.path.join(root, "perf_probe.apk"),
+                        os.path.join(apks_dir, "perf_probe.apk"),
+                    )
+                except OSError:
+                    pass
+        for pb_dir in pb_overlay_dirs:
+            dest_pb = os.path.join(release_lib_dir, "google", "protobuf")
+            try:
+                shutil.copytree(
+                    pb_dir,
+                    dest_pb,
+                    symlinks=False,
+                    dirs_exist_ok=True,
+                    copy_function=_safe_copy2,
+                )
+            except OSError:
+                pass
 
     # Copy advisor self-contained executable and runfiles if built
     source_workspace = source_dir or get_source_directory("emu-main-next")
@@ -407,7 +496,7 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
             advisor_dest = os.path.join(bin_dir, "advisor")
             if os.path.exists(advisor_dest) or os.path.islink(advisor_dest):
                 os.unlink(advisor_dest)
-            shutil.copy2(advisor_src, advisor_dest)
+            _safe_copy2(advisor_src, advisor_dest)
             if platform.system().lower() != "windows":
                 os.chmod(advisor_dest, 0o755)
 
@@ -420,7 +509,12 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
                     else:
                         shutil.rmtree(advisor_rf_dest)
                 try:
-                    shutil.copytree(advisor_rf, advisor_rf_dest, symlinks=True)
+                    shutil.copytree(
+                        advisor_rf,
+                        advisor_rf_dest,
+                        symlinks=True,
+                        copy_function=_safe_copy2,
+                    )
                 except OSError as e:
                     sys.stderr.write(
                         f"⚠️ Warning: Failed to copy advisor runfiles from {advisor_rf} to {advisor_rf_dest}: {e}\n"
@@ -440,7 +534,7 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
             crashreport_dest = os.path.join(bin_dir, f"crashreport{exe_suffix}")
             if os.path.exists(crashreport_dest) or os.path.islink(crashreport_dest):
                 os.unlink(crashreport_dest)
-            shutil.copy2(crashreport_src, crashreport_dest)
+            _safe_copy2(crashreport_src, crashreport_dest)
             if platform.system().lower() != "windows":
                 os.chmod(crashreport_dest, 0o755)
 
@@ -455,7 +549,7 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
         try:
             os.symlink(release_bin, dest_path)
         except OSError:
-            shutil.copy2(release_bin, dest_path)
+            _safe_copy2(release_bin, dest_path)
 
 
 def install_launcher_with_sudo(built_bin, dest_path, source_dir=None):
@@ -835,7 +929,11 @@ def run_install_cmd(args):
     json_mode = getattr(args, "json", False)
     dest_path = getattr(args, "path", None) or detect_default_install_path()
 
-    built_bin = os.path.normpath(sys.argv[0])
+    built_bin = os.path.normpath(
+        os.environ.get("EMU_DEV_CLI_LAUNCHER_EXE") or sys.argv[0]
+    )
+    if ".runfiles" in built_bin:
+        built_bin = built_bin.split(".runfiles", 1)[0]
     if "emu-dev-cli-backend" in built_bin:
         candidate_cc_bin = built_bin.replace("emu-dev-cli-backend", "emu-dev-cli")
         if os.path.exists(candidate_cc_bin):

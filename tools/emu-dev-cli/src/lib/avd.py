@@ -16,6 +16,7 @@
 
 import glob
 import os
+import platform
 import re
 import shutil
 from typing import Any, Dict, List, Optional, Tuple
@@ -108,17 +109,30 @@ def find_actual_sysimg_dir(sysimg_dir: str) -> str:
     return sysimg_dir
 
 
-def find_cached_sysimg_dir(arch: str = "x86_64") -> Optional[str]:
+def find_cached_sysimg_dir(arch: Optional[str] = None) -> Optional[str]:
     """
     Scans /tmp and standard locations for existing extracted system-image directories.
     """
+    if not arch:
+        mach = platform.machine().lower()
+        arch = "arm64" if mach in ("arm64", "aarch64") else "x86_64"
+
     candidates = []
     search_patterns = [
         "/tmp/system-image-*/extracted",
         "/tmp/system-image-*",
         "/tmp/sysimg-*",
         os.path.expanduser("~/.android/system-images/*"),
+        os.path.expanduser("~/Library/Android/sdk/system-images/*/*/*"),
+        os.path.expanduser("~/Android/Sdk/system-images/*/*/*"),
     ]
+    for env_var in ("ANDROID_SDK_ROOT", "ANDROID_HOME"):
+        sdk_root = os.environ.get(env_var)
+        if sdk_root:
+            search_patterns.append(
+                os.path.join(os.path.expanduser(sdk_root), "system-images", "*", "*", "*")
+            )
+
     for pattern in search_patterns:
         for p in glob.glob(pattern):
             if os.path.isdir(p):
