@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import configparser
 import json
 import logging
 import os
@@ -61,6 +62,8 @@ class WindowsToWindowsGenerator(ToolchainGenerator):
         """
         super().__init__(aosp, dest, prefix, versions)
         self.target_arch = "x86_64"
+        self.msvc_arch = "x64"
+        self.arch_flags = "-march=native -target x86_64-pc-windows-msvc"
         self.env: Dict[str, str] = {}
         for key in os.environ:
             self.env[key.upper()] = os.environ[key]
@@ -111,6 +114,37 @@ class WindowsToWindowsGenerator(ToolchainGenerator):
 
     def _load_visual_studio_env(self) -> None:
         """Loads the Visual Studio environment variables."""
+        if self.sysroot:
+            vctools_dir = self.wrapper_path(self.sysroot)
+            winsdk_candidates = sorted(vctools_dir.parent.glob("*windows_sdk*"))
+            if not winsdk_candidates:
+                raise VisualStudioMissingVarException(
+                    f"Cannot find windows_sdk repository next to {vctools_dir}"
+                )
+            winsdk_dir = winsdk_candidates[0]
+            msvc_dir = vctools_dir / "msvc"
+            include_dirs = [
+                msvc_dir / "include",
+                msvc_dir / "atlmfc" / "include",
+                winsdk_dir / "Include" / "ucrt",
+                winsdk_dir / "Include" / "um",
+                winsdk_dir / "Include" / "shared",
+                winsdk_dir / "Include" / "winrt",
+                winsdk_dir / "Include" / "cppwinrt",
+            ]
+            lib_dirs = [
+                msvc_dir / "lib" / self.msvc_arch,
+                msvc_dir / "atlmfc" / "lib" / self.msvc_arch,
+                winsdk_dir / "Lib" / "ucrt" / self.msvc_arch,
+                winsdk_dir / "Lib" / "um" / self.msvc_arch,
+            ]
+            self.env["VSINSTALLDIR"] = vctools_dir.as_posix()
+            self.env["VCTOOLSINSTALLDIR"] = msvc_dir.as_posix()
+            self.env["WINDOWSSDKDIR"] = winsdk_dir.as_posix()
+            self.env["INCLUDE"] = ";".join(d.as_posix() for d in include_dirs)
+            self.env["LIB"] = ";".join(d.as_posix() for d in lib_dirs)
+            return
+
         vs = self._visual_studio()
         logging.info("Loading environment from %s", vs)
         env_lines = subprocess.check_output(
@@ -202,14 +236,34 @@ class WindowsToWindowsGenerator(ToolchainGenerator):
             return
 
         loc_stripped = strip_sandbox(location.absolute())
-        dest_rel = os.path.relpath(self.aosp, loc_stripped.parent).replace("\\", "/")
+        dest_rel = Path(os.path.relpath(self.aosp, loc_stripped.parent)).as_posix()
         aosp_str = self.aosp.as_posix()
         aosp_str_win = str(self.aosp)
 
-        # The C/C++ compiler wrappers need to be Python scripts mapped as list definitions in aosp-cl.ini.
+        # The C/C++ compiler and resource compiler wrappers need to be Python scripts mapped as list definitions in aosp-cl.ini.
         # This completely bypasses the cmd.exe 8,191-character limit on Windows (CreateProcess supports 32k),
         # which is easily exceeded when Meson passes long lists of absolute include directories.
-        if name in ["ninja", "cc", "c++", "clang", "clang++", "gcc", "g++"]:
+        if name in [
+            "ninja",
+            "cc",
+            "c++",
+            "clang",
+            "clang++",
+            "gcc",
+            "g++",
+            "ar",
+            "ranlib",
+            "strip",
+            "nm",
+            "objcopy",
+            "objdump",
+            "strings",
+            "windres",
+            "windmc",
+            "rc",
+            "lld-link",
+            "clang-cl",
+        ]:
             py_script = location.with_suffix(".py")
             logging.info("Generating Python compiler wrapper %s", py_script)
             self.toolchain_map[name] = py_script.name
@@ -226,11 +280,7 @@ class WindowsToWindowsGenerator(ToolchainGenerator):
             # that the generated Python wrapper resolves at runtime relative to its own
             # __file__ location (AOSP_DIR) before invoking subprocess.call(cmd).
             placeholder = "__AOSP_ROOT__"
-            rel_target_exe = (
-                target_exe.replace(aosp_str, placeholder)
-                .replace(aosp_str_win, placeholder)
-                .replace("\\", "/")
-            )
+            rel_target_exe = Path(target_exe).as_posix().replace(aosp_str, placeholder)
             rel_target_extra = [
                 x.replace(aosp_str, placeholder)
                 .replace(aosp_str_win, placeholder)
@@ -241,10 +291,18 @@ class WindowsToWindowsGenerator(ToolchainGenerator):
             ]
 
             env_sets = []
-            if "LIB" in self.env:
-                env_sets.append(f'os.environ["LIB"] = {repr(self.env["LIB"])}')
-            if "INCLUDE" in self.env:
-                env_sets.append(f'os.environ["INCLUDE"] = {repr(self.env["INCLUDE"])}')
+            for var in ("LIB", "INCLUDE"):
+                if var in self.env:
+                    posix_val = ";".join(
+                        Path(p).as_posix() for p in self.env[var].split(";") if p
+                    )
+                    if aosp_str in posix_val:
+                        rel_val = posix_val.replace(aosp_str, placeholder)
+                        env_sets.append(
+                            f'os.environ["{var}"] = {repr(rel_val)}.replace({repr(placeholder)}, AOSP_DIR).replace("/", "\\\\")'
+                        )
+                    else:
+                        env_sets.append(f'os.environ["{var}"] = {repr(self.env[var])}')
 
             env_section = "\n".join(env_sets) + "\n" if env_sets else ""
 
@@ -321,7 +379,6 @@ rem Bazel: {target}
 
     def cmake(self) -> Tuple[str, str]:
         """Returns the cmake command and extra arguments."""
-        vs = self._visual_studio()
         cmake = (
             self.aosp
             / "prebuilts"
@@ -330,6 +387,9 @@ rem Bazel: {target}
             / "bin"
             / "cmake.exe"
         )
+        if self.sysroot:
+            return f'"{cmake}"', ""
+        vs = self._visual_studio()
         # We make sure that the vs variables are loaded before launching cmake
         # This will enable cmake to derive the visual studio compiler toolchain.
         return (
@@ -493,7 +553,7 @@ rem Bazel: {target}
         )
 
         return (
-            f'{cache} "{cl}" {compat_flags} -march=native -target x86_64-pc-windows-msvc -fms-extensions',
+            f'{cache} "{cl}" {compat_flags} {self.arch_flags} -fms-extensions',
             f"{flags}",
         )
 
@@ -503,7 +563,7 @@ rem Bazel: {target}
 
     def windres(self) -> Tuple[str, str]:
         """Returns the windres command and extra arguments."""
-        return f'"{self.clang() / "bin" / "llvm-windres.exe"}"', ""
+        return self.rc()
 
     def rc(self) -> Tuple[str, str]:
         """Returns the rc command and extra arguments."""
@@ -515,15 +575,19 @@ rem Bazel: {target}
 
     def lld(self) -> Tuple[str, str]:
         """Returns the lld command and extra arguments."""
-
+        self.initialize()
         link_opts = ""
-        if "WINDOWSSDKLIBVERSION" in self.env and "WINDOWSSDKDIR" in self.env:
+        if self.sysroot and "LIB" in self.env:
+            link_opts = " ".join(
+                f'"/libpath:{p}"' for p in self.env["LIB"].split(";") if p
+            )
+        elif "WINDOWSSDKLIBVERSION" in self.env and "WINDOWSSDKDIR" in self.env:
             winsdk_lib = (
                 Path(self.env["WINDOWSSDKDIR"])
                 / "Lib"
                 / self.env["WINDOWSSDKLIBVERSION"]
                 / "um"
-                / "x64"
+                / self.msvc_arch
             )
             link_opts = f"/libpath:{winsdk_lib}"
         else:
@@ -543,10 +607,10 @@ rem Bazel: {target}
             binaries: A dictionary of binaries to generate wrappers for.
         """
         super().gen_toolchain(packages, binaries)
-        # Generate the resource compilers, not they all point to rc, llvm-rc.
+        # Generate the resource compilers, note they all point to rc, llvm-rc.
         # llvm-rc is a clean room implementation of msvc-rc, with a series of
         # extensions.
-        self.gen_script("windres", self.dest / "windres", self.windres)
+        self.gen_script("windres", self.dest / "windres", self.rc)
         self.gen_script("windmc", self.dest / "windmc", self.windmc)
         self.gen_script("rc", self.dest / "rc", self.rc)
         self.gen_script("ld-rust", self.dest / "ld-rust", self.rust_link_script)
@@ -554,3 +618,39 @@ rem Bazel: {target}
 
         # linkers
         self.gen_script("lld-link", self.dest / "lld-link", self.lld)
+        self.gen_script("chmod", self.dest / "chmod", lambda: ("exit /b 0", ""))
+        self.write_toolchain_config()
+
+
+class WindowsToWindowsAarch64Generator(WindowsToWindowsGenerator):
+    """A toolchain generator for cross-compiling on Windows x64 for Windows AArch64."""
+
+    def __init__(
+        self, aosp: Path, dest: Path, prefix: str, versions: Dict[str, str] = None
+    ) -> None:
+        super().__init__(aosp, dest, prefix, versions)
+        self.target_arch = "aarch64"
+        self.msvc_arch = "arm64"
+        self.arch_flags = "-target aarch64-pc-windows-msvc"
+
+    def rust_flags(self) -> List[str]:
+        """Returns the rust flags."""
+        return ["--target=aarch64-pc-windows-msvc"]
+
+    def write_toolchain_config(self) -> None:
+        """Writes a cross-compilation toolchain configuration that can be consumed by meson."""
+        super().write_toolchain_config()
+        config = configparser.ConfigParser()
+        config.read(self.dest / "aosp-cl.ini")
+        if "properties" not in config:
+            config["properties"] = {}
+        config["properties"]["skip_sanity_check"] = "true"
+        config["host_machine"] = {
+            "system": "'windows'",
+            "cpu_family": "'aarch64'",
+            "cpu": "'aarch64'",
+            "endian": "'little'",
+        }
+        with open(self.dest / "aosp-cl.ini", "w", encoding="utf-8") as f:
+            f.write("# Auto generated by Android Meson Generator - do not modify\n")
+            config.write(f)
