@@ -1,0 +1,208 @@
+syntax = "proto3";
+
+package android.emulation.v2;
+
+option go_package = "google.golang.org/protobuf/types/known/emulation/v2;emulationv2";
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2";
+
+import "google/api/field_behavior.proto";
+
+// Observes Android OS boot lifecycle, ADB connection, lockscreen state, triggers in-band reboots,
+// synchronizes guest clipboard contents, and injects biometric authentication events.
+//
+// Note: ADB-equivalent operations (file push/pull, APK installation, shell
+// execution, and logcat streaming) are intentionally out of scope for
+// `services_v2` and must be performed out-of-band via ADB.
+service SystemService {
+  // Returns the current Android OS boot lifecycle, ADB connection, lockscreen, and uptime state.
+  //
+  // Recommended client deadline: >= 500ms.
+  rpc GetSystemState(GetSystemStateRequest) returns (SystemState);
+
+  // Streams real-time Android OS lifecycle, connection, lockscreen, and heartbeat telemetry.
+  //
+  // STREAM LIFECYCLE:
+  //   1. Client initiates RPC with `StreamSystemStateRequest`.
+  //   2. Server immediately sends the current `SystemState` snapshot as the first message.
+  //   3. Server pushes subsequent `SystemState` messages on lifecycle/lock changes and heartbeat ticks.
+  //   4. Client cancels the RPC context to unsubscribe.
+  rpc StreamSystemState(StreamSystemStateRequest)
+      returns (stream SystemState);
+
+  // Triggers a graceful in-band Android operating system reboot across both VMs and physical devices.
+  //
+  // Recommended client deadline: >= 2000ms.
+  //
+  // Expected gRPC status codes:
+  //   - FAILED_PRECONDITION: Device does not support in-band reboot (`supports_reboot == false`).
+  //   - PERMISSION_DENIED: Caller lacks write permission (`ACCESS_MODE_READ_ONLY`).
+  rpc RebootDevice(RebootDeviceRequest) returns (RebootDeviceResponse);
+
+  // Returns the current contents of the Android guest clipboard.
+  //
+  // Recommended client deadline: >= 500ms.
+  rpc GetClipboardState(GetClipboardStateRequest) returns (ClipboardState);
+
+  // Streams real-time updates whenever the Android guest clipboard content changes.
+  //
+  // STREAM LIFECYCLE:
+  //   1. Client initiates RPC with `StreamClipboardStateRequest`.
+  //   2. Server immediately emits the current `ClipboardState` as the first message.
+  //   3. Server pushes subsequent `ClipboardState` messages whenever guest apps copy new data.
+  //   4. Client cancels the RPC context to unsubscribe.
+  rpc StreamClipboardState(StreamClipboardStateRequest)
+      returns (stream ClipboardState);
+
+  // Replaces or clears the Android guest clipboard contents.
+  //
+  // Recommended client deadline: >= 1000ms.
+  //
+  // Expected gRPC status codes:
+  //   - PERMISSION_DENIED: Caller lacks write permission (`ACCESS_MODE_READ_ONLY`).
+  rpc UpdateClipboardState(UpdateClipboardStateRequest)
+      returns (ClipboardState);
+
+  // Simulates a fingerprint scan or explicit touch/release contact on the device's fingerprint sensor.
+  //
+  // When `touching` is omitted, executes a complete atomic touch-and-release scan cycle
+  // (presses sensor, holds ~100ms, releases sensor) and returns only once the release event
+  // has been dispatched to the guest HAL, acting as a synchronous completion barrier.
+  //
+  // Recommended client deadline: >= 500ms.
+  //
+  // Expected gRPC status codes:
+  //   - FAILED_PRECONDITION: Device has no fingerprint sensor (`supports_fingerprint == false`).
+  //   - PERMISSION_DENIED: Caller lacks write permission (`ACCESS_MODE_READ_ONLY`).
+  rpc InjectFingerprint(InjectFingerprintRequest)
+      returns (InjectFingerprintResponse);
+}
+
+// Request message for querying the current system state.
+message GetSystemStateRequest {}
+
+// Request message for subscribing to system state updates.
+message StreamSystemStateRequest {}
+
+// Request message for triggering an in-band Android operating system reboot.
+//
+// Note: Specialized reboot targets (bootloader, recovery) are intentionally
+// not supported; device provisioning and partition flashing must be performed
+// out-of-band via standard fastboot/lab tooling.
+message RebootDeviceRequest {}
+
+// Response message for RebootDevice.
+message RebootDeviceResponse {}
+
+// Reports Android operating system boot status, ADB connectivity, keyguard state, and uptime telemetry.
+message SystemState {
+  // Classifies the Android Keyguard / lockscreen visibility state.
+  enum Lock {
+    // Default unspecified lock state.
+    LOCK_UNSPECIFIED = 0;
+    // Keyguard is dismissed and the Launcher or foreground app is interactive.
+    UNLOCKED = 1;
+    // Keyguard lockscreen is active and blocking application interaction.
+    LOCKED = 2;
+  }
+  // Classifies the guest ADB daemon (`adbd`) transport connection state.
+  enum Connection {
+    // Default unspecified connection state.
+    CONNECTION_UNSPECIFIED = 0;
+    // Guest `adbd` transport is online and authorized for host communication.
+    CONNECTED = 1;
+    // Guest `adbd` transport is connected but awaiting user RSA key authorization dialog approval.
+    UNAUTHORIZED = 2;
+    // Guest `adbd` transport is offline or disconnected.
+    DISCONNECTED = 3;
+  }
+  // Classifies high-level Android operating system boot and power lifecycle phases.
+  enum Lifecycle {
+    // Default unspecified lifecycle state.
+    LIFECYCLE_UNSPECIFIED = 0;
+    // Kernel and Android userspace services are booting (`sys.boot_completed != 1`).
+    BOOTING = 1;
+    // Android boot sequence has finished (`sys.boot_completed == 1`) and the device is ready for interaction.
+    BOOT_COMPLETED = 2;
+    // Android userspace is executing a graceful shutdown or reboot sequence.
+    SHUTTING_DOWN = 3;
+    // Device is powered off or unreachable.
+    OFFLINE = 4;
+  }
+
+  // Output only. Current Android operating system boot lifecycle phase.
+  Lifecycle lifecycle_state = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Current guest ADB daemon transport connectivity state.
+  // Note: On physical devices reached over ADB forwarding, any reachable device reports
+  // `CONNECTED`; if ADB disconnects, the RPC itself fails at the transport layer (`UNAVAILABLE`).
+  Connection connection_state = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Current Android Keyguard lockscreen state.
+  Lock lock_state = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Output only. Elapsed wall-clock uptime in milliseconds since the emulator process started
+  // (or Android OS boot uptime on physical devices; must be >= 0).
+  uint64 uptime_ms = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Output only. Duration in milliseconds from VM launch/reset until `sys.boot_completed` was signaled
+  // (0 if boot is still in progress or unavailable on already-running physical devices).
+  uint64 boot_completed_duration_ms = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Output only. Monotonically increasing liveness counter incremented by the guest watchdog device
+  // or on-device agent heartbeat timer.
+  uint64 heartbeat_counter = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Request message for querying the current guest clipboard contents.
+message GetClipboardStateRequest {}
+
+// Request message for subscribing to guest clipboard changes.
+message StreamClipboardStateRequest {}
+
+// Represents the payload stored in the Android guest clipboard.
+message ClipboardState {
+  // Primary UTF-8 text representation of the clipboard item (if available).
+  string text = 1;
+  // MIME type describing the clipboard payload (e.g., "text/plain", "text/html", "image/png").
+  // Defaults to "text/plain" when non-empty `text` is present without explicit MIME metadata.
+  string mime_type = 2;
+  // Optional raw binary clipboard payload (e.g., copied image or rich clip data).
+  optional bytes binary_data = 3;
+}
+
+// Request message for updating or clearing the guest clipboard.
+message UpdateClipboardStateRequest {
+  // UTF-8 text to write to the clipboard. Setting an empty string with no `binary_data` clears the clipboard.
+  string text = 1;
+  // Optional MIME type for the clipboard payload (defaults to "text/plain" when omitted).
+  string mime_type = 2;
+  // Optional raw binary payload for rich/non-text clipboard items.
+  optional bytes binary_data = 3;
+}
+
+// Request message for simulating a fingerprint sensor scan or contact transition.
+message InjectFingerprintRequest {
+  // Enrolled fingerprint identifier (e.g., 1 for "Finger 1", 2 for "Finger 2").
+  // Passing an unregistered `finger_id` simulates an unrecognized fingerprint scan.
+  //
+  // Enrollment Precondition:
+  // Fresh AVDs have no enrolled fingerprints by default. Before testing authentication,
+  // open Android `Settings > Security > Fingerprint` and call `InjectFingerprint` with
+  // the desired `finger_id` (e.g., `1`) during the enrollment wizard to register it.
+  //
+  // Atomic Scan vs. Manual Contact Control:
+  //   - Default (when `touching` is omitted): performs a complete touch-and-release scan
+  //     cycle (~100ms hold) and returns after the release reaches the guest HAL. Callers
+  //     simulating consecutive scans (e.g., 5 failed attempts to trigger
+  //     `BIOMETRIC_ERROR_LOCKOUT`) can simply call `InjectFingerprint({ finger_id })`
+  //     in a loop without manual release calls or client-side sleeps.
+  //   - Manual hold/release: set `touching: true` to press and hold the sensor indefinitely,
+  //     followed by a second call with `touching: false` to lift the finger.
+  int32 finger_id = 1;
+  // Optional sensor contact state. When omitted, performs a synchronous atomic
+  // touch-and-release scan cycle (~100ms hold) before returning. Set explicitly to
+  // `true` (press and hold) or `false` (release) only when manually controlling contact duration.
+  optional bool touching = 2;
+}
+
+// Response message for InjectFingerprint.
+message InjectFingerprintResponse {}

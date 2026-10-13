@@ -428,6 +428,7 @@ cc_test(
         "LayoutResolver_unittest.cpp",
         "LruCache_unittest.cpp",
         "ManagedDescriptor_unittest.cpp",
+        "MessageChannel_unittest.cpp",
         "NoDestructor_unittest.cpp",
         "Optional_unittest.cpp",
         "RingStreambuf_unittest.cpp",

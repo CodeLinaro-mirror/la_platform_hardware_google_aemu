@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+package android.emulation.v2;
+
+option go_package = "google.golang.org/protobuf/types/known/emulation/v2;emulationv2";
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2";
+
+import "common.proto";
+import "google/api/field_behavior.proto";
+
+// Streams uncompressed PCM audio between the host and the device's microphone and speaker endpoints.
+//
+// AVAILABILITY:
+//   The two directions are independent and are advertised separately by
+//   `AudioCapabilities.microphone_profile` and `AudioCapabilities.speaker_profile`.
+//   Emulated devices generally offer both. Physical devices reached over ADB
+//   typically offer speaker capture only, since there is no virtual microphone
+//   HAL to write into. Inspect the capability before opening a stream.
+//
+//   This service is also independent of `RtcService`. RtcService carries encoded
+//   Opus audio inside a peer connection and is the right choice for human
+//   playback; AudioService delivers raw PCM and is the right choice for
+//   programmatic consumers (speech recognition, waveform assertions, audio
+//   diffing) that need unencoded samples. Either may be used without the other,
+//   and both may be open at once.
+service AudioService {
+  // Injects a complete, self-contained PCM audio clip into the device's microphone input
+  // in a single unary call, paced automatically by the server according to its sample rate.
+  //
+  // Ideal for AI agents, automated test scripts, and gRPC-Web clients that want to inject
+  // a pre-recorded voice utterance or tone without managing a client-side streaming loop.
+  //
+  // Recommended client deadline: >= clip duration + 1000ms.
+  //
+  // Expected gRPC status codes:
+  //   - INVALID_ARGUMENT: Unsupported sample rate, channel count, or sample format.
+  //   - PERMISSION_DENIED: Caller lacks write access (`ACCESS_MODE_READ_ONLY`).
+  //   - FAILED_PRECONDITION: This device has no injectable microphone endpoint
+  //     (`AudioCapabilities.microphone_profile` is unset), or the audio subsystem is disabled.
+  rpc InjectAudioClip(AudioChunk) returns (InjectAudioClipResponse);
+
+  // Injects client PCM audio chunks into the device's microphone input via a continuous stream.
+  //
+  // STREAM LIFECYCLE:
+  //   1. Client opens client-streaming RPC and sends `AudioChunk` messages paced by `timestamp_nanos`.
+  //   2. Server rebases client timestamps onto `CLOCK_MONOTONIC` and feeds the guest microphone HAL.
+  //   3. Client half-closes the stream or cancels context to stop microphone injection.
+  //
+  // Expected gRPC status codes:
+  //   - INVALID_ARGUMENT: Unsupported sample rate, channel count, or sample format.
+  //   - PERMISSION_DENIED: Caller lacks write access (`ACCESS_MODE_READ_ONLY`).
+  //   - FAILED_PRECONDITION: This device has no injectable microphone endpoint
+  //     (`AudioCapabilities.microphone_profile` is unset), or the audio subsystem is disabled.
+  rpc StreamMicrophoneAudio(stream AudioChunk) returns (StreamMicrophoneAudioResponse);
+
+  // Streams audio output emitted by the device's speaker mixer.
+  //
+  // STREAM LIFECYCLE:
+  //   1. Client initiates RPC with `StreamSpeakerAudioRequest`.
+  //   2. Server immediately begins pushing `AudioChunk` buffers as guest audio is mixed.
+  //   3. Under client backpressure, the server drops oldest unconsumed audio buffers to preserve real-time latency.
+  //   4. Client MUST cancel the RPC context when finished to release host audio mixer tap resources.
+  //
+  // To record audio triggered by a UI action (e.g., clicking a button) without
+  // clipping initial playback, open `StreamSpeakerAudio` BEFORE dispatching the
+  // input event, then align/trim recorded frames using `timestamp_nanos`
+  // (`CLOCK_MONOTONIC`, shared with `InputEvent` and `Screenshot`).
+  //
+  // Expected gRPC status codes:
+  //   - INVALID_ARGUMENT: Requested sample rate, channel count, or format is not supported.
+  //   - FAILED_PRECONDITION: This device has no capturable speaker endpoint
+  //     (`AudioCapabilities.speaker_profile` is unset), or the audio subsystem is disabled.
+  rpc StreamSpeakerAudio(StreamSpeakerAudioRequest) returns (stream AudioChunk);
+}
+
+// Encapsulates a contiguous buffer of uncompressed PCM audio samples and its format metadata.
+message AudioChunk {
+  // Interleaved raw PCM sample buffer (e.g., Stereo = [L0, R0, L1, R1, ...]).
+  bytes pcm_data = 1 [(google.api.field_behavior) = REQUIRED];
+  // Sampling frequency in Hertz (e.g., 16000, 44100, 48000; must be > 0).
+  int32 sample_rate_hz = 2 [(google.api.field_behavior) = REQUIRED];
+  // Number of interleaved audio channels (e.g., 1 = Mono, 2 = Stereo; must be >= 1).
+  int32 channel_count = 3 [(google.api.field_behavior) = REQUIRED];
+  // Binary sample encoding format (PCM16_BIT little-endian or F32_BIT float).
+  SampleFormat format = 4 [(google.api.field_behavior) = REQUIRED];
+  // Monotonic timestamp in nanoseconds (`CLOCK_MONOTONIC`) for the first sample in `pcm_data`.
+  // Populated by the server on speaker capture streams; optional on microphone injection streams.
+  int64 timestamp_nanos = 5;
+}
+
+// Response message for InjectAudioClip.
+message InjectAudioClipResponse {
+  // Total duration of injected audio in milliseconds.
+  uint64 duration_ms = 1;
+}
+
+// Response message for StreamMicrophoneAudio.
+message StreamMicrophoneAudioResponse {}
+
+// Configures sample rate, channel layout, and encoding format for speaker audio capture.
+//
+// Every field is a request for server-side conversion of the mixer output. Unset
+// fields stream the device mixer's native value with no conversion. Requesting a
+// combination absent from `AudioCapabilities.speaker_profile` fails with
+// INVALID_ARGUMENT rather than silently falling back.
+message StreamSpeakerAudioRequest {
+  // Target output sample rate in Hertz. When unset, streams at the device mixer's native rate without resampling.
+  optional int32 sample_rate_hz = 1;
+  // Target output sample encoding format. When unset, streams in the device mixer's native format.
+  optional SampleFormat format = 2;
+  // Target output channel count (1 = Mono, 2 = Stereo). When unset, streams the
+  // mixer's native layout. Requesting 1 downmixes on the server, halving wire
+  // bandwidth; prefer it for speech recognition, which discards the second
+  // channel anyway. This matters most over ADB-forwarded and remote transports.
+  optional int32 channel_count = 3;
+}

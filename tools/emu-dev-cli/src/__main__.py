@@ -28,12 +28,14 @@ if os.path.exists(lib_dir) and lib_dir not in sys.path:
     sys.path.insert(0, lib_dir)
 
 from commands import (
+    build_times,
     crash,
     create,
     cts,
     docs,
     fetch_build,
     flakiness,
+    gerrit,
     init_cmd,
     launch,
     mesh,
@@ -83,12 +85,14 @@ def main():
     default_host = detect_default_host()
 
     # Register subcommands
+    build_times.register_parser(subparsers)
     crash.register_parser(subparsers)
     create.register_parser(subparsers)
     cts.register_parser(subparsers)
     docs.register_parser(subparsers)
     fetch_build.register_parser(subparsers, default_host)
     flakiness.register_parser(subparsers)
+    gerrit.register_parser(subparsers)
     init_cmd.register_parser(subparsers)
     installer.register_parser(subparsers)
     launch.register_parser(subparsers)

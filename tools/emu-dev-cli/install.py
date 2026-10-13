@@ -178,6 +178,9 @@ def run_install(argv=None):
         for sf in skill_files:
             print(f"  + Installed skill: {sf}")
 
+    if hasattr(installer, "cleanup_legacy_workspace_files"):
+        installer.cleanup_legacy_workspace_files(source_root)
+
     if ensure_codesearch_urls_config:
         try:
             ensure_codesearch_urls_config()

@@ -59,7 +59,8 @@ class TestDarwinToDarwinGenerator(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.test_dir)
 
-    def test_tool_methods(self):
+    @patch("aemu.toolchains.toolchain_generator.ToolchainGenerator.cc_version", return_value="18")
+    def test_tool_methods(self, mock_cc_version):
         clang_bin = (
             self.aosp
             / "prebuilts"

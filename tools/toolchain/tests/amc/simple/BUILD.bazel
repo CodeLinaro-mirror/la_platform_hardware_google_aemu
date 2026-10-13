@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package(default_visibility = ["//hardware/google/aemu/tools/toolchain/tests/amc:__subpackages__"])
+package(default_visibility = ["//hardware/google/aemu/tools/toolchain:__subpackages__"])
 
 exports_files([
     "main.cpp",

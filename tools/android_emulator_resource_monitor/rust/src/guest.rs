@@ -27,6 +27,9 @@ pub fn parse_batch_output<'a>(stdout: &'a str) -> (String, bool, Option<String>,
     let parts: Vec<&str> = stdout.split("===ADB_MON_SPLIT===").collect();
     let mut mem_total = 0;
     let mut mem_avail = 0;
+    let mut mem_free = 0;
+    let mut buffers = 0;
+    let mut cached = 0;
     let mut used = 0;
     let mut err_count = 0;
     let mut is_booting = true;
@@ -43,11 +46,20 @@ pub fn parse_batch_output<'a>(stdout: &'a str) -> (String, bool, Option<String>,
                     mem_total = lp[1].parse::<u64>().unwrap_or(0);
                 } else if lp[0].starts_with("MemAvailable") {
                     mem_avail = lp[1].parse::<u64>().unwrap_or(0);
+                } else if lp[0].starts_with("MemFree") {
+                    mem_free = lp[1].parse::<u64>().unwrap_or(0);
+                } else if lp[0].starts_with("Buffers") {
+                    buffers = lp[1].parse::<u64>().unwrap_or(0);
+                } else if lp[0] == "Cached:" {
+                    cached = lp[1].parse::<u64>().unwrap_or(0);
                 }
             }
         }
+        if mem_avail == 0 && (mem_free + buffers + cached) > 0 {
+            mem_avail = mem_free + buffers + cached;
+        }
         if mem_total > 0 {
-            used = mem_total - mem_avail;
+            used = mem_total.saturating_sub(mem_avail);
         }
     }
 
@@ -162,37 +174,56 @@ pub fn parse_top_output(stdout: &str) -> (String, String) {
     (guest_diff, guest_real)
 }
 
+pub fn parse_adb_devices(stdout: &str) -> std::collections::HashMap<String, String> {
+    const VALID_STATES: &[&str] = &[
+        "device",
+        "offline",
+        "unauthorized",
+        "bootloader",
+        "recovery",
+        "sideload",
+        "authorizing",
+        "connecting",
+    ];
+    let mut devices = std::collections::HashMap::new();
+    for raw_line in stdout.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('*') || line.starts_with("List of devices") {
+            continue;
+        }
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 2 && VALID_STATES.contains(&parts[1]) {
+            devices.insert(parts[0].to_string(), parts[1].to_string());
+        }
+    }
+    devices
+}
+
 pub struct RealGuestProvider;
 
 impl crate::provider::GuestProvider for RealGuestProvider {
     async fn get_devices(&self) -> std::collections::HashMap<String, String> {
-    let mut devices = std::collections::HashMap::new();
+        let adb_bin = find_adb();
         let output = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            Command::new("adb").arg("devices").output()
+            Command::new(&adb_bin).kill_on_drop(true).arg("devices").output()
         ).await;
 
         let output = match output {
             Ok(Ok(out)) => out,
             Ok(Err(e)) => {
                 println!("Failed to run adb devices: {}", e);
-                return devices;
+                return std::collections::HashMap::new();
             }
             Err(_) => {
                 println!("adb devices timed out");
-                return devices;
+                return std::collections::HashMap::new();
             }
         };
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines().skip(1) {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 2 {
-                devices.insert(parts[0].to_string(), parts[1].to_string());
-            }
-        }
-    devices
-}
+        parse_adb_devices(&stdout)
+    }
 
     async fn get_guest_stats(&self, serial: &str, known_model: &str, mut is_booting: bool, status: &str) -> (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>) {
     if status != "device" {
@@ -209,6 +240,7 @@ impl crate::provider::GuestProvider for RealGuestProvider {
         );
     }
 
+    let adb_bin = find_adb();
     let mut model = known_model.to_string();
     let model_lower = model.to_lowercase();
     let should_retry = model.is_empty() ||
@@ -220,15 +252,19 @@ impl crate::provider::GuestProvider for RealGuestProvider {
 
     if should_retry {
         let script = "m=$(getprop ro.product.model); v=$(getprop ro.build.version.release); a=$(getprop ro.build.version.sdk); b=$(getprop ro.build.id); w=$(wm size 2>/dev/null); c=$(getprop sys.boot_completed); echo \"$m|!|$v|!|$a|!|$b|!|$w|!|$c\"";
-        let output = Command::new("adb")
-            .arg("-s")
-            .arg(serial)
-            .arg("shell")
-            .arg(script)
-            .output()
-            .await;
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            Command::new(&adb_bin)
+                .kill_on_drop(true)
+                .arg("-s")
+                .arg(serial)
+                .arg("shell")
+                .arg(script)
+                .output(),
+        )
+        .await;
 
-        if let Ok(output) = output {
+        if let Ok(Ok(output)) = output {
             let stdout = String::from_utf8_lossy(&output.stdout);
             if let Some((m, b)) = parse_model_info(&stdout) {
                 model = m;
@@ -244,18 +280,22 @@ impl crate::provider::GuestProvider for RealGuestProvider {
     let mut guest_swap = None;
     let batch_script = r#"cat /proc/meminfo; echo '===ADB_'"MON"'_SPLIT==='; df -h /data 2>/dev/null; echo '===ADB_'"MON"'_SPLIT==='; logcat -d -t 500 -b main,crash *:E 2>/dev/null | grep -v "^---------" | wc -l; echo '===ADB_'"MON"'_SPLIT==='; getprop sys.boot_completed; echo '===ADB_'"MON"'_SPLIT==='; (top -b -n 2 -d 0.2 || top -n 2 -d 1); echo '===ADB_'"MON"'_SPLIT==='; vmstat"#;
 
-    let output = Command::new("adb")
-        .arg("-s")
-        .arg(serial)
-        .arg("shell")
-        .arg(batch_script)
-        .output()
-        .await;
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        Command::new(&adb_bin)
+            .kill_on_drop(true)
+            .arg("-s")
+            .arg(serial)
+            .arg("shell")
+            .arg(batch_script)
+            .output(),
+    )
+    .await;
 
     let mut guest_diff = "N/A".to_string();
     let mut guest_real = "N/A".to_string();
 
-    if let Ok(output) = output {
+    if let Ok(Ok(output)) = output {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let (ram, booting, space, errs, pct, top_out, swap) = parse_batch_output(&stdout);
         guest_ram = ram;
@@ -272,6 +312,86 @@ impl crate::provider::GuestProvider for RealGuestProvider {
 
     (model, is_booting, guest_diff, guest_real, guest_ram, data_space, guest_swap, err_count, data_pct)
     }
+}
+
+/// Joins `parts` onto `root` with the separator style `root` already uses, so
+/// Windows-style SDK paths resolve identically on every host.
+fn join_sdk_path(root: &str, parts: &[&str]) -> String {
+    let sep = if root.contains('\\') { '\\' } else { '/' };
+    let mut out = root.trim_end_matches(['/', '\\']).to_string();
+    for part in parts {
+        out.push(sep);
+        out.push_str(part);
+    }
+    out
+}
+
+pub fn resolve_adb_path(
+    android_home: Option<&str>,
+    android_sdk_root: Option<&str>,
+    home_dir: Option<&str>,
+    exists_fn: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    const ADB_BINS: [&str; 2] = ["adb", "adb.exe"];
+    for root in [android_home, android_sdk_root].into_iter().flatten() {
+        if !root.is_empty() {
+            for bin in ADB_BINS {
+                let cand = join_sdk_path(root, &["platform-tools", bin]);
+                if exists_fn(&cand) {
+                    return Some(cand);
+                }
+            }
+        }
+    }
+    if let Some(home) = home_dir.filter(|h| !h.is_empty()) {
+        for sdk in [
+            &["Android", "Sdk"][..],
+            &["Library", "Android", "sdk"],
+            &["AppData", "Local", "Android", "Sdk"],
+        ] {
+            for bin in ADB_BINS {
+                let mut parts = sdk.to_vec();
+                parts.extend(["platform-tools", bin]);
+                let cand = join_sdk_path(home, &parts);
+                if exists_fn(&cand) {
+                    return Some(cand);
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn find_adb() -> String {
+    let android_home = std::env::var("ANDROID_HOME").ok();
+    let android_sdk_root = std::env::var("ANDROID_SDK_ROOT").ok();
+    // HOME is usually unset on Windows outside MSYS shells.
+    let home = std::env::var("HOME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("USERPROFILE").ok());
+    if let Some(found) = resolve_adb_path(
+        android_home.as_deref(),
+        android_sdk_root.as_deref(),
+        home.as_deref(),
+        &|p| std::path::Path::new(p).exists(),
+    ) {
+        return found;
+    }
+    let lookup_cmd = if cfg!(windows) { "where" } else { "which" };
+    if let Ok(p) = std::process::Command::new(lookup_cmd).arg("adb").output() {
+        if p.status.success() {
+            if let Some(path) = String::from_utf8_lossy(&p.stdout)
+                .lines()
+                .map(str::trim)
+                .find(|l| !l.is_empty())
+                .map(str::to_string)
+            {
+                return path;
+            }
+        }
+    }
+    "adb".to_string()
 }
 
 #[cfg(test)]
@@ -431,5 +551,60 @@ mod tests {
         assert_eq!(model, "Android 12");
         assert!(is_booting);
         assert_eq!(diff, "N/A (offline)");
+    }
+
+    #[test]
+    fn test_parse_adb_devices_filters_noise() {
+        let stdout = "* daemon not running; starting now at tcp:5037\n\
+                      * daemon started successfully\n\
+                      List of devices attached\n\
+                      emulator-5554\tdevice\n\
+                      emulator-5556\toffline\n\
+                      adb server version (41) doesn't match this client\n";
+        let devs = parse_adb_devices(stdout);
+        assert_eq!(devs.len(), 2);
+        assert_eq!(devs.get("emulator-5554").map(|s| s.as_str()), Some("device"));
+        assert_eq!(devs.get("emulator-5556").map(|s| s.as_str()), Some("offline"));
+    }
+
+    #[test]
+    fn test_resolve_adb_path_sdk_fallbacks() {
+        let found = resolve_adb_path(
+            None,
+            None,
+            Some("/home/user"),
+            &|p| p == "/home/user/Android/Sdk/platform-tools/adb",
+        );
+        assert_eq!(
+            found.as_deref(),
+            Some("/home/user/Android/Sdk/platform-tools/adb")
+        );
+
+        let win_found = resolve_adb_path(
+            None,
+            None,
+            Some(r"C:\Users\alice"),
+            &|p| p == r"C:\Users\alice\AppData\Local\Android\Sdk\platform-tools\adb.exe",
+        );
+        assert_eq!(
+            win_found.as_deref(),
+            Some(r"C:\Users\alice\AppData\Local\Android\Sdk\platform-tools\adb.exe")
+        );
+
+        let win_sdk_root = resolve_adb_path(
+            Some(r"D:\sdk\"),
+            None,
+            None,
+            &|p| p == r"D:\sdk\platform-tools\adb.exe",
+        );
+        assert_eq!(win_sdk_root.as_deref(), Some(r"D:\sdk\platform-tools\adb.exe"));
+    }
+
+    #[test]
+    fn test_parse_batch_output_memfree_fallback() {
+        let stdout = "MemTotal: 4000000 kB\nMemFree: 1000000 kB\nBuffers: 500000 kB\nCached: 500000 kB\n===ADB_MON_SPLIT===\n===ADB_MON_SPLIT===\n0\n===ADB_MON_SPLIT===\n1";
+        let (ram, is_booting, _, _, _, _, _) = parse_batch_output(stdout);
+        assert!(ram.contains("50.0%"));
+        assert!(!is_booting);
     }
 }
