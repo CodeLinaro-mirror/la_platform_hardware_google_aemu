@@ -19,6 +19,7 @@ import sys
 from lib.ath_api import (
     SUPPORTED_TARGET_CHOICES,
     SUPPORTED_TARGET_PLATFORMS,
+    SUPPORTED_TEST_IDENTIFIER_CHOICES,
 )
 from .fetch_logs import handle_flakiness_fetch_logs
 from .fix import handle_flakiness_fix
@@ -90,9 +91,13 @@ Sample Invocations:
     )
     list_parser.add_argument(
         "--config",
+        "--test-id",
+        "--suite",
+        dest="config",
         type=str,
-        default="devtools/emulator",
-        help="Android Test Hub configuration name (default: devtools/emulator)",
+        default="all",
+        choices=SUPPORTED_TEST_IDENTIFIER_CHOICES,
+        help="Test identifier filter: 'all' (default), 'android_emulator/ets' ('ets'), 'android_emulator/release' ('release'), or 'android_emulator/unit_tests' ('unit_tests')",
     )
     list_parser.add_argument(
         "--branch",
@@ -221,9 +226,13 @@ Sample Invocations:
     )
     triage_parser.add_argument(
         "--config",
+        "--test-id",
+        "--suite",
+        dest="config",
         type=str,
-        default="devtools/emulator",
-        help="Android Test Hub configuration name (default: devtools/emulator)",
+        default="all",
+        choices=SUPPORTED_TEST_IDENTIFIER_CHOICES,
+        help="Test identifier filter: 'all' (default), 'android_emulator/ets' ('ets'), 'android_emulator/release' ('release'), or 'android_emulator/unit_tests' ('unit_tests')",
     )
     triage_parser.add_argument(
         "--branch",
@@ -334,6 +343,16 @@ Sample Invocations:
         default="emulator_linux_x64_tsan",
         choices=SUPPORTED_TARGET_CHOICES,
         help="Target platform matrix or 'all' (default: emulator_linux_x64_tsan)",
+    )
+    history_parser.add_argument(
+        "--config",
+        "--test-id",
+        "--suite",
+        dest="config",
+        type=str,
+        default=None,
+        choices=SUPPORTED_TEST_IDENTIFIER_CHOICES,
+        help="Test identifier filter (auto-inferred from --test when omitted; e.g. 'ets', 'release', 'unit_tests', 'all')",
     )
     history_parser.add_argument(
         "--branch",
@@ -534,6 +553,16 @@ Sample Invocations:
         default="emulator_linux_x64",
         choices=SUPPORTED_TARGET_CHOICES,
         help="Target platform matrix (default: emulator_linux_x64)",
+    )
+    sponge_parser.add_argument(
+        "--config",
+        "--test-id",
+        "--suite",
+        dest="config",
+        type=str,
+        default=None,
+        choices=SUPPORTED_TEST_IDENTIFIER_CHOICES,
+        help="Test identifier filter when querying latest failures (auto-inferred from --test when omitted)",
     )
     sponge_parser.add_argument(
         "--latest-failures",

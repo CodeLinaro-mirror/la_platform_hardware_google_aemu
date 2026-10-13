@@ -39,10 +39,12 @@ def handle_flakiness_list(args):
     )
     all_records = []
 
+    config_name = getattr(args, "config", "all")
+
     for tgt in targets_to_query:
         recs = query_ath_flaky_tests(
             target=tgt,
-            config_name=getattr(args, "config", "devtools/emulator"),
+            config_name=config_name,
             branch=getattr(args, "branch", "git_emu-main-next"),
             min_flake_rate=getattr(args, "min_flake_rate", 5.0),
             days=getattr(args, "days", 7),
@@ -59,13 +61,21 @@ def handle_flakiness_list(args):
         reverse=True,
     )
 
-    headers = ["#", "Test Target", "Target Platform", "Flake Rate", "Runs"]
+    headers = [
+        "#",
+        "Test Target",
+        "Test Identifier",
+        "Target Platform",
+        "Flake Rate",
+        "Runs",
+    ]
     rows = []
     for idx, r in enumerate(all_records, 1):
         rows.append(
             [
                 idx,
                 f"`{r.test_identifier}`",
+                f"`{r.config_name}`",
                 f"`{r.target}`",
                 f"**{r.flake_rate_pct:.1f}%**",
                 f"{r.failed_runs}/{r.total_runs}",
@@ -80,6 +90,7 @@ def handle_flakiness_list(args):
     data = {
         "summary": f"Found {len(all_records)} flaky test targets matching criteria (min flake rate: {getattr(args, 'min_flake_rate', 5.0)}%)",
         "target": args.target,
+        "config": config_name,
         "records_count": len(all_records),
         "markdown_table": table,
         "records": [r.__dict__ for r in all_records],

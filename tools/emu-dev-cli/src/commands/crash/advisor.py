@@ -102,7 +102,24 @@ def ensure_crashadvisor_imports() -> Dict[str, Any]:
 
                 stub = types.ModuleType(mod_name)
                 if mod_name == "tqdm":
-                    stub.tqdm = lambda x, **kw: x
+
+                    class _DummyTqdm:
+                        def __init__(self, iterable=None, *a, **kw):
+                            self.iterable = iterable
+
+                        def __enter__(self):
+                            return self
+
+                        def __exit__(self, *a):
+                            pass
+
+                        def update(self, *a, **kw):
+                            pass
+
+                        def __iter__(self):
+                            return iter(self.iterable or ())
+
+                    stub.tqdm = _DummyTqdm
                 elif mod_name in ("googleapiclient", "oauth2client"):
                     stub.__path__ = []
                 elif mod_name == "googleapiclient.discovery":

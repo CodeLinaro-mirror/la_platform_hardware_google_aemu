@@ -54,6 +54,23 @@ Thread 0 (crashed):
         self.assertEqual(func, "VkDecoder::vkQueueSubmit")
         self.assertEqual(file_info, "vulkan_decoder.cpp:250")
 
+    def test_extract_top_fault_frame_breakpad_and_absl_filtering(self):
+        """Tests extracting top fault frame from Breakpad crashreport.txt while skipping absl/waiter frames."""
+        sample_dump = """
+Thread 0 (crashed)
+ 0  qemu-system-x86_64!absl::lts_20260526::log_internal::LogMessage::FailWithoutStackTrace() [log_message.cc : 390 + 0x5]
+ 1  qemu-system-x86_64!absl::lts_20260526::log_internal::LogMessage::Die() [log_message.cc : 548 + 0x5]
+ 2  qemu-system-x86_64!absl::lts_20260526::log_internal::Voidify::operator&&(absl::lts_20260526::log_internal::LogMessage const&) [voidify.h : 38 + 0x5]
+ 3  qemu-system-x86_64!void android::emulation::EventLoop::PostAndWait<>(std::__y1::function<void ()>) [event_loop.h : 122 + 0x5]
+ 4  qemu-system-x86_64!android::emulation::control::(anonymous namespace)::AsyncGrpcRunner::Cancel() [async_grpc_runner.cc : 95 + 0x8]
+"""
+        func, file_info = extract_top_fault_frame(sample_dump)
+        self.assertEqual(
+            func, "android::emulation::control::AsyncGrpcRunner::Cancel"
+        )
+        self.assertEqual(file_info, "async_grpc_runner.cc:95")
+
 
 if __name__ == "__main__":
     unittest.main()
+
