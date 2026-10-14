@@ -34,12 +34,15 @@ py_library(
             "workflows/**/*.html",
         ],
         allow_empty = True,
-    ),
+    ) + [
+        "//tools/emu-dev-cli/perf_probe:perf_probe.apk",
+    ],
     imports = [
         ".",
         "src",
     ],
     deps = [
+        "//protos/aemu-grpc:aemu_grpc_lib",
         requirement("PyYAML"),
     ],
 )

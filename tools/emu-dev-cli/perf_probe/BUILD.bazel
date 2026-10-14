@@ -1,0 +1,73 @@
+# Copyright 2026 The Android Open Source Project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+load("@rules_java//java:defs.bzl", "java_library")
+load("@rules_python//python:defs.bzl", "py_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+java_library(
+    name = "perf_probe_lib",
+    srcs = glob(["src/**/*.java"]),
+    javacopts = [
+        "--release",
+        "11",
+    ],
+    deps = [
+        "@prebuilt_android_sdk//:android_jar",
+    ],
+)
+
+py_binary(
+    name = "build_apk",
+    srcs = ["build_apk.py"],
+    main = "build_apk.py",
+)
+
+filegroup(
+    name = "sdkhome",
+    srcs = select({
+        "@platforms//os:macos": ["@prebuilt_android_sdk//macosx:sdkhome"],
+        "@platforms//os:windows": ["@prebuilt_android_sdk//windows:sdkhome"],
+        "//conditions:default": ["@prebuilt_android_sdk//linux:sdkhome"],
+    }),
+)
+
+genrule(
+    name = "perf_probe_apk",
+    srcs = [
+        ":perf_probe_lib",
+        "AndroidManifest.xml",
+        "debug.pk8",
+        "debug.x509.pem",
+        "@prebuilt_android_sdk//common:platforms/android-36/android.jar",
+        "@prebuilt_android_sdk//:d8_jar",
+        ":sdkhome",
+    ],
+    outs = ["perf_probe.apk"],
+    cmd = (
+        "$(execpath :build_apk) " +
+        "--java $(JAVA) " +
+        "--input-jar $(location :perf_probe_lib) " +
+        "--manifest $(location AndroidManifest.xml) " +
+        "--android-jar $(location @prebuilt_android_sdk//common:platforms/android-36/android.jar) " +
+        "--d8-jar $(location @prebuilt_android_sdk//:d8_jar) " +
+        "--key-pk8 $(location debug.pk8) " +
+        "--cert-pem $(location debug.x509.pem) " +
+        "--output $@ " +
+        "$(locations :sdkhome)"
+    ),
+    toolchains = ["@rules_java//toolchains:current_java_runtime"],
+    tools = [":build_apk"],
+)

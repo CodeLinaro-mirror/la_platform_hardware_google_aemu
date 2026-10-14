@@ -38,6 +38,9 @@ from commands.crash.link_bug import (
 
 DEFAULT_HOURS = 48
 DEFAULT_VERSION_REGEX = r"0\.0\.1-|37"
+DEFAULT_INCLUDE_MODULES = (
+    r"qemu-system|emulator|fishtank|aquarium|android-device-hub|libgoldfish|gfxstream"
+)
 DEFAULT_EXCLUDE_MODULES = r"Qt6|libandroid-emu|adb|netsimd"
 DEFAULT_LIMIT = 50
 
@@ -114,6 +117,7 @@ def build_f1_crashes_query(
     hours: int = DEFAULT_HOURS,
     version_regex: str = DEFAULT_VERSION_REGEX,
     exclude_modules: str = DEFAULT_EXCLUDE_MODULES,
+    include_modules: str = DEFAULT_INCLUDE_MODULES,
     unassigned_only: bool = False,
     raw: bool = False,
     limit: int = DEFAULT_LIMIT,
@@ -125,6 +129,7 @@ def build_f1_crashes_query(
         hours: Lookback window in hours.
         version_regex: RE2 regex matching `product.Version` (default: `0\\.0\\.1-|37`).
         exclude_modules: RE2 regex of non-qemu-next module `CodeFile` substrings to exclude.
+        include_modules: RE2 regex of required emulator module `CodeFile` substrings to include.
         unassigned_only: If True, filters out signatures with existing `BugInfo` in F1.
         raw: If True, returns ungrouped individual crash reports instead of grouping by signature.
         limit: Maximum number of rows to return.
@@ -140,6 +145,7 @@ def build_f1_crashes_query(
         ("product_name", product_name),
         ("version_regex", version_regex),
         ("exclude_modules", exclude_modules),
+        ("include_modules", include_modules),
     ):
         if "'" in param_val:
             raise ValueError(f"Invalid single quote in {param_name}: {param_val!r}")
@@ -152,11 +158,20 @@ def build_f1_crashes_query(
     ]
     if version_regex:
         where_clauses.append(f"REGEXP_CONTAINS(c.product.Version, r'{version_regex}')")
-    if exclude_modules:
+    if include_modules or exclude_modules:
+        module_preds = ["COUNT(*) > 1"]
+        if include_modules:
+            module_preds.append(
+                f"LOGICAL_OR(REGEXP_CONTAINS(CodeFile, r'{include_modules}'))"
+            )
+        if exclude_modules:
+            module_preds.append(
+                f"LOGICAL_AND(NOT REGEXP_CONTAINS(CodeFile, r'{exclude_modules}'))"
+            )
+        joined_preds = "\n      AND ".join(module_preds)
         where_clauses.append(
             "(\n"
-            "    SELECT COUNT(*) > 1\n"
-            f"      AND LOGICAL_AND(NOT REGEXP_CONTAINS(CodeFile, r'{exclude_modules}'))\n"
+            f"    SELECT {joined_preds}\n"
             "    FROM UNNEST(c.Module)\n"
             "  )"
         )
@@ -398,6 +413,7 @@ def run_list_crashes(args: argparse.Namespace) -> None:
     )
     version_regex = getattr(args, "version_regex", DEFAULT_VERSION_REGEX)
     exclude_modules = getattr(args, "exclude_modules", DEFAULT_EXCLUDE_MODULES)
+    include_modules = getattr(args, "include_modules", DEFAULT_INCLUDE_MODULES)
     unassigned_only = getattr(args, "unassigned_only", False)
     raw = getattr(args, "raw", False)
     limit = int(getattr(args, "limit", DEFAULT_LIMIT))
@@ -409,6 +425,7 @@ def run_list_crashes(args: argparse.Namespace) -> None:
             hours=hours,
             version_regex=version_regex,
             exclude_modules=exclude_modules,
+            include_modules=include_modules,
             unassigned_only=unassigned_only,
             raw=raw,
             limit=limit,
@@ -480,6 +497,7 @@ def run_list_crashes(args: argparse.Namespace) -> None:
         "hours": hours,
         "version_regex": version_regex,
         "exclude_modules": exclude_modules,
+        "include_modules": include_modules,
         "unassigned_only": unassigned_only,
         "raw": raw,
         "count": len(crashes),
@@ -589,6 +607,14 @@ def register_list_crashes_parser(crash_subparsers) -> None:
         help=(
             "RE2 regex of non-qemu-next Module.CodeFile substrings to exclude "
             f"(default: '{DEFAULT_EXCLUDE_MODULES}')"
+        ),
+    )
+    list_parser.add_argument(
+        "--include-modules",
+        default=DEFAULT_INCLUDE_MODULES,
+        help=(
+            "RE2 regex of required emulator Module.CodeFile substrings to include "
+            f"(default: '{DEFAULT_INCLUDE_MODULES}')"
         ),
     )
     list_parser.add_argument(

@@ -324,6 +324,35 @@ emu-dev-cli tidy add emulator/libs/sockets --target sockets
 
 ---
 
+### 10. Update Prebuilt Packages (`update-prebuilt`)
+
+Fetches prebuilt artifacts or archive entries from `go/ab` builds and drops them
+into `prebuilts/android-emulator-build/common/`:
+
+```bash
+# List all registered prebuilt packages and their supported targets
+emu-dev-cli update-prebuilt --list
+
+# Update Lavapipe ICD prebuilts across all targets (linux-x64, mac-arm64, win-x64)
+emu-dev-cli update-prebuilt lavapipe --build-number=16534139
+
+# Update a single target explicitly
+emu-dev-cli update-prebuilt lavapipe --target=linux-x64 --build-number=16534139
+emu-dev-cli update-prebuilt lavapipe --target=mac-arm64 --build-number=16534139
+emu-dev-cli update-prebuilt lavapipe --target=win-x64 --build-number=16534139
+
+# Update KosmicKrisp ICD prebuilt (mac-arm64)
+emu-dev-cli update-prebuilt kosmickrisp --build-number=16476462
+
+# Update Android Device Hub prebuilts from studio-main (linux-x64, mac-arm64, win-x64)
+emu-dev-cli update-prebuilt android-device-hub --latest
+
+# Preview prebuilt changes without modifying workspace files
+emu-dev-cli update-prebuilt lavapipe --build-number=16534139 --dry-run
+```
+
+---
+
 ## 🤖 Agent Autonomous Remediation & Policy Protocol
 
 When an AI pair programmer or autonomous agent is tasked with fixing Clang-Tidy

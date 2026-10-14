@@ -34,6 +34,7 @@ from commands.crash.link_bug import (
     run_link_bug,
 )
 from commands.crash.list_crashes import (
+    DEFAULT_INCLUDE_MODULES,
     build_f1_crashes_query,
     extract_build_ids_from_versions,
     merge_and_normalize_rows,
@@ -56,6 +57,10 @@ class CrashListAndLinkTest(unittest.TestCase):
         sql = build_f1_crashes_query(hours=48, unassigned_only=True)
         self.assertIn("FROM crash.prod.latest AS c", sql)
         self.assertIn("LEFT JOIN crash_annotations.prod.latest AS a", sql)
+        self.assertIn(
+            f"LOGICAL_OR(REGEXP_CONTAINS(CodeFile, r'{DEFAULT_INCLUDE_MODULES}'))",
+            sql,
+        )
         self.assertIn("Qt6|libandroid-emu|adb|netsimd", sql)
         self.assertIn(r"0\.0\.1-|37", sql)
         self.assertIn("(a.BugInfo IS NULL OR ARRAY_LENGTH(a.BugInfo) = 0)", sql)
@@ -64,6 +69,8 @@ class CrashListAndLinkTest(unittest.TestCase):
     def test_build_f1_crashes_query_rejects_single_quotes(self):
         with self.assertRaises(ValueError):
             build_f1_crashes_query(version_regex="0.0.1' OR 1=1")
+        with self.assertRaises(ValueError):
+            build_f1_crashes_query(include_modules="qemu-system' OR 1=1")
 
     def test_parse_f1_csv_output_strips_banner(self):
         raw_out = (
