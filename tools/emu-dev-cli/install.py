@@ -21,6 +21,15 @@ from pathlib import Path
 import subprocess
 import sys
 
+MIN_PYTHON = (3, 10)
+if sys.version_info < MIN_PYTHON:
+    sys.exit(
+        f"Error: emu-dev-cli installation requires Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer "
+        f"(matching the Bazel hermetic runtime).\n"
+        f"Detected Python {sys.version.split()[0]} at {sys.executable}.\n"
+        "Please run with Python 3.10+ (e.g. via 'python3.11' or 'python3.12')."
+    )
+
 
 def find_source_root(start_dir: Path) -> Path:
     """Finds the root of the repo checkout containing hardware/google/aemu/tools/emu-dev-cli."""

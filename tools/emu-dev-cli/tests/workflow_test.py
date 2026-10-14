@@ -93,6 +93,16 @@ class WorkflowCommandTest(unittest.TestCase):
         args = build_cmd_args(["cat", "{file}"], ctx)
         self.assertEqual(args, ["cat", "/tmp/test file.txt"])
 
+    def test_build_cmd_args_substitutes_python_executable(self):
+        import sys
+        from workflows.core.yaml_runner import build_cmd_args
+        ctx = {"script": "myscript.py"}
+        args_py3 = build_cmd_args("python3 {script} --arg", ctx)
+        self.assertEqual(args_py3, [sys.executable, "myscript.py", "--arg"])
+
+        args_py = build_cmd_args(["python", "{script}"], ctx)
+        self.assertEqual(args_py, [sys.executable, "myscript.py"])
+
 
     def test_workflow_init_with_args(self):
         import tempfile

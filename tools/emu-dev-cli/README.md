@@ -8,6 +8,12 @@ querying framework documentation, and self-updating built binaries.
 
 ---
 
+## 📋 Prerequisites
+
+- **Python 3.10+** (matching the Bazel hermetic runtime environment).
+  - *macOS:* Install via Homebrew (`brew install python@3.11`) or pyenv if using Apple's default `/usr/bin/python3` (3.9).
+  - *Linux:* Standard `python3` on Ubuntu 22.04+, Debian 12+, or gLinux.
+
 ## 🚀 Getting Started
 
 ### 1. Build and install global launcher and agent roles/skills
