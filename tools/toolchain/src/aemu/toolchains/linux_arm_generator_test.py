@@ -83,6 +83,20 @@ class TestLinuxToLinuxAarch64Generator(unittest.TestCase):
         self.assertIn("cc", calls)
         self.assertIn("ld.lld", calls)
 
+    def test_hermetic_sysroot_and_cross_config(self):
+        hermetic_sysroot = Path(self.test_dir) / "arm_sysroot"
+        self.gen.sysroot = hermetic_sysroot
+        self.gen.wrapper_path = lambda p: p
+
+        self.assertEqual(self.gen._fetch_toolchain(), hermetic_sysroot)
+        self.dest.mkdir(parents=True, exist_ok=True)
+        self.gen.toolchain_map = {"cc": "cc", "cxx": "c++"}
+        self.gen.write_toolchain_config()
+        ini_content = (self.dest / "aosp-cl.ini").read_text(encoding="utf-8")
+        self.assertIn("skip_sanity_check = true", ini_content)
+        self.assertIn("[host_machine]", ini_content)
+        self.assertIn("cpu_family = 'aarch64'", ini_content)
+
 
 if __name__ == "__main__":
     unittest.main()
