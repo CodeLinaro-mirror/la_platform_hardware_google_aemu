@@ -71,13 +71,20 @@ service HypervisorService {
   //   - PERMISSION_DENIED: Caller lacks write permission (`ACCESS_MODE_READ_ONLY`).
   rpc HardResetVm(HardResetVmRequest) returns (VmState);
 
-  // Initiates graceful emulator hypervisor termination (process exits with status 0).
-  // Idempotent if the VM is already shutting down.
+  // Initiates emulator hypervisor termination according to `StopVmRequest.mode`
+  // (`GRACEFUL` shutdown by default, immediate `TERMINATE`, or diagnostic `CRASH` dump).
+  // Idempotent when `mode` is `GRACEFUL` (or `MODE_UNSPECIFIED`) and the VM is already shutting down.
+  //
+  // When `mode` is `TERMINATE` or `CRASH`, the server process exits or aborts immediately, so
+  // the RPC may terminate at the transport layer with `UNAVAILABLE` before a response is delivered.
   //
   // Recommended client deadline: >= 5000ms.
   //
   // Expected gRPC status codes:
-  //   - FAILED_PRECONDITION: VM cannot be stopped while a snapshot operation is in progress.
+  //   - INVALID_ARGUMENT: `mode` is an unrecognized enum value.
+  //   - FAILED_PRECONDITION: VM cannot be gracefully stopped while a snapshot operation is in
+  //     progress, or the deployment does not support stopping the hypervisor
+  //     (`VM_OPERATION_SHUTDOWN` absent from `VmCapabilities.supported_operations`).
   //   - PERMISSION_DENIED: Caller lacks write permission (`ACCESS_MODE_READ_ONLY`).
   rpc StopVm(StopVmRequest) returns (VmState);
 
@@ -255,9 +262,35 @@ message HardResetVmRequest {}
 
 // Request message for terminating the virtual machine hypervisor process.
 message StopVmRequest {
+  // Specifies how the hypervisor process should be terminated.
+  enum Mode {
+    // Defaults to `GRACEFUL` shutdown.
+    MODE_UNSPECIFIED = 0;
+    // Graceful hypervisor shutdown: notifies the hypervisor main loop, flushes block devices,
+    // optionally captures the quickboot snapshot, and exits cleanly with status 0.
+    GRACEFUL = 1;
+    // Immediately terminates the hypervisor process without guest notification, snapshot
+    // capture, or resource cleanup (equivalent to `SIGKILL` / `_exit`). Writable disk
+    // overlays may be left in an inconsistent state.
+    TERMINATE = 2;
+    // Deliberately crashes the hypervisor process to trigger the crash reporter (Crashpad)
+    // and generate a minidump for post-mortem diagnostics (e.g., when an integration test
+    // detects a hang or wedged state).
+    CRASH = 3;
+  }
+
   // When true, captures a final RAM and device state snapshot to the active quickboot target
   // before process termination so the next launch resumes instantly from this state.
+  // Ignored when `mode` is `TERMINATE` or `CRASH`.
   bool save_quickboot_snapshot = 1;
+
+  // How to terminate the hypervisor process. Defaults to `GRACEFUL` when `MODE_UNSPECIFIED`.
+  Mode mode = 2;
+
+  // Optional human-readable diagnostic reason for stopping or crashing the VM.
+  // When `mode` is `CRASH`, this string is recorded in the Crashpad minidump's
+  // `internal-msg` annotation to aid post-mortem triage.
+  string reason = 3;
 }
 
 // Describes metadata, storage footprint, and host compatibility for a saved VM snapshot.
