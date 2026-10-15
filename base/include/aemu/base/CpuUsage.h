@@ -46,14 +46,8 @@ public:
 
     void addLooper(int usageArea, Looper* looper);
     void setEnabled(bool enable);
-    void setMeasurementInterval(IntervalUs interval);
-
-    // Every 10 seconds
-    static constexpr CpuUsage::IntervalUs kDefaultMeasurementIntervalUs = 10ULL * 1000000ULL;
 
     void forEachUsage(UsageArea area, CpuTimeReader readerFunc);
-    float getSingleAreaUsage(int area);
-    float getTotalMainLoopAndVcpuUsage();
     std::string printUsage();
 
     void stop();
