@@ -48,16 +48,14 @@ def _amc_toolchain_impl(ctx):
             inputs.extend(ctx.files.meson)
             args.add("--meson", meson_file.path)
 
-    python_toolchain = ctx.toolchains["@bazel_tools//tools/python:toolchain_type"]
-    if python_toolchain and python_toolchain.py3_runtime:
-        py3_runtime = python_toolchain.py3_runtime
-        if py3_runtime.interpreter:
-            inputs.append(py3_runtime.interpreter)
-            args.add("--python", py3_runtime.interpreter.path)
-        elif py3_runtime.interpreter_path:
-            args.add("--python", py3_runtime.interpreter_path)
-        if py3_runtime.files:
-            inputs.extend(py3_runtime.files.to_list())
+    exec_py = ctx.attr._exec_python[_AmcExecPythonInfo]
+    if exec_py.interpreter:
+        inputs.append(exec_py.interpreter)
+        args.add("--python", exec_py.interpreter.path)
+    elif exec_py.interpreter_path:
+        args.add("--python", exec_py.interpreter_path)
+    if exec_py.files:
+        inputs.extend(exec_py.files.to_list())
 
     if ctx.attr.clang:
         clang_file = None
@@ -173,13 +171,41 @@ def _amc_toolchain_impl(ctx):
         if ninja_info.files_to_run and ninja_info.files_to_run.executable:
             toolchain_files.append(ninja_info.files_to_run.executable)
 
-    if python_toolchain and python_toolchain.py3_runtime and python_toolchain.py3_runtime.files:
-        toolchain_files.extend(python_toolchain.py3_runtime.files.to_list())
+    if exec_py.files:
+        toolchain_files.extend(exec_py.files.to_list())
 
     if compat_files:
         toolchain_files.extend(compat_files)
 
     return [DefaultInfo(files = depset(toolchain_files))]
+
+_AmcExecPythonInfo = provider(
+    doc = "Holds the exec platform Python runtime information.",
+    fields = ["interpreter", "interpreter_path", "files"],
+)
+
+def _amc_exec_python_impl(ctx):
+    python_toolchain = ctx.toolchains["@bazel_tools//tools/python:toolchain_type"]
+    interpreter = None
+    interpreter_path = None
+    files = depset()
+    if python_toolchain and python_toolchain.py3_runtime:
+        py3_runtime = python_toolchain.py3_runtime
+        interpreter = py3_runtime.interpreter
+        interpreter_path = py3_runtime.interpreter_path
+        if py3_runtime.files:
+            files = py3_runtime.files
+    return [_AmcExecPythonInfo(
+        interpreter = interpreter,
+        interpreter_path = interpreter_path,
+        files = files,
+    )]
+
+amc_exec_python = rule(
+    implementation = _amc_exec_python_impl,
+    doc = "Resolves the Python toolchain in the exec configuration.",
+    toolchains = ["@bazel_tools//tools/python:toolchain_type"],
+)
 
 amc_toolchain = rule(
     implementation = _amc_toolchain_impl,
@@ -233,13 +259,16 @@ amc_toolchain = rule(
             default = Label("//tools/toolchain:gcc_files"),
             allow_files = True,
         ),
+        "_exec_python": attr.label(
+            default = Label("//tools/toolchain:exec_python"),
+            cfg = "exec",
+        ),
         "_gen_toolchain_tool": attr.label(
             default = Label("//tools/toolchain:gen_toolchain"),
             executable = True,
             cfg = "exec",
         ),
     },
-    toolchains = ["@bazel_tools//tools/python:toolchain_type"],
 )
 
 def _amc_pkg_config_impl(ctx):

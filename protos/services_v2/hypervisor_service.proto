@@ -34,20 +34,22 @@ service HypervisorService {
   rpc StreamVmState(StreamVmStateRequest) returns (stream VmState);
 
   // Suspends guest vCPU execution and freezes virtual device timers without saving to disk.
+  // Idempotent if the VM is already `PAUSED`.
   //
   // Recommended client deadline: >= 1000ms.
   //
   // Expected gRPC status codes:
-  //   - FAILED_PRECONDITION: VM is not currently in `RUNNING` state or does not support pause/resume.
+  //   - FAILED_PRECONDITION: VM cannot be paused in its current state (e.g., shutting down or saving/restoring a snapshot) or does not support pause/resume.
   //   - PERMISSION_DENIED: Caller lacks write permission (`ACCESS_MODE_READ_ONLY`).
   rpc PauseVm(PauseVmRequest) returns (VmState);
 
   // Resumes guest vCPU execution from a previously paused state.
+  // Idempotent if the VM is already `RUNNING`.
   //
   // Recommended client deadline: >= 1000ms.
   //
   // Expected gRPC status codes:
-  //   - FAILED_PRECONDITION: VM is not currently in `PAUSED` state.
+  //   - FAILED_PRECONDITION: VM cannot be resumed in its current state (e.g., shutting down, saving/restoring a snapshot, or requires a reset).
   //   - PERMISSION_DENIED: Caller lacks write permission (`ACCESS_MODE_READ_ONLY`).
   rpc ResumeVm(ResumeVmRequest) returns (VmState);
 
@@ -56,6 +58,7 @@ service HypervisorService {
   // Recommended client deadline: >= 2000ms.
   //
   // Expected gRPC status codes:
+  //   - FAILED_PRECONDITION: VM cannot be reset in its current state (e.g., shutting down or saving/restoring a snapshot).
   //   - PERMISSION_DENIED: Caller lacks write permission (`ACCESS_MODE_READ_ONLY`).
   rpc ResetVm(ResetVmRequest) returns (VmState);
 
@@ -64,15 +67,17 @@ service HypervisorService {
   // Recommended client deadline: >= 2000ms.
   //
   // Expected gRPC status codes:
-  //   - FAILED_PRECONDITION: Hypervisor does not support hard reset (`VM_OPERATION_HARD_RESET` absent from `VmCapabilities.supported_operations`).
+  //   - FAILED_PRECONDITION: VM cannot be reset in its current state (e.g., shutting down or saving/restoring a snapshot), or hypervisor does not support hard reset (`VM_OPERATION_HARD_RESET` absent from `VmCapabilities.supported_operations`).
   //   - PERMISSION_DENIED: Caller lacks write permission (`ACCESS_MODE_READ_ONLY`).
   rpc HardResetVm(HardResetVmRequest) returns (VmState);
 
   // Initiates graceful emulator hypervisor termination (process exits with status 0).
+  // Idempotent if the VM is already shutting down.
   //
   // Recommended client deadline: >= 5000ms.
   //
   // Expected gRPC status codes:
+  //   - FAILED_PRECONDITION: VM cannot be stopped while a snapshot operation is in progress.
   //   - PERMISSION_DENIED: Caller lacks write permission (`ACCESS_MODE_READ_ONLY`).
   rpc StopVm(StopVmRequest) returns (VmState);
 
@@ -230,6 +235,10 @@ message VmState {
   int32 allocated_cpu_core_count = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
   // Output only. Total RAM allocated to the virtual machine in bytes (must be > 0).
   int64 allocated_ram_bytes = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Populated when `state` is `SHUTTING_DOWN` (with quickboot save),
+  // `SAVING_SNAPSHOT`, or `RESTORING_SNAPSHOT`.
+  optional SnapshotOperationMetadata snapshot_progress = 4
+      [(google.api.field_behavior) = OUTPUT_ONLY];
 }
 
 // Request message for pausing guest vCPU execution.
@@ -416,4 +425,11 @@ message SnapshotOperationMetadata {
   int64 transferred_bytes = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
   // Output only. Total expected snapshot payload size in bytes (must be >= 0).
   int64 total_bytes = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Identifier of the VMState device or subsystem currently being
+  // saved or restored (e.g., "ram", "0000:00:02.0/virtio-gpu-rutabaga").
+  string active_component = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Number of non-iterable device states saved or restored so far (must be >= 0).
+  int32 completed_devices = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Total number of non-iterable device states expected (must be >= 0).
+  int32 total_devices = 8 [(google.api.field_behavior) = OUTPUT_ONLY];
 }

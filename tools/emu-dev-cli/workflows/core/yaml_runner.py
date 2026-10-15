@@ -269,13 +269,16 @@ def build_cmd_args(cmd_spec: Union[str, List[str]], context: Dict[str, Any]) -> 
         raw_tokens = shlex.split(str(cmd_spec))
 
     pattern = re.compile(r"\{([a-zA-Z0-9_.-]+)\}")
-    return [
+    tokens = [
         pattern.sub(
             lambda m: str(val) if (val := get_nested_context_val(context, m.group(1))) is not None else m.group(0),
             tok,
         )
         for tok in raw_tokens
     ]
+    if tokens and tokens[0] in ("python3", "python"):
+        tokens[0] = sys.executable
+    return tokens
 
 
 def execute_init(init_spec: Dict[str, Any], init_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

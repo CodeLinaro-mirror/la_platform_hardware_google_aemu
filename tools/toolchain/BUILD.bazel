@@ -1,9 +1,13 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
-load(":amc.bzl", "amc_generator", "amc_pkg_config", "amc_toolchain")
+load(":amc.bzl", "amc_exec_python", "amc_generator", "amc_pkg_config", "amc_toolchain")
 load(":self.bzl", "py_binary_with_self_label")
 
 package(default_visibility = ["//visibility:public"])
+
+amc_exec_python(
+    name = "exec_python",
+)
 
 py_library(
     name = "amc_common_lib",
@@ -234,7 +238,8 @@ filegroup(
 filegroup(
     name = "gcc_files",
     srcs = select({
-        "@platforms//os:linux": ["@gcc_lib//:all_files"],
+        "@goldfish_build//platforms:is_linux_aarch64": ["@goldfish_build//toolchains/cc/linux_clang:arm_sysroot_files"],
+        "@goldfish_build//platforms:is_linux_x64": ["@gcc_lib//:all_files"],
         "//conditions:default": [],
     }),
 )
