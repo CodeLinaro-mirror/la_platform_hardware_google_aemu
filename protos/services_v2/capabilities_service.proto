@@ -495,7 +495,9 @@ enum VmOperation {
   VM_OPERATION_PAUSE_RESUME = 1;
   // Cold power-cycle reset via HardResetVm.
   VM_OPERATION_HARD_RESET = 2;
-  // Graceful hypervisor shutdown via StopVm.
+  // Hypervisor termination (graceful shutdown, immediate exit, or crash dump) via StopVm.
+  // Typically omitted in managed cloud environments where container orchestration owns the
+  // process lifecycle.
   VM_OPERATION_SHUTDOWN = 3;
 }
 

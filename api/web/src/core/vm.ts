@@ -24,12 +24,13 @@ import {
   ResetVmRequest,
   ResumeVmRequest,
   StopVmRequest,
+  StopVmRequest_Mode,
   StreamVmStateRequest,
   VmState,
   VmState_State,
 } from '@android/emulator-services/hypervisor_service';
 
-export { VmState, VmState_State, StopVmRequest };
+export { VmState, VmState_State, StopVmRequest, StopVmRequest_Mode };
 
 /**
  * Headless API client for VM lifecycle RPCs on HypervisorService.
