@@ -75,6 +75,43 @@ class FlakinessHistoryTest(unittest.TestCase):
         self.assertEqual(data["failed_runs"], 2)
         self.assertEqual(data["flake_rate_pct"], 20.0)
 
+    @patch("commands.flakiness.history.query_test_history")
+    @patch("commands.flakiness.history.print_result")
+    def test_handle_flakiness_history_studio_defaults_days_20(
+        self, mock_print_result, mock_history
+    ):
+        mock_history.return_value = (
+            {
+                "test_target": "//tools/vendor/google/cli/android-device-hub/electron:test",
+                "target": "studio-linux",
+                "branch": "git_studio-main",
+                "days": 20,
+                "mode": "all",
+                "total_runs": 100,
+                "passed_runs": 99,
+                "failed_runs": 1,
+                "flake_rate_pct": 1.0,
+            },
+            [],
+        )
+        args = self.parser.parse_args(
+            [
+                "flakiness",
+                "history",
+                "--test",
+                "//tools/vendor/google/cli/android-device-hub/electron:test",
+                "--target",
+                "studio-linux",
+            ]
+        )
+        flakiness.handle_flakiness_history(args)
+        mock_history.assert_called_once()
+        self.assertEqual(mock_history.call_args.kwargs["days"], 20)
+        mock_print_result.assert_called_once()
+        data = mock_print_result.call_args[0][0]
+        self.assertEqual(data["target"], "studio-linux")
+        self.assertIn("20 days", data["markdown_table"])
+
 
 if __name__ == "__main__":
     unittest.main()

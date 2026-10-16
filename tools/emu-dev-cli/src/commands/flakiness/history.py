@@ -16,6 +16,13 @@
 
 import logging
 from lib.ath_api import query_test_history
+from lib.f1_test_actions import (
+    DEFAULT_STUDIO_LOOKBACK_DAYS,
+    build_studio_history_sql,
+    is_studio_query,
+    resolve_studio_branches,
+    resolve_studio_targets,
+)
 from lib.output import format_markdown_table, print_result
 from .progress import make_progress_callback
 
@@ -28,20 +35,56 @@ def handle_flakiness_history(args):
     Fetches and displays chronological test execution records with clickable
     Fusion2 links.
     """
-    logger.info("Executing flakiness history command (test=%s, target=%s, days=%s)", args.test, args.target, getattr(args, "days", 7))
+    studio_mode = is_studio_query(
+        target=args.target,
+        branch=getattr(args, "branch", None),
+        test_target=args.test,
+    )
+    raw_days = getattr(args, "days", None)
+    days = (
+        raw_days
+        if raw_days is not None
+        else (DEFAULT_STUDIO_LOOKBACK_DAYS if studio_mode else 7)
+    )
+    mode = getattr(args, "mode", "all")
+    limit = getattr(args, "limit", 50)
+    logger.info(
+        "Executing flakiness history command (test=%s, target=%s, days=%s, studio_mode=%s)",
+        args.test,
+        args.target,
+        days,
+        studio_mode,
+    )
     json_mode = getattr(args, "json", False)
     cb = make_progress_callback(json_mode)
+
+    if studio_mode and getattr(args, "print_sql", False):
+        sql = build_studio_history_sql(
+            test_target=args.test,
+            targets=resolve_studio_targets(args.target),
+            branches=resolve_studio_branches(getattr(args, "branch", None)),
+            days=days,
+            mode=mode,
+            limit=limit,
+        )
+        print(sql.strip())
+        return
+
+    extra_kwargs = {}
+    if getattr(args, "accounting_group", None):
+        extra_kwargs["accounting_group"] = args.accounting_group
 
     summary, entries = query_test_history(
         test_target=args.test,
         target=args.target,
         branch=getattr(args, "branch", "git_emu-main-next"),
-        days=getattr(args, "days", 7),
-        mode=getattr(args, "mode", "all"),
-        limit=getattr(args, "limit", 50),
+        days=days,
+        mode=mode,
+        limit=limit,
         token=getattr(args, "token", None),
         progress_callback=cb,
         config_name=getattr(args, "config", None),
+        **extra_kwargs,
     )
 
     headers = [
