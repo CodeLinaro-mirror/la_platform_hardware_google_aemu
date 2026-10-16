@@ -186,3 +186,22 @@ proto_sources = rule(
         ),
     },
 )
+
+def _grpc_java_stub_impl(rctx):
+    rctx.file("BUILD.bazel", 'exports_files(["java_grpc_library.bzl"])\n')
+    rctx.file(
+        "java_grpc_library.bzl",
+        """load("@rules_java//java:defs.bzl", "java_library")
+
+def java_grpc_library(name, srcs = [], deps = [], visibility = None, **kwargs):
+    java_library(
+        name = name,
+        exports = deps,
+        visibility = visibility,
+    )
+""",
+    )
+
+grpc_java_stub = repository_rule(
+    implementation = _grpc_java_stub_impl,
+)
