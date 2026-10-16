@@ -29,6 +29,18 @@ from lib.agent import AgentApiClient, resolve_agentapi_binary
 logger = logging.getLogger(__name__)
 
 
+def _is_complete_rca_summary(text: str) -> bool:
+    """Returns True if rca_summary.md contains a diff or explicitly states Reproducible: No."""
+    if "```diff" in text or "Proposed Code Patch" in text:
+        return True
+    for line in text.splitlines():
+        if "**Reproducible:**" in line:
+            val = line.split("**Reproducible:**", 1)[1].strip().lower()
+            if val.startswith("no") or val.startswith("false"):
+                return True
+    return False
+
+
 class AgentDispatcher:
     """Dispatches AI root-cause analysis investigations via subagents (agentapi) when in an active agent session,
     or directly via Jetski CLI when running in standalone mode.
@@ -123,7 +135,7 @@ class AgentDispatcher:
             existing_text = rca_summary_path.read_text(
                 encoding="utf-8", errors="replace"
             )
-            if "```diff" in existing_text:
+            if _is_complete_rca_summary(existing_text):
                 return
             try:
                 rca_summary_path.unlink()
@@ -164,7 +176,7 @@ class AgentDispatcher:
                     text = rca_summary_path.read_text(
                         encoding="utf-8", errors="replace"
                     )
-                    if "Proposed Code Patch" in text or "```diff" in text:
+                    if _is_complete_rca_summary(text):
                         logger.info(
                             "Subagent completed RCA investigation for %s in %.1fs",
                             record.test_identifier,

@@ -85,6 +85,16 @@ def handle_flakiness_triage(args):
     else:
         component_id = "1016880"
 
+    raw_assignee = getattr(args, "assignee", None)
+    if raw_assignee is not None:
+        assignee = raw_assignee.strip() or None
+    elif studio_mode and is_android_device_hub_target(
+        directory or explicit_test or DEFAULT_STUDIO_DIR_PREFIX
+    ):
+        assignee = "groupagent-android-emulator@google.com"
+    else:
+        assignee = None
+
     logger.info(
         "Executing flakiness triage command (target=%s, test=%s, component_id=%s, studio_mode=%s, auto_file=%s, dry_run=%s)",
         target,
@@ -292,6 +302,11 @@ def handle_flakiness_triage(args):
         existing_bug_id = bug_client.find_existing_open_bug(
             component_id, rec.test_identifier
         )
+        fixed_bug_id = None
+        if not existing_bug_id and rec.l100_failed is not None and rec.l100_failed == 0:
+            fixed_bug_id = bug_client.find_recently_fixed_bug(
+                component_id, rec.test_identifier
+            )
         safe_name = (
             rec.test_identifier.replace("/", "_")
             .replace(":", "_")
@@ -302,6 +317,11 @@ def handle_flakiness_triage(args):
         if existing_bug_id:
             status = "EXISTING_BUG_OPEN"
             num_id = existing_bug_id.replace("b/", "").strip()
+            bug_link = f"[b/{num_id}](http://b/{num_id})"
+            ai_patch = None
+        elif fixed_bug_id:
+            status = "ALREADY_FIXED_BUG"
+            num_id = fixed_bug_id.replace("b/", "").strip()
             bug_link = f"[b/{num_id}](http://b/{num_id})"
             ai_patch = None
         else:
@@ -317,6 +337,7 @@ def handle_flakiness_triage(args):
                 component_id=component_id,
                 priority="P2",
                 severity="S2",
+                assignee=assignee,
             )
 
             # Export local markdown proposal report
@@ -343,6 +364,7 @@ def handle_flakiness_triage(args):
                 "target": rec.target,
                 "flake_rate_pct": rec.flake_rate_pct,
                 "status": status,
+                "assignee": assignee,
                 "bug_info": bug_link,
                 "report_file": str(report_file),
                 "ai_patch": ai_patch.__dict__ if ai_patch else None,
