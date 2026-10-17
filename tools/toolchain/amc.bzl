@@ -78,6 +78,10 @@ def _amc_toolchain_impl(ctx):
             if i >= 0:
                 sysroot_dir = parent[0:i + 7]
                 break
+            i = parent.find("/msvc/")
+            if i >= 0:
+                sysroot_dir = parent[0:i]
+                break
         if not sysroot_dir:
             fail("sysroot target %s must output a directory." % ctx.attr.sysroot)
         args.add("--sysroot", sysroot_dir)
