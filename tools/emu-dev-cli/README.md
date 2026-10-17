@@ -359,6 +359,30 @@ emu-dev-cli update-prebuilt lavapipe --build-number=16534139 --dry-run
 
 ---
 
+### 11. Software Bill of Materials (`sbom`)
+
+Generates, inspects, audits, and diffs SPDX 2.3 JSON Software Bills of Materials (`go/spdx-style-guide`) for both Google internal releases and AOSP snapshot builds (`--aosp`):
+
+```bash
+# Build the emulator SPDX 2.3 SBOM via Bazel (also bundled at emulator/sbom.spdx.json)
+emu-dev-cli sbom generate --build-id 12345678
+
+# Build the SBOM in AOSP configuration
+emu-dev-cli sbom generate --aosp --build-id 12345678 --out /tmp/aosp-sbom.spdx.json
+
+# Inspect all packages, versions, declared licenses, suppliers, and PURLs
+emu-dev-cli sbom inspect
+emu-dev-cli sbom inspect --filter qemu
+
+# Audit against Google's SPDX 2.3 style guide and spdx_validator binary
+emu-dev-cli sbom audit
+
+# Compare two SBOM files across releases or branches
+emu-dev-cli sbom diff /tmp/old.spdx.json /tmp/new.spdx.json
+```
+
+---
+
 ## 🤖 Agent Autonomous Remediation & Policy Protocol
 
 When an AI pair programmer or autonomous agent is tasked with fixing Clang-Tidy

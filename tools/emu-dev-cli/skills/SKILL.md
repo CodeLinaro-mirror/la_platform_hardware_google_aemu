@@ -710,6 +710,31 @@ Uses clean, isolated per-run AVDs by default and automatically installs the pack
 
 ---
 
+### 12.6 Software Bill of Materials (`sbom`)
+
+Generates, inspects, audits, and diffs SPDX 2.3 JSON Software Bills of Materials (`go/spdx-style-guide`) for both Google internal releases and AOSP snapshot builds (`--aosp`):
+
+- **Generate SPDX 2.3 SBOM via Bazel (`sbom generate`):**
+  ```bash
+  emu-dev-cli sbom generate --build-id 12345678
+  emu-dev-cli sbom generate --aosp --build-id 12345678 --out /tmp/aosp-sbom.spdx.json
+  ```
+- **Inspect SBOM Packages, Versions, Licenses & PURLs (`sbom inspect`):**
+  ```bash
+  emu-dev-cli sbom inspect
+  emu-dev-cli sbom inspect --filter qemu
+  ```
+- **Audit SBOM Compliance (`sbom audit`):** Validates against Google's SPDX 2.3 style guide (`go/spdx-style-guide`) and `/google/bin/releases/opensource/tools/spdx_validator/validate`:
+  ```bash
+  emu-dev-cli sbom audit
+  ```
+- **Diff Two SBOMs (`sbom diff`):**
+  ```bash
+  emu-dev-cli sbom diff /tmp/old.spdx.json /tmp/new.spdx.json
+  ```
+
+---
+
 ### 13. Common Natural Language Requests & Agent Action Mapping
 
 | User Request                                                                                                                               | Target Command                                                                                                                                                                                     |

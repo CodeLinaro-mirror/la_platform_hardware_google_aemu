@@ -49,6 +49,7 @@ from commands import (
     launch,
     mesh,
     perf,
+    sbom,
     source_directory,
     tidy,
     update_cmd,
@@ -109,6 +110,7 @@ def main():
     launch.register_parser(subparsers)
     mesh.register_parser(subparsers)
     perf.register_parser(subparsers)
+    sbom.register_parser(subparsers)
     source_directory.register_parser(subparsers)
     tidy.register_parser(subparsers)
     update_cmd.register_parser(subparsers)
