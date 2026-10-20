@@ -136,18 +136,21 @@ class TestAmendCommitWorkflow(unittest.TestCase):
 
         msg_with_cid1 = (
             "feat: Awesome commit\n\n"
+            "Explain what and why.\n\n"
             "Bug: 12345678\n"
             "Test: bazel test //...\n"
             f"Change-Id: {cid1}\n"
         )
         msg_with_cid2 = (
             "feat: Awesome commit\n\n"
+            "Explain what and why.\n\n"
             "Bug: 12345678\n"
             "Test: bazel test //...\n"
             f"Change-Id: {cid2}\n"
         )
         msg_without_cid = (
             "feat: Awesome commit\n\n"
+            "Explain what and why.\n\n"
             "Bug: 12345678\n"
             "Test: bazel test //...\n"
         )
@@ -166,6 +169,7 @@ class TestAmendCommitWorkflow(unittest.TestCase):
         # Multiple Change-Id lines
         msg_duplicate_cid = (
             "feat: Awesome commit\n\n"
+            "Explain what and why.\n\n"
             "Bug: 12345678\n"
             "Test: bazel test //...\n"
             f"Change-Id: {cid1}\n"
@@ -241,7 +245,8 @@ class TestAmendCommitWorkflow(unittest.TestCase):
         """Tests verify_amend.py script directly with --msg and arguments."""
         cid = "I1234567890abcdef1234567890abcdef12345678"
         valid_msg = (
-            "emu-dev-cli: Fix amend bug\n\n"
+            "fix(emu-dev-cli): Fix amend bug\n\n"
+            "Preserves original Change-Id during amend verification.\n\n"
             "Bug: 98765432\n"
             "Test: bazel test //...\n"
             f"Change-Id: {cid}\n"

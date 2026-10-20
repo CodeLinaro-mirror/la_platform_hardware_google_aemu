@@ -67,7 +67,8 @@ class TestCreateCommitWorkflowIntegration(unittest.TestCase):
         self.assertTrue(os.path.isfile(wf["target_path"]))
 
     def test_no_git_commands_in_instructions(self):
-        spec = load_yaml(self.workflow_yaml)
+        local_yaml = os.path.join(_WORKFLOWS_DIR, "create_commit", "workflow.yaml")
+        spec = load_yaml(local_yaml)
         disallowed_commands = [
             r"\bgit\s+commit\b",
             r"\bgit\s+add\b",
@@ -92,6 +93,16 @@ class TestCreateCommitWorkflowIntegration(unittest.TestCase):
                         f"Found forbidden git command matching '{pattern}' in step {step.get('step')} field '{field}': {text}",
                     )
 
+    def test_semantic_commit_rules_in_workflow_prompt(self):
+        local_yaml = os.path.join(_WORKFLOWS_DIR, "create_commit", "workflow.yaml")
+        spec = load_yaml(local_yaml)
+        step0_prompt = spec["steps"][0]["prompt"]
+        self.assertIn("<type>[optional scope]: <description>", step0_prompt)
+        self.assertIn("50 characters", step0_prompt)
+        self.assertIn("feat, fix, build, docs, chore, test, refactor, perf, style", step0_prompt)
+        self.assertIn("imperative mood", step0_prompt)
+        self.assertIn("BREAKING CHANGE:", step0_prompt)
+
     def test_commit_verifier_validations(self):
         # Empty commit message
         self.assertEqual(validate_commit_message(""), ["Commit message is empty."])
@@ -99,6 +110,7 @@ class TestCreateCommitWorkflowIntegration(unittest.TestCase):
         # Message with forbidden tags
         msg_with_tags = (
             "feat: Test title\n\n"
+            "Description.\n\n"
             "TAG=agy\n"
             "CONV=12345\n"
             "Bug: 12345678\n"
@@ -110,20 +122,21 @@ class TestCreateCommitWorkflowIntegration(unittest.TestCase):
         self.assertTrue(any("CONV=" in e for e in errors))
 
         # Missing Bug: line
-        msg_missing_bug = "feat: Test title\n\nTest: Presubmit\n"
+        msg_missing_bug = "feat: Test title\n\nDescription.\n\nTest: Presubmit\n"
         errors = validate_commit_message(msg_missing_bug)
         self.assertTrue(any("Bug:" in e for e in errors))
 
         # Missing Test: line
-        msg_missing_test = "feat: Test title\n\nBug: 12345678\n"
+        msg_missing_test = "feat: Test title\n\nDescription.\n\nBug: 12345678\n"
         errors = validate_commit_message(msg_missing_test)
         self.assertTrue(any("Test:" in e for e in errors))
 
-        # Valid messages
-        for bug_val in ("Bug: 12345678", "Bug: N/A", "Bug: b/12345678"):
-            for test_val in ("Test: bazel test //...", "TEST: N/A", "Test: N/A"):
-                valid_msg = f"feat: Test title\n\nDescription.\n\n{bug_val}\n{test_val}\n"
-                self.assertEqual(validate_commit_message(valid_msg), [])
+        # Valid messages across all allowed semantic commit types
+        for commit_type in ("feat", "fix", "build", "docs", "chore", "test", "refactor", "perf", "style"):
+            for bug_val in ("Bug: 12345678", "Bug: N/A", "Bug: b/12345678"):
+                for test_val in ("Test: bazel test //...", "TEST: N/A", "Test: N/A"):
+                    valid_msg = f"{commit_type}(cli): Test title\n\nDescription.\n\n{bug_val}\n{test_val}\n"
+                    self.assertEqual(validate_commit_message(valid_msg), [])
 
     def test_messages_match_helper(self):
         proposed = "feat: Title\n\nBody.\n\nBug: 12345678\nTest: N/A\n"

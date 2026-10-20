@@ -69,7 +69,8 @@ class TestAmendCommitWorkflowIntegration(unittest.TestCase):
         self.assertTrue(os.path.isfile(wf["target_path"]))
 
     def test_no_git_commands_in_instructions(self):
-        spec = load_yaml(self.workflow_yaml)
+        local_yaml = os.path.join(_WORKFLOWS_DIR, "amend_commit", "workflow.yaml")
+        spec = load_yaml(local_yaml)
         disallowed_commands = [
             r"\bgit\s+commit\b",
             r"\bgit\s+add\b",
@@ -94,10 +95,21 @@ class TestAmendCommitWorkflowIntegration(unittest.TestCase):
                         f"Found forbidden git command matching '{pattern}' in step {step.get('step')} field '{field}': {text}",
                     )
 
+    def test_semantic_commit_rules_in_workflow_prompt(self):
+        local_yaml = os.path.join(_WORKFLOWS_DIR, "amend_commit", "workflow.yaml")
+        spec = load_yaml(local_yaml)
+        step0_prompt = spec["steps"][0]["prompt"]
+        self.assertIn("<type>[optional scope]: <description>", step0_prompt)
+        self.assertIn("50 characters", step0_prompt)
+        self.assertIn("feat, fix, build, docs, chore, test, refactor, perf, style", step0_prompt)
+        self.assertIn("imperative mood", step0_prompt)
+        self.assertIn("BREAKING CHANGE:", step0_prompt)
+
     def test_change_id_extraction_and_validation(self):
         cid = "Iabcdef0123456789abcdef0123456789abcdef01"
         valid_msg = (
             "feat: Awesome commit\n\n"
+            "Explain what and why.\n\n"
             "Bug: 12345678\n"
             "Test: Presubmit\n"
             f"Change-Id: {cid}\n"
@@ -111,7 +123,7 @@ class TestAmendCommitWorkflowIntegration(unittest.TestCase):
         self.assertTrue(any("Change-Id must not be modified" in e for e in errors))
 
         # Change-Id missing
-        msg_no_cid = "feat: Commit\n\nBug: 1\nTest: N/A\n"
+        msg_no_cid = "feat: Commit\n\nExplain what and why.\n\nBug: 1\nTest: N/A\n"
         errors = validate_commit_message(msg_no_cid, expected_change_id=cid)
         self.assertTrue(any("Change-Id line is missing" in e for e in errors))
 
@@ -124,6 +136,7 @@ class TestAmendCommitWorkflowIntegration(unittest.TestCase):
         cid = "Iabcdef0123456789abcdef0123456789abcdef01"
         valid_msg = (
             "feat: Amended commit\n\n"
+            "Explain what and why.\n\n"
             "Bug: 12345678\n"
             "Test: Presubmit\n"
             f"Change-Id: {cid}\n"
@@ -150,6 +163,7 @@ class TestAmendCommitWorkflowIntegration(unittest.TestCase):
         cid = "Iabcdef0123456789abcdef0123456789abcdef01"
         valid_msg = (
             "feat: Amended commit\n\n"
+            "Explain what and why.\n\n"
             "Bug: 12345678\n"
             "Test: Presubmit\n"
             f"Change-Id: {cid}\n"
@@ -169,12 +183,14 @@ class TestAmendCommitWorkflowIntegration(unittest.TestCase):
         cid = "Iabcdef0123456789abcdef0123456789abcdef01"
         current_msg = (
             "feat: Original commit\n\n"
+            "Original body.\n\n"
             "Bug: 12345678\n"
             "Test: Presubmit\n"
             f"Change-Id: {cid}\n"
         )
         amended_msg = (
             "feat: Amended commit\n\n"
+            "Amended body.\n\n"
             "Bug: 12345678\n"
             "Test: Presubmit\n"
             f"Change-Id: {cid}\n"

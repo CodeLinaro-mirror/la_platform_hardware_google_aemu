@@ -1,8 +1,10 @@
 """Shared Git & Gerrit commit verification utilities for emu-dev-cli workflows."""
 
 from .commit_verifier import (
+    ALLOWED_COMMIT_TYPES,
     CHANGE_ID_LINE_PATTERN,
     CHANGE_ID_PATTERN,
+    SEMANTIC_SUBJECT_PATTERN,
     extract_all_change_ids,
     extract_change_id,
     find_commit_by_change_id,
@@ -40,6 +42,7 @@ from .gerrit_formatter import (
 )
 
 __all__ = [
+    "ALLOWED_COMMIT_TYPES",
     "BULLET_POINT_REGEX",
     "CHANGE_ID_LINE_PATTERN",
     "CHANGE_ID_PATTERN",
@@ -50,6 +53,7 @@ __all__ = [
     "INDENTATION_THRESHOLD",
     "MAX_LINE_LENGTH",
     "MAX_SUBJECT_LENGTH",
+    "SEMANTIC_SUBJECT_PATTERN",
     "detect_formatting_errors",
     "detect_formatting_errors_in_string",
     "extract_all_change_ids",
