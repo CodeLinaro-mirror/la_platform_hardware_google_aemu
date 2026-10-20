@@ -217,6 +217,75 @@ class HarnessGuardrailTest(unittest.TestCase):
         )
         self.assertEqual(final_stop["decision"], HookDecision.STOP.value)
 
+    def test_code_guardrail_blocks_raw_cc_binary_in_goldfish(self) -> None:
+        deny_out = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": "conv-code-1",
+                "toolCall": {
+                    "name": "write_file",
+                    "args": {
+                        "Path": "/work/goldfish/emulator/foo/BUILD.bazel",
+                        "Content": 'cc_binary(\n    name = "foo_tool",\n    srcs = ["main.cc"],\n)\n',
+                    },
+                },
+            },
+            store=self.ledger_store,
+        )
+        self.assertEqual(deny_out["decision"], HookDecision.DENY.value)
+        self.assertIn("cc_binary_with_manifest", deny_out["reason"])
+
+        allow_plugin = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": "conv-code-1",
+                "toolCall": {
+                    "name": "write_file",
+                    "args": {
+                        "Path": "/work/goldfish/emulator/foo/BUILD.bazel",
+                        "Content": 'cc_binary(\n    name = "libplugin.so",\n    linkshared = True,\n)\n',
+                    },
+                },
+            },
+            store=self.ledger_store,
+        )
+        self.assertEqual(allow_plugin["decision"], HookDecision.ALLOW.value)
+
+    def test_code_guardrail_blocks_raw_fstream_and_statusor_hungarian(self) -> None:
+        deny_fstream = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": "conv-code-2",
+                "toolCall": {
+                    "name": "edit_file",
+                    "args": {
+                        "Path": "/work/goldfish/emulator/net/client.cc",
+                        "Replacement": 'std::ifstream in("测试_🚀.ini");\n',
+                    },
+                },
+            },
+            store=self.ledger_store,
+        )
+        self.assertEqual(deny_fstream["decision"], HookDecision.DENY.value)
+        self.assertIn("android::base::file", deny_fstream["reason"])
+
+        deny_statusor = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": "conv-code-2",
+                "toolCall": {
+                    "name": "edit_file",
+                    "args": {
+                        "Path": "/work/goldfish/emulator/net/client.cc",
+                        "Replacement": "auto config_or = LoadConfig();\n",
+                    },
+                },
+            },
+            store=self.ledger_store,
+        )
+        self.assertEqual(deny_statusor["decision"], HookDecision.DENY.value)
+        self.assertIn("TotW 181", deny_statusor["reason"])
+
 
 class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
     """Tests plugin installation, status verification, and sidecar state helpers."""

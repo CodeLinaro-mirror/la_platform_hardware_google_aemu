@@ -17,12 +17,12 @@
   ],
   "PreToolUse": [
     {
-      "matcher": "run_command",
+      "matcher": "run_command|write_file|edit_file",
       "hooks": [
         {
-          "name": "aemu-git-gerrit-guardrail",
+          "name": "aemu-git-gerrit-and-code-guardrail",
           "command": "__EMU_DEV_CLI_BIN__ harness hook --event pre-tool",
-          "description": "Enforces Semantic Commit Message rules on direct git commits and --notify=OWNER on Gerrit review mutations.",
+          "description": "Enforces Semantic Commit rules, --notify=OWNER on Gerrit mutations, cc_binary_with_manifest in goldfish BUILD files, UTF-8 file I/O, and TotW 181 StatusOr naming.",
           "timeout": 15
         }
       ]

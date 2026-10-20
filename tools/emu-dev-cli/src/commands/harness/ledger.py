@@ -129,7 +129,10 @@ class SessionLedgerStore:
             "stats",
             {"commits_verified": 0, "guardrails_blocked": 0, "emulators_launched": 0},
         )
-        if kind == LedgerEventKind.GUARDRAIL_BLOCKED:
+        if kind in (
+            LedgerEventKind.GUARDRAIL_BLOCKED,
+            LedgerEventKind.CODE_GUARDRAIL_BLOCKED,
+        ):
             stats["guardrails_blocked"] = int(stats.get("guardrails_blocked", 0)) + 1
         elif kind == LedgerEventKind.GUARDRAIL_ALLOWED:
             stats["commits_verified"] = int(stats.get("commits_verified", 0)) + 1

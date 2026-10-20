@@ -43,6 +43,7 @@ class LedgerEventKind(str, Enum):
 
     GUARDRAIL_BLOCKED = "guardrail_blocked"
     GUARDRAIL_ALLOWED = "guardrail_allowed"
+    CODE_GUARDRAIL_BLOCKED = "code_guardrail_blocked"
     EMULATOR_LAUNCHED = "emulator_launched"
     EMULATOR_STOPPED = "emulator_stopped"
     WORKFLOW_UPDATED = "workflow_updated"
@@ -100,4 +101,18 @@ AVD_FLAG_PATTERN: re.Pattern[str] = re.compile(
 )
 WORKFLOW_STATE_FLAG_PATTERN: re.Pattern[str] = re.compile(
     r"--state(?:=|\s+)([a-zA-Z0-9_-]+)"
+)
+
+# Source-code guardrail patterns for write_file / edit_file
+RAW_CC_BINARY_BLOCK_PATTERN: re.Pattern[str] = re.compile(
+    r"(?<!with_manifest\s)\bcc_binary\s*\(([^)]*)\)", re.DOTALL
+)
+LINKSHARED_TRUE_PATTERN: re.Pattern[str] = re.compile(
+    r"\blinkshared\s*=\s*True\b"
+)
+RAW_FSTREAM_PATTERN: re.Pattern[str] = re.compile(
+    r"\bstd::(?:i|o)?fstream\b"
+)
+STATUSOR_HUNGARIAN_PATTERN: re.Pattern[str] = re.compile(
+    r"\b(?:absl::StatusOr\s*<[^>]+>|auto)\s+([a-zA-Z0-9_]+_or)\s*="
 )

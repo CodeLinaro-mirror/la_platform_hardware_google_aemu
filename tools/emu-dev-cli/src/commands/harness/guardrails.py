@@ -32,6 +32,7 @@ import sys
 from typing import Any, Dict, List, Optional, Tuple
 import yaml
 
+from commands.harness.code_guardrails import evaluate_file_edit_payload
 from commands.harness.constants import (
     AVD_FLAG_PATTERN,
     EMU_LAUNCH_CMD_PATTERN,
@@ -254,6 +255,24 @@ def handle_pre_tool_hook(
     ledger_store = store or SessionLedgerStore()
     conversation_id = payload.get("conversationId") or payload.get("conversation_id")
     tool_name = _extract_tool_name(payload)
+
+    if tool_name in ("write_file", "edit_file", "replace_file_content", "write_to_file"):
+        verdict = evaluate_file_edit_payload(payload)
+        if verdict is not None:
+            allowed, reason = verdict
+            if not allowed:
+                ledger_store.record_event(
+                    conversation_id,
+                    LedgerEventKind.CODE_GUARDRAIL_BLOCKED,
+                    reason.splitlines()[0],
+                    {"tool": tool_name, "reason": reason},
+                )
+                return {
+                    "decision": HookDecision.DENY.value,
+                    "reason": reason,
+                }
+        return {"decision": HookDecision.ALLOW.value}
+
     if tool_name and tool_name not in ("run_command", "run_shell_command", "bash"):
         return {"decision": HookDecision.ALLOW.value}
 
