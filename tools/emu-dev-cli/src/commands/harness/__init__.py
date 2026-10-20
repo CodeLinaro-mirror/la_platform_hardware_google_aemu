@@ -32,6 +32,7 @@ from commands.harness.plugin_installer import (
     install_harness_plugin,
     uninstall_harness_plugin,
 )
+from commands.harness.presets import list_harness_presets
 from lib.output import print_result
 
 
@@ -115,7 +116,19 @@ def register_parser(subparsers: Any) -> None:
     )
     mcp_p.set_defaults(func=lambda _args: run_stdio_mcp_server())
 
-    for sub_p in (install_p, uninstall_p, status_p, clear_p):
+    presets_p = harness_subparsers.add_parser(
+        "presets",
+        help="List multi-agent swarm and workflow orchestration presets",
+    )
+    presets_p.add_argument(
+        "--name",
+        type=str,
+        default=None,
+        help="Filter by preset name (e.g. parallel-code-review)",
+    )
+    presets_p.set_defaults(func=run_harness_presets)
+
+    for sub_p in (install_p, uninstall_p, status_p, clear_p, presets_p):
         sub_p.add_argument(
             "--json",
             action="store_true",
@@ -230,6 +243,22 @@ def run_harness_clear(args: argparse.Namespace) -> None:
             "action": "harness clear",
             "summary": f"Cleared {removed} session ledger(s)",
             "removed": removed,
+        },
+        json_mode=json_mode,
+    )
+
+
+def run_harness_presets(args: argparse.Namespace) -> None:
+    """CLI handler for `emu-dev-cli harness presets`."""
+    json_mode = getattr(args, "json", False)
+    preset_name = getattr(args, "name", None)
+    presets = list_harness_presets(name=preset_name)
+    print_result(
+        {
+            "status": "success",
+            "action": "harness presets",
+            "summary": f"Found {len(presets)} multi-agent harness preset(s)",
+            "presets": presets,
         },
         json_mode=json_mode,
     )

@@ -39,6 +39,7 @@ from commands.harness.plugin_installer import (
     install_harness_plugin,
     uninstall_harness_plugin,
 )
+from commands.harness.presets import list_harness_presets
 
 
 class HarnessGuardrailTest(unittest.TestCase):
@@ -430,6 +431,13 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         payload = json.loads(libs_res["result"]["content"][0]["text"])  # type: ignore[index]
         targets = [lib["bazel_target"] for lib in payload["libraries"]]
         self.assertIn("//emulator/libs/http", targets)
+
+    def test_progressive_disclosure_rules_and_swarm_presets(self) -> None:
+        presets = list_harness_presets()
+        self.assertGreaterEqual(len(presets), 3)
+        review_preset = list_harness_presets("parallel-code-review")
+        self.assertEqual(len(review_preset), 1)
+        self.assertIn("aemu-code-reviewer", review_preset[0]["prompt"])
 
 
 if __name__ == "__main__":
