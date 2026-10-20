@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import urllib.parse
 from typing import Any, Dict, List, Optional
@@ -31,6 +32,64 @@ except ImportError:
 
 PORT: int = int(os.environ.get("ANTIGRAVITY_SIDECAR_WEB_PORT", "8765"))
 UI_TOKEN: str = os.environ.get("ANTIGRAVITY_SIDECAR_UI_TOKEN", "")
+
+SEMANTIC_SUBJECT_RE = re.compile(
+    r"^(feat|fix|build|docs|chore|test|refactor|perf|style)(?:\(([^)]+)\))?:\s+(.+)$"
+)
+BUG_FOOTER_RE = re.compile(r"(?im)^\s*Bug:\s*(?:b/)?(\d+|N/A|None)\s*$")
+TEST_FOOTER_RE = re.compile(r"(?im)^\s*Test:\s*(\S.*?)\s*$")
+
+SIDE_CAR_LIBS_CATALOG: List[Dict[str, str]] = [
+    {
+        "name": "file",
+        "bazel_target": "//emulator/libs/file",
+        "header": "goldfish/file/file.h",
+        "namespace": "android::base::file",
+        "summary": "Cross-platform UTF-8 file I/O helpers safe on Windows non-ASCII paths.",
+    },
+    {
+        "name": "ini_file",
+        "bazel_target": "//emulator/libs/ini_file",
+        "header": "android/goldfish/ini_file.h",
+        "namespace": "android::goldfish::IniFile",
+        "summary": "INI configuration parser and writer for AVD and hardware profiles.",
+    },
+    {
+        "name": "http",
+        "bazel_target": "//emulator/libs/http",
+        "header": "goldfish/http/web_server.h",
+        "namespace": "goldfish::http::WebServer",
+        "summary": "Embedded HTTP WebServer (`CreateWebServer`) for production and unit tests.",
+    },
+    {
+        "name": "http_client",
+        "bazel_target": "//emulator/libs/network:http_client",
+        "header": "goldfish/network/http_client.h",
+        "namespace": "goldfish::network::HttpClient",
+        "summary": "HTTP/HTTPS client with StatusOr error propagation.",
+    },
+    {
+        "name": "network",
+        "bazel_target": "//emulator/libs/network",
+        "header": "goldfish/network/resolve.h",
+        "namespace": "goldfish::network::ResolveEndpoints",
+        "summary": "DNS and socket endpoint resolution helpers.",
+    },
+    {
+        "name": "async",
+        "bazel_target": "//emulator/libs/async",
+        "header": "goldfish/async/threaded_event_loop.h",
+        "namespace": "goldfish::async",
+        "summary": "LibuvEventLoop, ThreadedEventLoop, AsyncSocket, and UvErrToAbslStatus.",
+    },
+    {
+        "name": "system",
+        "bazel_target": "//emulator/libs/system",
+        "header": "android/base/system.h",
+        "namespace": "android::base::System",
+        "summary": "Environment variable queries (`EnvGet`) and `TestSystem` (`:test-headers`).",
+    },
+]
 
 
 def _get_harness_dir() -> Path:
@@ -53,6 +112,70 @@ def _sanitize_conv_id(conv_id: Optional[str]) -> str:
     return safe or "default"
 
 
+def validate_commit_message_live(message: str) -> Dict[str, Any]:
+    """Validates a commit message against Erwin's Semantic Commit Message rules."""
+    raw = (message or "").strip()
+    if not raw:
+        return {
+            "valid": False,
+            "subject_length": 0,
+            "max_body_line_length": 0,
+            "errors": ["Commit message is empty."],
+        }
+
+    lines = raw.splitlines()
+    subject = lines[0].strip()
+    errors: List[str] = []
+
+    if len(subject) > 50:
+        errors.append(f"Subject length ({len(subject)}) exceeds 50-char limit.")
+
+    match = SEMANTIC_SUBJECT_RE.match(subject)
+    if not match:
+        errors.append(
+            "Subject must match '<type>[optional scope]: <Description>' "
+            "(feat|fix|build|docs|chore|test|refactor|perf|style)."
+        )
+    else:
+        desc = match.group(3).strip()
+        if not desc or not desc[0].isupper():
+            errors.append("Subject <Description> must start with a capital letter.")
+        if desc.endswith("."):
+            errors.append("Subject must not end with a period '.'.")
+
+    if len(lines) > 1 and lines[1].strip():
+        errors.append("Line 2 must be a blank line separating subject and body.")
+
+    body_lines = [
+        ln
+        for ln in lines[2:]
+        if ln.strip()
+        and not re.match(r"^(Bug|Test|TEST|Change-Id|BREAKING CHANGE):", ln.strip())
+    ]
+    if not body_lines:
+        errors.append(
+            "Missing explanatory body paragraph between subject and footers (what & why)."
+        )
+
+    max_body_len = max((len(ln) for ln in body_lines), default=0)
+    if max_body_len > 72:
+        errors.append(f"Body line length ({max_body_len}) exceeds 72-char limit.")
+
+    if not BUG_FOOTER_RE.search(raw):
+        errors.append("Missing required 'Bug: <id>' or 'Bug: N/A' footer.")
+    if not TEST_FOOTER_RE.search(raw):
+        errors.append("Missing required 'Test: <command>' footer.")
+    if re.search(r"(?i)\b(TAG|CONV)\s*=", raw):
+        errors.append("Forbidden 'Tag=' or 'CONV=' tag present.")
+
+    return {
+        "valid": len(errors) == 0,
+        "subject_length": len(subject),
+        "max_body_line_length": max_body_len,
+        "errors": errors,
+    }
+
+
 def load_ledger_data(conversation_id: Optional[str]) -> Dict[str, Any]:
     """Reads the session ledger for conversation_id or the most recent active ledger."""
     sessions_dir = _get_harness_dir() / "sessions"
@@ -65,7 +188,7 @@ def load_ledger_data(conversation_id: Optional[str]) -> Dict[str, Any]:
             except Exception:
                 pass
 
-    if sessions_dir.is_dir():
+    if not conversation_id and sessions_dir.is_dir():
         files = sorted(
             sessions_dir.glob("*.json"),
             key=lambda p: p.stat().st_mtime if p.exists() else 0,
@@ -84,6 +207,8 @@ def load_ledger_data(conversation_id: Optional[str]) -> Dict[str, Any]:
         "stats": {
             "commits_verified": 0,
             "guardrails_blocked": 0,
+            "commands_rewritten": 0,
+            "diagnostics_injected": 0,
             "emulators_launched": 0,
         },
         "events": [],
@@ -157,9 +282,7 @@ INDEX_HTML: str = """<!DOCTYPE html>
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 12px;
-      padding-bottom: 10px;
-      border-bottom: 1px solid var(--border-col);
+      margin-bottom: 10px;
     }
     .title {
       font-weight: 700;
@@ -176,26 +299,50 @@ INDEX_HTML: str = """<!DOCTYPE html>
       color: #3ddc84;
       font-weight: 600;
     }
-    .grid-3 {
+    .tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid var(--border-col);
+      padding-bottom: 8px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .tab-btn.active {
+      background: rgba(61, 220, 132, 0.14);
+      border-color: #3ddc84;
+      color: var(--fg);
+    }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+    .grid-4 {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 8px;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
       margin-bottom: 12px;
     }
     .stat-card {
       background: var(--card-bg);
       border: 1px solid var(--border-col);
       border-radius: 8px;
-      padding: 8px 10px;
+      padding: 7px 6px;
       text-align: center;
     }
     .stat-val {
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 700;
       color: #3ddc84;
     }
     .stat-lbl {
-      font-size: 11px;
+      font-size: 10px;
       color: var(--muted);
     }
     .section {
@@ -206,8 +353,8 @@ INDEX_HTML: str = """<!DOCTYPE html>
       margin-bottom: 12px;
     }
     .section-title {
-      font-size: 12px;
-      font-weight: 600;
+      font-size: 11px;
+      font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.04em;
       color: var(--muted);
@@ -237,12 +384,23 @@ INDEX_HTML: str = """<!DOCTYPE html>
       border-color: #3ddc84;
       background: rgba(61, 220, 132, 0.14);
     }
-    .wf-item, .ev-item {
+    textarea, input[type="text"] {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.65);
+      color: var(--fg);
+      border: 1px solid var(--border-col);
+      border-radius: 6px;
+      padding: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .wf-item, .ev-item, .lib-item {
       padding: 6px 0;
       border-bottom: 1px solid var(--border-col);
       font-size: 12px;
     }
-    .wf-item:last-child, .ev-item:last-child {
+    .wf-item:last-child, .ev-item:last-child, .lib-item:last-child {
       border-bottom: none;
     }
     .status-pill {
@@ -257,6 +415,8 @@ INDEX_HTML: str = """<!DOCTYPE html>
     .status-DONE { background: rgba(61, 220, 132, 0.2); color: #3ddc84; }
     .status-STUCK, .status-RETRY { background: rgba(248, 113, 113, 0.2); color: #f87171; }
     .muted { color: var(--muted); font-size: 11px; }
+    .ok-text { color: #3ddc84; font-weight: 600; }
+    .err-text { color: #f87171; }
   </style>
 </head>
 <body>
@@ -267,61 +427,92 @@ INDEX_HTML: str = """<!DOCTYPE html>
     <span class="badge" id="conv-badge">Active</span>
   </div>
 
-  <div class="grid-3">
-    <div class="stat-card">
-      <div class="stat-val" id="stat-commits">0</div>
-      <div class="stat-lbl">Commits Verified</div>
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('control', this)">Control Center</button>
+    <button class="tab-btn" onclick="switchTab('commit', this)">Commit Sandbox</button>
+    <button class="tab-btn" onclick="switchTab('libs', this)">//emulator/libs/*</button>
+  </div>
+
+  <div id="tab-control" class="tab-pane active">
+    <div class="grid-4">
+      <div class="stat-card">
+        <div class="stat-val" id="stat-commits">0</div>
+        <div class="stat-lbl">Commits OK</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="stat-blocked">0</div>
+        <div class="stat-lbl">Blocked</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="stat-rewrites">0</div>
+        <div class="stat-lbl">Rewrites</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val" id="stat-emus">0</div>
+        <div class="stat-lbl">Running AVDs</div>
+      </div>
     </div>
-    <div class="stat-card">
-      <div class="stat-val" id="stat-blocked">0</div>
-      <div class="stat-lbl">Guardrails Fired</div>
+
+    <div class="section">
+      <div class="section-title">⚡ One-Click Workflow & Swarm Dispatch</div>
+      <div class="btn-grid">
+        <button onclick="dispatchPrompt('Run `emu-dev-cli workflow create-commit init` to create a Semantic Commit for my current changes.')">
+          📝 Create Semantic Commit
+        </button>
+        <button onclick="dispatchPrompt('Run `emu-dev-cli workflow amend-commit init` to amend HEAD with a verified Semantic Commit.')">
+          ✏️ Amend HEAD Commit
+        </button>
+        <button onclick="dispatchPrompt('Run a 3-agent parallel code review swarm on my current commit/CL covering (1) //emulator/libs/* reuse, (2) go/error-messages & TotW 181 StatusOr, and (3) 5-way code complexity & Unicode safety.')">
+          🐝 3-Agent Review Swarm
+        </button>
+        <button onclick="dispatchPrompt('Run `emu-dev-cli workflow address-review init` to fetch and resolve open Gerrit review comments on my CL.')">
+          💬 Address Gerrit Review
+        </button>
+        <button onclick="dispatchPrompt('Invoke `aemu-flake-hunter` to inspect recent flake history and reproduce the flaky test locally with 50x TSAN/ASAN stress runs.')">
+          🧪 Hunt & Repro Flake
+        </button>
+        <button onclick="dispatchPrompt('Run `emu-dev-cli crash list-crashes --unassigned-only` and summarize top unassigned production crashes.')">
+          💥 Triage Crashpad
+        </button>
+      </div>
     </div>
-    <div class="stat-card">
-      <div class="stat-val" id="stat-emus">0</div>
-      <div class="stat-lbl">Running AVDs</div>
+
+    <div class="section">
+      <div class="section-title">🔄 Active emu-dev-cli Workflows</div>
+      <div id="workflows-list" class="muted">No active workflows detected.</div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">🛡️ Harness Guardrail & Hook Ledger</div>
+      <div id="events-list" class="muted">No hook events recorded in this session yet.</div>
     </div>
   </div>
 
-  <div class="section">
-    <div class="section-title">⚡ One-Click Workflow Dispatch</div>
-    <div class="btn-grid">
-      <button onclick="dispatchPrompt('Run `emu-dev-cli workflow create-commit init` to create a Semantic Commit for my current changes.')">
-        📝 Create Semantic Commit
-      </button>
-      <button onclick="dispatchPrompt('Run `emu-dev-cli workflow amend-commit init` to amend HEAD with a verified Semantic Commit.')">
-        ✏️ Amend HEAD Commit
-      </button>
-      <button onclick="dispatchPrompt('Invoke the `aemu-code-reviewer` subagent to audit my current commit for //emulator/libs/* reuse, go/error-messages, 5-way code complexity, and Semantic Commit compliance.')">
-        🔍 5-Way Code Review
-      </button>
-      <button onclick="dispatchPrompt('Run `emu-dev-cli workflow address-review init` to fetch and resolve open Gerrit review comments on my CL.')">
-        💬 Address Gerrit Review
-      </button>
-      <button onclick="dispatchPrompt('Invoke `aemu-flake-hunter` to inspect recent flake history and reproduce the flaky test locally with 50x stress runs.')">
-        🧪 Hunt & Repro Flake
-      </button>
-      <button onclick="dispatchPrompt('Run `emu-dev-cli crash list-crashes --unassigned-only` and summarize top unassigned production crashes.')">
-        💥 Triage Crashpad
-      </button>
+  <div id="tab-commit" class="tab-pane">
+    <div class="section">
+      <div class="section-title">
+        <span>📝 Live Semantic Commit Validator</span>
+        <span id="commit-rulers" class="muted">Subject: 0/50 · Body: 0/72</span>
+      </div>
+      <textarea id="commit-input" rows="8" oninput="checkCommitLive()" placeholder="feat(scope): Capitalized imperative summary&#10;&#10;Explain what changed and why (wrapped at <= 72 chars).&#10;&#10;Bug: 485291270&#10;Test: bazel test //emulator/..."></textarea>
+      <div id="commit-feedback" class="muted" style="margin-bottom:8px;">Type a commit message above to validate against Semantic Commit rules.</div>
+      <button onclick="sendVerifiedCommit()">🚀 Send Verified Commit Message to Agent</button>
     </div>
   </div>
 
-  <div class="section">
-    <div class="section-title">
-      <span>🔄 Active emu-dev-cli Workflows</span>
+  <div id="tab-libs" class="tab-pane">
+    <div class="section">
+      <div class="section-title">📚 //emulator/libs/* Reuse Explorer</div>
+      <input type="text" id="libs-search" oninput="renderLibs()" placeholder="Filter by keyword (e.g. http, file, ini, async, system)..." />
+      <div id="libs-list"></div>
     </div>
-    <div id="workflows-list" class="muted">No active workflows detected.</div>
-  </div>
-
-  <div class="section">
-    <div class="section-title">🛡️ Harness Guardrail & Hook Ledger</div>
-    <div id="events-list" class="muted">No hook events recorded in this session yet.</div>
   </div>
 
   <script>
     const urlParams = new URLSearchParams(window.location.search);
     const uiToken = urlParams.get("token") || "";
     let currentConvId = urlParams.get("conversationId") || "";
+    let cachedLibs = [];
 
     if (window.sidecar) {
       if (window.sidecar.conversationId) {
@@ -335,13 +526,59 @@ INDEX_HTML: str = """<!DOCTYPE html>
       }
     }
 
+    function switchTab(name, btnEl) {
+      document.querySelectorAll(".tab-pane").forEach(el => el.classList.remove("active"));
+      document.querySelectorAll(".tab-btn").forEach(el => el.classList.remove("active"));
+      document.getElementById("tab-" + name).classList.add("active");
+      btnEl.classList.add("active");
+    }
+
     function dispatchPrompt(text) {
       if (window.sidecar && window.sidecar.agent && typeof window.sidecar.agent.sendMessage === "function") {
         window.sidecar.agent.sendMessage(text);
       } else {
         navigator.clipboard.writeText(text);
-        alert("Copied command prompt to clipboard:\\n\\n" + text);
+        alert("Copied prompt to clipboard:\\n\\n" + text);
       }
+    }
+
+    async function checkCommitLive() {
+      const msg = document.getElementById("commit-input").value;
+      const res = await fetch("/api/commit/validate?token=" + encodeURIComponent(uiToken), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Sidecar-Token": uiToken },
+        body: JSON.stringify({ message: msg })
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      document.getElementById("commit-rulers").textContent =
+        `Subject: ${data.subject_length}/50 · Max Body Line: ${data.max_body_line_length}/72`;
+      const fb = document.getElementById("commit-feedback");
+      if (data.valid) {
+        fb.innerHTML = '<span class="ok-text">✓ Valid Semantic Commit message!</span>';
+      } else {
+        fb.innerHTML = (data.errors || []).map(e => `<div class="err-text">• ${e}</div>`).join("");
+      }
+    }
+
+    function sendVerifiedCommit() {
+      const msg = document.getElementById("commit-input").value.trim();
+      if (!msg) return;
+      dispatchPrompt("Commit the current staged changes using this exact Semantic Commit message:\\n\\n```\\n" + msg + "\\n```");
+    }
+
+    function renderLibs() {
+      const q = (document.getElementById("libs-search").value || "").toLowerCase().trim();
+      const container = document.getElementById("libs-list");
+      const filtered = cachedLibs.filter(item =>
+        !q || JSON.stringify(item).toLowerCase().includes(q)
+      );
+      container.innerHTML = filtered.map(lib => `
+        <div class="lib-item">
+          <div><strong>${lib.bazel_target}</strong> · <code>${lib.header}</code></div>
+          <div class="muted">${lib.namespace} — ${lib.summary}</div>
+        </div>
+      `).join("");
     }
 
     async function approveWorkflow(stateId) {
@@ -368,10 +605,16 @@ INDEX_HTML: str = """<!DOCTYPE html>
         const stats = ledger.stats || {};
         const activeEmus = ledger.active_emulators || [];
 
+        if (data.libraries && cachedLibs.length === 0) {
+          cachedLibs = data.libraries;
+          renderLibs();
+        }
+
         document.getElementById("conv-badge").textContent =
           (ledger.conversation_id || currentConvId || "global").slice(0, 12);
         document.getElementById("stat-commits").textContent = stats.commits_verified || 0;
         document.getElementById("stat-blocked").textContent = stats.guardrails_blocked || 0;
+        document.getElementById("stat-rewrites").textContent = stats.commands_rewritten || 0;
         document.getElementById("stat-emus").textContent = activeEmus.length;
 
         const wfList = document.getElementById("workflows-list");
@@ -480,6 +723,7 @@ class HarnessSidecarHandler(BaseHTTPRequestHandler):
                 {
                     "ledger": load_ledger_data(conv_id),
                     "workflows": list_workflow_sessions(conv_id),
+                    "libraries": SIDE_CAR_LIBS_CATALOG,
                 },
             )
             return
@@ -498,6 +742,11 @@ class HarnessSidecarHandler(BaseHTTPRequestHandler):
             body = json.loads(raw_body)
         except Exception:
             body = {}
+
+        if parsed.path == "/api/commit/validate":
+            msg = str(body.get("message") or "")
+            self._send_json(200, validate_commit_message_live(msg))
+            return
 
         if parsed.path == "/api/workflow/approve":
             state_id = str(body.get("state_id", "")).strip()

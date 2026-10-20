@@ -378,7 +378,7 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         hooks_json = json.loads(
             (target_plugin_dir / "hooks.json").read_text(encoding="utf-8")
         )
-        pre_tool_cmd = hooks_json["PreToolUse"][0]["hooks"][0]["command"]
+        pre_tool_cmd = hooks_json["aemu-harness"]["PreToolUse"][0]["hooks"][0]["command"]
         self.assertIn("/custom/bin/emu-dev-cli harness hook --event pre-tool", pre_tool_cmd)
 
         mcp_json = json.loads(
@@ -395,6 +395,16 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         spec.loader.exec_module(module)  # type: ignore[union-attr]
         ledger_data = module.load_ledger_data("conv-sidecar-test")
         self.assertEqual(ledger_data["conversation_id"], "conv-sidecar-test")
+
+        valid_check = module.validate_commit_message_live(
+            "feat(harness): Add live commit sandbox\n\n"
+            "Validate commit messages in real time inside the AuxPane.\n\n"
+            "Bug: 485291270\n"
+            "Test: python3 -m unittest tests/harness_test.py\n"
+        )
+        self.assertTrue(valid_check["valid"], msg=str(valid_check))
+        invalid_check = module.validate_commit_message_live("wip")
+        self.assertFalse(invalid_check["valid"])
 
         uninstall_report = uninstall_harness_plugin(target_dir=target_plugin_dir)
         self.assertTrue(uninstall_report["removed"])

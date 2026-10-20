@@ -129,12 +129,44 @@ def install_harness_plugin(
                     pass
             installed_files.append(str(dst_file))
 
+    _enable_plugin_and_sidecar_in_config(dest_dir)
+
     return {
         "installed": True,
         "plugin_dir": str(dest_dir),
         "cli_command": resolved_cli,
         "installed_files": installed_files,
     }
+
+
+def _enable_plugin_and_sidecar_in_config(dest_dir: Path) -> None:
+    """Ensures `aemu-harness` and `aemu-harness/aemu_harness_ui` are enabled in `config.json`."""
+    try:
+        if dest_dir.parent.name != "plugins":
+            return
+        config_json = dest_dir.parents[1] / "config.json"
+        data: Dict[str, Any] = {}
+        if config_json.is_file():
+            raw = config_json.read_text(encoding="utf-8").strip()
+            if raw:
+                data = json.loads(raw)
+        plugins_cfg = data.setdefault("plugins", {})
+        if isinstance(plugins_cfg, dict):
+            plugin_entry = plugins_cfg.setdefault(PLUGIN_DIR_NAME, {})
+            if isinstance(plugin_entry, dict):
+                plugin_entry["enabled"] = True
+        sidecars_cfg = data.setdefault("sidecars", {})
+        if isinstance(sidecars_cfg, dict):
+            sidecar_entry = sidecars_cfg.setdefault(
+                f"{PLUGIN_DIR_NAME}/aemu_harness_ui", {}
+            )
+            if isinstance(sidecar_entry, dict):
+                sidecar_entry["enabled"] = True
+        config_json.write_text(
+            json.dumps(data, indent=2) + "\n", encoding="utf-8"
+        )
+    except (OSError, ValueError, TypeError):
+        pass
 
 
 def uninstall_harness_plugin(target_dir: Optional[Path] = None) -> Dict[str, Any]:
