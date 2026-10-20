@@ -55,6 +55,7 @@ from commands.harness.constants import (
     NOTIFY_OWNER_JSON_PATTERN,
     WORKFLOW_STATE_FLAG_PATTERN,
 )
+from commands.harness.diagnostics import enrich_post_tool_result
 from commands.harness.ledger import SessionLedgerStore
 
 
@@ -388,6 +389,17 @@ def handle_post_tool_hook(
             f"Executed workflow command: {command[:80]}",
             {"command": command, "state_id": state_id},
         )
+
+    enriched = enrich_post_tool_result(command, payload)
+    if enriched is not None:
+        overwritten_result, diag_summary = enriched
+        ledger_store.record_event(
+            conversation_id,
+            LedgerEventKind.DIAGNOSTIC_INJECTED,
+            diag_summary,
+            {"command": command},
+        )
+        return {"overwriteResult": overwritten_result}
 
     return {}
 

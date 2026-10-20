@@ -324,6 +324,32 @@ class HarnessGuardrailTest(unittest.TestCase):
         ledger = self.ledger_store.load(conv_id)
         self.assertEqual(ledger["stats"]["commands_rewritten"], 2)
 
+    def test_post_tool_failure_enrichment_overwrite_result(self) -> None:
+        conv_id = "conv-diag-1"
+        post_out = dispatch_hook_event(
+            HookEvent.POST_TOOL.value,
+            {
+                "conversationId": conv_id,
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {"CommandLine": "bazel test //emulator/net:client_test"},
+                },
+                "error": "exit status 1",
+                "result": (
+                    "emulator/net/client.cc:12:10: fatal error: "
+                    "'goldfish/http/web_server.h' file not found\n"
+                    "WARNING: ThreadSanitizer: data race (pid=1234)\n"
+                ),
+            },
+            store=self.ledger_store,
+        )
+        self.assertIn("overwriteResult", post_out)
+        self.assertIn("[AEMU Harness Auto-Diagnostic]", post_out["overwriteResult"])
+        self.assertIn("//emulator/libs/http", post_out["overwriteResult"])
+        self.assertIn("--config=tsan", post_out["overwriteResult"])
+        ledger = self.ledger_store.load(conv_id)
+        self.assertEqual(ledger["stats"]["diagnostics_injected"], 1)
+
 
 class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
     """Tests plugin installation, status verification, and sidecar state helpers."""

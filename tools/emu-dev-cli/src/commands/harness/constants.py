@@ -45,6 +45,7 @@ class LedgerEventKind(str, Enum):
     GUARDRAIL_ALLOWED = "guardrail_allowed"
     CODE_GUARDRAIL_BLOCKED = "code_guardrail_blocked"
     COMMAND_REWRITTEN = "command_rewritten"
+    DIAGNOSTIC_INJECTED = "diagnostic_injected"
     EMULATOR_LAUNCHED = "emulator_launched"
     EMULATOR_STOPPED = "emulator_stopped"
     WORKFLOW_UPDATED = "workflow_updated"
