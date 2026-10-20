@@ -35,6 +35,8 @@ import yaml
 from commands.harness.code_guardrails import evaluate_file_edit_payload
 from commands.harness.constants import (
     AVD_FLAG_PATTERN,
+    BAZEL_TEST_CMD_PATTERN,
+    BAZEL_TEST_OUTPUT_FLAG_PATTERN,
     EMU_LAUNCH_CMD_PATTERN,
     EMU_TEARDOWN_CMD_PATTERN,
     GERRIT_COMMENTS_PUBLISH_PATTERN,
@@ -183,6 +185,39 @@ def evaluate_gerrit_command(command: str) -> Optional[Tuple[bool, str]]:
     return None
 
 
+def rewrite_command_if_needed(command: str) -> Optional[Tuple[str, str]]:
+    """Transparently rewrites shell commands via PreToolUse `overwrite` when safe.
+
+    Returns:
+        None if no rewrite applies, or (rewritten_command, reason).
+    """
+    if GERRIT_COMMENTS_PUBLISH_PATTERN.search(command) and "--notify" not in command:
+        rewritten = GERRIT_COMMENTS_PUBLISH_PATTERN.sub(
+            "gerrit comments publish --notify=OWNER",
+            command,
+            count=1,
+        )
+        return (
+            rewritten,
+            "Auto-injected '--notify=OWNER' on gerrit comments publish (b/567559614)",
+        )
+
+    if BAZEL_TEST_CMD_PATTERN.search(command) and not BAZEL_TEST_OUTPUT_FLAG_PATTERN.search(
+        command
+    ):
+        rewritten = BAZEL_TEST_CMD_PATTERN.sub(
+            lambda m: f"{m.group(0)} --test_output=errors",
+            command,
+            count=1,
+        )
+        return (
+            rewritten,
+            "Auto-injected '--test_output=errors' on bazel test for immediate failure diagnostics",
+        )
+
+    return None
+
+
 def get_workflow_state_root() -> Path:
     """Returns the root directory where `emu-dev-cli workflow` stores state files."""
     env_override = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
@@ -280,8 +315,11 @@ def handle_pre_tool_hook(
     if not command:
         return {"decision": HookDecision.ALLOW.value}
 
+    rewrite_result = rewrite_command_if_needed(command)
+    effective_command = rewrite_result[0] if rewrite_result else command
+
     for evaluator in (evaluate_git_commit_command, evaluate_gerrit_command):
-        verdict = evaluator(command)
+        verdict = evaluator(effective_command)
         if verdict is None:
             continue
         allowed, reason = verdict
@@ -290,7 +328,7 @@ def handle_pre_tool_hook(
                 conversation_id,
                 LedgerEventKind.GUARDRAIL_BLOCKED,
                 reason.splitlines()[0],
-                {"command": command, "reason": reason},
+                {"command": effective_command, "reason": reason},
             )
             return {
                 "decision": HookDecision.DENY.value,
@@ -300,8 +338,24 @@ def handle_pre_tool_hook(
             conversation_id,
             LedgerEventKind.GUARDRAIL_ALLOWED,
             reason,
-            {"command": command},
+            {"command": effective_command},
         )
+
+    if rewrite_result is not None:
+        rewritten_cmd, rewrite_reason = rewrite_result
+        ledger_store.record_event(
+            conversation_id,
+            LedgerEventKind.COMMAND_REWRITTEN,
+            rewrite_reason,
+            {"original_command": command, "rewritten_command": rewritten_cmd},
+        )
+        return {
+            "decision": HookDecision.ALLOW.value,
+            "reason": rewrite_reason,
+            "overwrite": {
+                "CommandLine": rewritten_cmd,
+            },
+        }
 
     return {"decision": HookDecision.ALLOW.value}
 

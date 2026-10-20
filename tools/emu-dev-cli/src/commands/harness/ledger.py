@@ -138,6 +138,8 @@ class SessionLedgerStore:
             stats["commits_verified"] = int(stats.get("commits_verified", 0)) + 1
         elif kind == LedgerEventKind.EMULATOR_LAUNCHED:
             stats["emulators_launched"] = int(stats.get("emulators_launched", 0)) + 1
+        elif kind == LedgerEventKind.COMMAND_REWRITTEN:
+            stats["commands_rewritten"] = int(stats.get("commands_rewritten", 0)) + 1
 
         self.save(conversation_id, ledger)
         return ledger

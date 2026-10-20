@@ -44,6 +44,7 @@ class LedgerEventKind(str, Enum):
     GUARDRAIL_BLOCKED = "guardrail_blocked"
     GUARDRAIL_ALLOWED = "guardrail_allowed"
     CODE_GUARDRAIL_BLOCKED = "code_guardrail_blocked"
+    COMMAND_REWRITTEN = "command_rewritten"
     EMULATOR_LAUNCHED = "emulator_launched"
     EMULATOR_STOPPED = "emulator_stopped"
     WORKFLOW_UPDATED = "workflow_updated"
@@ -88,6 +89,12 @@ NOTIFY_OWNER_FLAG_PATTERN: re.Pattern[str] = re.compile(
 )
 NOTIFY_OWNER_JSON_PATTERN: re.Pattern[str] = re.compile(
     r"\"notify\"\s*:\s*\"OWNER\""
+)
+BAZEL_TEST_CMD_PATTERN: re.Pattern[str] = re.compile(
+    r"(?:^|[;&|]\s*|\b)bazel\s+test\b"
+)
+BAZEL_TEST_OUTPUT_FLAG_PATTERN: re.Pattern[str] = re.compile(
+    r"--test_output(?:=|\s+)\S+"
 )
 
 EMU_LAUNCH_CMD_PATTERN: re.Pattern[str] = re.compile(

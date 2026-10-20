@@ -286,6 +286,44 @@ class HarnessGuardrailTest(unittest.TestCase):
         self.assertEqual(deny_statusor["decision"], HookDecision.DENY.value)
         self.assertIn("TotW 181", deny_statusor["reason"])
 
+    def test_pre_tool_command_auto_rewrite_overwrite(self) -> None:
+        conv_id = "conv-rewrite-1"
+        gerrit_out = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": conv_id,
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {"CommandLine": "gerrit comments publish 43134925"},
+                },
+            },
+            store=self.ledger_store,
+        )
+        self.assertEqual(gerrit_out["decision"], HookDecision.ALLOW.value)
+        self.assertEqual(
+            gerrit_out["overwrite"]["CommandLine"],
+            "gerrit comments publish --notify=OWNER 43134925",
+        )
+
+        bazel_out = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": conv_id,
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {"CommandLine": "bazel test //emulator/libs/file:all"},
+                },
+            },
+            store=self.ledger_store,
+        )
+        self.assertEqual(bazel_out["decision"], HookDecision.ALLOW.value)
+        self.assertEqual(
+            bazel_out["overwrite"]["CommandLine"],
+            "bazel test --test_output=errors //emulator/libs/file:all",
+        )
+        ledger = self.ledger_store.load(conv_id)
+        self.assertEqual(ledger["stats"]["commands_rewritten"], 2)
+
 
 class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
     """Tests plugin installation, status verification, and sidecar state helpers."""
