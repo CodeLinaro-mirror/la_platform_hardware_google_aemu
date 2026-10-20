@@ -15,14 +15,13 @@
 """Build definitions and macros for Goldfish Protobuf and gRPC services."""
 
 load("@grpc//bazel:generate_cc.bzl", "generate_cc")
-load("@grpc//bazel:python_rules.bzl", "py_grpc_library", "py_proto_library")
+load("@grpc//bazel:python_rules.bzl", "py_proto_library")
 load("@grpc-java//:java_grpc_library.bzl", "java_grpc_library")
 load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
 load("@protobuf//bazel:java_proto_library.bzl", "java_proto_library")
 load("@protobuf//bazel:proto_library.bzl", "proto_library")
 load("@rules_cc//cc:defs.bzl", "cc_library")
 load("@rules_java//java:defs.bzl", "java_library")
-load("@rules_python//python:defs.bzl", "py_library")
 load("//protos/services_v2:ts_proto.bzl", "ts_proto_group", "ts_proto_library")
 
 def aemu_service_v2(
@@ -41,14 +40,13 @@ def aemu_service_v2(
       - <name>_java_proto (java_proto_library)
       - <name>_java_grpc (java_grpc_library, if has_grpc=True)
       - <name>_py_proto (py_proto_library)
-      - <name>_py_grpc (py_grpc_library, if has_grpc=True)
       - <name>_ts_proto (ts_proto_library)
 
     Args:
       name: Base name for generated target family.
       srcs: List of .proto source files.
       deps: List of proto_library dependencies.
-      has_grpc: Whether to generate C++, Java, and Python gRPC libraries.
+      has_grpc: Whether to generate C++ and Java gRPC libraries.
       generate_mocks: Whether to generate gRPC test mocks in C++ gRPC stubs.
       visibility: Visibility of generated targets.
     """
@@ -58,7 +56,6 @@ def aemu_service_v2(
     java_proto_name = name + "_java_proto"
     java_grpc_name = name + "_java_grpc"
     py_proto_name = name + "_py_proto"
-    py_grpc_name = name + "_py_grpc"
     ts_proto_name = name + "_ts_proto"
 
     proto_library(
@@ -126,15 +123,6 @@ def aemu_service_v2(
         visibility = visibility,
     )
 
-    if has_grpc:
-        py_grpc_library(
-            name = py_grpc_name,
-            srcs = [":" + proto_name],
-            deps = [":" + py_proto_name],
-            grpc_library = Label("@pypi_aemu//grpcio"),
-            visibility = visibility,
-        )
-
     ts_proto_library(
         name = ts_proto_name,
         proto = ":" + proto_name,
@@ -148,7 +136,6 @@ def aemu_service_group_v2(
         proto_deps = [],
         grpc_cc_deps = [],
         grpc_java_deps = [],
-        grpc_py_deps = [],
         ts_proto_extra_deps = [],
         visibility = ["//visibility:public"]):
     """Aggregates multiple services into grouped targets.
@@ -160,7 +147,6 @@ def aemu_service_group_v2(
       - <name>_java_proto (java_proto_library)
       - <name>_java_grpc (java_library exporting grpc java targets)
       - <name>_py_proto (py_proto_library)
-      - <name>_py_grpc (py_library aggregating grpc py targets)
       - <name>_ts_proto (ts_proto_group)
 
     Args:
@@ -168,7 +154,6 @@ def aemu_service_group_v2(
       proto_deps: List of proto_library targets to aggregate.
       grpc_cc_deps: List of cc_grpc targets to aggregate.
       grpc_java_deps: List of java_grpc targets to aggregate.
-      grpc_py_deps: List of py_grpc targets to aggregate.
       ts_proto_extra_deps: Additional ts_proto targets to include in the ts_proto_group.
       visibility: Visibility of generated targets.
     """
@@ -178,7 +163,6 @@ def aemu_service_group_v2(
     java_proto_name = name + "_java_proto"
     java_grpc_name = name + "_java_grpc"
     py_proto_name = name + "_py_proto"
-    py_grpc_name = name + "_py_grpc"
     ts_proto_name = name + "_ts_proto"
 
     proto_library(
@@ -218,13 +202,6 @@ def aemu_service_group_v2(
         deps = [":" + proto_name],
         visibility = visibility,
     )
-
-    if grpc_py_deps:
-        py_library(
-            name = py_grpc_name,
-            deps = grpc_py_deps + [":" + py_proto_name],
-            visibility = visibility,
-        )
 
     ts_proto_group(
         name = ts_proto_name,

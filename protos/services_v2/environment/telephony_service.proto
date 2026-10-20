@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+package android.emulation.v2.environment;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.environment";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/field_mask.proto";
+
+// Manages telephony execution and interactions.
+service TelephonyService {
+  rpc GetRadioState(GetRadioStateRequest) returns (RadioState);
+  // Streams the radio state continuously.
+  rpc StreamRadioState(StreamRadioStateRequest) returns (stream RadioState);
+  // Updates the radio state.
+  rpc UpdateRadioState(UpdateRadioStateRequest) returns (RadioState);
+  // Streams radio updates bidirectionally.
+  rpc StreamRadioUpdates(stream UpdateRadioStateRequest)
+      returns (google.protobuf.Empty);
+  // Send sms.
+  rpc SendSms(SendSmsRequest) returns (google.protobuf.Empty);
+  // Simulates incoming call.
+  rpc SimulateIncomingCall(SimulateIncomingCallRequest)
+      returns (google.protobuf.Empty);
+}
+
+message GetRadioStateRequest {}
+
+message StreamRadioStateRequest {}
+
+message RadioState {
+  enum Registration {
+    REGISTRATION_UNSPECIFIED = 0;
+    // Indicates home network.
+    HOME_NETWORK = 1;
+    // Indicates roaming.
+    ROAMING = 2;
+    // Indicates searching.
+    SEARCHING = 3;
+    // Indicates denied.
+    DENIED = 4;
+  }
+  // The strength.
+  enum Strength {
+    STRENGTH_UNSPECIFIED = 0;
+    // Indicates none or unknown.
+    NONE_OR_UNKNOWN = 1;
+    // Indicates poor.
+    POOR = 2;
+    // Indicates moderate.
+    MODERATE = 3;
+    // Indicates good.
+    GOOD = 4;
+    // Indicates great.
+    GREAT = 5;
+  }
+  // The technology.
+  enum Technology {
+    TECHNOLOGY_UNSPECIFIED = 0;
+    // Indicates gsm.
+    GSM = 1;
+    // Indicates umts.
+    UMTS = 2;
+    // Indicates lte.
+    LTE = 3;
+    // Indicates nr5g sub6.
+    NR5G_SUB6 = 4;
+    // Indicates nr5g mmwave.
+    NR5G_MMWAVE = 5;
+  }
+
+  // True when baseband modem is active (False when Airplane Mode is active).
+  bool radio_powered = 1;
+  // The active technology.
+  Technology active_technology = 2;
+  // The signal strength.
+  Strength signal_strength = 3;
+  // The registration state.
+  Registration registration_state = 4;
+}
+
+message UpdateRadioStateRequest {
+  RadioState radio_state = 1;
+  // Field mask for partial updates. Paths MUST be relative to the resource
+  // (e.g., `level_percent`, NOT `radio_state.level_percent`).
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message SendSmsRequest {
+  string sender_phone_number = 1;
+  // The message body.
+  string message_body = 2;
+}
+
+message SimulateIncomingCallRequest {
+  enum Action {
+  UNSPECIFIED = 0;
+  // Indicates ring.
+  RING = 1;
+  // Indicates disconnect.
+  DISCONNECT = 2;
+  }
+  // The caller phone number.
+  string caller_phone_number = 1;
+  // The action.
+  Action action = 2;
+}

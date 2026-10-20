@@ -64,7 +64,6 @@ def handle_flakiness_sponge(args):
             mode=getattr(args, "mode", "all"),
             limit=50,
             token=getattr(args, "token", None),
-            config_name=getattr(args, "config", None),
         )
         failed_entries = [e for e in history_entries if e.status == "FAILED"][:latest_failures]
         for f in failed_entries:
@@ -108,54 +107,20 @@ def handle_flakiness_sponge(args):
             continue
 
         action_rows = []
-        failed_case_rows = []
-        action_headers = ["#", "Target", "Action", "Status", "Test Cases", "Description / Error", "Duration", "Log / XML Files"]
+        action_headers = ["#", "Target", "Action", "Status", "Description / Error", "Duration", "Log / XML Files"]
         for a_idx, action in enumerate(inv_data.actions, 1):
             status_badge = (
                 f"**`{action.status}`**"
                 if action.status == "FAILED"
                 else f"`{action.status}`"
             )
-            err_text = (
-                (action.description or "").replace("\n", " ").replace("|", "\\|")
-            )
+            err_text = action.description
             if action.error_messages:
-                short_errs = [
-                    (m[:120] + ("..." if len(m) > 120 else ""))
-                    .replace("\n", " ")
-                    .replace("|", "\\|")
-                    for m in action.error_messages[:2]
-                ]
-                err_text += " (" + ", ".join(short_errs) + ")"
-
-            cases_str = (
-                f"{len(action.failed_test_cases)}/{action.total_test_cases} failed"
-                if action.total_test_cases > 0
-                else "-"
-            )
-
-            for tc in action.failed_test_cases:
-                msg_short = (
-                    (tc.failure_message or "-")
-                    .replace("\n", " ")
-                    .replace("|", "\\|")
-                )
-                if len(msg_short) > 160:
-                    msg_short = msg_short[:157] + "..."
-                failed_case_rows.append([
-                    len(failed_case_rows) + 1,
-                    f"`{action.target_id}`",
-                    f"`{tc.class_name or '-'}`",
-                    f"`{tc.case_name}`",
-                    f"**`{tc.result}`**",
-                    msg_short,
-                ])
+                err_text += " (" + ", ".join(action.error_messages) + ")"
 
             file_links = []
-            for f in action.files[:4]:
+            for f in action.files:
                 file_links.append(f"`{f.uid}` ({f.length:,} bytes)")
-            if len(action.files) > 4:
-                file_links.append(f"*(+{len(action.files) - 4} more files)*")
             files_str = "<br>".join(file_links) if file_links else "None"
 
             dur_str = f"{action.duration_seconds:.2f}s" if action.duration_seconds > 0 else "-"
@@ -164,7 +129,6 @@ def handle_flakiness_sponge(args):
                 f"`{action.target_id}`",
                 f"`{action.action_id}`",
                 status_badge,
-                cases_str,
                 err_text or "-",
                 dur_str,
                 files_str,
@@ -188,12 +152,6 @@ def handle_flakiness_sponge(args):
             f"#### Test & Build Actions\n\n"
             f"{actions_tbl}"
         )
-        if failed_case_rows:
-            failed_cases_tbl = format_markdown_table(
-                ["#", "Target", "Test Class", "Test Case", "Result", "Failure Message"],
-                failed_case_rows,
-            )
-            section_md += f"\n\n#### Failed Test Cases\n\n{failed_cases_tbl}"
         all_markdown_sections.append(section_md)
 
         results.append({
@@ -210,8 +168,6 @@ def handle_flakiness_sponge(args):
                     "description": a.description,
                     "error_messages": a.error_messages,
                     "duration_seconds": a.duration_seconds,
-                    "total_test_cases": a.total_test_cases,
-                    "failed_test_cases": [tc.__dict__ for tc in a.failed_test_cases],
                     "files": [f.__dict__ for f in a.files],
                 }
                 for a in inv_data.failed_actions
@@ -224,8 +180,6 @@ def handle_flakiness_sponge(args):
                     "description": a.description,
                     "error_messages": a.error_messages,
                     "duration_seconds": a.duration_seconds,
-                    "total_test_cases": a.total_test_cases,
-                    "failed_test_cases": [tc.__dict__ for tc in a.failed_test_cases],
                     "files": [f.__dict__ for f in a.files],
                 }
                 for a in inv_data.actions

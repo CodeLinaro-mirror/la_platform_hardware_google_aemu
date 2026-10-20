@@ -1,4 +1,3 @@
-import hashlib
 import os
 from pathlib import Path
 import platform
@@ -10,7 +9,6 @@ import sys
 
 from commands.source_directory import (
     ensure_codesearch_urls_config,
-    get_all_source_directories,
     get_source_directory,
 )
 from lib.bazel import BazelRunner
@@ -169,30 +167,14 @@ emu-dev-cli init
 
 ---
 
-### 7. Codebase Wiki & Documentation Engine (`docs`)
+### 7. Query Documentation Paths (`docs`)
 
-Provides a persistent **LLM Wiki** interface (`Query → Ingest → Lint`) across all `ARCHITECTURE.md`, `DESIGN.md`, and operational playbooks in the workspace:
+Accesses documentation files using configured branch source directory paths in `~/.android/emu-dev-cli.json`:
 
-* **List all indexed architecture docs and playbooks (`docs index`):**
+* **Get path to CTS Verifier automation documentation (`README.md`):**
   ```bash
-  emu-dev-cli docs index
-  ```
-* **Search across architecture docs and playbooks by keyword (`docs search`):**
-  ```bash
-  emu-dev-cli docs search VideoRecorder
-  ```
-* **Audit `ARCHITECTURE.md` and `DESIGN.md` for drift (`docs lint`):**
-  ```bash
-  emu-dev-cli docs lint
-  ```
-* **Resolve named documentation & operational playbooks:**
-  ```bash
-  emu-dev-cli docs playbook-index
-  emu-dev-cli docs playbook-build-and-tidy
-  emu-dev-cli docs playbook-git-and-gerrit
-  emu-dev-cli docs playbook-threading-and-invariants
-  emu-dev-cli docs goldfish-architecture
   emu-dev-cli docs cts-verifier-automation
+  # Output: /work/emu-main-next/third_party/adt-infra/goldfish_test/xts/verifier/README.md
   ```
 
 ---
@@ -256,14 +238,6 @@ def get_release_package_directory(dest_path):
         return os.path.join(home_dir, ".android", "emu-dev-cli")
 
 
-def _safe_copy2(src: str, dst: str) -> None:
-    """Copies file contents and permissions while tolerating sandbox xattr EACCES."""
-    try:
-        shutil.copy2(src, dst)
-    except PermissionError:
-        shutil.copyfile(src, dst)
-
-
 def copy_src_to_release_lib(src_dir, release_lib_dir):
     """
     Copies python modules to release/lib/ directory.
@@ -288,7 +262,7 @@ def copy_src_to_release_lib(src_dir, release_lib_dir):
             os.makedirs(os.path.dirname(dest_py), exist_ok=True)
             source_py = os.path.join(root, f)
             if os.path.abspath(source_py) != os.path.abspath(dest_py):
-                _safe_copy2(source_py, dest_py)
+                shutil.copy2(source_py, dest_py)
 
     # Copy workflows/ directory into release/lib/workflows/ if present
     if os.path.abspath(src_dir) != os.path.abspath(release_lib_dir):
@@ -298,28 +272,14 @@ def copy_src_to_release_lib(src_dir, release_lib_dir):
             dest_workflows = os.path.join(release_lib_dir, "workflows")
             for root, _, files in os.walk(workflows_dir):
                 for f in files:
-                    if not (f.endswith(".py") or f.endswith(".md") or f.endswith(".yaml") or f.endswith(".yml") or f.endswith(".html")):
+                    if not (f.endswith(".py") or f.endswith(".md") or f.endswith(".yaml") or f.endswith(".yml")):
                         continue
                     rel_path = os.path.relpath(os.path.join(root, f), workflows_dir)
                     dest_file = os.path.join(dest_workflows, rel_path)
                     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
                     source_file = os.path.join(root, f)
                     if os.path.abspath(source_file) != os.path.abspath(dest_file):
-                        _safe_copy2(source_file, dest_file)
-
-        docs_dir = os.path.join(parent_dir, "docs")
-        if os.path.isdir(docs_dir):
-            dest_docs = os.path.join(release_lib_dir, "docs")
-            for root, _, files in os.walk(docs_dir):
-                for f in files:
-                    if not f.endswith(".md"):
-                        continue
-                    rel_path = os.path.relpath(os.path.join(root, f), docs_dir)
-                    dest_file = os.path.join(dest_docs, rel_path)
-                    os.makedirs(os.path.dirname(dest_file), exist_ok=True)
-                    source_file = os.path.join(root, f)
-                    if os.path.abspath(source_file) != os.path.abspath(dest_file):
-                        _safe_copy2(source_file, dest_file)
+                        shutil.copy2(source_file, dest_file)
 
 
 def resolve_source_directory(source_dir=None):
@@ -332,11 +292,13 @@ def resolve_source_directory(source_dir=None):
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def resolve_built_artifact(source_workspace, target, binary_name=None):
-    """Dynamically resolves built artifact via BazelRunner cquery."""
+def resolve_built_artifact(source_workspace, target, binary_name):
+    """Dynamically resolves built artifact via BazelRunner cquery, with fallback to bazel-bin search."""
     is_windows = platform.system().lower() == "windows"
+    exe_name = f"{binary_name}.exe" if is_windows else binary_name
     src_path = Path(source_workspace)
 
+    # 1. Use BazelRunner to resolve artifact dynamically via cquery
     try:
         runner = BazelRunner(source_dir=src_path)
         artifacts = runner.query_artifacts([target], cwd=src_path)
@@ -345,8 +307,18 @@ def resolve_built_artifact(source_workspace, target, binary_name=None):
                 return str(art)
     except Exception as e:
         sys.stderr.write(
-            f"ℹ️ Note: dynamic Bazel cquery for {target} failed ({e}).\n"
+            f"ℹ️ Note: dynamic Bazel cquery for {target} failed ({e}). Falling back to bazel-bin search.\n"
         )
+
+    # 2. Resilient search in bazel-bin
+    bazel_bin = src_path / "bazel-bin"
+    if bazel_bin.is_dir():
+        for match in bazel_bin.glob(f"**/{exe_name}"):
+            if match.is_file() and not match.name.endswith(
+                (".runfiles", ".params", ".manifest")
+            ):
+                if is_windows or os.access(match, os.X_OK):
+                    return str(match)
 
     return None
 
@@ -370,25 +342,6 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
     # 2. Copy python source code to release/lib/ directory
     src_dir = resolve_source_directory(source_dir)
     copy_src_to_release_lib(src_dir, release_lib_dir)
-
-    # Copy third-party site-packages from runfiles if present
-    built_rf = built_bin + ".runfiles"
-    if os.path.exists(built_rf):
-        for root, _, _ in os.walk(built_rf):
-            if os.path.basename(root) == "site-packages":
-                for item in os.listdir(root):
-                    if item.startswith((".", "_")) and not item.endswith((".py", ".so")):
-                        continue
-                    item_path = os.path.join(root, item)
-                    dest_item = os.path.join(release_lib_dir, item)
-                    if not os.path.exists(dest_item):
-                        try:
-                            if os.path.isdir(item_path):
-                                shutil.copytree(item_path, dest_item, symlinks=False)
-                            else:
-                                shutil.copy2(item_path, dest_item)
-                        except OSError:
-                            pass
 
     # Copy advisor self-contained executable and runfiles if built
     source_workspace = source_dir or get_source_directory("emu-main-next")
@@ -545,242 +498,6 @@ def install_skill(source_dir=None):
     return installed_files
 
 
-KNOWN_LEGACY_SHA256_HASHES = {
-    "039593b114eb6962b9b2d2dcea8c2797479a86a83f9356dd93e2e92f6bc198fe",
-    "0b6547a9bbeb8cef9e1ec35ba992a7d96cc52e4894686249b736e30f5ff94af8",
-    "0dbf13a0a4e699dd2c3038d5a95b7c02dcc83cf6d8ce5d59b13cfec867a0e126",
-    "0fbf5df48812d3ca053373ed2e5a6de331dbe13f2127e3df62d6435352ca6b2e",
-    "12e1624b7918053de4b153e778ee9c853aadbeacc9f463e219dfc3a845f76f76",
-    "15a41f4a7fdce422329296a7873013e27024da78f6299eeb4ca38b1da10a5bc6",
-    "15cf3e1e44fcaa44209c2a90afa51ed580514a1cbc935a96be5c2fa1fa2676a1",
-    "1c51afab08a1ac17ec57dea683b015fdb746be80d43aa9626cbe14e632acd6ee",
-    "1cd0f2e6d12b56b5e127370a14af6b5bb3c1a45b3d616c72c242137b823279f7",
-    "1dbf30ea81c68b9a12208e31122c9c4aa7095d4d71fcc45f4eb72fefe0f6b716",
-    "1dd4de98152f7a0aab832b5d5b625c45e91fc9b5f87756a8ea44df3582af5b1d",
-    "202ff5c44e3e6fb19195cfb8ca465e2e946500eb5c1c0b259be023baa212e0e6",
-    "20d8c62ad7f5bda40327fecf83e592085e4e41f183b171461b6b9b1e6ecee0fe",
-    "21bff47c5126e22c2b522e917112db009c89c1ac00a2d2eceda0feb86b5e6401",
-    "248339b6c15e3cbd2d1c3380680a4dd68cd0c5fd3d2056717dfea2b544164fce",
-    "24fb586ca1f588f6029c0b11bd518e4321b9ec26d634a5edbe7119f8bb8a112f",
-    "2ba6741a68bb0c0a3e29223053643820a9c14e697c9dfa201a4974d197fd0107",
-    "2c05b575cb74a29ec59ec9339022ed19864ea4f1ea3f184f3799785813231f96",
-    "2cde50002a6440b0317397c11675f0918762474791c88e055609894c3e523083",
-    "2d136db98473b4803be8193ee6b82c2956cdda6ff391271267a62483b468e025",
-    "2f595493a8031e27268a605ba54dd0532f7a0afd04e5e7395235c20470f112e2",
-    "318c5a97b1053b5cebd8f6da1b346ecb200ca901fa219d27e16b6f740168dc2d",
-    "3277a0f27bc5def8d77fee64f13cf33a4b1bdcfe1729e345547cd99249b732df",
-    "32c7bbc8697bc99ebd5adb3758dd2bec8fd2ca84d488b3294cb6c97b558c9f26",
-    "32f2b5d4d7e55b34bc92deb7aeb20a53ed1a806b5b54b6c2d23846e9876c7db8",
-    "37f6ed4686431f8bb1d00f8acd1210f0e29965244d95442d314c0535d260a854",
-    "3c73618f53b51532d9affc9a6979ea3934168236bc5fda83f49661cc097c18ab",
-    "3f4b3a3942eaaafdd713f9b5f0bc5fc61fa6ba4cedd5bf1e7afa166e6748a30e",
-    "3ff75febf9a9b7954a60b6b28603c6226256261b102a58edb827b595aa6b0df3",
-    "43f961e2cec9b63b8f915c704dc878b5384ba533980efaf0ac99d648fc3f8c59",
-    "4b2f010935d4106920b554d635368fbb5efa1ce918cf43f1b6e53a0ed00d9215",
-    "50788dfba17bcff36bba1c37463e301e39086ec007cbc1a68960c436cd7e041d",
-    "52c77970fb55bbb0cbabe2a80bed24d2e624cdce6f35d95626150c424600097b",
-    "539fc2d8971bbeac1fc6303159c3b7c3f0b99920b15224f68530a4d923ff31bd",
-    "53bd531fc023d012bab2896cec0f5a7cc196ded310c56fdbcd2a7268957dc9e5",
-    "5618f45145a44fa57d322648be4d2b92ec405e936388b325e717ca156520e1c9",
-    "56e8ac6b17c76b564c4fbfccd55fbd10b3118b79a2eda9d3c60a9ee97d90c381",
-    "5792725e99ad6c6e0652615203f4359dbf181277a42c82ecdb47351bd13fa058",
-    "591e7d66c6eef15b51453799f6cd58433d1508a09f50482c4d2697a19419732a",
-    "5d9113acdc30548907d25c7d61e0bf20f9370b6b5720c6d70c05fd0f2597e411",
-    "6236d508072c073a51bf0b718b95dfa08d4442af0f33721be673331391cffefd",
-    "62638355d74a7b915c8dc2f06e5173beb0d977691949aadb1a4c0fcdec278eb1",
-    "64ad7818dd26b4bb6ff7d5e2d0a87d28a1faf43c9d9e99d21da0926a2139d924",
-    "65a92a8af497a3403ae85cf8235e953408b6b8386ed85193d8fb0cd29a4c7147",
-    "67477f224f70106b28aadb6492961f3fb82ebb066f44852f2e871d31edfe819c",
-    "681cd44763e4e1ca0f72422d1371f78088f0f5caad24f19da9dcd96d7abfda6a",
-    "6d1576fddce043bf07dcdc3b8155f1b532a048e519883136eba53d71df09964d",
-    "70ccf7cfa34cf53d02add54cd50290310222e30a8aefc7c58b30abeb7acb858f",
-    "757f98c4698b2b9416e82cda5777e7f49202d24e86bcc1d4a5ee9e116453bd8c",
-    "76db67f2080b57e2f3a3d9412a4f55dff8952c3e0507e7bf2c104a9830c63da9",
-    "7785817c66eed44d0b8e655cdf190ba9d289c449f543cd2c33391337e9e99d2a",
-    "780dbb42cd5ee9f46937639e35f6c524ecebbdaffe31f48f0b5a0d9f0587d519",
-    "7849de938355ee41a8be91fbc175d2d2756a1a3dedb4ba21363bdddd3ad43f91",
-    "7b3be37bf646d5303a8ba9469cced548205a6d4ec4b6158e856998c0ae60fe1f",
-    "7f55a8569b26f5580c2631526506b94cc84daabca17f7531bb38df69d7a657b2",
-    "7fdd8cbf9cd6b92fceda253376b22287c2ecb320729bc87cb309c53b8df0485e",
-    "839626d138cc6809464dff4d34a2c781b685c6c11d442515507e4ab50afd2e21",
-    "8469566f00962c476a664406e34b61e3c412b271a13d6b97564e27527e20037c",
-    "881242b7315aa98df03351c414c4e57a72c8b7423a1e43aa3b309daaf896c6f4",
-    "8aab0d21a8943a9c60da1a6eff3b24ddeaa7a20e1b1b9a29ec82169737e00bcb",
-    "8fdbc9d65663d0b1181207dcef4d1a65f7599324f354892dd98dd9c3de530875",
-    "93b812adffee7208434232067e5f356f11e81dd51b8e9ca7b766ca6fccb9c0b7",
-    "9af3a0aa3411f0b6b9a9f68297c8fc561fef83de452ff20ae212c8047ceda19c",
-    "9ce85443081414ae19a79fa45492d399f0e9eb2a9aad8e008bdd7ee0026565c3",
-    "a13680de14cfc773d3d28b32ade72403bf872168438aa0e320d5d62b3be08829",
-    "a4c07951003923a492060d324ed76fb2bf756748b8cb90c2b3f0cb3ae5fbf3d9",
-    "a59ebe1ddcd106ed2b35dc013baa00dc6dd12ecc96e768aedd00e70956ba6403",
-    "a9fe1dde15c5528652c1158c632fac015461ed95a99a8e2c7d3aa2469132e9cc",
-    "b1648ec8bf312ab051eae2af03b69cf41c27512d9b8b3054533761becc204639",
-    "b3dd10c1c05892e7a9e1c146c42773d812336dd802a997316630749ddff10dba",
-    "b7068ae99aa9d3b0c34cf2f064d2d24a67f375d566c57d73442a6602868e2aa9",
-    "c3cd082ba8f88217eba963ec46397f57173bfb67383a38db9651276ab5323202",
-    "c86f31763c1605ea403d426b0bb9b2f7c118c4c5ac41a284d5e2307cf0bc404a",
-    "ce5e238cc1fbb2e2462f14f1e7befc38857f814e995509e9ff88fb6bbc42a058",
-    "d20e3384ea7ebd5a107db9996d33b5c4152ac214b783b6c5bb0b09966b2feba5",
-    "d2af1f1ceaea8a6e4efe65151ab8282e8cb48a44637adcb6331f83eb2071ec93",
-    "d561df41cbcb4ff1ef8cf4b97926094408dc6bc38e51716fbf4458b4c1be2ea8",
-    "de2f440a13c899678facd35ef30c20bcbed710bbf382d7b0e69b1811c57aeb79",
-    "de42047230582e60318c821d19e307bd14e25b0153ad5c686535296c0f48ca62",
-    "ded59d630c441549e6ee394a66ed86e27cb9661c34fd1f375a552ae575ccea2f",
-    "df275934106035199c56c3af4a7e742f89cbd76fafef58206d16245ccfee980d",
-    "e1b2ff70b648e8f654b95c396abe63c13c3f28dcf99189b64ae47246f9991049",
-    "e2911262ddb4fa061ef60a9079ead16063828b88949460a5e44ea2c69ec24654",
-    "e50b96cd780cf7d37d8bad93206e9a2c81b1afb83bfc2364486a50174cbe6745",
-    "e8929c7102629ae3407a20f32a61cd63799b46c8cf745eb1bdfea0ebb8454801",
-    "eac05c74155c5637c22178f680e4da9ea6e2ba38154bd35f92edea1153bb9988",
-    "edf0ee5528d397c7ef2547adefedbce29c740998915c99f3ee9de5fa65d44af3",
-    "ee629a7a33c834f24cb9c6c2faa806a42c25966f80b95de31268b448e22b45d2",
-    "f00c73cd43a1745d4908fcbbb5e49c6abf863a3a3d18019c7de555b7a94c8898",
-    "f07871f32de96e177263f0e5d4de2b3ff1e2866e6b506d8ead5f59f7bc8bdb26",
-    "f19a0d8751fb575bf8884f29acb95ccc0f63de0e77568e1ad530dc708cbc1aa6",
-    "f87e4106bda194ebed97df24acfb3f8174079e0ed2d46b003fd1506896caecae",
-    "fbe178b31756f6da4006ac7a4e459b52cf608d432d581e9000267863357ae566",
-    "fbe1c0c79f3e129d0053334f84ad862588e2cdf29c68f4e1dd1b6f71f0ade9a7",
-    "fd58d91aded6938235d108cd2ee5e6c1f6f5209296750ba5b252b7221f7946cb",
-}
-
-
-def _compute_file_sha256(path: Path) -> str | None:
-    try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError:
-        return None
-
-
-def collect_legacy_sha256_hashes(source_root: Path) -> set[str]:
-    """Collects SHA-256 hashes of known legacy setup_agents.py files."""
-    hashes = set(KNOWN_LEGACY_SHA256_HASHES)
-    template_paths = [
-        source_root / "hardware" / "google" / "aemu" / "agents",
-        source_root / "hardware" / "google" / "aemu" / "tools" / "emu-dev-cli" / "AGENTS.md",
-        source_root / "hardware" / "generic" / "goldfish" / "agents" / ".gemini",
-        source_root / "hardware" / "generic" / "goldfish" / "agents" / "skills",
-        source_root / "external" / "qemu" / "android" / "agents",
-    ]
-    for tp in template_paths:
-        if not tp.exists():
-            continue
-        if tp.is_file():
-            digest = _compute_file_sha256(tp)
-            if digest:
-                hashes.add(digest)
-        elif tp.is_dir():
-            for root_dir, _, files in os.walk(tp):
-                for fname in files:
-                    fpath = Path(root_dir) / fname
-                    digest = _compute_file_sha256(fpath)
-                    if digest:
-                        hashes.add(digest)
-
-    # Also include generated aemu_policy.toml combinations
-    policies_dir = (
-        source_root / "hardware" / "google" / "aemu" / "agents" / ".gemini" / "policies"
-    )
-    if policies_dir.is_dir():
-        tool_combos = [
-            ["bazel"],
-            ["cmake", "make", "python3", "python"],
-            ["bazel", "cmake", "make", "python3", "python"],
-        ]
-        for toml_file in policies_dir.glob("*.toml"):
-            try:
-                base_text = toml_file.read_text(encoding="utf-8")
-            except OSError:
-                continue
-            hashes.add(hashlib.sha256(base_text.encode("utf-8")).hexdigest())
-            for combo in tool_combos:
-                modified_text = base_text
-                for tool in combo:
-                    if f'commandPrefix = ["{tool} "]' not in modified_text:
-                        modified_text += (
-                            f'\n[[rule]]\ntoolName = "run_shell_command"\n'
-                            f'commandPrefix = ["{tool} "]\ndecision = "allow"\n'
-                            f'priority = 100\n'
-                        )
-                hashes.add(hashlib.sha256(modified_text.encode("utf-8")).hexdigest())
-
-    return hashes
-
-
-def cleanup_legacy_workspace_files(source_dir: str | Path, quiet: bool = False) -> dict:
-    """
-    Removes legacy workspace root files (AGENTS.md and .gemini/*) installed by
-    older versions of setup_agents.py ONLY if their SHA-256 matches known legacy
-    templates, preserving any user-created or modified files.
-    """
-    source_root = Path(source_dir).resolve()
-    known_hashes = collect_legacy_sha256_hashes(source_root)
-
-    removed_files = []
-    kept_files = []
-
-    candidates = []
-    agents_md = source_root / "AGENTS.md"
-    if agents_md.exists() or agents_md.is_symlink():
-        candidates.append(agents_md)
-
-    gemini_dir = source_root / ".gemini"
-    if gemini_dir.exists() and gemini_dir.is_dir() and not gemini_dir.is_symlink():
-        for root_dir, _, files in os.walk(gemini_dir, followlinks=False):
-            for fname in sorted(files):
-                candidates.append(Path(root_dir) / fname)
-
-    for file_path in candidates:
-        rel_str = file_path.relative_to(source_root).as_posix()
-        if file_path.is_symlink():
-            try:
-                file_path.unlink()
-                removed_files.append(rel_str)
-                if not quiet:
-                    print(f"  - Removed legacy symlink: {rel_str}")
-            except OSError:
-                kept_files.append(rel_str)
-            continue
-
-        digest = _compute_file_sha256(file_path)
-        if digest and digest in known_hashes:
-            try:
-                file_path.unlink()
-                removed_files.append(rel_str)
-                if not quiet:
-                    print(f"  - Removed legacy workspace file: {rel_str}")
-            except OSError:
-                kept_files.append(rel_str)
-        else:
-            kept_files.append(rel_str)
-            if not quiet:
-                print(
-                    f"  ! Keeping customized file: {rel_str} (SHA-256 does not match legacy template)"
-                )
-
-    # Prune empty directories under .gemini (bottom-up)
-    if gemini_dir.exists() and gemini_dir.is_dir() and not gemini_dir.is_symlink():
-        for root_dir, dirnames, _ in os.walk(gemini_dir, topdown=False, followlinks=False):
-            for dname in dirnames:
-                dpath = Path(root_dir) / dname
-                try:
-                    if dpath.is_dir() and not dpath.is_symlink() and not any(dpath.iterdir()):
-                        dpath.rmdir()
-                except OSError:
-                    pass
-        try:
-            if not any(gemini_dir.iterdir()):
-                gemini_dir.rmdir()
-                if not quiet and removed_files:
-                    print("  - Removed empty legacy .gemini directory")
-        except OSError:
-            pass
-
-    return {
-        "removed_files": removed_files,
-        "kept_files": kept_files,
-    }
-
-
 def print_path_instructions(installed_bin_path):
     installed_dir = os.path.dirname(str(installed_bin_path))
     path_dirs = [
@@ -856,14 +573,6 @@ def run_install_cmd(args):
     skill_files = install_skill()
     ensure_codesearch_urls_config()
 
-    cleanup_reports = {}
-    for entry in get_all_source_directories():
-        s_path = entry.get("path") if isinstance(entry, dict) else entry
-        if s_path and os.path.isdir(s_path):
-            cleanup_reports[s_path] = cleanup_legacy_workspace_files(
-                s_path, quiet=json_mode
-            )
-
     print_result(
         {
             "status": "success",
@@ -871,7 +580,6 @@ def run_install_cmd(args):
             "summary": f"Successfully installed emu_dev_cli compiled release package and skills",
             "launcher_path": str(final_installed),
             "skill_files": skill_files,
-            "legacy_cleanup": cleanup_reports,
         },
         json_mode=json_mode,
     )

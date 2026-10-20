@@ -67,11 +67,10 @@ def bazel_command(args: argparse.Namespace) -> None:
     if "NINJA" in os.environ:
         ninja_path = Path(os.environ["NINJA"])
         if not ninja_path.is_absolute():
-            os.environ["NINJA"] = (args.aosp / ninja_path).absolute().as_posix()
+            os.environ["NINJA"] = (args.aosp / ninja_path).resolve().as_posix()
 
     pc_dirs = [
-        (args.aosp / pkg).absolute().as_posix() + "/pc-config"
-        for pkg in args.prebuilt_packages
+        pkg.resolve().as_posix() + "/pc-config" for pkg in args.prebuilt_packages
     ]
 
     is_windows = target.startswith("windows")
@@ -95,7 +94,6 @@ def bazel_command(args: argparse.Namespace) -> None:
             bazel_startup_options=None,
             bazel_build_options=None,
             target=target,
-            source_path_override=args.source_path,
         )
         builder.configure_meson([])
 
@@ -113,7 +111,6 @@ def bazel_command(args: argparse.Namespace) -> None:
             bazel_startup_options=None,
             bazel_build_options=None,
             target=target,
-            source_path_override=args.source_path,
         )
 
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".jsonc") as f:
@@ -174,9 +171,6 @@ def bazel_command(args: argparse.Namespace) -> None:
             _post_process_config_host(config_host, prefix_path)
 
 def main() -> None:
-    # Make sure that paths outside the sandbox aren't used
-    os.environ.pop("PYTHONSAFEPATH", None)
-
     parser = argparse.ArgumentParser(description="Generate bazel from meson")
     parser.add_argument(
         "-v",
@@ -214,12 +208,6 @@ def main() -> None:
         type=Path,
         default=[],
         help="Path to prebuilt packages directory. Can be specified multiple times.",
-    )
-    parser.add_argument(
-        "--source-path",
-        "--source_path",
-        type=str,
-        help="Path to the source directory (overrides config).",
     )
 
     args = parser.parse_args()

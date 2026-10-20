@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package android.emulation.v2.system;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.system";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/field_mask.proto";
+
+// Manages clipboard execution and interactions.
+service ClipboardService {
+  rpc GetClipboardState(GetClipboardStateRequest) returns (ClipboardState);
+  // Streams the clipboard state continuously.
+  rpc StreamClipboardState(StreamClipboardStateRequest)
+      returns (stream ClipboardState);
+  // Updates the clipboard state.
+  rpc UpdateClipboardState(UpdateClipboardStateRequest)
+      returns (ClipboardState);
+  // Streams clipboard updates bidirectionally.
+  rpc StreamClipboardUpdates(stream UpdateClipboardStateRequest)
+      returns (google.protobuf.Empty);
+}
+
+message GetClipboardStateRequest {}
+
+message StreamClipboardStateRequest {}
+
+message ClipboardState {
+
+  // Raw clipboard payload matching the goldfish clipboard device protocol.
+  bytes data = 1;
+}
+
+message UpdateClipboardStateRequest {
+  ClipboardState clipboard_state = 1;
+  // Field mask for partial updates. Paths MUST be relative to the resource
+  // (e.g., `level_percent`, NOT `clipboard_state.level_percent`).
+  google.protobuf.FieldMask update_mask = 2;
+}

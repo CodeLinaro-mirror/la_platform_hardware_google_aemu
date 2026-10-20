@@ -1,5 +1,4 @@
 load("@grpc//bazel:cc_grpc_library.bzl", "cc_grpc_library")
-load("@grpc//bazel:python_rules.bzl", "py_grpc_library", "py_proto_library")
 load("@grpc-java//:java_grpc_library.bzl", "java_grpc_library")
 load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
 load("@protobuf//bazel:java_proto_library.bzl", "java_proto_library")
@@ -38,18 +37,6 @@ java_grpc_library(
     deps = [":car_service_java_proto"],
 )
 
-py_proto_library(
-    name = "car_service_py_proto",
-    deps = [":car_service_proto"],
-)
-
-py_grpc_library(
-    name = "car_service_py_grpc",
-    srcs = [":car_service_proto"],
-    grpc_library = "@pypi_aemu//grpcio",
-    deps = [":car_service_py_proto"],
-)
-
 proto_library(
     name = "vehicle_service_proto",
     srcs = ["vehicle_service.proto"],
@@ -79,16 +66,4 @@ java_grpc_library(
     name = "vehicle_service_java_grpc",
     srcs = [":vehicle_service_proto"],
     deps = [":vehicle_service_java_proto"],
-)
-
-py_proto_library(
-    name = "vehicle_service_py_proto",
-    deps = [":vehicle_service_proto"],
-)
-
-py_grpc_library(
-    name = "vehicle_service_py_grpc",
-    srcs = [":vehicle_service_proto"],
-    grpc_library = "@pypi_aemu//grpcio",
-    deps = [":vehicle_service_py_proto"],
 )

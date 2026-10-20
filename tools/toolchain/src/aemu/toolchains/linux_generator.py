@@ -13,10 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from aemu.toolchains.toolchain_generator import ToolchainGenerator
 from pathlib import Path
 from typing import Tuple, Dict
-
-from aemu.toolchains.toolchain_generator import ToolchainGenerator, safe_symlink_dir
 
 
 class LinuxToLinuxGenerator(ToolchainGenerator):
@@ -47,47 +46,52 @@ class LinuxToLinuxGenerator(ToolchainGenerator):
         if self.compat_lib:
             assert(self.bazel == None)
             self.with_compat = True
-            compat_lib_dir = self.wrapper_path(self.compat_lib).parent
-        elif self.bazel != None and (self.aosp / "third_party" / "qemu" / "google" / "compat").exists():
+            compat_lib_dir = self.compat_lib.resolve().parent
+        elif (self.aosp / "third_party" / "qemu" / "google" / "compat").exists():
+            assert(self.bazel != None)
             self.with_compat = True
             self.bazel.build_target(self.COMPAT_ARCHIVE)
             compat_lib_dir = self.bazel.get_archive(self.COMPAT_ARCHIVE).parent
-        else:
-            self.with_compat = False
-            compat_lib_dir = None
 
-        # Resolve wrapper paths for sandboxed execution
-        self.resolved_sysroot = self.wrapper_path(self.sysroot) if self.sysroot else (
+        self.linux_sys_root = (
             self.aosp
             / "prebuilts"
             / "gcc"
             / "linux-x86"
             / "host"
             / "x86_64-linux-glibc2.17-4.8"
-            / "sysroot"
         )
-        gcc_toolchain = self.resolved_sysroot.parent
-
+        # GCC_DIR = TOOLCHAIN_DIR / "lib" / "gcc" / "x86_64-linux" / "4.8.3"
+        self.system_root = self.linux_sys_root / "sysroot"
         linux_lib_path = version_path / "lib" / "linux"
         lib_path = self.clang() / "lib" / "x86_64-unknown-linux-gnu"
         include_path = version_path / "include"
 
         self.cflags = (
-            f"--gcc-toolchain={gcc_toolchain} "
-            f"-B{gcc_toolchain}/lib/gcc/x86_64-linux/4.8.3/ "
-            f"-L{gcc_toolchain}/lib/gcc/x86_64-linux/4.8.3/ "
-            f"-L{gcc_toolchain}/x86_64-linux/lib64/ "
+            f"--gcc-toolchain={self.linux_sys_root} "
+            f"-B{self.linux_sys_root}/lib/gcc/x86_64-linux/4.8.3/ "
+            f"-L{self.linux_sys_root}/lib/gcc/x86_64-linux/4.8.3/ "
+            f"-L{self.linux_sys_root}/x86_64-linux/lib64/ "
             "-fuse-ld=lld -Wl,--allow-shlib-undefined "
             f"-L{linux_lib_path} "
             f"-L{include_path} "
             f"-L{lib_path} "
-            f"--sysroot={self.resolved_sysroot} "
-            f"-Wl,-rpath,'$ORIGIN/lib64:$ORIGIN':{lib_path} "
+            f"--sysroot={self.system_root} "
+            f"-Wl,-rpath,'$ORIGIN/lib64:$ORIGIN:{self.clang() / 'lib' / 'x86_64-unknown-linux-gnu'}' "
         )
 
         if compat_lib_dir:
-            compat_isystem = " ".join([f"-isystem {self.wrapper_path(p)}" for p in self.compat_includes])
-            self.cflags += f"-L{compat_lib_dir} {compat_isystem} "
+            # TODO(whollins): We should pass this in for the Qemu build (or set in json config).
+            compat_isystem_path = (
+                self.aosp
+                / "third_party"
+                / "qemu"
+                / "google"
+                / "compat"
+                / "linux"
+                / "include"
+            ).absolute()
+            self.cflags += f"-L{compat_lib_dir} -isystem {compat_isystem_path} "
 
         self.initialized = True
 
@@ -132,4 +136,6 @@ class LinuxToLinuxGenerator(ToolchainGenerator):
         """Setup links to libc++.so etc.."""
         super().link_dirs()
         target = self.dest / "sysroot"
-        safe_symlink_dir(self.resolved_sysroot, target)
+        if target.is_symlink() or target.exists():
+            target.unlink()
+        target.symlink_to(self.system_root)

@@ -59,15 +59,6 @@ def discover_workflow_directories() -> List[str]:
         if os.path.isdir(wf_dir) and wf_dir not in candidates:
             candidates.append(wf_dir)
 
-    # 5. Also check state base dir for dynamically created custom workflows
-    try:
-        from workflows.core.yaml_runner import get_state_base_dir
-        state_base = str(get_state_base_dir())
-        if os.path.isdir(state_base) and state_base not in candidates:
-            candidates.append(state_base)
-    except Exception:
-        pass
-
     return candidates
 
 
@@ -78,7 +69,7 @@ def list_available_workflows() -> Dict[str, Dict[str, str]]:
         if not os.path.isdir(base_dir):
             continue
         for entry in os.listdir(base_dir):
-            if entry in ("core", "tests", "__pycache__", "ui"):
+            if entry in ("core", "tests", "__pycache__"):
                 continue
             entry_path = os.path.join(base_dir, entry)
             if not os.path.isdir(entry_path):
@@ -187,7 +178,7 @@ def register_parser(subparsers):
     # Insert '--' before option arguments if needed
     for i, a in enumerate(sys.argv):
         if a == "workflow" and i + 1 < len(sys.argv):
-            if sys.argv[i + 1].startswith("-") or sys.argv[i + 1] in ("list", "ui", "approve", "resume"):
+            if sys.argv[i + 1].startswith("-"):
                 break
             if (
                 i + 2 < len(sys.argv)
@@ -220,94 +211,6 @@ def register_parser(subparsers):
     )
     list_parser.set_defaults(
         func=run_workflow_help,
-    )
-
-    ui_parser = workflow_subparsers.add_parser(
-        "ui",
-        help="Launch the web visualizer to inspect running and past workflow sessions",
-        description="Launch the single-page web visualizer for emu-dev-cli workflows.",
-    )
-    ui_parser.add_argument(
-        "--port",
-        type=int,
-        default=8080,
-        help="Port to run the web visualizer server on (default: 8080, auto-finds next available)",
-    )
-    ui_parser.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help="Host to bind the web server to (default: 127.0.0.1)",
-    )
-    ui_parser.add_argument(
-        "--no-browser",
-        action="store_true",
-        help="Do not automatically open the web browser upon startup",
-    )
-    ui_parser.set_defaults(
-        func=run_workflow_ui,
-    )
-
-    approve_parser = workflow_subparsers.add_parser(
-        "approve",
-        help="Approve a workflow session paused at a human verification barrier",
-        description="Approve a workflow session paused at a human verification barrier.",
-    )
-    approve_parser.add_argument(
-        "--state",
-        dest="state_id",
-        required=True,
-        help="State ID of the workflow session to approve",
-    )
-    approve_parser.add_argument(
-        "--workflow",
-        dest="workflow_name",
-        default=None,
-        help="Optional workflow name if disambiguating state ID",
-    )
-    approve_parser.add_argument(
-        "--feedback",
-        default=None,
-        help="Optional feedback message to pass to the agent for the next step",
-    )
-    approve_parser.set_defaults(
-        func=run_workflow_approve,
-    )
-
-    resume_parser = workflow_subparsers.add_parser(
-        "resume",
-        help="Resume a completed, paused, or stuck workflow session and wake its Jetski conversation",
-        description="Reset a workflow session to RUNNING and wake its linked Jetski conversation.",
-    )
-    resume_parser.add_argument(
-        "--state",
-        dest="state_id",
-        required=True,
-        help="State ID of the workflow session to resume",
-    )
-    resume_parser.add_argument(
-        "--workflow",
-        dest="workflow_name",
-        default=None,
-        help="Optional workflow name if disambiguating state ID",
-    )
-    resume_parser.add_argument(
-        "--step",
-        type=int,
-        default=0,
-        help="Step index to resume from (default: 0)",
-    )
-    resume_parser.add_argument(
-        "--prompt",
-        default=None,
-        help="Optional custom wake prompt to send to the linked Jetski conversation",
-    )
-    resume_parser.add_argument(
-        "--no-wake",
-        action="store_true",
-        help="Only reset workflow state without waking the background Jetski conversation",
-    )
-    resume_parser.set_defaults(
-        func=run_workflow_resume,
     )
 
     # Discovered workflows registered directly as subcommands (single canonical name with '-')
@@ -371,81 +274,6 @@ def run_workflow_help(args):
         print(f"  {wf['name'].ljust(max_len + 4)}{wf['description']}")
 
 
-def run_workflow_ui(args):
-    """Launches the workflow web UI visualizer."""
-    try:
-        from workflows.ui.server import start_server
-    except ImportError:
-        try:
-            from ui.server import start_server
-        except ImportError:
-            sys.path.insert(
-                0,
-                os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
-            )
-            from workflows.ui.server import start_server
-
-    port = getattr(args, "port", 8080)
-    host = getattr(args, "host", "127.0.0.1")
-    no_browser = getattr(args, "no_browser", False)
-    start_server(host=host, port=port, open_browser=not no_browser, block=True)
-
-
-def run_workflow_approve(args):
-    """Approves a workflow session paused at a human verification barrier."""
-    try:
-        from workflows.core.yaml_runner import approve_workflow_session
-    except ImportError:
-        from core.yaml_runner import approve_workflow_session
-
-    state_id = getattr(args, "state_id", "")
-    wf_name = getattr(args, "workflow_name", None)
-    feedback = getattr(args, "feedback", None)
-    ok, msg = approve_workflow_session(state_id=state_id, workflow_name=wf_name, feedback=feedback)
-    if ok:
-        print(msg)
-        sys.exit(0)
-    else:
-        print(f"Error: {msg}", file=sys.stderr)
-        sys.exit(1)
-
-
-def run_workflow_resume(args):
-    """Resumes a workflow session and optionally wakes its linked Jetski conversation."""
-    try:
-        from workflows.core.yaml_runner import resume_workflow_session
-    except ImportError:
-        from core.yaml_runner import resume_workflow_session
-
-    state_id = getattr(args, "state_id", "")
-    wf_name = getattr(args, "workflow_name", None)
-    step = int(getattr(args, "step", 0) or 0)
-    prompt = getattr(args, "prompt", None)
-    no_wake = bool(getattr(args, "no_wake", False))
-    ok, msg, info = resume_workflow_session(
-        state_id=state_id,
-        workflow_name=wf_name,
-        target_step=step,
-        custom_prompt=prompt,
-        wake_conversation=not no_wake,
-    )
-    if getattr(args, "json", False):
-        print_result(
-            {"status": "success" if ok else "error", "message": msg, "session": info},
-            json_mode=True,
-            is_error=not ok,
-        )
-        sys.exit(0 if ok else 1)
-    if ok:
-        print(msg)
-        if info.get("continuation_cmd"):
-            print(f"Continuation command: {info['continuation_cmd']}")
-        sys.exit(0)
-    else:
-        print(f"Error: {msg}", file=sys.stderr)
-        sys.exit(1)
-
-
 def run_workflow_direct(args):
     wf_name = getattr(args, "workflow_target_name", None) or getattr(
         args, "workflow_cmd", ""
@@ -482,12 +310,6 @@ def run_workflow_command(args):
     cmd = getattr(args, "workflow_cmd", None)
     if not cmd or cmd == "list":
         run_workflow_help(args)
-    elif cmd == "ui":
-        run_workflow_ui(args)
-    elif cmd == "approve":
-        run_workflow_approve(args)
-    elif cmd == "resume":
-        run_workflow_resume(args)
     elif cmd == "run":
         wf_name = getattr(args, "target_workflow", "")
         if not wf_name and getattr(args, "workflow_args", []):

@@ -147,24 +147,12 @@ class WorkspacePathResolver:
         Returns:
             Tuple of (package_directory_path, primary_source_file_path)
         """
-        normalized_label = re.sub(
-            r"^@@?([a-zA-Z0-9_\-]+)\+?//", r"@\1//", target_label.strip()
+        clean_target = (
+            target_label.replace("@@goldfish+//", "")
+            .replace("@goldfish//", "")
+            .replace("//", "")
+            .replace("@", "")
         )
-        repo_prefix_map = {
-            "@goldfish//": "hardware/generic/goldfish",
-            "@aemu//": "hardware/google/aemu",
-            "@gfxstream//": "hardware/google/gfxstream",
-            "@goldfish_build//": "build/bazel",
-            "@qemu//": "third_party/qemu",
-            "@goldfish_test//": "third_party/adt-infra",
-        }
-        preferred_repo_dir: Optional[str] = None
-        for prefix, repo_dir in repo_prefix_map.items():
-            if normalized_label.startswith(prefix):
-                preferred_repo_dir = repo_dir
-                break
-
-        clean_target = re.sub(r"^@[a-zA-Z0-9_\-]+//", "", normalized_label).lstrip("/")
         if ":" in clean_target:
             pkg_rel, target_name = clean_target.split(":", 1)
         else:
@@ -180,7 +168,7 @@ class WorkspacePathResolver:
                 if (root / "WORKSPACE").exists() or (root / "MODULE.bazel").exists():
                     runner = BazelRunner(source_dir=root)
                     proc = runner.cquery(
-                        f"labels(srcs, {normalized_label})",
+                        f"labels(srcs, {target_label})",
                         invocation_flags=["--output=files"],
                         cwd=root,
                         check=False,
@@ -194,13 +182,9 @@ class WorkspacePathResolver:
             pass
 
         # 2. Search package directory across registered workspace roots
-        package_dir = None
-        if preferred_repo_dir:
-            package_dir = self.find_directory(Path(preferred_repo_dir) / pkg_rel)
+        package_dir = self.find_directory(pkg_rel)
         if not package_dir:
-            package_dir = self.find_directory(pkg_rel)
-        if not package_dir:
-            for prefix in repo_prefix_map.values():
+            for prefix in ("hardware/generic/goldfish", "hardware/google/aemu"):
                 cand = self.find_directory(Path(prefix) / pkg_rel)
                 if cand:
                     package_dir = cand

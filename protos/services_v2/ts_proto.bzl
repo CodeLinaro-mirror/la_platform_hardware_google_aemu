@@ -27,33 +27,12 @@ def _ts_proto_library_impl(ctx):
     if not proto_info:
         fail("ts_proto_library %s requires a proto_library target via 'proto' or 'deps'" % ctx.label)
 
-    all_proto_paths = proto_info.transitive_proto_path.to_list()
     out_files = []
-    first_rel_ts = None
     for src in proto_info.direct_sources:
         if not src.basename.endswith(".proto"):
             continue
-        rel_proto = None
-        for p in all_proto_paths:
-            if src.path.startswith(p + "/"):
-                rel_proto = src.path[len(p) + 1:]
-                break
-        if not rel_proto and "_virtual_imports/" in src.path:
-            rel_proto = src.path.split("_virtual_imports/")[1].split("/", 1)[1]
-        if not rel_proto:
-            rel_proto = src.basename
-
-        rel_ts = rel_proto[:-len(".proto")] + ".ts"
-        if first_rel_ts == None:
-            first_rel_ts = rel_ts
-
-        pkg_prefix = ctx.label.package + "/"
-        if rel_ts.startswith(pkg_prefix):
-            decl_path = rel_ts[len(pkg_prefix):]
-        else:
-            decl_path = rel_ts
-
-        out = ctx.actions.declare_file(decl_path)
+        base = src.basename[:-len(".proto")]
+        out = ctx.actions.declare_file(base + ".ts")
         out_files.append(out)
 
     if not out_files:
@@ -73,8 +52,22 @@ def _ts_proto_library_impl(ctx):
         tools_list.extend(node_files)
     all_tools = depset(tools_list)
 
-    if out_files[0].path.endswith(first_rel_ts):
-        out_dir = out_files[0].path[:-len(first_rel_ts) - 1]
+    # Find relative proto path for the first output
+    first_src = proto_info.direct_sources[0]
+    rel_proto = None
+    all_proto_paths = proto_info.transitive_proto_path.to_list()
+    for p in all_proto_paths:
+        if first_src.path.startswith(p + "/"):
+            rel_proto = first_src.path[len(p) + 1:]
+            break
+    if not rel_proto and "_virtual_imports/" in first_src.path:
+        rel_proto = first_src.path.split("_virtual_imports/")[1].split("/", 1)[1]
+    if not rel_proto:
+        rel_proto = first_src.basename
+
+    rel_ts = rel_proto[:-len(".proto")] + ".ts"
+    if out_files[0].path.endswith(rel_ts):
+        out_dir = out_files[0].path[:-len(rel_ts) - 1]
     else:
         out_dir = out_files[0].dirname
 
@@ -83,7 +76,6 @@ def _ts_proto_library_impl(ctx):
         "outputServices=default",
         "returnObservable=false",
         "useAsyncIterable=true",
-        "useAbortSignal=true",
         "env=browser",
         "esModuleInterop=true",
         "useOptionals=messages",
@@ -164,25 +156,6 @@ ts_proto_group = rule(
     attrs = {
         "deps": attr.label_list(
             doc = "List of ts_proto_library or ts_proto_group targets.",
-        ),
-    },
-)
-
-def _proto_sources_impl(ctx):
-    srcs = [
-        f
-        for f in ctx.attr.proto[ProtoInfo].transitive_sources.to_list()
-        if "protos/services_v2/" in f.path and "/google/" not in f.path
-    ]
-    return [DefaultInfo(files = depset(srcs))]
-
-proto_sources = rule(
-    implementation = _proto_sources_impl,
-    attrs = {
-        "proto": attr.label(
-            providers = [ProtoInfo],
-            mandatory = True,
-            doc = "The proto_library target whose transitive .proto sources should be exposed.",
         ),
     },
 )

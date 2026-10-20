@@ -38,21 +38,6 @@ def main() -> None:
         "--compat-lib", type=Path, help="Path to prebuilt compat library"
     )
     parser.add_argument(
-        "--compat-include", action="append", default=[], type=Path, help="Path to compat include directory"
-    )
-    parser.add_argument(
-        "--meson", type=Path, help="Path to prebuilt meson"
-    )
-    parser.add_argument(
-        "--clang", type=Path, help="Path to prebuilt clang"
-    )
-    parser.add_argument(
-        "--sysroot", type=Path, help="Path to the sysroot dir"
-    )
-    parser.add_argument(
-        "--python", type=Path, help="Path to the python interpreter"
-    )
-    parser.add_argument(
         "--versions", required=True, type=Path, help="Path to tool_versions.json"
     )
 
@@ -76,11 +61,6 @@ def main() -> None:
         ninja_bin=args.ninja,
         pkg_config_bin=args.pkg_config,
         compat_lib=args.compat_lib,
-        compat_includes=args.compat_include,
-        meson_bin=args.meson,
-        clang_bin=args.clang,
-        sysroot=args.sysroot,
-        python_bin=args.python,
     )
 
     # We only want to generate the toolchain, not the packages (and binaries wouldn't work anyway is it depends on calling Bazel).

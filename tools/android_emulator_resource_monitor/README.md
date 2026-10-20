@@ -17,7 +17,7 @@ Please refer to the respective README files in the `python/` and `rust/` directo
 *   **Host & Guest Monitoring**: Tracks CPU and RAM for your computer and all connected Android devices simultaneously.
 *   **Per-Device QEMU Tracking**: Automatically maps host QEMU emulator processes to their corresponding guest devices for precise resource attribution.
 *   **Host GPU Monitoring**: Tracks GPU load and memory usage (where supported).
-*   **Network Simulator Tracking & PCAP Capture**: Monitors `netsimd` CPU/RAM, standalone daemon lifecycle (even outside AVDs), per-emulator transport & radio-chip attach latency (`BLUETOOTH`, `WIFI`, `UWB`), live PCAP sizes, and opt-in PCAP harvesting (`--netsim-pcap`).
+*   **Network Simulator Tracking**: Monitors CPU and RAM usage for Netsim.
 *   **Guest Swap Memory Tracking**: Tracks guest swap memory usage extracted directly from devices via ADB.
 *   **CSV Data Export**: Supports exporting time-series data to CSV for easy analysis.
 *   **Auto-Discovery**: Automatically detects when devices are connected or disconnected.

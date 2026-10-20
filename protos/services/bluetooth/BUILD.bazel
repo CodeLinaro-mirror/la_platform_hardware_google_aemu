@@ -1,5 +1,4 @@
 load("@grpc//bazel:cc_grpc_library.bzl", "cc_grpc_library")
-load("@grpc//bazel:python_rules.bzl", "py_grpc_library", "py_proto_library")
 load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
 load("@protobuf//bazel:proto_library.bzl", "proto_library")
 
@@ -25,18 +24,6 @@ cc_grpc_library(
     deps = [":emulated_bluetooth_cc_proto"],
 )
 
-py_proto_library(
-    name = "emulated_bluetooth_py_proto",
-    deps = [":emulated_bluetooth_proto"],
-)
-
-py_grpc_library(
-    name = "emulated_bluetooth_py_grpc",
-    srcs = [":emulated_bluetooth_proto"],
-    grpc_library = "@pypi_aemu//grpcio",
-    deps = [":emulated_bluetooth_py_proto"],
-)
-
 proto_library(
     name = "emulated_bluetooth_device_proto",
     srcs = ["emulated_bluetooth_device.proto"],
@@ -60,18 +47,6 @@ cc_grpc_library(
     deps = [":emulated_bluetooth_device_cc_proto"],
 )
 
-py_proto_library(
-    name = "emulated_bluetooth_device_py_proto",
-    deps = [":emulated_bluetooth_device_proto"],
-)
-
-py_grpc_library(
-    name = "emulated_bluetooth_device_py_grpc",
-    srcs = [":emulated_bluetooth_device_proto"],
-    grpc_library = "@pypi_aemu//grpcio",
-    deps = [":emulated_bluetooth_device_py_proto"],
-)
-
 proto_library(
     name = "grpc_endpoint_description_proto",
     srcs = ["grpc_endpoint_description.proto"],
@@ -80,10 +55,5 @@ proto_library(
 
 cc_proto_library(
     name = "grpc_endpoint_description_cc_proto",
-    deps = [":grpc_endpoint_description_proto"],
-)
-
-py_proto_library(
-    name = "grpc_endpoint_description_py_proto",
     deps = [":grpc_endpoint_description_proto"],
 )

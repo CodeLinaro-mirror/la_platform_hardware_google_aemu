@@ -83,41 +83,6 @@ class OAuthTokenManagerTest(unittest.TestCase):
         self.assertEqual(token, "ssh_fetched_token")
         self.assertEqual(manager._cached_token, "ssh_fetched_token")
 
-    @patch("pathlib.Path.exists")
-    @patch("subprocess.run")
-    def test_fetch_oauth2l_token_sso_fallback(self, mock_run, mock_exists):
-        """Tests fallback to /google/data/ro/teams/oneplatform/sso when oauth2l fails."""
-        mock_exists.return_value = True
-        local_fail = MagicMock(returncode=1, stdout="")
-        sso_success = MagicMock(returncode=0, stdout="sso_token_456\n")
-        mock_run.side_effect = [local_fail, local_fail, sso_success]
-        manager = OAuthTokenManager()
-        token = manager.fetch_oauth2l_token()
-        self.assertEqual(token, "sso_token_456")
-
-    @patch("subprocess.run")
-    @patch.object(OAuthTokenManager, "acquire_token", return_value="fresh_tok")
-    @patch.dict(
-        os.environ,
-        {
-            "ANDROID_BUILD_TOKEN": "stale_ab",
-            "BUGANIZER_TOKEN": "stale_bug",
-            "OAUTH2_TOKEN": "stale_oauth",
-        },
-    )
-    def test_get_token_force_refresh_clears_env_vars(self, mock_acquire, mock_run):
-        """Tests force_refresh clears all configured token environment variables."""
-        manager = OAuthTokenManager(
-            env_vars=["ANDROID_BUILD_TOKEN", "BUGANIZER_TOKEN", "OAUTH2_TOKEN"]
-        )
-        manager._cached_token = "stale_cached"
-        tok = manager.get_token(force_refresh=True)
-        self.assertEqual(tok, "fresh_tok")
-        self.assertNotIn("ANDROID_BUILD_TOKEN", os.environ)
-        self.assertNotIn("BUGANIZER_TOKEN", os.environ)
-        self.assertNotIn("OAUTH2_TOKEN", os.environ)
-
 
 if __name__ == "__main__":
     unittest.main()
-

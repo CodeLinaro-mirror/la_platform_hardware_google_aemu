@@ -1,0 +1,170 @@
+syntax = "proto3";
+
+package android.emulation.v2.input;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.input";
+
+import "google/protobuf/empty.proto";
+
+// Manages input execution and interactions.
+service InputService {
+  rpc StreamInputEvents(stream InputEvent) returns (google.protobuf.Empty);
+}
+
+// The pointer action.
+enum PointerAction {
+  POINTER_ACTION_UNSPECIFIED = 0;
+  // Indicates pointer action down.
+  POINTER_ACTION_DOWN = 1;
+  // Indicates pointer action move.
+  POINTER_ACTION_MOVE = 2;
+  // Indicates pointer action up.
+  POINTER_ACTION_UP = 3;
+  // Indicates pointer action cancel.
+  POINTER_ACTION_CANCEL = 4;
+  // Indicates pointer action hover enter.
+  POINTER_ACTION_HOVER_ENTER = 5;
+  // Indicates pointer action hover move.
+  POINTER_ACTION_HOVER_MOVE = 6;
+  // Indicates pointer action hover exit.
+  POINTER_ACTION_HOVER_EXIT = 7;
+  // Indicates pointer action scroll.
+  POINTER_ACTION_SCROLL = 8;
+  // Indicates relative pointer movement (e.g. pointer lock, FPS gaming, trackball deltas).
+  POINTER_ACTION_RELATIVE_MOVE = 9;
+}
+
+// The tool type.
+enum ToolType {
+  TOOL_TYPE_UNSPECIFIED = 0;
+  // Indicates tool type finger.
+  TOOL_TYPE_FINGER = 1;
+  // Indicates tool type stylus.
+  TOOL_TYPE_STYLUS = 2;
+  // Indicates tool type eraser.
+  TOOL_TYPE_ERASER = 3;
+  // Indicates tool type mouse.
+  TOOL_TYPE_MOUSE = 4;
+  // Indicates tool type palm.
+  TOOL_TYPE_PALM = 5;
+}
+
+// The key action.
+enum KeyAction {
+  KEY_ACTION_UNSPECIFIED = 0;
+  // Indicates key action down.
+  KEY_ACTION_DOWN = 1;
+  // Indicates key action up.
+  KEY_ACTION_UP = 2;
+  // Atomic Down + Up.
+  KEY_ACTION_PRESS = 3;
+}
+
+// The button mask.
+enum ButtonMask {
+  BUTTON_MASK_NONE = 0;
+  // Primary / Left mouse button (Bit 0, 1 << 0).
+  BUTTON_MASK_PRIMARY = 1;
+  // Secondary / Right mouse button (Bit 1, 1 << 1).
+  BUTTON_MASK_SECONDARY = 2;
+  // Tertiary / Middle mouse button / wheel click (Bit 2, 1 << 2).
+  BUTTON_MASK_TERTIARY = 4;
+  // Back button (Bit 3, 1 << 3).
+  BUTTON_MASK_BACK = 8;
+  // Forward button (Bit 4, 1 << 4).
+  BUTTON_MASK_FORWARD = 16;
+  // Stylus primary barrel button (Bit 5, 1 << 5).
+  BUTTON_MASK_STYLUS_PRIMARY = 32;
+  // Stylus secondary barrel button (Bit 6, 1 << 6).
+  BUTTON_MASK_STYLUS_SECONDARY = 64;
+}
+
+// The axis type.
+enum AxisType {
+  AXIS_TYPE_UNSPECIFIED = 0;
+  // WearOS crown / rotating bezel.
+  AXIS_TYPE_ROTARY_ENCODER = 1;
+  // Indicates axis type automotive volume knob.
+  AXIS_TYPE_AUTOMOTIVE_VOLUME_KNOB = 2;
+  // Indicates axis type steering wheel.
+  AXIS_TYPE_STEERING_WHEEL = 3;
+}
+
+message InputEvent {
+  // Optional client generation timestamp in nanoseconds.
+  // Rebased by the Gateway onto the host monotonic clock for event pacing.
+  optional int64 timestamp_nanos = 1;
+
+  oneof event {
+    // Multi-touch, mouse, stylus, palm rejection.
+    PointerEvent pointer = 2;
+    // Hardware keys, W3C DOM keys, media buttons.
+    KeyEvent key = 3;
+    // Rotary dials, automotive knobs, steering wheels.
+    AxisEvent axis = 4;
+    // Direct UTF-8 IME text commits.
+    TextEvent text = 5;
+  }
+}
+
+message PointerEvent {
+  int32 display_id = 1;
+  // The action.
+  PointerAction action = 2;
+  // The pointers.
+  repeated Pointer pointers = 3;
+  // The scroll x.
+  optional float scroll_x = 4;
+  // The scroll y.
+  optional float scroll_y = 5;
+
+  message Pointer {
+    int32 pointer_id = 1;
+    // The tool type.
+    ToolType tool_type = 2;
+    // Normalized X coordinate [0.0, 1.0] relative to display width.
+    float x = 3;
+    // Normalized Y coordinate [0.0, 1.0] relative to display height.
+    float y = 4;
+    // Normalized pressure [0.0, 1.0].
+    float pressure = 5;
+    // Normalized touch major size [0.0, 1.0].
+    float size = 6;
+    // Rotation angle in radians [-π/2, π/2].
+    float orientation_radians = 7;
+    // Stylus tilt in radians [0, π/2].
+    float tilt_radians = 8;
+    // Bitmask of active pressed buttons (combined via bitwise OR).
+    // Matches W3C DOM event.buttons and Android MotionEvent button states.
+    int32 button_mask = 9;
+    // Relative movement delta X in pixels (matches W3C movementX, Linux evdev REL_X).
+    float delta_x = 10;
+    // Relative movement delta Y in pixels (matches W3C movementY, Linux evdev REL_Y).
+    float delta_y = 11;
+  }
+}
+
+message KeyEvent {
+  KeyAction action = 1;
+
+  oneof key_identifier {
+    // W3C KeyboardEvent.code (e.g. "KeyA", "Enter").
+    string dom_code = 2;
+    // Android keycode (e.g. KEYCODE_BACK = 4).
+    int32 android_keycode = 3;
+    // Linux evdev scancode (e.g. KEY_A = 30).
+    int32 evdev_code = 4;
+  }
+}
+
+message AxisEvent {
+  AxisType axis = 1;
+  // Signed fractional ticks or normalized angle [-1.0, 1.0].
+  float value = 2;
+}
+
+message TextEvent {
+  // Full UTF-8 text string (e.g. "こんにちは").
+  string text = 1;
+}

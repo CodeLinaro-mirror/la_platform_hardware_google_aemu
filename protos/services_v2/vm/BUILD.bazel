@@ -1,0 +1,23 @@
+load(
+    "//protos/services_v2:defs.bzl",
+    "aemu_service_group_v2",
+    "aemu_service_v2",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+# Individual Service Target: Hypervisor Execution & Runtime Control
+aemu_service_v2(
+    name = "vm_service",
+    srcs = ["vm_service.proto"],
+    has_grpc = True,
+    deps = ["@googleapis//google/api:field_behavior_proto"],
+)
+
+# Package-level Group Target
+aemu_service_group_v2(
+    name = "vm",
+    grpc_cc_deps = [":vm_service_cc_grpc"],
+    grpc_java_deps = [":vm_service_java_grpc"],
+    proto_deps = [":vm_service_proto"],
+)

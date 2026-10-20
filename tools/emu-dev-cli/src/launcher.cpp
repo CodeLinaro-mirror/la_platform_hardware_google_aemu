@@ -50,11 +50,9 @@ int main(int argc, char *argv[]) {
     std::string direct_pyc = exe_dir + "/__main__.pyc";
     std::string direct_py = exe_dir + "/__main__.py";
 
-    // Lookups: check Bazel runfiles and relative source paths
-    std::string aemu_runfiles_main = exe_path + ".runfiles/aemu/tools/emu-dev-cli/src/__main__.py";
-    std::string aemu_runfiles_src = exe_path + ".runfiles/aemu/tools/emu-dev-cli/src";
-    std::string aemu_plus_runfiles_main = exe_path + ".runfiles/_main/external/aemu+/tools/emu-dev-cli/src/__main__.py";
-    std::string aemu_plus_runfiles_src = exe_path + ".runfiles/_main/external/aemu+/tools/emu-dev-cli/src";
+    // Fallback lookups: check Bazel runfiles and relative source paths
+    std::string bazel_runfiles_main = exe_path + ".runfiles/_main/hardware/google/aemu/tools/emu-dev-cli/src/__main__.py";
+    std::string bazel_runfiles_src = exe_path + ".runfiles/_main/hardware/google/aemu/tools/emu-dev-cli/src";
 
     std::string target_script;
     std::string pythonpath_dir = lib_dir;
@@ -71,12 +69,9 @@ int main(int argc, char *argv[]) {
     } else if (access(direct_pyc.c_str(), F_OK) == 0) {
         target_script = direct_pyc;
         pythonpath_dir = exe_dir;
-    } else if (access(aemu_runfiles_main.c_str(), F_OK) == 0) {
-        target_script = aemu_runfiles_main;
-        pythonpath_dir = aemu_runfiles_src;
-    } else if (access(aemu_plus_runfiles_main.c_str(), F_OK) == 0) {
-        target_script = aemu_plus_runfiles_main;
-        pythonpath_dir = aemu_plus_runfiles_src;
+    } else if (access(bazel_runfiles_main.c_str(), F_OK) == 0) {
+        target_script = bazel_runfiles_main;
+        pythonpath_dir = bazel_runfiles_src;
     } else {
         // Walk up from exe_dir searching for hardware/google/aemu/tools/emu-dev-cli/src/__main__.py
         std::string curr = exe_dir;

@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package android.emulation.v2.system;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.system";
+
+import "google/protobuf/empty.proto";
+
+// Manages system execution and interactions.
+service SystemService {
+  rpc GetSystemState(GetSystemStateRequest) returns (SystemState);
+  // Streams the system state continuously.
+  rpc StreamSystemState(StreamSystemStateRequest)
+      returns (stream SystemState);
+
+  // Proposed in-band OS reboot across both VMs and Physical Devices.
+  rpc RebootDevice(RebootDeviceRequest) returns (google.protobuf.Empty);
+}
+
+message GetSystemStateRequest {}
+
+message StreamSystemStateRequest {}
+
+// Request to reboot the Android operating system.
+// Note: Specialized reboot targets (bootloader, recovery) are intentionally
+// not supported; device provisioning and partition flashing must be performed
+// out-of-band via standard fastboot/lab tooling.
+message RebootDeviceRequest {}
+
+message SystemState {
+  enum Lock {
+    LOCK_UNSPECIFIED = 0;
+    // Home screen or app visible.
+    UNLOCKED = 1;
+    // Keyguard / Lockscreen is active.
+    LOCKED = 2;
+  }
+  // The connection.
+  enum Connection {
+    CONNECTION_UNSPECIFIED = 0;
+    // Indicates connected.
+    CONNECTED = 1;
+    // Waiting for ADB RSA key authorization.
+    UNAUTHORIZED = 2;
+    // Indicates disconnected.
+    DISCONNECTED = 3;
+  }
+  // The lifecycle.
+  enum Lifecycle {
+    LIFECYCLE_UNSPECIFIED = 0;
+    // Indicates booting.
+    BOOTING = 1;
+    // sys.boot_completed == 1 (Ready for interaction).
+    BOOT_COMPLETED = 2;
+    // Indicates shutting down.
+    SHUTTING_DOWN = 3;
+    // Indicates offline.
+    OFFLINE = 4;
+  }
+
+  // The lifecycle state.
+  Lifecycle lifecycle_state = 1;
+  // The connection state.
+  Connection connection_state = 2;
+  // The lock state.
+  Lock lock_state = 3;
+
+  // Elapsed wall-clock uptime in milliseconds since the emulator process started.
+  uint64 uptime_ms = 4;
+
+  // Duration in milliseconds from VM launch/reset until sys.boot_completed was signaled.
+  // 0 if boot is still in progress.
+  uint64 boot_completed_duration_ms = 5;
+
+  // Monotonically increasing heartbeat tick counter from the guest watchdog/heartbeat device.
+  uint64 heartbeat_counter = 6;
+}

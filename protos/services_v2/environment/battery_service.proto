@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package android.emulation.v2.environment;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.environment";
+
+import "common/common.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/field_mask.proto";
+
+// Manages battery execution and interactions.
+service BatteryService {
+  rpc GetBatteryState(GetBatteryStateRequest) returns (BatteryState);
+  // Streams the battery state continuously.
+  rpc StreamBatteryState(StreamBatteryStateRequest)
+      returns (stream BatteryState);
+  // Updates the battery state.
+  rpc UpdateBatteryState(UpdateBatteryStateRequest)
+      returns (BatteryState);
+  // Streams battery updates bidirectionally.
+  rpc StreamBatteryUpdates(stream UpdateBatteryStateRequest)
+      returns (google.protobuf.Empty);
+}
+
+message GetBatteryStateRequest {}
+
+message StreamBatteryStateRequest {}
+
+message BatteryState {
+  enum Health {
+  UNSPECIFIED = 0;
+  // Indicates good.
+  GOOD = 1;
+  // Indicates overheat.
+  OVERHEAT = 2;
+  // Indicates dead.
+  DEAD = 3;
+  // Indicates over voltage.
+  OVER_VOLTAGE = 4;
+  // Indicates cold.
+  COLD = 5;
+  }
+
+  // The level percent.
+  int32 level_percent = 1;
+  // The state.
+  enum State {
+    STATE_UNSPECIFIED = 0;
+    // Indicates charging.
+    CHARGING = 1;
+    // Indicates discharging.
+    DISCHARGING = 2;
+    // Indicates not charging.
+    NOT_CHARGING = 3;
+    // Indicates full.
+    FULL = 4;
+  }
+  // The current charging state of the battery mockup.
+  State state = 2;
+  // The charger.
+  common.ChargerSource charger = 3;
+  // The health.
+  Health health = 4;
+}
+
+message UpdateBatteryStateRequest {
+  BatteryState battery_state = 1;
+  // Field mask for partial updates. Paths MUST be relative to the resource
+  // (e.g., `level_percent`, NOT `battery_state.level_percent`).
+  google.protobuf.FieldMask update_mask = 2;
+}

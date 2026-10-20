@@ -1,213 +1,57 @@
 load(
     "//protos/services_v2:defs.bzl",
     "aemu_service_group_v2",
-    "aemu_service_v2",
 )
-load(
-    "//protos/services_v2:ts_proto.bzl",
-    "proto_sources",
-    "ts_proto_group",
-    "ts_proto_library",
-)
+load("//protos/services_v2:ts_proto.bzl", "ts_proto_library")
 
 package(default_visibility = ["//visibility:public"])
 
-aemu_service_v2(
-    name = "common",
-    srcs = ["common.proto"],
-    has_grpc = False,
-)
-
-aemu_service_v2(
-    name = "capabilities_service",
-    srcs = ["capabilities_service.proto"],
-    deps = [
-        ":battery_service_proto",
-        ":common_proto",
-        ":sensors_service_proto",
-        "@googleapis//google/api:field_behavior_proto",
-    ],
-)
-
-aemu_service_v2(
-    name = "audio_service",
-    srcs = ["audio_service.proto"],
-    deps = [
-        ":common_proto",
-        "@googleapis//google/api:field_behavior_proto",
-    ],
-)
-
-aemu_service_v2(
-    name = "battery_service",
-    srcs = ["battery_service.proto"],
-    deps = [
-        "@googleapis//google/api:field_behavior_proto",
-    ],
-)
-
-aemu_service_v2(
-    name = "camera_service",
-    srcs = ["camera_service.proto"],
-    deps = [
-        ":common_proto",
-        "@googleapis//google/api:field_behavior_proto",
-    ],
-)
-
-aemu_service_v2(
-    name = "display_service",
-    srcs = ["display_service.proto"],
-    deps = [
-        ":common_proto",
-        "@googleapis//google/api:field_behavior_proto",
-    ],
-)
-
-aemu_service_v2(
-    name = "hypervisor_service",
-    srcs = ["hypervisor_service.proto"],
-    deps = [
-        "@googleapis//google/api:field_behavior_proto",
-        "@googleapis//google/longrunning:operations_proto",
-        "@protobuf//:timestamp_proto",
-    ],
-)
-
-aemu_service_v2(
-    name = "input_service",
-    srcs = ["input_service.proto"],
-    deps = [
-        "@googleapis//google/api:field_behavior_proto",
-    ],
-)
-
-aemu_service_v2(
-    name = "location_service",
-    srcs = ["location_service.proto"],
-    deps = [
-        "@googleapis//google/api:field_behavior_proto",
-    ],
-)
-
-aemu_service_v2(
-    name = "sensors_service",
-    srcs = ["sensors_service.proto"],
-    deps = [
-        "@googleapis//google/api:field_behavior_proto",
-    ],
-)
-
-aemu_service_v2(
-    name = "system_service",
-    srcs = ["system_service.proto"],
-    deps = [
-        "@googleapis//google/api:field_behavior_proto",
-    ],
-)
-
-aemu_service_v2(
-    name = "telephony_service",
-    srcs = ["telephony_service.proto"],
-    deps = [
-        "@googleapis//google/api:field_behavior_proto",
-    ],
-)
-
-aemu_service_v2(
-    name = "webrtc_service",
-    srcs = ["webrtc_service.proto"],
-    deps = [
-        ":common_proto",
-        "@googleapis//google/api:field_behavior_proto",
-    ],
-)
-
-ts_proto_library(
-    name = "empty_ts_proto",
-    has_grpc = False,
-    proto = "@protobuf//:empty_proto",
-)
-
-ts_proto_library(
-    name = "timestamp_ts_proto",
-    has_grpc = False,
-    proto = "@protobuf//:timestamp_proto",
-)
-
-ts_proto_library(
-    name = "duration_ts_proto",
-    has_grpc = False,
-    proto = "@protobuf//:duration_proto",
-)
-
-ts_proto_library(
-    name = "any_ts_proto",
-    has_grpc = False,
-    proto = "@protobuf//:any_proto",
-)
-
-ts_proto_group(
-    name = "protobuf_ts_proto",
-    deps = [
-        ":any_ts_proto",
-        ":duration_ts_proto",
-        ":empty_ts_proto",
-        ":timestamp_ts_proto",
-    ],
-)
-
-ts_proto_library(
-    name = "status_ts_proto",
-    has_grpc = False,
-    proto = "@googleapis//google/rpc:status_proto",
-    deps = ["@protobuf//:any_proto"],
-)
-
-ts_proto_library(
-    name = "operations_ts_proto",
-    has_grpc = False,
-    proto = "@googleapis//google/longrunning:operations_proto",
-    deps = [
-        "@googleapis//google/rpc:status_proto",
-        "@protobuf//:any_proto",
-        "@protobuf//:duration_proto",
-        "@protobuf//:empty_proto",
-    ],
-)
-
-_SERVICE_NAMES = [
-    "audio_service",
-    "battery_service",
-    "camera_service",
-    "capabilities_service",
-    "display_service",
-    "hypervisor_service",
-    "input_service",
-    "location_service",
-    "sensors_service",
-    "system_service",
-    "telephony_service",
-    "webrtc_service",
-]
+_SERVICES = "//protos/services_v2"
 
 # Comprehensive AEMU v2 Services Bundle Target
 aemu_service_group_v2(
     name = "services_v2",
-    grpc_cc_deps = [":" + s + "_cc_grpc" for s in _SERVICE_NAMES],
-    grpc_java_deps = [":" + s + "_java_grpc" for s in _SERVICE_NAMES],
-    grpc_py_deps = [":" + s + "_py_grpc" for s in _SERVICE_NAMES] + [
-        "@pypi_aemu//googleapis_common_protos",
+    grpc_cc_deps = [
+        _SERVICES + "/discovery:capabilities_service_cc_grpc",
+        _SERVICES + "/environment:environment_cc_grpc",
+        _SERVICES + "/input:input_service_cc_grpc",
+        _SERVICES + "/media:screen_capture_service_cc_grpc",
+        _SERVICES + "/snapshot:snapshot_service_cc_grpc",
+        _SERVICES + "/system:system_cc_grpc",
+        _SERVICES + "/vm:vm_service_cc_grpc",
+        _SERVICES + "/webrtc:webrtc_cc_grpc",
     ],
-    proto_deps = [":common_proto"] + [":" + s + "_proto" for s in _SERVICE_NAMES],
+    grpc_java_deps = [
+        _SERVICES + "/discovery:capabilities_service_java_grpc",
+        _SERVICES + "/environment:environment_java_grpc",
+        _SERVICES + "/input:input_service_java_grpc",
+        _SERVICES + "/media:screen_capture_service_java_grpc",
+        _SERVICES + "/snapshot:snapshot_service_java_grpc",
+        _SERVICES + "/system:system_java_grpc",
+        _SERVICES + "/vm:vm_service_java_grpc",
+        _SERVICES + "/webrtc:webrtc_java_grpc",
+    ],
+    proto_deps = [
+        _SERVICES + "/common:common_proto",
+        _SERVICES + "/discovery:capabilities_service_proto",
+        _SERVICES + "/environment:environment_proto",
+        _SERVICES + "/input:input_service_proto",
+        _SERVICES + "/media:screen_capture_service_proto",
+        _SERVICES + "/snapshot:snapshot_service_proto",
+        _SERVICES + "/system:system_proto",
+        _SERVICES + "/vm:vm_service_proto",
+        _SERVICES + "/webrtc:webrtc_proto",
+    ],
     ts_proto_extra_deps = [
-        ":operations_ts_proto",
-        ":protobuf_ts_proto",
-        ":status_ts_proto",
+        ":grpc_endpoint_description_ts_proto",
+        _SERVICES + "/google/longrunning:operations_ts_proto",
+        _SERVICES + "/google/protobuf:protobuf_ts_proto",
+        _SERVICES + "/google/rpc:status_ts_proto",
     ],
 )
 
-proto_sources(
-    name = "services_v2_proto_srcs",
-    proto = ":services_v2_proto",
+ts_proto_library(
+    name = "grpc_endpoint_description_ts_proto",
+    has_grpc = False,
+    proto = "//protos/client:grpc_endpoint_description_proto",
 )

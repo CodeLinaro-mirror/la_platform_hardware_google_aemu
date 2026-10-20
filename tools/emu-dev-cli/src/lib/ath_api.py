@@ -24,7 +24,6 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 import urllib.request
@@ -41,46 +40,6 @@ SUPPORTED_TARGET_PLATFORMS: List[str] = [
 ]
 
 SUPPORTED_TARGET_CHOICES: List[str] = SUPPORTED_TARGET_PLATFORMS + ["all"]
-
-SUPPORTED_TEST_IDENTIFIERS: List[str] = [
-    "android_emulator/ets",
-    "android_emulator/release",
-    "android_emulator/unit_tests",
-]
-
-TEST_IDENTIFIER_ALIASES: Dict[str, str] = {
-    "ets": "android_emulator/ets",
-    "android_emulator/ets": "android_emulator/ets",
-    "release": "android_emulator/release",
-    "android_emulator/release": "android_emulator/release",
-    "unit_tests": "android_emulator/unit_tests",
-    "unit-tests": "android_emulator/unit_tests",
-    "android_emulator/unit_tests": "android_emulator/unit_tests",
-    "all": "all",
-    "devtools/emulator": "all",
-}
-
-SUPPORTED_TEST_IDENTIFIER_CHOICES: List[str] = [
-    "all",
-    "android_emulator/ets",
-    "android_emulator/release",
-    "android_emulator/unit_tests",
-    "ets",
-    "release",
-    "unit_tests",
-    "unit-tests",
-    "devtools/emulator",
-]
-
-RELEASE_STAGE_TARGETS = {
-    "@goldfish//emulator:release_build_test",
-    "@goldfish_build//:sanity_checks",
-    "@goldfish_build//toolchains:tool_versions_test",
-    "@goldfish//emulator/launcher:boot_tests",
-    "@goldfish//emulator/launcher:can_boot_with_minigbm",
-    "@goldfish//emulator/launcher:can_boot_with_lavapipe",
-    "@qemu//google/toolchain:generated_diff",
-}
 
 TARGET_BAZEL_CONFIG_MAP: Dict[str, List[str]] = {
     "emulator_linux_x64": [],
@@ -119,37 +78,15 @@ class TestHistoryEntry:
     test_uri: str
     work_unit_id: str = ""
     duration_ms: Optional[int] = None
-    test_identifier: str = ""
 
 
-def resolve_test_identifiers(config_name: Optional[str] = None) -> List[str]:
-    """Resolves a test identifier flag/alias into a list of canonical test identifiers."""
-    if not config_name:
-        return list(SUPPORTED_TEST_IDENTIFIERS)
-    cleaned = config_name.strip()
-    if not cleaned or cleaned.lower() in ("all", "devtools/emulator"):
-        return list(SUPPORTED_TEST_IDENTIFIERS)
-    resolved: List[str] = []
-    for part in cleaned.split(","):
-        p = part.strip()
-        if not p:
-            continue
-        mapped = TEST_IDENTIFIER_ALIASES.get(p.lower(), p)
-        if mapped == "all":
-            return list(SUPPORTED_TEST_IDENTIFIERS)
-        if mapped not in resolved:
-            resolved.append(mapped)
-    return resolved or list(SUPPORTED_TEST_IDENTIFIERS)
-
-
-def sanitize_bazel_target(test_name: Optional[str]) -> str:
+def sanitize_bazel_target(test_name: str) -> str:
     """Cleans up AnTS/ATH raw test labels into standard Bazel workspace labels.
-    Maps canonical Bzlmod repo names (e.g. @@goldfish+//, @@goldfish_test+//, @@gfxstream+//)
-    to apparent names (@goldfish//, @goldfish_test//, @gfxstream//).
+    Maps canonical Bzlmod repo names (e.g. @@goldfish+//) to apparent names (@goldfish//).
     """
-    if not test_name:
-        return ""
-    target = re.sub(r"^@@?([a-zA-Z0-9_\-]+)\+?//", r"@\1//", test_name.strip())
+    target = test_name
+    if target.startswith("@@goldfish+//") or target.startswith("@goldfish+//"):
+        target = "@goldfish//" + target.split("//", 1)[1]
 
     if ":" in target:
         pkg, target_name = target.split(":", 1)
@@ -158,16 +95,6 @@ def sanitize_bazel_target(test_name: Optional[str]) -> str:
         target = f"{pkg}:{clean_target_name}"
 
     return target
-
-
-def infer_test_identifier_for_target(test_target: str) -> str:
-    """Infers which of the 3 test identifiers a Bazel test target belongs to."""
-    clean = sanitize_bazel_target(test_target)
-    if clean.startswith("@goldfish_test//"):
-        return "android_emulator/ets"
-    if clean in RELEASE_STAGE_TARGETS:
-        return "android_emulator/release"
-    return "android_emulator/unit_tests"
 
 
 def get_bazel_flags_for_target(
@@ -187,25 +114,17 @@ def get_bazel_flags_for_target(
 
     effective_iterations = runs_per_test if runs_per_test is not None else iterations
     flags: List[str] = []
-    sanitized_test: Optional[str] = None
     if test_name:
-        sanitized_test = sanitize_bazel_target(test_name)
-        flags.append(sanitized_test)
+        flags.append(sanitize_bazel_target(test_name))
 
     config_flags = TARGET_BAZEL_CONFIG_MAP[target]
     flags.extend(config_flags)
-    if sanitized_test and infer_test_identifier_for_target(sanitized_test) in (
-        "android_emulator/ets",
-        "android_emulator/release",
-    ):
-        flags.append("--build_manual_tests")
     if effective_iterations > 1:
         flags.append(f"--runs_per_test={effective_iterations}")
     else:
         flags.append("--runs_per_test=1")
 
     return "test", flags
-
 
 
 def calculate_stress_test_timeout(
@@ -291,7 +210,6 @@ class AthHttpClient:
 
     def __init__(self, max_connections: int = 32):
         self.max_connections = max_connections
-        self._lock = threading.Lock()
         self._token: Optional[str] = None
         self._headers: Dict[str, str] = {}
         self._pool = None
@@ -314,25 +232,23 @@ class AthHttpClient:
 
     def set_token(self, token: Optional[str]) -> None:
         if token:
-            with self._lock:
-                self._token = token
-                self._headers = {
-                    "Authorization": f"Bearer {self._token}",
-                    "Accept": "application/json",
-                }
+            self._token = token
+            self._headers = {
+                "Authorization": f"Bearer {self._token}",
+                "Accept": "application/json",
+            }
 
     def get_token(self, user_token: Optional[str] = None, force_refresh: bool = False) -> str:
-        if user_token and not force_refresh:
+        if user_token:
             self.set_token(user_token)
             return self._token or ""
-        with self._lock:
-            if not self._token or force_refresh:
-                self._token = get_android_build_token(force_refresh=force_refresh)
-                self._headers = {
-                    "Authorization": f"Bearer {self._token}",
-                    "Accept": "application/json",
-                }
-            return self._token or ""
+        if not self._token or force_refresh:
+            self._token = get_android_build_token(force_refresh=force_refresh)
+            self._headers = {
+                "Authorization": f"Bearer {self._token}",
+                "Accept": "application/json",
+            }
+        return self._token or ""
 
     def get_json(
         self,
@@ -461,13 +377,6 @@ def fetch_invocation_artifacts(
                 summary_lines.append(f"Description: {a.description}")
             if a.error_messages:
                 summary_lines.append(f"Errors: {', '.join(a.error_messages)}")
-            if getattr(a, "failed_test_cases", None):
-                summary_lines.append("Failed Test Cases:")
-                for tc in a.failed_test_cases:
-                    summary_lines.append(f"  ✗ {tc.full_name} ({tc.result}): {tc.failure_message}")
-                    if tc.stack_trace:
-                        for trace_line in tc.stack_trace.strip().splitlines()[:8]:
-                            summary_lines.append(f"      {trace_line}")
             if a.files:
                 summary_lines.append("Files:")
                 for f in a.files:
@@ -540,113 +449,66 @@ def fetch_invocation_artifacts(
     }
 
 
-def _extract_invocation_props(inv: Dict[str, Any]) -> Dict[str, str]:
-    """Extracts a dictionary of key-value properties from an invocation payload."""
-    props: Dict[str, str] = {}
-    for prop in inv.get("properties", []):
-        if isinstance(prop, dict) and prop.get("name") is not None:
-            props[str(prop["name"])] = str(prop.get("value", ""))
-    return props
-
-
-def _matches_invocation_filters(
-    inv: Dict[str, Any],
-    tgt: str,
-    allowed_test_ids: set,
-) -> bool:
-    """Checks if an invocation matches the requested target platform, test identifier, and completed state."""
-    if inv.get("primaryBuild", {}).get("buildTarget") != tgt:
-        return False
-    sched_state = str(inv.get("schedulerState", "")).lower()
-    if sched_state in ("running", "pending", "cancelled"):
-        return False
-    test_name = inv.get("test", {}).get("name") if isinstance(inv.get("test"), dict) else None
-    if test_name:
-        resolved_ids = resolve_test_identifiers(test_name)
-        if not any(rid in allowed_test_ids for rid in resolved_ids):
-            return False
-    return True
-
-
 def fetch_ath_invocations(
     target: str,
     branch: str = "git_emu-main-next",
     days: int = 7,
     mode: str = "all",
     token: Optional[str] = None,
-    config_name: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Fetches and filters Android Test Hub invocations by target platform, branch, date window, run mode,
-    and test identifier ('android_emulator/ets', 'android_emulator/release', 'android_emulator/unit_tests').
+    """Fetches and filters Android Test Hub invocations by target platform, branch, date window, and run mode.
 
     If target == 'all', queries across all SUPPORTED_TARGET_PLATFORMS.
     """
     targets_to_query = SUPPORTED_TARGET_PLATFORMS if target == "all" else [target]
-    resolved_test_ids = resolve_test_identifiers(config_name)
-    allowed_test_ids = set(resolved_test_ids)
-    if not config_name or config_name.strip().lower() in ("all", "devtools/emulator"):
-        allowed_test_ids.add("devtools/emulator")
-
-    single_test_param = (
-        f"&testName={resolved_test_ids[0]}" if len(resolved_test_ids) == 1 else ""
-    )
-
     auth_token = get_android_build_token(user_token=token)
     cutoff_ms = (time.time() - days * 86400) * 1000
     all_invocations: List[Dict[str, Any]] = []
 
     for tgt in targets_to_query:
         presubmit_invs: List[Dict[str, Any]] = []
-        raw_postsubmit_bids: set = set()
         page_token = None
-        pages_fetched = 0
-        while len(presubmit_invs) < 1500 and pages_fetched < 25:
-            pages_fetched += 1
-            inv_url = (
-                f"https://androidbuildinternal.googleapis.com/android/internal/build/v3/invocations"
-                f"?branch={branch}&target={tgt}{single_test_param}&maxResults=100"
-            )
+        while len(presubmit_invs) < 1500:
+            inv_url = f"https://androidbuildinternal.googleapis.com/android/internal/build/v3/invocations?branch={branch}&target={tgt}&maxResults=100"
             if page_token:
                 inv_url += f"&pageToken={page_token}"
             inv_data = execute_http_get(inv_url, user_token=auth_token)
             page_items = inv_data.get("invocations", [])
             if not page_items:
                 break
-
-            for item in page_items:
-                ts = int(item.get("timing", {}).get("creationTimestamp", "0"))
-                if ts < cutoff_ms:
-                    continue
-                if item.get("primaryBuild", {}).get("buildTarget") == tgt:
-                    props = _extract_invocation_props(item)
-                    if props.get("reference_build_id"):
-                        raw_postsubmit_bids.add(props["reference_build_id"])
-                if _matches_invocation_filters(item, tgt, allowed_test_ids):
-                    presubmit_invs.append(item)
-
+            presubmit_invs.extend(page_items)
             oldest_ts = int(page_items[-1].get("timing", {}).get("creationTimestamp", "0"))
             page_token = inv_data.get("nextPageToken")
             if (oldest_ts and oldest_ts < cutoff_ms) or not page_token:
                 break
 
+        presubmit_invs = [
+            i for i in presubmit_invs
+            if int(i.get("timing", {}).get("creationTimestamp", "0")) >= cutoff_ms
+            and i.get("primaryBuild", {}).get("buildTarget") == tgt
+        ]
+
+        postsubmit_build_ids = set()
+        for inv in presubmit_invs:
+            for prop in inv.get("properties", []):
+                if prop.get("name") == "reference_build_id" and prop.get("value"):
+                    postsubmit_build_ids.add(prop.get("value"))
+
         postsubmit_invs: List[Dict[str, Any]] = []
-        if mode in ("all", "postsubmit") and raw_postsubmit_bids:
+        if mode in ("all", "postsubmit"):
             def fetch_postsubmit_invs_for_build(bid: str) -> List[Dict[str, Any]]:
                 p_url = f"https://androidbuildinternal.googleapis.com/android/internal/build/v3/invocations?buildId={bid}"
                 try:
                     b_data = execute_http_get(p_url, user_token=auth_token)
                     return [
                         i for i in b_data.get("invocations", [])
-                        if _matches_invocation_filters(i, tgt, allowed_test_ids)
+                        if i.get("primaryBuild", {}).get("buildTarget") == tgt
                     ]
                 except Exception:
                     return []
 
             with ThreadPoolExecutor(max_workers=8) as p_executor:
-                p_futs = [
-                    p_executor.submit(fetch_postsubmit_invs_for_build, bid)
-                    for bid in raw_postsubmit_bids
-                ]
+                p_futs = [p_executor.submit(fetch_postsubmit_invs_for_build, bid) for bid in postsubmit_build_ids]
                 for f in as_completed(p_futs):
                     postsubmit_invs.extend(f.result())
 
@@ -667,7 +529,7 @@ def fetch_ath_invocations(
 
 def query_ath_flaky_tests(
     target: str,
-    config_name: str = "all",
+    config_name: str = "devtools/emulator",
     branch: str = "git_emu-main-next",
     min_flake_rate: float = 5.0,
     days: int = 7,
@@ -676,8 +538,8 @@ def query_ath_flaky_tests(
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     max_workers: int = 32,
 ) -> List[FlakyTestRecord]:
-    """Queries Android Test Hub / AnTS API for flaky test records matching target, test identifier,
-    and branch in parallel. Supports mode='all', mode='presubmit', or mode='postsubmit'.
+    """Queries Android Test Hub / AnTS API for flaky test records matching target and branch in parallel.
+    Supports mode='all', mode='presubmit', or mode='postsubmit'.
     """
     records: List[FlakyTestRecord] = []
 
@@ -689,80 +551,22 @@ def query_ath_flaky_tests(
             days=days,
             mode=mode,
             token=token,
-            config_name=config_name,
         )
 
         total_invs = len(invocations)
         if progress_callback:
             progress_callback(0, total_invs, f"Fetched {total_invs} invocations ({mode}) for {target}")
 
-        fallback_config = (
-            resolve_test_identifiers(config_name)[0]
-            if len(resolve_test_identifiers(config_name)) == 1
-            else (config_name if config_name != "all" else "android_emulator/unit_tests")
-        )
-
-        # Partition invocations: if Bazel target summary properties are present, we only need
-        # to fetch workunits (with state=error) for invocations that actually had failures
-        # (plus 1 baseline invocation per suite when min_flake_rate == 0.0).
-        suite_run_counts: Dict[str, int] = {}
-        invs_to_query: List[Tuple[Dict[str, Any], bool]] = []
-        seeded_suites: set = set()
-        has_fast_props = False
-
-        def _normalize_inv_suite(inv_obj: Dict[str, Any]) -> str:
-            raw_suite = (
-                inv_obj.get("test", {}).get("name")
-                if isinstance(inv_obj.get("test"), dict) and inv_obj.get("test", {}).get("name")
-                else fallback_config
-            )
-            resolved = resolve_test_identifiers(raw_suite)
-            if len(resolved) == 1:
-                return resolved[0]
-            return raw_suite
-
-        for inv in invocations:
-            props = _extract_invocation_props(inv)
-            inv_suite = _normalize_inv_suite(inv)
-            if "_bazel_test_targets_failed" in props:
-                has_fast_props = True
-                tot_targets = int(props.get("_bazel_test_targets_total", "0") or 0)
-                fail_targets = int(props.get("_bazel_test_targets_failed", "0") or 0)
-                sched = str(inv.get("schedulerState", "")).lower()
-                if tot_targets > 0 or fail_targets > 0:
-                    suite_run_counts[inv_suite] = suite_run_counts.get(inv_suite, 0) + 1
-                    if inv_suite not in SUPPORTED_TEST_IDENTIFIERS:
-                        for canonical_suite in resolve_test_identifiers(inv_suite):
-                            if canonical_suite != inv_suite:
-                                suite_run_counts[canonical_suite] = (
-                                    suite_run_counts.get(canonical_suite, 0) + 1
-                                )
-                if fail_targets > 0 or sched == "error":
-                    invs_to_query.append((inv, True))
-                elif min_flake_rate == 0.0 and tot_targets > 0 and inv_suite not in seeded_suites:
-                    seeded_suites.add(inv_suite)
-                    invs_to_query.append((inv, False))
-            else:
-                invs_to_query.append((inv, False))
-
-        def fetch_work_units_for_invocation(
-            item: Tuple[Dict[str, Any], bool]
-        ) -> Tuple[str, str, str, List[Dict[str, Any]]]:
-            inv_item, error_only = item
+        def fetch_work_units_for_invocation(inv_item: Dict[str, Any]) -> Tuple[str, str, List[Dict[str, Any]]]:
             inv_id = inv_item.get("invocationId", "")
             build_id = inv_item.get("primaryBuild", {}).get("buildId", inv_item.get("primaryBuildId", ""))
-            inv_suite = _normalize_inv_suite(inv_item)
             if not inv_id:
-                return inv_id, build_id, inv_suite, []
+                return inv_id, build_id, []
 
             all_wus: List[Dict[str, Any]] = []
             page_token = None
-            state_param = "&state=error" if error_only else ""
             while True:
-                wu_url = (
-                    f"https://androidbuildinternal.googleapis.com/android/internal/build/v3/workunits"
-                    f"?invocationId={inv_id}{state_param}&maxResults=100"
-                )
+                wu_url = f"https://androidbuildinternal.googleapis.com/android/internal/build/v3/workunits?invocationId={inv_id}&maxResults=100"
                 if page_token:
                     wu_url += f"&pageToken={page_token}"
                 try:
@@ -776,25 +580,21 @@ def query_ath_flaky_tests(
                         break
                 except Exception:
                     break
-            return inv_id, build_id, inv_suite, all_wus
+            return inv_id, build_id, all_wus
 
         test_stats: Dict[str, Dict[str, Any]] = {}
         completed_count = 0
-        query_total = len(invs_to_query)
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_inv = {
-                executor.submit(fetch_work_units_for_invocation, item): item
-                for item in invs_to_query
-            }
+            future_to_inv = {executor.submit(fetch_work_units_for_invocation, inv): inv for inv in invocations}
             for future in as_completed(future_to_inv):
                 completed_count += 1
-                inv_id, build_id, inv_suite, work_units = future.result()
+                inv_id, build_id, work_units = future.result()
 
                 if progress_callback:
                     progress_callback(
                         completed_count,
-                        max(query_total, 1),
+                        total_invs,
                         f"Processed invocation {inv_id or 'unknown'} ({len(work_units)} work units)",
                     )
 
@@ -807,11 +607,6 @@ def query_ath_flaky_tests(
                         continue
 
                     test_name = sanitize_bazel_target(raw_name)
-                    effective_suite = (
-                        inv_suite
-                        if inv_suite in SUPPORTED_TEST_IDENTIFIERS
-                        else infer_test_identifier_for_target(test_name)
-                    )
 
                     if test_name not in test_stats:
                         test_stats[test_name] = {
@@ -819,35 +614,18 @@ def query_ath_flaky_tests(
                             "failed": 0,
                             "latest_build_id": build_id,
                             "latest_invocation_id": inv_id,
-                            "latest_work_unit_id": wu.get("id", ""),
-                            "module_name": wu.get("moduleName") or test_name,
-                            "config_name": effective_suite if has_fast_props or config_name == "all" else config_name,
-                            "suite": effective_suite,
-                            "inv_suite": inv_suite,
+                            "module_name": wu.get("moduleName", test_name),
                         }
 
                     test_stats[test_name]["total"] += 1
                     state = str(wu.get("state", "")).lower()
                     status = str(wu.get("status", "")).lower()
-                    error_count = wu.get("errorCount", 0) or 0
+                    error_count = wu.get("errorCount", 0)
                     if state in ("failed", "error") or status in ("failed", "error") or error_count > 0:
                         test_stats[test_name]["failed"] += 1
-                        test_stats[test_name]["latest_build_id"] = build_id
-                        test_stats[test_name]["latest_invocation_id"] = inv_id
-                        if wu.get("id"):
-                            test_stats[test_name]["latest_work_unit_id"] = wu.get("id", "")
 
         for test_name, stats in test_stats.items():
-            suite_key = stats["suite"]
-            suite_runs = (
-                suite_run_counts.get(suite_key, 0)
-                or suite_run_counts.get(stats.get("inv_suite", ""), 0)
-            )
-            total = (
-                max(suite_runs, stats["total"], stats["failed"])
-                if has_fast_props
-                else stats["total"]
-            )
+            total = stats["total"]
             failed = stats["failed"]
             flake_rate = (failed / total * 100.0) if total > 0 else 0.0
             if flake_rate >= min_flake_rate or (min_flake_rate == 0.0 and total > 0):
@@ -856,13 +634,13 @@ def query_ath_flaky_tests(
                         test_identifier=test_name,
                         module_name=stats["module_name"],
                         target=target,
-                        config_name=stats["config_name"],
+                        config_name=config_name,
                         total_runs=total,
                         failed_runs=failed,
                         flake_rate_pct=flake_rate,
                         latest_build_id=stats["latest_build_id"],
                         latest_invocation_id=stats["latest_invocation_id"],
-                        latest_work_unit_id=stats["latest_work_unit_id"],
+                        latest_work_unit_id="",
                     )
                 )
 
@@ -906,19 +684,12 @@ def query_test_history(
     token: Optional[str] = None,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     max_workers: int = 32,
-    config_name: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], List[TestHistoryEntry]]:
     """Queries Android Test Hub / AnTS API for the historical run status of a single test target."""
     clean_target = sanitize_bazel_target(test_target)
-    inferred_test_id = (
-        resolve_test_identifiers(config_name)[0]
-        if config_name and config_name.strip().lower() not in ("all", "devtools/emulator")
-        else infer_test_identifier_for_target(clean_target)
-    )
     history_entries: List[TestHistoryEntry] = []
     summary: Dict[str, Any] = {
         "test_target": clean_target,
-        "test_identifier": inferred_test_id,
         "target": target,
         "branch": branch,
         "mode": mode,
@@ -938,110 +709,26 @@ def query_test_history(
             days=days,
             mode=mode,
             token=auth_token,
-            config_name=inferred_test_id,
         )
 
         total_invs = len(all_invocations)
         if progress_callback:
-            progress_callback(
-                0,
-                total_invs,
-                f"Searching {total_invs} '{inferred_test_id}' invocations for {clean_target}...",
-            )
+            progress_callback(0, total_invs, f"Searching {total_invs} invocations for {clean_target}...")
 
         def fetch_target_workunits(inv: Dict[str, Any]) -> List[TestHistoryEntry]:
             inv_id = inv.get("invocationId", "")
             build_id = inv.get("primaryBuild", {}).get("buildId", "")
             tgt_platform = inv.get("primaryBuild", {}).get("buildTarget", target)
-            inv_test_id = (
-                inv.get("test", {}).get("name")
-                if isinstance(inv.get("test"), dict) and inv.get("test", {}).get("name")
-                else inferred_test_id
-            )
             creation_ts = int(inv.get("timing", {}).get("creationTimestamp", "0"))
             date_str = (
                 datetime.datetime.fromtimestamp(creation_ts / 1000.0).strftime("%Y-%m-%d %H:%M:%S")
                 if creation_ts else "N/A"
             )
             run_type = "Presubmit" if str(build_id).startswith("P") else "Postsubmit"
-            props = _extract_invocation_props(inv)
-            test_uri = props.get("test_uri", "")
-
-            if "_bazel_test_targets_failed" in props:
-                tot_targets = int(props.get("_bazel_test_targets_total", "0") or 0)
-                fail_targets = int(props.get("_bazel_test_targets_failed", "0") or 0)
-                sched = str(inv.get("schedulerState", "")).lower()
-                if tot_targets == 0 and fail_targets == 0:
-                    return []
-                if fail_targets == 0 and sched == "completed":
-                    return [
-                        TestHistoryEntry(
-                            invocation_id=inv_id,
-                            build_id=build_id,
-                            target=tgt_platform,
-                            timestamp=date_str,
-                            status="PASSED",
-                            run_type=run_type,
-                            test_uri=test_uri,
-                            work_unit_id="",
-                            test_identifier=inv_test_id,
-                        )
-                    ]
-
-                # Query only error workunits to see if clean_target is the one that failed
-                err_units: List[Dict[str, Any]] = []
-                err_page_token = None
-                while True:
-                    err_url = (
-                        f"https://androidbuildinternal.googleapis.com/android/internal/build/v3/workunits"
-                        f"?invocationId={inv_id}&state=error&maxResults=100"
-                    )
-                    if err_page_token:
-                        err_url += f"&pageToken={err_page_token}"
-                    try:
-                        wu_data = execute_http_get(err_url, user_token=auth_token)
-                        page_units = wu_data.get("workUnits", [])
-                        if not page_units:
-                            break
-                        err_units.extend(page_units)
-                        err_page_token = wu_data.get("nextPageToken")
-                        if not err_page_token:
-                            break
-                    except Exception:
-                        break
-
-                for w in err_units:
-                    if w.get("type") and w.get("type") != "BAZEL_TARGET":
-                        continue
-                    if sanitize_bazel_target(w.get("name") or "") == clean_target:
-                        return [
-                            TestHistoryEntry(
-                                invocation_id=inv_id,
-                                build_id=build_id,
-                                target=tgt_platform,
-                                timestamp=date_str,
-                                status="FAILED",
-                                run_type=run_type,
-                                test_uri=test_uri,
-                                work_unit_id=w.get("id") or "",
-                                test_identifier=inv_test_id,
-                            )
-                        ]
-                if tot_targets > 0:
-                    return [
-                        TestHistoryEntry(
-                            invocation_id=inv_id,
-                            build_id=build_id,
-                            target=tgt_platform,
-                            timestamp=date_str,
-                            status="PASSED",
-                            run_type=run_type,
-                            test_uri=test_uri,
-                            work_unit_id="",
-                            test_identifier=inv_test_id,
-                        )
-                    ]
-                return []
+            test_uri = ""
+            for p in inv.get("properties", []):
+                if p.get("name") == "test_uri":
+                    test_uri = p.get("value", "")
 
             all_wus: List[Dict[str, Any]] = []
             page_token = None
@@ -1065,7 +752,7 @@ def query_test_history(
             for w in all_wus:
                 if w.get("type") and w.get("type") != "BAZEL_TARGET":
                     continue
-                w_name = w.get("name") or ""
+                w_name = w.get("name", "")
                 if sanitize_bazel_target(w_name) == clean_target:
                     st = str(w.get("state", "")).lower()
                     status_val = str(w.get("status", "")).lower()
@@ -1081,7 +768,6 @@ def query_test_history(
                             run_type=run_type,
                             test_uri=test_uri,
                             work_unit_id=w.get("id", ""),
-                            test_identifier=inv_test_id,
                         )
                     )
             return matched_entries
@@ -1125,4 +811,3 @@ def query_test_history(
         sys.stderr.write(f"\nWarning: Error querying test history: {e}\n")
 
     return summary, history_entries
-

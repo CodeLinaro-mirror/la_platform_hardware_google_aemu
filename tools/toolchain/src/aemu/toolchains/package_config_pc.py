@@ -50,8 +50,6 @@ def _deduplicate_archives(archives: List[Path]) -> List[Path]:
 
 def _is_ephemeral(path: Path, workspace: Optional[Path]) -> bool:
     """Checks if the path is likely ephemeral (in sandbox, cache, or workspace)."""
-    if not path.is_absolute() or path.is_symlink():
-        return True
     path_str = path.as_posix()
     if workspace:
         try:
@@ -63,8 +61,6 @@ def _is_ephemeral(path: Path, workspace: Optional[Path]) -> bool:
         "/.cache/bazel/" in path_str
         or "bazel-out/" in path_str
         or "external/" in path_str
-        or "/sandbox/" in path_str
-        or "/execroot/" in path_str
     ):
         return True
     return False
@@ -111,7 +107,6 @@ class PackageConfigPc:
         shim: Dict[str, str],
         target: str,
         headers: Optional[List[Path]] = None,
-        data: Optional[List[Path]] = None,
     ) -> None:
         """Initializes a PackageConfigPc object.
 
@@ -124,7 +119,6 @@ class PackageConfigPc:
             shim: A dictionary of shims to apply.
             target: The bazel target.
             headers: Optional list of header files to persist.
-            data: Optional list of data files to persist.
         """
         self.name = shim.get("name", name)
         self.release_dir = release_dir.as_posix()
@@ -133,7 +127,6 @@ class PackageConfigPc:
         self.link_flags = shim.get("link_flags", "")
         self.extra_vars = shim.get("extra_vars", {})
         self.headers = headers if headers else []
-        self.data = data if data else []
         self.target = target
         self.shim = shim
 
@@ -322,23 +315,10 @@ class PackageConfigPc:
                         self.include_dir, "${includedir}"
                     )
 
-        for data_file in self.data:
-            if data_file and data_file.name and data_file.exists():
-                dest_file = pkg_root / data_file.name
-                if dest_file.exists() or dest_file.is_symlink():
-                    dest_file.unlink()
-                if _is_ephemeral(data_file, workspace):
-                    safe_link(data_file, dest_file)
-                else:
-                    try:
-                        os.symlink(data_file.absolute(), dest_file)
-                    except OSError:
-                        safe_link(data_file, dest_file)
-
     def _template(self) -> str:
         """Returns the template for the .pc file."""
         amc_bin_target = (
-            self.archives[0].as_posix() if self.archives else ""
+            self.archives[0].absolute().as_posix() if self.archives else ""
         )
 
         # Use relative paths relative to pcfiledir.
@@ -360,16 +340,11 @@ class PackageConfigPc:
             libdir = libdir.replace(pkg_root, prefix) if libdir else ""
             cflags = cflags.replace(pkg_root, prefix) if cflags else ""
             libs = libs.replace(pkg_root, prefix) if libs else ""
-            amc_bin_target = (
-                amc_bin_target.replace(pkg_root, prefix)
-                if amc_bin_target
-                else ""
-            )
 
         return f"""prefix={prefix}
 includedir={prefix}/include
 libdir={libdir}
-bindir={prefix}/bin
+bindir={{prefix}}/bin
 {self.extra_args}
 amc_bazel_target={self.target}
 amc_bin_target={amc_bin_target}

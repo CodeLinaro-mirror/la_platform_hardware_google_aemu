@@ -62,9 +62,6 @@ class Lib:
         Returns:
             A tuple containing a list of include paths, a list of archive paths, and a list of requirements.
         """
-        if "data_targets" in shim and "archive" not in shim and "archive_target" not in shim:
-            return [], [], []
-
         archives = []
         if "archive" in shim:
             archives = [Path(shim["archive"])]
@@ -139,24 +136,6 @@ class Lib:
             )
             shim["Requires"] = ", ".join(sorted(list(all_reqs)))
 
-        data = []
-        base_paths = [Path(builder.info["output_base"])]
-        if hasattr(builder, "aosp"):
-            base_paths.append(Path(builder.aosp))
-
-        for dt in shim.get("data_targets", []):
-            for f in builder.get_build_artifacts(dt):
-                p = Path(builder._replace_targets(f))
-
-                if not p.exists():
-                    for base in base_paths:
-                        candidate = base / p
-                        if candidate.exists():
-                            p = candidate
-                            break  # Stop checking other bases
-
-                data.append(p.absolute())
-
         cfg = PackageConfigPc(
             name=pkglib_name,
             version=self.version,
@@ -165,7 +144,6 @@ class Lib:
             includes=includes,
             shim=shim,
             target=self.target,
-            data=data,
         )
 
         if not cfg.is_static():
@@ -191,8 +169,6 @@ class BazelLib(Lib):
         Returns:
             A tuple containing a list of include paths, a list of archive paths, and a list of requirements.
         """
-        if "data_targets" in shim and "archive" not in shim and "archive_target" not in shim:
-            return [], [], []
         if "transitive_dependencies" not in self.features:
             return super().get_library_config(builder, bazel_target, shim)
 

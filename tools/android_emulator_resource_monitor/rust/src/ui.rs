@@ -15,12 +15,6 @@ impl Colors {
     pub const DIM: &'static str = "\x1b[2m";
 }
 
-/// Terminal columns taken by `s`: ANSI escapes take none, and each char one
-/// (unlike `str::len`, which counts UTF-8 bytes, e.g. 3 for '…').
-fn visible_width(re_ansi: &Regex, s: &str) -> usize {
-    re_ansi.replace_all(s, "").chars().count()
-}
-
 pub fn build_dashboard(
     host_stats: &HostStats,
     guest_results: &std::collections::HashMap<String, (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>, bool, bool)>,
@@ -31,7 +25,6 @@ pub fn build_dashboard(
     hardware_specs: &str,
     _force_clear: bool,
     online_indicator_until: &std::collections::HashMap<String, tokio::time::Instant>,
-    netsim_snapshot: Option<&crate::netsim::NetsimDashboardSnapshot>,
 ) -> String {
 
     let mut buf = Vec::new();
@@ -43,8 +36,7 @@ pub fn build_dashboard(
     let c1 = format!("{}{}", Colors::BLUE, Colors::BOLD);
     let c2 = Colors::RESET;
 
-    static RE_ANSI: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let re_ansi = RE_ANSI.get_or_init(|| Regex::new(r"(?i)\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])").unwrap());
+    let re_ansi = Regex::new(r"(?i)\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])").unwrap();
 
     if !is_once {
         let esc = if _force_clear { "\x1b[2J\x1b[H" } else { "\x1b[H\x1b[J" };
@@ -56,20 +48,20 @@ pub fn build_dashboard(
     let title_text = "Android Emulator & Device Resource Monitor";
     let line_content = format!(" {}   {}", logo, title_text);
 
-    let visible_len = visible_width(re_ansi, &line_content);
+    let visible_len = re_ansi.replace_all(&line_content, "").len();
     let padding = (width - 2).saturating_sub(visible_len);
     buf.push(format!("{}│{}{}{}{}{}{}│{}", c1, c2, Colors::BOLD, line_content, " ".repeat(padding), c2, c1, c2));
     buf.push(format!("{}├{}┤{}", c1, "─".repeat(width - 2), c2));
 
     let specs_text = format!(" Host Specs: {}", hardware_specs);
-    let visible_specs_len = visible_width(re_ansi, &specs_text);
+    let visible_specs_len = re_ansi.replace_all(&specs_text, "").len();
     let padding_specs = (width - 2).saturating_sub(visible_specs_len);
     buf.push(format!("{}│{}{}{}{}{}│{}", c1, c2, Colors::DIM, specs_text, " ".repeat(padding_specs), c1, c2));
     buf.push(format!("{}├{}┤{}", c1, "─".repeat(width - 2), c2));
 
     // Print Host Section
     let section_title = format!(" HOST SYSTEM ({})", sysinfo::System::name().unwrap_or_else(|| "Unknown OS".to_string()));
-    let visible_len = visible_width(re_ansi, &section_title);
+    let visible_len = re_ansi.replace_all(&section_title, "").len();
     let padding = (width - 2).saturating_sub(visible_len);
     buf.push(format!("{}│{}{}{}{}{}{}{}│{}", c1, c2, Colors::YELLOW, Colors::BOLD, section_title, " ".repeat(padding), c2, c1, c2));
     buf.push(format!("{}├{}┬{}┤{}", c1, "─".repeat(32), "─".repeat(width - 35), c2));
@@ -288,32 +280,18 @@ pub fn build_dashboard(
         print_row("Unmapped Emulator RAM", &format!("{:.1}MB (PIDs: {})", sum_ram, pid_str), 0.0, &mut buf);
     }
 
-    if host_stats.netsim_count > 0 {
-        let netsim_cpu_str = format!("{:.1}% ({} processes) {}", host_stats.netsim_cpu, host_stats.netsim_count, get_trend_arrow("netsim_cpu", host_stats.netsim_cpu));
-        print_row("Network Simulator CPU", &netsim_cpu_str, host_stats.netsim_cpu, &mut buf);
+    let netsim_cpu_str = format!("{:.1}% ({} processes) {}", host_stats.netsim_cpu, host_stats.netsim_count, get_trend_arrow("netsim_cpu", host_stats.netsim_cpu));
+    print_row("Network Simulator CPU", &netsim_cpu_str, host_stats.netsim_cpu, &mut buf);
 
-        let netsim_ram_str = format!("{:.1}MB ({} processes)", host_stats.netsim_ram_mb, host_stats.netsim_count);
-        print_row("Network Simulator RAM", &netsim_ram_str, 0.0, &mut buf);
-    } else {
-        print_row("Network Simulator CPU", "N/A", 0.0, &mut buf);
-        print_row("Network Simulator RAM", "N/A", 0.0, &mut buf);
-    }
+    let netsim_ram_str = format!("{:.1}MB ({} processes)", host_stats.netsim_ram_mb, host_stats.netsim_count);
+    print_row("Network Simulator RAM", &netsim_ram_str, 0.0, &mut buf);
 
-    if let Some(snap) = netsim_snapshot {
-        if !snap.daemon_rows.is_empty() {
-            for (lbl, val) in &snap.daemon_rows {
-                print_row(lbl, val, 0.0, &mut buf);
-            }
-        } else if let Some(ref status_str) = snap.daemon_status_row {
-            print_row("Netsim Daemon", status_str, 0.0, &mut buf);
-        }
-    }
 
     // Print Guest Section
     if guest_results.is_empty() {
         buf.push(format!("{}├{}┴{}┤{}", c1, "─".repeat(32), "─".repeat(width - 35), c2));
         let section_title = " GUEST SYSTEM (ADB)";
-        let visible_len = visible_width(re_ansi, &section_title);
+        let visible_len = re_ansi.replace_all(&section_title, "").len();
         let padding = (width - 2).saturating_sub(visible_len);
         buf.push(format!("{}│{}{}{}{}{}{}{}│{}", c1, c2, Colors::HEADER, Colors::BOLD, section_title, " ".repeat(padding), c2, c1, c2));
         buf.push(format!("{}├{}┬{}┤{}", c1, "─".repeat(32), "─".repeat(width - 35), c2));
@@ -321,8 +299,7 @@ pub fn build_dashboard(
         print_row("Guest RAM Usage", "N/A", 0.0, &mut buf);
         print_row("Guest Swap Memory", "N/A", 0.0, &mut buf);
     } else {
-        static RE_MODEL_CLEAN: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-        let re_model_clean = RE_MODEL_CLEAN.get_or_init(|| Regex::new(r" \| Android [^|]+ \(API ([^|]+)\) \| Build: ([^|]+)").unwrap());
+        let re_model_clean = Regex::new(r" \| Android [^|]+ \(API ([^|]+)\) \| Build: ([^|]+)").unwrap();
 
         let mut guest_keys: Vec<&String> = guest_results.keys().collect();
         guest_keys.sort();
@@ -369,7 +346,7 @@ pub fn build_dashboard(
             };
 
             let mut inside_text = format!(" GUEST SYSTEM ({})", display_name);
-            let v_title_len = visible_width(re_ansi, &inside_text);
+            let v_title_len = re_ansi.replace_all(&inside_text, "").len();
 
             let (badge_formatted, v_badge_len) = if status_tag.is_empty() {
                 ("".to_string(), 0)
@@ -382,7 +359,7 @@ pub fn build_dashboard(
                 let max_title_len = (width - 4).saturating_sub(v_badge_len + 1);
                 inside_text = inside_text.chars().take(max_title_len).collect::<String>();
                 inside_text.push('…');
-                v_title_len_final = visible_width(re_ansi, &inside_text);
+                v_title_len_final = re_ansi.replace_all(&inside_text, "").len();
             }
 
             let padding = (width - 2).saturating_sub(v_title_len_final + v_badge_len);
@@ -444,11 +421,6 @@ pub fn build_dashboard(
             }
 
             print_row("Guest Logcat Errors", &format!("{} errs", err_count), 0.0, &mut buf);
-            if let Some(ns_row) =
-                netsim_snapshot.and_then(|snap| snap.emulator_rows.get(serial))
-            {
-                print_row("Netsim Status", ns_row, 0.0, &mut buf);
-            }
         }
     }
 
@@ -475,9 +447,8 @@ pub fn print_dashboard(
     hardware_specs: &str,
     force_clear: bool,
     online_indicator_until: &std::collections::HashMap<String, tokio::time::Instant>,
-    netsim_snapshot: Option<&crate::netsim::NetsimDashboardSnapshot>,
 ) {
-    let s = build_dashboard(host_stats, guest_results, prev_stats, iter_count, term_width, is_once, hardware_specs, force_clear, online_indicator_until, netsim_snapshot);
+    let s = build_dashboard(host_stats, guest_results, prev_stats, iter_count, term_width, is_once, hardware_specs, force_clear, online_indicator_until);
     println!("{}", s);
 }
 
@@ -515,8 +486,6 @@ mod tests {
             netsim_cpu: 0.0,
             netsim_ram_mb: 0.0,
             netsim_count: 0,
-            netsim_daemons: vec![],
-            emu_groups: HashMap::new(),
             gpu_percent: None,
             gpu_memory_mb: None,
             thermal_temp: None,
@@ -531,7 +500,7 @@ mod tests {
         let mut prev_stats = HashMap::new();
         let online_indicator_until = HashMap::new();
 
-        let dashboard = build_dashboard(&stats, &guest_results, &mut prev_stats, 1, 80, true, "Specs", true, &online_indicator_until, None);
+        let dashboard = build_dashboard(&stats, &guest_results, &mut prev_stats, 1, 80, true, "Specs", true, &online_indicator_until);
 
         assert!(dashboard.contains("Unmapped Emulator CPU"));
         assert!(dashboard.contains("10.0% (PIDs: 1234)"));
@@ -566,8 +535,6 @@ mod tests {
             netsim_cpu: 0.0,
             netsim_ram_mb: 0.0,
             netsim_count: 0,
-            netsim_daemons: vec![],
-            emu_groups: HashMap::new(),
             gpu_percent: None,
             gpu_memory_mb: None,
             thermal_temp: None,
@@ -582,7 +549,7 @@ mod tests {
         let mut prev_stats = HashMap::new();
         let online_indicator_until = HashMap::new();
 
-        let dashboard = build_dashboard(&stats, &guest_results, &mut prev_stats, 1, 120, true, "Specs", true, &online_indicator_until, None);
+        let dashboard = build_dashboard(&stats, &guest_results, &mut prev_stats, 1, 120, true, "Specs", true, &online_indicator_until);
 
         assert!(dashboard.contains("Unmapped Emulator CPU"));
         assert!(dashboard.contains("1000, 1001, 1002, 1003 ... (+1 more)"));
@@ -604,8 +571,6 @@ mod tests {
             netsim_cpu: 0.0,
             netsim_ram_mb: 0.0,
             netsim_count: 0,
-            netsim_daemons: vec![],
-            emu_groups: HashMap::new(),
             gpu_percent: None,
             gpu_memory_mb: None,
             thermal_temp: None,
@@ -624,7 +589,7 @@ mod tests {
         let mut prev_stats = HashMap::new();
         let online_indicator_until = HashMap::new();
 
-        let dashboard = build_dashboard(&stats, &guest_results, &mut prev_stats, 1, 80, true, "Specs", true, &online_indicator_until, None);
+        let dashboard = build_dashboard(&stats, &guest_results, &mut prev_stats, 1, 80, true, "Specs", true, &online_indicator_until);
 
         assert!(dashboard.contains("Total Device CPU Usage"));
     }
@@ -645,8 +610,6 @@ mod tests {
             netsim_cpu: 0.0,
             netsim_ram_mb: 0.0,
             netsim_count: 0,
-            netsim_daemons: vec![],
-            emu_groups: HashMap::new(),
             gpu_percent: None,
             gpu_memory_mb: None,
             thermal_temp: None,
@@ -666,85 +629,9 @@ mod tests {
         let mut prev_stats = HashMap::new();
         let online_indicator_until = HashMap::new();
 
-        let dashboard = build_dashboard(&stats, &guest_results, &mut prev_stats, 1, 80, true, "Specs", true, &online_indicator_until, None);
+        let dashboard = build_dashboard(&stats, &guest_results, &mut prev_stats, 1, 80, true, "Specs", true, &online_indicator_until);
 
         assert!(dashboard.contains("Very Long"));
     }
 
-    #[test]
-    fn test_truncated_guest_title_keeps_border_aligned() {
-        let stats = HostStats {
-            cpu_usage: 10.0,
-            ram_used_gb: 1.0,
-            ram_total_gb: 4.0,
-            ram_percent: 25.0,
-            swap_used_gb: 0.0,
-            swap_total_gb: 0.0,
-            swap_percent: 0.0,
-            disk_read_mbs: 0.0,
-            disk_write_mbs: 0.0,
-            emulators: vec![],
-            netsim_cpu: 0.0,
-            netsim_ram_mb: 0.0,
-            netsim_count: 0,
-            netsim_daemons: vec![],
-            emu_groups: HashMap::new(),
-            gpu_percent: None,
-            gpu_memory_mb: None,
-            thermal_temp: None,
-            paging_str: "N/A".to_string(),
-            paging_in: 0.0,
-            paging_out: 0.0,
-            battery_str: "N/A".to_string(),
-            battery_percent: None,
-        };
-        // Long enough that the title is cut and ends in '…' (3 UTF-8 bytes,
-        // one column) ahead of the badge.
-        let model = "x86_64 glasses emulator | Android 16 (API 36) | Build: BGQ1.260312.001.A2 | Res: 480x480";
-        let mut guest_results = HashMap::new();
-        guest_results.insert(
-            "emulator-5554".to_string(),
-            (
-                model.to_string(),
-                true,
-                "10%".to_string(),
-                "5%".to_string(),
-                "26%".to_string(),
-                None,
-                None,
-                0,
-                None,
-                false,
-                true,
-            ),
-        );
-        let mut prev_stats = HashMap::new();
-        let online_indicator_until = HashMap::new();
-        let re_ansi = Regex::new(r"(?i)\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])").unwrap();
-
-        for term_width in [80u16, 121] {
-            let dashboard = build_dashboard(
-                &stats,
-                &guest_results,
-                &mut prev_stats,
-                1,
-                term_width,
-                true,
-                "Specs",
-                true,
-                &online_indicator_until,
-                None,
-            );
-            let top = dashboard.lines().find(|l| l.contains('┌')).unwrap();
-            let header = dashboard.lines().find(|l| l.contains("[RECORDING BOOT STATS]")).unwrap();
-            let header_plain = re_ansi.replace_all(header, "");
-            assert!(header_plain.contains('…'), "{header_plain}");
-            assert!(header_plain.ends_with('│'), "{header_plain}");
-            assert_eq!(
-                visible_width(&re_ansi, header),
-                visible_width(&re_ansi, top),
-                "{header_plain}"
-            );
-        }
-    }
 }

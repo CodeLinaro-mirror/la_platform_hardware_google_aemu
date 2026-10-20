@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package android.emulation.v2.webrtc;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.webrtc";
+
+import "webrtc/ice_config.proto";
+import "google/protobuf/empty.proto";
+
+// Manages rtc execution and interactions.
+service RtcService {
+  rpc RequestRtcStream(RtcStreamRequest) returns (RtcStreamResponse);
+  // Updates the rtc stream.
+  rpc UpdateRtcStream(RtcStreamUpdateRequest) returns (google.protobuf.Empty);
+  // Sends jsep message.
+  rpc SendJsepMessage(JsepMessage) returns (google.protobuf.Empty);
+  // Receives jsep message stream.
+  rpc ReceiveJsepMessageStream(RtcSession) returns (stream JsepMessage);
+}
+
+// The track type.
+enum TrackType {
+  TRACK_TYPE_UNSPECIFIED = 0;
+  // Primary display video track.
+  TRACK_TYPE_SCREEN_PRIMARY = 1;
+  // Secondary display video track (e.g., Pixel Fold outer screen).
+  TRACK_TYPE_SCREEN_SECONDARY = 2;
+  // System speaker audio track.
+  TRACK_TYPE_AUDIO_SPEAKER = 3;
+  // Microphone injection track.
+  TRACK_TYPE_AUDIO_MICROPHONE = 4;
+}
+
+message RtcSession {
+  string session_id = 1;
+}
+
+message RtcStreamRequest {
+  repeated TrackType requested_tracks = 1;
+  // Explicit display IDs for multi-display.
+  repeated int32 secondary_display_ids = 2;
+}
+
+message RtcStreamResponse {
+  RtcSession handle = 1;
+  // TURN/STUN configuration.
+  repeated IceServer ice_servers = 2;
+}
+
+message RtcStreamUpdateRequest {
+  RtcSession handle = 1;
+  // The added tracks.
+  repeated TrackType added_tracks = 2;
+  // The removed tracks.
+  repeated TrackType removed_tracks = 3;
+}
+
+message JsepMessage {
+  RtcSession handle = 1;
+  // JSON-encoded SDP Offer/Answer or ICE Candidate.
+  string message = 2;
+}

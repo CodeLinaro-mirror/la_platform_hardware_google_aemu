@@ -20,8 +20,6 @@ from commands.crash.analyze import register_analyze_parser
 from commands.crash.autofix import register_autofix_parser
 from commands.crash.file_bug import register_file_bug_parser
 from commands.crash.find_bug import register_find_bug_parser
-from commands.crash.link_bug import register_link_bug_parser
-from commands.crash.list_crashes import register_list_crashes_parser
 from commands.crash.reproduce import register_reproduce_parser
 
 
@@ -33,8 +31,8 @@ def register_parser(subparsers) -> None:
     """
     crash_parser = subparsers.add_parser(
         "crash",
-        help="Crash investigation group: production crash discovery (list-crashes), bug linking (link-bug), stack analysis (analyze), reproduction (reproduce), Buganizer deduplication (find-bug, file-bug), and AI autofixing (autofix)",
-        description="Automated crash discovery, investigation, Buganizer deduplication, issue filing, go/crash annotation linking, local reproduction, and AI autofixing tools group. Contains subcommands: list-crashes, link-bug, analyze, reproduce, find-bug, file-bug, autofix.",
+        help="Crash investigation group: minidump symbolication, stack analysis (analyze), reproduction (reproduce), Buganizer deduplication (find-bug, file-bug), and AI autofixing (autofix) tools",
+        description="Automated crash investigation, Buganizer deduplication, issue filing, local reproduction, and AI autofixing tools group. Contains subcommands: analyze, reproduce, find-bug, file-bug, autofix.",
     )
     crash_parser.set_defaults(
         func=lambda args: crash_parser.print_help() or sys.exit(0)
@@ -44,23 +42,17 @@ def register_parser(subparsers) -> None:
         dest="crash_cmd", help="Available crash subcommands"
     )
 
-    # 1. list-crashes
-    register_list_crashes_parser(crash_subparsers)
-
-    # 2. link-bug
-    register_link_bug_parser(crash_subparsers)
-
-    # 3. find-bug
+    # 1. find-bug
     register_find_bug_parser(crash_subparsers)
 
-    # 4. file-bug
+    # 2. file-bug
     register_file_bug_parser(crash_subparsers)
 
-    # 5. autofix
+    # 3. autofix
     register_autofix_parser(crash_subparsers)
 
-    # 6. reproduce
+    # 4. reproduce
     register_reproduce_parser(crash_subparsers)
 
-    # 7. analyze
+    # 5. analyze
     register_analyze_parser(crash_subparsers)

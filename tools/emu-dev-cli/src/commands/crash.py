@@ -40,11 +40,6 @@ from commands.crash.fix_checker import (
     extract_crash_version_info,
     format_agent_version_guardrail_prompt,
 )
-from commands.crash.link_bug import register_link_bug_parser, run_link_bug
-from commands.crash.list_crashes import (
-    register_list_crashes_parser,
-    run_list_crashes,
-)
 from commands.crash.parser import register_parser
 from commands.crash.reproduce import register_reproduce_parser, run_reproduce
 from commands.crash.utils import (
@@ -77,8 +72,6 @@ __all__ = [
     "register_autofix_parser",
     "register_file_bug_parser",
     "register_find_bug_parser",
-    "register_link_bug_parser",
-    "register_list_crashes_parser",
     "register_parser",
     "register_reproduce_parser",
     "run_analyze",
@@ -86,7 +79,5 @@ __all__ = [
     "run_crashadvisor_bazel",
     "run_file_bug",
     "run_find_bug",
-    "run_link_bug",
-    "run_list_crashes",
     "run_reproduce",
 ]

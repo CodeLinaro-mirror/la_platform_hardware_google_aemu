@@ -1,0 +1,190 @@
+syntax = "proto3";
+
+package android.emulation.v2.snapshot;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.snapshot";
+
+import "google/api/field_behavior.proto";
+import "google/longrunning/operations.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+// Manages snapshot execution and interactions.
+service SnapshotService {
+  // Snapshot Queries & Compatibility Inspection.
+  rpc ListSnapshots(ListSnapshotsRequest) returns (ListSnapshotsResponse);
+  // Gets the snapshot.
+  rpc GetSnapshot(GetSnapshotRequest) returns (Snapshot);
+
+  // In-Node Snapshot Lifecycle (Fast local qcow2 overlays & RAM dumps).
+  rpc CreateSnapshot(CreateSnapshotRequest) returns (google.longrunning.Operation) {
+    option (google.longrunning.operation_info) = {
+      response_type: "Snapshot"
+      metadata_type: "SnapshotOperationMetadata"
+    };
+  }
+  // Restores snapshot.
+  rpc RestoreSnapshot(RestoreSnapshotRequest) returns (google.longrunning.Operation) {
+    option (google.longrunning.operation_info) = {
+      response_type: "Snapshot"
+      metadata_type: "SnapshotOperationMetadata"
+    };
+  }
+  // Deletes the snapshot.
+  rpc DeleteSnapshot(DeleteSnapshotRequest) returns (google.protobuf.Empty);
+
+  // Promotes a specific snapshot to be the active quickboot target, or demotes
+  // the current target to force a cold boot on the next launch.
+  rpc SetQuickbootTarget(SetQuickbootTargetRequest)
+      returns (google.protobuf.Empty);
+
+  // Cloud Object Storage Offload (Valet Key Pattern).
+  //
+  // NOTE: These RPCs strictly handle network I/O to/from the local disk cache.
+  // They DO NOT mutate the running VM state.
+  //
+  // Workflow for Restoring a VM:
+  // 1. Call ImportSnapshot() to pull the tarball from GCS/S3 to local disk.
+  // 2. Call RestoreSnapshot() to halt the VM and boot the local state.
+  //
+  // Workflow for Backing up a VM:
+  // 1. Call CreateSnapshot() to dump RAM/Disk to local disk.
+  // 2. Call ExportSnapshot() to push the local files to GCS/S3.
+
+  // Uploads a local snapshot to a pre-signed cloud URL via a Long-Running Operation.
+  // Fails with NOT_FOUND if the snapshot_id does not exist in ListSnapshots().
+  // Status and progress can be monitored via the google.longrunning.Operations service.
+  rpc ExportSnapshot(ExportSnapshotRequest) returns (google.longrunning.Operation) {
+    option (google.longrunning.operation_info) = {
+      response_type: "Snapshot"
+      metadata_type: "SnapshotOperationMetadata"
+    };
+  }
+
+  // Downloads a snapshot from a pre-signed cloud URL to local disk via a Long-Running Operation.
+  // Does NOT boot the VM. Idempotent: If snapshot_id already exists locally and
+  // checksums match, returns COMPLETED immediately without downloading.
+  // Status and progress can be monitored via the google.longrunning.Operations service.
+  rpc ImportSnapshot(ImportSnapshotRequest) returns (google.longrunning.Operation) {
+    option (google.longrunning.operation_info) = {
+      response_type: "Snapshot"
+      metadata_type: "SnapshotOperationMetadata"
+    };
+  }
+}
+
+message Snapshot {
+  string snapshot_id = 1;
+  // The display name.
+  string display_name = 2;
+  // The description.
+  string description = 3;
+  // The create time.
+  google.protobuf.Timestamp create_time = 4;
+  // The size bytes.
+  int64 size_bytes = 5;
+
+  // Hardware & Host Fingerprint for Cross-Node Compatibility Verification.
+  CompatibilityFingerprint compatibility = 6;
+
+  // True if this snapshot is the currently designated quickboot target.
+  // The emulator will automatically boot from this snapshot on next launch,
+  // and will overwrite it if VmService executes SHUTDOWN with
+  // save_quickboot_snapshot = true.
+  bool quickboot_target = 7;
+}
+
+message CompatibilityFingerprint {
+  // e.g. "x86_64", "arm64".
+  string cpu_architecture = 1;
+  // Hash of CPUID flags (AVX-512, SSE, etc.).
+  string cpu_features_hash = 2;
+  // Android OS build ID.
+  string system_image_build_id = 3;
+  // Emulator binary build ID.
+  string emulator_build_id = 4;
+  // e.g. "gfxstream-vulkan", "swiftshader".
+  string gpu_renderer = 5;
+  // The host compatible.
+  bool host_compatible = 6;
+}
+
+message ListSnapshotsRequest {
+  bool compatible_only = 1;
+}
+
+message ListSnapshotsResponse {
+  repeated Snapshot snapshots = 1;
+}
+
+message GetSnapshotRequest {
+  string snapshot_id = 1;
+}
+
+message CreateSnapshotRequest {
+  Snapshot snapshot = 1;
+}
+
+message RestoreSnapshotRequest {
+  string snapshot_id = 1;
+}
+
+message DeleteSnapshotRequest {
+  string snapshot_id = 1;
+}
+
+message SetQuickbootTargetRequest {
+  // The snapshot ID to load on boot and overwrite on quickboot-enabled
+  // shutdowns.
+  //
+  // Demotion: If this field is omitted/empty, the emulator clears the quickboot
+  // target, guaranteeing a clean cold-boot on next process launch.
+  optional string snapshot_id = 1;
+}
+
+message ExportSnapshotRequest {
+  string snapshot_id = 1;
+
+  // Cloud Storage Destination (Emulator uploads directly to bucket).
+  oneof destination {
+    // e.g. "gs://aemu-snapshots/avd_123/snap.tar.zst"
+    string storage_uri = 2;
+    // Pre-signed HTTP PUT URL.
+    string presigned_upload_url = 3;
+  }
+}
+
+message ImportSnapshotRequest {
+  string snapshot_id = 1;
+
+  // Cloud Storage Source (Emulator downloads directly from bucket).
+  oneof source {
+    // e.g. "gs://aemu-snapshots/golden_images/base.tar.zst"
+    string storage_uri = 2;
+    // Pre-signed HTTP GET URL.
+    string presigned_download_url = 3;
+  }
+}
+
+message SnapshotOperationMetadata {
+  enum Phase {
+    PHASE_UNSPECIFIED = 0;
+    // Indicates preparing.
+    PREPARING = 1;
+    // Indicates transferring.
+    TRANSFERRING = 2;
+  }
+  // Output only. The current phase of the LRO.
+  Phase phase = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Progress gauge: [0, 100].
+  int32 progress_percent = 2;
+  // The snapshot id.
+  string snapshot_id = 3;
+
+  // Fine-Grained Telemetry for Accurate Throughput (MB/s) and ETA Gauges.
+  int64 transferred_bytes = 4;
+  // The total bytes.
+  int64 total_bytes = 5;
+}

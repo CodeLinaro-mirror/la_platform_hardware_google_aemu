@@ -43,18 +43,6 @@ class CrashAdvisorTest(unittest.TestCase):
         self.assertIn("symbols", modules)
         self.assertIn("buganizer", modules)
 
-    def test_tqdm_stub_context_manager(self):
-        """Tests that the fallback tqdm stub supports both context manager and iteration."""
-        with patch.dict(sys.modules, {"tqdm": None}):
-            sys.modules.pop("tqdm", None)
-            ensure_crashadvisor_imports()
-            import tqdm
-
-            with tqdm.tqdm(total=10, unit="B") as bar:
-                bar.update(5)
-            self.assertEqual(list(tqdm.tqdm([1, 2, 3])), [1, 2, 3])
-
-
     @patch("subprocess.run")
     @patch("lib.workspace.WorkspacePathResolver.find_tool_binary")
     def test_run_crashadvisor_bazel_executable_found(self, mock_find_bin, mock_run):

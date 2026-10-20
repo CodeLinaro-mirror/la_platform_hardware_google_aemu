@@ -30,8 +30,6 @@ def main() -> None:
     parser.add_argument("--archives", nargs="*", default=[], type=Path, help="Archive files")
     parser.add_argument("--includes", nargs="*", default=[], type=Path, help="Include paths")
     parser.add_argument("--headers", nargs="*", default=[], type=Path, help="Header files")
-    parser.add_argument("--data", nargs="*", default=[], type=Path, help="Data files to persist")
-    parser.add_argument("--extra-var", action="append", default=[], help="Extra variables (key=value)")
     parser.add_argument("--requires", action="append", default=[], help="Requires")
     parser.add_argument("--link-flags", default="", type=str, help="Extra link flags")
     parser.add_argument("--cflags", default="", type=str, help="Extra cflags")
@@ -40,20 +38,13 @@ def main() -> None:
 
     # Construct the shim dictionary as expected by PackageConfigPc
     shim = {}
-    # Note these shims are currently unsupported: name, Libs, link_name, dll_ext
+    # Note these shims are currently unsupported: name, extra_vars, Libs, link_name, dll_ext
     if args.requires:
         shim["Requires"] = ", ".join(args.requires)
     if args.link_flags:
         shim["link_flags"] = args.link_flags
     if args.cflags:
         shim["cflags"] = args.cflags
-    if args.extra_var:
-        extra_vars = {}
-        for ev in args.extra_var:
-            if "=" in ev:
-                k, v = ev.split("=", 1)
-                extra_vars[k] = v
-        shim["extra_vars"] = extra_vars
 
     out_dir = args.out
     release_dir = out_dir / "release"
@@ -73,7 +64,6 @@ def main() -> None:
         shim=shim,
         target=args.bazel_label,
         headers=args.headers,
-        data=args.data,
     )
 
     # Re-use the AMC binary placement, persistence, and writing logic

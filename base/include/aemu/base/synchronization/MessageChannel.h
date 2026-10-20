@@ -157,76 +157,50 @@ public:
     }
 
     bool receive(T* msg) {
-        T item;
         const size_t pos = beforeRead();
         const bool res = !isStoppedLocked();
         if (res) {
-            takeSlot(pos, &item);
+            *msg = std::move(mItems[pos]);
         }
         afterRead(res);
-        if (res) {
-            *msg = std::move(item);
-        }
         return res;
     }
 
     Optional<T> receive() {
-        T item;
         const size_t pos = beforeRead();
-        const bool res = !isStoppedLocked();
-        if (res) {
-            takeSlot(pos, &item);
-        }
-        afterRead(res);
-        if (!res) {
+        if (!isStoppedLocked()) {
+            Optional<T> msg(std::move(mItems[pos]));
+            afterRead(true);
+            return msg;
+        } else {
+            afterRead(false);
             return {};
         }
-        return Optional<T>(std::move(item));
     }
 
     bool tryReceive(T* msg) {
-        T item;
         const auto pos = beforeTryRead();
         if (pos) {
-            takeSlot(*pos, &item);
+            *msg = std::move(mItems[*pos]);
         }
         afterRead(pos);
-        if (pos) {
-            *msg = std::move(item);
-        }
         return pos;
     }
 
     Optional<T> timedReceive(uint64_t wallTimeUs) {
-        T item;
         const auto pos = beforeTimedRead(wallTimeUs);
-        const bool res = pos && !isStoppedLocked();
-        if (res) {
-            takeSlot(*pos, &item);
+        if (pos && !isStoppedLocked()) {
+            Optional<T> res(std::move(mItems[*pos]));
+            afterRead(true);
+            return res;
         }
-        afterRead(res);
-        if (!res) {
-            return {};
-        }
-        return Optional<T>(std::move(item));
+        afterRead(false);
+        return {};
     }
 
     constexpr size_t capacity() const { return CAPACITY; }
 
 private:
- // Moves the message at |pos| into |*item| and leaves a default-constructed
- // T in the slot. A plain move is not enough: a moved-from T is only
- // guaranteed to be valid, not empty (e.g. libc++'s std::function copies
- // callables held in its small buffer when moved, leaving the source
- // intact), so the channel would keep received messages, and anything they
- // own, alive until the slot is overwritten. |*item| must be
- // default-constructed; callers destroy any leftover state after releasing
- // mLock. Must be called with mLock held.
- void takeSlot(size_t pos, T* item) {
-     using std::swap;
-     swap(*item, mItems[pos]);
- }
-
     T mItems[CAPACITY];
 };
 

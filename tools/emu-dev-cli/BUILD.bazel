@@ -26,12 +26,10 @@ py_library(
     ]),
     data = glob(
         [
-            "docs/**/*.md",
             "src/templates/*.md",
             "workflows/**/*.yaml",
             "workflows/**/*.yml",
             "workflows/**/*.md",
-            "workflows/**/*.html",
         ],
         allow_empty = True,
     ),

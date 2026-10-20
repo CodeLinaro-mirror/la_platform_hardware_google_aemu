@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package android.emulation.v2.environment;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.environment";
+
+import "common/common.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/field_mask.proto";
+
+// Manages posture execution and interactions.
+service PostureService {
+  rpc GetPostureState(GetPostureStateRequest) returns (PostureState);
+  // Streams the posture state continuously.
+  rpc StreamPostureState(StreamPostureStateRequest)
+      returns (stream PostureState);
+  // Updates the posture state.
+  rpc UpdatePostureState(UpdatePostureStateRequest)
+      returns (PostureState);
+  // Streams posture updates bidirectionally.
+  rpc StreamPostureUpdates(stream UpdatePostureStateRequest)
+      returns (google.protobuf.Empty);
+}
+
+message GetPostureStateRequest {}
+
+message StreamPostureStateRequest {}
+
+message PostureState {
+
+  // The posture.
+  common.PostureType posture = 1;
+  // Hinge angle in degrees [0.0, 360.0].
+  float hinge_angle_degrees = 2;
+  // Monotonic timestamp (CLOCK_MONOTONIC) aligned with audio/video.
+  int64 timestamp_nanos = 3;
+}
+
+message UpdatePostureStateRequest {
+  PostureState posture_state = 1;
+  // Field mask for partial updates. Paths MUST be relative to the resource
+  // (e.g., `level_percent`, NOT `posture_state.level_percent`).
+  google.protobuf.FieldMask update_mask = 2;
+}

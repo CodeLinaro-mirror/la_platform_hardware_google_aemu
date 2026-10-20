@@ -1,0 +1,54 @@
+load(
+    "//protos/services_v2:defs.bzl",
+    "aemu_service_group_v2",
+    "aemu_service_v2",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+# Individual Service Target: Fingerprint Biometric Authentication Injection
+aemu_service_v2(
+    name = "biometrics_service",
+    srcs = ["biometrics_service.proto"],
+    has_grpc = True,
+    deps = ["@protobuf//:empty_proto"],
+)
+
+# Individual Service Target: Host-Guest Clipboard Synchronization
+aemu_service_v2(
+    name = "clipboard_service",
+    srcs = ["clipboard_service.proto"],
+    has_grpc = True,
+    deps = [
+        "@protobuf//:empty_proto",
+        "@protobuf//:field_mask_proto",
+    ],
+)
+
+# Individual Service Target: OS Lifecycle & In-Band System Reboot
+aemu_service_v2(
+    name = "system_service",
+    srcs = ["system_service.proto"],
+    has_grpc = True,
+    deps = ["@protobuf//:empty_proto"],
+)
+
+# Package-level Group Target
+aemu_service_group_v2(
+    name = "system",
+    grpc_cc_deps = [
+        ":biometrics_service_cc_grpc",
+        ":clipboard_service_cc_grpc",
+        ":system_service_cc_grpc",
+    ],
+    grpc_java_deps = [
+        ":biometrics_service_java_grpc",
+        ":clipboard_service_java_grpc",
+        ":system_service_java_grpc",
+    ],
+    proto_deps = [
+        ":biometrics_service_proto",
+        ":clipboard_service_proto",
+        ":system_service_proto",
+    ],
+)

@@ -4,12 +4,6 @@
 name: amend-commit
 description: Guide amending the latest commit while preserving its Gerrit Change-Id.
 
-args:
-  - name: repo
-    required: false
-    default: "."
-    help: "Target Git repository directory (default: .)"
-
 init:
   current-msg-file: "{cache-dir}/current_commit_msg_{state_id}.txt"
   proposed-msg-file: "{cache-dir}/proposed_commit_msg_{state_id}.txt"
@@ -31,13 +25,7 @@ steps:
       - A 'Bug: ' line with a bug number (e.g. 'Bug: 12345678') or 'Bug: N/A'
       - A 'Test: ' line describing the verification command or procedure, or 'TEST: N/A'
       - Exactly one Gerrit Change-Id line must be present and unmodified: match the Change-Id from '{current-msg-file}' (do not duplicate or include multiple Change-Id lines)
-      - Subject line: at most 72 characters, with no leading or trailing whitespace
-      - Body lines: wrapped at 72 characters (exempt: markdown code blocks, quotes, indented text, or URLs)
-      - No trailing spaces on any line
-      - No leading spaces on subject or footer lines
-      - No '#' git comment lines
-      - No consecutive blank lines
-    verifier_cmd: "python3 {workflow_dir}/verify_proposed_msg.py {proposed-msg-file} --current-file {current-msg-file} --base-commit-file {base-commit-file} --cwd \"{repo}\""
+    verifier_cmd: "python3 {workflow_dir}/verify_proposed_msg.py {proposed-msg-file} --current-file {current-msg-file} --base-commit-file {base-commit-file} --cwd ."
     error_prompt: |
       Proposed commit message verification failed (attempt {retries} of {max_retries}):
       {verifier_error}
@@ -56,7 +44,7 @@ steps:
     prompt: |
       The proposed commit message in '{proposed-msg-file}' has been verified.
       Please amend the commit using the verified commit message.
-    verifier_cmd: "python3 {workflow_dir}/verify_amend.py --current-file {current-msg-file} --proposed-file {proposed-msg-file} --base-commit-file {base-commit-file} --commit HEAD --cwd \"{repo}\""
+    verifier_cmd: "python3 {workflow_dir}/verify_amend.py --current-file {current-msg-file} --proposed-file {proposed-msg-file} --base-commit-file {base-commit-file} --commit HEAD --cwd ."
     error_prompt: |
       Commit amendment verification failed (attempt {retries} of {max_retries}):
       {verifier_error}

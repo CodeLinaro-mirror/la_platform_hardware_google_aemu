@@ -176,6 +176,14 @@ cc_library(
     includes = ["tests"],
 )
 
+# Generate a pkg-config definition for test_lib
+amc_pkg_config(
+    name = "test_lib_pc",
+    package_name = "test-lib",
+    library = ":test_lib",
+    version = "1.0.0",
+)
+
 # Generate a toolchain for the test generation
 amc_toolchain(
     name = "test_toolchain",
@@ -183,58 +191,12 @@ amc_toolchain(
     tool_versions = ":test_tool_versions.json",
 )
 
-# Generate a pkg-config definition for test_lib
-amc_pkg_config(
-    name = "test_lib_pc",
-    package_name = "test-lib",
-    library = ":test_lib",
-    toolchain = ":test_toolchain",
-    version = "1.0.0",
-)
-
 # Run a test meson to bazel generation
 amc_generator(
     name = "test_generator",
-    srcs = [
-        "//tools/toolchain/tests/amc/simple:main.cpp",
-        "//tools/toolchain/tests/amc/simple:meson.build",
-        "//tools/toolchain/tests/amc/simple:shim.jsonc",
-    ],
+    srcs = ["README.md"],
     config = "//tools/toolchain/tests/amc/simple:build-config.jsonc",
     packages = [":test_lib_pc"],
     target_platform = "linux",
     toolchain = ":test_toolchain",
-)
-
-filegroup(
-    name = "clang_files",
-    srcs = select({
-        "@platforms//os:linux": [
-            "@clang_linux_x64//:clang",
-            "@clang_linux_x64//:compiler_hdrs",
-            "@clang_linux_x64//:compiler_rt",
-            "@clang_linux_x64//:libcxx",
-            "@clang_linux_x64//:libunwind",
-            "@clang_linux_x64//:other_binaries",
-        ],
-        "@platforms//os:macos": [
-            "@clang_mac_all//:clang",
-            "@clang_mac_all//:compiler_rt",
-            "@clang_mac_all//:other_binaries",
-        ],
-        "@platforms//os:windows": [
-            "@clang_win_x64//:clang-cl",
-            "@clang_win_x64//:compiler_runtime",
-            "@clang_win_x64//:link",
-            "@clang_win_x64//:other_binaries",
-        ],
-    }),
-)
-
-filegroup(
-    name = "gcc_files",
-    srcs = select({
-        "@platforms//os:linux": ["@gcc_lib//:all_files"],
-        "//conditions:default": [],
-    }),
 )

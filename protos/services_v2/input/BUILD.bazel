@@ -1,0 +1,25 @@
+load(
+    "//protos/services_v2:defs.bzl",
+    "aemu_service_group_v2",
+    "aemu_service_v2",
+)
+
+package(default_visibility = ["//visibility:public"])
+
+# Individual Service Target: Multi-Modal Input Injection
+aemu_service_v2(
+    name = "input_service",
+    srcs = ["input_service.proto"],
+    has_grpc = True,
+    deps = [
+        "@protobuf//:empty_proto",
+    ],
+)
+
+# Package-level Group Target
+aemu_service_group_v2(
+    name = "input",
+    grpc_cc_deps = [":input_service_cc_grpc"],
+    grpc_java_deps = [":input_service_java_grpc"],
+    proto_deps = [":input_service_proto"],
+)

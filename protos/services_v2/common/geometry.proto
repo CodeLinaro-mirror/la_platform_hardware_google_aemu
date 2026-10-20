@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package android.emulation.v2.common;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.common";
+
+// Universal Normalized 2D Point Primitive [0.0, 1.0].
+// Directly stores resolution-independent normalized coordinates relative to
+// display logical dimensions:
+// - x = 0.0 (left edge) to 1.0 (right edge)
+// - y = 0.0 (top edge) to 1.0 (bottom edge)
+//
+// Off-Screen & Bezel Gestures: Values outside [0.0, 1.0] (e.g. -0.05 or 1.05)
+// are explicitly permitted and never clamped, allowing bezel-originating edge
+// gestures (Android system back swipe, status bar notification shade drag,
+// side navigation drawers).
+//
+// Client SDK Translation: Legacy absolute pixel coordinates (e.g. x=540,
+// y=1170 on 1080x2340) are translated to normalized floats in the Client SDK
+// layer prior to wire serialization.
+message Point {
+  // [0.0, 1.0] normalized coordinate relative to display logical width.
+  float x = 1;
+  // [0.0, 1.0] normalized coordinate relative to display logical height.
+  float y = 2;
+}
+
+// Universal Normalized 2D Span Primitive [0.0, 1.0].
+message Size {
+  // [0.0, 1.0] normalized span relative to display logical width.
+  float width = 1;
+  // [0.0, 1.0] normalized span relative to display logical height.
+  float height = 2;
+}
+
+// Universal Normalized Bounding Box (Top-Left Origin + Size Span).
+message BoundingBox {
+  // Top-left anchor in normalized coordinates.
+  Point origin = 1;
+  // Span in normalized dimensions.
+  Size size = 2;
+}
+
+// Universal Normalized 2D Bounding Rectangle [0.0, 1.0].
+message NormalizedRect {
+  // Left coordinate in range [0.0, 1.0].
+  float x = 1;
+  // Top coordinate in range [0.0, 1.0].
+  float y = 2;
+  // Width in range [0.0, 1.0].
+  float width = 3;
+  // Height in range [0.0, 1.0].
+  float height = 4;
+}

@@ -162,11 +162,6 @@ Each entry in `steps` defines a discrete phase:
 | `error_prompt` | `array<str>`     | No       | Prompt displayed when `verifier_cmd` fails and `retries < max_retries`.                         |
 | `stuck_prompt` | `array<str>`     | No       | Prompt displayed when `retries >= max_retries`.                                                 |
 | `stuck_reason` | `string`         | No       | String recorded in the state YAML when stuck.                                                   |
-| `loop_to_step` | `integer`        | No       | Target step index to jump back to when `verifier_cmd` exits with `loop_exit_code`.              |
-| `loop_exit_code` | `integer`      | No       | Exit code from `verifier_cmd` that triggers an iterative loop (default: `2`).                   |
-| `max_iterations` | `integer`      | No       | Maximum number of iterative loop cycles allowed before becoming `STUCK` (default: `5`).         |
-| `loop_prompt`  | `string`         | No       | Prompt displayed when looping back to `loop_to_step`.                                           |
-
 
 ---
 
@@ -354,7 +349,7 @@ The `--state` CLI argument is resolved flexibly by the runner:
 
 ### `amend-commit`
 - **Purpose**: Guides amending the latest commit (`HEAD`) while preserving the original Gerrit `Change-Id`. Uses two dedicated cache files—one for the original commit message and one for the proposed amended message—enabling safe pre-flight validation before touching Git history.
-- **Initialization**: `emu-dev-cli workflow amend-commit init [--repo <dir>]` (sets up cache files and prompts the user/agent to copy the current commit message into `current-msg-file`).
+- **Initialization**: `emu-dev-cli workflow amend-commit init` (no arguments; sets up cache files and prompts the user/agent to copy the current commit message into `current-msg-file`).
 - **Files Created**:
   - `current-msg-file`: Initialized at `{cache-dir}/current_commit_msg_{state_id}.txt` for the user/agent to write the current commit message.
   - `proposed-msg-file`: Initialized as an empty file at `{cache-dir}/proposed_commit_msg_{state_id}.txt` for authoring the amended message.
@@ -365,32 +360,3 @@ The `--state` CLI argument is resolved flexibly by the runner:
   2. **Step 1 (`Amend Commit`)**:
      - The agent amends the commit using the verified message.
      - Verifier locates the amended commit via its preserved `Change-Id`, verifies the commit hash changed, ensures the base commit is not an ancestor (preventing committing on top), and checks that the Git commit message matches `{proposed-msg-file}`.
-
-### `address-review`
-- **Purpose**: Automates the multi-round Gerrit code review loop: fetching unresolved human and AI (`groupagent-android-review`) comments, checking out the latest patchset, applying code/test fixes, staging inline replies, verifying commit message hygiene via `amend-commit`, uploading the new patchset (`repo upload` with `Presubmit-Ready+1`), resolving comment threads on Gerrit, and looping automatically if follow-up feedback arrives.
-- **Initialization**:
-  - Single CL: `emu-dev-cli workflow address-review init --cl <cl_number|url|Change-Id|HEAD>`
-  - Batch open CLs: `emu-dev-cli workflow address-review init --all-open true`
-- **Conversation Binding & Asynchronous Resumption**:
-  - Automatically binds `ANTIGRAVITY_CONVERSATION_ID` into `STATE-<id>.yaml` (`metadata.conversation_id`).
-  - If new review comments arrive hours later, run `emu-dev-cli gerrit resume <cl>` (or `emu-dev-cli workflow resume --state=<id>`) to reset the session to Step 0 and wake the original Jetski conversation via `agentapi`.
-
----
-
-## 9. Bug Fixing & TDD Workflows
-
-### `test-driven-bug-fixer`
-- **Purpose**: Autonomous test-driven bug-fixing workflow for Android Emulator codebases (`emu-main-dev` and `emu-main-next`).
-- **Initialization**: `emu-dev-cli workflow test-driven-bug-fixer init <bug-number>`
-  - Positional argument: `<bug-number>` (e.g. `553514805` or `b/553514805`).
-  - Optional arguments: `--repo <path>` (override target repo root), `--compile-cmd-override <command>` (override build command).
-- **Environment Detection**:
-  - Automatically identifies whether running in `emu-main-dev` (CMake incremental build in `external/qemu`) or `emu-main-next` (Bazel build `@goldfish//emulator/launcher:launch_emulator`).
-- **Workflow Steps**:
-  1. **Step 0 (`bug-to-markdown`)**: Sub-workflow fetches Buganizer issue details and generates a structured summary at `{cache-dir}/b{bug-number}.md`.
-  2. **Step 1 (`create-test`)**: Guides authoring a test exposing the bug (failing against unfixed code) and verifies that the codebase compiles cleanly.
-  3. **Step 2 (`commit-test`)**: Sub-workflow `create-commit` commits the failing test in its own atomic commit meeting Gerrit conventions.
-  4. **Step 3 (`apply-fix`)**: Guides implementing the fix from the markdown specification and verifies clean compilation.
-  5. **Step 4 (`commit-fix`)**: Sub-workflow `create-commit` commits the bug fix in its own atomic commit meeting Gerrit conventions.
-  6. **Step 5 (`summary`)**: Summarizes the completed commits and bug resolution.
-

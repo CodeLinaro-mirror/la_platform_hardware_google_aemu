@@ -30,14 +30,13 @@ def safe_link(src: Path, dst: Path):
         src: The source file path.
         dst: The destination file path.
     """
-    if dst.exists() or dst.is_symlink():
+    if dst.exists():
         dst.unlink()
-    real_src = src.resolve()
     try:
-        os.link(real_src, dst)
+        os.link(src, dst)
     except OSError as e:
         logging.debug("Hard link failed (%s), falling back to copy.", e)
-        shutil.copy2(real_src, dst)
+        shutil.copy2(src, dst)
 
 
 def safe_link_tree(src: Path, dst: Path):

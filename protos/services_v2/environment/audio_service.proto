@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package android.emulation.v2.environment;
+
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2.environment";
+
+import "common/common.proto";
+import "google/protobuf/empty.proto";
+
+// Manages audio execution and interactions.
+service AudioService {
+  rpc StreamMicrophoneAudio(stream AudioChunk) returns (google.protobuf.Empty);
+  // Streams the speaker audio continuously.
+  rpc StreamSpeakerAudio(StreamSpeakerAudioRequest) returns (stream AudioChunk);
+}
+
+message AudioChunk {
+  bytes pcm_data = 1;
+  // Sampling rate in Hz (e.g. 16000, 44100, 48000).
+  int32 sample_rate_hz = 2;
+  // Channel count (e.g. 1 = Mono, 2 = Stereo, 6 = 5.1 Surround).
+  int32 channel_count = 3;
+  // The format.
+  common.SampleFormat format = 4;
+  // Monotonic timestamp in nanoseconds (CLOCK_MONOTONIC). Populated by the
+  // server for speaker streams, or rebased by the Gateway for microphone pacing.
+  int64 timestamp_nanos = 5;
+}
+
+message StreamSpeakerAudioRequest {
+  optional int32 sample_rate_hz = 1;
+  // The format.
+  optional common.SampleFormat format = 2;
+}
