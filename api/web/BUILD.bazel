@@ -110,14 +110,20 @@ ts_project(
     deps = _COMMON_DEPS,
 )
 
+filegroup(
+    name = "web_dts",
+    srcs = [":web"],
+    output_group = "types",
+    target_compatible_with = _NOT_WINDOWS,
+)
+
 # Packaged distribution of @android/web
 copy_to_directory(
     name = "pkg",
     srcs = [
         "package.json",
         ":web",
-        # Implicitly created by ts_project(name = "web") to export .d.ts typings
-        ":web_types",
+        ":web_dts",
     ],
     root_paths = [
         "hardware/google/aemu/api/web/_ts_out",
@@ -136,6 +142,10 @@ ts_project(
         "tests/*.ts",
         "tests/*.tsx",
     ]) + ["tsconfig.json"],
+    args = [] if existing_rule("web_types") else [
+        "--moduleResolution",
+        "node",
+    ],
     declaration = False,
     out_dir = "_test_out",
     target_compatible_with = _NOT_WINDOWS,
