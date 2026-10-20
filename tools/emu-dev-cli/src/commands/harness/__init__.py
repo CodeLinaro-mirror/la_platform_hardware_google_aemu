@@ -26,6 +26,7 @@ from commands.harness.guardrails import (
     dispatch_hook_event,
 )
 from commands.harness.ledger import SessionLedgerStore
+from commands.harness.mcp_server import run_stdio_mcp_server
 from commands.harness.plugin_installer import (
     get_harness_plugin_status,
     install_harness_plugin,
@@ -107,6 +108,12 @@ def register_parser(subparsers: Any) -> None:
         help="Clear only the specified conversation ID (clears all if omitted)",
     )
     clear_p.set_defaults(func=run_harness_clear)
+
+    mcp_p = harness_subparsers.add_parser(
+        "mcp-server",
+        help="Run the Stdio Model Context Protocol (MCP) server for aemu-harness",
+    )
+    mcp_p.set_defaults(func=lambda _args: run_stdio_mcp_server())
 
     for sub_p in (install_p, uninstall_p, status_p, clear_p):
         sub_p.add_argument(

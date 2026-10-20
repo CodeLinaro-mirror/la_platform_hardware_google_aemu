@@ -33,6 +33,7 @@ from commands.harness.guardrails import (
     evaluate_git_commit_command,
 )
 from commands.harness.ledger import SessionLedgerStore
+from commands.harness.mcp_server import handle_mcp_jsonrpc_request
 from commands.harness.plugin_installer import (
     get_harness_plugin_status,
     install_harness_plugin,
@@ -379,6 +380,13 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         pre_tool_cmd = hooks_json["PreToolUse"][0]["hooks"][0]["command"]
         self.assertIn("/custom/bin/emu-dev-cli harness hook --event pre-tool", pre_tool_cmd)
 
+        mcp_json = json.loads(
+            (target_plugin_dir / "mcp_config.json").read_text(encoding="utf-8")
+        )
+        mcp_srv = mcp_json["mcpServers"]["aemu-harness-mcp"]
+        self.assertEqual(mcp_srv["command"], "/custom/bin/emu-dev-cli")
+        self.assertEqual(mcp_srv["args"], ["harness", "mcp-server"])
+
         sidecar_server = target_plugin_dir / "sidecars" / "aemu_harness_ui" / "server.py"
         spec = importlib.util.spec_from_file_location("aemu_harness_sidecar", sidecar_server)
         self.assertIsNotNone(spec)
@@ -390,6 +398,38 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         uninstall_report = uninstall_harness_plugin(target_dir=target_plugin_dir)
         self.assertTrue(uninstall_report["removed"])
         self.assertFalse(target_plugin_dir.exists())
+
+    def test_mcp_server_jsonrpc_initialize_list_and_call(self) -> None:
+        init_res = handle_mcp_jsonrpc_request(
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
+        )
+        self.assertIsNotNone(init_res)
+        self.assertEqual(init_res["result"]["serverInfo"]["name"], "aemu-harness-mcp")  # type: ignore[index]
+
+        list_res = handle_mcp_jsonrpc_request(
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
+        )
+        self.assertIsNotNone(list_res)
+        tool_names = [t["name"] for t in list_res["result"]["tools"]]  # type: ignore[index]
+        self.assertIn("aemu_validate_commit_message", tool_names)
+        self.assertIn("aemu_search_reusable_libs", tool_names)
+
+        libs_res = handle_mcp_jsonrpc_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "aemu_search_reusable_libs",
+                    "arguments": {"query": "http"},
+                },
+            }
+        )
+        self.assertIsNotNone(libs_res)
+        self.assertFalse(libs_res["result"]["isError"])  # type: ignore[index]
+        payload = json.loads(libs_res["result"]["content"][0]["text"])  # type: ignore[index]
+        targets = [lib["bazel_target"] for lib in payload["libraries"]]
+        self.assertIn("//emulator/libs/http", targets)
 
 
 if __name__ == "__main__":

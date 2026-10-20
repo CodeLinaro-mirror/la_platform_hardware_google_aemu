@@ -14,8 +14,10 @@
 
 """Installer and status inspector for the `aemu-harness` Jetski plugin."""
 
+import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import sys
 from typing import Any, Dict, List, Optional
@@ -104,6 +106,19 @@ def install_harness_plugin(
                 raw_text = src_file.read_text(encoding="utf-8")
                 rendered = raw_text.replace("__EMU_DEV_CLI_BIN__", resolved_cli)
                 dst_file.write_text(rendered, encoding="utf-8")
+            elif filename == "mcp_config.json":
+                cli_parts = shlex.split(resolved_cli) or ["emu-dev-cli"]
+                mcp_payload = {
+                    "mcpServers": {
+                        "aemu-harness-mcp": {
+                            "command": cli_parts[0],
+                            "args": cli_parts[1:] + ["harness", "mcp-server"],
+                        }
+                    }
+                }
+                dst_file.write_text(
+                    json.dumps(mcp_payload, indent=2) + "\n", encoding="utf-8"
+                )
             else:
                 shutil.copy2(src_file, dst_file)
 
@@ -143,6 +158,7 @@ def get_harness_plugin_status(target_dir: Optional[Path] = None) -> Dict[str, An
     required_files = [
         "plugin.json",
         "hooks.json",
+        "mcp_config.json",
         "rules/AGENTS.md",
         "agents/aemu-harness-orchestrator.md",
         "agents/aemu-code-reviewer.md",
