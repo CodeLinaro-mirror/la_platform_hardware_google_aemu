@@ -340,7 +340,7 @@ The `--state` CLI argument is resolved flexibly by the runner:
 `emu-dev-cli` provides built-in declarative workflows for Git source control hygiene and Gerrit review readiness using a safe, two-step file-based draft and application process:
 
 ### `create-commit`
-- **Purpose**: Guides developers and AI agents in drafting a proposed commit message into a cache file, validating it against Gerrit conventions (subject line $\le$ 72 chars, blank line separating title from body, body lines wrapped $\le$ 72 chars), and applying the commit to the repository.
+- **Purpose**: Guides developers and AI agents in drafting a proposed commit message into a cache file, validating it against Gerrit and Semantic Commit conventions (subject line `<type>[optional scope]: <description>` $\le$ 50 chars with capitalized imperative description and no trailing period, blank line separating title from non-empty explanatory body wrapped $\le$ 72 chars), and applying the commit to the repository.
 - **Initialization**: `emu-dev-cli workflow create-commit init` (no arguments; operates on current working directory).
 - **Files Created**:
   - `proposed-msg-file`: Initialized as an empty file at `{cache-dir}/proposed_commit_msg_{state_id}.txt`.

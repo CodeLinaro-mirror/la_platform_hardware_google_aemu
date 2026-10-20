@@ -783,8 +783,9 @@ standard loop:
    `emu-dev-cli flakiness reproduce --test <target> --target <target> --iterations 50` until **0%
    flake rate (PASSED)** is achieved.
 6. **Submit:** Author the commit using `emu-dev-cli workflow create-commit` ensuring full compliance
-   with Gerrit format protocol (no `TAG=` or `CONV=` tags, line lengths <= 72, clean footer tags
-   `Bug:` and `Test:`).
+   with Gerrit and Semantic Commit Message protocol (`<type>[optional scope]: <description>` subject
+   <= 50 chars with capitalized imperative description and no trailing period, non-empty explanatory
+   body wrapped <= 72 chars, no `TAG=` or `CONV=` tags, and clean footer tags `Bug:` and `Test:`).
 
 ---
 
