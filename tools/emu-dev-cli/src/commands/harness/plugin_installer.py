@@ -20,32 +20,73 @@ from pathlib import Path
 import shlex
 import shutil
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from commands.harness.constants import PLUGIN_DIR_NAME
+from commands.source_directory import (
+    get_all_source_directories,
+    get_source_directory,
+)
 
 
-def get_default_plugin_dest_dir(home_dir: Optional[Path] = None) -> Path:
+def get_default_plugin_dest_dir(home_dir: Optional[Union[Path, str]] = None) -> Path:
     """Returns `~/.gemini/config/plugins/aemu-harness`."""
-    base_home = home_dir or Path.home()
+    base_home = Path(home_dir) if home_dir else Path.home()
     return base_home / ".gemini" / "config" / "plugins" / PLUGIN_DIR_NAME
 
 
-def resolve_bundled_plugin_source_dir(explicit_source_dir: Optional[Path] = None) -> Optional[Path]:
+def _candidate_plugin_dirs_for_root(root: Path) -> List[Path]:
+    """Returns candidate `harness/plugin` paths relative to a workspace or tool root."""
+    return [
+        root / "hardware" / "google" / "aemu" / "tools" / "emu-dev-cli" / "harness" / "plugin",
+        root / "tools" / "emu-dev-cli" / "harness" / "plugin",
+        root / "harness" / "plugin",
+        root,
+    ]
+
+
+def resolve_bundled_plugin_source_dir(
+    explicit_source_dir: Optional[Union[Path, str]] = None,
+) -> Optional[Path]:
     """Locates the bundled `harness/plugin` directory in the checkout or installed release."""
     if explicit_source_dir:
-        candidate = explicit_source_dir / "harness" / "plugin"
-        if (candidate / "plugin.json").is_file():
-            return candidate
-        if (explicit_source_dir / "plugin.json").is_file():
-            return explicit_source_dir
+        explicit_path = Path(explicit_source_dir)
+        for cand in _candidate_plugin_dirs_for_root(explicit_path):
+            if (cand / "plugin.json").is_file():
+                return cand
 
     here = Path(__file__).resolve()
-    candidates = [
+    candidates: List[Path] = [
         here.parents[3] / "harness" / "plugin",
         here.parents[2] / "harness" / "plugin",
         Path.home() / ".android" / "emu-dev-cli" / "lib" / "harness" / "plugin",
     ]
+
+    # Search upward from the current working directory
+    try:
+        cwd = Path.cwd().resolve()
+        for parent in [cwd] + list(cwd.parents):
+            candidates.extend(_candidate_plugin_dirs_for_root(parent))
+    except OSError:
+        pass
+
+    # Search configured source directories (e.g. emu-main-next in ~/.android/emu-dev-cli.json)
+    for branch in ("emu-main-next", "emu-main-dev", "git_main"):
+        try:
+            branch_src = get_source_directory(branch)
+        except Exception:
+            branch_src = None
+        if branch_src:
+            candidates.extend(_candidate_plugin_dirs_for_root(Path(branch_src)))
+
+    try:
+        for entry in get_all_source_directories():
+            src_str = entry.get("path") if isinstance(entry, dict) else entry
+            if src_str and isinstance(src_str, str):
+                candidates.extend(_candidate_plugin_dirs_for_root(Path(src_str)))
+    except Exception:
+        pass
+
     for cand in candidates:
         if (cand / "plugin.json").is_file():
             return cand
@@ -75,21 +116,21 @@ def resolve_emu_dev_cli_command() -> str:
 
 
 def install_harness_plugin(
-    target_dir: Optional[Path] = None,
-    source_plugin_dir: Optional[Path] = None,
+    target_dir: Optional[Union[Path, str]] = None,
+    source_plugin_dir: Optional[Union[Path, str]] = None,
     cli_command: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Installs the `aemu-harness` plugin bundle into `~/.gemini/config/plugins/aemu-harness`."""
+    dest_dir = Path(target_dir) if target_dir else get_default_plugin_dest_dir()
     src_dir = resolve_bundled_plugin_source_dir(source_plugin_dir)
     if not src_dir or not src_dir.is_dir():
         return {
             "installed": False,
             "error": "Could not locate bundled 'harness/plugin' directory.",
-            "plugin_dir": str(target_dir or get_default_plugin_dest_dir()),
+            "plugin_dir": str(dest_dir),
             "installed_files": [],
         }
 
-    dest_dir = target_dir or get_default_plugin_dest_dir()
     resolved_cli = cli_command or resolve_emu_dev_cli_command()
     installed_files: List[str] = []
 
@@ -169,9 +210,11 @@ def _enable_plugin_and_sidecar_in_config(dest_dir: Path) -> None:
         pass
 
 
-def uninstall_harness_plugin(target_dir: Optional[Path] = None) -> Dict[str, Any]:
+def uninstall_harness_plugin(
+    target_dir: Optional[Union[Path, str]] = None,
+) -> Dict[str, Any]:
     """Removes the installed `aemu-harness` plugin directory."""
-    dest_dir = target_dir or get_default_plugin_dest_dir()
+    dest_dir = Path(target_dir) if target_dir else get_default_plugin_dest_dir()
     if dest_dir.exists():
         shutil.rmtree(dest_dir)
         return {
@@ -184,9 +227,11 @@ def uninstall_harness_plugin(target_dir: Optional[Path] = None) -> Dict[str, Any
     }
 
 
-def get_harness_plugin_status(target_dir: Optional[Path] = None) -> Dict[str, Any]:
+def get_harness_plugin_status(
+    target_dir: Optional[Union[Path, str]] = None,
+) -> Dict[str, Any]:
     """Inspects whether `aemu-harness` is installed and verifies its core components."""
-    dest_dir = target_dir or get_default_plugin_dest_dir()
+    dest_dir = Path(target_dir) if target_dir else get_default_plugin_dest_dir()
     required_files = [
         "plugin.json",
         "hooks.json",

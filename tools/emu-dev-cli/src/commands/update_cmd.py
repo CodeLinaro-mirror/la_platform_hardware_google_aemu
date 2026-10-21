@@ -1,3 +1,4 @@
+import importlib.util
 import os
 import sys
 import shutil
@@ -9,6 +10,43 @@ from install.installer import install_launcher_wrapper, install_skill, detect_de
 from lib.output import print_result
 
 BAZEL_TARGET = "@aemu//tools/emu-dev-cli:emu-dev-cli"
+
+
+def _resolve_installer_hooks(source_dir):
+    """Loads (install_launcher_wrapper, install_skill) from source_dir so updates to installer.py take effect immediately."""
+    wrapper_fn = install_launcher_wrapper
+    skill_fn = install_skill
+    if hasattr(wrapper_fn, "_mock_name") or hasattr(skill_fn, "_mock_name"):
+        return wrapper_fn, skill_fn
+
+    source_src_dir = os.path.join(
+        source_dir, "hardware", "google", "aemu", "tools", "emu-dev-cli", "src"
+    )
+    source_installer = os.path.join(source_src_dir, "install", "installer.py")
+    if not os.path.isfile(source_installer):
+        return wrapper_fn, skill_fn
+
+    try:
+        if source_src_dir not in sys.path:
+            sys.path.insert(0, source_src_dir)
+        for pkg_name in ("commands", "install", "lib", "targets"):
+            pkg_mod = sys.modules.get(pkg_name)
+            pkg_dir = os.path.join(source_src_dir, pkg_name)
+            if pkg_mod is not None and hasattr(pkg_mod, "__path__") and os.path.isdir(pkg_dir):
+                if pkg_dir not in pkg_mod.__path__:
+                    pkg_mod.__path__.insert(0, pkg_dir)
+
+        spec = importlib.util.spec_from_file_location(
+            "_emu_dev_cli_source_installer", source_installer
+        )
+        if spec and spec.loader:
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            wrapper_fn = getattr(mod, "install_launcher_wrapper", wrapper_fn)
+            skill_fn = getattr(mod, "install_skill", skill_fn)
+    except Exception:
+        pass
+    return wrapper_fn, skill_fn
 
 
 def register_parser(subparsers):
@@ -135,8 +173,9 @@ def run_update_cmd(args):
         sys.exit(1)
 
     print(f"📦 Re-installing compiled emu-dev-cli release package from {built_bin}...")
-    install_launcher_wrapper(built_bin, dest_path, source_dir=source_dir)
-    skill_files = install_skill(source_dir=source_dir)
+    wrapper_fn, skill_fn = _resolve_installer_hooks(source_dir)
+    wrapper_fn(built_bin, dest_path, source_dir=source_dir)
+    skill_files = skill_fn(source_dir=source_dir)
     ensure_codesearch_urls_config()
 
     print_result({

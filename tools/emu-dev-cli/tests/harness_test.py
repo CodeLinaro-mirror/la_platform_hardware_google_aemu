@@ -37,6 +37,7 @@ from commands.harness.mcp_server import handle_mcp_jsonrpc_request
 from commands.harness.plugin_installer import (
     get_harness_plugin_status,
     install_harness_plugin,
+    resolve_bundled_plugin_source_dir,
     uninstall_harness_plugin,
 )
 from commands.harness.presets import list_harness_presets
@@ -448,6 +449,55 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         review_preset = list_harness_presets("parallel-code-review")
         self.assertEqual(len(review_preset), 1)
         self.assertIn("aemu-code-reviewer", review_preset[0]["prompt"])
+
+    def test_resolve_bundled_plugin_source_dir_falls_back_to_source_directory(self) -> None:
+        from unittest.mock import patch
+
+        fake_workspace = self.base_path / "workspace"
+        fake_plugin_dir = (
+            fake_workspace
+            / "hardware"
+            / "google"
+            / "aemu"
+            / "tools"
+            / "emu-dev-cli"
+            / "harness"
+            / "plugin"
+        )
+        fake_plugin_dir.mkdir(parents=True, exist_ok=True)
+        (fake_plugin_dir / "plugin.json").write_text('{"name":"aemu-harness"}\n', encoding="utf-8")
+
+        fake_installed_file = (
+            self.base_path
+            / "empty_install"
+            / "lib"
+            / "commands"
+            / "harness"
+            / "plugin_installer.py"
+        )
+        fake_installed_file.parent.mkdir(parents=True, exist_ok=True)
+        fake_installed_file.write_text("# stub\n", encoding="utf-8")
+
+        with patch(
+            "commands.harness.plugin_installer.__file__", str(fake_installed_file)
+        ), patch(
+            "commands.harness.plugin_installer.Path.home",
+            return_value=self.base_path / "empty_home",
+        ), patch(
+            "commands.harness.plugin_installer.Path.cwd",
+            return_value=self.base_path / "empty_cwd",
+        ), patch(
+            "commands.harness.plugin_installer.get_source_directory",
+            side_effect=lambda branch: str(fake_workspace) if branch == "emu-main-next" else None,
+        ):
+            resolved = resolve_bundled_plugin_source_dir()
+            self.assertEqual(resolved, fake_plugin_dir)
+
+    def test_install_harness_plugin_accepts_string_target_dir(self) -> None:
+        target_str = str(self.base_path / "str_target" / "aemu-harness")
+        report = install_harness_plugin(target_dir=target_str)
+        self.assertTrue(report["installed"], msg=str(report))
+        self.assertTrue(Path(target_str, "plugin.json").is_file())
 
 
 if __name__ == "__main__":

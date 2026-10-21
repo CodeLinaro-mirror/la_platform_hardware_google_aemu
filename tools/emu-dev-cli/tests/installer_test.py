@@ -38,7 +38,7 @@ from install.installer import (
     install_skill,
     resolve_built_artifact,
 )
-from commands.update_cmd import BAZEL_TARGET, run_update_cmd
+from commands.update_cmd import BAZEL_TARGET, _resolve_installer_hooks, run_update_cmd
 
 
 class InstallerTest(unittest.TestCase):
@@ -343,6 +343,26 @@ class InstallerTest(unittest.TestCase):
             self.assertIn(".gemini/settings.json", res["removed_files"])
             self.assertEqual(res["kept_files"], [])
             self.assertFalse(gemini_dir.exists())
+
+    def test_resolve_installer_hooks_loads_updated_installer_from_source_dir(self):
+        """Verifies _resolve_installer_hooks loads fresh installer.py from source_dir."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir).resolve()
+            installer_dir = (
+                root / "hardware" / "google" / "aemu" / "tools" / "emu-dev-cli" / "src" / "install"
+            )
+            installer_dir.mkdir(parents=True, exist_ok=True)
+            (installer_dir / "installer.py").write_text(
+                "def install_launcher_wrapper(built_bin, dest_path, source_dir=None):\n"
+                "    return 'fresh_wrapper'\n"
+                "def install_skill(source_dir=None):\n"
+                "    return ['fresh_skill']\n",
+                encoding="utf-8",
+            )
+
+            wrapper_fn, skill_fn = _resolve_installer_hooks(str(root))
+            self.assertEqual(wrapper_fn("bin", "dest"), "fresh_wrapper")
+            self.assertEqual(skill_fn(), ["fresh_skill"])
 
 
 if __name__ == "__main__":
