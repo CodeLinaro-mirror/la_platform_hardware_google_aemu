@@ -20,10 +20,17 @@ package(default_visibility = ["//visibility:public"])
 
 py_library(
     name = "emu_dev_cli_lib",
-    srcs = glob([
-        "src/**/*.py",
-        "workflows/**/*.py",
-    ]),
+    srcs = glob(
+        [
+            "src/**/*.py",
+            "workflows/**/*.py",
+        ],
+        exclude = [
+            "workflows/tests/**",
+            "**/*_test.py",
+            "**/test_*.py",
+        ],
+    ),
     data = glob(
         [
             "docs/**/*.md",

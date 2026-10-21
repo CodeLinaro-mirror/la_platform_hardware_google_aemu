@@ -36,9 +36,12 @@ from workflows.common.git_commit import (
     get_head_commit_hash,
     messages_match,
     validate_commit_message,
+    validate_commit_message_file,
 )
 from workflows.core.yaml_runner import (
+    execute_workflow_step,
     init_workflow_session,
+    load_state_yaml,
     load_yaml,
 )
 
@@ -54,8 +57,12 @@ class TestCreateCommitWorkflowIntegration(unittest.TestCase):
 
         self.workflow_dir = os.path.dirname(self.workflow_yaml)
         self.verifier_py = os.path.join(self.workflow_dir, "verify_commit.py")
+        self.verify_proposed_msg_py = os.path.join(self.workflow_dir, "verify_proposed_msg.py")
+        self.setup_msg_files_py = os.path.join(self.workflow_dir, "setup_msg_files.py")
         self.get_base_commit_py = os.path.join(self.workflow_dir, "get_base_commit.py")
         self.assertTrue(os.path.isfile(self.verifier_py))
+        self.assertTrue(os.path.isfile(self.verify_proposed_msg_py))
+        self.assertTrue(os.path.isfile(self.setup_msg_files_py))
         self.assertTrue(os.path.isfile(self.get_base_commit_py))
 
     def test_workflow_discovery(self):
@@ -170,6 +177,133 @@ class TestCreateCommitWorkflowIntegration(unittest.TestCase):
             )
             self.assertEqual(res.returncode, 0)
             self.assertIn("Commit verification passed", res.stdout)
+
+    def test_validate_commit_message_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "commit_msg.txt"
+
+            file_path.write_text("", encoding="utf-8")
+            errors = validate_commit_message_file(file_path)
+            self.assertTrue(any("is empty" in e for e in errors))
+
+            valid_msg = "feat: Title\n\nBody.\n\nBug: 12345678\nTest: bazel test //...\n"
+            file_path.write_text(valid_msg, encoding="utf-8")
+            self.assertEqual(validate_commit_message_file(file_path), [])
+
+            file_path.write_text(valid_msg + "TAG=agy\n", encoding="utf-8")
+            errors = validate_commit_message_file(file_path)
+            self.assertTrue(any("Tag=" in e for e in errors))
+
+    def test_verify_proposed_msg_script(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            msg_file = Path(tmpdir) / "proposed.txt"
+
+            msg_file.write_text("", encoding="utf-8")
+            res = subprocess.run(
+                [sys.executable, self.verify_proposed_msg_py, str(msg_file)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(res.returncode, 1)
+            self.assertIn("empty", res.stderr)
+
+            msg_file.write_text("feat: Valid\n\nBody.\n\nBug: 1234\nTest: N/A\n", encoding="utf-8")
+            res = subprocess.run(
+                [sys.executable, self.verify_proposed_msg_py, str(msg_file)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(res.returncode, 0)
+            self.assertIn("verified successfully", res.stdout)
+
+    def test_workflow_lifecycle_in_git_repo(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_dir = Path(tmpdir) / "repo"
+            state_root = Path(tmpdir) / "state"
+            cache_root = Path(tmpdir) / "cache"
+            repo_dir.mkdir()
+
+            subprocess.run(["git", "init"], cwd=str(repo_dir), check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.name", "Test User"], cwd=str(repo_dir), check=True)
+            subprocess.run(["git", "config", "user.email", "test@google.com"], cwd=str(repo_dir), check=True)
+
+            dummy_file = repo_dir / "initial.txt"
+            dummy_file.write_text("initial content", encoding="utf-8")
+            subprocess.run(["git", "add", "initial.txt"], cwd=str(repo_dir), check=True)
+            subprocess.run(["git", "commit", "-m", "Initial commit\n\nBug: 1\nTest: N/A"], cwd=str(repo_dir), check=True)
+
+            base_commit = get_head_commit_hash(cwd=str(repo_dir))
+            self.assertNotEqual(base_commit, "EMPTY")
+
+            old_cwd = os.getcwd()
+            old_state = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
+            old_cache = os.environ.get("EMU_DEV_CLI_WORKFLOW_CACHE_DIR")
+            try:
+                os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = str(state_root)
+                os.environ["EMU_DEV_CLI_WORKFLOW_CACHE_DIR"] = str(cache_root)
+                os.chdir(str(repo_dir))
+                state_id = init_workflow_session(self.workflow_yaml, [])
+                self.assertIsNotNone(state_id)
+
+                state_file = state_root / "create-commit" / f"STATE-{state_id}.yaml"
+                state_data = load_state_yaml(state_file)
+                proposed_file = Path(state_data["metadata"]["proposed-msg-file"])
+                self.assertTrue(proposed_file.is_file())
+                self.assertEqual(proposed_file.read_text(encoding="utf-8"), "")
+
+                self.assertEqual(execute_workflow_step(self.workflow_yaml, state_id), 0)
+                state_data = load_state_yaml(state_file)
+                self.assertEqual(state_data["state"], "RUNNING")
+                self.assertEqual(state_data["step"], 0)
+
+                self.assertEqual(execute_workflow_step(self.workflow_yaml, state_id), 1)
+
+                commit_msg = (
+                    "feat: Add new feature\n\n"
+                    "Detailed description of feature.\n\n"
+                    "Bug: 87654321\n"
+                    "Test: bazel test //...\n"
+                )
+                proposed_file.write_text(commit_msg, encoding="utf-8")
+
+                self.assertEqual(execute_workflow_step(self.workflow_yaml, state_id), 0)
+                state_data = load_state_yaml(state_file)
+                self.assertEqual(state_data["step"], 1)
+
+                self.assertEqual(execute_workflow_step(self.workflow_yaml, state_id), 1)
+
+                file2 = repo_dir / "feature.txt"
+                file2.write_text("new feature", encoding="utf-8")
+                subprocess.run(["git", "add", "feature.txt"], cwd=str(repo_dir), check=True)
+                subprocess.run(["git", "commit", "-m", commit_msg], cwd=str(repo_dir), check=True)
+
+                self.assertEqual(execute_workflow_step(self.workflow_yaml, state_id), 0)
+                state_data = load_state_yaml(state_file)
+                self.assertEqual(state_data["state"], "DONE")
+            finally:
+                os.chdir(old_cwd)
+                if old_state is not None:
+                    os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = old_state
+                else:
+                    os.environ.pop("EMU_DEV_CLI_WORKFLOW_STATE_DIR", None)
+                if old_cache is not None:
+                    os.environ["EMU_DEV_CLI_WORKFLOW_CACHE_DIR"] = old_cache
+                else:
+                    os.environ.pop("EMU_DEV_CLI_WORKFLOW_CACHE_DIR", None)
+
+    def test_no_arguments_allowed(self):
+        with self.assertRaises(SystemExit):
+            init_workflow_session(self.workflow_yaml, ["some_arg"])
+
+    def test_init_fails_on_non_git_dir(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            res = subprocess.run(
+                [sys.executable, self.get_base_commit_py, "--cwd", tmpdir],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(res.returncode, 1)
+            self.assertIn("not a Git repository", res.stderr)
 
 
 if __name__ == "__main__":

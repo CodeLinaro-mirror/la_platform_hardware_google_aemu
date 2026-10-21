@@ -146,6 +146,7 @@ class BugToMarkdownWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_state_dir:
             env = os.environ.copy()
             env["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = tmp_state_dir
+            env["EMU_DEV_CLI_WORKFLOW_CACHE_DIR"] = os.path.join(tmp_state_dir, "cache")
 
             # 1. No arguments prints help
             help_res = subprocess.run(
