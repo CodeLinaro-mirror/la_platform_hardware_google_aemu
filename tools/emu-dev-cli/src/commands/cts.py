@@ -22,6 +22,10 @@ PUBLIC_VERIFIER_URLS = {
 }
 
 FETCH_ARTIFACT_BIN = "/google/data/ro/projects/android/fetch_artifact"
+_ADB_CMD_TIMEOUT_SECS = 15
+_APK_INSTALL_TIMEOUT_SECS = 120
+_TEST_SCRIPT_TIMEOUT_SECS = 600
+_BAZEL_RUN_TIMEOUT_SECS = 1800
 
 
 def find_verifier_scripts_dir():
@@ -215,7 +219,8 @@ def get_adb_serial(requested_serial=None):
     res = subprocess.run(["adb", "devices"],
                          capture_output=True,
                          text=True,
-                         check=False)
+                         check=False,
+                         timeout=_ADB_CMD_TIMEOUT_SECS)
     lines = res.stdout.strip().splitlines()
     devices = []
     for line in lines[1:]:
@@ -232,7 +237,7 @@ def get_device_arch(serial):
     if serial:
         cmd.extend(["-s", serial])
     cmd.extend(["shell", "getprop", "ro.product.cpu.abi"])
-    res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    res = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=_ADB_CMD_TIMEOUT_SECS)
     abi = res.stdout.strip().lower()
     if "arm" in abi or "aarch64" in abi:
         return "arm64"
@@ -281,7 +286,7 @@ def fetch_from_android_build(build_id, branch, target, arch, dest_zip, json_mode
         f"Fetching CTS-Verifier from Android Build (bid={build_id}, branch={branch}, target={target_name})...",
         json_mode=json_mode,
     )
-    res = subprocess.run(cmd, check=False)
+    res = subprocess.run(cmd, check=False, timeout=_TEST_SCRIPT_TIMEOUT_SECS)
     if res.returncode != 0:
         raise RuntimeError(
             f"fetch_artifact failed with exit code {res.returncode}")
@@ -357,7 +362,8 @@ def run_cts_verifier(args):
         )
         res = subprocess.run(
             [sys.executable, builder_script, "--collect-test-module-names"],
-            check=False)
+            check=False,
+            timeout=_TEST_SCRIPT_TIMEOUT_SECS)
         sys.exit(res.returncode)
 
     if use_bazel:
@@ -379,7 +385,7 @@ def run_cts_verifier(args):
             cmd = [
                 bazel_bin, "run", target, "--", "--collect_tests", "--window"
             ]
-            res = subprocess.run(cmd, cwd=source_dir, check=False)
+            res = subprocess.run(cmd, cwd=source_dir, check=False, timeout=_BAZEL_RUN_TIMEOUT_SECS)
             sys.exit(res.returncode)
 
         if getattr(args, "test_builder_mode", False):
@@ -400,7 +406,7 @@ def run_cts_verifier(args):
                 bazel_bin, "run", target, "--", "--dev_mode", "--window",
                 "--script", script_name
             ]
-            res = subprocess.run(cmd, cwd=source_dir, check=False)
+            res = subprocess.run(cmd, cwd=source_dir, check=False, timeout=_BAZEL_RUN_TIMEOUT_SECS)
             sys.exit(res.returncode)
 
         if args.all or not args.module:
@@ -470,7 +476,7 @@ def run_cts_verifier(args):
             else:
                 cmd.extend(["--", "--window"])
 
-        res = subprocess.run(cmd, cwd=source_dir, check=False)
+        res = subprocess.run(cmd, cwd=source_dir, check=False, timeout=_BAZEL_RUN_TIMEOUT_SECS)
         sys.exit(res.returncode)
 
     serial = get_adb_serial(args.serial)
@@ -546,7 +552,8 @@ def run_cts_verifier(args):
                               ["install", "-r", "-g", extracted_apk],
                               capture_output=True,
                               text=True,
-                              check=False)
+                              check=False,
+                              timeout=_APK_INSTALL_TIMEOUT_SECS)
     if inst_res.returncode != 0:
         print_status(
             f"⚠️  adb install warning: {inst_res.stderr.strip()}",
@@ -574,38 +581,44 @@ def run_cts_verifier(args):
             subprocess.run(adb_prefix + ["install", "-r", "-g", helper_path],
                            capture_output=True,
                            text=True,
-                           check=False)
+                           check=False,
+                           timeout=_APK_INSTALL_TIMEOUT_SECS)
 
     # Configure appops / settings policies
     subprocess.run(
         adb_prefix +
         ["shell", "settings", "put", "global", "hidden_api_policy", "1"],
         capture_output=json_mode,
-        check=False)
+        check=False,
+        timeout=_ADB_CMD_TIMEOUT_SECS)
     subprocess.run(adb_prefix + [
         "shell", "appops", "set", "com.android.cts.verifier",
         "android:read_device_identifiers", "allow"
     ],
                    capture_output=json_mode,
-                   check=False)
+                   check=False,
+                   timeout=_ADB_CMD_TIMEOUT_SECS)
     subprocess.run(adb_prefix + [
         "shell", "appops", "set", "com.android.cts.verifier",
         "MANAGE_EXTERNAL_STORAGE", "0"
     ],
                    capture_output=json_mode,
-                   check=False)
+                   check=False,
+                   timeout=_ADB_CMD_TIMEOUT_SECS)
     subprocess.run(adb_prefix + [
         "shell", "appops", "set", "com.android.cts.verifier", "TURN_SCREEN_ON",
         "0"
     ],
                    capture_output=json_mode,
-                   check=False)
+                   check=False,
+                   timeout=_ADB_CMD_TIMEOUT_SECS)
     subprocess.run(adb_prefix + [
         "shell", "am", "compat", "enable", "ALLOW_TEST_API_ACCESS",
         "com.android.cts.verifier"
     ],
                    capture_output=json_mode,
-                   check=False)
+                   check=False,
+                   timeout=_ADB_CMD_TIMEOUT_SECS)
 
     # Step 3: Run requested test module(s)
     if not scripts_dir:
@@ -642,7 +655,8 @@ def run_cts_verifier(args):
                                      cwd=scripts_dir,
                                      env=env,
                                      capture_output=json_mode,
-                                     check=False)
+                                     check=False,
+                                     timeout=_TEST_SCRIPT_TIMEOUT_SECS)
             passed = run_res.returncode == 0
             if not passed:
                 overall_failed += 1
@@ -725,7 +739,8 @@ def run_cts_verifier(args):
                              cwd=scripts_dir,
                              env=env,
                              capture_output=json_mode,
-                             check=False)
+                             check=False,
+                             timeout=_TEST_SCRIPT_TIMEOUT_SECS)
 
     passed = run_res.returncode == 0
     xml_files = glob.glob(os.path.join(out_dir, "**", "test_result.xml"),

@@ -327,6 +327,7 @@ def execute_init(init_spec: Dict[str, Any], init_context: Optional[Dict[str, Any
                     shell=False,
                     text=True,
                     env=_build_subprocess_env(),
+                    timeout=120,
                 ).strip()
             except subprocess.CalledProcessError as e:
                 raise RuntimeError(
@@ -1141,12 +1142,14 @@ def execute_workflow_step(
     # Case 2C: Active Step with verifier_cmd executed safely with shell=False
     try:
         eval_cmd = build_cmd_args(verifier_cmd, context)
+        step_timeout = float(step_spec.get("timeout", 600))
         check_res = subprocess.run(
             eval_cmd,
             shell=False,
             text=True,
             capture_output=True,
             env=_build_subprocess_env(),
+            timeout=step_timeout,
         )
     except FileNotFoundError as e:
         check_res = subprocess.CompletedProcess(

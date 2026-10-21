@@ -48,6 +48,7 @@ def _check_clean_working_tree(repo_path: Path) -> str | None:
         text=True,
         check=False,
         cwd=str(repo_path),
+        timeout=30,
     )
     if res.returncode == 0 and res.stdout.strip():
         return (

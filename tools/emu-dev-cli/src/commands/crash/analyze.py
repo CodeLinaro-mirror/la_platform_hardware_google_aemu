@@ -96,7 +96,7 @@ def run_analyze(args: argparse.Namespace) -> None:
                     )
                     try:
                         script_path.chmod(0o700)
-                        subprocess.run(["bash", str(script_path)])
+                        subprocess.run(["bash", str(script_path)], timeout=3600)
                     except Exception as e:
                         sys.stderr.write(
                             f"⚠️ Failed to launch interactive script: {e}\n"

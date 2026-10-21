@@ -83,6 +83,7 @@ def _validate_git_repository(cwd: Optional[str]) -> bool:
             text=True,
             check=True,
             cwd=cwd,
+            timeout=30,
         )
         return True
     except Exception:

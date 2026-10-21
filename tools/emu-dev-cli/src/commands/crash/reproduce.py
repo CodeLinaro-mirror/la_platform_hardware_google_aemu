@@ -243,7 +243,7 @@ def run_reproduce(args: argparse.Namespace) -> None:
             str(emu_output_dir),
         ]
         if shutil.which("fetch_artifact"):
-            subprocess.run(fetch_cmd, check=False)
+            subprocess.run(fetch_cmd, check=False, timeout=600)
 
     launch_cmd = list(plan["reproduce_command"])
     if emu_bin.exists():
@@ -262,7 +262,7 @@ def run_reproduce(args: argparse.Namespace) -> None:
         emu_proc = subprocess.Popen(launch_cmd, **popen_kwargs)
         try:
             print(f"🪲 Attaching LLDB to {plan['qemu_engine']} via --wait-for...")
-            subprocess.run(plan["lldb_command"], check=False)
+            subprocess.run(plan["lldb_command"], check=False, timeout=3600)
         finally:
             if emu_proc.poll() is None:
                 if is_posix:
@@ -279,7 +279,7 @@ def run_reproduce(args: argparse.Namespace) -> None:
     else:
         print(f"▶️ Launching: {' '.join(launch_cmd)}")
         try:
-            subprocess.run(launch_cmd, env=env, check=False)
+            subprocess.run(launch_cmd, env=env, check=False, timeout=3600)
         except Exception as e:
             sys.stderr.write(f"❌ Execution failed: {e}\n")
             sys.exit(1)

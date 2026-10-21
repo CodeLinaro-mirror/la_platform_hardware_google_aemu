@@ -51,6 +51,8 @@ SEMANTIC_SUBJECT_PATTERN = re.compile(
 )
 
 # Regular expression to extract Gerrit Change-Id
+_DEFAULT_GIT_TIMEOUT_SECS = 30
+
 CHANGE_ID_PATTERN = re.compile(r"(?im)^\s*Change-Id:\s*(I[0-9a-fA-F]{40})\b")
 
 # Regular expression to validate Bug: line (numeric ID or N/A)
@@ -234,6 +236,7 @@ def get_head_commit_hash(cwd: Optional[str] = None) -> str:
             text=True,
             check=True,
             cwd=cwd,
+            timeout=_DEFAULT_GIT_TIMEOUT_SECS,
         )
         return res.stdout.strip()
     except Exception:
@@ -248,6 +251,7 @@ def get_commit_message(commit_ref: str = "HEAD", cwd: Optional[str] = None) -> s
         text=True,
         check=True,
         cwd=cwd,
+        timeout=_DEFAULT_GIT_TIMEOUT_SECS,
     )
     return res.stdout.strip()
 
@@ -261,6 +265,7 @@ def get_commit_parents(commit_ref: str = "HEAD", cwd: Optional[str] = None) -> L
             text=True,
             check=True,
             cwd=cwd,
+            timeout=_DEFAULT_GIT_TIMEOUT_SECS,
         )
         output = res.stdout.strip()
         return output.split() if output else []
@@ -280,6 +285,7 @@ def resolve_commit_hash(commit_ref: str = "HEAD", cwd: Optional[str] = None) -> 
             text=True,
             check=True,
             cwd=cwd,
+            timeout=_DEFAULT_GIT_TIMEOUT_SECS,
         )
         return res.stdout.strip()
     except Exception:
@@ -297,6 +303,7 @@ def find_commit_by_change_id(change_id: str, cwd: Optional[str] = None) -> Optio
             text=True,
             check=True,
             cwd=cwd,
+            timeout=_DEFAULT_GIT_TIMEOUT_SECS,
         )
         commit_hash = res.stdout.strip()
         if commit_hash:
@@ -311,6 +318,7 @@ def find_commit_by_change_id(change_id: str, cwd: Optional[str] = None) -> Optio
             text=True,
             check=True,
             cwd=cwd,
+            timeout=_DEFAULT_GIT_TIMEOUT_SECS,
         )
         commit_hash = res.stdout.strip()
         if commit_hash:
@@ -330,6 +338,7 @@ def is_ancestor_commit(ancestor: str, descendant: str, cwd: Optional[str] = None
             ["git", "merge-base", "--is-ancestor", ancestor, descendant],
             capture_output=True,
             cwd=cwd,
+            timeout=_DEFAULT_GIT_TIMEOUT_SECS,
         )
         return res.returncode == 0
     except Exception:
