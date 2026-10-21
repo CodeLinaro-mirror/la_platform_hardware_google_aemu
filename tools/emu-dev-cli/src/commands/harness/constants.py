@@ -65,9 +65,6 @@ MAX_STOP_CONTINUATIONS: int = 3
 MAX_LEDGER_EVENTS: int = 50
 
 # Regex patterns for command inspection in PreToolUse / PostToolUse
-GIT_COMMIT_CMD_PATTERN: re.Pattern[str] = re.compile(
-    r"(?:^|[;&|]\s*|\b)git\s+(?:-C\s+\S+\s+)*commit\b"
-)
 GIT_COMMIT_AMEND_PATTERN: re.Pattern[str] = re.compile(r"(?:^|\s)--amend\b")
 GIT_COMMIT_NO_EDIT_PATTERN: re.Pattern[str] = re.compile(r"(?:^|\s)--no-edit\b")
 GIT_COMMIT_MSG_FLAG_PATTERN: re.Pattern[str] = re.compile(
@@ -141,11 +138,42 @@ NOTIFY_OWNER_FLAG_PATTERN: re.Pattern[str] = re.compile(
 NOTIFY_OWNER_JSON_PATTERN: re.Pattern[str] = re.compile(
     r"\"notify\"\s*:\s*\"OWNER\""
 )
+# The following patterns are matched against a single top-level command segment (see
+# `shell_segments.iter_command_segments`), so quoted mentions such as `grep "bazel test"`
+# or `git commit -m "... git commit ..."` never match.
+_SEGMENT_ENV_PREFIX_RE: str = r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
+
+
+def _segment_exe_re(name_re: str) -> str:
+    """Builds a pattern for the binary that starts a command segment.
+
+    Accepts a bare name or a POSIX or Windows path, an optional `.exe`, and optional
+    quotes. Unlike `_cli_exe_re`, the name must start the word or follow a path
+    separator, so `legit commit` is not a `git commit`.
+    """
+    return (
+        rf"(?:\"(?:[^\"]*[/\\])?{name_re}(?:\.exe)?\""
+        rf"|'(?:[^']*[/\\])?{name_re}(?:\.exe)?'"
+        rf"|(?:[^\s\"';&|]*[/\\])?{name_re}(?:\.exe)?)"
+    )
+
+
 BAZEL_TEST_CMD_PATTERN: re.Pattern[str] = re.compile(
-    r"(?:^|[;&|]\s*|\b)bazel\s+test\b"
+    rf"{_SEGMENT_ENV_PREFIX_RE}{_segment_exe_re('bazel(?:isk)?')}(?:\s+--\S+)*\s+test\b"
+)
+GIT_COMMIT_SEGMENT_PATTERN: re.Pattern[str] = re.compile(
+    rf"{_SEGMENT_ENV_PREFIX_RE}{_segment_exe_re('git')}"
+    rf"(?:\s+-[Cc]\s+{_QUOTED_ARG_RE})*\s+commit\b"
 )
 BAZEL_TEST_OUTPUT_FLAG_PATTERN: re.Pattern[str] = re.compile(
     r"--test_output(?:=|\s+)\S+"
+)
+SHELL_ASSIGNMENT_PATTERN: re.Pattern[str] = re.compile(
+    r"(?:^|[;&|\s])(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(\"[^\"]*\"|'[^']*'|[^\s;&|]*)"
+)
+# Output redirection (`>`, `>>`, `2>`) and `tee [-a]` targets anywhere in a command line.
+SHELL_WRITE_TARGET_PATTERN: re.Pattern[str] = re.compile(
+    rf"(?:(?<!\d)\d*>>?|\btee(?:\s+-a)?)\s*{_QUOTED_ARG_RE}"
 )
 
 EMU_LAUNCH_CMD_PATTERN: re.Pattern[str] = re.compile(
