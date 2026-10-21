@@ -150,6 +150,27 @@ class InstallerTest(unittest.TestCase):
             installed_main = fake_release_dir / "lib" / "__main__.py"
             self.assertTrue(installed_main.exists())
 
+            # Verify that HTML templates (e.g. templates/gerrit_ui.html) are also copied
+            (fake_src / "templates").mkdir(parents=True, exist_ok=True)
+            (fake_src / "templates" / "gerrit_ui.html").write_text(
+                "<!DOCTYPE html><title>测试_🚀_é</title>\n", encoding="utf-8"
+            )
+            with patch(
+                "install.installer.get_release_package_directory",
+                return_value=str(fake_release_dir),
+            ), patch(
+                "install.installer.resolve_built_artifact",
+                return_value=None,
+            ):
+                install_launcher_wrapper(
+                    str(fake_built_bin),
+                    str(dest_launcher),
+                    source_dir=str(fake_src),
+                )
+            installed_tpl = fake_release_dir / "lib" / "templates" / "gerrit_ui.html"
+            self.assertTrue(installed_tpl.is_file())
+            self.assertIn("测试_🚀_é", installed_tpl.read_text(encoding="utf-8"))
+
             # Check that launcher wrapper destination exists
             self.assertTrue(dest_launcher.exists())
 
@@ -373,6 +394,41 @@ class InstallerTest(unittest.TestCase):
             wrapper_fn, skill_fn = _resolve_installer_hooks(str(root))
             self.assertEqual(wrapper_fn("bin", "dest"), "fresh_wrapper")
             self.assertEqual(skill_fn(), ["fresh_skill"])
+
+    def test_restart_running_harness_sidecars_and_refresh_plugin(self):
+        """Verifies sidecar restart detection via procfs and plugin refresh."""
+        import signal
+        from install.installer import (
+            refresh_installed_harness_plugin,
+            restart_running_harness_sidecars,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir).resolve()
+            plugin_dir = root / "plugins" / "aemu-harness"
+            gerrit_sidecar_dir = plugin_dir / "sidecars" / "aemu_gerrit_ui"
+            gerrit_sidecar_dir.mkdir(parents=True)
+            (gerrit_sidecar_dir / "server.py").write_text("# old __EMU_DEV_CLI_SRC_DIR__\n")
+
+            fake_proc = root / "proc"
+            (fake_proc / "424242").mkdir(parents=True)
+            os.symlink(gerrit_sidecar_dir, fake_proc / "424242" / "cwd")
+            (fake_proc / "999999").mkdir(parents=True)
+            os.symlink(root, fake_proc / "999999" / "cwd")
+
+            with patch("install.installer.os.kill") as mock_kill:
+                restarted = restart_running_harness_sidecars(plugin_dir, proc_root=fake_proc)
+                self.assertEqual(restarted, [424242])
+                mock_kill.assert_called_once_with(424242, signal.SIGTERM)
+
+            with patch("install.installer.restart_running_harness_sidecars", return_value=[424242]):
+                report = refresh_installed_harness_plugin(
+                    str(root / "bin" / "emu-dev-cli"),
+                    release_dir=str(root / "release"),
+                    target_plugin_dir=plugin_dir,
+                )
+            self.assertTrue(report["installed"])
+            self.assertEqual(report["restarted_sidecar_pids"], [424242])
 
 
 if __name__ == "__main__":

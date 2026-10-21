@@ -40,6 +40,10 @@ from commands.harness.review_history import (
     load_recent_swarm_metrics,
     persist_iteration_and_metrics,
 )
+from commands.harness.review_swarm_status import (
+    REVIEW_SWARM_SUBDIR,
+    write_initial_swarm_status,
+)
 from commands.harness.review_targets import (
     COMMIT_MSG_FILE,
     DEFAULT_GERRIT_HOST,
@@ -55,7 +59,6 @@ from commands.harness.review_targets import (
 )
 
 MAX_SWARM_CONCURRENCY: int = 8
-REVIEW_SWARM_SUBDIR: str = "review-swarm"
 COMMIT_AUDITOR_NAME: str = "commit-and-bug-auditor"
 
 SHARED_SPECIALIST_RULES: str = """## Shared Non-Negotiable Review Rules
@@ -251,6 +254,11 @@ from commands.harness.review_history import (
     build_wave_metrics,
     persist_iteration_and_metrics,
 )
+from commands.harness.review_swarm_status import (
+    record_specialist_completion,
+    write_auditing_swarm_status,
+    write_completed_swarm_status,
+)
 from commands.harness.review_swarm import (
     MAX_SWARM_CONCURRENCY,
     SPECIALIST_OUTPUT_SCHEMA,
@@ -272,6 +280,7 @@ CACHE_ROOT = Path({cache_root})
 manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
 specialists = build_specialist_prompts(manifest)
 wave_t0 = time.monotonic()
+status_doc = write_auditing_swarm_status(OUTPUT_DIR, manifest, specialists)
 
 phase("Wave 1: 8-Specialist Parallel Code Review")
 log(
@@ -293,6 +302,7 @@ async def _launch_specialist(spec):
     out["role"] = spec["role"]
     out["model"] = spec["model"]
     out["duration_sec"] = elapsed
+    record_specialist_completion(OUTPUT_DIR, status_doc, out)
     log(f"[{{spec['name']}}] completed in {{elapsed:.2f}}s (model={{spec['model']}})")
     return out
 
@@ -328,6 +338,7 @@ atomic_write_text(
 metrics_path = persist_iteration_and_metrics(
     OUTPUT_DIR, CACHE_ROOT, manifest, raw_results, aggregated, metrics
 )
+write_completed_swarm_status(OUTPUT_DIR, status_doc, aggregated, metrics)
 
 log(aggregated["reuse_audit_line"])
 log(aggregated["error_audit_line"])
@@ -413,10 +424,12 @@ def _write_bundle_artifacts(
         swarm_briefs_path,
         json.dumps(swarm_workers, indent=2, ensure_ascii=False) + "\n",
     )
+    status_path = write_initial_swarm_status(base_out, target_manifest, specialists)
     return {
         "manifest_path": str(manifest_path),
         "workflow_script_path": str(workflow_script_path),
         "swarm_briefs_path": str(swarm_briefs_path),
+        "swarm_status_path": str(status_path),
     }
 
 

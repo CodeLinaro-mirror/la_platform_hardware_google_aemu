@@ -123,8 +123,45 @@ def resolve_emu_dev_cli_command() -> str:
     return "emu-dev-cli"
 
 
-def _render_plugin_file(src_file: Path, dst_file: Path, resolved_cli: str) -> None:
+def _compute_sidecar_bundle_stamp(src_file: Path, cli_src_dir: Optional[Union[Path, str]] = None) -> str:
+    """Computes an 8-char SHA-256 stamp over UI templates and sidecar scripts so Jetski reloads on update."""
+    import hashlib
+
+    h = hashlib.sha256()
+    src_root = Path(cli_src_dir).resolve() if cli_src_dir else Path(__file__).resolve().parents[2]
+    watched = [
+        src_root / "templates" / "gerrit_ui.html",
+        src_root / "commands" / "gerrit" / "ui_server.py",
+        src_file.parent / "sidecars" / "aemu_gerrit_ui" / "server.py",
+        src_file.parent / "sidecars" / "aemu_harness_ui" / "server.py",
+    ]
+    for p in watched:
+        try:
+            if p.is_file():
+                h.update(p.read_bytes())
+        except OSError:
+            pass
+    return h.hexdigest()[:8]
+
+
+def _render_plugin_file(
+    src_file: Path,
+    dst_file: Path,
+    resolved_cli: str,
+    cli_src_dir: Optional[Union[Path, str]] = None,
+) -> None:
     """Renders or copies a single plugin file with JSON-safe cross-platform paths."""
+    if src_file.name == "plugin.json":
+        try:
+            manifest = json.loads(src_file.read_text(encoding="utf-8"))
+            base_ver = str(manifest.get("version") or "0.1.0").split("+", 1)[0]
+            stamp = _compute_sidecar_bundle_stamp(src_file, cli_src_dir=cli_src_dir)
+            manifest["version"] = f"{base_ver}+{stamp}"
+            dst_file.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            return
+        except Exception:
+            shutil.copy2(src_file, dst_file)
+            return
     if src_file.name == "hooks.json":
         escaped_cli = json.dumps(resolved_cli, ensure_ascii=False)[1:-1]
         rendered = src_file.read_text(encoding="utf-8").replace("__EMU_DEV_CLI_BIN__", escaped_cli)
@@ -141,6 +178,11 @@ def _render_plugin_file(src_file: Path, dst_file: Path, resolved_cli: str) -> No
             }
         }
         dst_file.write_text(json.dumps(mcp_payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    elif src_file.suffix == ".py":
+        src_root_str = str(Path(cli_src_dir).resolve() if cli_src_dir else Path(__file__).resolve().parents[2])
+        escaped_src_root = json.dumps(src_root_str, ensure_ascii=False)[1:-1]
+        rendered = src_file.read_text(encoding="utf-8").replace("__EMU_DEV_CLI_SRC_DIR__", escaped_src_root)
+        dst_file.write_text(rendered, encoding="utf-8")
     else:
         shutil.copy2(src_file, dst_file)
 
@@ -157,6 +199,7 @@ def install_harness_plugin(
     cli_command: Optional[str] = None,
     scope: str = "global",
     workspace_dir: Optional[Union[Path, str]] = None,
+    cli_src_dir: Optional[Union[Path, str]] = None,
 ) -> Dict[str, Any]:
     """Installs the `aemu-harness` plugin bundle into global or workspace plugin dir."""
     dest_dir = (
@@ -181,7 +224,12 @@ def install_harness_plugin(
         target_root.mkdir(parents=True, exist_ok=True)
         for filename in sorted(files):
             dst_file = target_root / filename
-            _render_plugin_file(Path(root) / filename, dst_file, resolved_cli)
+            _render_plugin_file(
+                Path(root) / filename,
+                dst_file,
+                resolved_cli,
+                cli_src_dir=cli_src_dir,
+            )
             installed_files.append(str(dst_file))
 
     _enable_plugin_and_sidecar_in_config(dest_dir)
@@ -211,11 +259,12 @@ def _enable_plugin_and_sidecar_in_config(dest_dir: Path) -> None:
                 plugin_entry["enabled"] = True
         sidecars_cfg = data.setdefault("sidecars", {})
         if isinstance(sidecars_cfg, dict):
-            sidecar_entry = sidecars_cfg.setdefault(
-                f"{PLUGIN_DIR_NAME}/aemu_harness_ui", {}
-            )
-            if isinstance(sidecar_entry, dict):
-                sidecar_entry["enabled"] = True
+            for sidecar_id in ("aemu_harness_ui", "aemu_gerrit_ui"):
+                sidecar_entry = sidecars_cfg.setdefault(
+                    f"{PLUGIN_DIR_NAME}/{sidecar_id}", {}
+                )
+                if isinstance(sidecar_entry, dict):
+                    sidecar_entry["enabled"] = True
         config_json.write_text(
             json.dumps(data, indent=2) + "\n", encoding="utf-8"
         )
@@ -258,6 +307,8 @@ def get_harness_plugin_status(
         "agents/aemu-flake-hunter.md",
         "sidecars/aemu_harness_ui/sidecar.json",
         "sidecars/aemu_harness_ui/server.py",
+        "sidecars/aemu_gerrit_ui/sidecar.json",
+        "sidecars/aemu_gerrit_ui/server.py",
     ]
     present_files = [
         rel for rel in required_files if (dest_dir / rel).is_file()

@@ -20,6 +20,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import urllib.parse
 from typing import Any, Dict, List, Optional
@@ -250,6 +251,174 @@ def list_workflow_sessions(conversation_id: Optional[str] = None) -> List[Dict[s
             "updated_at": str(data.get("updated_at", "")),
         })
     return sessions
+
+
+SIDECAR_PRELOAD_JS: str = """(function() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('token') || '';
+  const conversationId = params.get('conversationId') || '';
+
+  let currentWorkspaceUris = [];
+  let hasInitialWorkspace = false;
+  const workspaceListeners = new Set();
+  let resolveInitialWorkspace;
+  const initialWorkspacePromise = new Promise((resolve) => {
+    resolveInitialWorkspace = resolve;
+  });
+
+  window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'theme-change') {
+      const vars = (event.data.payload && event.data.payload.cssVariables) || {};
+      for (const [key, value] of Object.entries(vars)) {
+        document.documentElement.style.setProperty(key, value);
+      }
+    } else if (event.data && event.data.type === 'workspace-change') {
+      const payload = event.data.payload || {};
+      currentWorkspaceUris = Array.isArray(payload.workspaceUris)
+        ? payload.workspaceUris.slice()
+        : [];
+      hasInitialWorkspace = true;
+      resolveInitialWorkspace();
+      for (const listener of workspaceListeners) {
+        try {
+          listener(currentWorkspaceUris.slice());
+        } catch (err) {
+          console.error('workspace-change listener failed:', err);
+        }
+      }
+    }
+  });
+
+  function secureFetch(url, options = {}) {
+    let targetUrl = url;
+    if (token && !/[?&]token=/.test(targetUrl)) {
+      const sep = targetUrl.includes('?') ? '&' : '?';
+      targetUrl = `${targetUrl}${sep}token=${encodeURIComponent(token)}`;
+    }
+    const headers = new Headers(options.headers || {});
+    headers.set('Content-Type', 'application/json');
+    if (token) {
+      headers.set('X-Sidecar-Token', token);
+    }
+    return fetch(targetUrl, Object.assign({}, options, { headers }));
+  }
+
+  const projectIdPromise = (async () => {
+    if (!conversationId) return '';
+    try {
+      const res = await secureFetch('/_sidecar/get-conversation-metadata', {
+        method: 'POST',
+        body: JSON.stringify({ conversationId })
+      });
+      if (!res.ok) return '';
+      const data = await res.json();
+      const metaEvent = (data && data.response && (data.response.conversationMetadata || data.response.conversation_metadata)) || {};
+      const meta = metaEvent.metadata || {};
+      return meta.projectId || meta.project_id || '';
+    } catch (e) {
+      return '';
+    }
+  })();
+
+  async function getWorkspaceUris() {
+    if (window.parent === window) {
+      return [];
+    }
+    await initialWorkspacePromise;
+    return currentWorkspaceUris.slice();
+  }
+
+  window.sidecar = {
+    conversationId,
+    fetch: secureFetch,
+    getWorkspaceUris,
+    onWorkspaceChange(listener) {
+      if (typeof listener !== 'function') return () => {};
+      workspaceListeners.add(listener);
+      if (hasInitialWorkspace) {
+        queueMicrotask(() => {
+          if (workspaceListeners.has(listener)) {
+            listener(currentWorkspaceUris.slice());
+          }
+        });
+      }
+      return () => { workspaceListeners.delete(listener); };
+    },
+    agent: {
+      async sendMessage(message, convId) {
+        const resolvedProjectId = await projectIdPromise;
+        const res = await secureFetch('/_sidecar/send-message', {
+          method: 'POST',
+          body: JSON.stringify({
+            conversationId: convId || conversationId,
+            message,
+            projectId: resolvedProjectId
+          })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      },
+      async startConversation(message, title) {
+        const resolvedProjectId = await projectIdPromise;
+        const res = await secureFetch('/_sidecar/new-conversation', {
+          method: 'POST',
+          body: JSON.stringify({ message, title, projectId: resolvedProjectId })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      },
+      async getConversationMetadata(convId) {
+        const res = await secureFetch('/_sidecar/get-conversation-metadata', {
+          method: 'POST',
+          body: JSON.stringify({ conversationId: convId || conversationId })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      }
+    },
+    ui: {
+      toggleAuxPane(request) {
+        window.parent.postMessage({ type: 'toggle-aux-pane', payload: request }, '*');
+      },
+      toggleConversation(convId) {
+        window.parent.postMessage({ type: 'toggle-conversation', payload: { conversationId: convId } }, '*');
+      }
+    }
+  };
+})();
+"""
+
+SIDECAR_PRELOAD_SCRIPT_TAG: str = '<script src="/preload.js"></script>'
+
+
+def _run_sidecar_agentapi(args: List[str], project_id: Optional[str] = None) -> Dict[str, Any]:
+    """Invokes `agentapi` for Jetski Web sidecar conversation integration."""
+    agentapi_bin = shutil.which("agentapi")
+    if not agentapi_bin:
+        cand = Path.home() / ".gemini" / "jetski" / "bin" / "agentapi"
+        agentapi_bin = str(cand) if cand.is_file() else "agentapi"
+    env = os.environ.copy()
+    if project_id:
+        env["ANTIGRAVITY_PROJECT_ID"] = project_id
+    res = subprocess.run(
+        [agentapi_bin, *args],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+        timeout=30,
+    )
+    if res.returncode != 0:
+        raise RuntimeError(f"agentapi failed: {(res.stderr or '').strip()}")
+    out = (res.stdout or "").strip()
+    return json.loads(out) if out else {}
+
+
+def _render_harness_index_html() -> str:
+    """Inlines `SIDECAR_PRELOAD_JS` so cross-site Cloudtop gateways never block `/preload.js`."""
+    return INDEX_HTML.replace(
+        SIDECAR_PRELOAD_SCRIPT_TAG, f"<script>\n{SIDECAR_PRELOAD_JS}\n</script>"
+    )
 
 
 INDEX_HTML: str = """<!DOCTYPE html>
@@ -716,7 +885,7 @@ class HarnessSidecarHandler(BaseHTTPRequestHandler):
         route = parsed.path
 
         if route == "/preload.js":
-            js = b"window.sidecar = window.sidecar || {};\n"
+            js = SIDECAR_PRELOAD_JS.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/javascript; charset=utf-8")
             self.send_header("Referrer-Policy", "no-referrer")
@@ -726,7 +895,7 @@ class HarnessSidecarHandler(BaseHTTPRequestHandler):
             return
 
         if route in ("/", "/index.html"):
-            body = INDEX_HTML.encode("utf-8")
+            body = _render_harness_index_html().encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Referrer-Policy", "no-referrer")
@@ -765,6 +934,51 @@ class HarnessSidecarHandler(BaseHTTPRequestHandler):
             body = json.loads(raw_body)
         except Exception:
             body = {}
+
+        try:
+            if parsed.path == "/_sidecar/get-conversation-metadata":
+                conv_id = str(
+                    body.get("conversationId")
+                    or os.environ.get("ANTIGRAVITY_SIDECAR_CONVERSATION_ID")
+                    or os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
+                    or ""
+                ).strip()
+                if not conv_id:
+                    self._send_json(400, {"error": "Missing conversationId"})
+                    return
+                self._send_json(200, _run_sidecar_agentapi(["get-conversation-metadata", conv_id]))
+                return
+
+            if parsed.path == "/_sidecar/send-message":
+                msg = str(body.get("message") or "").strip()
+                conv_id = str(
+                    body.get("conversationId")
+                    or os.environ.get("ANTIGRAVITY_SIDECAR_CONVERSATION_ID")
+                    or os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
+                    or ""
+                ).strip()
+                if not msg or not conv_id:
+                    self._send_json(400, {"error": "Missing message or conversationId"})
+                    return
+                args = ["send-message"]
+                if body.get("title"):
+                    args.extend(["--title", str(body["title"])])
+                args.extend([conv_id, msg])
+                self._send_json(200, _run_sidecar_agentapi(args, project_id=body.get("projectId")))
+                return
+
+            if parsed.path == "/_sidecar/new-conversation":
+                msg = str(body.get("message") or "").strip()
+                args = ["new-conversation"]
+                if body.get("title"):
+                    args.extend(["--title", str(body["title"])])
+                if msg:
+                    args.append(msg)
+                self._send_json(200, _run_sidecar_agentapi(args, project_id=body.get("projectId")))
+                return
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+            return
 
         if parsed.path == "/api/commit/validate":
             msg = str(body.get("message") or "")

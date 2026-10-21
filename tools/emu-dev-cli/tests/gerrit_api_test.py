@@ -17,8 +17,10 @@
 
 from __future__ import annotations
 
+import base64
 from datetime import timedelta
 import io
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -30,10 +32,12 @@ from lib.gerrit_api import (
     GerritCommentMessage,
     GerritCommentThread,
     GerritReplyInput,
+    decode_gerrit_patch,
     extract_source_snippet,
     parse_cl_identifier,
     resolve_project_repo_path,
     strip_xssi_prefix,
+    upload_cl,
 )
 
 
@@ -422,6 +426,48 @@ class GerritApiTest(unittest.TestCase):
                 "print('ok')",
                 extract_source_snippet(repo_dir, "main.py", line=1),
             )
+
+    def test_decode_gerrit_patch_handles_xssi_json_base64_and_plain_diff(self) -> None:
+        unified_diff = (
+            "From ee3efa4a69051f59bf1c9a8a270af2770dee141b Mon Sep 17 00:00:00 2001\n"
+            "Subject: [PATCH] Fix UTF-8 diff 测试_🚀_é\n\n"
+            "diff --git a/emulator/foo.cc b/emulator/foo.cc\n"
+            "index 1111111..2222222 100644\n"
+            "--- a/emulator/foo.cc\n"
+            "+++ b/emulator/foo.cc\n"
+            "@@ -1,2 +1,2 @@\n"
+            "-return false;\n"
+            "+return true; // 测试_🚀_é\n"
+        )
+        xssi_json_patch = ")]}'\n" + json.dumps(unified_diff)
+        self.assertEqual(decode_gerrit_patch(xssi_json_patch), unified_diff)
+        self.assertEqual(decode_gerrit_patch(unified_diff), unified_diff)
+
+        b64_patch = base64.b64encode(unified_diff.encode("utf-8")).decode("ascii")
+        self.assertEqual(decode_gerrit_patch(b64_patch), unified_diff)
+
+        client = GerritClient(token="fake-token")
+        with mock.patch.object(client, "_request_raw", return_value=xssi_json_patch):
+            self.assertEqual(client.get_revision_patch("43137863"), unified_diff)
+
+    @mock.patch("subprocess.run")
+    def test_upload_cl_retries_with_no_verify_and_scopes_notify_owner(
+        self, mock_run: mock.MagicMock
+    ) -> None:
+        mock_run.side_effect = [
+            mock.MagicMock(returncode=0, stdout="", stderr=""),
+            mock.MagicMock(
+                returncode=1,
+                stdout="",
+                stderr="ERROR: You must allow the pre-upload hook or use --no-verify.",
+            ),
+            mock.MagicMock(returncode=0, stdout="Upload succeeded", stderr=""),
+        ]
+        result = upload_cl(Path("/tmp/repo"))
+        self.assertEqual(result["status"], "success")
+        retry_cmd = mock_run.call_args_list[2][0][0]
+        self.assertIn("notify=OWNER", retry_cmd)
+        self.assertIn("--no-verify", retry_cmd)
 
 
 if __name__ == "__main__":

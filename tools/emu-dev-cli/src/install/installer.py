@@ -6,8 +6,11 @@ import platform
 import py_compile
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
+
+RELEASE_SRC_ASSET_EXTENSIONS: tuple[str, ...] = (".py", ".html", ".md")
 
 from commands.source_directory import (
     ensure_codesearch_urls_config,
@@ -106,7 +109,7 @@ def copy_src_to_release_lib(src_dir, release_lib_dir):
 
     for root, _, files in os.walk(src_dir):
         for f in files:
-            if not f.endswith(".py"):
+            if not f.endswith(RELEASE_SRC_ASSET_EXTENSIONS):
                 continue
             rel_path = os.path.relpath(os.path.join(root, f), src_dir)
             dest_py = os.path.join(release_lib_dir, rel_path)
@@ -162,11 +165,16 @@ def copy_src_to_release_lib(src_dir, release_lib_dir):
 
 def resolve_source_directory(source_dir=None):
     if source_dir:
-        cand = os.path.join(
-            source_dir, "hardware", "google", "aemu", "tools", "emu-dev-cli", "src"
-        )
-        if os.path.exists(cand):
-            return cand
+        for cand in (
+            os.path.join(
+                source_dir, "hardware", "google", "aemu", "tools", "emu-dev-cli", "src"
+            ),
+            os.path.join(source_dir, "tools", "emu-dev-cli", "src"),
+            os.path.join(source_dir, "src"),
+            source_dir,
+        ):
+            if os.path.isfile(os.path.join(cand, "__main__.py")):
+                return cand
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -375,6 +383,206 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
             os.symlink(release_bin, dest_path)
         except OSError:
             _safe_copy2(release_bin, dest_path)
+
+    if Path(release_dir).resolve() == _default_user_release_dir().resolve():
+        refresh_installed_harness_plugin(
+            str(dest_path), source_dir=source_dir, release_dir=release_dir
+        )
+
+
+def _default_user_release_dir() -> Path:
+    """Returns the real user release root without test mocks on `get_release_package_directory`."""
+    home_dir = os.path.expanduser("~")
+    if platform.system().lower() == "windows":
+        local_appdata = os.environ.get(
+            "LOCALAPPDATA", os.path.join(home_dir, "AppData", "Local")
+        )
+        return Path(local_appdata) / "Google" / "EmuDevCLI"
+    return Path(home_dir) / ".android" / "emu-dev-cli"
+
+
+def _matching_sidecar_pid_from_proc(
+    entry: os.DirEntry[str],
+    sidecars_dir: Path,
+    self_pid: int,
+    proc_root: Path,
+) -> int | None:
+    """Returns PID when `entry` is a running `server.py` inside `sidecars_dir`."""
+    if not entry.name.isdigit():
+        return None
+    pid = int(entry.name)
+    if pid == self_pid:
+        return None
+    try:
+        proc_cwd = Path(os.readlink(proc_root / entry.name / "cwd")).resolve()
+        if proc_cwd.is_relative_to(sidecars_dir):
+            return pid
+    except OSError:
+        pass
+    try:
+        raw_cmd = (proc_root / entry.name / "cmdline").read_bytes().decode(
+            "utf-8", errors="ignore"
+        )
+        for token in raw_cmd.split("\x00"):
+            if "server.py" in token and Path(token).resolve().is_relative_to(sidecars_dir):
+                return pid
+    except OSError:
+        return None
+    return None
+
+
+def _capture_sidecar_launch_spec(proc_root: Path, pid: int) -> dict | None:
+    """Captures `cmdline`, `cwd`, and `environ` of a running sidecar process before restart."""
+    pdir = proc_root / str(pid)
+    try:
+        raw_cmd = (pdir / "cmdline").read_bytes().decode("utf-8", errors="ignore")
+        cmdline = [tok for tok in raw_cmd.split("\x00") if tok]
+        if not cmdline:
+            return None
+        cwd = str(Path(os.readlink(pdir / "cwd")).resolve())
+        env = os.environ.copy()
+        try:
+            raw_env = (pdir / "environ").read_bytes().decode("utf-8", errors="ignore")
+            parsed_env = {}
+            for item in raw_env.split("\x00"):
+                if "=" in item:
+                    k, v = item.split("=", 1)
+                    if k:
+                        parsed_env[k] = v
+            if parsed_env:
+                env = parsed_env
+        except OSError:
+            pass
+        return {"cmdline": cmdline, "cwd": cwd, "env": env}
+    except OSError:
+        return None
+
+
+def _respawn_sidecar_if_needed(
+    spec: dict, old_pid: int, sidecars_dir: Path, scan_root: Path
+) -> None:
+    """Waits briefly for `old_pid` to exit and respawns `spec` if not already respawned."""
+    import time
+
+    for _ in range(12):
+        try:
+            os.kill(old_pid, 0)
+            time.sleep(0.05)
+        except OSError:
+            break
+    time.sleep(0.1)
+    self_pid = os.getpid()
+    try:
+        for entry in os.scandir(scan_root):
+            new_pid = _matching_sidecar_pid_from_proc(entry, sidecars_dir, self_pid, scan_root)
+            if new_pid is not None and new_pid != old_pid:
+                try:
+                    new_cwd = str(Path(os.readlink(scan_root / str(new_pid) / "cwd")).resolve())
+                    if new_cwd == spec["cwd"]:
+                        return
+                except OSError:
+                    continue
+    except OSError:
+        pass
+    try:
+        subprocess.Popen(
+            spec["cmdline"],
+            cwd=spec["cwd"],
+            env=spec["env"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError:
+        pass
+
+
+def restart_running_harness_sidecars(
+    plugin_dir: Path, proc_root: Path | None = None
+) -> list[int]:
+    """Terminates running `aemu-harness` sidecars and ensures updated servers are running."""
+    sidecars_dir = (Path(plugin_dir) / "sidecars").resolve()
+    scan_root = Path(proc_root) if proc_root else Path("/proc")
+    if not sidecars_dir.is_dir() or not scan_root.is_dir():
+        return []
+
+    restarted_pids: list[int] = []
+    specs_to_respawn: list[tuple[int, dict]] = []
+    self_pid = os.getpid()
+    try:
+        entries = list(os.scandir(scan_root))
+    except OSError:
+        return []
+
+    for entry in entries:
+        pid = _matching_sidecar_pid_from_proc(entry, sidecars_dir, self_pid, scan_root)
+        if pid is None:
+            continue
+        spec = _capture_sidecar_launch_spec(scan_root, pid) if proc_root is None else None
+        if spec is not None and "ANTIGRAVITY_SIDECAR_WEB_PORT" in (spec.get("env") or {}):
+            # Managed by Jetski SidecarManager; do not send raw SIGTERM (causes 'signal: terminated' UI error).
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
+            restarted_pids.append(pid)
+            if spec is not None:
+                specs_to_respawn.append((pid, spec))
+        except OSError:
+            continue
+
+    for old_pid, spec in specs_to_respawn:
+        _respawn_sidecar_if_needed(spec, old_pid, sidecars_dir, scan_root)
+    return restarted_pids
+
+
+def _load_fresh_plugin_installer_module(release_dir: str | None):
+    """Loads the updated `plugin_installer.py` from `release_dir/lib` if available."""
+    import importlib.util
+
+    if release_dir:
+        fresh_py = Path(release_dir) / "lib" / "commands" / "harness" / "plugin_installer.py"
+        if fresh_py.is_file():
+            spec = importlib.util.spec_from_file_location(
+                "_emu_dev_cli_fresh_plugin_installer", str(fresh_py)
+            )
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                return mod
+    from commands.harness import plugin_installer as mod
+
+    return mod
+
+
+def refresh_installed_harness_plugin(
+    dest_path: str,
+    source_dir: str | None = None,
+    release_dir: str | None = None,
+    target_plugin_dir: Path | None = None,
+) -> dict:
+    """Re-installs `aemu-harness` if already present and restarts active sidecars."""
+    try:
+        mod = _load_fresh_plugin_installer_module(release_dir)
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Could not import plugin_installer: %s", exc)
+        return {"refreshed": False}
+
+    plugin_dir = (
+        Path(target_plugin_dir) if target_plugin_dir else mod.get_default_plugin_dest_dir()
+    )
+    if not plugin_dir.is_dir():
+        return {"refreshed": False, "plugin_dir": str(plugin_dir)}
+
+    cli_src_dir = os.path.join(release_dir, "lib") if release_dir else None
+    report = mod.install_harness_plugin(
+        target_dir=plugin_dir,
+        source_plugin_dir=source_dir,
+        cli_command=str(dest_path) if dest_path else None,
+        cli_src_dir=cli_src_dir,
+    )
+    report["restarted_sidecar_pids"] = restart_running_harness_sidecars(plugin_dir)
+    return report
 
 
 def install_launcher_with_sudo(built_bin, dest_path, source_dir=None):
@@ -797,6 +1005,10 @@ def run_install_cmd(args):
     try:
         from commands.harness.plugin_installer import install_harness_plugin
         harness_report = install_harness_plugin(cli_command=str(final_installed) if final_installed else None)
+        if harness_report.get("installed") and harness_report.get("plugin_dir"):
+            harness_report["restarted_sidecar_pids"] = restart_running_harness_sidecars(
+                Path(harness_report["plugin_dir"])
+            )
     except Exception as exc:
         logging.getLogger(__name__).warning("Could not install harness plugin: %s", exc)
     ensure_codesearch_urls_config()

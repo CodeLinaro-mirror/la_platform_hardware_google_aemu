@@ -1,0 +1,3123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AEMU Fast Gerrit — Multi-Commit &amp; Agent-Aware Code Review</title>
+<script src="/preload.js"></script>
+<style>
+  :root {
+    --g-bg: #131416;
+    --g-panel: #1a1b1e;
+    --g-panel-alt: #202226;
+    --g-card: #24262b;
+    --g-card-hover: #2b2d33;
+    --g-border: #343841;
+    --g-border-subtle: #292b30;
+    --g-text: #eceef2;
+    --g-btn-inactive-text: #c8cdd6;
+    --g-muted: #abb2bf;
+    --g-subtle: #7d8492;
+    --g-accent: #82b1ff;
+    --g-accent-bg: rgba(130, 177, 255, 0.14);
+    --g-green: #4ead6b;
+    --g-green-bg: rgba(78, 173, 107, 0.14);
+    --g-amber: #d4973b;
+    --g-amber-bg: rgba(212, 151, 59, 0.14);
+    --g-red: #df5b53;
+    --g-red-bg: rgba(223, 91, 83, 0.14);
+    --g-purple: #9b82cf;
+    --g-purple-bg: rgba(155, 130, 207, 0.14);
+    --g-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+    --g-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--g-bg);
+    color: var(--g-text);
+    font-family: var(--g-font);
+    font-size: 13px;
+    line-height: 1.45;
+    overflow-x: hidden;
+  }
+
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .dot-green { background: var(--g-green); }
+  .dot-amber { background: var(--g-amber); }
+  .dot-red   { background: var(--g-red); }
+  .dot-blue  { background: var(--g-accent); }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 18px;
+    background: var(--g-panel);
+    border-bottom: 1px solid var(--g-border);
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 15px;
+  }
+  .brand-badge {
+    background: #2b2e36;
+    color: #e4e6eb;
+    border: 1px solid #3f444e;
+    padding: 3px 8px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .viewer-select {
+    background: var(--g-panel-alt);
+    color: var(--g-text);
+    border: 1px solid var(--g-border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .gate-pills {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .gate-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #252830;
+    border: 1px solid var(--g-border);
+    color: var(--g-btn-inactive-text);
+    cursor: pointer;
+    user-select: none;
+  }
+  .gate-pill:hover {
+    background: #2c303a;
+    color: var(--g-text);
+  }
+  .gate-pill.active {
+    background: var(--g-green-bg);
+    border-color: rgba(78, 173, 107, 0.45);
+    color: #a3e4b7;
+  }
+  .view-toggle {
+    display: inline-flex;
+    background: #181a1e;
+    border: 1px solid var(--g-border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .view-toggle button {
+    background: transparent;
+    color: var(--g-btn-inactive-text);
+    border: none;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .view-toggle button:hover {
+    color: var(--g-text);
+    background: #24272e;
+  }
+  .view-toggle button.active {
+    background: #323742;
+    color: #ffffff;
+  }
+
+  .cliff-radar {
+    margin: 10px 18px 8px;
+    background: var(--g-panel);
+    border: 1px solid var(--g-border);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .cliff-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .cliff-title {
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #d0d5df;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .cliff-track {
+    display: grid;
+    grid-template-columns: 1.15fr 1.25fr 1.6fr;
+    gap: 8px;
+    background: #151619;
+    border-radius: 6px;
+    padding: 8px;
+    border: 1px solid var(--g-border-subtle);
+  }
+  .cliff-zone {
+    padding: 6px 10px;
+    border-radius: 5px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 62px;
+  }
+  .zone-fresh { background: #1a211d; border-left: 3px solid var(--g-green); }
+  .zone-aging { background: #221f19; border-left: 3px solid var(--g-amber); }
+  .zone-cliff { background: #251b1c; border: 1px solid rgba(223, 91, 83, 0.3); border-left: 3px solid var(--g-red); }
+  .zone-label {
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    justify-content: space-between;
+  }
+  .zone-fresh .zone-label { color: #a3e4b7; }
+  .zone-aging .zone-label { color: #e8c27d; }
+  .zone-cliff .zone-label { color: #f0a39e; }
+  .radar-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .radar-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border-radius: 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    background: var(--g-card);
+    color: var(--g-text);
+    border: 1px solid var(--g-border);
+    cursor: pointer;
+  }
+  .radar-chip.danger {
+    background: #2c2022;
+    border-color: rgba(223, 91, 83, 0.4);
+    color: #f4c2bf;
+  }
+  .nudge-btn {
+    background: #2b2f38;
+    color: #d4dce8;
+    border: 1px solid #414652;
+    border-radius: 5px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .nudge-btn:hover {
+    background: #353a45;
+    color: #ffffff;
+  }
+
+  .workspace {
+    display: grid;
+    grid-template-columns: 475px 1fr;
+    gap: 12px;
+    padding: 4px 18px 14px;
+    height: calc(100vh - 165px);
+  }
+  @media (max-width: 960px) {
+    .cliff-track {
+      grid-template-columns: 1fr;
+    }
+    .workspace {
+      grid-template-columns: 1fr;
+      height: auto;
+      min-height: calc(100vh - 165px);
+    }
+    .queue-pane {
+      max-height: 42vh;
+    }
+    .diff-pane {
+      min-height: 54vh;
+    }
+  }
+  .queue-pane, .diff-pane {
+    background: var(--g-panel);
+    border: 1px solid var(--g-border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+  .queue-toolbar {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--g-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    background: var(--g-panel-alt);
+  }
+  .risk-filters { display: flex; gap: 5px; }
+  .risk-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 9px;
+    border-radius: 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    background: #252830;
+    border: 1px solid var(--g-border);
+    color: var(--g-btn-inactive-text);
+    cursor: pointer;
+  }
+  .risk-tab:hover {
+    background: #2d313b;
+    color: var(--g-text);
+  }
+  .risk-tab.active {
+    color: #ffffff;
+    border-color: #586173;
+    background: #343946;
+  }
+  .batch-low-btn {
+    background: #233329;
+    color: #a3e4b7;
+    border: 1px solid rgba(78, 173, 107, 0.45);
+    padding: 4px 10px;
+    border-radius: 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .batch-low-btn:hover {
+    background: #2a3e31;
+  }
+  .queue-type-toolbar {
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--g-border);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: #1c1e22;
+  }
+  .queue-group-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .group-toggle {
+    display: inline-flex;
+    background: #16181c;
+    border: 1px solid var(--g-border);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .group-toggle button {
+    background: transparent;
+    border: none;
+    color: var(--g-btn-inactive-text);
+    padding: 3px 9px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .group-toggle button:hover {
+    color: var(--g-text);
+    background: #24272e;
+  }
+  .group-toggle button.active {
+    background: #343946;
+    color: #ffffff;
+  }
+  .type-filters {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .type-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 7px;
+    border-radius: 5px;
+    font-size: 10.5px;
+    font-weight: 600;
+    background: #252830;
+    border: 1px solid var(--g-border);
+    color: var(--g-btn-inactive-text);
+    cursor: pointer;
+    user-select: none;
+  }
+  .type-tab:hover {
+    color: var(--g-text);
+    background: #2d313b;
+    border-color: #4b505d;
+  }
+  .type-tab.active {
+    color: #ffffff;
+    border-color: #586173;
+    background: #343946;
+  }
+  .type-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    background: #2b2e35;
+    color: #d0d5df;
+    border: 1px solid #3e424c;
+    white-space: nowrap;
+  }
+  .bug-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    background: #252932;
+    border: 1px solid #3c4352;
+    color: #a6c4fa;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .bug-chip:hover {
+    background: #2d323d;
+    border-color: #525c70;
+    text-decoration: underline;
+  }
+  .bug-pri-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 5px;
+    border-radius: 3px;
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+  }
+  .bug-pri-high {
+    background: rgba(223, 91, 83, 0.2);
+    color: #f4c2bf;
+    border: 1px solid rgba(223, 91, 83, 0.45);
+  }
+  .bug-pri-med {
+    background: rgba(212, 151, 59, 0.18);
+    color: #e8c27d;
+    border: 1px solid rgba(212, 151, 59, 0.42);
+  }
+  .bug-pri-low {
+    background: #2f333c;
+    color: #d0d5df;
+    border: 1px solid #434854;
+  }
+  .queue-list {
+    padding: 10px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
+  }
+  .stack-box {
+    border: 1px solid var(--g-border);
+    border-radius: 6px;
+    background: #1e2024;
+    overflow: hidden;
+    flex-shrink: 0;
+    transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.18s ease, max-height 0.2s ease, margin 0.2s ease, border-width 0.2s ease;
+  }
+  .stack-box.stack-box-exiting {
+    transform: translateX(22px) scale(0.98);
+    opacity: 0;
+    max-height: 0;
+    margin: 0;
+    border-width: 0;
+    pointer-events: none;
+  }
+  .stack-header {
+    padding: 7px 10px;
+    background: #222429;
+    border-bottom: 1px solid var(--g-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #d8dde6;
+  }
+  .cl-card {
+    padding: 9px 11px;
+    border-bottom: 1px solid var(--g-border-subtle);
+    background: var(--g-card);
+    cursor: pointer;
+    overflow: hidden;
+    transition: background 0.16s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.18s ease, max-height 0.2s ease, padding 0.2s ease;
+  }
+  .cl-card:hover { background: var(--g-card-hover); }
+  .cl-card:last-child { border-bottom: none; }
+  .cl-card.selected {
+    background: #2e323b;
+    border-left: 3px solid var(--g-accent);
+  }
+  .cl-card.cl-card-exiting {
+    background: rgba(78, 173, 107, 0.18);
+    border-left: 3px solid var(--g-green);
+    transform: translateX(22px) scale(0.98);
+    opacity: 0;
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-bottom-width: 0;
+    pointer-events: none;
+  }
+  .cl-card.cl-card-entering {
+    animation: cardFocusPulse 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .cl-row-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .cl-subj {
+    font-weight: 600;
+    font-size: 12.5px;
+    color: var(--g-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .risk-low { background: var(--g-green-bg); color: #a3e4b7; border: 1px solid rgba(78,173,107,0.36); }
+  .risk-medium { background: var(--g-amber-bg); color: #e8c27d; border: 1px solid rgba(212,151,59,0.36); }
+  .risk-high { background: var(--g-red-bg); color: #f0a39e; border: 1px solid rgba(223,91,83,0.4); }
+  .badge-rebase { background: #282b33; color: #c4c9d4; border: 1px solid #3b404b; }
+
+  .cl-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--g-muted);
+    margin-bottom: 6px;
+  }
+  .approval-slots {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .slot {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .slot-needed {
+    background: var(--g-amber-bg);
+    color: #e8c27d;
+    border: 1px dashed rgba(212, 151, 59, 0.5);
+  }
+  .slot-done {
+    background: var(--g-green-bg);
+    color: #a3e4b7;
+    border: 1px solid rgba(78, 173, 107, 0.4);
+  }
+  .slot-silent {
+    background: var(--g-red-bg);
+    color: #f0a39e;
+    border: 1px solid rgba(223, 91, 83, 0.4);
+  }
+  .collapsed-done-bucket {
+    margin-top: auto;
+    padding: 9px 12px;
+    background: #17181b;
+    border-top: 1px solid var(--g-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11.5px;
+    color: var(--g-muted);
+  }
+
+  .harness-bar {
+    padding: 10px 14px;
+    background: var(--g-panel-alt);
+    border-bottom: 1px solid var(--g-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .vote-group, .harness-group {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 11px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--g-border);
+    background: #262930;
+    color: var(--g-text);
+    transition: transform 0.14s ease, background 0.16s ease, opacity 0.16s ease;
+  }
+  .btn:hover:not(:disabled) { background: #2f333c; }
+  .btn:active:not(:disabled) { transform: scale(0.98); }
+  .btn:disabled { cursor: wait; opacity: 0.72; }
+  .btn-approve { background: #2b6342; border-color: #3a7d56; color: #f4f7f5; }
+  .btn-approve:hover:not(:disabled) { background: #32734d; }
+  .btn-approve-stack { background: #223027; border-color: #365942; color: #a3e4b7; }
+  .btn-approve-stack:hover:not(:disabled) { background: #293b30; }
+  .btn.is-voting, .batch-low-btn.is-voting {
+    opacity: 1 !important;
+    border-color: var(--g-green);
+  }
+  .btn.is-voted, .batch-low-btn.is-voted {
+    opacity: 1 !important;
+    background: #2b6342 !important;
+    border-color: #4ead6b !important;
+    color: #ffffff !important;
+  }
+  .btn-spinner {
+    display: inline-block;
+    width: 13px;
+    height: 13px;
+    border: 2px solid rgba(255, 255, 255, 0.28);
+    border-top-color: #ffffff;
+    border-right-color: #a3e4b7;
+    border-radius: 50%;
+    animation: gerritSpin 0.62s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes gerritSpin {
+    to { transform: rotate(360deg); }
+  }
+  @keyframes cardFocusPulse {
+    0% { background: #343844; }
+    100% { background: #2e323b; }
+  }
+  @keyframes diffApprovedExit {
+    0% {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+    35% {
+      opacity: 0.92;
+      transform: translate3d(-8px, -2px, 0) scale(0.996);
+    }
+    100% {
+      opacity: 0;
+      transform: translate3d(-42px, -10px, 0) scale(0.982);
+    }
+  }
+  @keyframes diffNextEnter {
+    0% {
+      opacity: 0;
+      transform: translate3d(38px, 10px, 0) scale(0.988);
+    }
+    100% {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+  @keyframes diffPrevEnter {
+    0% {
+      opacity: 0;
+      transform: translate3d(-28px, -6px, 0) scale(0.99);
+    }
+    100% {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+  @keyframes stampBannerArc {
+    0% {
+      opacity: 0;
+      transform: translate(-50%, -14px) scale(0.94);
+    }
+    18% {
+      opacity: 1;
+      transform: translate(-50%, 0) scale(1);
+    }
+    78% {
+      opacity: 1;
+      transform: translate(-50%, 0) scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: translate(-50%, -8px) scale(0.98);
+    }
+  }
+  .diff-scroll.diff-exit-approved {
+    animation: diffApprovedExit 0.21s cubic-bezier(0.32, 0, 0.67, 0) forwards;
+    pointer-events: none;
+  }
+  .diff-scroll.diff-exit-approved .commit-section {
+    border-color: rgba(78, 173, 107, 0.55);
+  }
+  .diff-scroll.diff-enter-next {
+    animation: diffNextEnter 0.28s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  .diff-scroll.diff-enter-prev {
+    animation: diffPrevEnter 0.22s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  .vote-stamp-banner {
+    position: absolute;
+    top: 56px;
+    left: 50%;
+    transform: translate(-50%, 0);
+    z-index: 30;
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 15px;
+    border-radius: 6px;
+    background: #23382b;
+    border: 1px solid #3d6b4e;
+    color: #d1fae5;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .vote-stamp-banner.active {
+    display: inline-flex;
+    animation: stampBannerArc 1.35s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  .inbox-zero-card {
+    margin: auto;
+    max-width: 440px;
+    text-align: center;
+    padding: 34px 28px;
+    border-radius: 8px;
+    background: var(--g-card);
+    border: 1px solid var(--g-border);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .diff-scroll.diff-exit-approved,
+    .diff-scroll.diff-enter-next,
+    .diff-scroll.diff-enter-prev,
+    .vote-stamp-banner.active,
+    .cl-card.cl-card-entering,
+    .cl-card.cl-card-swarming {
+      animation: none !important;
+    }
+    .cl-card { transition: none !important; }
+  }
+  .btn-swarm {
+    background: #292533;
+    border-color: #463e59;
+    color: #d8cbf2;
+  }
+  .btn-swarm:hover:not(:disabled) {
+    background: #322d3e;
+  }
+  .btn-swarm.is-swarming {
+    opacity: 1 !important;
+    background: #322d3e !important;
+    border-color: #6b5b8c !important;
+    color: #ede6fa !important;
+  }
+  .swarm-spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(210, 196, 240, 0.25);
+    border-top-color: #b79ce8;
+    border-right-color: #8ab4f8;
+    border-radius: 50%;
+    animation: gerritSpin 0.65s linear infinite;
+    flex-shrink: 0;
+  }
+  .active-swarms-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    background: #292533;
+    border: 1px solid #4a4060;
+    color: #d8cbf2;
+    cursor: pointer;
+  }
+  .active-swarms-pill:hover {
+    background: #322d3e;
+  }
+  @keyframes swarmCardPulse {
+    0%, 100% { background: #282530; }
+    50% { background: #2e2a38; }
+  }
+  .cl-card.cl-card-swarming {
+    border-left: 3px solid var(--g-purple) !important;
+    background: #282530;
+    animation: swarmCardPulse 2.2s ease-in-out infinite;
+  }
+  .slot-swarm-running {
+    background: #292533;
+    color: #d8cbf2;
+    border: 1px solid #4a4060;
+    font-weight: 600;
+  }
+  .slot-swarm-clean {
+    background: var(--g-green-bg);
+    color: #a3e4b7;
+    border: 1px solid rgba(78, 173, 107, 0.4);
+    font-weight: 600;
+  }
+  .slot-swarm-findings {
+    background: #292533;
+    color: #d8cbf2;
+    border: 1px solid #4a4060;
+    font-weight: 600;
+  }
+  .swarm-live-panel {
+    margin: 10px 12px;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid #3f3852;
+    background: #1f1d26;
+  }
+  .swarm-live-panel.completed-clean {
+    border-color: rgba(78, 173, 107, 0.4);
+    background: #1b221e;
+  }
+  .swarm-progress-track {
+    width: 100%;
+    height: 3px;
+    background: #272530;
+    overflow: hidden;
+  }
+  .swarm-progress-bar {
+    height: 100%;
+    background: var(--g-purple);
+    transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .swarm-panel-header {
+    padding: 8px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--g-border-subtle);
+  }
+  .swarm-specialist-grid {
+    padding: 8px 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .swarm-spec-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    background: #25272d;
+    border: 1px solid #353841;
+    color: var(--g-btn-inactive-text);
+  }
+  .swarm-spec-chip.running {
+    border-color: #4a4060;
+    color: #d8cbf2;
+    background: #292533;
+  }
+  .swarm-spec-chip.done-clean {
+    border-color: rgba(78, 173, 107, 0.4);
+    color: #a3e4b7;
+    background: var(--g-green-bg);
+  }
+  .swarm-spec-chip.done-finding {
+    border-color: rgba(212, 151, 59, 0.45);
+    color: #e8c27d;
+    background: var(--g-amber-bg);
+  }
+  .dot-purple-pulse {
+    background: var(--g-purple);
+  }
+  .btn-fix {
+    background: #252932;
+    border-color: #3d4554;
+    color: #c6d4ec;
+  }
+  .btn-fix:hover:not(:disabled) {
+    background: #2d323d;
+  }
+  .ag-link {
+    color: var(--g-accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .ag-link:hover {
+    text-decoration: underline;
+    color: #a6c8ff;
+  }
+
+  .diff-scroll {
+    padding: 12px 14px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    flex: 1;
+  }
+  .commit-section {
+    border: 1px solid var(--g-border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: #16171a;
+    flex-shrink: 0;
+  }
+  .commit-sec-header {
+    padding: 8px 12px;
+    background: #202227;
+    border-bottom: 1px solid var(--g-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .commit-msg-panel {
+    background: #181a1e;
+    border-bottom: 1px solid var(--g-border);
+  }
+  .commit-msg-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 6px 12px;
+    background: #1d1f24;
+    border-bottom: 1px solid var(--g-border-subtle);
+    font-size: 11px;
+  }
+  .commit-msg-panel.collapsed .commit-msg-bar {
+    border-bottom: none;
+  }
+  .commit-msg-title {
+    font-weight: 700;
+    color: var(--g-btn-inactive-text);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-size: 10.5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .commit-msg-meta {
+    color: var(--g-muted);
+    font-size: 11px;
+  }
+  .commit-msg-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .commit-msg-btn {
+    background: #252830;
+    border: 1px solid var(--g-border);
+    color: var(--g-btn-inactive-text);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 10.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .commit-msg-btn:hover {
+    background: #2f333d;
+    color: #ffffff;
+  }
+  .commit-msg-body {
+    padding: 12px 16px;
+    font-family: var(--g-font);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--g-text);
+    word-break: break-word;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .commit-msg-panel.collapsed .commit-msg-body {
+    display: none;
+  }
+  .commit-msg-subject-line {
+    font-weight: 700;
+    font-size: 13.5px;
+    color: #ffffff;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--g-border-subtle);
+  }
+  .commit-md-p {
+    margin: 0;
+    color: var(--g-text);
+    white-space: pre-wrap;
+  }
+  .commit-md-h {
+    font-weight: 700;
+    color: #ffffff;
+    margin-top: 4px;
+    margin-bottom: 0;
+  }
+  .commit-md-h1 { font-size: 14.5px; border-bottom: 1px solid var(--g-border-subtle); padding-bottom: 3px; }
+  .commit-md-h2 { font-size: 13.5px; border-bottom: 1px solid var(--g-border-subtle); padding-bottom: 2px; }
+  .commit-md-h3 { font-size: 12.5px; color: #dce2ec; }
+  .commit-md-h4 { font-size: 12px; color: var(--g-muted); text-transform: uppercase; letter-spacing: 0.3px; }
+  .commit-md-list {
+    margin: 2px 0;
+    padding-left: 22px;
+  }
+  ul.commit-md-list {
+    list-style-type: disc;
+    list-style-position: outside;
+  }
+  ol.commit-md-list {
+    list-style-type: decimal;
+    list-style-position: outside;
+  }
+  .commit-md-li {
+    display: list-item;
+    color: var(--g-text);
+    line-height: 1.5;
+    margin-bottom: 4px;
+  }
+  .commit-md-li::marker {
+    color: var(--g-accent);
+  }
+  .commit-md-inline-code {
+    font-family: var(--g-mono);
+    font-size: 11.5px;
+    background: #23262e;
+    border: 1px solid #323642;
+    color: #e2e8f0;
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  .commit-md-pre {
+    margin: 2px 0;
+    background: #141518;
+    border: 1px solid var(--g-border);
+    border-radius: 5px;
+    overflow-x: auto;
+  }
+  .commit-md-pre-lang {
+    padding: 3px 10px;
+    font-family: var(--g-mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--g-muted);
+    background: #1c1e23;
+    border-bottom: 1px solid var(--g-border-subtle);
+    text-transform: uppercase;
+  }
+  .commit-md-code-block {
+    display: block;
+    padding: 8px 12px;
+    font-family: var(--g-mono);
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: #dbe1ec;
+    white-space: pre;
+  }
+  .commit-md-quote {
+    margin: 0;
+    padding: 4px 12px;
+    border-left: 3px solid var(--g-accent);
+    background: rgba(130, 177, 255, 0.06);
+    color: #c8d0dc;
+    border-radius: 0 4px 4px 0;
+  }
+  .commit-md-hr {
+    border: none;
+    border-top: 1px solid var(--g-border);
+    margin: 4px 0;
+  }
+  .commit-md-table {
+    border-collapse: collapse;
+    width: fit-content;
+    max-width: 100%;
+    font-size: 11.5px;
+    border: 1px solid var(--g-border);
+  }
+  .commit-md-table th,
+  .commit-md-table td {
+    border: 1px solid var(--g-border);
+    padding: 4px 9px;
+    text-align: left;
+  }
+  .commit-md-table th {
+    background: #20232a;
+    color: #ffffff;
+    font-weight: 700;
+  }
+  .commit-md-table td {
+    background: #181a1f;
+  }
+  .commit-md-footers {
+    margin-top: 2px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--g-border);
+    font-family: var(--g-mono);
+    font-size: 11.5px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .commit-msg-footer-line {
+    color: #d0d5df;
+  }
+  .commit-msg-footer-key {
+    color: var(--g-accent);
+    font-weight: 600;
+  }
+  .file-header {
+    padding: 5px 12px;
+    background: #1b1d21;
+    border-top: 1px solid var(--g-border-subtle);
+    border-bottom: 1px solid var(--g-border-subtle);
+    font-family: var(--g-mono);
+    font-size: 11px;
+    color: #c0c7d4;
+    display: flex;
+    justify-content: space-between;
+  }
+  .code-table {
+    width: 100%;
+    font-family: var(--g-mono);
+    font-size: 11.5px;
+  }
+  .code-line {
+    display: grid;
+    grid-template-columns: 44px 44px 1fr;
+    padding: 1px 10px;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .ln { color: var(--g-subtle); user-select: none; text-align: right; padding-right: 10px; }
+  .code-add { background: rgba(78, 173, 107, 0.11); color: #b7e3c4; }
+  .code-del { background: rgba(223, 91, 83, 0.12); color: #f2bdb9; }
+  .code-hunk { background: rgba(130, 177, 255, 0.08); color: #a6c4fa; }
+  .code-ctx { color: #c9cdd6; }
+
+  .swarm-finding {
+    margin: 6px 14px 8px 88px;
+    background: #23202b;
+    border: 1px solid #413a52;
+    border-left: 3px solid var(--g-purple);
+    border-radius: 5px;
+    padding: 8px 12px;
+    font-family: var(--g-font);
+  }
+  .swarm-finding-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #d8cbf2;
+    margin-bottom: 4px;
+  }
+  .harness-drawer {
+    margin-top: auto;
+    background: #16171a;
+    border-top: 1px solid var(--g-border);
+    padding: 8px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11.5px;
+  }
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    right: 24px;
+    background: #25272d;
+    border: 1px solid #454954;
+    color: var(--g-text);
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-weight: 600;
+    display: none;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+    z-index: 100;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <span class="brand-badge">AEMU GERRIT</span>
+    <span>Fast Multi-Commit &amp; Agent Queue</span>
+    <span style="color:var(--g-muted);font-weight:500;font-size:12px;">Viewing as:</span>
+    <select id="viewerSelect" class="viewer-select" onchange="onViewerChange()"></select>
+    <select id="scopeSelect" class="viewer-select" onchange="onScopeChange()">
+      <option value="reviewer" selected>Assigned to Me (Reviewer)</option>
+      <option value="owner">Authored by Me</option>
+      <option value="team">All Team Repos</option>
+    </select>
+  </div>
+
+  <div class="gate-pills">
+    <div id="gatePresubmit" class="gate-pill active" onclick="toggleGate('presubmit')">✓ Presubmit Vetted (+1/+2)</div>
+    <div id="gateAgent" class="gate-pill active" onclick="toggleGate('agent')">✓ Agent Vetted (0 unresolved)</div>
+    <div id="gateHideMine" class="gate-pill active" onclick="toggleGate('hideMine')">✓ Hide Already +2'd by Me (<span id="hiddenMineCount">0</span>)</div>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+    <div class="view-toggle">
+      <button id="modeSplit" onclick="setViewMode('split')">Split Queue (j/k)</button>
+      <button id="modeStack" class="active" onclick="setViewMode('stack')">Continuous Stack Scroll</button>
+      <button id="modeSquash" onclick="setViewMode('squash')">Squashed Stack Diff</button>
+    </div>
+    <button id="btnRefreshQueue" class="btn" onclick="manualRefreshQueue()">↻ Refresh</button>
+  </div>
+</div>
+
+<div class="cliff-radar">
+  <div class="cliff-header">
+    <div class="cliff-title">
+      <span class="dot dot-blue"></span>
+      <span>TIME-IN-FLIGHT &amp; "CLIFF" RADAR (OPEN CLS WAITING ON REVIEW / MERGE)</span>
+    </div>
+    <div style="font-size:11.5px;color:var(--g-muted);">
+      Highlights CLs approaching staleness, missing a 2nd human reviewer, or needing rebase
+    </div>
+  </div>
+  <div class="cliff-track">
+    <div class="cliff-zone zone-fresh">
+      <div class="zone-label"><span>● FRESH (&lt; 24h)</span><span id="freshCount">0 CLs</span></div>
+      <div id="freshChips" class="radar-chips"></div>
+    </div>
+    <div class="cliff-zone zone-aging">
+      <div class="zone-label"><span>● AGING (1–4 Days)</span><span id="agingCount">0 CLs</span></div>
+      <div id="agingChips" class="radar-chips"></div>
+    </div>
+    <div class="cliff-zone zone-cliff">
+      <div class="zone-label"><span>▲ CLIFF ZONE (4d+ / Conflict)</span><span id="cliffCount">0 CLs</span></div>
+      <div id="cliffChips" class="radar-chips"></div>
+    </div>
+  </div>
+</div>
+
+<div class="workspace">
+  <div class="queue-pane">
+    <div class="queue-toolbar">
+      <div class="risk-filters">
+        <div id="riskAll" class="risk-tab active" onclick="setRiskFilter('all')">All (<span id="cntAll">0</span>)</div>
+        <div id="riskLow" class="risk-tab" onclick="setRiskFilter('low')"><span class="dot dot-green"></span> Low (<span id="cntLow">0</span>)</div>
+        <div id="riskMed" class="risk-tab" onclick="setRiskFilter('medium')"><span class="dot dot-amber"></span> Med (<span id="cntMed">0</span>)</div>
+        <div id="riskHigh" class="risk-tab" onclick="setRiskFilter('high')"><span class="dot dot-red"></span> High (<span id="cntHigh">0</span>)</div>
+      </div>
+      <button id="btnBatchLow" class="batch-low-btn" onclick="batchApproveLowRisk(this)">+2 All Low Load</button>
+    </div>
+
+    <div class="queue-type-toolbar">
+      <div class="queue-group-row">
+        <span style="font-size:10.5px;font-weight:700;color:var(--g-muted);letter-spacing:0.3px;">COMMIT TYPE &amp; GROUPING:</span>
+        <div class="group-toggle">
+          <button id="grpType" class="active" onclick="setGroupMode('type')">Group by Type</button>
+          <button id="grpStack" onclick="setGroupMode('stack')">Group by Stack</button>
+        </div>
+      </div>
+      <div class="type-filters">
+        <div id="typeTab_all" class="type-tab active" onclick="setTypeFilter('all')">All Types</div>
+        <div id="typeTab_bugfix" class="type-tab" onclick="setTypeFilter('bugfix')">🐛 Bug Fix (<span id="cntType_bugfix">0</span>)</div>
+        <div id="typeTab_perf" class="type-tab" onclick="setTypeFilter('perf')">⚡ Perf (<span id="cntType_perf">0</span>)</div>
+        <div id="typeTab_ets_test" class="type-tab" onclick="setTypeFilter('ets_test')">🧪 ETS/Test (<span id="cntType_ets_test">0</span>)</div>
+        <div id="typeTab_cleanup" class="type-tab" onclick="setTypeFilter('cleanup')">🧹 Cleanup (<span id="cntType_cleanup">0</span>)</div>
+        <div id="typeTab_feature" class="type-tab" onclick="setTypeFilter('feature')">✨ Feature (<span id="cntType_feature">0</span>)</div>
+        <div id="typeTab_docs_build" class="type-tab" onclick="setTypeFilter('docs_build')">📦 Build/Docs (<span id="cntType_docs_build">0</span>)</div>
+      </div>
+    </div>
+
+    <div id="queueList" class="queue-list"></div>
+
+    <div class="collapsed-done-bucket">
+      <span>✓ <strong id="bottomHiddenCount">0 CLs auto-hidden</strong> (You already voted <strong>+2</strong> · Waiting on 2nd Human)</span>
+      <button class="nudge-btn" onclick="copyAllWaitingPings()">Copy Follow-up Digest</button>
+    </div>
+  </div>
+
+  <div class="diff-pane">
+    <div id="voteStampBanner" class="vote-stamp-banner"></div>
+    <div class="harness-bar">
+      <div class="vote-group">
+        <button id="btnVoteCurrent" class="btn btn-approve" onclick="voteCurrentCl(this)">✓ Vote +2 on Selected</button>
+        <button id="btnVoteStack" class="btn btn-approve-stack" onclick="voteActiveStack(this)">✓✓ Vote +2 on Entire Stack</button>
+      </div>
+      <div class="harness-group">
+        <span style="font-size:11px;color:var(--g-muted);font-weight:700;">HARNESS ACTIONS:</span>
+        <button id="btnRunSwarm" class="btn btn-swarm" onclick="triggerHarness('review-swarm')">★ Run Review Swarm (8 Specialists)</button>
+        <button id="btnAutoFix" class="btn btn-fix" onclick="triggerHarness('address-review')">→ Auto-Address Comments</button>
+        <span id="activeSwarmsPill" class="active-swarms-pill" style="display:none;" onclick="jumpToActiveSwarmCl()"></span>
+      </div>
+    </div>
+
+    <div id="diffScroll" class="diff-scroll"></div>
+
+    <div class="harness-drawer">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span id="drawerDot" class="dot dot-green"></span>
+        <strong>Harness &amp; Gerrit Bridge:</strong>
+        <span id="drawerStatus" style="color:var(--g-muted);">Ready · Keyboard shortcuts: j/k (next/prev commit), a (+2 current), s (run Review Swarm)</span>
+      </div>
+      <a id="openGerritLink" href="#" target="_blank" style="color:var(--g-accent);font-weight:600;text-decoration:none;">Open in Gerrit ↗</a>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+  window.__GERRIT_UI_VERSION__ = "__GERRIT_UI_VERSION__";
+  window.__GERRIT_UI_BOOTSTRAP__ = __GERRIT_UI_BOOTSTRAP_JSON__;
+  const _sidecarUrlParams = new URLSearchParams(window.location.search);
+  const sidecarUiToken = _sidecarUrlParams.get("token") || "";
+
+  function sidecarFetch(path, options = {}) {
+    let targetUrl = path;
+    if (sidecarUiToken) {
+      const sep = targetUrl.includes("?") ? "&" : "?";
+      targetUrl = `${targetUrl}${sep}token=${encodeURIComponent(sidecarUiToken)}`;
+    }
+    const headers = Object.assign({}, options.headers || {});
+    if (sidecarUiToken) {
+      headers["X-Sidecar-Token"] = sidecarUiToken;
+    }
+    return fetch(targetUrl, Object.assign({}, options, { headers }));
+  }
+
+  const DEFAULT_SWARM_SPECIALISTS = [
+    { specialist: "commit-and-bug-auditor", role: "Commit & Bug Auditor" },
+    { specialist: "duplication-and-reuse-auditor", role: "Duplication & Reuse Auditor" },
+    { specialist: "modularity-auditor", role: "Modularity Auditor" },
+    { specialist: "control-flow-auditor", role: "Control-Flow Auditor" },
+    { specialist: "constants-auditor", role: "Named Constants Auditor" },
+    { specialist: "unicode-and-platform-auditor", role: "Unicode & Platform Auditor" },
+    { specialist: "error-messages-and-statusor-auditor", role: "Error Messages & StatusOr Auditor" },
+    { specialist: "concurrency-and-safety-auditor", role: "Concurrency & Memory Safety Auditor" },
+  ];
+
+  const COMMIT_TYPE_ORDER = [
+    { id: "bugfix", label: "🐛 Bug Fixes", short: "Bug Fix" },
+    { id: "perf", label: "⚡ Performance", short: "Perf" },
+    { id: "ets_test", label: "🧪 ETS & Tests", short: "ETS / Test" },
+    { id: "cleanup", label: "🧹 Cleanup & Refactor", short: "Cleanup" },
+    { id: "feature", label: "✨ Features & UI", short: "Feature" },
+    { id: "docs_build", label: "📦 Build, Deps & Docs", short: "Build / Docs" },
+  ];
+
+  const state = {
+    viewer: "joshuaduong@google.com",
+    scope: "reviewer",
+    roster: [],
+    changes: [],
+    stacks: [],
+    diffsByCl: {},
+    swarmByCl: {},
+    sessionApprovedCls: new Set(),
+    collapsedCommitMsgs: new Set(),
+    gates: { presubmit: true, agent: false, hideMine: true },
+    riskFilter: "all",
+    groupMode: "type",
+    typeFilter: "all",
+    viewMode: "stack",
+    selectedStackId: null,
+    selectedClNumber: null,
+    votingInFlight: false,
+    justEnteredClNumber: null,
+    queueClearedCount: 0,
+  };
+
+  function showToast(msg) {
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.style.display = "block";
+    clearTimeout(window._toastTimer);
+    window._toastTimer = setTimeout(() => { el.style.display = "none"; }, 3400);
+  }
+
+  function escapeHtml(str) {
+    return String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  async function initApp() {
+    if (window.__GERRIT_UI_BOOTSTRAP__ && Array.isArray(window.__GERRIT_UI_BOOTSTRAP__.changes)) {
+      applyQueuePayload(window.__GERRIT_UI_BOOTSTRAP__);
+      return;
+    }
+    await fetchQueueData();
+  }
+
+  async function manualRefreshQueue() {
+    const btn = document.getElementById("btnRefreshQueue");
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="btn-spinner"></span> Refreshing…`;
+    }
+    try {
+      await fetchQueueData(state.viewer, state.scope, { preserveDiffCache: false });
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "↻ Refresh";
+      }
+    }
+  }
+
+  async function fetchQueueData(viewerOverride, scopeOverride, opts = {}) {
+    try {
+      const v = viewerOverride || state.viewer || "";
+      const sc = scopeOverride || state.scope || "reviewer";
+      const qs = `?scope=${encodeURIComponent(sc)}${v ? `&viewer=${encodeURIComponent(v)}` : ""}`;
+      const resp = await sidecarFetch(`/api/gerrit/queue${qs}`);
+      const data = await resp.json();
+      if (data.error) {
+        showToast("Error loading Gerrit queue: " + data.error);
+        return;
+      }
+      if (!opts.preserveDiffCache) {
+        state.diffsByCl = {};
+      }
+      applyQueuePayload(data, opts);
+    } catch (err) {
+      if (!opts.silent) {
+        showToast("Could not reach local Gerrit UI server: " + err);
+      }
+    }
+  }
+
+  function applyQueuePayload(data, opts = {}) {
+    if (
+      data.ui_version &&
+      window.__GERRIT_UI_VERSION__ &&
+      !window.__GERRIT_UI_VERSION__.startsWith("__") &&
+      data.ui_version !== window.__GERRIT_UI_VERSION__
+    ) {
+      window.location.reload();
+      return;
+    }
+    state.viewer = data.viewer || state.viewer;
+    state.scope = data.scope || state.scope || "reviewer";
+    state.roster = data.roster || ["jansene@google.com", "joshuaduong@google.com", "rkir@google.com", "whollins@google.com"];
+    state.changes = data.changes || [];
+    state.stacks = data.stacks || [];
+    if (state.sessionApprovedCls.size > 0) {
+      markClsApprovedOptimistically(Array.from(state.sessionApprovedCls));
+    }
+    state.changes.forEach(c => {
+      if (c.swarm_status) {
+        mergePolledSwarmStatus(c.number, c.swarm_status, { silentToast: true });
+      }
+    });
+    if (Array.isArray(data.prefetched_diffs)) {
+      data.prefetched_diffs.forEach(d => { state.diffsByCl[d.number] = d; });
+    }
+    const scopeEl = document.getElementById("scopeSelect");
+    if (scopeEl && state.scope) {
+      scopeEl.value = state.scope;
+    }
+    renderViewerDropdown();
+    renderAll({ preserveScroll: Boolean(opts.preserveScroll) });
+    ensureSwarmPollingTimer();
+  }
+
+  function renderViewerDropdown() {
+    const sel = document.getElementById("viewerSelect");
+    const emails = Array.from(new Set([state.viewer, ...state.roster]));
+    sel.innerHTML = emails
+      .map(em => `<option value="${escapeHtml(em)}" ${em === state.viewer ? "selected" : ""}>${escapeHtml(em)}</option>`)
+      .join("");
+  }
+
+  function onViewerChange() {
+    const newViewer = document.getElementById("viewerSelect").value;
+    state.viewer = newViewer;
+    state.selectedClNumber = null;
+    state.selectedStackId = null;
+    if (window.__GERRIT_UI_BOOTSTRAP__ && Array.isArray(window.__GERRIT_UI_BOOTSTRAP__.changes)) {
+      state.changes.forEach(c => {
+        c.approved_by_viewer = (c.human_cr2 || []).some(v => v.email === newViewer);
+      });
+      renderAll();
+      return;
+    }
+    fetchQueueData(newViewer, state.scope);
+  }
+
+  function onScopeChange() {
+    const newScope = document.getElementById("scopeSelect").value;
+    state.scope = newScope;
+    state.selectedClNumber = null;
+    state.selectedStackId = null;
+    fetchQueueData(state.viewer, newScope);
+  }
+
+  function toggleGate(name) {
+    state.gates[name] = !state.gates[name];
+    document.getElementById("gatePresubmit").classList.toggle("active", state.gates.presubmit);
+    document.getElementById("gateAgent").classList.toggle("active", state.gates.agent);
+    document.getElementById("gateHideMine").classList.toggle("active", state.gates.hideMine);
+    renderAll();
+  }
+
+  function setRiskFilter(tier) {
+    state.riskFilter = tier;
+    ["All", "Low", "Med", "High"].forEach(k => {
+      const el = document.getElementById("risk" + k);
+      if (el) el.classList.remove("active");
+    });
+    const map = { all: "riskAll", low: "riskLow", medium: "riskMed", high: "riskHigh" };
+    const activeEl = document.getElementById(map[tier] || "riskAll");
+    if (activeEl) activeEl.classList.add("active");
+    renderAll();
+  }
+
+  function setViewMode(mode) {
+    state.viewMode = mode;
+    document.getElementById("modeSplit").classList.toggle("active", mode === "split");
+    document.getElementById("modeStack").classList.toggle("active", mode === "stack");
+    document.getElementById("modeSquash").classList.toggle("active", mode === "squash");
+    renderDiffPane();
+  }
+
+  function setGroupMode(mode) {
+    state.groupMode = mode;
+    const grpTypeEl = document.getElementById("grpType");
+    const grpStackEl = document.getElementById("grpStack");
+    if (grpTypeEl) grpTypeEl.classList.toggle("active", mode === "type");
+    if (grpStackEl) grpStackEl.classList.toggle("active", mode === "stack");
+    renderAll();
+  }
+
+  function setTypeFilter(typeId) {
+    state.typeFilter = typeId;
+    ["all", ...COMMIT_TYPE_ORDER.map(t => t.id)].forEach(id => {
+      const el = document.getElementById("typeTab_" + id);
+      if (el) el.classList.toggle("active", id === typeId);
+    });
+    renderAll();
+  }
+
+  function getCommitTypeObj(cl) {
+    if (cl && cl.commit_type && cl.commit_type.id) {
+      return cl.commit_type;
+    }
+    const subj = String((cl && cl.subject) || "").toLowerCase();
+    const files = ((cl && cl.files) || []).map(f => String(f).toLowerCase());
+    if (subj.includes("ets") || subj.includes("pytest") || subj.startsWith("test") || files.some(f => f.includes("ets") || f.includes("test"))) {
+      return COMMIT_TYPE_ORDER[2];
+    }
+    if (subj.startsWith("perf") || subj.includes("latency") || subj.includes("throughput") || subj.includes("optimiz")) {
+      return COMMIT_TYPE_ORDER[1];
+    }
+    if (subj.startsWith("fix") || subj.includes("bug") || subj.includes("crash") || (cl && Array.isArray(cl.bugs) && cl.bugs.length > 0)) {
+      return COMMIT_TYPE_ORDER[0];
+    }
+    if (subj.startsWith("refactor") || subj.startsWith("cleanup") || subj.includes("clean up") || subj.includes("dead code")) {
+      return COMMIT_TYPE_ORDER[3];
+    }
+    if (subj.startsWith("feat") || subj.includes("ui") || subj.includes("add ")) {
+      return COMMIT_TYPE_ORDER[4];
+    }
+    return COMMIT_TYPE_ORDER[5];
+  }
+
+  function getCommitTypeId(cl) {
+    return getCommitTypeObj(cl).id;
+  }
+
+  function getClBugs(cl) {
+    if (!cl) return [];
+    if (Array.isArray(cl.bugs) && cl.bugs.length > 0) {
+      return cl.bugs;
+    }
+    if (Array.isArray(cl.bug_ids) && cl.bug_ids.length > 0) {
+      return cl.bug_ids.map(id => ({
+        id: String(id),
+        url: `https://b.corp.google.com/issues/${id}`,
+        priority: "",
+        severity: "",
+        status: "",
+        title: "",
+      }));
+    }
+    return [];
+  }
+
+  function getBugPriorityClass(priority, severity) {
+    const p = String(priority || "").toUpperCase();
+    const s = String(severity || "").toUpperCase();
+    if (p === "P0" || p === "P1" || s === "S0" || s === "S1") {
+      return "bug-pri-high";
+    }
+    if (p === "P2" || s === "S2") {
+      return "bug-pri-med";
+    }
+    return "bug-pri-low";
+  }
+
+  function renderBugBadgesHtml(cl) {
+    const bugs = getClBugs(cl);
+    if (!bugs.length) return "";
+    return bugs.map(b => {
+      const bugId = String(b.id || "");
+      const bugUrl = b.url || `https://b.corp.google.com/issues/${bugId}`;
+      const pri = String(b.priority || "").toUpperCase();
+      const sev = String(b.severity || "").toUpperCase();
+      const status = String(b.status || "");
+      const title = String(b.title || "");
+      const priSevParts = [];
+      if (pri) priSevParts.push(pri);
+      if (sev) priSevParts.push(sev);
+      const priSevLabel = priSevParts.join(" · ");
+      const priCls = getBugPriorityClass(pri, sev);
+      const priTagHtml = priSevLabel
+        ? `<span class="bug-pri-tag ${priCls}">${escapeHtml(priSevLabel)}</span>`
+        : "";
+      const tooltipParts = [`b/${bugId}`];
+      if (priSevLabel) tooltipParts.push(`[${priSevLabel}]`);
+      if (status) tooltipParts.push(`(${status})`);
+      if (title) tooltipParts.push(`— ${title}`);
+      const tooltip = tooltipParts.join(" ");
+      return `<a class="bug-chip" href="${escapeHtml(bugUrl)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(tooltip)}" onclick="event.stopPropagation()">🐛 b/${escapeHtml(bugId)} ↗${priTagHtml}</a>`;
+    }).join(" ");
+  }
+
+  function isClApprovedByViewer(cl) {
+    if (!cl) return false;
+    return Boolean(cl.approved_by_viewer || state.sessionApprovedCls.has(Number(cl.number)));
+  }
+
+  function passesGates(cl) {
+    if (state.gates.presubmit && !cl.presubmit_vetted) return false;
+    if (state.gates.agent && !cl.agent_vetted) return false;
+    if (state.gates.hideMine && isClApprovedByViewer(cl)) return false;
+    return true;
+  }
+
+  function getVisibleStacks() {
+    const visibleStacks = [];
+    state.stacks.forEach(st => {
+      const commits = st.commits.filter(c => {
+        if (!passesGates(c)) return false;
+        if (state.riskFilter !== "all" && c.risk.tier !== state.riskFilter) return false;
+        if (state.typeFilter !== "all" && getCommitTypeId(c) !== state.typeFilter) return false;
+        return true;
+      });
+      if (commits.length > 0) {
+        visibleStacks.push({ ...st, commits });
+      }
+    });
+    return visibleStacks;
+  }
+
+  function getOrderedVisibleCommits(visibleStacks) {
+    const stacks = visibleStacks || getVisibleStacks();
+    if (state.groupMode === "type") {
+      const allItems = [];
+      stacks.forEach(st => {
+        st.commits.forEach(c => {
+          allItems.push({ commit: c, stack: st });
+        });
+      });
+      const ordered = [];
+      COMMIT_TYPE_ORDER.forEach(t => {
+        allItems.forEach(item => {
+          if (getCommitTypeId(item.commit) === t.id) {
+            ordered.push(item);
+          }
+        });
+      });
+      allItems.forEach(item => {
+        if (!ordered.includes(item)) ordered.push(item);
+      });
+      return ordered;
+    }
+    const ordered = [];
+    stacks.forEach(st => {
+      st.commits.forEach(c => {
+        ordered.push({ commit: c, stack: st });
+      });
+    });
+    return ordered;
+  }
+
+  function isSelectedVisibleInStacks(visibleStacks) {
+    if (!state.selectedClNumber) return false;
+    return visibleStacks.some(st => st.commits.some(c => c.number === state.selectedClNumber));
+  }
+
+  function renderAll(opts = {}) {
+    const alreadyMine = state.changes.filter(isClApprovedByViewer);
+    document.getElementById("hiddenMineCount").textContent = alreadyMine.length;
+    document.getElementById("bottomHiddenCount").textContent = `${alreadyMine.length} CLs auto-hidden`;
+
+    renderCliffRadar();
+
+    const gated = state.changes.filter(passesGates);
+    const lowCnt = gated.filter(c => c.risk.tier === "low").length;
+    const medCnt = gated.filter(c => c.risk.tier === "medium").length;
+    const highCnt = gated.filter(c => c.risk.tier === "high").length;
+    document.getElementById("cntAll").textContent = gated.length;
+    document.getElementById("cntLow").textContent = lowCnt;
+    document.getElementById("cntMed").textContent = medCnt;
+    document.getElementById("cntHigh").textContent = highCnt;
+
+    const riskGated = gated.filter(c => state.riskFilter === "all" || c.risk.tier === state.riskFilter);
+    COMMIT_TYPE_ORDER.forEach(t => {
+      const cntEl = document.getElementById(`cntType_${t.id}`);
+      if (cntEl) {
+        cntEl.textContent = riskGated.filter(c => getCommitTypeId(c) === t.id).length;
+      }
+    });
+
+    const visibleStacks = getVisibleStacks();
+    const orderedVisible = getOrderedVisibleCommits(visibleStacks);
+    if (!isSelectedVisibleInStacks(visibleStacks) && !state.explicitRadarSelection) {
+      if (orderedVisible.length > 0) {
+        state.selectedStackId = orderedVisible[0].stack.stack_id;
+        state.selectedClNumber = orderedVisible[0].commit.number;
+      } else {
+        state.selectedStackId = null;
+        state.selectedClNumber = null;
+      }
+    }
+
+    renderQueueList(visibleStacks);
+    ensureActiveDiffsLoaded(opts);
+  }
+
+  function renderCliffRadar() {
+    const visibleForRadar = state.changes.filter(c => !isClApprovedByViewer(c));
+    const fresh = visibleForRadar.filter(c => c.cliff_zone === "fresh").slice(0, 5);
+    const aging = visibleForRadar.filter(c => c.cliff_zone === "aging").slice(0, 5);
+    const cliff = visibleForRadar.filter(c => c.cliff_zone === "cliff").slice(0, 5);
+
+    document.getElementById("freshCount").textContent = `${fresh.length} CLs`;
+    document.getElementById("agingCount").textContent = `${aging.length} CLs`;
+    document.getElementById("cliffCount").textContent = `${cliff.length} CLs`;
+
+    document.getElementById("freshChips").innerHTML = fresh.map(c =>
+      `<div class="radar-chip" onclick="selectCl(${c.number})">
+        <span class="dot dot-green"></span>
+        <span><a class="ag-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">ag/${c.number} ↗</a> ${renderBugBadgesHtml(c)} (${escapeHtml(c.flight_display)}) · ${escapeHtml(c.project_short)}</span>
+      </div>`
+    ).join("") || `<span style="color:var(--g-subtle);font-size:11px;">None</span>`;
+
+    document.getElementById("agingChips").innerHTML = aging.map(c =>
+      `<div class="radar-chip" onclick="selectCl(${c.number})">
+        <span class="dot dot-amber"></span>
+        <span><a class="ag-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">ag/${c.number} ↗</a> ${renderBugBadgesHtml(c)} (${escapeHtml(c.flight_display)}) · Needs +2</span>
+      </div>`
+    ).join("") || `<span style="color:var(--g-subtle);font-size:11px;">None</span>`;
+
+    document.getElementById("cliffChips").innerHTML = cliff.map(c => {
+      const conflictTag = !c.mergeable ? " · Merge Conflict!" : "";
+      const waitTag = c.is_orphaned ? "[Agent CL] Needs 2x +2" : "Needs Your +2";
+      return `<div class="radar-chip danger" onclick="selectCl(${c.number})">
+        <span>▲ <a class="ag-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">ag/${c.number} ↗</a> ${renderBugBadgesHtml(c)} (${escapeHtml(c.flight_display)}${conflictTag})</span>
+        <span style="color:#e2b870;">${escapeHtml(waitTag)}</span>
+        <button class="nudge-btn" onclick="event.stopPropagation(); copyPingForCl(${c.number})">Copy Chat Ping</button>
+      </div>`;
+    }).join("") || `<span style="color:var(--g-subtle);font-size:11px;">0 CLs in Cliff Zone</span>`;
+  }
+
+  function renderClCardHtml(c, stackId, stackLen) {
+    const isSelected = (state.groupMode === "stack" && state.viewMode === "stack" && stackId === state.selectedStackId) ||
+                       (c.number === state.selectedClNumber);
+    const riskClass = `risk-${c.risk.tier}`;
+    const dotClass = c.risk.tier === "low" ? "dot-green" : (c.risk.tier === "medium" ? "dot-amber" : "dot-red");
+    const prefix = stackLen > 1 ? `${c.stack_index}/${c.stack_total} · ` : "";
+    const agentTag = c.is_agent_cl ? "[Agent CL: 2x +2 req]" : `${c.owner_short}@ (1x +2 req)`;
+    const pvTag = c.presubmit_vetted ? `✓ Presubmit +${c.presubmit_score}` : `Presubmit ${c.presubmit_score}`;
+    const typeObj = getCommitTypeObj(c);
+    const typeBadgeHtml = `<span class="type-badge type-${escapeHtml(typeObj.id)}">${escapeHtml(typeObj.short)}</span>`;
+    const bugBadgesHtml = renderBugBadgesHtml(c);
+
+    const slotsHtml = (c.approval_slots || []).map(s =>
+      `<span class="slot ${s.state === "done" ? "slot-done" : "slot-needed"}">${escapeHtml(s.text)}</span>`
+    ).join("");
+    const invHtml = (c.human_involvement || []).slice(0, 2).map(h =>
+      `<span class="slot ${h.state === "silent_attention" ? "slot-silent" : "slot-done"}">${escapeHtml(h.label)}</span>`
+    ).join("");
+
+    const enteringCls = state.justEnteredClNumber === c.number ? "cl-card-entering" : "";
+    const swarmObj = state.swarmByCl[c.number];
+    const swarmingCls = swarmObj && swarmObj.state === "running" ? "cl-card-swarming" : "";
+    const swarmSlotHtml = renderClSwarmBadgeHtml(c.number);
+    return `<div class="cl-card ${isSelected ? "selected" : ""} ${enteringCls} ${swarmingCls}" data-cl-num="${c.number}" onclick="selectStackAndCl('${escapeHtml(stackId)}', ${c.number})">
+      <div class="cl-row-top">
+        <span class="cl-subj">${escapeHtml(prefix + c.subject)}</span>
+        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
+          ${typeBadgeHtml}
+          <span class="badge ${riskClass}"><span class="dot ${dotClass}"></span> ${escapeHtml(c.risk.label)}</span>
+        </div>
+      </div>
+      <div class="cl-meta">
+        <span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <a class="ag-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">ag/${c.number} ↗</a>
+          ${bugBadgesHtml}
+          <span>· ${escapeHtml(agentTag)} · ${escapeHtml(c.flight_display)} in flight</span>
+        </span>
+        <span class="badge badge-rebase">${escapeHtml(pvTag)}</span>
+      </div>
+      <div class="approval-slots"><span id="clSwarmSlot-${c.number}">${swarmSlotHtml}</span>${slotsHtml}${invHtml}</div>
+    </div>`;
+  }
+
+  function batchApproveTypeGroup(typeId, btnEl) {
+    const visibleStacks = getVisibleStacks();
+    const nums = [];
+    visibleStacks.forEach(st => {
+      st.commits.forEach(c => {
+        if (getCommitTypeId(c) === typeId) {
+          nums.push(c.number);
+        }
+      });
+    });
+    if (!nums.length) {
+      showToast("No vetted CLs in this commit type group.");
+      return;
+    }
+    castVotes(nums, btnEl);
+  }
+
+  function renderQueueList(visibleStacks) {
+    const container = document.getElementById("queueList");
+    if (visibleStacks.length === 0) {
+      container.innerHTML = `<div style="padding:24px;text-align:center;color:var(--g-muted);">
+        No CLs match the active filter gates. Toggle off a gate pill or type filter above to view unvetted or already-approved CLs.
+      </div>`;
+      return;
+    }
+
+    if (state.groupMode === "type") {
+      const grouped = new Map();
+      COMMIT_TYPE_ORDER.forEach(t => grouped.set(t.id, []));
+      visibleStacks.forEach(st => {
+        st.commits.forEach(c => {
+          const tid = getCommitTypeId(c);
+          if (!grouped.has(tid)) grouped.set(tid, []);
+          grouped.get(tid).push({ commit: c, stackId: st.stack_id, stackLen: st.commits.length });
+        });
+      });
+
+      const sectionsHtml = [];
+      COMMIT_TYPE_ORDER.forEach(t => {
+        const items = grouped.get(t.id) || [];
+        if (items.length === 0) return;
+        const cardsHtml = items.map(item => renderClCardHtml(item.commit, item.stackId, item.stackLen)).join("");
+        sectionsHtml.push(`<div class="stack-box type-group-box" data-type-group="${escapeHtml(t.id)}">
+          <div class="stack-header">
+            <span>${escapeHtml(t.label)}</span>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="color:#cbd5e1;">${items.length} Commit${items.length === 1 ? "" : "s"}</span>
+              <button class="nudge-btn" onclick="event.stopPropagation(); batchApproveTypeGroup('${escapeHtml(t.id)}', this)">✓ +2 All (${items.length})</button>
+            </div>
+          </div>
+          ${cardsHtml}
+        </div>`);
+      });
+      container.innerHTML = sectionsHtml.join("");
+      return;
+    }
+
+    container.innerHTML = visibleStacks.map(st => {
+      const cardsHtml = st.commits.map(c => renderClCardHtml(c, st.stack_id, st.commits.length)).join("");
+
+      if (st.is_stack) {
+        return `<div class="stack-box">
+          <div class="stack-header">
+            <span>${escapeHtml(st.title)}</span>
+            <span style="color:#96d9ab;">${st.commits.length} Commits</span>
+          </div>
+          ${cardsHtml}
+        </div>`;
+      }
+      return `<div class="stack-box">${cardsHtml}</div>`;
+    }).join("");
+  }
+
+  function selectCl(clNum, fromRadar = true, animDir = "next") {
+    for (const st of state.stacks) {
+      if (st.commits.some(c => c.number === clNum)) {
+        state.explicitRadarSelection = Boolean(fromRadar);
+        selectStackAndCl(st.stack_id, clNum, { keepRadarFlag: Boolean(fromRadar), animDir });
+        return;
+      }
+    }
+  }
+
+  function selectStackAndCl(stackId, clNum, opts = {}) {
+    if (!opts.keepRadarFlag) {
+      state.explicitRadarSelection = false;
+    }
+    state.selectedStackId = stackId;
+    state.selectedClNumber = clNum;
+    renderAll();
+    const diffEl = document.getElementById("diffScroll");
+    if (diffEl) {
+      diffEl.scrollTop = 0;
+      if (opts.animDir) {
+        triggerDiffEnterAnimation(opts.animDir === "prev" ? "diff-enter-prev" : "diff-enter-next");
+      }
+    }
+    scrollSelectedCardIntoView();
+  }
+
+  function scrollSelectedCardIntoView() {
+    if (!state.selectedClNumber) return;
+    const card = document.querySelector(`.cl-card[data-cl-num="${state.selectedClNumber}"]`);
+    if (card && typeof card.scrollIntoView === "function") {
+      card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }
+
+  function triggerDiffEnterAnimation(clsName) {
+    const diffEl = document.getElementById("diffScroll");
+    if (!diffEl) return;
+    diffEl.classList.remove("diff-exit-approved", "diff-enter-next", "diff-enter-prev");
+    void diffEl.offsetWidth;
+    diffEl.classList.add(clsName);
+    clearTimeout(window._diffAnimCleanup);
+    window._diffAnimCleanup = setTimeout(() => {
+      diffEl.classList.remove("diff-enter-next", "diff-enter-prev");
+    }, 320);
+  }
+
+  function getActiveCommitsForDiff() {
+    const visibleStacks = getVisibleStacks();
+    const vst = visibleStacks.find(s => s.stack_id === state.selectedStackId);
+    if (vst) {
+      const chosen = vst.commits.find(c => c.number === state.selectedClNumber);
+      if (state.viewMode === "split") {
+        return chosen ? [chosen] : vst.commits.slice(0, 1);
+      }
+      if (chosen && state.groupMode === "type" && state.viewMode !== "squash" && vst.commits[0].number !== chosen.number) {
+        return [chosen, ...vst.commits.filter(c => c.number !== chosen.number)];
+      }
+      return vst.commits;
+    }
+    const st = state.stacks.find(s => s.stack_id === state.selectedStackId);
+    if (!st) {
+      const single = state.changes.find(c => c.number === state.selectedClNumber);
+      return single ? [single] : [];
+    }
+    const chosen = st.commits.find(c => c.number === state.selectedClNumber);
+    return chosen ? [chosen] : [];
+  }
+
+  async function prefetchDiffsForNumbers(clNums) {
+    const missing = (clNums || []).filter(num => num && !state.diffsByCl[num]);
+    if (!missing.length || (window.__GERRIT_UI_BOOTSTRAP__ && window.__GERRIT_UI_BOOTSTRAP__.changes)) {
+      return;
+    }
+    try {
+      const resp = await sidecarFetch(`/api/gerrit/diffs?cls=${missing.join(",")}`);
+      const data = await resp.json();
+      (data.diffs || []).forEach(d => { state.diffsByCl[d.number] = d; });
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function ensureActiveDiffsLoaded(opts = {}) {
+    const commits = getActiveCommitsForDiff();
+    const btnCurrent = document.getElementById("btnVoteCurrent");
+    const btnStack = document.getElementById("btnVoteStack");
+    if (commits.length === 0) {
+      if (!state.votingInFlight) {
+        if (btnCurrent) {
+          btnCurrent.disabled = true;
+          btnCurrent.textContent = "✓ Queue Clear";
+        }
+        if (btnStack) {
+          btnStack.disabled = true;
+          btnStack.textContent = "✓✓ Stack Clear";
+        }
+      }
+      renderDiffPane();
+      return;
+    }
+    const primary = commits.find(c => c.number === state.selectedClNumber) || commits[0];
+    if (!state.votingInFlight) {
+      if (btnCurrent) {
+        btnCurrent.disabled = false;
+        btnCurrent.textContent = `✓ Vote +2 on ag/${primary.number}`;
+      }
+      if (btnStack) {
+        btnStack.disabled = false;
+        btnStack.textContent = `✓✓ Vote +2 on Stack (${commits.length} Commits)`;
+      }
+    }
+    document.getElementById("openGerritLink").href = primary.url;
+
+    const missing = commits.map(c => c.number).filter(num => !state.diffsByCl[num]);
+    if (missing.length > 0 && !(window.__GERRIT_UI_BOOTSTRAP__ && window.__GERRIT_UI_BOOTSTRAP__.changes)) {
+      renderDiffPane();
+      await prefetchDiffsForNumbers(missing);
+    }
+    renderDiffPane();
+    if (!opts.preserveScroll) {
+      const nextIdx = commits.findIndex(c => c.number !== primary.number);
+      if (nextIdx >= 0) {
+        prefetchDiffsForNumbers([commits[nextIdx].number]);
+      }
+    }
+  }
+
+  function renderFileDiffBlock(f) {
+    const linesHtml = (f.lines || []).map(ln => {
+      const cls = ln.type === "add" ? "code-add" : (ln.type === "del" ? "code-del" : (ln.type === "hunk" ? "code-hunk" : "code-ctx"));
+      return `<div class="code-line ${cls}"><span class="ln">${escapeHtml(ln.old)}</span><span class="ln">${escapeHtml(ln.new)}</span><span>${escapeHtml(ln.text)}</span></div>`;
+    }).join("");
+    const truncHtml = f.truncated
+      ? `<div class="code-line code-hunk"><span class="ln">…</span><span class="ln">…</span><span>Diff truncated — click "Open in Gerrit ↗" to view remaining lines</span></div>`
+      : "";
+    return `<div class="file-header"><span>${escapeHtml(f.file)}</span><span>+${f.additions} / -${f.deletions}</span></div>
+            <div class="code-table">${linesHtml}${truncHtml}</div>`;
+  }
+
+  function getFullCommitMessage(c, bundle) {
+    const fromChange = c && typeof c.commit_message === "string" ? c.commit_message.trim() : "";
+    const fromBundle = bundle && typeof bundle.commit_message === "string" ? bundle.commit_message.trim() : "";
+    if (fromChange && fromChange.length >= (fromBundle ? fromBundle.length : 0)) {
+      return fromChange;
+    }
+    if (fromBundle) {
+      return fromBundle;
+    }
+    return (c && c.subject) || "";
+  }
+
+  function renderInlineMarkdownHtml(rawText, isBugFooter = false) {
+    const tokens = [];
+    const stash = html => {
+      const idx = tokens.length;
+      tokens.push(html);
+      return `\x00MDTOK_${idx}_\x00`;
+    };
+
+    let s = escapeHtml(String(rawText || ""));
+
+    // 1. Inline code spans (`...`) protected first
+    s = s.replace(/`([^`\n]+)`/g, (_m, code) =>
+      stash(`<code class="commit-md-inline-code">${code}</code>`)
+    );
+
+    // 2. Explicit Markdown links [label](https://...)
+    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, (_m, label, url) =>
+      stash(`<a class="ag-link" href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`)
+    );
+
+    // 3. Bare http/https URLs
+    s = s.replace(/\b(https?:\/\/[^\s<)]+)/gi, (_m, url) =>
+      stash(`<a class="ag-link" href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`)
+    );
+
+    // 4. Google internal shortlinks (b/123456, ag/123456, go/slug)
+    s = s.replace(/\bb\/(\d{6,12})\b/gi, (_m, id) =>
+      stash(`<a class="ag-link" href="https://b.corp.google.com/issues/${id}" target="_blank" rel="noopener noreferrer">b/${id}</a>`)
+    );
+    s = s.replace(/\bag\/(\d{5,12})\b/gi, (_m, id) =>
+      stash(`<a class="ag-link" href="https://googleplex-android-review.git.corp.google.com/q/${id}" target="_blank" rel="noopener noreferrer">ag/${id}</a>`)
+    );
+    s = s.replace(/\bgo\/([a-zA-Z0-9][a-zA-Z0-9_/-]*)/g, (_m, slug) =>
+      stash(`<a class="ag-link" href="http://go/${slug}" target="_blank" rel="noopener noreferrer">go/${slug}</a>`)
+    );
+
+    if (isBugFooter) {
+      s = s.replace(/(^|[\s,])(\d{6,12})(?=$|[\s,])/g, (_m, pre, id) =>
+        `${pre}${stash(`<a class="ag-link" href="https://b.corp.google.com/issues/${id}" target="_blank" rel="noopener noreferrer">b/${id}</a>`)}`
+      );
+    }
+
+    // 5. Bold (**text** or __text__), Strikethrough (~~text~~), and word-bounded Italic (*text* or _text_)
+    s = s.replace(/\*\*([^\s*](?:[^*]*[^\s*])?)\*\*/g, "<strong>$1</strong>");
+    s = s.replace(/__([^\s_](?:[^_]*[^\s_])?)__/g, "<strong>$1</strong>");
+    s = s.replace(/~~([^\s~](?:[^~]*[^\s~])?)~~/g, "<del>$1</del>");
+    s = s.replace(/(^|[^*])\*([^\s*](?:[^*]*[^\s*])?)\*(?!\*)/g, "$1<em>$2</em>");
+    s = s.replace(/(^|[\s(])_([^\s_](?:[^_]*[^\s_])?)_(?=$|[\s.,;:!?)])/g, "$1<em>$2</em>");
+
+    // Restore stashed tokens
+    return s.replace(/\x00MDTOK_(\d+)_\x00/g, (_m, idx) => tokens[Number(idx)] || "");
+  }
+
+  function _isFooterLine(line) {
+    return /^(\s*)(Bug|Fixes|Issue|Test|Change-Id|Reviewed-on|Reviewed-by|Presubmit-Verified|Signed-off-by|Co-authored-by|BREAKING CHANGE)(\s*:\s*)(.*)$/i.test(line);
+  }
+
+  function _renderFooterLineHtml(line) {
+    const m = line.match(/^(\s*)(Bug|Fixes|Issue|Test|Change-Id|Reviewed-on|Reviewed-by|Presubmit-Verified|Signed-off-by|Co-authored-by|BREAKING CHANGE)(\s*:\s*)(.*)$/i);
+    if (!m) return renderInlineMarkdownHtml(line, false);
+    const leading = escapeHtml(m[1]);
+    const key = escapeHtml(m[2]);
+    const sep = escapeHtml(m[3]);
+    const isBugKey = /^(bug|fixes|issue)$/i.test(m[2]);
+    const rhs = renderInlineMarkdownHtml(m[4], isBugKey);
+    return `<div class="commit-msg-footer-line">${leading}<span class="commit-msg-footer-key">${key}${sep}</span>${rhs}</div>`;
+  }
+
+  function formatCommitMessageHtml(rawMsg) {
+    const text = String(rawMsg || "").trim();
+    if (!text) return `<span style="color:var(--g-muted);">(No commit message)</span>`;
+    const lines = text.split(/\r?\n/);
+
+    // Extract first non-empty line as subject
+    let i = 0;
+    while (i < lines.length && !lines[i].trim()) i++;
+    const subjectLine = i < lines.length ? lines[i] : "";
+    i++;
+
+    const blocks = [];
+    if (subjectLine) {
+      blocks.push(`<div class="commit-msg-subject-line">${renderInlineMarkdownHtml(subjectLine, false)}</div>`);
+    }
+
+    let paraLines = [];
+    let footerLines = [];
+    const flushPara = () => {
+      if (paraLines.length > 0) {
+        blocks.push(`<p class="commit-md-p">${paraLines.map(l => renderInlineMarkdownHtml(l, false)).join("\n")}</p>`);
+        paraLines = [];
+      }
+    };
+    const flushFooters = () => {
+      if (footerLines.length > 0) {
+        blocks.push(`<div class="commit-md-footers">${footerLines.map(_renderFooterLineHtml).join("")}</div>`);
+        footerLines = [];
+      }
+    };
+
+    while (i < lines.length) {
+      const line = lines[i];
+      const trimmed = line.trim();
+
+      // Blank line
+      if (!trimmed) {
+        flushPara();
+        i++;
+        continue;
+      }
+
+      // Fenced code block (``` or ~~~)
+      const fenceMatch = trimmed.match(/^(`{3,}|~{3,})(.*)$/);
+      if (fenceMatch) {
+        flushPara();
+        flushFooters();
+        const fence = fenceMatch[1];
+        const lang = fenceMatch[2].trim();
+        const codeLines = [];
+        i++;
+        while (i < lines.length && !lines[i].trim().startsWith(fence)) {
+          codeLines.push(lines[i]);
+          i++;
+        }
+        if (i < lines.length) i++;
+        const langHtml = lang ? `<div class="commit-md-pre-lang">${escapeHtml(lang)}</div>` : "";
+        blocks.push(`<pre class="commit-md-pre">${langHtml}<code class="commit-md-code-block">${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+        continue;
+      }
+
+      // Git / Gerrit trailer footer line
+      if (_isFooterLine(line)) {
+        flushPara();
+        footerLines.push(line);
+        i++;
+        continue;
+      }
+      if (footerLines.length > 0) {
+        flushFooters();
+      }
+
+      // Horizontal rule
+      if (/^(---|\*\*\*|___)\s*$/.test(trimmed)) {
+        flushPara();
+        blocks.push(`<hr class="commit-md-hr" />`);
+        i++;
+        continue;
+      }
+
+      // Markdown heading (# .. ####)
+      const headingMatch = line.match(/^\s*(#{1,4})\s+(.+)$/);
+      if (headingMatch) {
+        flushPara();
+        const level = Math.min(4, headingMatch[1].length);
+        blocks.push(`<div class="commit-md-h commit-md-h${level}">${renderInlineMarkdownHtml(headingMatch[2].trim(), false)}</div>`);
+        i++;
+        continue;
+      }
+
+      // Blockquote (> ...)
+      if (/^\s*>\s?/.test(line)) {
+        flushPara();
+        const quoteLines = [];
+        while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+          quoteLines.push(lines[i].replace(/^\s*>\s?/, ""));
+          i++;
+        }
+        blocks.push(`<blockquote class="commit-md-quote">${quoteLines.map(q => renderInlineMarkdownHtml(q, false)).join("<br/>")}</blockquote>`);
+        continue;
+      }
+
+      // Markdown table (| a | b | followed by |---|---|)
+      if (
+        trimmed.startsWith("|") &&
+        i + 1 < lines.length &&
+        /^\s*\|?[\s:-]+\|[\s|:-]*$/.test(lines[i + 1])
+      ) {
+        flushPara();
+        const parseCells = row =>
+          row.trim().replace(/^\||\|$/g, "").split("|").map(c => renderInlineMarkdownHtml(c.trim(), false));
+        const headers = parseCells(lines[i]);
+        i += 2;
+        const rows = [];
+        while (i < lines.length && lines[i].trim().startsWith("|")) {
+          rows.push(parseCells(lines[i]));
+          i++;
+        }
+        const theadHtml = `<thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead>`;
+        const tbodyHtml = `<tbody>${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody>`;
+        blocks.push(`<table class="commit-md-table">${theadHtml}${tbodyHtml}</table>`);
+        continue;
+      }
+
+      // Unordered or ordered list (-, *, +, •, 1.)
+      const listMatch = line.match(/^(\s*)([-*+•]|\d+\.)\s+(.+)$/);
+      if (listMatch) {
+        flushPara();
+        const isOrdered = /\d+\./.test(listMatch[2]);
+        const tag = isOrdered ? "ol" : "ul";
+        const items = [];
+        while (i < lines.length) {
+          const m = lines[i].match(/^(\s*)([-*+•]|\d+\.)\s+(.+)$/);
+          if (!m) {
+            // Continuation line of current list item if indented
+            if (items.length > 0 && /^\s{2,}\S/.test(lines[i]) && !_isFooterLine(lines[i])) {
+              items[items.length - 1].text += " " + lines[i].trim();
+              i++;
+              continue;
+            }
+            break;
+          }
+          const indentPx = Math.min(48, Math.floor(m[1].length / 2) * 14);
+          items.push({ indentPx, text: m[3] });
+          i++;
+        }
+        const lisHtml = items
+          .map(it => `<li class="commit-md-li" ${it.indentPx ? `style="margin-left:${it.indentPx}px"` : ""}>${renderInlineMarkdownHtml(it.text, false)}</li>`)
+          .join("");
+        blocks.push(`<${tag} class="commit-md-list">${lisHtml}</${tag}>`);
+        continue;
+      }
+
+      paraLines.push(line);
+      i++;
+    }
+
+    flushPara();
+    flushFooters();
+    return blocks.join("");
+  }
+
+  function renderCommitMessagePanelHtml(c, bundle) {
+    if (!c) return "";
+    const fullMsg = getFullCommitMessage(c, bundle);
+    const isCollapsed = state.collapsedCommitMsgs.has(Number(c.number));
+    const lineCount = fullMsg ? fullMsg.split(/\r?\n/).length : 1;
+    const branchMeta = c.branch ? `Branch: ${escapeHtml(c.branch)}` : "";
+    const topicMeta = c.topic ? ` · Topic: ${escapeHtml(c.topic)}` : "";
+    return `<div id="commitMsgPanel-${c.number}" class="commit-msg-panel ${isCollapsed ? "collapsed" : ""}">
+      <div class="commit-msg-bar">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span class="commit-msg-title">📝 Commit Message (${lineCount} ${lineCount === 1 ? "line" : "lines"})</span>
+          <span class="commit-msg-meta">Author: <strong>${escapeHtml(c.owner_email || c.owner_short || "unknown")}</strong></span>
+          ${branchMeta ? `<span class="commit-msg-meta">${branchMeta}${topicMeta}</span>` : ""}
+        </div>
+        <div class="commit-msg-actions">
+          <button class="commit-msg-btn" onclick="copyCommitMessage(${c.number})">Copy Message</button>
+          <button id="commitMsgToggleBtn-${c.number}" class="commit-msg-btn" onclick="toggleCommitMessage(${c.number})">${isCollapsed ? "Show ▾" : "Hide ▴"}</button>
+        </div>
+      </div>
+      <div class="commit-msg-body">${formatCommitMessageHtml(fullMsg)}</div>
+    </div>`;
+  }
+
+  function toggleCommitMessage(clNum) {
+    const num = Number(clNum);
+    if (state.collapsedCommitMsgs.has(num)) {
+      state.collapsedCommitMsgs.delete(num);
+    } else {
+      state.collapsedCommitMsgs.add(num);
+    }
+    const panel = document.getElementById(`commitMsgPanel-${num}`);
+    const btn = document.getElementById(`commitMsgToggleBtn-${num}`);
+    const isCollapsed = state.collapsedCommitMsgs.has(num);
+    if (panel) panel.classList.toggle("collapsed", isCollapsed);
+    if (btn) btn.textContent = isCollapsed ? "Show ▾" : "Hide ▴";
+  }
+
+  function copyCommitMessage(clNum) {
+    const num = Number(clNum);
+    const c = state.changes.find(x => Number(x.number) === num);
+    const bundle = state.diffsByCl[num];
+    const msg = getFullCommitMessage(c, bundle);
+    if (!msg) return;
+    navigator.clipboard?.writeText(msg);
+    showToast(`Copied full commit message for ag/${num}!`);
+  }
+
+  function renderDiffPane() {
+    const commits = getActiveCommitsForDiff();
+    const container = document.getElementById("diffScroll");
+    if (commits.length === 0) {
+      if (state.queueClearedCount > 0) {
+        container.innerHTML = `<div class="inbox-zero-card">
+          <div style="font-size:32px;margin-bottom:8px;">🎉</div>
+          <div style="font-size:16px;font-weight:700;color:#96d9ab;margin-bottom:6px;">Queue Cleared — All Vetted Commits Reviewed!</div>
+          <div style="color:var(--g-muted);font-size:12.5px;margin-bottom:16px;">
+            You voted <strong>Code-Review +2</strong> on ${state.queueClearedCount} commit${state.queueClearedCount === 1 ? "" : "s"} this session.
+          </div>
+          <div style="display:flex;justify-content:center;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-approve" onclick="manualRefreshQueue()">↻ Check for New CLs</button>
+            <button class="btn" onclick="toggleGate('hideMine')">View Approved CLs</button>
+          </div>
+        </div>`;
+        return;
+      }
+      container.innerHTML = `<div style="padding:24px;color:var(--g-muted);">Select a CL or stack on the left to inspect its diffs.</div>`;
+      return;
+    }
+
+    if (state.viewMode === "squash" && commits.length > 1) {
+      const anyLoading = commits.some(c => !state.diffsByCl[c.number]);
+      if (anyLoading) {
+        container.innerHTML = `<div style="padding:16px;color:var(--g-muted);">Loading squashed stack diff across ${commits.length} commits...</div>`;
+        return;
+      }
+      const byFile = new Map();
+      commits.forEach(c => {
+        const bundle = state.diffsByCl[c.number];
+        ((bundle && bundle.files) || []).forEach(f => {
+          const prev = byFile.get(f.file);
+          if (!prev) {
+            byFile.set(f.file, {
+              file: f.file,
+              additions: f.additions,
+              deletions: f.deletions,
+              truncated: Boolean(f.truncated),
+              lines: (f.lines || []).slice(),
+            });
+          } else {
+            prev.additions += f.additions;
+            prev.deletions += f.deletions;
+            prev.truncated = prev.truncated || Boolean(f.truncated);
+            prev.lines.push({ type: "hunk", old: "", new: "", text: `── Commit ag/${c.number}: ${c.subject} ──` });
+            prev.lines.push(...(f.lines || []));
+          }
+        });
+      });
+      const squashedFiles = Array.from(byFile.values());
+      const filesHtml = squashedFiles.length > 0
+        ? squashedFiles.map(renderFileDiffBlock).join("")
+        : `<div style="padding:12px;color:var(--g-muted);">No file diffs in this stack.</div>`;
+      const squashCommitMsgsHtml = commits.map(c => renderCommitMessagePanelHtml(c, state.diffsByCl[c.number])).join("");
+      const squashSwarmHtml = commits.map(c => `<div id="swarmPanel-${c.number}">${renderCommitSwarmPanelHtml(c.number)}</div>`).join("");
+      container.innerHTML = `<div class="commit-section">
+        <div class="commit-sec-header">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <strong style="color:var(--g-accent);">Squashed Stack View · ${commits.length} Commits</strong>
+            <span>${commits.map(c => `<a class="ag-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer">ag/${c.number}</a>`).join(" → ")}</span>
+          </div>
+          <div style="font-size:11.5px;color:var(--g-muted);">${squashedFiles.length} touched files</div>
+        </div>
+        ${squashCommitMsgsHtml}
+        ${squashSwarmHtml}
+        ${filesHtml}
+      </div>`;
+      syncSwarmIndicatorsOnly();
+      return;
+    }
+
+    container.innerHTML = commits.map((c, idx) => {
+      const bundle = state.diffsByCl[c.number];
+      const dotClass = c.risk.tier === "low" ? "dot-green" : (c.risk.tier === "medium" ? "dot-amber" : "dot-red");
+      const rebaseBadge = bundle && bundle.is_pure_rebase
+        ? `<span class="badge badge-rebase">PS${c.patch_set - 1}→PS${c.patch_set} is a pure rebase (0 code changes)</span>`
+        : "";
+
+      let filesHtml = "";
+      if (!bundle || !Array.isArray(bundle.files)) {
+        filesHtml = `<div style="padding:12px;color:var(--g-muted);">Loading unified diff for ag/${c.number}...</div>`;
+      } else if (bundle.files.length === 0) {
+        filesHtml = `<div style="padding:12px;color:var(--g-muted);">No file diffs in this patchset (commit message or merge-only change).</div>`;
+      } else {
+        filesHtml = bundle.files.map(renderFileDiffBlock).join("");
+      }
+
+      const threadsHtml = (bundle && Array.isArray(bundle.unresolved_threads) && bundle.unresolved_threads.length > 0)
+        ? bundle.unresolved_threads.map(t => `<div class="swarm-finding">
+            <div class="swarm-finding-head">
+              <span>Unresolved Comment · ${escapeHtml(t.author_name)} on ${escapeHtml(t.file_path)}:${t.line}</span>
+              <button class="nudge-btn" onclick="triggerHarnessForCl(${c.number}, 'address-review')">→ Auto-Fix with Agent</button>
+            </div>
+            <div style="color:var(--g-text);font-size:12px;">${escapeHtml(t.latest_message)}</div>
+          </div>`).join("")
+        : "";
+
+      const typeObj = getCommitTypeObj(c);
+      const typeBadgeHtml = `<span class="type-badge type-${escapeHtml(typeObj.id)}">${escapeHtml(typeObj.short)}</span>`;
+      const bugBadgesHtml = renderBugBadgesHtml(c);
+
+      return `<div class="commit-section">
+        <div class="commit-sec-header">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <strong style="color:var(--g-accent);">Commit ${idx + 1} of ${commits.length} · <a class="ag-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer">ag/${c.number} ↗</a></strong>
+            ${bugBadgesHtml}
+            <strong>${escapeHtml(c.subject)}</strong>
+            ${typeBadgeHtml}
+            <span class="badge risk-${c.risk.tier}"><span class="dot ${dotClass}"></span> ${escapeHtml(c.risk.label)}</span>
+            ${rebaseBadge}
+          </div>
+          <div style="font-size:11.5px;color:var(--g-muted);">${escapeHtml(c.project_short)} · PS${c.patch_set}</div>
+        </div>
+        ${renderCommitMessagePanelHtml(c, bundle)}
+        <div id="swarmPanel-${c.number}">${renderCommitSwarmPanelHtml(c.number)}</div>
+        ${threadsHtml}
+        ${filesHtml}
+      </div>`;
+    }).join("");
+    syncSwarmIndicatorsOnly();
+  }
+
+  function copyPingForCl(clNum) {
+    const cl = state.changes.find(c => c.number === clNum);
+    if (!cl) return;
+    navigator.clipboard?.writeText(cl.chat_ping);
+    showToast(`Copied Chat ping for ag/${clNum}!`);
+  }
+
+  function copyAllWaitingPings() {
+    const waiting = state.changes.filter(c => c.approved_by_viewer);
+    const text = waiting.map(c => `• ag/${c.number}: ${c.subject} (${c.url})`).join("\n");
+    navigator.clipboard?.writeText(text || "No waiting CLs.");
+    showToast(`Copied follow-up digest for ${waiting.length} CLs!`);
+  }
+
+  function resolveNextTargetAfterVote(votedNums) {
+    const votedSet = new Set((votedNums || []).map(x => Number(x)));
+    const orderedItems = getOrderedVisibleCommits(getVisibleStacks());
+    const flatVisible = orderedItems.map(item => ({
+      stackId: item.stack.stack_id,
+      clNumber: Number(item.commit.number),
+      stackCommits: item.stack.commits.map(x => Number(x.number)).filter(num => !votedSet.has(num)),
+    }));
+    if (!flatVisible.length) return null;
+    const curIdx = flatVisible.findIndex(item => item.clNumber === Number(state.selectedClNumber));
+    const startIdx = curIdx >= 0 ? curIdx : 0;
+    for (let offset = 1; offset <= flatVisible.length; offset++) {
+      const cand = flatVisible[(startIdx + offset) % flatVisible.length];
+      if (!votedSet.has(cand.clNumber)) {
+        return cand;
+      }
+    }
+    return null;
+  }
+
+  function markClsApprovedOptimistically(cls) {
+    (cls || []).forEach(rawNum => {
+      const num = Number(rawNum);
+      if (!Number.isNaN(num) && num > 0) {
+        state.sessionApprovedCls.add(num);
+      }
+    });
+    const votedSet = state.sessionApprovedCls;
+    const viewerShort = (state.viewer || "you").split("@")[0];
+    const applyOnCl = (c) => {
+      if (!c || !votedSet.has(Number(c.number))) return;
+      c.approved_by_viewer = true;
+      c.human_cr2 = c.human_cr2 || [];
+      if (!c.human_cr2.some(v => v.email === state.viewer)) {
+        c.human_cr2.push({ email: state.viewer, name: viewerShort });
+      }
+      if (Array.isArray(c.approval_slots)) {
+        const alreadyDoneByMe = c.approval_slots.some(
+          s => s.state === "done" && (String(s.text || "").includes(viewerShort) || String(s.text || "").includes("You (+2"))
+        );
+        if (!alreadyDoneByMe) {
+          const neededSlot = c.approval_slots.find(s => s.state !== "done");
+          if (neededSlot) {
+            neededSlot.state = "done";
+            neededSlot.text = `✓ ${viewerShort}@ (+2)`;
+          }
+        }
+      }
+    };
+    state.changes.forEach(applyOnCl);
+    state.stacks.forEach(st => (st.commits || []).forEach(applyOnCl));
+  }
+
+  function showVoteStampBanner(votedCls, nextTarget) {
+    const banner = document.getElementById("voteStampBanner");
+    if (!banner) return;
+    const votedLabel = votedCls.length === 1
+      ? `ag/${votedCls[0]}`
+      : `${votedCls.length} Commits`;
+    const nextLabel = nextTarget
+      ? `→ Next: ag/${nextTarget.clNumber}`
+      : "→ Queue Cleared! 🎉";
+    banner.textContent = `✓ Voted +2 on ${votedLabel} ${nextLabel}`;
+    banner.classList.remove("active");
+    void banner.offsetWidth;
+    banner.classList.add("active");
+    clearTimeout(window._stampBannerTimer);
+    window._stampBannerTimer = setTimeout(() => {
+      banner.classList.remove("active");
+    }, 1400);
+  }
+
+  function setVoteButtonsBusy(busy, activeBtn, labelHtml) {
+    const ids = ["btnVoteCurrent", "btnVoteStack", "btnBatchLow"];
+    ids.forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.disabled = busy;
+      if (!busy) {
+        el.classList.remove("is-voting", "is-voted");
+      }
+    });
+    if (busy && activeBtn) {
+      activeBtn.classList.add("is-voting");
+      activeBtn.innerHTML = `<span class="btn-spinner"></span> ${labelHtml}`;
+    }
+  }
+
+  const sleepMs = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+  async function castVotes(rawCls, triggerBtn) {
+    const cls = (rawCls || []).map(x => Number(x)).filter(x => !Number.isNaN(x) && x > 0);
+    if (!cls.length || state.votingInFlight) return;
+    state.votingInFlight = true;
+    if (!state.gates.hideMine) {
+      state.gates.hideMine = true;
+      const hideMinePill = document.getElementById("gateHideMine");
+      if (hideMinePill) hideMinePill.classList.add("active");
+    }
+    const activeBtn = triggerBtn || document.getElementById("btnVoteCurrent");
+    const targetDesc = cls.length === 1 ? `ag/${cls[0]}` : `${cls.length} CLs`;
+    setVoteButtonsBusy(true, activeBtn, `Voting +2 on ${escapeHtml(targetDesc)}…`);
+    document.getElementById("drawerStatus").textContent = `Posting Code-Review +2 on ${targetDesc} (notify: OWNER)…`;
+
+    const nextTarget = resolveNextTargetAfterVote(cls);
+    const prefetchNums = nextTarget
+      ? (state.viewMode === "split" ? [nextTarget.clNumber] : nextTarget.stackCommits)
+      : [];
+    const prefetchPromise = prefetchDiffsForNumbers(prefetchNums);
+
+    try {
+      const resp = await sidecarFetch("/api/gerrit/vote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cls, code_review: 2 }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.error || data.status !== "ok") {
+        state.votingInFlight = false;
+        setVoteButtonsBusy(false);
+        await ensureActiveDiffsLoaded({ preserveScroll: true });
+        if (data.cloudtop_cmd) {
+          navigator.clipboard?.writeText(data.cloudtop_cmd);
+        }
+        if (cls.length === 1) {
+          const clObj = state.changes.find(c => Number(c.number) === cls[0]);
+          if (clObj && clObj.url) {
+            window.open(clObj.url, "_blank", "noopener,noreferrer");
+          }
+        }
+        showToast(
+          (data.error || "Vote failed") +
+          (data.cloudtop_cmd ? " (Cloudtop +2 command copied to clipboard!)" : "")
+        );
+        return;
+      }
+
+      if (activeBtn) {
+        activeBtn.classList.remove("is-voting");
+        activeBtn.classList.add("is-voted");
+        activeBtn.textContent = `✓ +2 Sent!`;
+      }
+      showVoteStampBanner(cls, nextTarget);
+
+      cls.forEach(num => {
+        const cardEl = document.querySelector(`.cl-card[data-cl-num="${num}"]`);
+        if (cardEl) {
+          cardEl.classList.add("cl-card-exiting");
+          const boxEl = cardEl.closest(".stack-box");
+          if (boxEl) {
+            const remainingCards = boxEl.querySelectorAll(".cl-card:not(.cl-card-exiting)");
+            if (remainingCards.length === 0) {
+              boxEl.classList.add("stack-box-exiting");
+            }
+          }
+        }
+      });
+      const diffEl = document.getElementById("diffScroll");
+      if (diffEl) {
+        diffEl.classList.remove("diff-enter-next", "diff-enter-prev");
+        diffEl.classList.add("diff-exit-approved");
+      }
+
+      await Promise.all([sleepMs(210), prefetchPromise]);
+
+      state.queueClearedCount += cls.length;
+      state.explicitRadarSelection = false;
+      state.gates.hideMine = true;
+      const hideMinePill = document.getElementById("gateHideMine");
+      if (hideMinePill) hideMinePill.classList.add("active");
+      markClsApprovedOptimistically(cls);
+      if (nextTarget) {
+        state.selectedStackId = nextTarget.stackId;
+        state.selectedClNumber = nextTarget.clNumber;
+        state.justEnteredClNumber = nextTarget.clNumber;
+      } else {
+        state.selectedStackId = null;
+        state.selectedClNumber = null;
+        state.justEnteredClNumber = null;
+      }
+
+      state.votingInFlight = false;
+      setVoteButtonsBusy(false);
+      renderAll();
+      cls.forEach(num => {
+        const staleCard = document.querySelector(`.cl-card[data-cl-num="${num}"]`);
+        if (staleCard && state.gates.hideMine) {
+          const boxEl = staleCard.closest(".stack-box");
+          staleCard.remove();
+          if (boxEl && boxEl.querySelectorAll(".cl-card").length === 0) {
+            boxEl.remove();
+          }
+        }
+      });
+      if (diffEl) {
+        diffEl.scrollTop = 0;
+      }
+      triggerDiffEnterAnimation("diff-enter-next");
+      scrollSelectedCardIntoView();
+      setTimeout(() => { state.justEnteredClNumber = null; }, 600);
+
+      document.getElementById("drawerStatus").textContent = nextTarget
+        ? `Voted +2 on ${targetDesc} · Now reviewing ag/${nextTarget.clNumber}`
+        : `Voted +2 on ${targetDesc} · Queue cleared!`;
+      showToast(`Voted Code-Review +2 on ${cls.map(x => "ag/" + x).join(", ")} (notify: OWNER)!`);
+
+      clearTimeout(window._postVoteQueueRefreshTimer);
+      window._postVoteQueueRefreshTimer = setTimeout(() => {
+        fetchQueueData(state.viewer, state.scope, {
+          preserveDiffCache: true,
+          preserveScroll: true,
+          silent: true,
+        });
+      }, 1200);
+    } catch (err) {
+      state.votingInFlight = false;
+      setVoteButtonsBusy(false);
+      await ensureActiveDiffsLoaded({ preserveScroll: true });
+      showToast("Vote request failed: " + err);
+    }
+  }
+
+  function voteCurrentCl(btnEl) {
+    if (state.selectedClNumber) {
+      castVotes([state.selectedClNumber], btnEl || document.getElementById("btnVoteCurrent"));
+    }
+  }
+
+  function voteActiveStack(btnEl) {
+    const commits = getActiveCommitsForDiff();
+    castVotes(commits.map(c => c.number), btnEl || document.getElementById("btnVoteStack"));
+  }
+
+  function batchApproveLowRisk(btnEl) {
+    const lowCls = state.changes.filter(c => passesGates(c) && c.risk.tier === "low").map(c => c.number);
+    if (!lowCls.length) {
+      showToast("No Low-Load vetted CLs in queue.");
+      return;
+    }
+    castVotes(lowCls, btnEl || document.getElementById("btnBatchLow"));
+  }
+
+  function getSwarmElapsedSec(swarmObj) {
+    if (!swarmObj) return 0;
+    if (swarmObj.startedAtClientMs) {
+      return Math.max(0, Math.round((Date.now() - swarmObj.startedAtClientMs) / 1000));
+    }
+    return Math.max(0, Math.round(Number(swarmObj.elapsed_sec || 0)));
+  }
+
+  function renderClSwarmBadgeHtml(clNum) {
+    const sw = state.swarmByCl[clNum];
+    if (!sw) return "";
+    if (sw.state === "running") {
+      const done = Number(sw.completed_specialists || 0);
+      const total = Number(sw.total_specialists || 8);
+      const sec = getSwarmElapsedSec(sw);
+      return `<span class="slot slot-swarm-running"><span class="swarm-spinner"></span> Review Swarm · ${done}/${total} (${sec}s)</span>`;
+    }
+    if (sw.state === "completed") {
+      const findings = Number(sw.total_findings || (sw.findings ? sw.findings.length : 0));
+      const wall = sw.wall_clock_sec ? `${Number(sw.wall_clock_sec).toFixed(1)}s` : "done";
+      if (findings === 0) {
+        return `<span class="slot slot-swarm-clean">✓ Swarm Clean (${wall})</span>`;
+      }
+      return `<span class="slot slot-swarm-findings">★ Swarm: ${findings} finding${findings === 1 ? "" : "s"} (${wall})</span>`;
+    }
+    return "";
+  }
+
+  function renderSpecialistChipsHtml(agents, isRunning) {
+    const list = (Array.isArray(agents) && agents.length > 0) ? agents : DEFAULT_SWARM_SPECIALISTS;
+    return list.map(a => {
+      const roleLabel = (a.role || a.specialist || "Specialist").replace(/\s+Auditor$/i, "");
+      const st = a.status || (isRunning ? "running" : "done");
+      if (st === "done") {
+        const fCnt = Number(a.finding_count || 0);
+        const dur = a.duration_sec != null ? ` · ${Number(a.duration_sec).toFixed(1)}s` : "";
+        if (fCnt > 0) {
+          return `<span class="swarm-spec-chip done-finding">★ ${escapeHtml(roleLabel)} (${fCnt}${dur})</span>`;
+        }
+        return `<span class="swarm-spec-chip done-clean">✓ ${escapeHtml(roleLabel)}${escapeHtml(dur)}</span>`;
+      }
+      return `<span class="swarm-spec-chip running"><span class="swarm-spinner" style="width:9px;height:9px;border-width:1.5px;"></span> ${escapeHtml(roleLabel)}</span>`;
+    }).join("");
+  }
+
+  function renderSwarmFindingsListHtml(clNum, findings) {
+    if (!Array.isArray(findings) || findings.length === 0) return "";
+    return findings.map(f => {
+      const loc = `${f.file || "/COMMIT_MSG"}:${f.line || 1}`;
+      const cat = f.category || "review";
+      const sev = f.severity || "blocking";
+      const fixHtml = f.suggested_fix
+        ? `<div style="margin-top:6px;padding:5px 8px;background:#18191d;border:1px solid var(--g-border);border-radius:4px;font-family:var(--g-mono);font-size:11px;color:#b7e3c4;">Suggested fix: ${escapeHtml(f.suggested_fix)}</div>`
+        : "";
+      return `<div class="swarm-finding" style="margin:6px 12px 10px 12px;">
+        <div class="swarm-finding-head">
+          <span>★ Swarm Finding · <code>${escapeHtml(loc)}</code> [${escapeHtml(cat)} · ${escapeHtml(sev)}]</span>
+          <button class="nudge-btn" onclick="postSwarmFindingsToGerrit(${clNum}, this)">Post to Gerrit (notify: OWNER)</button>
+        </div>
+        <div style="color:var(--g-text);font-size:12px;">${escapeHtml(f.message || "")}</div>
+        ${fixHtml}
+      </div>`;
+    }).join("");
+  }
+
+  function renderCommitSwarmPanelHtml(clNum) {
+    const sw = state.swarmByCl[clNum];
+    if (!sw) return "";
+    if (sw.state === "running") {
+      const done = Number(sw.completed_specialists || 0);
+      const total = Math.max(1, Number(sw.total_specialists || 8));
+      const sec = getSwarmElapsedSec(sw);
+      const pct = Math.min(96, Math.max(10, Math.round((done / total) * 88) + 8));
+      const phaseLabel = sw.phase === "auditing"
+        ? `Auditing Diff in Parallel · ${done}/${total} Specialists Done · ${sec}s`
+        : `Preparing Bundle & Launching 8 Specialists · ${done}/${total} · ${sec}s`;
+      return `<div class="swarm-live-panel">
+        <div class="swarm-progress-track"><div class="swarm-progress-bar" style="width:${pct}%;"></div></div>
+        <div class="swarm-panel-header">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="swarm-spinner"></span>
+            <strong style="color:#d2c4f0;">8-Specialist Review Swarm Running on ag/${clNum}</strong>
+          </div>
+          <span style="font-size:11.5px;font-weight:600;color:var(--g-muted);">${escapeHtml(phaseLabel)}</span>
+        </div>
+        <div class="swarm-specialist-grid">${renderSpecialistChipsHtml(sw.agents, true)}</div>
+      </div>`;
+    }
+    if (sw.state === "completed") {
+      const findings = Array.isArray(sw.findings) ? sw.findings : [];
+      const fCnt = Number(sw.total_findings != null ? sw.total_findings : findings.length);
+      const wall = sw.wall_clock_sec ? `${Number(sw.wall_clock_sec).toFixed(1)}s` : "";
+      const speedup = sw.parallel_speedup ? ` · ${Number(sw.parallel_speedup).toFixed(2)}x parallel speedup` : "";
+      const cleanCls = fCnt === 0 ? "completed-clean" : "";
+      const headline = fCnt === 0
+        ? `✓ 8-Specialist Review Swarm Clean (0 findings)`
+        : `★ 8-Specialist Review Swarm Complete · ${fCnt} Verified Finding${fCnt === 1 ? "" : "s"}`;
+      const headColor = fCnt === 0 ? "#96d9ab" : "#d2c4f0";
+      return `<div class="swarm-live-panel ${cleanCls}">
+        <div class="swarm-panel-header">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <strong style="color:${headColor};">${escapeHtml(headline)}</strong>
+            <span style="font-size:11.5px;color:var(--g-muted);">${escapeHtml(wall + speedup)}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            ${fCnt > 0 ? `<button class="nudge-btn" onclick="postSwarmFindingsToGerrit(${clNum}, this)">Post Finding${fCnt === 1 ? "" : "s"} to Gerrit (notify: OWNER)</button>` : ""}
+            <button class="nudge-btn" onclick="triggerHarnessForCl(${clNum}, 'review-swarm')">↻ Re-Run Swarm</button>
+          </div>
+        </div>
+        <div class="swarm-specialist-grid">${renderSpecialistChipsHtml(sw.agents, false)}</div>
+        ${renderSwarmFindingsListHtml(clNum, findings)}
+      </div>`;
+    }
+    return "";
+  }
+
+  function getActiveRunningSwarmClNumbers() {
+    return Object.keys(state.swarmByCl)
+      .map(k => Number(k))
+      .filter(num => state.swarmByCl[num] && state.swarmByCl[num].state === "running");
+  }
+
+  function jumpToActiveSwarmCl() {
+    const runningCls = getActiveRunningSwarmClNumbers();
+    if (runningCls.length > 0) {
+      selectCl(runningCls[0], false, "next");
+    }
+  }
+
+  function syncSwarmIndicatorsOnly() {
+    state.changes.forEach(c => {
+      const slotEl = document.getElementById(`clSwarmSlot-${c.number}`);
+      if (slotEl) {
+        slotEl.innerHTML = renderClSwarmBadgeHtml(c.number);
+      }
+      const cardEl = document.querySelector(`.cl-card[data-cl-num="${c.number}"]`);
+      if (cardEl) {
+        const isRunning = Boolean(state.swarmByCl[c.number] && state.swarmByCl[c.number].state === "running");
+        cardEl.classList.toggle("cl-card-swarming", isRunning);
+      }
+      const panelEl = document.getElementById(`swarmPanel-${c.number}`);
+      if (panelEl) {
+        panelEl.innerHTML = renderCommitSwarmPanelHtml(c.number);
+      }
+    });
+
+    const btnSwarm = document.getElementById("btnRunSwarm");
+    const selCl = state.selectedClNumber;
+    const selSwarm = selCl ? state.swarmByCl[selCl] : null;
+    if (btnSwarm) {
+      if (selSwarm && selSwarm.state === "running") {
+        const done = Number(selSwarm.completed_specialists || 0);
+        const total = Number(selSwarm.total_specialists || 8);
+        const sec = getSwarmElapsedSec(selSwarm);
+        btnSwarm.disabled = true;
+        btnSwarm.classList.add("is-swarming");
+        btnSwarm.innerHTML = `<span class="swarm-spinner"></span> Swarm Running on ag/${selCl} · ${done}/${total} (${sec}s)`;
+      } else {
+        btnSwarm.disabled = !selCl;
+        btnSwarm.classList.remove("is-swarming");
+        btnSwarm.textContent = (selSwarm && selSwarm.state === "completed")
+          ? `↻ Re-Run Review Swarm on ag/${selCl}`
+          : "★ Run Review Swarm (8 Specialists)";
+      }
+    }
+
+    const runningCls = getActiveRunningSwarmClNumbers();
+    const pillEl = document.getElementById("activeSwarmsPill");
+    if (pillEl) {
+      const bgCls = runningCls.filter(num => num !== selCl);
+      if (bgCls.length > 0) {
+        const firstNum = bgCls[0];
+        const sw = state.swarmByCl[firstNum];
+        const done = Number(sw.completed_specialists || 0);
+        const total = Number(sw.total_specialists || 8);
+        const sec = getSwarmElapsedSec(sw);
+        pillEl.style.display = "inline-flex";
+        pillEl.innerHTML = `<span class="swarm-spinner"></span> Swarm Active: ag/${firstNum} (${done}/${total} · ${sec}s) ↗`;
+      } else {
+        pillEl.style.display = "none";
+      }
+    }
+
+    const drawerDot = document.getElementById("drawerDot");
+    const drawerStatus = document.getElementById("drawerStatus");
+    if (runningCls.length > 0 && !state.votingInFlight) {
+      const targetNum = runningCls.includes(selCl) ? selCl : runningCls[0];
+      const sw = state.swarmByCl[targetNum];
+      const done = Number(sw.completed_specialists || 0);
+      const total = Number(sw.total_specialists || 8);
+      const sec = getSwarmElapsedSec(sw);
+      if (drawerDot) {
+        drawerDot.className = "dot dot-purple-pulse";
+      }
+      if (drawerStatus) {
+        drawerStatus.textContent = `Review Swarm active on ag/${targetNum} — ${done}/${total} specialists complete (${sec}s elapsed)…`;
+      }
+    } else if (drawerDot) {
+      drawerDot.className = "dot dot-green";
+    }
+  }
+
+  function mergePolledSwarmStatus(clNum, serverStatus, opts = {}) {
+    if (!serverStatus) return;
+    const prev = state.swarmByCl[clNum];
+    if (prev && prev.optimisticPending && serverStatus.state === "completed") {
+      const compMs = serverStatus.completed_at ? Date.parse(serverStatus.completed_at) : 0;
+      if (!compMs || compMs < (prev.startedAtClientMs || 0) - 1500) {
+        return;
+      }
+    }
+    const wasRunning = Boolean(prev && prev.state === "running");
+    const merged = Object.assign({}, serverStatus);
+    if (merged.state === "running") {
+      if (prev && prev.startedAtClientMs) {
+        merged.startedAtClientMs = prev.startedAtClientMs;
+      } else if (merged.started_at) {
+        const parsedMs = Date.parse(merged.started_at);
+        if (!Number.isNaN(parsedMs)) {
+          merged.startedAtClientMs = parsedMs;
+        }
+      }
+    }
+    state.swarmByCl[clNum] = merged;
+    if (wasRunning && merged.state === "completed" && !opts.silentToast) {
+      const fCnt = Number(merged.total_findings || (merged.findings ? merged.findings.length : 0));
+      const wall = merged.wall_clock_sec ? ` in ${Number(merged.wall_clock_sec).toFixed(1)}s` : "";
+      const summary = fCnt === 0 ? "Clean (0 findings)" : `${fCnt} finding${fCnt === 1 ? "" : "s"}`;
+      const drawerStatus = document.getElementById("drawerStatus");
+      if (drawerStatus) {
+        drawerStatus.textContent = `✓ Review Swarm completed on ag/${clNum}: ${summary}${wall}`;
+      }
+      showToast(`✓ Review Swarm finished on ag/${clNum}: ${summary}${wall}!`);
+    }
+  }
+
+  async function pollActiveSwarmStatuses() {
+    const runningCls = getActiveRunningSwarmClNumbers();
+    if (runningCls.length === 0) return;
+    try {
+      const resp = await sidecarFetch(`/api/gerrit/swarm-status?cls=${runningCls.join(",")}`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const map = (data && data.statuses) || {};
+      Object.keys(map).forEach(k => {
+        mergePolledSwarmStatus(Number(k), map[k]);
+      });
+      syncSwarmIndicatorsOnly();
+    } catch (_err) {
+      // Ignore transient network hiccups during local status polling
+    }
+  }
+
+  function ensureSwarmPollingTimer() {
+    if (window._swarmTickInterval) return;
+    let tickCount = 0;
+    window._swarmTickInterval = setInterval(() => {
+      const runningCls = getActiveRunningSwarmClNumbers();
+      if (runningCls.length === 0) {
+        clearInterval(window._swarmTickInterval);
+        window._swarmTickInterval = null;
+        syncSwarmIndicatorsOnly();
+        return;
+      }
+      tickCount += 1;
+      syncSwarmIndicatorsOnly();
+      if (tickCount % 2 === 1) {
+        pollActiveSwarmStatuses();
+      }
+    }, 1000);
+  }
+
+  async function postSwarmFindingsToGerrit(clNum, btnEl) {
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.textContent = "Posting to Gerrit…";
+    }
+    try {
+      const resp = await sidecarFetch("/api/gerrit/post-swarm-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cl: clNum }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.status !== "ok") {
+        throw new Error(data.error || "Failed to post Review Swarm comments");
+      }
+      if (btnEl) {
+        btnEl.textContent = "✓ Posted to Gerrit (notify: OWNER)";
+      }
+      showToast(`Posted Review Swarm findings to ag/${clNum} (notify: OWNER)!`);
+    } catch (err) {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.textContent = "Post to Gerrit (notify: OWNER)";
+      }
+      showToast("Could not post swarm comments: " + err);
+    }
+  }
+
+  async function dispatchAgentPrompt(clNum, action, prompt) {
+    if (!window.sidecar || !window.sidecar.agent) return false;
+    try {
+      if (window.sidecar.conversationId && typeof window.sidecar.agent.sendMessage === "function") {
+        await window.sidecar.agent.sendMessage(prompt);
+        return true;
+      }
+      if (typeof window.sidecar.agent.startConversation === "function") {
+        await window.sidecar.agent.startConversation(prompt, `${action}: ag/${clNum}`);
+        return true;
+      }
+    } catch (err) {
+      console.warn("Agent dispatch warning:", err);
+    }
+    return false;
+  }
+
+  async function triggerHarness(action) {
+    if (!state.selectedClNumber) return;
+    await triggerHarnessForCl(state.selectedClNumber, action);
+  }
+
+  async function triggerHarnessForCl(clNum, action) {
+    const prompt = action === "review-swarm"
+      ? `Run \`emu-dev-cli harness review-swarm --cl ${clNum}\` and execute the 8-specialist review swarm workflow for ag/${clNum}.`
+      : `Run \`emu-dev-cli workflow address-review init --cl ${clNum}\` to address unresolved review comments on ag/${clNum}.`;
+
+    if (action === "review-swarm") {
+      const existing = state.swarmByCl[clNum];
+      if (existing && existing.state === "running") {
+        showToast(`Review Swarm is already running on ag/${clNum}!`);
+        return;
+      }
+      state.swarmByCl[clNum] = {
+        state: "running",
+        phase: "queued",
+        target_id: String(clNum),
+        total_specialists: 8,
+        completed_specialists: 0,
+        startedAtClientMs: Date.now(),
+        optimisticPending: true,
+        elapsed_sec: 0,
+        agents: DEFAULT_SWARM_SPECIALISTS.map(s => ({
+          specialist: s.specialist,
+          role: s.role,
+          status: "running",
+          duration_sec: null,
+          finding_count: null,
+        })),
+      };
+      syncSwarmIndicatorsOnly();
+      ensureSwarmPollingTimer();
+    }
+
+    document.getElementById("drawerStatus").textContent =
+      action === "review-swarm"
+        ? `Launching 8-Specialist Review Swarm on ag/${clNum}…`
+        : `Running ${action} on ag/${clNum}…`;
+    showToast(
+      action === "review-swarm"
+        ? `Launched 8-Specialist Review Swarm on ag/${clNum}!`
+        : `Launched ${action} on ag/${clNum}!`
+    );
+
+    const agentPromise = dispatchAgentPrompt(clNum, action, prompt);
+    try {
+      const resp = await sidecarFetch("/api/gerrit/harness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cl: clNum, action }),
+      });
+      const data = await resp.json();
+      if (action === "review-swarm" && data && data.swarm_status) {
+        const cur = state.swarmByCl[clNum];
+        if (cur) cur.optimisticPending = false;
+        mergePolledSwarmStatus(clNum, data.swarm_status, { silentToast: true });
+      }
+      await agentPromise;
+      if (action !== "review-swarm") {
+        document.getElementById("drawerStatus").textContent = `Completed ${action} on ag/${clNum} (status: ${data.status || "ok"})`;
+      } else {
+        syncSwarmIndicatorsOnly();
+      }
+    } catch (err) {
+      if (action !== "review-swarm") {
+        document.getElementById("drawerStatus").textContent = `Prepared ${action} for ag/${clNum}`;
+      }
+    } finally {
+      const cur = state.swarmByCl[clNum];
+      if (cur) cur.optimisticPending = false;
+    }
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA") return;
+    const orderedItems = getOrderedVisibleCommits(getVisibleStacks());
+    const flatVisible = orderedItems.map(item => item.commit);
+    if (!flatVisible.length) return;
+    const idx = flatVisible.findIndex(c => c.number === state.selectedClNumber);
+    if (e.key === "j") {
+      const next = flatVisible[(idx + 1) % flatVisible.length];
+      selectCl(next.number, false, "next");
+    } else if (e.key === "k") {
+      const prev = flatVisible[(idx - 1 + flatVisible.length) % flatVisible.length];
+      selectCl(prev.number, false, "prev");
+    } else if (e.key === "a") {
+      voteCurrentCl();
+    } else if (e.key === "s") {
+      triggerHarness("review-swarm");
+    }
+  });
+
+  initApp();
+</script>
+</body>
+</html>
