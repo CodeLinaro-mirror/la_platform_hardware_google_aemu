@@ -1,0 +1,119 @@
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["src/clownfish/__main__.py"])
+
+py_library(
+    name = "clownfish_lib",
+    srcs = [
+        "src/clownfish/__init__.py",
+        "src/clownfish/__main__.py",
+        "src/clownfish/companions.py",
+        "src/clownfish/discovery.py",
+        "src/clownfish/presets.py",
+        "src/clownfish/renderer.py",
+        "src/clownfish/server.py",
+        "src/clownfish/services/__init__.py",
+        "src/clownfish/services/v1/__init__.py",
+        "src/clownfish/services/v1/emulator_controller.py",
+        "src/clownfish/services/v1/screen_recording.py",
+        "src/clownfish/services/v1/snapshot_service.py",
+        "src/clownfish/services/v2/__init__.py",
+        "src/clownfish/services/v2/audio_service.py",
+        "src/clownfish/services/v2/battery_service.py",
+        "src/clownfish/services/v2/camera_service.py",
+        "src/clownfish/services/v2/capabilities_service.py",
+        "src/clownfish/services/v2/display_service.py",
+        "src/clownfish/services/v2/hypervisor_service.py",
+        "src/clownfish/services/v2/input_service.py",
+        "src/clownfish/services/v2/location_service.py",
+        "src/clownfish/services/v2/rtc_service.py",
+        "src/clownfish/services/v2/sensors_service.py",
+        "src/clownfish/services/v2/system_service.py",
+        "src/clownfish/services/v2/telephony_service.py",
+        "src/clownfish/state.py",
+        "src/sitecustomize.py",
+    ],
+    imports = ["src"],
+    deps = [
+        "//protos/aemu-grpc:aemu_grpc_lib",
+        "//protos/services_v2:services_v2_py_grpc",
+        "//protos/services_v2:services_v2_py_proto",
+        "@pypi_aemu//googleapis_common_protos",
+        "@pypi_aemu//grpcio",
+        "@pypi_aemu//protobuf",
+        "@pypi_aemu//psutil",
+    ],
+)
+
+py_binary(
+    name = "clownfish",
+    srcs = ["src/clownfish/__main__.py"],
+    imports = ["src"],
+    main = "src/clownfish/__main__.py",
+    deps = [
+        ":clownfish_lib",
+    ],
+)
+
+py_test(
+    name = "state_test",
+    size = "small",
+    srcs = ["tests/state_test.py"],
+    deps = [
+        ":clownfish_lib",
+        "@pypi_aemu//pytest",
+    ],
+)
+
+py_test(
+    name = "renderer_test",
+    size = "small",
+    srcs = ["tests/renderer_test.py"],
+    deps = [
+        ":clownfish_lib",
+        "@pypi_aemu//pytest",
+    ],
+)
+
+py_test(
+    name = "discovery_test",
+    size = "small",
+    srcs = ["tests/discovery_test.py"],
+    deps = [
+        ":clownfish_lib",
+        "@pypi_aemu//pytest",
+    ],
+)
+
+py_test(
+    name = "v1_integration_test",
+    size = "small",
+    srcs = ["tests/v1_integration_test.py"],
+    deps = [
+        ":clownfish_lib",
+        "@pypi_aemu//pytest",
+    ],
+)
+
+py_test(
+    name = "v2_integration_test",
+    size = "small",
+    srcs = ["tests/v2_integration_test.py"],
+    deps = [
+        ":clownfish_lib",
+        "@pypi_aemu//pytest",
+    ],
+)
+
+test_suite(
+    name = "all_tests",
+    tests = [
+        ":discovery_test",
+        ":renderer_test",
+        ":state_test",
+        ":v1_integration_test",
+        ":v2_integration_test",
+    ],
+)

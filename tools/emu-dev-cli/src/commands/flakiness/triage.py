@@ -26,7 +26,9 @@ from lib.ai_patch_generator import (
 import logging
 from lib.ath_api import (
     SUPPORTED_TARGET_PLATFORMS,
+    infer_test_identifier_for_target,
     query_ath_flaky_tests,
+    sanitize_bazel_target,
 )
 from lib.buganizer import BuganizerClient, BuganizerIssuePayload
 from lib.output import format_markdown_table, print_result
@@ -66,9 +68,15 @@ def handle_flakiness_triage(args):
 
     if explicit_test:
         sys.stderr.write(f"🔍 Querying Android Test Hub (ATH) for records matching '{explicit_test}'...\n")
+        raw_config = getattr(args, "config", None)
+        resolved_config = (
+            raw_config
+            if raw_config and raw_config != "all"
+            else infer_test_identifier_for_target(explicit_test)
+        )
         recs = query_ath_flaky_tests(
             target=target,
-            config_name=getattr(args, "config", "devtools/emulator"),
+            config_name=resolved_config,
             branch=getattr(args, "branch", "git_emu-main-next"),
             min_flake_rate=0.0,
             days=getattr(args, "days", 7),
@@ -78,11 +86,11 @@ def handle_flakiness_triage(args):
         )
         sys.stderr.write("\n")
 
+        clean_explicit = sanitize_bazel_target(explicit_test)
         matched = [
             r
             for r in recs
-            if r.test_identifier.replace("@@goldfish+//", "@goldfish//")
-            == explicit_test.replace("@@goldfish+//", "@goldfish//")
+            if sanitize_bazel_target(r.test_identifier) == clean_explicit
         ]
         if matched:
             rec = matched[0]
@@ -111,7 +119,7 @@ def handle_flakiness_triage(args):
         for tgt in targets_to_query:
             recs = query_ath_flaky_tests(
                 target=tgt,
-                config_name=getattr(args, "config", "devtools/emulator"),
+                config_name=getattr(args, "config", "all"),
                 branch=getattr(args, "branch", "git_emu-main-next"),
                 min_flake_rate=getattr(args, "min_flake_rate", 10.0),
                 days=getattr(args, "days", 7),

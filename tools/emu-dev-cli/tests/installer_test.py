@@ -32,6 +32,8 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 from install.installer import (
+    KNOWN_LEGACY_SHA256_HASHES,
+    cleanup_legacy_workspace_files,
     install_launcher_wrapper,
     install_skill,
     resolve_built_artifact,
@@ -275,6 +277,72 @@ class InstallerTest(unittest.TestCase):
             run_update_cmd(args)
 
         self.assertEqual(cm.exception.code, 1)
+
+    def test_cleanup_legacy_workspace_files_removes_matching_and_keeps_modified(self):
+        """Verifies cleanup removes files matching legacy SHA-256 and keeps user-modified files."""
+        import hashlib
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir).resolve()
+
+            # Create a template file in hardware/google/aemu/agents/AGENTS.md
+            template_agents_dir = root / "hardware" / "google" / "aemu" / "agents"
+            template_agents_dir.mkdir(parents=True, exist_ok=True)
+            legacy_agents_content = "# Legacy AEMU Agentic Workflow\n"
+            (template_agents_dir / "AGENTS.md").write_text(
+                legacy_agents_content, encoding="utf-8"
+            )
+
+            # Create matching root AGENTS.md
+            root_agents_md = root / "AGENTS.md"
+            root_agents_md.write_text(legacy_agents_content, encoding="utf-8")
+
+            # Create a legacy .gemini/agents/evolver.md matching a known template
+            template_gemini_agents = template_agents_dir / ".gemini" / "agents"
+            template_gemini_agents.mkdir(parents=True, exist_ok=True)
+            legacy_evolver_content = "# Role: Evolution Engine\n"
+            (template_gemini_agents / "evolver.md").write_text(
+                legacy_evolver_content, encoding="utf-8"
+            )
+
+            gemini_dir = root / ".gemini"
+            (gemini_dir / "agents").mkdir(parents=True, exist_ok=True)
+            matching_evolver = gemini_dir / "agents" / "evolver.md"
+            matching_evolver.write_text(legacy_evolver_content, encoding="utf-8")
+
+            # Create a user-customized file in .gemini/agents/my_custom_agent.md
+            custom_agent = gemini_dir / "agents" / "my_custom_agent.md"
+            custom_agent.write_text("# User Custom Agent - DO NOT DELETE\n", encoding="utf-8")
+
+            res = cleanup_legacy_workspace_files(root)
+
+            # Matching legacy files should be removed
+            self.assertFalse(root_agents_md.exists())
+            self.assertFalse(matching_evolver.exists())
+            self.assertIn("AGENTS.md", res["removed_files"])
+            self.assertIn(".gemini/agents/evolver.md", res["removed_files"])
+
+            # Custom file must be preserved
+            self.assertTrue(custom_agent.exists())
+            self.assertIn(".gemini/agents/my_custom_agent.md", res["kept_files"])
+
+    def test_cleanup_legacy_workspace_files_prunes_empty_gemini_dir(self):
+        """Verifies cleanup removes the .gemini directory when all files inside match legacy hashes."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir).resolve()
+            template_dir = root / "hardware" / "google" / "aemu" / "agents" / ".gemini"
+            template_dir.mkdir(parents=True, exist_ok=True)
+            settings_content = '{"theme": "dark"}\n'
+            (template_dir / "settings.json").write_text(settings_content, encoding="utf-8")
+
+            gemini_dir = root / ".gemini"
+            gemini_dir.mkdir(parents=True, exist_ok=True)
+            (gemini_dir / "settings.json").write_text(settings_content, encoding="utf-8")
+
+            res = cleanup_legacy_workspace_files(root)
+            self.assertIn(".gemini/settings.json", res["removed_files"])
+            self.assertEqual(res["kept_files"], [])
+            self.assertFalse(gemini_dir.exists())
 
 
 if __name__ == "__main__":

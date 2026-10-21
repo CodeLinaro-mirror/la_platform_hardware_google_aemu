@@ -26,6 +26,7 @@ py_library(
     ]),
     data = glob(
         [
+            "docs/**/*.md",
             "src/templates/*.md",
             "workflows/**/*.yaml",
             "workflows/**/*.yml",
