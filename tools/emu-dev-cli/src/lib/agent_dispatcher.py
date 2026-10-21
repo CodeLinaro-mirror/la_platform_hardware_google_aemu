@@ -127,8 +127,8 @@ class AgentDispatcher:
                 return
             try:
                 rca_summary_path.unlink()
-            except OSError:
-                pass
+            except OSError as exc:
+                logging.getLogger(__name__).debug("Ignored error in dispatch_investigation: %s", exc)
 
         if self.is_agent_session_active():
             # Mode A: Active Agent Session -> Dispatch Subagent via agentapi

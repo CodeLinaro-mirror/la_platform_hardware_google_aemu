@@ -19,6 +19,7 @@ Checks live `QueryAPIService.SearchAnnotations` on `blade:crash-queryapi` to ver
 that every crash signature in the batch queue now has a linked Buganizer URL in `go/crash`.
 """
 
+import logging
 import argparse
 import json
 import re
@@ -99,8 +100,8 @@ def audit_linked_bug_titles(
                             ),
                         }
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in audit_linked_bug_titles: %s", exc)
 
     return violations
 

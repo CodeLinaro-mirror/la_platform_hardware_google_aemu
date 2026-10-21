@@ -14,6 +14,7 @@
 
 """RCA analysis & Buganizer issue filing subcommand module for emu-dev-cli (`crash file-bug`)."""
 
+import logging
 import argparse
 import json
 import re
@@ -131,8 +132,8 @@ def _extract_crash_info_from_sandbox(
                 elif isinstance(raw_keys, dict):
                     for k, v in raw_keys.items():
                         info["custom_keys"][str(k)] = str(v if v is not None else "")
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger(__name__).debug("Ignored error in _extract_crash_info_from_sandbox: %s", exc)
 
     if rca_content:
         if not info["versions"]:

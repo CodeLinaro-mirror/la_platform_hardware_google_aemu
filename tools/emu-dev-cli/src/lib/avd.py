@@ -14,6 +14,7 @@
 
 """AVD and System Image provisioning and management library."""
 
+import logging
 import glob
 import os
 import platform
@@ -167,8 +168,8 @@ def detect_arch_and_abi(sysimg_dir: str) -> Tuple[str, str]:
                     return "x86_64", "x86_64"
                 elif "x86" in abi:
                     return "x86", "x86"
-        except (OSError, UnicodeDecodeError):
-            pass
+        except (OSError, UnicodeDecodeError) as exc:
+            logging.getLogger(__name__).debug("Ignored error in detect_arch_and_abi: %s", exc)
 
     dir_str = sysimg_dir.lower()
     if "arm64" in dir_str or "aarch64" in dir_str:
@@ -272,8 +273,8 @@ def create_single_avd(
     if os.path.exists(source_userdata):
         try:
             shutil.copy2(source_userdata, dest_userdata)
-        except (OSError, shutil.Error):
-            pass
+        except (OSError, shutil.Error) as exc:
+            logging.getLogger(__name__).debug("Ignored error in create_single_avd: %s", exc)
 
     return {
         "avd_name": avd_name,

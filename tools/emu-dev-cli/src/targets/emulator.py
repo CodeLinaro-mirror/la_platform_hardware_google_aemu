@@ -307,8 +307,8 @@ def run_emulator_fetch(args):
                             fp = os.path.join(root, f)
                             try:
                                 os.chmod(fp, 0o755)
-                            except Exception:
-                                pass
+                            except OSError as exc:
+                                logging.getLogger(__name__).debug("Ignored error in run_emulator_fetch: %s", exc)
             candidates_bin = [
                 os.path.join(extracted_dir, "emulator", "emulator"),
                 os.path.join(extracted_dir, "emulator"),
@@ -317,8 +317,8 @@ def run_emulator_fetch(args):
                 if os.path.isfile(cb):
                     binary_path = cb
                     break
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in run_emulator_fetch: %s", exc)
 
     summary_desc = (
         f"Successfully fetched latest emulator build ({resolved_build_id or 'latest'}) on {successful_branch}"

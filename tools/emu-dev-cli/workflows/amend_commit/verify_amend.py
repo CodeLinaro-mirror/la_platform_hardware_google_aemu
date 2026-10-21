@@ -24,6 +24,7 @@ workflow requirements:
 - Exactly one Change-Id line matching the original Change-Id
 """
 
+import logging
 import argparse
 from pathlib import Path
 import subprocess
@@ -51,8 +52,8 @@ def _resolve_change_id_from_file(original_change_id: str, current_file: str) -> 
                 cids = extract_all_change_ids(current_text)
                 if cids:
                     return cids[0]
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in _resolve_change_id_from_file: %s", exc)
     return original_change_id
 
 
@@ -63,8 +64,8 @@ def _resolve_base_commit_from_file(base_commit: str, base_commit_file: str) -> s
             b_path = Path(base_commit_file).resolve()
             if b_path.is_file():
                 return b_path.read_text(encoding="utf-8").strip()
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in _resolve_base_commit_from_file: %s", exc)
     return base_commit
 
 
@@ -172,8 +173,8 @@ def _verify_commit_message_changed_from_original(
                                 file=sys.stderr,
                             )
                             return False
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in _verify_commit_message_changed_from_original: %s", exc)
     return True
 
 

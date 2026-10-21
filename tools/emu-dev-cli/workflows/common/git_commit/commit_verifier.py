@@ -19,6 +19,7 @@ Provides commit message parsing, Gerrit format validation, forbidden tag detecti
 and Git repository inspection helpers for `create-commit` and `amend-commit`.
 """
 
+import logging
 import os
 from pathlib import Path
 import re
@@ -300,8 +301,8 @@ def find_commit_by_change_id(change_id: str, cwd: Optional[str] = None) -> Optio
         commit_hash = res.stdout.strip()
         if commit_hash:
             return commit_hash
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in find_commit_by_change_id: %s", exc)
 
     try:
         res = subprocess.run(
@@ -314,8 +315,8 @@ def find_commit_by_change_id(change_id: str, cwd: Optional[str] = None) -> Optio
         commit_hash = res.stdout.strip()
         if commit_hash:
             return commit_hash
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in find_commit_by_change_id: %s", exc)
 
     return None
 

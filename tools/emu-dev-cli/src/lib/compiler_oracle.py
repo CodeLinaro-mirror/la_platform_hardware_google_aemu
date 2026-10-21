@@ -185,8 +185,8 @@ class CompilerOracle:
                         if 0 < line <= len(file_lines):
                             raw_snippet = file_lines[line - 1].strip()
                             break
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Ignored error in parse_errors: %s", exc)
 
             errors.append(
                 CompilerError(

@@ -172,7 +172,8 @@ def _resolve_build_file(
                     return (cand / "BUILD.bazel").resolve(), []
                 if (cand / "BUILD").is_file():
                     return (cand / "BUILD").resolve(), []
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in _resolve_build_file: %s", exc)
             continue
 
     # Collect nearest matching package suggestions across workspace
@@ -186,8 +187,8 @@ def _resolve_build_file(
                 suggestions.append(str(rel))
                 if len(suggestions) >= 3:
                     break
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in _resolve_build_file: %s", exc)
 
     return None, suggestions
 

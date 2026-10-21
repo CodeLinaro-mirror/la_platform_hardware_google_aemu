@@ -66,8 +66,8 @@ def _perform_in_process_log_analysis(
                         findings.append(line.strip())
                         if len(findings) >= 5:
                             break
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in _perform_in_process_log_analysis: %s", exc)
 
     if has_tsan:
         rc_summary = f"ThreadSanitizer data race in {record.module_name}"

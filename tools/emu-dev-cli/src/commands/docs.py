@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import argparse
 import os
 import re
@@ -364,7 +365,8 @@ def lint_wiki_documents(
 
         try:
             text = fpath.read_text(encoding="utf-8")
-        except OSError:
+        except OSError as exc:
+            logging.getLogger(__name__).debug("Ignored error in lint_wiki_documents: %s", exc)
             continue
 
         updated_text = text
@@ -479,8 +481,8 @@ def lint_wiki_documents(
             try:
                 fpath.write_text(updated_text, encoding="utf-8")
                 fixed_files.append(doc["relative_path"])
-            except OSError:
-                pass
+            except OSError as exc:
+                logging.getLogger(__name__).debug("Ignored error in lint_wiki_documents: %s", exc)
 
     return {
         "files_checked": files_checked,

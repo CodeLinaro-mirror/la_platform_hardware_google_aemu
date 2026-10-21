@@ -20,6 +20,7 @@ the LLDB interactive debugger (using `--wait-for` to attach directly to the
 spawned `qemu-system-<arch>` engine process) to reproduce the crash locally.
 """
 
+import logging
 import argparse
 import json
 import os
@@ -271,8 +272,8 @@ def run_reproduce(args: argparse.Namespace) -> None:
                     except (ProcessLookupError, OSError):
                         try:
                             emu_proc.terminate()
-                        except OSError:
-                            pass
+                        except OSError as exc:
+                            logging.getLogger(__name__).debug("Ignored error in run_reproduce: %s", exc)
                 else:
                     emu_proc.terminate()
     else:

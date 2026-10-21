@@ -20,6 +20,7 @@ Resolves repository roots, target git paths, and build commands for:
 - emu-main-next: Bazel build in goldfish emulator workspace
 """
 
+import logging
 import argparse
 import json
 import os
@@ -46,8 +47,8 @@ def load_config() -> Dict[str, Dict[str, str]]:
             data = json.load(f)
             if isinstance(data, dict):
                 return data
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in load_config: %s", exc)
     return {"source_directories": {}}
 
 

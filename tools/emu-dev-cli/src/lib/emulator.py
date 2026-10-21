@@ -14,6 +14,7 @@
 
 """Emulator executable resolution, environment setup, and process management."""
 
+import logging
 import glob
 import os
 import platform
@@ -63,8 +64,8 @@ def ensure_executable_permissions(emu_dir: str, emu_bin: str) -> None:
             if not os.access(full_p, os.X_OK):
                 try:
                     os.chmod(full_p, 0o755)
-                except Exception:
-                    pass
+                except OSError as exc:
+                    logging.getLogger(__name__).debug("Ignored error in ensure_executable_permissions: %s", exc)
 
 
 def find_cached_emulator_dir() -> Optional[str]:
@@ -167,8 +168,8 @@ def prepare_environment(emu_dir: str) -> Dict[str, str]:
             if os.path.isdir(android_user_dir):
                 try:
                     os.chmod(android_user_dir, 0o755)
-                except Exception:
-                    pass
+                except OSError as exc:
+                    logging.getLogger(__name__).debug("Ignored error in prepare_environment: %s", exc)
 
     elif system == "darwin":
         lib64 = os.path.join(emu_dir, "lib64")

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import os
 from pathlib import Path
 import re
@@ -55,8 +56,8 @@ def verify_rating_file(filepath: Path) -> int:
                         file=sys.stderr,
                     )
                     return 1
-            except ValueError:
-                pass
+            except ValueError as exc:
+                logging.getLogger(__name__).debug("Ignored error in verify_rating_file: %s", exc)
         else:
             summary_lines.append(line)
 

@@ -14,6 +14,7 @@
 
 """Test troubleshooting and failure diagnostic collection for single and multi-device runs."""
 
+import logging
 from dataclasses import dataclass
 import datetime
 import getpass
@@ -98,8 +99,8 @@ class DiagnosticSession:
                         check=False,
                         timeout=5,
                     )
-                except (OSError, subprocess.SubprocessError):
-                    pass
+                except (OSError, subprocess.SubprocessError) as exc:
+                    logging.getLogger(__name__).debug("Ignored error in start: %s", exc)
 
         if self.config.capture_pcap and self.netsim_bin:
             try:
@@ -109,8 +110,8 @@ class DiagnosticSession:
                     check=False,
                     timeout=5,
                 )
-            except (OSError, subprocess.SubprocessError):
-                pass
+            except (OSError, subprocess.SubprocessError) as exc:
+                logging.getLogger(__name__).debug("Ignored error in start: %s", exc)
 
         if self.config.capture_netsim_logs:
             user = getpass.getuser()
@@ -150,8 +151,8 @@ class DiagnosticSession:
                     with open(log_file, "w", encoding="utf-8", errors="replace") as f:
                         f.write(res.stdout)
                     captured_files.append(log_file)
-                except (OSError, subprocess.SubprocessError):
-                    pass
+                except (OSError, subprocess.SubprocessError) as exc:
+                    logging.getLogger(__name__).debug("Ignored error in collect_bundle: %s", exc)
 
         # 2. Capture Netsim PCAPs
         if self.config.capture_pcap and self.netsim_bin:
@@ -165,8 +166,8 @@ class DiagnosticSession:
                 for entry in os.listdir(self.session_dir):
                     if entry.endswith(".pcap"):
                         captured_files.append(os.path.join(self.session_dir, entry))
-            except (OSError, subprocess.SubprocessError):
-                pass
+            except (OSError, subprocess.SubprocessError) as exc:
+                logging.getLogger(__name__).debug("Ignored error in collect_bundle: %s", exc)
 
         # 3. Capture Netsim Daemon Logs (sliced from start offset)
         if self.config.capture_netsim_logs:
@@ -184,8 +185,8 @@ class DiagnosticSession:
                         with open(dst_path, "w", encoding="utf-8") as dst:
                             dst.write(content)
                         captured_files.append(dst_path)
-                    except OSError:
-                        pass
+                    except OSError as exc:
+                        logging.getLogger(__name__).debug("Ignored error in collect_bundle: %s", exc)
 
         # 4. Capture UI Hierarchy & Screenshot
         if self.config.capture_ui:
@@ -206,8 +207,8 @@ class DiagnosticSession:
                             else:
                                 f.write(res.stdout)
                         captured_files.append(png_file)
-                except (OSError, subprocess.SubprocessError):
-                    pass
+                except (OSError, subprocess.SubprocessError) as exc:
+                    logging.getLogger(__name__).debug("Ignored error in collect_bundle: %s", exc)
 
                 # View Hierarchy XML
                 xml_file = os.path.join(self.session_dir, f"{serial}_ui.xml")
@@ -223,8 +224,8 @@ class DiagnosticSession:
                         with open(xml_file, "w", encoding="utf-8", errors="replace") as f:
                             f.write(res.stdout)
                         captured_files.append(xml_file)
-                except (OSError, subprocess.SubprocessError):
-                    pass
+                except (OSError, subprocess.SubprocessError) as exc:
+                    logging.getLogger(__name__).debug("Ignored error in collect_bundle: %s", exc)
 
         duration = round(time.time() - self.start_time, 2) if self.start_time else 0.0
         summary_data = {
@@ -243,8 +244,8 @@ class DiagnosticSession:
             with open(summary_file, "w", encoding="utf-8") as f:
                 json.dump(summary_data, f, indent=2)
             captured_files.append(summary_file)
-        except OSError:
-            pass
+        except OSError as exc:
+            logging.getLogger(__name__).debug("Ignored error in collect_bundle: %s", exc)
 
         self.bundle_collected = True
         return {
@@ -265,8 +266,8 @@ class DiagnosticSession:
                     check=False,
                     timeout=5,
                 )
-            except (OSError, subprocess.SubprocessError):
-                pass
+            except (OSError, subprocess.SubprocessError) as exc:
+                logging.getLogger(__name__).debug("Ignored error in stop: %s", exc)
         self.is_active = False
 
     def __enter__(self) -> "DiagnosticSession":

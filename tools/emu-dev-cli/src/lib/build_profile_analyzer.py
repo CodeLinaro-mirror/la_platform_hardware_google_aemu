@@ -1022,8 +1022,8 @@ def _get_git_commits_between(
         )
         if res.returncode == 0 and res.stdout.strip():
             return [line.strip() for line in res.stdout.strip().splitlines() if line.strip()]
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in _get_git_commits_between: %s", exc)
     return []
 
 

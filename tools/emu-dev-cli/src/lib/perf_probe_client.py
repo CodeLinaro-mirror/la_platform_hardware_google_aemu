@@ -137,7 +137,8 @@ def parse_perf_probe_logcat_lines(logcat_text: str) -> List[Dict[str, Any]]:
             obj = json.loads(payload)
             if isinstance(obj, dict):
                 results.append(obj)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            logging.getLogger(__name__).debug("Ignored error in parse_perf_probe_logcat_lines: %s", exc)
             continue
     return results
 
@@ -510,8 +511,8 @@ class PerfProbeSession:
             if stream_call[0] is not None:
                 try:
                     stream_call[0].cancel()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Ignored error in run_touch_to_photon: %s", exc)
             channel.close()
 
         summary = self.run_intent_scenario(

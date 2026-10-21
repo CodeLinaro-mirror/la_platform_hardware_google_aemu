@@ -741,8 +741,8 @@ def resolve_project_repo_path(
                         cand = (ws_root / proj_path).resolve()
                         if cand.is_dir():
                             return cand
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in resolve_project_repo_path: %s", exc)
 
         for rel in (rel_candidate, clean_proj):
             if rel:
@@ -929,8 +929,8 @@ def fetch_and_checkout_cl(
                 "current_revision": cur_rev,
                 "ref": fetch_ref,
             }
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in fetch_and_checkout_cl: %s", exc)
 
     if not fetch_ref:
         raise RuntimeError(f"Could not determine Gerrit fetch ref for CL {cl_num}.")
@@ -1021,8 +1021,8 @@ def _detect_git_remote(repo_path: Path, project_name: str) -> str:
                 return preferred
         if remotes:
             return remotes[0].strip()
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in _detect_git_remote: %s", exc)
     return f"https://googleplex-android.googlesource.com/{project_name}"
 
 

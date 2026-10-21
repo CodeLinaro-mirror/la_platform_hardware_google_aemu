@@ -36,8 +36,8 @@ def get_ssl_context() -> ssl.SSLContext:
                 try:
                     ctx.load_verify_locations(cafile=ca_file)
                     break
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Ignored error in get_ssl_context: %s", exc)
     return ctx
 
 
@@ -57,8 +57,8 @@ def get_quota_project() -> str:
                 data = json.load(f)
             if data.get("quota_project_id"):
                 return data["quota_project_id"].strip()
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in get_quota_project: %s", exc)
     return "emulator-builds"
 
 
@@ -212,8 +212,8 @@ class OAuthTokenManager:
                     if cleaned:
                         self.save_cached_token(cleaned)
                         return cleaned
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in fetch_oauth2l_token: %s", exc)
 
         # Fallback for gLinux / capsule environments without oauth2l: use OnePlatform sso CLI
         sso_bin = Path("/google/data/ro/teams/oneplatform/sso")
@@ -234,8 +234,8 @@ class OAuthTokenManager:
                     if cleaned:
                         self.save_cached_token(cleaned)
                         return cleaned
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in fetch_oauth2l_token: %s", exc)
 
         # Remote GLinux SSH Fallback (for macOS workstations)
         if sys.platform == "darwin" or not Path("/google/data").exists():
@@ -272,8 +272,8 @@ class OAuthTokenManager:
                             if cleaned:
                                 self.save_cached_token(cleaned)
                                 return cleaned
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Ignored error in fetch_oauth2l_token: %s", exc)
 
         return None
 
@@ -331,7 +331,7 @@ class OAuthTokenManager:
             os.environ.pop("OAUTH2_TOKEN", None)
             try:
                 subprocess.run(["oauth2l", "reset"], capture_output=True, timeout=5.0)
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in get_token: %s", exc)
         return self.acquire_token(user_token=user_token)
 

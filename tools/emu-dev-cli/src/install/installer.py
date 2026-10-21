@@ -1,3 +1,4 @@
+import logging
 import hashlib
 import os
 from pathlib import Path
@@ -75,8 +76,8 @@ def _safe_copy2(src: str, dst: str) -> None:
     if os.path.exists(dst) or os.path.islink(dst):
         try:
             os.unlink(dst)
-        except OSError:
-            pass
+        except OSError as exc:
+            logging.getLogger(__name__).debug("Ignored error in _safe_copy2: %s", exc)
     try:
         shutil.copy2(src, dst)
     except PermissionError:
@@ -85,8 +86,8 @@ def _safe_copy2(src: str, dst: str) -> None:
         try:
             mode = os.stat(dst).st_mode
             os.chmod(dst, mode | 0o600)
-        except OSError:
-            pass
+        except OSError as exc:
+            logging.getLogger(__name__).debug("Ignored error in _safe_copy2: %s", exc)
 
 
 def copy_src_to_release_lib(src_dir, release_lib_dir):
@@ -101,8 +102,8 @@ def copy_src_to_release_lib(src_dir, release_lib_dir):
             if f.endswith(".pyc"):
                 try:
                     os.remove(os.path.join(root, f))
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logging.getLogger(__name__).debug("Ignored error in copy_src_to_release_lib: %s", exc)
 
     for root, _, files in os.walk(src_dir):
         for f in files:
@@ -241,8 +242,8 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
                                 )
                             else:
                                 _safe_copy2(item_path, dest_item)
-                        except OSError:
-                            pass
+                        except OSError as exc:
+                            logging.getLogger(__name__).debug("Ignored error in install_launcher_wrapper: %s", exc)
             if norm_root.endswith("/python/google/protobuf"):
                 pb_overlay_dirs.append(root)
             if (
@@ -256,8 +257,8 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
                     if os.path.exists(py_link) or os.path.islink(py_link):
                         os.unlink(py_link)
                     os.symlink(py_target, py_link)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logging.getLogger(__name__).debug("Ignored error in install_launcher_wrapper: %s", exc)
             if norm_root.endswith("/protos/aemu-grpc/src/aemu"):
                 dest_aemu = os.path.join(release_lib_dir, "aemu")
                 try:
@@ -268,8 +269,8 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
                         dirs_exist_ok=True,
                         copy_function=_safe_copy2,
                     )
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logging.getLogger(__name__).debug("Ignored error in install_launcher_wrapper: %s", exc)
             if "/protos/" in norm_root:
                 proto_dir = os.path.join(release_lib_dir, "aemu", "proto")
                 os.makedirs(proto_dir, exist_ok=True)
@@ -279,8 +280,8 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
                         try:
                             _safe_copy2(src_pb, os.path.join(release_lib_dir, f))
                             _safe_copy2(src_pb, os.path.join(proto_dir, f))
-                        except OSError:
-                            pass
+                        except OSError as exc:
+                            logging.getLogger(__name__).debug("Ignored error in install_launcher_wrapper: %s", exc)
             if "perf_probe.apk" in files:
                 apks_dir = os.path.join(release_lib_dir, "apks")
                 os.makedirs(apks_dir, exist_ok=True)
@@ -289,8 +290,8 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
                         os.path.join(root, "perf_probe.apk"),
                         os.path.join(apks_dir, "perf_probe.apk"),
                     )
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logging.getLogger(__name__).debug("Ignored error in install_launcher_wrapper: %s", exc)
         for pb_dir in pb_overlay_dirs:
             dest_pb = os.path.join(release_lib_dir, "google", "protobuf")
             try:
@@ -301,8 +302,8 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
                     dirs_exist_ok=True,
                     copy_function=_safe_copy2,
                 )
-            except OSError:
-                pass
+            except OSError as exc:
+                logging.getLogger(__name__).debug("Ignored error in install_launcher_wrapper: %s", exc)
 
     # Copy advisor self-contained executable and runfiles if built
     source_workspace = source_dir or get_source_directory("emu-main-next")
@@ -623,7 +624,8 @@ def collect_legacy_sha256_hashes(source_root: Path) -> set[str]:
         for toml_file in policies_dir.glob("*.toml"):
             try:
                 base_text = toml_file.read_text(encoding="utf-8")
-            except OSError:
+            except OSError as exc:
+                logging.getLogger(__name__).debug("Ignored error in collect_legacy_sha256_hashes: %s", exc)
                 continue
             hashes.add(hashlib.sha256(base_text.encode("utf-8")).hexdigest())
             for combo in tool_combos:
@@ -699,15 +701,15 @@ def cleanup_legacy_workspace_files(source_dir: str | Path, quiet: bool = False) 
                 try:
                     if dpath.is_dir() and not dpath.is_symlink() and not any(dpath.iterdir()):
                         dpath.rmdir()
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logging.getLogger(__name__).debug("Ignored error in cleanup_legacy_workspace_files: %s", exc)
         try:
             if not any(gemini_dir.iterdir()):
                 gemini_dir.rmdir()
                 if not quiet and removed_files:
                     print("  - Removed empty legacy .gemini directory")
-        except OSError:
-            pass
+        except OSError as exc:
+            logging.getLogger(__name__).debug("Ignored error in cleanup_legacy_workspace_files: %s", exc)
 
     return {
         "removed_files": removed_files,

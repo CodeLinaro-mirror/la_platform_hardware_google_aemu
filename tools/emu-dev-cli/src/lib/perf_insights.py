@@ -578,7 +578,8 @@ def load_perf_history(
                         if not any(suite_filter in st for st in suites):
                             continue
                     entries.append(item)
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as exc:
+                    logging.getLogger(__name__).debug("Ignored error in load_perf_history: %s", exc)
                     continue
     except Exception as e:
         logger.debug("Failed reading perf history %s: %s", history_path, e)

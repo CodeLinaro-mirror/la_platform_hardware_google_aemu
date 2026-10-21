@@ -267,8 +267,8 @@ def run_system_image_fetch(args):
                 if "system.img" in files or "kernel-ranchu" in files:
                     extracted_dir = root
                     break
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in run_system_image_fetch: %s", exc)
 
     summary_desc = (
         f"Successfully fetched latest system-image ({successful_target}) build {resolved_build_id or 'latest'} [{arch}] on branch {branch}"

@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import logging
 import argparse
 from datetime import timedelta
 import json
@@ -85,7 +86,8 @@ def find_sessions_for_cl(
     for state_file in state_files:
         try:
             data = yaml.safe_load(state_file.read_text(encoding="utf-8")) or {}
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in find_sessions_for_cl: %s", exc)
             continue
         state_id = data.get("state_id") or state_file.stem.replace("STATE-", "")
         meta = data.get("metadata") or {}
@@ -110,8 +112,8 @@ def find_sessions_for_cl(
                         ):
                             matched = True
                             break
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Ignored error in find_sessions_for_cl: %s", exc)
         if matched:
             matches.append(
                 {
