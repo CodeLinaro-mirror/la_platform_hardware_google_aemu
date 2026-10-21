@@ -12,15 +12,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import configparser
 import json
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from aemu import jsonc
 from aemu.process.bazel import Bazel
 from aemu.configure.libraries import BazelLib, CMakeLib, Lib
-from aemu.toolchains.toolchain_generator import ToolchainGenerator
-from aemu.process.runner import run
+from aemu.toolchains.toolchain_generator import ToolchainGenerator, strip_sandbox
 from aemu.process.cmake import CMake
 from aemu.log import run_meson_command
 
@@ -90,6 +91,7 @@ class MesonProjectBuilder:
         bazel_startup_options: List[str],
         bazel_build_options: List[str],
         target: str,
+        source_path_override: Optional[str] = None,
     ) -> None:
         """Initializes the MesonProjectBuilder and sets up the build environment.
 
@@ -103,10 +105,11 @@ class MesonProjectBuilder:
             bazel_startup_options (list[str]): Startup options for Bazel.
             bazel_build_options (list[str]): Build options for Bazel.
             target (str): The canonical target platform (e.g., "linux-x64").
+            source_path_override (str, optional): Path to the source directory (overrides config).
         """
-        self.aosp = Path(aosp).absolute()
+        self.aosp = strip_sandbox(Path(aosp).absolute())
         self.dest = Path(dest).absolute()
-        self.toolchain = Path(toolchain_dir).absolute()
+        self.toolchain = strip_sandbox(Path(toolchain_dir).absolute())
         self.dest.mkdir(parents=True, exist_ok=True)
         self.target = target
 
@@ -121,6 +124,20 @@ class MesonProjectBuilder:
             self.toolchain_generator.bazel = self.bazel
 
         self._load_config(config_file)
+        # source_path is third_party/qemu, which doesn't exist inside the bazel sandbox so needs overriding
+        if source_path_override:
+            config_source = Path(self.config.get("source_path", ""))
+            resolved_source = Path(source_path_override)
+
+            for i in range(len(config_source.parts)):
+                suffix = Path(*config_source.parts[i:])
+                candidate = self.aosp / source_path_override / suffix
+
+                if candidate.exists():
+                    resolved_source = Path(source_path_override) / suffix
+                    break
+
+            self.config["source_path"] = resolved_source.as_posix()
         self.features = self.config.get("features", [])
         self.label_to_pkg_name = self._build_label_registry()
 
@@ -204,15 +221,39 @@ class MesonProjectBuilder:
         source_path = self.aosp / self.config.get("source_path", "")
         meson_opts = self.meson_config()
 
+        # On Windows, compiler/ninja wrappers in the cached toolchain directory are Python
+        # scripts stored by filename (e.g., 'cc.py') in aosp-cl.ini to avoid baking build-time
+        # temporary paths into the cached artifact. Expand them to ['<python>', '<toolchain>/<script>.py']
+        # in the local build directory so Meson invokes Python directly via CreateProcess.
+        native_file = self.toolchain / "aosp-cl.ini"
+        if native_file.exists():
+            config = configparser.ConfigParser(delimiters=["="], interpolation=None)
+            config.optionxform = str
+            config.read(native_file, encoding="utf-8")
+            if "binaries" in config:
+                py_exe = strip_sandbox(Path(sys.executable).resolve()).as_posix()
+                modified = False
+                for key, val in config["binaries"].items():
+                    stripped = val.strip("'\"")
+                    if stripped.endswith(".py") and not val.strip().startswith("["):
+                        script_path = (self.toolchain / stripped).as_posix()
+                        config["binaries"][key] = f"['{py_exe}', '{script_path}']"
+                        modified = True
+                if modified:
+                    resolved_native_file = self.dest / "aosp-cl.ini"
+                    with open(resolved_native_file, "w", encoding="utf-8") as f:
+                        config.write(f)
+                    native_file = resolved_native_file
+
         # Build the meson command line
-        cmd = [self.toolchain / "meson", "setup", self.dest]
-        cmd.append(f"--native-file={self.toolchain / 'aosp-cl.ini'}")
+        cmd = [self.toolchain / "meson", "setup", ".", source_path.as_posix()]
+        cmd.append(f"--native-file={native_file}")
         cmd.extend([f"{k}={v}" if v else k for k, v in meson_opts.items()])
         cmd.append(f"-Dprefix={prefix}")
         cmd.extend(meson_flags)
 
         run_meson_command(
-            cmd, self.dest, cwd=source_path, toolchain_path=self.toolchain
+            cmd, self.dest, cwd=self.dest, toolchain_path=self.toolchain
         )
 
     def packages(self) -> List[Lib]:

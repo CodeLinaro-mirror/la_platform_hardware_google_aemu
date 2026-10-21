@@ -23,8 +23,8 @@ from aemu.toolchains.windows_generator import WindowsToWindowsGenerator
 class TestWindowsToWindowsGenerator(unittest.TestCase):
     def setUp(self):
         self.test_dir = tempfile.mkdtemp()
-        self.aosp = Path("/aosp")
-        self.dest = Path(self.test_dir) / "dest"
+        self.aosp = Path(self.test_dir) / "aosp"
+        self.dest = self.aosp / "dest"
         self.prefix = "test-"
         self.versions = {"clang": "clang-test", "rust": "1.78.0"}
 
@@ -95,6 +95,51 @@ class TestWindowsToWindowsGenerator(unittest.TestCase):
         self.assertIn("format", calls)
         self.assertIn("lldb", calls)
         self.assertIn("lib", calls)
+
+    def test_gen_script_generates_relocatable_cmd(self):
+        self.dest.mkdir(parents=True, exist_ok=True)
+        script_path = self.dest / "meson"
+
+        def dummy_cmd():
+            py_exe = self.aosp / "external/rules_python/python.exe"
+            meson_py = self.aosp / "external/meson/meson.py"
+            return f'"{py_exe}" "{meson_py}"', ""
+
+        self.gen.gen_script("meson", script_path, dummy_cmd)
+
+        cmd_file = self.dest / "meson.cmd"
+        self.assertTrue(cmd_file.exists())
+        content = cmd_file.read_text(encoding="utf-8")
+        self.assertIn("%~dp0", content)
+        self.assertNotIn(self.aosp.as_posix(), content)
+        # Ensure backslashes are used in the relocatable path for cmd.exe
+        self.assertIn(r"external\rules_python\python.exe", content)
+        self.assertIn(r"external\meson\meson.py", content)
+        self.assertEqual(self.gen.toolchain_map["meson"], "meson.cmd")
+
+    def test_gen_script_generates_relocatable_py(self):
+        self.dest.mkdir(parents=True, exist_ok=True)
+        self.gen.python_bin = Path("external/rules_python/python.exe")
+        script_path = self.dest / "cc"
+
+        def dummy_cc():
+            clang_exe = self.aosp / "prebuilts/clang/bin/clang.exe"
+            inc_dir = self.aosp / "hardware/google/aemu/windows/includes"
+            lib_dir = self.aosp / "bazel-out/x64_windows-opt/bin/toolchain/lib"
+            return f'"{clang_exe}" -I{inc_dir}', f"-L{lib_dir} -lcompat"
+
+        self.gen.gen_script("cc", script_path, dummy_cc)
+
+        py_file = self.dest / "cc.py"
+        self.assertTrue(py_file.exists())
+        content = py_file.read_text(encoding="utf-8")
+        self.assertNotIn(self.aosp.as_posix(), content)
+        self.assertIn("AOSP_DIR =", content)
+        self.assertIn("__AOSP_ROOT__/prebuilts/clang/bin/clang.exe", content)
+        self.assertIn("-I__AOSP_ROOT__/hardware/google/aemu/windows/includes", content)
+        self.assertIn("-L__AOSP_ROOT__/bazel-out/x64_windows-opt/bin/toolchain/lib", content)
+
+        self.assertEqual(self.gen.toolchain_map["cc"], "cc.py")
 
 
 if __name__ == "__main__":

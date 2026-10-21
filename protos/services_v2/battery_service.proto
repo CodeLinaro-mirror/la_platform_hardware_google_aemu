@@ -1,0 +1,123 @@
+syntax = "proto3";
+
+package android.emulation.v2;
+
+option go_package = "google.golang.org/aemu/protos/services/v2;v2pb";
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2";
+
+// Observes and controls battery charge level, power source, charging state, and thermal health.
+service BatteryService {
+  // Returns the current battery charge level, charger connection, and health state.
+  //
+  // Expected gRPC status codes:
+  //   - UNAVAILABLE: Battery subsystem is not yet initialized.
+  rpc GetBatteryState(GetBatteryStateRequest) returns (BatteryState);
+
+  // Streams real-time battery state updates whenever charge level, power source, or health changes.
+  //
+  // STREAM LIFECYCLE:
+  //   1. Client initiates RPC with `StreamBatteryStateRequest`.
+  //   2. Server immediately sends the current `BatteryState` snapshot as the first message.
+  //   3. Server pushes subsequent `BatteryState` messages whenever any battery property changes.
+  //   4. Rapid intermediate updates are coalesced to the latest state if the client is slow.
+  //   5. Client cancels the RPC context to unsubscribe.
+  rpc StreamBatteryState(StreamBatteryStateRequest)
+      returns (stream BatteryState);
+
+  // Partially or fully updates the device's simulated battery state.
+  //
+  // Expected gRPC status codes:
+  //   - INVALID_ARGUMENT: `level_percent` is outside `[0, 100]`.
+  //   - PERMISSION_DENIED: Caller lacks write permission (`ACCESS_MODE_READ_ONLY`).
+  rpc UpdateBatteryState(UpdateBatteryStateRequest)
+      returns (BatteryState);
+}
+
+// Identifies the external power supply type connected to the battery subsystem.
+enum ChargerSource {
+  // Default unspecified charger source.
+  CHARGER_SOURCE_UNSPECIFIED = 0;
+  // No external power source connected (device running on battery power).
+  CHARGER_SOURCE_NONE = 1;
+  // Dedicated AC wall adapter power source.
+  CHARGER_SOURCE_AC = 2;
+  // Standard USB host or hub port power source.
+  CHARGER_SOURCE_USB = 3;
+  // Inductive Qi/wireless charging pad power source.
+  CHARGER_SOURCE_WIRELESS = 4;
+  // Physical desktop or automotive dock power source.
+  CHARGER_SOURCE_DOCK = 5;
+}
+
+// Request message for querying the current battery state.
+message GetBatteryStateRequest {}
+
+// Request message for subscribing to battery state updates.
+message StreamBatteryStateRequest {}
+
+// Represents battery charge level, charging lifecycle state, power source, and thermal health.
+//
+// --- Common Simulation Patterns ---
+//   - Unplugged battery drain: set `charger = CHARGER_SOURCE_NONE` and
+//     `state = DISCHARGING`.
+//   - Thermal throttling / overheat: set `health = OVERHEAT`.
+//   - Reconnecting AC power: set `charger = CHARGER_SOURCE_AC`, `state = CHARGING`,
+//     and `health = GOOD` together so Android BatteryManager broadcasts
+//     consistent power-connected and charging state transitions.
+message BatteryState {
+  // Classifies physical health and thermal conditions of the battery cell.
+  enum Health {
+    // Default unspecified battery health.
+    HEALTH_UNSPECIFIED = 0;
+    // Battery cell is operating within normal voltage and temperature bounds.
+    GOOD = 1;
+    // Battery cell temperature exceeds safe operating limits (triggers Android thermal throttling).
+    OVERHEAT = 2;
+    // Battery cell is depleted beyond recovery and cannot hold charge.
+    DEAD = 3;
+    // Battery terminal voltage exceeds maximum safe threshold.
+    OVER_VOLTAGE = 4;
+    // Battery cell temperature is below minimum safe operating threshold.
+    COLD = 5;
+  }
+
+  // Remaining battery charge percentage in range [0, 100] (0 indicates empty battery; defaults to 0).
+  int32 level_percent = 1;
+
+  // Classifies the active charging lifecycle state reported to Android BatteryManager.
+  enum State {
+    // Default unspecified charging state.
+    STATE_UNSPECIFIED = 0;
+    // Battery is actively drawing current from an external power source.
+    CHARGING = 1;
+    // Battery is actively supplying power to the device without external power.
+    DISCHARGING = 2;
+    // External charger is connected, but charging is paused (e.g., due to thermal or health limits).
+    NOT_CHARGING = 3;
+    // Battery has reached 100% capacity and charge termination.
+    FULL = 4;
+  }
+  // Active charging lifecycle state.
+  State state = 2;
+  // External power supply source currently attached to the device.
+  ChargerSource charger = 3;
+  // Physical and thermal health condition of the battery cell.
+  Health health = 4;
+}
+
+// Request message for partially or fully mutating battery state.
+//
+// Only fields explicitly set on the wire are modified; omitted fields leave
+// the device's current battery properties untouched. Setting a field to its
+// zero value (e.g., `level_percent = 0`) explicitly updates that property.
+message UpdateBatteryStateRequest {
+  // Desired battery charge percentage in range [0, 100].
+  optional int32 level_percent = 1;
+  // Desired charging lifecycle state.
+  optional BatteryState.State state = 2;
+  // Desired external power supply source.
+  optional ChargerSource charger = 3;
+  // Desired physical and thermal health condition.
+  optional BatteryState.Health health = 4;
+}

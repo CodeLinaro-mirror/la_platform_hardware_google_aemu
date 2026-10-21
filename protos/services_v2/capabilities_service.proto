@@ -1,0 +1,556 @@
+syntax = "proto3";
+
+package android.emulation.v2;
+
+option go_package = "google.golang.org/aemu/protos/services/v2;v2pb";
+option java_multiple_files = true;
+option java_package = "com.android.emulator.v2";
+
+import "battery_service.proto";
+import "common.proto";
+import "google/api/field_behavior.proto";
+import "sensors_service.proto";
+
+// Provides hardware, subsystem, and permission discovery for an Android device.
+service CapabilitiesService {
+  // Returns a snapshot of hardware limits and active subsystem capabilities.
+  //
+  // While physical panel/CPU limits are immutable, subsystem presence and
+  // `access_mode` can change dynamically over a device's lifetime (e.g., when
+  // virtual displays are created/deleted, or VM execution state changes).
+  //
+  // Expected gRPC status codes:
+  //   - UNAUTHENTICATED: Missing or expired bearer credential.
+  //   - UNAVAILABLE: Device control plane is still starting up.
+  rpc GetDeviceCapabilities(GetDeviceCapabilitiesRequest)
+      returns (DeviceCapabilities);
+
+  // Streams real-time device capability snapshots whenever subsystem availability,
+  // display topology, or access modes change.
+  //
+  // STREAM LIFECYCLE:
+  //   1. Client initiates RPC with `StreamDeviceCapabilitiesRequest`.
+  //   2. Server immediately emits the current `DeviceCapabilities` snapshot as message #1.
+  //   3. Server pushes a full replacement `DeviceCapabilities` snapshot whenever any
+  //      capability property changes (e.g., virtual display creation/deletion).
+  //   4. Client cancels the RPC context to unsubscribe.
+  rpc StreamDeviceCapabilities(StreamDeviceCapabilitiesRequest)
+      returns (stream DeviceCapabilities);
+}
+
+// Request message for querying device capabilities.
+message GetDeviceCapabilitiesRequest {}
+
+// Request message for subscribing to device capability updates.
+message StreamDeviceCapabilitiesRequest {}
+
+// Describes all hardware properties and core subsystem capabilities for a device.
+//
+// Each optional capability field maps 1:1 to a controllable gRPC service:
+//   - battery    -> BatteryService
+//   - location   -> LocationService
+//   - display    -> DisplayService (includes nested ScreenCaptureCapabilities)
+//   - sensors    -> SensorsService (includes nested PostureCapabilities)
+//   - input      -> InputService
+//   - telephony  -> TelephonyService
+//   - camera     -> CameraService
+//   - audio      -> AudioService
+//   - vm         -> VmService
+//   - snapshot   -> SnapshotService
+//   - system     -> SystemService (includes nested ClipboardCapabilities & BiometricsCapabilities)
+//   - rtc        -> RtcService
+message DeviceCapabilities {
+  // Output only. Static device identity, OS version, compute hardware specifications, and server version.
+  DeviceMetadata metadata = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Output only. Battery and power subsystem capabilities (`BatteryService`). Omitted if the device has no battery subsystem.
+  optional BatteryCapabilities battery = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. GNSS location fix and route simulation capabilities (`LocationService`). Omitted if GNSS is unsupported.
+  optional LocationCapabilities location = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Display hardware, multi-display, rotation, and screenshot capabilities (`DisplayService`). Omitted on headless devices.
+  optional DisplayCapabilities display = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Physical/environmental sensor and foldable posture capabilities (`SensorsService`). Omitted if no sensors are present.
+  optional SensorsCapabilities sensors = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Touch, keyboard, mouse, stylus, and rotary input capabilities (`InputService`). Omitted if input injection is unsupported.
+  optional InputCapabilities input = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Cellular modem, radio, SMS, and voice call capabilities (`TelephonyService`). Omitted on Wi-Fi-only devices.
+  optional TelephonyCapabilities telephony = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Camera observation and frame/video injection capabilities (`CameraService`). Omitted if no cameras are configured.
+  optional CameraCapabilities camera = 8 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Virtual microphone injection and speaker capture capabilities (`AudioService`). Omitted if audio is disabled.
+  optional AudioCapabilities audio = 9 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Hypervisor execution lifecycle capabilities (`VmService`). Omitted on physical hardware devices.
+  optional VmCapabilities vm = 10 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Local and cloud VM snapshot capabilities (`SnapshotService`). Omitted on physical devices or snapshot-disabled VMs.
+  optional SnapshotCapabilities snapshot = 11 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. System boot lifecycle, reboot, clipboard, and biometrics capabilities (`SystemService`).
+  optional SystemCapabilities system = 12 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. WebRTC media streaming capabilities (`RtcService`). Omitted if the device offers no WebRTC endpoint.
+  optional RtcCapabilities rtc = 13 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Identifies static hardware, operating system, compute, and serving backend attributes of the target device.
+message DeviceMetadata {
+  // Output only. Whether this is physical hardware or an emulated device.
+  //
+  // Present for presentation and telemetry. Do NOT branch on it to decide
+  // whether an RPC is available — consult the corresponding capability message,
+  // which is authoritative and accounts for configuration differences within a
+  // device kind.
+  DeviceKind device_kind = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Output only. Human-readable device or AVD display name (e.g., "Pixel 9 Pro API 36").
+  string display_name = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Hardware model identifier string matching Android Build.MODEL (e.g., "Pixel 9 Pro").
+  string model_id = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Android SDK API level integer (e.g., 34, 35, 36; must be > 0).
+  int32 api_level = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Output only. Guest CPU instruction set architecture (e.g., "x86_64", "arm64-v8a").
+  string cpu_architecture = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Number of logical CPU cores allocated to the device (must be >= 1).
+  int32 cpu_core_count = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Total system RAM capacity in bytes (must be > 0).
+  int64 total_ram_bytes = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Output only. True if Google Play Services and the Google Play Store are pre-installed.
+  bool supports_play_store = 8 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Output only. Device hardware manufacturer string matching Android Build.MANUFACTURER (e.g., "Google").
+  string manufacturer = 9 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Consumer brand name matching Android Build.BRAND (e.g., "google").
+  string brand = 10 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Total internal user data partition capacity in bytes (must be > 0).
+  int64 total_storage_bytes = 11 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Output only. Semantic version or build identifier of the v2 gRPC server implementation
+  // (e.g., "2.0.0-emu.35.4.9").
+  string server_version = 12 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Identifies the serving backend implementation
+  // (e.g., "aemu-goldfish-host", "aemu-adb-device-daemon", "ftl-gateway").
+  string server_implementation = 13 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Advertises capabilities and supported power sources for BatteryService.
+message BatteryCapabilities {
+  // Output only. Authorization and mutability level for battery state queries and mutations.
+  AccessMode access_mode = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Implementation fidelity. Physical devices report FIDELITY_SOFTWARE_MOCK:
+  // battery state is overridden via `dumpsys battery set`, which the real charging
+  // driver may reassert and which does not survive a reboot.
+  Fidelity fidelity = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Power charger sources supported by this device (e.g., AC, USB, WIRELESS).
+  repeated ChargerSource supported_chargers = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Advertises GNSS fix parameters supported by LocationService.
+message LocationCapabilities {
+  // Output only. Authorization and mutability level for GNSS location queries and updates.
+  AccessMode access_mode = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Implementation fidelity. Physical devices report FIDELITY_SOFTWARE_MOCK:
+  // positions are supplied through the Android mock location provider, which
+  // apps can detect and the real GNSS stack can override.
+  Fidelity fidelity = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Advertises screenshot encoding and stride features supported by DisplayService.
+message ScreenCaptureCapabilities {
+  // Output only. Authorization level for screen capture RPCs.
+  AccessMode access_mode = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Implementation fidelity. Unset means hardware-backed.
+  Fidelity fidelity = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Pixel and container image formats supported by GetScreenshot and StreamScreenshots.
+  repeated ImageFormat supported_formats = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. True if uncompressed raw captures populate GPU memory row stride metadata.
+  bool supports_row_stride = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Advertises multi-display limits, panel specifications, and screen capture capabilities for DisplayService.
+message DisplayCapabilities {
+  // Output only. Authorization and mutability level for display state queries and mutations.
+  AccessMode access_mode = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Implementation fidelity. Unset means hardware-backed.
+  Fidelity fidelity = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. True if dynamically attaching secondary virtual displays via CreateDisplay is supported.
+  bool supports_virtual_display_creation = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Maximum number of concurrent active displays supported by the compositor (must be >= 1).
+  int32 max_supported_display_count = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Static hardware descriptors for all built-in physical or emulated display panels.
+  repeated DisplayHardware built_in_displays = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Framebuffer screenshot and continuous capture capabilities (`DisplayService.GetScreenshot` / `StreamScreenshots`).
+  // Omitted if screen capture is unsupported on this display subsystem.
+  optional ScreenCaptureCapabilities screen_capture = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Describes immutable physical panel geometry, refresh rate, and cutout masks for a single display.
+message DisplayHardware {
+  // Output only. Unique display identifier (0 for the primary display).
+  int32 display_id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Native panel width in physical pixels in natural portrait orientation (must be > 0).
+  int32 width = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Native panel height in physical pixels in natural portrait orientation (must be > 0).
+  int32 height = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Native panel pixel density in dots per inch (e.g., 420; must be > 0).
+  int32 density_dpi = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. True if the physical display panel uses a circular mask (e.g., WearOS round watch face).
+  bool circular = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Nominal vertical refresh rate in Hertz (e.g., 60.0, 90.0, 120.0; must be > 0.0).
+  float refresh_rate_hz = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. True if runtime width, height, and density changes via UpdateDisplay are supported.
+  bool supports_dynamic_resizing = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. True if explicit orientation changes and rotation lock via UpdateDisplay are supported.
+  bool supports_rotation = 8 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Display cutout regions (camera punch-holes, notches) present on this panel.
+  repeated DisplayCutout cutouts = 9 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Panel corner rounding radius normalized to display width in range [0.0, 0.5] (0.0 for sharp corners).
+  float corner_radius_normalized = 10 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Describes the geometry and vector silhouette of a display cutout (camera hole or notch).
+message DisplayCutout {
+  // Classifies standard geometric silhouettes for display cutouts.
+  enum CutoutShape {
+    // Default unspecified cutout shape.
+    CUTOUT_SHAPE_UNSPECIFIED = 0;
+    // Circular camera punch-hole cutout.
+    PUNCH_HOLE_CIRCLE = 1;
+    // Teardrop / waterdrop top edge notch.
+    NOTCH_WATERDROP = 2;
+    // Rectangular / pill-shaped bezel notch.
+    NOTCH_RECTANGULAR = 3;
+    // Arbitrary silhouette defined by `svg_path`.
+    CUSTOM_PATH = 4;
+  }
+  // Output only. Geometric classification of the cutout.
+  CutoutShape shape = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Output only. Axis-aligned bounding rectangle of the cutout in normalized display coordinates [0.0, 1.0].
+  NormalizedRect normalized_bounds = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Output only. SVG path data string in normalized [0.0, 1.0] coordinates for CSS clip-path rendering.
+  string svg_path = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Describes immutable mechanical bounds and orientation for a single foldable hinge.
+message HingeHardware {
+  // Output only. Zero-based hinge identifier matching `HingeState.hinge_id`.
+  int32 hinge_id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Physical orientation of this hinge axis.
+  FoldAxis fold_axis = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Minimum physical hinge angle in degrees (e.g., 0.0 when closed).
+  float min_angle_degrees = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Maximum physical hinge angle in degrees (e.g., 180.0 for flat or 360.0 for flip).
+  float max_angle_degrees = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Describes mechanical axis orientation for a single rollable/slidable display mechanism.
+message RollableHardware {
+  // Output only. Zero-based rollable axis identifier matching `RollableState.rollable_id`.
+  int32 rollable_id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Physical orientation along which the display unrolls.
+  FoldAxis roll_axis = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Advertises multi-hinge bounds, rollable axes, and discrete posture mappings for SensorsService.
+message PostureCapabilities {
+  // Output only. Authorization and mutability level for posture state queries and mutations.
+  AccessMode access_mode = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Implementation fidelity. Unset means hardware-backed.
+  Fidelity fidelity = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Discrete posture states supported by this foldable/rollable device.
+  repeated PostureType supported_postures = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Hardware descriptors for all mechanical hinges on the device (ordered by `hinge_id`).
+  repeated HingeHardware hinges = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Hardware descriptors for all rollable display axes on the device (ordered by `rollable_id`).
+  repeated RollableHardware rollables = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Angle intervals and default snap angles for each supported posture state.
+  repeated PostureDefinition posture_definitions = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Defines the hinge angle interval and default target angle for a single PostureType.
+message PostureDefinition {
+  // Output only. Discrete posture state described by this definition.
+  PostureType posture = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Inclusive lower bound angle in degrees where the device transitions into this posture.
+  float min_angle_degrees = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Inclusive upper bound angle in degrees where the device remains in this posture.
+  float max_angle_degrees = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Canonical target angle in degrees applied when selecting this posture by enum.
+  float default_angle_degrees = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Advertises hardware sensor channels and foldable posture capabilities supported by SensorsService.
+message SensorsCapabilities {
+  // Output only. Authorization and mutability level for sensor telemetry queries and updates.
+  AccessMode access_mode = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Implementation fidelity. Unset means hardware-backed.
+  Fidelity fidelity = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Sensor channels exposed by the device sensor subsystem.
+  repeated SensorType available_sensors = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Foldable hinge and discrete posture capabilities (`SensorsService.GetPostureState` / `StreamPostureState` / `UpdatePostureState`).
+  // Omitted on non-foldable slab devices.
+  optional PostureCapabilities posture = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Identifies input peripherals and pointer behaviours a device accepts.
+enum InputFeature {
+  // Default unspecified feature.
+  INPUT_FEATURE_UNSPECIFIED = 0;
+  // Single-finger capacitive touchscreen events.
+  INPUT_FEATURE_TOUCH = 1;
+  // Simultaneous multi-finger gestures (pinch, zoom, rotate).
+  // Implies INPUT_FEATURE_TOUCH; see `max_touch_point_count` for the limit.
+  INPUT_FEATURE_MULTI_TOUCH = 2;
+  // Physical hardware keycodes and keyboard scancodes.
+  INPUT_FEATURE_KEYBOARD = 3;
+  // Desktop mouse cursor, hover, and wheel scroll events.
+  INPUT_FEATURE_MOUSE_POINTER = 4;
+  // Rotary encoder / WearOS rotating crown axis events.
+  INPUT_FEATURE_ROTARY_ENCODER = 5;
+  // Active stylus pressure, tilt, and orientation events.
+  INPUT_FEATURE_STYLUS = 6;
+  // Directional pad (D-pad) navigation keys.
+  INPUT_FEATURE_DPAD = 7;
+  // Dedicated hardware Back/Home/Recents navigation buttons.
+  INPUT_FEATURE_HARDWARE_NAVIGATION_KEYS = 8;
+  // Relative mouse delta motion (POINTER_ACTION_RELATIVE_MOVE).
+  // Implies INPUT_FEATURE_MOUSE_POINTER.
+  INPUT_FEATURE_RELATIVE_MOUSE = 9;
+}
+
+// Advertises input peripherals and pointer capabilities supported by InputService.
+message InputCapabilities {
+  // Output only. Authorization and mutability level for input event streaming.
+  AccessMode access_mode = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Implementation fidelity. Unset means hardware-backed.
+  Fidelity fidelity = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Input peripherals and behaviours this device accepts. Events for a feature
+  // absent from this list fail with FAILED_PRECONDITION.
+  repeated InputFeature supported_features = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Maximum number of concurrent active touch contact points supported (e.g., 10).
+  // Meaningful only when INPUT_FEATURE_MULTI_TOUCH is present.
+  int32 max_touch_point_count = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. True if `InputService.StreamInputActivity` may be subscribed to on this endpoint.
+  //
+  // Deliberately not an `InputFeature`: this is a deployment privacy policy, not a
+  // property of the device. Observation exposes every event dispatched to the
+  // device, including text typed by the human operator, so deployments handling
+  // sensitive sessions may withhold it and reject subscriptions with
+  // PERMISSION_DENIED even though the hardware is perfectly capable.
+  bool supports_input_activity_observation = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Maximum wall-clock duration in milliseconds that a single `InputService.SendInputEvents`
+  // gesture may span (e.g., 30000). Longer gestures are rejected with INVALID_ARGUMENT and
+  // must be split across calls or issued over `StreamInputEvents`.
+  int32 max_batch_duration_ms = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Advertises biometric authentication hardware supported by SystemService.InjectFingerprint.
+message BiometricsCapabilities {
+  // Output only. Authorization and mutability level for biometric event injection.
+  AccessMode access_mode = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Implementation fidelity. Unset means hardware-backed.
+  Fidelity fidelity = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. True if fingerprint touch/release injection via InjectFingerprint is supported.
+  bool supports_fingerprint = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Advertises host-guest clipboard synchronization capabilities for SystemService.
+message ClipboardCapabilities {
+  // Output only. Authorization and mutability level for reading and writing the device clipboard.
+  AccessMode access_mode = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Implementation fidelity. Unset means hardware-backed.
+  Fidelity fidelity = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Identifies cellular simulation operations a device supports.
+enum TelephonyFeature {
+  // Default unspecified feature.
+  TELEPHONY_FEATURE_UNSPECIFIED = 0;
+  // Toggling cellular baseband radio power (Airplane Mode).
+  TELEPHONY_FEATURE_RADIO_POWER_TOGGLE = 1;
+  // Overriding reported cellular signal strength bars.
+  TELEPHONY_FEATURE_SIGNAL_STRENGTH_SIMULATION = 2;
+  // Delivering synthetic inbound SMS messages via SendSms.
+  TELEPHONY_FEATURE_SMS_SIMULATION = 3;
+  // Simulating inbound phone call lifecycle transitions via TransitionCall.
+  TELEPHONY_FEATURE_CALL_SIMULATION = 4;
+}
+
+// Advertises cellular radio, SMS, and call simulation features supported by TelephonyService.
+message TelephonyCapabilities {
+  // Output only. Authorization and mutability level for telephony and radio operations.
+  AccessMode access_mode = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Implementation fidelity. Unset means hardware-backed.
+  Fidelity fidelity = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Cellular simulation operations this device supports. Operations absent from
+  // this list fail with FAILED_PRECONDITION.
+  repeated TelephonyFeature supported_features = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Identifies the ways synthetic imagery can be fed into the camera pipeline.
+enum CameraInjectionMode {
+  // Default unspecified mode.
+  CAMERA_INJECTION_MODE_UNSPECIFIED = 0;
+  // Single-frame still image injection via InjectFrame.
+  CAMERA_INJECTION_MODE_STILL_FRAME = 1;
+  // Continuous video frame streaming via StreamCameraFrames.
+  CAMERA_INJECTION_MODE_VIDEO_STREAM = 2;
+}
+
+// Describes static hardware and sensor attributes for a single logical camera device.
+message CameraHardware {
+  // Classifies the physical mounting direction of the camera lens relative to the device screen.
+  enum LensFacing {
+    // Default unspecified lens facing direction.
+    LENS_FACING_UNSPECIFIED = 0;
+    // Front-facing camera pointing toward the user (selfie camera).
+    FRONT = 1;
+    // Back-facing camera pointing away from the user (world camera).
+    BACK = 2;
+    // External / USB / network-attached camera with movable orientation.
+    EXTERNAL = 3;
+  }
+  // Output only. Unique logical camera device identifier (e.g., "0", "1").
+  string camera_id = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Physical lens facing direction relative to the primary display.
+  LensFacing lens_facing = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Clockwise angle in degrees [0, 90, 180, 270] through which the output
+  // sensor image needs to be rotated to be upright in natural device portrait orientation.
+  int32 sensor_orientation_degrees = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Pixel and container image formats accepted by this camera sensor.
+  repeated ImageFormat supported_formats = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Advertises camera sensors, hardware metadata, and frame injection modes supported by CameraService.
+message CameraCapabilities {
+  // Output only. Authorization and mutability level for camera observation and injection.
+  AccessMode access_mode = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Implementation fidelity. Unset means hardware-backed.
+  Fidelity fidelity = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Injection modes this device accepts.
+  repeated CameraInjectionMode supported_modes = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Hardware descriptors for all logical cameras configured on this device.
+  repeated CameraHardware cameras = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Pixel and container image formats accepted by the camera pipeline.
+  repeated ImageFormat supported_formats = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Advertises audio capture and injection formats supported by AudioService.
+//
+// The two directions are advertised independently: a device may support speaker
+// capture without supporting microphone injection (common on physical devices
+// reached over ADB, where there is no virtual microphone HAL to write into).
+// Presence of a profile is the capability signal.
+message AudioCapabilities {
+  // Output only. Authorization and mutability level for audio streaming.
+  AccessMode access_mode = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Implementation fidelity. Unset means hardware-backed.
+  Fidelity fidelity = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Formats accepted by host-to-device microphone injection via StreamMicrophoneAudio / InjectAudioClip.
+  // Omitted if microphone injection is unsupported.
+  optional AudioFormatProfile microphone_profile = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Formats offered by device-to-host speaker capture via StreamSpeakerAudio.
+  // Omitted if speaker capture is unsupported.
+  optional AudioFormatProfile speaker_profile = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Specifies supported PCM sample formats, sample rates, and channel layouts for an audio endpoint.
+message AudioFormatProfile {
+  // Output only. Supported binary sample encodings (e.g., PCM16_BIT, F32_BIT).
+  repeated SampleFormat supported_formats = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Supported sampling frequencies in Hertz (e.g., 16000, 44100, 48000).
+  repeated int32 supported_sample_rates_hz = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Supported audio channel counts (e.g., 1 for Mono, 2 for Stereo).
+  repeated int32 supported_channel_counts = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Advertises WebRTC media streaming capabilities supported by RtcService.
+//
+// RtcService is the lowest-bandwidth media path and the one to prefer for remote
+// and ADB-forwarded transports. It is available on emulated and physical devices
+// alike, but the track set differs: a physical device typically offers screen and
+// speaker tracks with no microphone injection. Consult `supported_tracks` rather
+// than assuming a device kind.
+message RtcCapabilities {
+  // Output only. Authorization level for WebRTC session negotiation.
+  AccessMode access_mode = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Implementation fidelity. Unset means hardware-backed.
+  Fidelity fidelity = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Track types this device can negotiate. Requesting any other track in
+  // RtcStreamRequest fails with INVALID_ARGUMENT. Never empty when this message
+  // is present.
+  repeated TrackType supported_tracks = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Maximum number of simultaneous peer connections the device will allocate.
+  // Informational only, for UIs that gate a "start stream" affordance;
+  // RESOURCE_EXHAUSTED from RequestRtcStream remains authoritative, since other
+  // clients may hold sessions. Unset means no advertised limit.
+  optional int32 max_concurrent_sessions = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Identifies hypervisor lifecycle operations a device supports.
+enum VmOperation {
+  // Default unspecified operation.
+  VM_OPERATION_UNSPECIFIED = 0;
+  // Pausing and resuming vCPU execution via PauseVm/ResumeVm.
+  VM_OPERATION_PAUSE_RESUME = 1;
+  // Cold power-cycle reset via HardResetVm.
+  VM_OPERATION_HARD_RESET = 2;
+  // Graceful hypervisor shutdown via StopVm.
+  VM_OPERATION_SHUTDOWN = 3;
+}
+
+// Advertises hypervisor execution control capabilities for VmService.
+//
+// Omitted entirely on physical devices, which have no hypervisor.
+message VmCapabilities {
+  // Output only. Authorization level for hypervisor lifecycle transitions.
+  AccessMode access_mode = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Implementation fidelity. Unset means hardware-backed.
+  Fidelity fidelity = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Lifecycle operations this hypervisor supports. Operations absent from this
+  // list fail with FAILED_PRECONDITION. Because these operations are disruptive
+  // and cannot be safely probed, clients MUST consult this list rather than
+  // attempting a call to discover support.
+  repeated VmOperation supported_operations = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Identifies snapshot storage backends a device supports.
+enum SnapshotFeature {
+  // Default unspecified feature.
+  SNAPSHOT_FEATURE_UNSPECIFIED = 0;
+  // Local disk qcow2 overlay and RAM snapshot creation/restoration.
+  SNAPSHOT_FEATURE_LOCAL = 1;
+  // Direct cloud object storage import/export via ImportSnapshot/ExportSnapshot.
+  SNAPSHOT_FEATURE_CLOUD_STORAGE = 2;
+}
+
+// Advertises local and cloud storage snapshot features for SnapshotService.
+//
+// Omitted entirely on physical devices, which cannot be snapshotted.
+message SnapshotCapabilities {
+  // Output only. Authorization level for snapshot lifecycle RPCs.
+  AccessMode access_mode = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Implementation fidelity. Unset means hardware-backed.
+  Fidelity fidelity = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Snapshot storage backends this device supports.
+  repeated SnapshotFeature supported_features = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. URI schemes supported for remote snapshot transfer (e.g., "gs", "s3", "https").
+  // Meaningful only when SNAPSHOT_FEATURE_CLOUD_STORAGE is present.
+  repeated string supported_storage_schemes = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Advertises OS boot lifecycle, reboot, clipboard, and biometrics features for SystemService.
+message SystemCapabilities {
+  // Output only. Authorization level for system state queries and reboot commands.
+  AccessMode access_mode = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Implementation fidelity. Unset means hardware-backed.
+  Fidelity fidelity = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. True if in-band Android OS reboot via RebootDevice is supported.
+  bool supports_reboot = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Host-guest clipboard synchronization capabilities (`SystemService.GetClipboardState` / `StreamClipboardState` / `UpdateClipboardState`).
+  // Omitted if clipboard sharing is disabled.
+  optional ClipboardCapabilities clipboard = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Fingerprint and biometric sensor capabilities (`SystemService.InjectFingerprint`).
+  // Omitted if biometric hardware is absent.
+  optional BiometricsCapabilities biometrics = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+}

@@ -29,6 +29,12 @@ steps:
       - No 'Tag=' or 'CONV=' lines
       - A 'Bug: ' line with a bug number (e.g. 'Bug: 12345678') or 'Bug: N/A'
       - A 'Test: ' line describing the verification command or procedure, or 'TEST: N/A'
+      - Subject line: at most 72 characters, with no leading or trailing whitespace
+      - Body lines: wrapped at 72 characters (exempt: markdown code blocks, quotes, indented text, or URLs)
+      - No trailing spaces on any line
+      - No leading spaces on subject or footer lines
+      - No '#' git comment lines
+      - No consecutive blank lines
     verifier_cmd: "python3 {workflow_dir}/verify_proposed_msg.py {proposed-msg-file}"
     error_prompt: |
       Proposed commit message verification failed (attempt {retries} of {max_retries}):

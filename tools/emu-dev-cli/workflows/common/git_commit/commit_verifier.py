@@ -25,6 +25,11 @@ import re
 import subprocess
 from typing import List, Optional
 
+try:
+    from .gerrit_formatter import detect_formatting_errors_in_string
+except ImportError:
+    from gerrit_formatter import detect_formatting_errors_in_string  # type: ignore
+
 
 # Regular expression to extract Gerrit Change-Id
 CHANGE_ID_PATTERN = re.compile(r"(?im)^\s*Change-Id:\s*(I[0-9a-fA-F]{40})\b")
@@ -113,6 +118,14 @@ def validate_commit_message(
                 errors.append(
                     f"Original Change-Id is missing. Expected: 'Change-Id: {expected_change_id}'."
                 )
+
+    # 5. Gerrit format protocol validation (line length, subject length, blank lines, spaces, comment lines)
+    format_errors = detect_formatting_errors_in_string(msg)
+    for err in format_errors:
+        if err.line is not None:
+            errors.append(f"Line {err.line}: {err.message} ({err.type.value}).")
+        else:
+            errors.append(f"{err.message} ({err.type.value}).")
 
     return errors
 
