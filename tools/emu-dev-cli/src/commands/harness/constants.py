@@ -43,6 +43,9 @@ class LedgerEventKind(str, Enum):
 
     GUARDRAIL_BLOCKED = "guardrail_blocked"
     GUARDRAIL_ALLOWED = "guardrail_allowed"
+    CODE_GUARDRAIL_BLOCKED = "code_guardrail_blocked"
+    COMMAND_REWRITTEN = "command_rewritten"
+    DIAGNOSTIC_INJECTED = "diagnostic_injected"
     EMULATOR_LAUNCHED = "emulator_launched"
     EMULATOR_STOPPED = "emulator_stopped"
     WORKFLOW_UPDATED = "workflow_updated"
@@ -88,6 +91,12 @@ NOTIFY_OWNER_FLAG_PATTERN: re.Pattern[str] = re.compile(
 NOTIFY_OWNER_JSON_PATTERN: re.Pattern[str] = re.compile(
     r"\"notify\"\s*:\s*\"OWNER\""
 )
+BAZEL_TEST_CMD_PATTERN: re.Pattern[str] = re.compile(
+    r"(?:^|[;&|]\s*|\b)bazel\s+test\b"
+)
+BAZEL_TEST_OUTPUT_FLAG_PATTERN: re.Pattern[str] = re.compile(
+    r"--test_output(?:=|\s+)\S+"
+)
 
 EMU_LAUNCH_CMD_PATTERN: re.Pattern[str] = re.compile(
     r"\bemu-dev-cli\s+launch\s+(emulator|mesh)\b"
@@ -100,4 +109,18 @@ AVD_FLAG_PATTERN: re.Pattern[str] = re.compile(
 )
 WORKFLOW_STATE_FLAG_PATTERN: re.Pattern[str] = re.compile(
     r"--state(?:=|\s+)([a-zA-Z0-9_-]+)"
+)
+
+# Source-code guardrail patterns for write_file / edit_file
+RAW_CC_BINARY_BLOCK_PATTERN: re.Pattern[str] = re.compile(
+    r"(?<!with_manifest\s)\bcc_binary\s*\(([^)]*)\)", re.DOTALL
+)
+LINKSHARED_TRUE_PATTERN: re.Pattern[str] = re.compile(
+    r"\blinkshared\s*=\s*True\b"
+)
+RAW_FSTREAM_PATTERN: re.Pattern[str] = re.compile(
+    r"\bstd::(?:i|o)?fstream\b"
+)
+STATUSOR_HUNGARIAN_PATTERN: re.Pattern[str] = re.compile(
+    r"\b(?:absl::StatusOr\s*<[^>]+>|auto)\s+([a-zA-Z0-9_]+_or)\s*="
 )

@@ -129,12 +129,19 @@ class SessionLedgerStore:
             "stats",
             {"commits_verified": 0, "guardrails_blocked": 0, "emulators_launched": 0},
         )
-        if kind == LedgerEventKind.GUARDRAIL_BLOCKED:
+        if kind in (
+            LedgerEventKind.GUARDRAIL_BLOCKED,
+            LedgerEventKind.CODE_GUARDRAIL_BLOCKED,
+        ):
             stats["guardrails_blocked"] = int(stats.get("guardrails_blocked", 0)) + 1
         elif kind == LedgerEventKind.GUARDRAIL_ALLOWED:
             stats["commits_verified"] = int(stats.get("commits_verified", 0)) + 1
         elif kind == LedgerEventKind.EMULATOR_LAUNCHED:
             stats["emulators_launched"] = int(stats.get("emulators_launched", 0)) + 1
+        elif kind == LedgerEventKind.COMMAND_REWRITTEN:
+            stats["commands_rewritten"] = int(stats.get("commands_rewritten", 0)) + 1
+        elif kind == LedgerEventKind.DIAGNOSTIC_INJECTED:
+            stats["diagnostics_injected"] = int(stats.get("diagnostics_injected", 0)) + 1
 
         self.save(conversation_id, ledger)
         return ledger

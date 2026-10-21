@@ -1,52 +1,50 @@
 {
-  "SessionStart": [
-    {
-      "name": "aemu-session-start",
-      "command": "__EMU_DEV_CLI_BIN__ harness hook --event session-start",
-      "description": "Initializes the per-conversation AEMU Harness Session Ledger.",
-      "timeout": 10
-    }
-  ],
-  "PreInvocation": [
-    {
-      "name": "aemu-workflow-context-injector",
-      "command": "__EMU_DEV_CLI_BIN__ harness hook --event pre-invocation",
-      "description": "Injects active emu-dev-cli workflow steps and tracked running emulator instances into the prompt context.",
-      "timeout": 10
-    }
-  ],
-  "PreToolUse": [
-    {
-      "matcher": "run_command",
-      "hooks": [
-        {
-          "name": "aemu-git-gerrit-guardrail",
-          "command": "__EMU_DEV_CLI_BIN__ harness hook --event pre-tool",
-          "description": "Enforces Semantic Commit Message rules on direct git commits and --notify=OWNER on Gerrit review mutations.",
-          "timeout": 15
-        }
-      ]
-    }
-  ],
-  "PostToolUse": [
-    {
-      "matcher": "run_command",
-      "hooks": [
-        {
-          "name": "aemu-session-ledger-tracker",
-          "command": "__EMU_DEV_CLI_BIN__ harness hook --event post-tool",
-          "description": "Tracks launched/stopped emulator instances and workflow state transitions in the conversation ledger.",
-          "timeout": 10
-        }
-      ]
-    }
-  ],
-  "Stop": [
-    {
-      "name": "aemu-workflow-continuation-guard",
-      "command": "__EMU_DEV_CLI_BIN__ harness hook --event stop",
-      "description": "Automatically continues active RUNNING emu-dev-cli workflows (up to 3 turns) before allowing the agent to stop.",
-      "timeout": 15
-    }
-  ]
+  "aemu-harness": {
+    "enabled": true,
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "__EMU_DEV_CLI_BIN__ harness hook --event session-start",
+        "timeout": 10
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "__EMU_DEV_CLI_BIN__ harness hook --event pre-invocation",
+        "timeout": 10
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "run_command|write_file|edit_file|write_to_file|replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__EMU_DEV_CLI_BIN__ harness hook --event pre-tool",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__EMU_DEV_CLI_BIN__ harness hook --event post-tool",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "__EMU_DEV_CLI_BIN__ harness hook --event stop",
+        "timeout": 15
+      }
+    ]
+  }
 }

@@ -33,11 +33,13 @@ from commands.harness.guardrails import (
     evaluate_git_commit_command,
 )
 from commands.harness.ledger import SessionLedgerStore
+from commands.harness.mcp_server import handle_mcp_jsonrpc_request
 from commands.harness.plugin_installer import (
     get_harness_plugin_status,
     install_harness_plugin,
     uninstall_harness_plugin,
 )
+from commands.harness.presets import list_harness_presets
 
 
 class HarnessGuardrailTest(unittest.TestCase):
@@ -217,6 +219,139 @@ class HarnessGuardrailTest(unittest.TestCase):
         )
         self.assertEqual(final_stop["decision"], HookDecision.STOP.value)
 
+    def test_code_guardrail_blocks_raw_cc_binary_in_goldfish(self) -> None:
+        deny_out = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": "conv-code-1",
+                "toolCall": {
+                    "name": "write_file",
+                    "args": {
+                        "Path": "/work/goldfish/emulator/foo/BUILD.bazel",
+                        "Content": 'cc_binary(\n    name = "foo_tool",\n    srcs = ["main.cc"],\n)\n',
+                    },
+                },
+            },
+            store=self.ledger_store,
+        )
+        self.assertEqual(deny_out["decision"], HookDecision.DENY.value)
+        self.assertIn("cc_binary_with_manifest", deny_out["reason"])
+
+        allow_plugin = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": "conv-code-1",
+                "toolCall": {
+                    "name": "write_file",
+                    "args": {
+                        "Path": "/work/goldfish/emulator/foo/BUILD.bazel",
+                        "Content": 'cc_binary(\n    name = "libplugin.so",\n    linkshared = True,\n)\n',
+                    },
+                },
+            },
+            store=self.ledger_store,
+        )
+        self.assertEqual(allow_plugin["decision"], HookDecision.ALLOW.value)
+
+    def test_code_guardrail_blocks_raw_fstream_and_statusor_hungarian(self) -> None:
+        deny_fstream = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": "conv-code-2",
+                "toolCall": {
+                    "name": "edit_file",
+                    "args": {
+                        "Path": "/work/goldfish/emulator/net/client.cc",
+                        "Replacement": 'std::ifstream in("测试_🚀.ini");\n',
+                    },
+                },
+            },
+            store=self.ledger_store,
+        )
+        self.assertEqual(deny_fstream["decision"], HookDecision.DENY.value)
+        self.assertIn("android::base::file", deny_fstream["reason"])
+
+        deny_statusor = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": "conv-code-2",
+                "toolCall": {
+                    "name": "edit_file",
+                    "args": {
+                        "Path": "/work/goldfish/emulator/net/client.cc",
+                        "Replacement": "auto config_or = LoadConfig();\n",
+                    },
+                },
+            },
+            store=self.ledger_store,
+        )
+        self.assertEqual(deny_statusor["decision"], HookDecision.DENY.value)
+        self.assertIn("TotW 181", deny_statusor["reason"])
+
+    def test_pre_tool_command_auto_rewrite_overwrite(self) -> None:
+        conv_id = "conv-rewrite-1"
+        gerrit_out = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": conv_id,
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {"CommandLine": "gerrit comments publish 43134925"},
+                },
+            },
+            store=self.ledger_store,
+        )
+        self.assertEqual(gerrit_out["decision"], HookDecision.ALLOW.value)
+        self.assertEqual(
+            gerrit_out["overwrite"]["CommandLine"],
+            "gerrit comments publish --notify=OWNER 43134925",
+        )
+
+        bazel_out = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": conv_id,
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {"CommandLine": "bazel test //emulator/libs/file:all"},
+                },
+            },
+            store=self.ledger_store,
+        )
+        self.assertEqual(bazel_out["decision"], HookDecision.ALLOW.value)
+        self.assertEqual(
+            bazel_out["overwrite"]["CommandLine"],
+            "bazel test --test_output=errors //emulator/libs/file:all",
+        )
+        ledger = self.ledger_store.load(conv_id)
+        self.assertEqual(ledger["stats"]["commands_rewritten"], 2)
+
+    def test_post_tool_failure_enrichment_overwrite_result(self) -> None:
+        conv_id = "conv-diag-1"
+        post_out = dispatch_hook_event(
+            HookEvent.POST_TOOL.value,
+            {
+                "conversationId": conv_id,
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {"CommandLine": "bazel test //emulator/net:client_test"},
+                },
+                "error": "exit status 1",
+                "result": (
+                    "emulator/net/client.cc:12:10: fatal error: "
+                    "'goldfish/http/web_server.h' file not found\n"
+                    "WARNING: ThreadSanitizer: data race (pid=1234)\n"
+                ),
+            },
+            store=self.ledger_store,
+        )
+        self.assertIn("overwriteResult", post_out)
+        self.assertIn("[AEMU Harness Auto-Diagnostic]", post_out["overwriteResult"])
+        self.assertIn("//emulator/libs/http", post_out["overwriteResult"])
+        self.assertIn("--config=tsan", post_out["overwriteResult"])
+        ledger = self.ledger_store.load(conv_id)
+        self.assertEqual(ledger["stats"]["diagnostics_injected"], 1)
+
 
 class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
     """Tests plugin installation, status verification, and sidecar state helpers."""
@@ -243,8 +378,15 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         hooks_json = json.loads(
             (target_plugin_dir / "hooks.json").read_text(encoding="utf-8")
         )
-        pre_tool_cmd = hooks_json["PreToolUse"][0]["hooks"][0]["command"]
+        pre_tool_cmd = hooks_json["aemu-harness"]["PreToolUse"][0]["hooks"][0]["command"]
         self.assertIn("/custom/bin/emu-dev-cli harness hook --event pre-tool", pre_tool_cmd)
+
+        mcp_json = json.loads(
+            (target_plugin_dir / "mcp_config.json").read_text(encoding="utf-8")
+        )
+        mcp_srv = mcp_json["mcpServers"]["aemu-harness-mcp"]
+        self.assertEqual(mcp_srv["command"], "/custom/bin/emu-dev-cli")
+        self.assertEqual(mcp_srv["args"], ["harness", "mcp-server"])
 
         sidecar_server = target_plugin_dir / "sidecars" / "aemu_harness_ui" / "server.py"
         spec = importlib.util.spec_from_file_location("aemu_harness_sidecar", sidecar_server)
@@ -254,9 +396,58 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         ledger_data = module.load_ledger_data("conv-sidecar-test")
         self.assertEqual(ledger_data["conversation_id"], "conv-sidecar-test")
 
+        valid_check = module.validate_commit_message_live(
+            "feat(harness): Add live commit sandbox\n\n"
+            "Validate commit messages in real time inside the AuxPane.\n\n"
+            "Bug: 485291270\n"
+            "Test: python3 -m unittest tests/harness_test.py\n"
+        )
+        self.assertTrue(valid_check["valid"], msg=str(valid_check))
+        invalid_check = module.validate_commit_message_live("wip")
+        self.assertFalse(invalid_check["valid"])
+
         uninstall_report = uninstall_harness_plugin(target_dir=target_plugin_dir)
         self.assertTrue(uninstall_report["removed"])
         self.assertFalse(target_plugin_dir.exists())
+
+    def test_mcp_server_jsonrpc_initialize_list_and_call(self) -> None:
+        init_res = handle_mcp_jsonrpc_request(
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}
+        )
+        self.assertIsNotNone(init_res)
+        self.assertEqual(init_res["result"]["serverInfo"]["name"], "aemu-harness-mcp")  # type: ignore[index]
+
+        list_res = handle_mcp_jsonrpc_request(
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
+        )
+        self.assertIsNotNone(list_res)
+        tool_names = [t["name"] for t in list_res["result"]["tools"]]  # type: ignore[index]
+        self.assertIn("aemu_validate_commit_message", tool_names)
+        self.assertIn("aemu_search_reusable_libs", tool_names)
+
+        libs_res = handle_mcp_jsonrpc_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "aemu_search_reusable_libs",
+                    "arguments": {"query": "http"},
+                },
+            }
+        )
+        self.assertIsNotNone(libs_res)
+        self.assertFalse(libs_res["result"]["isError"])  # type: ignore[index]
+        payload = json.loads(libs_res["result"]["content"][0]["text"])  # type: ignore[index]
+        targets = [lib["bazel_target"] for lib in payload["libraries"]]
+        self.assertIn("//emulator/libs/http", targets)
+
+    def test_progressive_disclosure_rules_and_swarm_presets(self) -> None:
+        presets = list_harness_presets()
+        self.assertGreaterEqual(len(presets), 3)
+        review_preset = list_harness_presets("parallel-code-review")
+        self.assertEqual(len(review_preset), 1)
+        self.assertIn("aemu-code-reviewer", review_preset[0]["prompt"])
 
 
 if __name__ == "__main__":

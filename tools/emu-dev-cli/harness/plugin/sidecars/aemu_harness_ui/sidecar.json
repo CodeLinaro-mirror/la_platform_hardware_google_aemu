@@ -1,16 +1,19 @@
 {
   "name": "aemu-harness-ui",
   "display_name": "AEMU Harness",
-  "description": "Android Emulator Custom Agent Harness Control Center: live session ledger, guardrail telemetry, active emu-dev-cli workflows, and one-click workflow dispatch.",
+  "description": "Android Emulator Custom Agent Harness Control Center: live session ledger, guardrail telemetry, Commit Sandbox, and //emulator/libs/* explorer (v0.2).",
   "command": "python3",
-  "args": ["sidecars/aemu_harness_ui/server.py"],
+  "args": ["server.py"],
+  "restart_policy": "always",
   "has_web_ui": true,
   "ui_config": {
+    "display_name": "AEMU Harness",
     "views": [
       {
         "id": "aemu-harness-control-center",
         "title": "AEMU Harness",
         "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
+        "path": "/",
         "content_path": "/",
         "icon": "terminal"
       }
