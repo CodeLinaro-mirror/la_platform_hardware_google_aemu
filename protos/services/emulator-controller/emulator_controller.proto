@@ -158,6 +158,8 @@ service EmulatorController {
     // of the operation. No explicit gRPC error codes are returned by this method.
     rpc sendFingerprint(Fingerprint) returns (google.protobuf.Empty) {}
 
+    // Deprecated: prefer streamInputEvent or android.emulation.v2.InputService.
+    //
     // Sends a keyboard event to the emulator. This operation is asynchronous
     // and executed on the main looper.
     //
@@ -170,19 +172,25 @@ service EmulatorController {
     //
     // This method returns `OK` (code 0) upon successful asynchronous scheduling of the operation.
     rpc sendKey(KeyboardEvent) returns (google.protobuf.Empty) {}
+    // Deprecated: prefer streamInputEvent or android.emulation.v2.InputService.
+    //
     // Sends touch events to the emulator. This operation is asynchronous and executed on the main looper.
     //
     // The `TouchEvent` contains a list of `Touch` objects, each with `x`, `y` coordinates, `identifier`, `pressure`, `touch_major`, `touch_minor`, `expiration`, and `orientation`.
-    // Coordinates are scaled to the emulator's display resolution. Each `Touch` `identifier` is mapped to an internal Linux multitouch slot.
-    // Expiration handling ensures that inactive touch events are properly "lifted" after 120 seconds.
+    // Coordinates are in the display panel's natural (unrotated) pixel coordinate frame. Each `Touch` `identifier` is mapped to an internal Linux multitouch slot.
+    // `expiration` is ignored: contacts on a `streamInputEvent` stream remain held until lifted with `pressure = 0` or until the stream closes (which automatically releases all contacts of that stream).
     //
     // This method returns `OK` (code 0) upon successful asynchronous scheduling of the operation. Warnings are logged if no touch slots are available.
     rpc sendTouch(TouchEvent) returns (google.protobuf.Empty) {}
+    // Deprecated: prefer streamInputEvent or android.emulation.v2.InputService.
+    //
     // Sends mouse events to the emulator. This operation is asynchronous and executed on the main looper.
     //
-    // The `MouseEvent` specifies `x`, `y` coordinates, `buttons` state (bitmask: 1 for left, 2 for right), and `display` ID.
-    // In certain virtual input configurations (VirtioInput enabled, but VirtioMouse and VirtioTablet disabled), `buttons` may be masked to only consider the primary button.
-    // The event is sent to the emulator's `user_event_agent`.
+    // `MouseEvent` emulates a single-finger capacitive touch on the target `display` in the panel's natural (unrotated) pixel coordinate frame using the primary (left, bit 0) button:
+    // - `(buttons & 1) != 0` presses or moves pointer 0 at `(x, y)`.
+    // - `(buttons & 1) == 0` lifts pointer 0 if it is currently pressed; hover moves with `buttons == 0` while pointer 0 is not pressed send nothing.
+    // - All other button bits are ignored.
+    // Pointer 0 is shared with `TouchEvent` `identifier` 0 on the same stream.
     //
     // This method returns `OK` (code 0) upon successful asynchronous scheduling of the operation.
     rpc sendMouse(MouseEvent) returns (google.protobuf.Empty) {}
@@ -1017,18 +1025,19 @@ message Touch {
     int32 touch_minor = 6;
 
     enum EventExpiration {
-        // The system will use the default time of 120s to track
-        // the touch event with the given identifier. If no update happens
-        // within this timeframe the identifier is considered expired
-        // and can be made available for re-use. This means that a touch event
-        // with pressure 0 for this identifier will be send to the emulator.
+        // Ignored. Contacts on a `streamInputEvent` stream remain held until
+        // lifted with `pressure = 0` or until the stream closes (which
+        // automatically releases all contacts of that stream).
         EVENT_EXPIRATION_UNSPECIFIED = 0;
 
-        // Never expire the given slot. You must *ALWAYS* close the identifier
-        // by sending a touch event with 0 pressure.
+        // Ignored. Contacts on a `streamInputEvent` stream remain held until
+        // lifted with `pressure = 0` or until the stream closes.
         NEVER_EXPIRE = 1;
     }
 
+    // Ignored: contacts on a `streamInputEvent` stream remain held until
+    // lifted with `pressure = 0` or until the stream closes (which
+    // automatically releases all contacts of that stream).
     EventExpiration expiration = 7;
 
     // The orientation of the contact, if any.
@@ -1088,21 +1097,30 @@ message PenEvent {
     int32 display = 2;
 }
 
-// The MouseEvent interface represents events that occur due to the user
-// interacting with a pointing device (such as a mouse).
+// The MouseEvent interface represents pointer events from a pointing device
+// (such as a mouse).
+//
+// `MouseEvent` emulates a single-finger capacitive touch on the target
+// `display` in the panel's natural (unrotated) pixel coordinate frame using
+// the primary (left, bit 0) button:
+// - `(buttons & 1) != 0` presses or moves pointer 0 at `(x, y)`.
+// - `(buttons & 1) == 0` lifts pointer 0 if it is currently pressed; hover
+//   moves with `buttons == 0` while pointer 0 is not pressed send nothing.
+// - All other button bits are ignored.
+// Pointer 0 is shared with `TouchEvent` `identifier` 0 on the same stream.
 message MouseEvent {
-    // The horizontal coordinate. This is the physical location on the
-    // screen, where 0 indicates the leftmost coordinate.
+    // The horizontal coordinate in the display panel's natural (unrotated)
+    // pixel frame, where 0 indicates the leftmost coordinate.
     int32 x = 1;
 
-    // The vertical coordinate. This is the physical location on the screen,
-    // where 0 indicates the topmost coordinate.
+    // The vertical coordinate in the display panel's natural (unrotated)
+    // pixel frame, where 0 indicates the topmost coordinate.
     int32 y = 2;
 
-    // Indicates which buttons are pressed.
-    // 0: No button was pressed
-    // 1: Primary button (left)
-    // 2: Secondary button (right)
+    // Bitmask of pressed buttons. Only bit 0 (value 1, primary/left button) is
+    // used: `(buttons & 1) != 0` presses or moves pointer 0, and
+    // `(buttons & 1) == 0` lifts pointer 0. Hover moves with `buttons == 0`
+    // while pointer 0 is not pressed and all other button bits send nothing.
     int32 buttons = 3;
 
     // The display device where the mouse event occurred.
