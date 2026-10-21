@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from lib.output import print_result
+from lib.output import print_result, print_status
 
 from commands.crash.advisor import (
     ensure_crashadvisor_imports,
@@ -168,6 +168,7 @@ def _auto_link_filed_bug_to_crash(
     token: str | None,
     verbose: bool = False,
     explicit_bug_id: str | None = None,
+    json_mode: bool = False,
 ) -> None:
     """Links the Buganizer issue created/updated by CrashAdvisor back to go/crash."""
     stable_sig = _extract_signature_from_sandbox(sandbox_dir)
@@ -178,7 +179,10 @@ def _auto_link_filed_bug_to_crash(
         existing_links = search_crash_annotations([stable_sig]).get(stable_sig, [])
         if existing_links:
             urls = ", ".join(b["bug_url"] for b in existing_links)
-            print(f"🔗 Signature '{stable_sig}' is already linked in go/crash: {urls}")
+            print_status(
+                f"🔗 Signature '{stable_sig}' is already linked in go/crash: {urls}",
+                json_mode=json_mode,
+            )
             return
 
         bug_id = str(explicit_bug_id or "").removeprefix("b/").strip()
@@ -204,8 +208,9 @@ def _auto_link_filed_bug_to_crash(
             bug_url=bug_url,
         )
         if ok:
-            print(
-                f"🔗 Linked Buganizer issue b/{bug_id} ({bug_url}) to go/crash signature '{stable_sig}'."
+            print_status(
+                f"🔗 Linked Buganizer issue b/{bug_id} ({bug_url}) to go/crash signature '{stable_sig}'.",
+                json_mode=json_mode,
             )
         elif verbose:
             sys.stderr.write(
@@ -411,6 +416,7 @@ def run_file_bug(args: argparse.Namespace) -> None:
     Args:
         args: Parsed command line arguments containing crash_id, token, qa, verbose flags.
     """
+    json_mode = getattr(args, "json", False)
     crash_id = parse_crash_id(args.crash_id)
     token = acquire_auth_token(getattr(args, "token", None))
     sandbox_dir = get_crashadvisor_sandbox_dir(crash_id, create=True)
@@ -436,13 +442,26 @@ def run_file_bug(args: argparse.Namespace) -> None:
     if getattr(args, "force", False):
         cmd_args.append("--force")
 
-    print(
-        f"🚀 Filing/updating Buganizer issue for Crash ID {crash_id} via CrashAdvisor..."
+    print_status(
+        f"🚀 Filing/updating Buganizer issue for Crash ID {crash_id} via CrashAdvisor...",
+        json_mode=json_mode,
     )
     try:
         run_crashadvisor_bazel(cmd_args)
     except Exception as e:
-        sys.stderr.write(f"❌ Failed to run CrashAdvisor: {e}\n")
+        if json_mode:
+            print_result(
+                {
+                    "status": "error",
+                    "action": "crash file-bug",
+                    "crash_id": crash_id,
+                    "message": f"Failed to run CrashAdvisor: {e}",
+                },
+                json_mode=True,
+                is_error=True,
+            )
+        else:
+            sys.stderr.write(f"❌ Failed to run CrashAdvisor: {e}\n")
         sys.exit(1)
 
     if not getattr(args, "no_link_crash", False) and not getattr(args, "qa", False):
@@ -451,6 +470,17 @@ def run_file_bug(args: argparse.Namespace) -> None:
             token=token,
             verbose=getattr(args, "verbose", False),
             explicit_bug_id=getattr(args, "bug_id", None),
+            json_mode=json_mode,
+        )
+    if json_mode:
+        print_result(
+            {
+                "status": "success",
+                "action": "crash file-bug",
+                "crash_id": crash_id,
+                "sandbox_dir": sandbox_dir,
+            },
+            json_mode=True,
         )
 
 

@@ -79,6 +79,12 @@ def format_markdown_table(headers: list, rows: list) -> str:
     return "\n".join([header_line, separator_line] + row_lines)
 
 
+def print_status(msg: str, json_mode: bool = False) -> None:
+    """Prints a human-readable progress/status message when not in JSON mode."""
+    if not json_mode:
+        print(msg)
+
+
 def print_result(data: dict, json_mode: bool = False, is_error: bool = False):
     """Prints output in either clean JSON format or human-readable terminal format."""
     if json_mode:

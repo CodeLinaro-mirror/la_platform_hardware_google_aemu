@@ -7,7 +7,7 @@ import urllib.request
 import zipfile
 import xml.etree.ElementTree as ET
 from lib.bazel import find_bazel_cmd
-from lib.output import print_result
+from lib.output import print_result, print_status
 from commands.source_directory import get_source_directory, find_file_in_source_directories
 
 PUBLIC_VERIFIER_URLS = {
@@ -239,10 +239,15 @@ def get_device_arch(serial):
     return "x86_64"
 
 
-def download_with_progress(url, dest_path):
-    print(f"Downloading CTS-Verifier package from:\n  {url}\n  -> {dest_path}")
+def download_with_progress(url, dest_path, json_mode=False):
+    print_status(
+        f"Downloading CTS-Verifier package from:\n  {url}\n  -> {dest_path}",
+        json_mode=json_mode,
+    )
 
     def reporthook(blocknum, blocksize, totalsize):
+        if json_mode:
+            return
         readsofar = blocknum * blocksize
         if totalsize > 0:
             percent = readsofar * 100 / totalsize
@@ -254,11 +259,12 @@ def download_with_progress(url, dest_path):
             sys.stdout.flush()
 
     urllib.request.urlretrieve(url, dest_path, reporthook)
-    sys.stdout.write("\nDownload complete.\n")
-    sys.stdout.flush()
+    if not json_mode:
+        sys.stdout.write("\nDownload complete.\n")
+        sys.stdout.flush()
 
 
-def fetch_from_android_build(build_id, branch, target, arch, dest_zip):
+def fetch_from_android_build(build_id, branch, target, arch, dest_zip, json_mode=False):
     fetch_tool = FETCH_ARTIFACT_BIN if os.path.exists(
         FETCH_ARTIFACT_BIN) else shutil.which("fetch_artifact")
     if not fetch_tool:
@@ -271,8 +277,9 @@ def fetch_from_android_build(build_id, branch, target, arch, dest_zip):
         fetch_tool, "--bid", build_id, "--branch", branch, "--target",
         target_name, "android-cts-verifier.zip", dest_zip
     ]
-    print(
-        f"Fetching CTS-Verifier from Android Build (bid={build_id}, branch={branch}, target={target_name})..."
+    print_status(
+        f"Fetching CTS-Verifier from Android Build (bid={build_id}, branch={branch}, target={target_name})...",
+        json_mode=json_mode,
     )
     res = subprocess.run(cmd, check=False)
     if res.returncode != 0:
@@ -344,7 +351,10 @@ def run_cts_verifier(args):
     if getattr(args, "collect_test_module_names", False) and not use_bazel:
         builder_script = os.path.join(scripts_dir, "automation_dev",
                                       "test_builder.py")
-        print("🔍 Running CtsVerifier test label collector over ADB...")
+        print_status(
+            "🔍 Running CtsVerifier test label collector over ADB...",
+            json_mode=json_mode,
+        )
         res = subprocess.run(
             [sys.executable, builder_script, "--collect-test-module-names"],
             check=False)
@@ -362,8 +372,9 @@ def run_cts_verifier(args):
 
         if getattr(args, "collect_test_module_names", False):
             target = "@goldfish_test//xts:cts-verifier-automation-dev"
-            print(
-                f"Executing hermetic CTS-Verifier test label collector via Bazel ({bazel_bin}): {target}..."
+            print_status(
+                f"Executing hermetic CTS-Verifier test label collector via Bazel ({bazel_bin}): {target}...",
+                json_mode=json_mode,
             )
             cmd = [
                 bazel_bin, "run", target, "--", "--collect_tests", "--window"
@@ -381,8 +392,9 @@ def run_cts_verifier(args):
                 if not raw_mod.endswith("_test"):
                     raw_mod += "_test"
                 script_name = f"run_{raw_mod}.sh"
-            print(
-                f"Executing hermetic CTS-Verifier TestBuilder via Bazel ({bazel_bin}): {target}..."
+            print_status(
+                f"Executing hermetic CTS-Verifier TestBuilder via Bazel ({bazel_bin}): {target}...",
+                json_mode=json_mode,
             )
             cmd = [
                 bazel_bin, "run", target, "--", "--dev_mode", "--window",
@@ -428,8 +440,9 @@ def run_cts_verifier(args):
             target = f"@goldfish_test//xts:ets-verifier.{subname}"
 
         if getattr(args, "rbe", False):
-            print(
-                f"Executing hermetic ETS-Verifier test target on Remote Build Execution (RBE) via Bazel ({bazel_bin}): {target}..."
+            print_status(
+                f"Executing hermetic ETS-Verifier test target on Remote Build Execution (RBE) via Bazel ({bazel_bin}): {target}...",
+                json_mode=json_mode,
             )
             cmd = [
                 bazel_bin, "test", "-c", "opt", "--config=remote",
@@ -437,8 +450,9 @@ def run_cts_verifier(args):
                 "--config=sponge", "--flaky_test_attempts=8", target
             ]
         elif args.all or not args.module:
-            print(
-                f"Executing hermetic ETS-Verifier test suite via Bazel ({bazel_bin}): {target}..."
+            print_status(
+                f"Executing hermetic ETS-Verifier test suite via Bazel ({bazel_bin}): {target}...",
+                json_mode=json_mode,
             )
             cmd = [bazel_bin, "test", target]
             if not getattr(args, "window", True):
@@ -446,8 +460,9 @@ def run_cts_verifier(args):
             else:
                 cmd.append("--test_arg=--window")
         else:
-            print(
-                f"Executing hermetic ETS-Verifier test target via Bazel ({bazel_bin}): {target}..."
+            print_status(
+                f"Executing hermetic ETS-Verifier test target via Bazel ({bazel_bin}): {target}...",
+                json_mode=json_mode,
             )
             cmd = [bazel_bin, "run", target]
             if not getattr(args, "window", True):
@@ -497,37 +512,50 @@ def run_cts_verifier(args):
         os.makedirs(os.path.join(cache_dir, "extracted"), exist_ok=True)
         if args.build_id:
             fetch_from_android_build(args.build_id, args.branch, args.target,
-                                     arch_key, dest_zip)
+                                     arch_key, dest_zip, json_mode=json_mode)
         else:
             url = PUBLIC_VERIFIER_URLS.get(arch_key,
                                            PUBLIC_VERIFIER_URLS["x86_64"])
-            download_with_progress(url, dest_zip)
+            download_with_progress(url, dest_zip, json_mode=json_mode)
 
-        print("Extracting CTS-Verifier package contents from archive...")
+        print_status(
+            "Extracting CTS-Verifier package contents from archive...",
+            json_mode=json_mode,
+        )
         with zipfile.ZipFile(dest_zip, "r") as zf:
             zf.extractall(os.path.join(cache_dir, "extracted"))
 
     if not os.path.exists(extracted_apk):
         raise RuntimeError(f"CtsVerifier.apk not accessible at {extracted_apk}")
 
-    print(f"✓ CtsVerifier.apk ready at: {extracted_apk}")
+    print_status(
+        f"✓ CtsVerifier.apk ready at: {extracted_apk}",
+        json_mode=json_mode,
+    )
 
     # Step 2: Install APK and grant permissions over ADB
     adb_prefix = ["adb"]
     if serial:
         adb_prefix.extend(["-s", serial])
 
-    print(f"Installing CtsVerifier.apk onto device {serial}...")
+    print_status(
+        f"Installing CtsVerifier.apk onto device {serial}...",
+        json_mode=json_mode,
+    )
     inst_res = subprocess.run(adb_prefix +
                               ["install", "-r", "-g", extracted_apk],
                               capture_output=True,
                               text=True,
                               check=False)
     if inst_res.returncode != 0:
-        print(f"⚠️  adb install warning: {inst_res.stderr.strip()}")
+        print_status(
+            f"⚠️  adb install warning: {inst_res.stderr.strip()}",
+            json_mode=json_mode,
+        )
         if "INSTALL_FAILED_OLDER_SDK" in inst_res.stderr:
-            print(
-                "  Hint: DEVICE is a release build while APK targeted DEV preview. Supply matching --build-id."
+            print_status(
+                "  Hint: DEVICE is a release build while APK targeted DEV preview. Supply matching --build-id.",
+                json_mode=json_mode,
             )
 
     # Install companion helper APKs (e.g. CtsEmptyDeviceAdmin.apk, CtsEmptyDeviceOwner.apk, etc.)
@@ -539,7 +567,10 @@ def run_cts_verifier(args):
         ]
         for helper in helper_apks:
             helper_path = os.path.join(extracted_dir, helper)
-            print(f"Installing companion APK {helper} onto device {serial}...")
+            print_status(
+                f"Installing companion APK {helper} onto device {serial}...",
+                json_mode=json_mode,
+            )
             subprocess.run(adb_prefix + ["install", "-r", "-g", helper_path],
                            capture_output=True,
                            text=True,
@@ -549,26 +580,31 @@ def run_cts_verifier(args):
     subprocess.run(
         adb_prefix +
         ["shell", "settings", "put", "global", "hidden_api_policy", "1"],
+        capture_output=json_mode,
         check=False)
     subprocess.run(adb_prefix + [
         "shell", "appops", "set", "com.android.cts.verifier",
         "android:read_device_identifiers", "allow"
     ],
+                   capture_output=json_mode,
                    check=False)
     subprocess.run(adb_prefix + [
         "shell", "appops", "set", "com.android.cts.verifier",
         "MANAGE_EXTERNAL_STORAGE", "0"
     ],
+                   capture_output=json_mode,
                    check=False)
     subprocess.run(adb_prefix + [
         "shell", "appops", "set", "com.android.cts.verifier", "TURN_SCREEN_ON",
         "0"
     ],
+                   capture_output=json_mode,
                    check=False)
     subprocess.run(adb_prefix + [
         "shell", "am", "compat", "enable", "ALLOW_TEST_API_ACCESS",
         "com.android.cts.verifier"
     ],
+                   capture_output=json_mode,
                    check=False)
 
     # Step 3: Run requested test module(s)
@@ -580,17 +616,19 @@ def run_cts_verifier(args):
     if args.all:
         # Run all unique python test scripts
         unique_scripts = sorted(set(discovered_modules.values()))
-        print("-" * 50)
-        print(
-            f"🚀 Running ALL {len(unique_scripts)} CTS-Verifier automated modules..."
+        print_status("-" * 50, json_mode=json_mode)
+        print_status(
+            f"🚀 Running ALL {len(unique_scripts)} CTS-Verifier automated modules...",
+            json_mode=json_mode,
         )
-        print("-" * 50)
+        print_status("-" * 50, json_mode=json_mode)
         results = []
         overall_failed = 0
         for idx, script_file in enumerate(unique_scripts, 1):
             mod_label = script_file[len("pass_"):-len(".py")]
-            print(
-                f"\n[{idx}/{len(unique_scripts)}] Module: {mod_label} ({script_file})"
+            print_status(
+                f"\n[{idx}/{len(unique_scripts)}] Module: {mod_label} ({script_file})",
+                json_mode=json_mode,
             )
             out_dir = f"/tmp/cts_v_results_{mod_label}"
             os.makedirs(out_dir, exist_ok=True)
@@ -603,6 +641,7 @@ def run_cts_verifier(args):
             run_res = subprocess.run([sys.executable, script_path],
                                      cwd=scripts_dir,
                                      env=env,
+                                     capture_output=json_mode,
                                      check=False)
             passed = run_res.returncode == 0
             if not passed:
@@ -613,12 +652,15 @@ def run_cts_verifier(args):
                 "passed": passed
             })
 
-        print("\n" + "=" * 50)
-        print("📊 CTS-Verifier --all Execution Summary:")
+        print_status("\n" + "=" * 50, json_mode=json_mode)
+        print_status("📊 CTS-Verifier --all Execution Summary:", json_mode=json_mode)
         for r in results:
             status_str = "✓ PASS" if r["passed"] else "❌ FAIL"
-            print(f"  {status_str}  {r['module']:<35} ({r['script']})")
-        print("=" * 50)
+            print_status(
+                f"  {status_str}  {r['module']:<35} ({r['script']})",
+                json_mode=json_mode,
+            )
+        print_status("=" * 50, json_mode=json_mode)
 
         print_result(
             {
@@ -672,13 +714,17 @@ def run_cts_verifier(args):
     if serial:
         env["ANDROID_SERIAL"] = serial
 
-    print("-" * 50)
-    print(f"🚀 Running CTS-Verifier module: {module_name} ({script_file})")
-    print("-" * 50)
+    print_status("-" * 50, json_mode=json_mode)
+    print_status(
+        f"🚀 Running CTS-Verifier module: {module_name} ({script_file})",
+        json_mode=json_mode,
+    )
+    print_status("-" * 50, json_mode=json_mode)
 
     run_res = subprocess.run([sys.executable, script_path],
                              cwd=scripts_dir,
                              env=env,
+                             capture_output=json_mode,
                              check=False)
 
     passed = run_res.returncode == 0

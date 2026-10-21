@@ -47,15 +47,23 @@ def _print_error(msg: str) -> None:
     print(f"ERROR: {msg}", file=sys.stderr)
 
 
+def _fail(msg: str, json_mode: bool = False) -> None:
+    if json_mode:
+        _print_json({"status": "error", "error": msg})
+    else:
+        _print_error(msg)
+    sys.exit(1)
+
+
 def _resolve_cl_or_exit(
-    cl_arg: str | None, repo_dir: str | Path = "."
+    cl_arg: str | None, repo_dir: str | Path = ".", json_mode: bool = False
 ) -> str:
     """Resolves a CL identifier from CLI argument or local HEAD commit."""
     try:
         return parse_cl_identifier(cl_arg, cwd=repo_dir)
     except ValueError as exc:
-        _print_error(str(exc))
-        sys.exit(1)
+        _fail(str(exc), json_mode=json_mode)
+        return ""
 
 
 def find_sessions_for_cl(
@@ -187,7 +195,8 @@ def handle_gerrit_list(args: argparse.Namespace) -> None:
 
 def handle_gerrit_comments(args: argparse.Namespace) -> None:
     """Fetches and formats review comment threads for a CL."""
-    ident = _resolve_cl_or_exit(args.cl, args.repo)
+    json_mode = getattr(args, "json", False)
+    ident = _resolve_cl_or_exit(args.cl, args.repo, json_mode=json_mode)
     client = GerritClient(host=args.host)
     try:
         change = client.get_change_detail(ident)
@@ -196,16 +205,12 @@ def handle_gerrit_comments(args: argparse.Namespace) -> None:
             include_resolved=args.all_threads,
         )
     except Exception as exc:
-        if getattr(args, "json", False):
-            _print_json({"status": "error", "error": str(exc)})
-        else:
-            _print_error(str(exc))
-        sys.exit(1)
+        _fail(str(exc), json_mode=json_mode)
 
     repo_root = resolve_project_repo_path(
         change.get("project", ""), workspace_root=args.repo
     )
-    if getattr(args, "json", False):
+    if json_mode:
         _print_json(
             {
                 "status": "success",
@@ -236,7 +241,8 @@ def handle_gerrit_comments(args: argparse.Namespace) -> None:
 
 def handle_gerrit_checkout(args: argparse.Namespace) -> None:
     """Fetches and checks out the latest patchset of a CL."""
-    ident = _resolve_cl_or_exit(args.cl, args.repo)
+    json_mode = getattr(args, "json", False)
+    ident = _resolve_cl_or_exit(args.cl, args.repo, json_mode=json_mode)
     client = GerritClient(host=args.host)
     try:
         change = client.get_change_detail(ident)
@@ -249,13 +255,9 @@ def handle_gerrit_checkout(args: argparse.Namespace) -> None:
             mode=args.mode,
         )
     except Exception as exc:
-        if getattr(args, "json", False):
-            _print_json({"status": "error", "error": str(exc)})
-        else:
-            _print_error(str(exc))
-        sys.exit(1)
+        _fail(str(exc), json_mode=json_mode)
 
-    if getattr(args, "json", False):
+    if json_mode:
         _print_json({"status": "success", **result})
     else:
         print(
@@ -266,11 +268,11 @@ def handle_gerrit_checkout(args: argparse.Namespace) -> None:
 
 def handle_gerrit_reply(args: argparse.Namespace) -> None:
     """Stages or publishes Gerrit comment replies and resolution states."""
+    json_mode = getattr(args, "json", False)
     if args.from_queue:
         q_path = Path(args.from_queue)
         if not q_path.is_file():
-            _print_error(f"Queue file not found: {q_path}")
-            sys.exit(1)
+            _fail(f"Queue file not found: {q_path}", json_mode=json_mode)
         q_data = json.loads(q_path.read_text(encoding="utf-8"))
         client = GerritClient(host=args.host)
         published_total = 0
@@ -306,7 +308,7 @@ def handle_gerrit_reply(args: argparse.Namespace) -> None:
                     thread["published"] = True
                 published_total += len(replies)
         q_path.write_text(json.dumps(q_data, indent=2), encoding="utf-8")
-        if getattr(args, "json", False):
+        if json_mode:
             _print_json(
                 {
                     "status": "success",
@@ -318,17 +320,16 @@ def handle_gerrit_reply(args: argparse.Namespace) -> None:
             print(f"Published {published_total} reply(s) from {q_path}")
         return
 
-    ident = _resolve_cl_or_exit(args.cl, args.repo)
+    ident = _resolve_cl_or_exit(args.cl, args.repo, json_mode=json_mode)
     if args.stage_only:
         if not args.queue_file or not args.comment_id or not args.message:
-            _print_error(
-                "--stage-only requires --queue-file, --comment-id, and --message."
+            _fail(
+                "--stage-only requires --queue-file, --comment-id, and --message.",
+                json_mode=json_mode,
             )
-            sys.exit(1)
         q_path = Path(args.queue_file)
         if not q_path.is_file():
-            _print_error(f"Queue file not found: {q_path}")
-            sys.exit(1)
+            _fail(f"Queue file not found: {q_path}", json_mode=json_mode)
         q_data = json.loads(q_path.read_text(encoding="utf-8"))
         matched = False
         for cl_entry in q_data.get("cls") or []:
@@ -345,12 +346,12 @@ def handle_gerrit_reply(args: argparse.Namespace) -> None:
                     thread["resolve"] = not args.unresolve
                     matched = True
         if not matched:
-            _print_error(
-                f"Comment ID {args.comment_id} not found for CL {ident} in {q_path}"
+            _fail(
+                f"Comment ID {args.comment_id} not found for CL {ident} in {q_path}",
+                json_mode=json_mode,
             )
-            sys.exit(1)
         q_path.write_text(json.dumps(q_data, indent=2), encoding="utf-8")
-        if getattr(args, "json", False):
+        if json_mode:
             _print_json(
                 {
                     "status": "success",
@@ -373,8 +374,10 @@ def handle_gerrit_reply(args: argparse.Namespace) -> None:
                 target_thread = thread
                 break
         if target_thread is None:
-            _print_error(f"Comment ID {args.comment_id} not found on CL {ident}")
-            sys.exit(1)
+            _fail(
+                f"Comment ID {args.comment_id} not found on CL {ident}",
+                json_mode=json_mode,
+            )
         replies_to_post.append(
             GerritReplyInput(
                 comment_id=target_thread.leaf_id,
@@ -424,7 +427,8 @@ def handle_gerrit_upload(args: argparse.Namespace) -> None:
 
 def handle_gerrit_wait(args: argparse.Namespace) -> None:
     """Polls Gerrit for new review feedback or approval."""
-    ident = _resolve_cl_or_exit(args.cl, args.repo)
+    json_mode = getattr(args, "json", False)
+    ident = _resolve_cl_or_exit(args.cl, args.repo, json_mode=json_mode)
     client = GerritClient(host=args.host)
     try:
         baseline_ps = args.baseline_patchset
@@ -444,16 +448,12 @@ def handle_gerrit_wait(args: argparse.Namespace) -> None:
             require_presubmit=args.require_presubmit,
         )
     except Exception as exc:
-        if getattr(args, "json", False):
-            _print_json({"status": "error", "error": str(exc)})
-        else:
-            _print_error(str(exc))
-        sys.exit(1)
+        _fail(str(exc), json_mode=json_mode)
 
     unresolved = outcome.get("unresolved_threads") or []
     detail = outcome.get("detail") or {}
     cl_num = int(detail.get("_number", 0) or (ident if ident.isdigit() else 0))
-    if getattr(args, "json", False):
+    if json_mode:
         _print_json(
             {
                 "status": "success",
@@ -474,11 +474,12 @@ def handle_gerrit_wait(args: argparse.Namespace) -> None:
 
 def handle_gerrit_resume(args: argparse.Namespace) -> None:
     """Resumes an `address-review` workflow session and wakes its Jetski conversation."""
+    json_mode = getattr(args, "json", False)
     state_id = args.state
     workflow_name = "address-review"
     ident = ""
     if not state_id:
-        ident = _resolve_cl_or_exit(args.cl, args.repo)
+        ident = _resolve_cl_or_exit(args.cl, args.repo, json_mode=json_mode)
         sessions = find_sessions_for_cl(ident, workflow_name=workflow_name)
         if not sessions:
             msg = (

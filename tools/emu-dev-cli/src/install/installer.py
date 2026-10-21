@@ -457,7 +457,11 @@ def install_skill(source_dir=None):
                 sys.stderr.write(f"ℹ️ Could not read skill from {cand}: {e}\n")
 
     if not content_to_write:
-        sys.stderr.write("⚠️ Warning: Could not locate skills/SKILL.md to install.\n")
+        searched = ", ".join(c for c in candidate_skills if c)
+        sys.stderr.write(
+            f"⚠️ Warning: Could not locate skills/SKILL.md to install (searched: {searched}). "
+            "Configure the workspace path with 'emu-dev-cli source-directory set emu-main-next <path>' or pass --source-dir.\n"
+        )
         return []
 
     for target_dir in target_dirs:

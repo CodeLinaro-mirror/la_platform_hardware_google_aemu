@@ -130,10 +130,9 @@ class TidyFixTest(unittest.TestCase):
                 status=False,
             )
             with patch("commands.tidy.fix_cmd.Path.exists", return_value=True):
-                captured_stdout = StringIO()
-                with patch("sys.stdout", captured_stdout):
+                with self.assertLogs("lib.level1_engine", level="INFO") as cm:
                     handle_tidy_fix(args)
-                output = captured_stdout.getvalue()
+                output = "\n".join(cm.output)
                 self.assertIn("[Dry Run]", output)
                 self.assertIn("Would apply fixes for 1 diagnostics", output)
 

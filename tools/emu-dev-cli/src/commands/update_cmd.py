@@ -8,7 +8,7 @@ import subprocess
 from commands.source_directory import get_source_directory, ensure_codesearch_urls_config
 from install.installer import install_launcher_wrapper, install_skill, detect_default_install_path, resolve_built_artifact
 from lib.bazel import find_bazel_cmd
-from lib.output import print_result
+from lib.output import print_result, print_status
 
 BAZEL_TARGET = "@aemu//tools/emu-dev-cli:emu-dev-cli"
 
@@ -90,11 +90,14 @@ def run_update_cmd(args):
     bazel_cmd = find_bazel_cmd(source_dir)
     advisor_target = "@goldfish//emulator/crashreport/tool/advisor:advisor"
     crashreport_target = "@goldfish//emulator/crashreport/tool:crashreport"
-    print(f"🔨 Building {BAZEL_TARGET}, {advisor_target}, and {crashreport_target} in {source_dir}...")
+    print_status(
+        f"🔨 Building {BAZEL_TARGET}, {advisor_target}, and {crashreport_target} in {source_dir}...",
+        json_mode=json_mode,
+    )
 
     cmd = [bazel_cmd, "build", BAZEL_TARGET, advisor_target, crashreport_target]
     try:
-        if verbose or not json_mode:
+        if verbose and not json_mode:
             res = subprocess.run(cmd, cwd=source_dir, check=False)
         else:
             res = subprocess.run(cmd, cwd=source_dir, capture_output=True, text=True, check=False)
@@ -133,7 +136,10 @@ def run_update_cmd(args):
         }, json_mode=json_mode, is_error=True)
         sys.exit(1)
 
-    print(f"📦 Re-installing compiled emu-dev-cli release package from {built_bin}...")
+    print_status(
+        f"📦 Re-installing compiled emu-dev-cli release package from {built_bin}...",
+        json_mode=json_mode,
+    )
     wrapper_fn, skill_fn = _resolve_installer_hooks(source_dir)
     wrapper_fn(built_bin, dest_path, source_dir=source_dir)
     skill_files = skill_fn(source_dir=source_dir)

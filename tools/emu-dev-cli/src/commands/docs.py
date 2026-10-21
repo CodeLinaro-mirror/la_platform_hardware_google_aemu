@@ -662,6 +662,7 @@ def run_docs_lint(args):
 
 
 def run_doc_target(target_name, args):
+    json_mode = getattr(args, "json", False)
     target_info = DOC_TARGETS.get(target_name)
     if not target_info:
         print_result(
@@ -671,12 +672,12 @@ def run_doc_target(target_name, args):
                 "error_message": f"Unknown doc target '{target_name}'",
                 "exit_code": 1,
             },
+            json_mode=json_mode,
             is_error=True,
         )
         sys.exit(1)
 
     branch, rel_path = target_info
-    json_mode = getattr(args, "json", False)
     use_cs_url = getattr(args, "codesearch_url", False)
 
     full_doc_path = resolve_doc_file_path(branch, rel_path)

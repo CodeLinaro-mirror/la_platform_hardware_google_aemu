@@ -33,8 +33,12 @@ def run_init(args):
             {
                 "status": "error",
                 "action": "init",
-                "summary": "Failed to write SKILL.md into home directory ~/.gemini",
-                "error_message": "Could not access ~/.gemini/config/skills/ or ~/.gemini/skills/.",
+                "summary": "Failed to install SKILL.md into ~/.gemini",
+                "error_message": (
+                    "Could not locate source skills/SKILL.md or could not write to "
+                    "~/.gemini/config/skills/ and ~/.gemini/skills/. Verify directory permissions "
+                    "and ensure 'emu-main-next' is configured via 'emu-dev-cli source-directory set emu-main-next <path>'."
+                ),
                 "exit_code": 1,
             },
             json_mode=json_mode,

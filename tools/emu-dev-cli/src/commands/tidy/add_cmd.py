@@ -23,6 +23,7 @@ import sys
 from typing import List, Optional, Tuple
 
 from commands.source_directory import get_source_directory
+from lib.output import print_result, print_status
 
 logger = logging.getLogger(__name__)
 
@@ -193,43 +194,68 @@ def _resolve_build_file(
 
 def handle_tidy_add(args: argparse.Namespace) -> None:
     """Injects or configures a clang_tidy_test rule into the specified BUILD.bazel file or package directory."""
+    json_mode = getattr(args, "json", False)
     raw_path_str = getattr(args, "path", None) or getattr(args, "build_file", None)
     if not raw_path_str:
-        print(
-            "Error: Target BUILD.bazel path or package directory is required.",
-            file=sys.stderr,
-        )
+        if json_mode:
+            print_result(
+                {
+                    "status": "error",
+                    "action": "tidy add",
+                    "message": "Target BUILD.bazel path or package directory is required.",
+                },
+                json_mode=True,
+                is_error=True,
+            )
+        else:
+            print(
+                "Error: Target BUILD.bazel path or package directory is required.",
+                file=sys.stderr,
+            )
         sys.exit(1)
 
     source_dir = get_source_directory("emu-main-next") or os.getcwd()
     build_path, suggestions = _resolve_build_file(raw_path_str, source_dir)
 
     if not build_path or not build_path.exists():
-        print(
-            f"❌ Error: Target BUILD.bazel file does not exist for '{raw_path_str}'.\n",
-            file=sys.stderr,
-        )
-        print("💡 Actionable suggestions:", file=sys.stderr)
-        print(
-            "  1. Pass the path relative to workspace root or use Bazel label syntax:",
-            file=sys.stderr,
-        )
-        print(
-            "     • emu-dev-cli tidy add emulator/libs/sockets",
-            file=sys.stderr,
-        )
-        print(
-            "     • emu-dev-cli tidy add @goldfish//emulator/libs/sockets",
-            file=sys.stderr,
-        )
-        if suggestions:
-            print("  2. Did you mean one of these existing packages?", file=sys.stderr)
-            for s in suggestions:
-                print(f"     • {s}", file=sys.stderr)
-        print(
-            f"  3. If this is a new package, create the BUILD.bazel file first:\n     touch {raw_path_str}/BUILD.bazel\n",
-            file=sys.stderr,
-        )
+        if json_mode:
+            print_result(
+                {
+                    "status": "error",
+                    "action": "tidy add",
+                    "path": raw_path_str,
+                    "suggestions": suggestions,
+                    "message": f"Target BUILD.bazel file does not exist for '{raw_path_str}'.",
+                },
+                json_mode=True,
+                is_error=True,
+            )
+        else:
+            print(
+                f"❌ Error: Target BUILD.bazel file does not exist for '{raw_path_str}'.\n",
+                file=sys.stderr,
+            )
+            print("💡 Actionable suggestions:", file=sys.stderr)
+            print(
+                "  1. Pass the path relative to workspace root or use Bazel label syntax:",
+                file=sys.stderr,
+            )
+            print(
+                "     • emu-dev-cli tidy add emulator/libs/sockets",
+                file=sys.stderr,
+            )
+            print(
+                "     • emu-dev-cli tidy add @goldfish//emulator/libs/sockets",
+                file=sys.stderr,
+            )
+            if suggestions:
+                print("  2. Did you mean one of these existing packages?", file=sys.stderr)
+                for s in suggestions:
+                    print(f"     • {s}", file=sys.stderr)
+            print(
+                f"  3. If this is a new package, create the BUILD.bazel file first:\n     touch {raw_path_str}/BUILD.bazel\n",
+                file=sys.stderr,
+            )
         sys.exit(1)
 
     targets: List[str] = getattr(args, "targets", []) or []
@@ -239,8 +265,9 @@ def handle_tidy_add(args: argparse.Namespace) -> None:
     if not targets:
         auto_targets = _extract_cc_targets(content)
         if auto_targets:
-            print(
-                f"🔍 Discovered {len(auto_targets)} C++ target(s) in {build_path.name}: {', '.join(auto_targets)}"
+            print_status(
+                f"🔍 Discovered {len(auto_targets)} C++ target(s) in {build_path.name}: {', '.join(auto_targets)}",
+                json_mode=json_mode,
             )
             targets = auto_targets
         else:
@@ -262,7 +289,18 @@ def handle_tidy_add(args: argparse.Namespace) -> None:
     new_content, count = _update_or_append_clang_tidy_rule(content, formatted_targets)
     build_path.write_text(new_content, encoding="utf-8")
 
-    if count > 0:
+    if json_mode:
+        print_result(
+            {
+                "status": "success",
+                "action": "tidy add",
+                "build_file": str(build_path),
+                "added_count": count,
+                "targets": formatted_targets,
+            },
+            json_mode=True,
+        )
+    elif count > 0:
         print(
             f"✅ Successfully configured clang_tidy_test rule in {build_path} (added {count} target(s))."
         )
