@@ -19,11 +19,14 @@ Enforces Android Emulator C++ and Bazel invariants before edits hit disk:
   2. Cross-platform UTF-8 file I/O (`android::base::file` / `android/utils/file_io.h`)
      instead of raw `std::ifstream` / `std::ofstream`.
   3. TotW 181 `absl::StatusOr` variable naming (no `_or` Hungarian suffixes).
+  4. `AGENTS.md` / `ARCHITECTURE.md` / `DESIGN.md` drift prevention in `goldfish`.
 """
 
 from pathlib import Path
+import re
 from typing import Any, Dict, Optional, Tuple
 
+from commands import docs
 from commands.harness.constants import (
     LINKSHARED_TRUE_PATTERN,
     RAW_CC_BINARY_BLOCK_PATTERN,
@@ -33,6 +36,7 @@ from commands.harness.constants import (
 
 CPP_EXTENSIONS = {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp"}
 BAZEL_BUILD_FILENAMES = {"BUILD", "BUILD.bazel"}
+GOLDFISH_DOC_FILENAMES = {"AGENTS.md", "ARCHITECTURE.md", "DESIGN.md"}
 
 
 def _extract_file_path_and_content(payload: Dict[str, Any]) -> Tuple[str, str]:
@@ -135,6 +139,185 @@ def evaluate_cpp_utf8_and_statusor(
     return None
 
 
+def _extract_goldfish_rel_dir(norm_path: str) -> str:
+    """Extracts the directory path relative to the goldfish repository root."""
+    parent_str = Path(norm_path).parent.as_posix().strip("/")
+    if parent_str == ".":
+        parent_str = ""
+    if "/goldfish/" in f"/{parent_str}/":
+        after = f"/{parent_str}/".split("/goldfish/", 1)[1].strip("/")
+        return after
+    if parent_str.startswith("emulator/") or parent_str == "emulator":
+        return parent_str
+    return parent_str
+
+
+def _locate_goldfish_roots_on_disk(fpath: Path) -> Tuple[Path, Path]:
+    """Resolves (repo_root, workspace_root) for an existing path inside goldfish."""
+    curr = fpath.parent.resolve()
+    for anc in [curr] + list(curr.parents):
+        if anc.name == "goldfish" or (anc / "emulator").is_dir():
+            repo_root = anc
+            if (
+                repo_root.parent.name == "generic"
+                and repo_root.parent.parent.name == "hardware"
+            ):
+                return repo_root, repo_root.parent.parent.parent
+            return repo_root, repo_root
+    return curr, curr
+
+
+def evaluate_goldfish_doc_drift(
+    norm_path: str,
+    content: str,
+    payload: Optional[Dict[str, Any]] = None,
+) -> Optional[Tuple[bool, str]]:
+    """Checks edits to AGENTS.md, ARCHITECTURE.md, and DESIGN.md in goldfish for drift."""
+    filename = Path(norm_path).name
+    if filename not in GOLDFISH_DOC_FILENAMES or not _is_goldfish_path(norm_path):
+        return None
+
+    fpath = Path(norm_path)
+    prospective_text = content
+    if payload and fpath.is_file():
+        tool_call = payload.get("toolCall") or payload.get("tool_call") or {}
+        args = tool_call.get("args") or payload.get("tool_input") or {}
+        target_str = args.get("Target") or args.get("old_str")
+        if isinstance(target_str, str) and target_str:
+            try:
+                existing_text = fpath.read_text(encoding="utf-8")
+                if target_str in existing_text:
+                    prospective_text = existing_text.replace(target_str, content)
+            except OSError:
+                pass
+
+    norm_expected = _extract_goldfish_rel_dir(norm_path)
+    ws_expected = f"hardware/generic/goldfish/{norm_expected}".strip("/")
+    valid_locations = {
+        norm_expected,
+        ws_expected,
+        f"{norm_expected}/{filename}".strip("/"),
+        f"{ws_expected}/{filename}".strip("/"),
+    }
+
+    # 1. Check **Location:** and **Scope:** headers
+    loc_match = docs._LOCATION_RE.search(prospective_text)
+    if loc_match:
+        declared = loc_match.group(1).strip()
+        if declared.strip("/") not in valid_locations:
+            expected_disp = f"{norm_expected}/" if norm_expected else "hardware/generic/goldfish"
+            return (
+                False,
+                "Blocked by AEMU Harness Documentation Drift Guardrail: "
+                f"Declared **Location:** `{declared}` in '{norm_path}' does not match "
+                f"actual directory `{expected_disp}`.",
+            )
+
+    scope_match = docs._SCOPE_RE.search(prospective_text)
+    if scope_match:
+        declared_scope = scope_match.group(1).strip()
+        norm_scope = re.sub(r"/\*+$", "", declared_scope).strip("/")
+        if norm_scope not in valid_locations:
+            expected_scope = f"{ws_expected}/**" if norm_expected else "hardware/generic/goldfish/**"
+            return (
+                False,
+                "Blocked by AEMU Harness Documentation Drift Guardrail: "
+                f"Declared **Scope:** `{declared_scope}` in '{norm_path}' does not match "
+                f"actual directory `{expected_scope}`.",
+            )
+
+    if not fpath.parent.is_dir():
+        return None
+
+    repo_root, workspace_root = _locate_goldfish_roots_on_disk(fpath)
+
+    # 2. Check relative Markdown links against disk
+    non_code_text = re.sub(r"```.*?```", "", prospective_text, flags=re.DOTALL)
+    non_code_text = re.sub(
+        r"`[^`\n]*\[[^\]]*\]\([^)]*\)[^`\n]*`", "", non_code_text
+    )
+    for match in docs._MARKDOWN_LINK_RE.finditer(non_code_text):
+        raw_target = match.group(1).strip()
+        if not raw_target or raw_target.startswith(
+            (
+                "http://",
+                "https://",
+                "mailto:",
+                "file://",
+                "conversation://",
+                "#",
+                "b/",
+                "go/",
+                "g3doc/",
+                "crbug/",
+                "cs/",
+                "//cs/",
+            )
+        ):
+            continue
+        if "<" in raw_target or ">" in raw_target:
+            continue
+        target_path_str = raw_target.split("#", 1)[0].strip()
+        if not target_path_str:
+            continue
+
+        candidates = [
+            fpath.parent / target_path_str,
+            repo_root / target_path_str.lstrip("/"),
+            workspace_root / target_path_str.lstrip("/"),
+        ]
+        if not any(c.exists() for c in candidates):
+            return (
+                False,
+                "Blocked by AEMU Harness Documentation Drift Guardrail: "
+                f"Broken relative link `{raw_target}` in '{norm_path}'. "
+                "Verify the target file path exists before referencing it.",
+            )
+
+    # 3. Check Bazel package labels and target names when inside a goldfish tree
+    if (repo_root / "emulator").is_dir() or (fpath.parent / "BUILD.bazel").is_file():
+        for match in docs._BAZEL_LABEL_RE.finditer(prospective_text):
+            label = match.group(1)
+            pkg_dir = docs._resolve_bazel_pkg_dir(label, repo_root, workspace_root)
+            if pkg_dir is None:
+                continue
+            build_file = pkg_dir / "BUILD.bazel"
+            if not build_file.is_file():
+                build_file = pkg_dir / "BUILD"
+            if not build_file.is_file():
+                return (
+                    False,
+                    "Blocked by AEMU Harness Documentation Drift Guardrail: "
+                    f"Bazel label `{label}` in '{norm_path}' points to a directory without BUILD.bazel ({pkg_dir}).",
+                )
+            if ":" in label:
+                target_name = label.split(":", 1)[1].strip()
+                try:
+                    build_text = build_file.read_text(encoding="utf-8")
+                except OSError:
+                    build_text = ""
+                if not docs._bazel_target_exists_in_build_file(target_name, build_text):
+                    return (
+                        False,
+                        "Blocked by AEMU Harness Documentation Drift Guardrail: "
+                        f"Bazel target `{label}` in '{norm_path}' was not found in '{build_file}'.",
+                    )
+
+    # 4. Prevent stripping the AGENTS.md cross-link from a co-located ARCHITECTURE.md
+    if (
+        filename == "ARCHITECTURE.md"
+        and (fpath.parent / "AGENTS.md").is_file()
+        and "AGENTS.md" not in prospective_text
+    ):
+        return (
+            False,
+            "Blocked by AEMU Harness Documentation Drift Guardrail: "
+            f"'{norm_path}' has a co-located 'AGENTS.md' playbook and must retain a link to 'AGENTS.md'.",
+        )
+
+    return None
+
+
 def evaluate_file_edit_payload(
     payload: Dict[str, Any],
 ) -> Optional[Tuple[bool, str]]:
@@ -151,5 +334,9 @@ def evaluate_file_edit_payload(
         verdict = checker(norm_path, content)
         if verdict is not None:
             return verdict
+
+    doc_verdict = evaluate_goldfish_doc_drift(norm_path, content, payload=payload)
+    if doc_verdict is not None:
+        return doc_verdict
 
     return None

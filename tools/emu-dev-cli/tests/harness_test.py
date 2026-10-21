@@ -499,6 +499,107 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         self.assertTrue(report["installed"], msg=str(report))
         self.assertTrue(Path(target_str, "plugin.json").is_file())
 
+    def test_goldfish_doc_drift_guardrails_on_edit_and_commit(self) -> None:
+        ledger_store = SessionLedgerStore(base_dir=self.base_path / "harness")
+        goldfish = self.base_path / "hardware" / "generic" / "goldfish"
+        grpc_dir = goldfish / "emulator" / "plugin" / "grpc"
+        grpc_dir.mkdir(parents=True, exist_ok=True)
+        (goldfish / "AGENTS.md").write_text(
+            "# Goldfish Root Playbook\n\n"
+            "**Scope:** `hardware/generic/goldfish/**`\n"
+            "- [gRPC](emulator/plugin/grpc/AGENTS.md)\n",
+            encoding="utf-8",
+        )
+        (grpc_dir / "BUILD.bazel").write_text(
+            'cc_library(\n    name = "grpc_plugin",\n)\n',
+            encoding="utf-8",
+        )
+        (grpc_dir / "AGENTS.md").write_text(
+            "# gRPC Playbook\n\n"
+            "**Scope:** `hardware/generic/goldfish/emulator/plugin/grpc/**`\n"
+            "Uses `//emulator/plugin/grpc:grpc_plugin`.\n",
+            encoding="utf-8",
+        )
+        arch_path = grpc_dir / "ARCHITECTURE.md"
+        arch_path.write_text(
+            "# Component: gRPC\n\n"
+            "**Location:** `emulator/plugin/grpc/`\n"
+            "See [`AGENTS.md`](AGENTS.md).\n",
+            encoding="utf-8",
+        )
+
+        # 1. PreToolUse blocks write_file on AGENTS.md with missing Bazel target
+        deny_bad_target = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": "conv-doc-drift",
+                "toolCall": {
+                    "name": "write_file",
+                    "args": {
+                        "Path": str(grpc_dir / "AGENTS.md"),
+                        "Content": (
+                            "# gRPC Playbook\n\n"
+                            "Uses `//emulator/plugin/grpc:deleted_target`.\n"
+                        ),
+                    },
+                },
+            },
+            store=ledger_store,
+        )
+        self.assertEqual(deny_bad_target["decision"], HookDecision.DENY.value)
+        self.assertIn("deleted_target", deny_bad_target["reason"])
+
+        # 2. PreToolUse blocks edit_file on ARCHITECTURE.md that removes AGENTS.md link
+        deny_strip_agents = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": "conv-doc-drift",
+                "toolCall": {
+                    "name": "edit_file",
+                    "args": {
+                        "Path": str(arch_path),
+                        "Target": "See [`AGENTS.md`](AGENTS.md).\n",
+                        "Replacement": "No playbook link.\n",
+                    },
+                },
+            },
+            store=ledger_store,
+        )
+        self.assertEqual(deny_strip_agents["decision"], HookDecision.DENY.value)
+        self.assertIn("AGENTS.md", deny_strip_agents["reason"])
+
+        # 3. PreToolUse on git -C <goldfish> commit blocks when drift exists on disk
+        (grpc_dir / "AGENTS.md").write_text(
+            "# gRPC Playbook\n\nBroken link to [missing](deleted_header.h).\n",
+            encoding="utf-8",
+        )
+        msg_file = self.base_path / "valid_msg.txt"
+        msg_file.write_text(
+            "docs(grpc): Update gRPC agent playbook\n\n"
+            "Document reactor invariants and concurrency tests.\n\n"
+            "Bug: 485291270\n"
+            "Test: emu-dev-cli docs lint\n"
+            "Change-Id: I1234567890abcdef1234567890abcdef12345678\n",
+            encoding="utf-8",
+        )
+        commit_cmd = f'git -C "{goldfish}" commit -F "{msg_file}"'
+        verdict_blocked = evaluate_git_commit_command(commit_cmd)
+        self.assertIsNotNone(verdict_blocked)
+        self.assertFalse(verdict_blocked[0])  # type: ignore[index]
+        self.assertIn("Documentation Drift Guardrail", verdict_blocked[1])  # type: ignore[index]
+        self.assertIn("deleted_header.h", verdict_blocked[1])  # type: ignore[index]
+
+        # 4. Once drift is fixed, git -C <goldfish> commit is allowed
+        (grpc_dir / "AGENTS.md").write_text(
+            "# gRPC Playbook\n\n"
+            "**Scope:** `hardware/generic/goldfish/emulator/plugin/grpc/**`\n"
+            "Uses `//emulator/plugin/grpc:grpc_plugin` and [arch](ARCHITECTURE.md).\n",
+            encoding="utf-8",
+        )
+        verdict_ok = evaluate_git_commit_command(commit_cmd)
+        self.assertIsNotNone(verdict_ok)
+        self.assertTrue(verdict_ok[0], msg=verdict_ok[1])  # type: ignore[index]
+
 
 if __name__ == "__main__":
     unittest.main()
