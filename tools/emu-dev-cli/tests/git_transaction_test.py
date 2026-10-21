@@ -157,7 +157,7 @@ class GitTransactionTest(unittest.TestCase):
         from lib.git_transaction import resolve_git_repo_for_target
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            super_root = Path(tmpdir)
+            super_root = Path(tmpdir).resolve()
             goldfish_sub = super_root / "hardware" / "generic" / "goldfish"
             goldfish_sub.mkdir(parents=True)
             (goldfish_sub / ".git").mkdir()

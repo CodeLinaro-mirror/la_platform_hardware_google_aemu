@@ -4,9 +4,15 @@
 name: create-commit
 description: Guide creating a commit meeting Gerrit standards and verification rules.
 
+args:
+  - name: repo
+    help: "Target git repository path (defaults to current working directory)"
+    required: false
+    default: "."
+
 init:
   base-commit:
-    cmd: "python3 {workflow_dir}/get_base_commit.py --cwd ."
+    cmd: "python3 {workflow_dir}/get_base_commit.py --cwd {repo}"
   proposed-msg-file: "{cache-dir}/proposed_commit_msg_{state_id}.txt"
   setup-files:
     cmd: "python3 {workflow_dir}/setup_msg_files.py {proposed-msg-file}"
@@ -42,7 +48,7 @@ steps:
     prompt: |
       The proposed commit message in '{proposed-msg-file}' has been verified.
       Please create a commit for the changes in your working tree using the verified commit message.
-    verifier_cmd: "python3 {workflow_dir}/verify_commit.py {base-commit} --proposed-file {proposed-msg-file} --cwd ."
+    verifier_cmd: "python3 {workflow_dir}/verify_commit.py {base-commit} --proposed-file {proposed-msg-file} --cwd {repo}"
     error_prompt: |
       Commit verification failed (attempt {retries} of {max_retries}):
       {verifier_error}
