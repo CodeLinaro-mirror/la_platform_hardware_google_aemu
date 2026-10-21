@@ -9,7 +9,6 @@ import shutil
 import subprocess
 import sys
 
-from commands.harness.plugin_installer import install_harness_plugin
 from commands.source_directory import (
     ensure_codesearch_urls_config,
     get_all_source_directories,
@@ -794,7 +793,12 @@ def run_install_cmd(args):
             final_installed = fallback
 
     skill_files = install_skill()
-    harness_report = install_harness_plugin(cli_command=str(final_installed) if final_installed else None)
+    harness_report = {}
+    try:
+        from commands.harness.plugin_installer import install_harness_plugin
+        harness_report = install_harness_plugin(cli_command=str(final_installed) if final_installed else None)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not install harness plugin: %s", exc)
     ensure_codesearch_urls_config()
 
     cleanup_reports = {}
