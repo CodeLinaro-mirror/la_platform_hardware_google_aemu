@@ -37,7 +37,10 @@ from lib.gerrit_api import (
 )
 from lib.output import format_markdown_table
 from workflows.core import get_state_base_dir, resume_workflow_session
-import yaml
+try:
+    import yaml
+except ImportError:
+    yaml = None
 
 
 def _print_json(data: dict[str, Any]) -> None:
@@ -74,7 +77,7 @@ def find_sessions_for_cl(
     """Finds cached workflow sessions matching a CL number or Change-Id."""
     normalized = parse_cl_identifier(cl_identifier)
     wf_dir = Path(get_state_base_dir()) / workflow_name
-    if not wf_dir.is_dir():
+    if yaml is None or not wf_dir.is_dir():
         return []
 
     matches: list[dict[str, Any]] = []

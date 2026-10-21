@@ -30,7 +30,10 @@ import os
 from pathlib import Path
 import sys
 from typing import Any, Dict, List, Optional, Tuple
-import yaml
+try:
+    import yaml
+except ImportError:
+    yaml = None
 
 from commands.harness.code_guardrails import evaluate_file_edit_payload
 from commands.harness.constants import (
@@ -277,7 +280,7 @@ def discover_active_workflows(
 ) -> List[Dict[str, Any]]:
     """Discovers active (`INIT`, `RUNNING`, `RETRY`, `WAITING_HUMAN`) workflow sessions."""
     root = state_root or get_workflow_state_root()
-    if not root.is_dir():
+    if yaml is None or not root.is_dir():
         return []
 
     active_statuses = {"INIT", "RUNNING", "RETRY", "WAITING_HUMAN", "STUCK"}
