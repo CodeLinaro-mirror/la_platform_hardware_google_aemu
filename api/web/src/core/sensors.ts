@@ -14,6 +14,7 @@
 
 import { GrpcWebTransport } from './transport';
 import { subscribe, Unsubscribe } from './streaming';
+import { SensorsChannel } from './sensors_channel';
 import {
   AmbientEnvironment,
   DeepPartial,
@@ -21,6 +22,7 @@ import {
   GetSensorsStateRequest,
   ImuTelemetry,
   RawSensorOverrides,
+  SensorType,
   SensorsService,
   SensorsServiceClientImpl,
   SensorsState,
@@ -30,11 +32,15 @@ import {
   Vector3f,
 } from '@android/emulator-services/sensors_service';
 
+/** Alias for TransitionMode.TRANSITION_MODE_STEP (instantaneous state jump without interpolation). */
+export const TRANSITION_MODE_IMMEDIATE = TransitionMode.TRANSITION_MODE_STEP;
+
 export {
   AmbientEnvironment,
   DevicePose,
   ImuTelemetry,
   RawSensorOverrides,
+  SensorType,
   SensorsState,
   TransitionMode,
   UpdateSensorsStateRequest,
@@ -55,9 +61,16 @@ export type SensorsStateUpdate = DeepPartial<UpdateSensorsStateRequest>;
  */
 export class SensorsClient {
   private readonly rpc: SensorsService;
+  private readonly channel?: SensorsChannel;
+  private orientationListener: ((event: DeviceOrientationEvent) => void) | null = null;
 
-  constructor(transport: GrpcWebTransport) {
+  constructor(transport: GrpcWebTransport, channel?: SensorsChannel) {
     this.rpc = new SensorsServiceClientImpl(transport);
+    this.channel = channel;
+  }
+
+  public get isBrowserStreaming(): boolean {
+    return this.orientationListener !== null;
   }
 
   public GetSensorsState(
@@ -79,6 +92,60 @@ export class SensorsClient {
    */
   public UpdateSensorsState(update: SensorsStateUpdate): Promise<SensorsState> {
     return this.rpc.UpdateSensorsState(UpdateSensorsStateRequest.fromPartial(update));
+  }
+
+  /**
+   * Sends a high-frequency partial sensor update over the WebRTC "sensors_v2"
+   * SCTP DataChannel when open.
+   *
+   * Drops the update when the DataChannel is unavailable or congested rather
+   * than falling back to un-throttled unary gRPC calls, preventing backend
+   * congestion collapse and denial of service.
+   *
+   * @returns true if the update was sent immediately over the open DataChannel,
+   * false if dropped or queued.
+   */
+  public sendSensorUpdate(update: SensorsStateUpdate): boolean {
+    if (!this.channel) {
+      return false;
+    }
+    return this.channel.sendUpdate(update);
+  }
+
+  /**
+   * Starts streaming the client browser's physical DeviceOrientationEvent
+   * (alpha/beta/gamma) to the emulator's 3D DevicePose over the WebRTC
+   * "sensors_v2" SCTP DataChannel.
+   *
+   * Uses TransitionMode.TRANSITION_MODE_STEP (TRANSITION_MODE_IMMEDIATE) for continuous 60Hz streaming
+   * to avoid overlapping animation conflicts and lag in the guest physics engine.
+   */
+  public startBrowserSensorStream(): void {
+    if (this.orientationListener || typeof window === 'undefined') {
+      return;
+    }
+    this.orientationListener = (ev: DeviceOrientationEvent) => {
+      const pitch = ev.beta ?? 0;
+      const yaw = ev.alpha ?? 0;
+      const roll = ev.gamma ?? 0;
+      this.sendSensorUpdate({
+        pose: {
+          rotationDegrees: { x: pitch, y: yaw, z: roll },
+        },
+        transition: TRANSITION_MODE_IMMEDIATE,
+      });
+    };
+    window.addEventListener('deviceorientation', this.orientationListener);
+  }
+
+  /**
+   * Stops streaming the client browser's physical DeviceOrientationEvent.
+   */
+  public stopBrowserSensorStream(): void {
+    if (this.orientationListener && typeof window !== 'undefined') {
+      window.removeEventListener('deviceorientation', this.orientationListener);
+    }
+    this.orientationListener = null;
   }
 
   /** Callback form of {@link SensorsClient.StreamSensorsState}. */

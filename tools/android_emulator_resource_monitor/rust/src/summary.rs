@@ -12,8 +12,10 @@ pub fn get_val(s: &str, for_ts: bool) -> f32 {
         return f32::NAN;
     }
 
-    let re_pct = Regex::new(r"(-?\d+\.?\d*)%").unwrap();
-    let re_float = Regex::new(r"(-?\d+\.?\d*)").unwrap();
+    static RE_PCT: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    static RE_FLOAT: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let re_pct = RE_PCT.get_or_init(|| Regex::new(r"(-?\d+\.?\d*)%").unwrap());
+    let re_float = RE_FLOAT.get_or_init(|| Regex::new(r"(-?\d+\.?\d*)").unwrap());
 
     if let Some(caps) = re_pct.captures(s) {
         return caps[1].parse::<f32>().unwrap_or(0.0);
@@ -44,8 +46,10 @@ pub struct SessionSummary {
     pub host_ram_sum: f32,
     pub host_ram_max: f32,
     pub time_series: Vec<HashMap<String, f32>>,
+    pub time_series_str: Vec<std::collections::BTreeMap<String, String>>,
     pub boot_logs: HashMap<String, Vec<(String, String)>>,
     pub device_names: HashMap<String, String>,
+    pub netsim_summary_lines: Vec<String>,
 }
 
 impl SessionSummary {
@@ -58,8 +62,10 @@ impl SessionSummary {
             host_ram_sum: 0.0,
             host_ram_max: 0.0,
             time_series: Vec::new(),
+            time_series_str: Vec::new(),
             boot_logs: HashMap::new(),
             device_names: HashMap::new(),
+            netsim_summary_lines: Vec::new(),
         }
     }
 
@@ -73,6 +79,16 @@ impl SessionSummary {
                     entry.insert(new_full_key, val);
                 }
             }
+        }
+        let old_ns_key = format!("netsim_state_{}", old_key);
+        let new_ns_key = format!("netsim_state_{}", new_key);
+        for entry in &mut self.time_series_str {
+            if let Some(val) = entry.remove(&old_ns_key) {
+                entry.insert(new_ns_key.clone(), val);
+            }
+        }
+        if let Some(logs) = self.boot_logs.remove(old_key) {
+            self.boot_logs.entry(new_key.to_string()).or_default().extend(logs);
         }
     }
 }
@@ -88,7 +104,8 @@ pub fn get_p95(time_series: &[HashMap<String, f32>], key: &str) -> f32 {
     }
 
     vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let idx = (vals.len() * 95 / 100).min(vals.len() - 1);
+    let len = vals.len();
+    let idx = (95 * len + 99) / 100 - 1;
     vals[idx]
 }
 
@@ -127,6 +144,13 @@ pub fn export_csv(summary: &SessionSummary, filename: &str) -> Result<(), Box<dy
             }
         }
     }
+    for entry in &summary.time_series_str {
+        for key in entry.keys() {
+            if !all_keys.contains(key) {
+                all_keys.push(key.clone());
+            }
+        }
+    }
 
     if let Some(pos) = all_keys.iter().position(|k| k == "time") {
         all_keys.remove(pos);
@@ -138,7 +162,8 @@ pub fn export_csv(summary: &SessionSummary, filename: &str) -> Result<(), Box<dy
 
     wtr.write_record(&all_keys)?;
 
-    for entry in &summary.time_series {
+    for (idx, entry) in summary.time_series.iter().enumerate() {
+        let str_entry = summary.time_series_str.get(idx);
         let mut row = Vec::new();
         for key in &all_keys {
             let val = if key == "time" {
@@ -146,8 +171,12 @@ pub fn export_csv(summary: &SessionSummary, filename: &str) -> Result<(), Box<dy
                 let system_time = summary.start_time + std::time::Duration::from_secs_f64(elapsed as f64);
                 let datetime: chrono::DateTime<chrono::Local> = system_time.into();
                 datetime.format("%Y-%m-%d %H:%M:%S").to_string()
+            } else if let Some(&v) = entry.get(key) {
+                if v.is_nan() { String::new() } else { v.to_string() }
+            } else if let Some(sv) = str_entry.and_then(|m| m.get(key)) {
+                sv.clone()
             } else {
-                entry.get(key).map(|v| v.to_string()).unwrap_or_default()
+                String::new()
             };
             row.push(val);
         }
@@ -189,7 +218,7 @@ pub fn save_summary(summary: &SessionSummary, out_dir: &str, save_csv: bool, sav
         System::kernel_version().unwrap_or_default()
     );
 
-    let adb_ver = match std::process::Command::new("adb").arg("version").output() {
+    let adb_ver = match std::process::Command::new(crate::guest::find_adb()).arg("version").output() {
         Ok(output) => String::from_utf8_lossy(&output.stdout).lines().next().unwrap_or("N/A").to_string(),
         Err(_) => "N/A".to_string(),
     };
@@ -253,6 +282,9 @@ pub fn save_summary(summary: &SessionSummary, out_dir: &str, save_csv: bool, sav
     lines.push(format!("  Average RAM Usage: {:.1} MB", avg_netsim_ram));
     lines.push(format!("  P95 RAM Usage:     {:.1} MB", p95_netsim_ram));
     lines.push("".to_string());
+    for l in &summary.netsim_summary_lines {
+        lines.push(l.clone());
+    }
 
     let raw_keys: Vec<String> = summary.device_names.keys().cloned().collect();
     let mut emulators = Vec::new();
@@ -425,7 +457,7 @@ mod tests {
             ts.push(entry);
         }
         let p95 = get_p95(&ts, "val");
-        assert_eq!(p95, 96.0);
+        assert_eq!(p95, 95.0);
     }
 
     #[test]
@@ -473,8 +505,10 @@ mod tests {
             host_ram_sum: 0.0,
             host_ram_max: 0.0,
             time_series: ts,
+            time_series_str: Vec::new(),
             boot_logs: HashMap::new(),
             device_names: HashMap::new(),
+            netsim_summary_lines: Vec::new(),
         };
 
         let dir = tempfile::tempdir().unwrap();
@@ -520,6 +554,10 @@ mod tests {
         entry.insert("emu_ram_emulator-5554".to_string(), 20.0);
         entry.insert("qemu_cpu_emulator-5554".to_string(), 30.0);
         summary.time_series.push(entry);
+        summary.boot_logs.insert(
+            "emulator-5554".to_string(),
+            vec![("+0s".to_string(), "CPU: 10%".to_string())],
+        );
 
         summary.migrate_keys("emulator-5554", "AI_Glasses_emulator-5554");
 
@@ -532,6 +570,8 @@ mod tests {
         assert_eq!(summary.time_series[0]["emu_cpu_tot_AI_Glasses_emulator-5554"], 10.0);
         assert_eq!(summary.time_series[0]["emu_ram_AI_Glasses_emulator-5554"], 20.0);
         assert_eq!(summary.time_series[0]["qemu_cpu_AI_Glasses_emulator-5554"], 30.0);
+        assert!(summary.boot_logs.contains_key("AI_Glasses_emulator-5554"));
+        assert!(!summary.boot_logs.contains_key("emulator-5554"));
     }
 
     #[test]
@@ -550,8 +590,10 @@ mod tests {
             host_ram_sum: 0.0,
             host_ram_max: 0.0,
             time_series: ts,
+            time_series_str: Vec::new(),
             boot_logs: HashMap::new(),
             device_names: HashMap::new(),
+            netsim_summary_lines: Vec::new(),
         };
 
         let dir = tempfile::tempdir().unwrap();
@@ -596,8 +638,10 @@ mod tests {
             host_ram_sum: 0.0,
             host_ram_max: 0.0,
             time_series: ts,
+            time_series_str: Vec::new(),
             boot_logs: HashMap::new(),
             device_names,
+            netsim_summary_lines: Vec::new(),
         };
 
         let dir = tempfile::tempdir().unwrap();

@@ -15,7 +15,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useDeviceClient } from './context';
 import { RtcConnectionState } from '../core/rtc_controller';
-import { SensorsState, SensorsStateUpdate } from '../core/sensors';
+import { SensorsState, SensorsStateUpdate, TransitionMode } from '../core/sensors';
 import { LocationState, LocationStateUpdate } from '../core/location';
 import { DeviceCapabilities } from '../core/capabilities';
 import { VmState } from '../core/vm';
@@ -97,6 +97,9 @@ export function useSensors(options: { stream?: boolean } = { stream: true }) {
   const client = useDeviceClient();
   const [sensors, setSensors] = useState<SensorsState | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isBrowserStreaming, setIsBrowserStreaming] = useState(
+    client.sensors.isBrowserStreaming
+  );
   const [error, setError] = useState<Error | null>(null);
 
   const fetchSensors = useCallback(async () => {
@@ -143,9 +146,38 @@ export function useSensors(options: { stream?: boolean } = { stream: true }) {
     [client]
   );
 
+  const streamSensorUpdate = useCallback(
+    (update: SensorsStateUpdate) => {
+      try {
+        return client.sensors.sendSensorUpdate(update);
+      } catch (err: any) {
+        setError(err);
+        throw err;
+      }
+    },
+    [client]
+  );
+
+  const setPoseRotation = useCallback(
+    (
+      rot: { pitch: number; yaw: number; roll: number },
+      transition: TransitionMode = TransitionMode.TRANSITION_MODE_SMOOTH
+    ) =>
+      streamSensorUpdate({
+        pose: { rotationDegrees: { x: rot.pitch, y: rot.yaw, z: rot.roll } },
+        transition,
+      }),
+    [streamSensorUpdate]
+  );
+
   const setAccelerometer = useCallback(
     (vec: { x: number; y: number; z: number }) =>
       updateSensors({ rawOverrides: { accelerometer: vec } }),
+    [updateSensors]
+  );
+
+  const clearRawOverrides = useCallback(
+    () => updateSensors({ rawOverrides: {} }),
     [updateSensors]
   );
 
@@ -172,15 +204,43 @@ export function useSensors(options: { stream?: boolean } = { stream: true }) {
     [updateSensors]
   );
 
+  const setPressure = useCallback(
+    (hpa: number) => updateSensors({ environment: { pressureHpa: hpa } }),
+    [updateSensors]
+  );
+
+  const setHumidity = useCallback(
+    (percent: number) => updateSensors({ environment: { relativeHumidityPercent: percent } }),
+    [updateSensors]
+  );
+
+  const startBrowserSensorStream = useCallback(() => {
+    client.sensors.startBrowserSensorStream();
+    setIsBrowserStreaming(client.sensors.isBrowserStreaming);
+  }, [client]);
+
+  const stopBrowserSensorStream = useCallback(() => {
+    client.sensors.stopBrowserSensorStream();
+    setIsBrowserStreaming(client.sensors.isBrowserStreaming);
+  }, [client]);
+
   return {
     sensors,
     fetchSensors,
     updateSensors,
+    streamSensorUpdate,
+    setPoseRotation,
     setAccelerometer,
+    clearRawOverrides,
     setOrientation,
     setAmbientLight,
     setProximity,
     setTemperature,
+    setPressure,
+    setHumidity,
+    isBrowserStreaming,
+    startBrowserSensorStream,
+    stopBrowserSensorStream,
     isUpdating,
     error,
   };

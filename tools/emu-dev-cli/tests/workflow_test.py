@@ -334,6 +334,153 @@ steps:
                 init_workflow_session(wf1, [])
             self.assertIn("Circular workflow dependency detected", str(cm.exception))
 
+    def test_modular_bug_fixing_workflows_discovered(self):
+        workflows = list_available_workflows()
+        for expected in (
+            "reproduce-bug",
+            "fix-bug",
+            "repo-upload",
+            "human-verify",
+            "custom-workflow",
+        ):
+            self.assertIn(expected, workflows, f"Expected workflow {expected} to be registered")
+
+    def test_custom_instructions_in_step_and_sub_workflow(self):
+        import tempfile
+        from workflows.core.yaml_runner import (
+            init_workflow_session,
+            execute_workflow_step,
+            load_state_yaml,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            state_dir = os.path.join(td, "state")
+            old_env = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
+            os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = state_dir
+            try:
+                child_yaml = os.path.join(td, "child_custom.yaml")
+                with open(child_yaml, "w") as f:
+                    f.write("""name: child-custom
+steps:
+  - step: 0
+    prompt: Base child prompt.
+    verifier_cmd: "python3 -c \\"import sys; sys.exit(0)\\""
+  - step: 1
+    prompt: Child done.
+    verifier_cmd: null
+""")
+                parent_yaml = os.path.join(td, "parent_custom.yaml")
+                with open(parent_yaml, "w") as f:
+                    f.write(f"""name: parent-custom
+steps:
+  - step: 0
+    title: Run child with custom instructions
+    custom_instructions: "Check Vulkan swapchain null pointer in display.cpp"
+    workflow:
+      name: "{child_yaml}"
+  - step: 1
+    prompt: Parent finished.
+    verifier_cmd: null
+""")
+                old_stdout = sys.stdout
+                sys.stdout = io.StringIO()
+                try:
+                    p_id = init_workflow_session(parent_yaml, [])
+                    execute_workflow_step(parent_yaml, p_id)
+                    step0_out = sys.stdout.getvalue()
+                    self.assertIn("Check Vulkan swapchain null pointer in display.cpp", step0_out)
+                    self.assertIn("Additional Instructions:", step0_out)
+                finally:
+                    sys.stdout = old_stdout
+            finally:
+                if old_env is not None:
+                    os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = old_env
+                else:
+                    os.environ.pop("EMU_DEV_CLI_WORKFLOW_STATE_DIR", None)
+
+    def test_human_verify_barrier_and_approval(self):
+        import tempfile
+        from workflows.core.yaml_runner import (
+            init_workflow_session,
+            execute_workflow_step,
+            approve_workflow_session,
+            load_state_yaml,
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            state_dir = os.path.join(td, "state")
+            old_env = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
+            os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = state_dir
+            try:
+                wf_yaml = os.path.join(td, "gated_wf.yaml")
+                with open(wf_yaml, "w") as f:
+                    f.write("""name: gated-wf
+steps:
+  - step: 0
+    title: Human Verification Barrier
+    human_verify: true
+    custom_instructions: "Confirm reproduction before continuing."
+    prompt: "Waiting for human approval."
+  - step: 1
+    title: Final Step
+    prompt: "Proceeding after approval."
+    verifier_cmd: null
+""")
+                old_stdout = sys.stdout
+                sys.stdout = io.StringIO()
+                try:
+                    s_id = init_workflow_session(wf_yaml, [])
+                    execute_workflow_step(wf_yaml, s_id)
+                finally:
+                    sys.stdout = old_stdout
+
+                state_file = os.path.join(state_dir, "gated-wf", f"STATE-{s_id}.yaml")
+                st = load_state_yaml(state_file)
+                self.assertEqual(st["state"], "WAITING_HUMAN")
+                self.assertEqual(st["step"], 0)
+
+                # Calling execute_workflow_step before approval keeps it at step 0 in WAITING_HUMAN without burning retries
+                old_stdout = sys.stdout
+                sys.stdout = io.StringIO()
+                try:
+                    rc = execute_workflow_step(wf_yaml, s_id)
+                finally:
+                    sys.stdout = old_stdout
+                self.assertEqual(rc, 0)
+                st = load_state_yaml(state_file)
+                self.assertEqual(st["state"], "WAITING_HUMAN")
+                self.assertEqual(st["step"], 0)
+                self.assertEqual(st["retries"], 0)
+
+                # Now approve via approve_workflow_session and advance
+                old_stdout = sys.stdout
+                sys.stdout = io.StringIO()
+                try:
+                    ok, msg = approve_workflow_session(
+                        state_id=s_id,
+                        workflow_name="gated-wf",
+                        feedback="Looks good, proceed with fix!",
+                        state_base_dir=None,
+                        advance=False,
+                    )
+                    rc2 = execute_workflow_step(wf_yaml, s_id)
+                    approve_out = sys.stdout.getvalue()
+                finally:
+                    sys.stdout = old_stdout
+
+                self.assertTrue(ok)
+                self.assertEqual(rc2, 0)
+                self.assertIn("Looks good, proceed with fix!", approve_out)
+                st = load_state_yaml(state_file)
+                self.assertEqual(st["state"], "DONE")
+                self.assertEqual(st["step"], 1)
+            finally:
+                if old_env is not None:
+                    os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = old_env
+                else:
+                    os.environ.pop("EMU_DEV_CLI_WORKFLOW_STATE_DIR", None)
+
 
 if __name__ == "__main__":
     unittest.main()
+

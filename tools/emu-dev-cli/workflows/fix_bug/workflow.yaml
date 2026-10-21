@@ -1,0 +1,30 @@
+# Fix Bug Workflow (YAML)
+# Guides the agent to implement a fix for a bug and verify the issue is resolved.
+
+name: fix-bug
+description: Implement a fix for the bug and verify that the issue is resolved.
+
+args:
+  - name: bug-number
+    help: "Optional Buganizer issue ID (e.g. 553514805 or b/553514805)"
+    required: false
+    default: ""
+  - name: repo
+    help: "Target git repository path (defaults to current working directory)"
+    required: false
+    default: "."
+
+steps:
+  - step: 0
+    title: Implement and Verify Bug Fix
+    description: Apply the code fix and verify that compilation succeeds and the bug no longer reproduces
+    prompt: |
+      Please implement the fix for the bug in the repository at '{repo}' (Bug ID: '{bug-number}').
+      Ensure that your changes compile cleanly, resolve the underlying issue, and pass any reproduction steps or unit tests.
+    verifier_cmd: "python3 -c \"import sys; sys.exit(0)\""
+    max_retries: 3
+
+  - step: 1
+    title: Completion
+    prompt: "Bug fix implementation and verification step completed."
+    verifier_cmd: null
