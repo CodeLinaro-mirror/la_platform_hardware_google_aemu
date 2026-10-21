@@ -431,6 +431,7 @@ INDEX_HTML: str = """<!DOCTYPE html>
     <button class="tab-btn active" onclick="switchTab('control', this)">Control Center</button>
     <button class="tab-btn" onclick="switchTab('commit', this)">Commit Sandbox</button>
     <button class="tab-btn" onclick="switchTab('libs', this)">//emulator/libs/*</button>
+    <button class="tab-btn" onclick="switchTab('swarm', this)">Review Swarm</button>
   </div>
 
   <div id="tab-control" class="tab-pane active">
@@ -462,8 +463,8 @@ INDEX_HTML: str = """<!DOCTYPE html>
         <button onclick="dispatchPrompt('Run `emu-dev-cli workflow amend-commit init` to amend HEAD with a verified Semantic Commit.')">
           ✏️ Amend HEAD Commit
         </button>
-        <button onclick="dispatchPrompt('Run a 3-agent parallel code review swarm on my current commit/CL covering (1) //emulator/libs/* reuse, (2) go/error-messages & TotW 181 StatusOr, and (3) 5-way code complexity & Unicode safety.')">
-          🐝 3-Agent Review Swarm
+        <button onclick="dispatchPrompt('Run `emu-dev-cli harness review-swarm` to launch the 8-Specialist Single-Wave Parallel Code-Review Swarm on my current commit/CL.')">
+          🐝 8-Agent Review Swarm
         </button>
         <button onclick="dispatchPrompt('Run `emu-dev-cli workflow address-review init` to fetch and resolve open Gerrit review comments on my CL.')">
           💬 Address Gerrit Review
@@ -505,6 +506,21 @@ INDEX_HTML: str = """<!DOCTYPE html>
       <div class="section-title">📚 //emulator/libs/* Reuse Explorer</div>
       <input type="text" id="libs-search" oninput="renderLibs()" placeholder="Filter by keyword (e.g. http, file, ini, async, system)..." />
       <div id="libs-list"></div>
+    </div>
+  </div>
+
+  <div id="tab-swarm" class="tab-pane">
+    <div class="section">
+      <div class="section-title">🐝 8-Specialist Parallel Code-Review Swarm</div>
+      <input type="text" id="swarm-target" value="HEAD" placeholder="Gerrit CL (e.g. 43137255, ag/43137255) or git ref (HEAD)" />
+      <div class="btn-grid" style="margin-bottom:8px;">
+        <button onclick="launchReviewSwarm('workflow')">⚡ Launch 8-Agent run_workflow</button>
+        <button onclick="launchReviewSwarm('swarm')">🐝 Launch 8-Agent Native Swarm</button>
+      </div>
+      <div class="muted">
+        Specialists: (1) Commit &amp; Bug, (2) Duplication &amp; Reuse, (3) Modularity, (4) Control Flow,
+        (5) Named Constants, (6) Unicode &amp; Platform, (7) Error Messages &amp; StatusOr, (8) Concurrency &amp; Safety.
+      </div>
     </div>
   </div>
 
@@ -565,6 +581,13 @@ INDEX_HTML: str = """<!DOCTYPE html>
       const msg = document.getElementById("commit-input").value.trim();
       if (!msg) return;
       dispatchPrompt("Commit the current staged changes using this exact Semantic Commit message:\\n\\n```\\n" + msg + "\\n```");
+    }
+
+    function launchReviewSwarm(mode) {
+      const target = (document.getElementById("swarm-target").value || "HEAD").trim();
+      dispatchPrompt(
+        `Run \\`emu-dev-cli harness review-swarm --target "${target}" --mode ${mode}\\` to prepare the 8-Specialist Single-Wave Parallel Code-Review Swarm, then execute the generated workflow script via \\`run_workflow\\` and present the diff-bounded Markdown report and Gerrit JSON payload.`
+      );
     }
 
     function renderLibs() {

@@ -57,6 +57,7 @@ from commands.harness.constants import (
 )
 from commands.harness.diagnostics import enrich_post_tool_result
 from commands.harness.ledger import SessionLedgerStore
+from commands.harness.upload_guardrails import evaluate_upload_command
 
 
 def _load_commit_verifier():
@@ -91,6 +92,41 @@ def _extract_tool_name(payload: Dict[str, Any]) -> str:
     tool_call = payload.get("toolCall") or payload.get("tool_call") or {}
     name = tool_call.get("name") or payload.get("tool_name") or ""
     return str(name).strip()
+
+
+def _extract_workspace_dir(payload: Dict[str, Any]) -> Optional[Path]:
+    """Extracts the active workspace directory from a Jetski hook payload."""
+    tool_call = payload.get("toolCall") or payload.get("tool_call") or {}
+    args = tool_call.get("args") or payload.get("tool_input") or {}
+    for key in ("Cwd", "cwd"):
+        arg_val = args.get(key)
+        if isinstance(arg_val, str) and arg_val.strip():
+            return Path(arg_val.strip()).expanduser()
+
+    ws_paths = payload.get("workspacePaths") or payload.get("workspace_paths")
+    if isinstance(ws_paths, list):
+        for entry in ws_paths:
+            if isinstance(entry, str) and entry.strip():
+                cand = Path(entry.strip()).expanduser()
+                if cand.exists():
+                    return cand
+        if ws_paths and isinstance(ws_paths[0], str) and ws_paths[0].strip():
+            return Path(ws_paths[0].strip()).expanduser()
+
+    for key in ("cwd", "workspacePath", "workspace_path"):
+        val = payload.get(key)
+        if isinstance(val, str) and val.strip():
+            return Path(val.strip()).expanduser()
+    return None
+
+
+def _unescape_inline_commit_paragraph(paragraph: str) -> str:
+    """Unescapes shell-escaped quotes and newlines from inline `-m` arguments."""
+    return (
+        paragraph.replace("\\n", "\n")
+        .replace("\\'", "'")
+        .replace('\\"', '"')
+    )
 
 
 def evaluate_git_commit_command(command: str) -> Optional[Tuple[bool, str]]:
@@ -129,8 +165,11 @@ def evaluate_git_commit_command(command: str) -> Optional[Tuple[bool, str]]:
         return True, f"Verified Semantic Commit message file '{file_path_str}'"
 
     if msg_matches:
-        paragraphs = [m[0] or m[1] or m[2] for m in msg_matches]
-        combined_msg = "\n\n".join(paragraphs).replace("\\n", "\n")
+        paragraphs = [
+            _unescape_inline_commit_paragraph(m[0] or m[1] or m[2] or m[3])
+            for m in msg_matches
+        ]
+        combined_msg = "\n\n".join(paragraphs)
         errors = verifier.validate_commit_message(combined_msg)
         if errors:
             bullet_errors = "\n".join(f"  - {err}" for err in errors)
@@ -319,7 +358,12 @@ def handle_pre_tool_hook(
     rewrite_result = rewrite_command_if_needed(command)
     effective_command = rewrite_result[0] if rewrite_result else command
 
-    for evaluator in (evaluate_git_commit_command, evaluate_gerrit_command):
+    default_cwd = _extract_workspace_dir(payload)
+    for evaluator in (
+        evaluate_git_commit_command,
+        evaluate_gerrit_command,
+        lambda cmd: evaluate_upload_command(cmd, default_cwd=default_cwd),
+    ):
         verdict = evaluator(effective_command)
         if verdict is None:
             continue
