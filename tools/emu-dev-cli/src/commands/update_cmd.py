@@ -6,6 +6,7 @@ import subprocess
 
 from commands.source_directory import get_source_directory, ensure_codesearch_urls_config
 from install.installer import install_launcher_wrapper, install_skill, detect_default_install_path, resolve_built_artifact
+from lib.bazel import find_bazel_cmd
 from lib.output import print_result
 
 BAZEL_TARGET = "@aemu//tools/emu-dev-cli:emu-dev-cli"
@@ -23,46 +24,6 @@ def register_parser(subparsers):
         help="Destination executable path override"
     )
     update_parser.set_defaults(func=run_update_cmd)
-
-
-def find_bazel_cmd(source_dir):
-    system = platform.system().lower()
-    machine = platform.machine().lower()
-
-    if system == "linux":
-        platform_dirs = ["linux-x86_64"]
-        exe_names = ["bazel"]
-    elif system == "darwin":
-        if machine in ("arm64", "aarch64"):
-            platform_dirs = ["darwin-arm64", "darwin-x86_64", "mac-arm64", "mac-x86_64"]
-        else:
-            platform_dirs = ["darwin-x86_64", "mac-x86_64"]
-        exe_names = ["bazel"]
-    elif system == "windows":
-        platform_dirs = ["windows-x86_64", "windows"]
-        exe_names = ["bazel.exe", "bazel"]
-    else:
-        platform_dirs = ["linux-x86_64"]
-        exe_names = ["bazel"]
-
-    # 1. Check repository prebuilts/bazel/<platform>/bazel
-    for p_dir in platform_dirs:
-        for exe in exe_names:
-            candidate = os.path.join(source_dir, "prebuilts", "bazel", p_dir, exe)
-            if os.path.exists(candidate):
-                if system == "windows" or os.access(candidate, os.X_OK):
-                    return candidate
-
-    # 2. Check local repo tools/bazel wrapper script
-    tools_bazel = os.path.join(source_dir, "tools", "bazel")
-    if os.path.exists(tools_bazel) and os.access(tools_bazel, os.X_OK):
-        return tools_bazel
-
-    # 3. Check system PATH
-    system_bazel = shutil.which("bazel")
-    if system_bazel:
-        return system_bazel
-    return "bazel"
 
 
 def run_update_cmd(args):

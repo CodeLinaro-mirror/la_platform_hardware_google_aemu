@@ -52,7 +52,7 @@ if _EMU_DEV_CLI_SRC.exists():
 
 try:
     from install import installer
-    from commands.update_cmd import find_bazel_cmd
+    from lib.bazel import find_bazel_cmd
     from commands.source_directory import ensure_codesearch_urls_config
 except ImportError:
     installer = None

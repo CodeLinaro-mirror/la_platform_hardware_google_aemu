@@ -35,6 +35,7 @@ py_library(
         [
             "docs/**/*.md",
             "harness/plugin/**",
+            "skills/*.md",
             "src/templates/*.md",
             "workflows/**/*.yaml",
             "workflows/**/*.yml",

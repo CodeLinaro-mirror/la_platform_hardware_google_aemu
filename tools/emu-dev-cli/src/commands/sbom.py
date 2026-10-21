@@ -23,7 +23,7 @@ import subprocess
 from typing import Any, Dict, List, Optional, Set
 
 from commands.source_directory import get_source_directory
-from commands.update_cmd import find_bazel_cmd
+from lib.bazel import find_bazel_cmd
 from lib.output import format_markdown_table, print_result
 
 SPDX_VALIDATOR_BIN = "/google/bin/releases/opensource/tools/spdx_validator/validate"
