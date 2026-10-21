@@ -35,9 +35,6 @@ if os.path.basename(_TESTS_DIR) == "tests" and os.path.basename(_EMU_DEV_CLI_DIR
 _SRC_DIR = os.path.join(_EMU_DEV_CLI_DIR, "src")
 _WORKFLOWS_DIR = os.path.join(_EMU_DEV_CLI_DIR, "workflows")
 
-for d in (_SRC_DIR, _EMU_DEV_CLI_DIR, _WORKFLOWS_DIR):
-    if d not in sys.path:
-        sys.path.insert(0, d)
 
 from workflows.ui.server import (
     clear_sessions,

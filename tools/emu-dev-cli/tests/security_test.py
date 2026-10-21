@@ -23,8 +23,6 @@ import unittest
 SRC_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"
 )
-if SRC_DIR not in sys.path:
-    sys.path.insert(0, SRC_DIR)
 
 from lib.security import is_path_secure_user_owned, ensure_secure_permissions
 
