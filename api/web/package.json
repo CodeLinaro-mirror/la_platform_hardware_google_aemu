@@ -44,25 +44,34 @@
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0"
   },
+  "peerDependenciesMeta": {
+    "@android/emulator-services": {
+      "optional": true
+    }
+  },
   "dependencies": {
-    "@bufbuild/protobuf": "^2.14.0",
+    "@bufbuild/protobuf": "2.9.0",
     "grpc-web": "^1.5.0",
     "loglevel": "^1.9.2",
     "rxjs": "^7.8.1"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "@types/react": "^18.3.0",
-    "@types/react-dom": "^18.3.0",
-    "esbuild": "^0.21.5",
-    "scheduler": "^0.23.2",
+    "@types/node": "^18.16.0",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "esbuild": "0.28.1",
+    "scheduler": "0.27.0",
     "esbuild-wasm": "^0.28.2",
-    "react": "^18.3.0",
-    "react-dom": "^18.3.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
     "ts-proto": "^2.6.1",
-    "typescript": "^5.6.0"
+    "typescript": "5.0.4"
   },
   "pnpm": {
-    "onlyBuiltDependencies": []
+    "onlyBuiltDependencies": [],
+    "overrides": {
+      "@bufbuild/protobuf": "2.9.0",
+      "@types/node": "18.19.130"
+    }
   }
 }

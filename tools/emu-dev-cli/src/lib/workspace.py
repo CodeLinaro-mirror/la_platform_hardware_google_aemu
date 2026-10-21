@@ -199,6 +199,10 @@ class WorkspacePathResolver:
             package_dir = self.find_directory(Path(preferred_repo_dir) / pkg_rel)
         if not package_dir:
             package_dir = self.find_directory(pkg_rel)
+        if not package_dir and pkg_rel.startswith("tools/vendor/google/"):
+            package_dir = self.find_directory(
+                pkg_rel[len("tools/vendor/google/") :]
+            )
         if not package_dir:
             for prefix in repo_prefix_map.values():
                 cand = self.find_directory(Path(prefix) / pkg_rel)
@@ -212,6 +216,8 @@ class WorkspacePathResolver:
         # 3. Search primary source file inside package_dir via BUILD.bazel parsing heuristic
         matched_file = None
         build_bazel = package_dir / "BUILD.bazel"
+        if not build_bazel.is_file():
+            build_bazel = package_dir / "BUILD"
         if build_bazel.is_file():
             content = build_bazel.read_text(encoding="utf-8")
             if target_name in content:
@@ -227,7 +233,7 @@ class WorkspacePathResolver:
                             break
 
         if not matched_file:
-            for ext in (".cpp", ".cc", ".c", ".py", ".rs", ".go"):
+            for ext in (".cpp", ".cc", ".c", ".py", ".rs", ".go", ".ts", ".tsx", ".mjs", ".js"):
                 for name_cand in (
                     f"{target_name}{ext}",
                     f"{target_name.replace('_unittests', '_test')}{ext}",

@@ -30,31 +30,15 @@ import subprocess
 import sys
 from typing import Optional
 
-_CUR_DIR = Path(__file__).resolve().parent
-_GIT_COMMIT_DIR = str((_CUR_DIR.parent / "common" / "git_commit").resolve())
-if _GIT_COMMIT_DIR not in sys.path:
-    sys.path.insert(0, _GIT_COMMIT_DIR)
-
-try:
-    from commit_verifier import (
-        extract_all_change_ids,
-        find_commit_by_change_id,
-        get_commit_message,
-        is_ancestor_commit,
-        messages_match,
-        resolve_commit_hash,
-        validate_commit_message,
-    )
-except ImportError:
-    from workflows.common.git_commit import (
-        extract_all_change_ids,
-        find_commit_by_change_id,
-        get_commit_message,
-        is_ancestor_commit,
-        messages_match,
-        resolve_commit_hash,
-        validate_commit_message,
-    )
+from workflows.common.git_commit import (
+    extract_all_change_ids,
+    find_commit_by_change_id,
+    get_commit_message,
+    is_ancestor_commit,
+    messages_match,
+    resolve_commit_hash,
+    validate_commit_message,
+)
 
 
 def _resolve_change_id_from_file(original_change_id: str, current_file: str) -> str:

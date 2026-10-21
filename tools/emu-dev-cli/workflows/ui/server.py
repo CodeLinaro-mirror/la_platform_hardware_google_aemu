@@ -34,56 +34,28 @@ _CORE_DIR = _WORKFLOWS_DIR / "core"
 _EMU_DEV_CLI_DIR = _WORKFLOWS_DIR.parent
 _SRC_DIR = _EMU_DEV_CLI_DIR / "src"
 
-for d in (str(_SRC_DIR), str(_EMU_DEV_CLI_DIR), str(_WORKFLOWS_DIR)):
-    if d not in sys.path:
-        sys.path.insert(0, d)
-
 import shutil
 import sqlite3
 import subprocess
 import time
 import uuid
 
-try:
-    from workflows.core.yaml_runner import (
-        _parse_args_spec,
-        approve_workflow_session,
-        execute_workflow_step,
-        format_step_prompt,
-        get_state_base_dir,
-        init_workflow_session,
-        interpolate,
-        load_state_yaml,
-        load_yaml,
-        resolve_workflow_file,
-        save_state_yaml,
-        StateYamlDumper,
-    )
-except ImportError:
-    from core.yaml_runner import (
-        _parse_args_spec,
-        approve_workflow_session,
-        execute_workflow_step,
-        format_step_prompt,
-        get_state_base_dir,
-        init_workflow_session,
-        interpolate,
-        load_state_yaml,
-        load_yaml,
-        resolve_workflow_file,
-        save_state_yaml,
-        StateYamlDumper,
-    )
-
+from workflows.core.yaml_runner import (
+    _parse_args_spec,
+    approve_workflow_session,
+    execute_workflow_step,
+    format_step_prompt,
+    get_state_base_dir,
+    init_workflow_session,
+    interpolate,
+    load_state_yaml,
+    load_yaml,
+    resolve_workflow_file,
+    save_state_yaml,
+    StateYamlDumper,
+)
 import yaml
-
-try:
-    from commands.workflow import find_workflow_target, list_available_workflows
-except ImportError:
-    def list_available_workflows():
-        return {}
-    def find_workflow_target(name):
-        return None
+from commands.workflow import find_workflow_target, list_available_workflows
 
 
 def get_ui_html_path() -> Path:

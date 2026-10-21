@@ -80,6 +80,84 @@ class FlakinessListTest(unittest.TestCase):
             "//emulator/videobridge:in_process_media_provider_test",
         )
 
+    @patch("commands.flakiness.list_cmd.query_studio_flaky_tests")
+    @patch("commands.flakiness.list_cmd.print_result")
+    def test_handle_flakiness_list_studio_target(
+        self, mock_print_result, mock_studio_query
+    ):
+        mock_studio_query.return_value = [
+            FlakyTestRecord(
+                test_identifier="//tools/vendor/google/cli/android-device-hub/electron:test",
+                module_name="electron",
+                target="studio-linux",
+                config_name="//tools/vendor/google/cli/android-device-hub/electron",
+                total_runs=250,
+                failed_runs=1,
+                flake_rate_pct=0.4,
+                latest_build_id="16630553",
+                latest_invocation_id="ff0bab7a-ff89-4b52-b9f4-54561f5bc86e",
+                latest_work_unit_id="",
+                l100_failed=1,
+                l100_total=100,
+                l100_flake_rate_pct=1.0,
+                l250_failed=1,
+                l250_total=250,
+                l250_flake_rate_pct=0.4,
+                latest_failed_build_id="16630553",
+                latest_failed_invocation_id="ff0bab7a-ff89-4b52-b9f4-54561f5bc86e",
+            )
+        ]
+        # Omitting --min-flake-rate and --window defaults to ADH zero-tolerance (>0% over window=250)
+        args = self.parser.parse_args(
+            [
+                "flakiness",
+                "list",
+                "--target",
+                "studio-linux",
+            ]
+        )
+        flakiness.handle_flakiness_list(args)
+        mock_studio_query.assert_called_once()
+        _, kwargs = mock_studio_query.call_args
+        self.assertEqual(kwargs["min_flake_rate"], 0.0)
+        self.assertEqual(kwargs["min_failed_runs"], 1)
+        self.assertEqual(kwargs["window"], 250)
+
+        mock_print_result.assert_called_once()
+        data = mock_print_result.call_args[0][0]
+        self.assertEqual(data["source"], "f1_test_actions")
+        self.assertEqual(data["records_count"], 1)
+        self.assertEqual(
+            data["records"][0]["test_identifier"],
+            "//tools/vendor/google/cli/android-device-hub/electron:test",
+        )
+        self.assertEqual(data["days"], 20)
+        self.assertEqual(data["window"], 250)
+        self.assertIn(">0%", data["summary"])
+
+    @patch("commands.flakiness.list_cmd.query_studio_flaky_tests")
+    @patch("commands.flakiness.list_cmd.print_result")
+    def test_handle_flakiness_list_studio_target_explicit_zero_threshold(
+        self, mock_print_result, mock_studio_query
+    ):
+        mock_studio_query.return_value = []
+        args = self.parser.parse_args(
+            [
+                "flakiness",
+                "list",
+                "--target",
+                "studio-all",
+                "--min-flake-rate",
+                "0",
+            ]
+        )
+        flakiness.handle_flakiness_list(args)
+        mock_studio_query.assert_called_once()
+        _, kwargs = mock_studio_query.call_args
+        self.assertEqual(kwargs["min_flake_rate"], 0.0)
+        self.assertEqual(kwargs["min_failed_runs"], 0)
+        self.assertEqual(kwargs["window"], 250)
+
 
 if __name__ == "__main__":
     unittest.main()

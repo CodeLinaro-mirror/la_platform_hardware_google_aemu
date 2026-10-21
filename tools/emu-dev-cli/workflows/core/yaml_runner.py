@@ -25,6 +25,36 @@ import uuid
 
 import yaml
 
+_CORE_DIR = Path(__file__).resolve().parent
+_WORKFLOWS_DIR = _CORE_DIR.parent
+_EMU_DEV_CLI_DIR = _WORKFLOWS_DIR.parent
+_SRC_DIR = _EMU_DEV_CLI_DIR / "src"
+
+for _p in (str(_WORKFLOWS_DIR), str(_EMU_DEV_CLI_DIR), str(_SRC_DIR)):
+    if _p in sys.path:
+        sys.path.remove(_p)
+    if os.path.isdir(_p):
+        sys.path.insert(0, _p)
+
+
+def _build_subprocess_env(base_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """Builds an environment dictionary with emu-dev-cli import roots in PYTHONPATH."""
+    env = dict(base_env if base_env is not None else os.environ)
+    extra_paths = [
+        p
+        for p in (str(_SRC_DIR), str(_EMU_DEV_CLI_DIR), str(_WORKFLOWS_DIR))
+        if os.path.isdir(p)
+    ]
+    existing = env.get("PYTHONPATH", "")
+    existing_parts = [p for p in existing.split(os.pathsep) if p] if existing else []
+    merged = extra_paths + [p for p in existing_parts if p not in extra_paths]
+    if merged:
+        env["PYTHONPATH"] = os.pathsep.join(merged)
+    return env
+
+
+os.environ["PYTHONPATH"] = _build_subprocess_env().get("PYTHONPATH", "")
+
 
 class WorkflowError(Exception):
     """Base exception for workflow runtime and composition errors."""
@@ -269,13 +299,16 @@ def build_cmd_args(cmd_spec: Union[str, List[str]], context: Dict[str, Any]) -> 
         raw_tokens = shlex.split(str(cmd_spec))
 
     pattern = re.compile(r"\{([a-zA-Z0-9_.-]+)\}")
-    return [
+    tokens = [
         pattern.sub(
             lambda m: str(val) if (val := get_nested_context_val(context, m.group(1))) is not None else m.group(0),
             tok,
         )
         for tok in raw_tokens
     ]
+    if tokens and tokens[0] in ("python3", "python"):
+        tokens[0] = sys.executable
+    return tokens
 
 
 def execute_init(init_spec: Dict[str, Any], init_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -288,7 +321,12 @@ def execute_init(init_spec: Dict[str, Any], init_context: Optional[Dict[str, Any
         if isinstance(val, dict) and "cmd" in val:
             cmd_args = build_cmd_args(val["cmd"], ctx)
             try:
-                output = subprocess.check_output(cmd_args, shell=False, text=True).strip()
+                output = subprocess.check_output(
+                    cmd_args,
+                    shell=False,
+                    text=True,
+                    env=_build_subprocess_env(),
+                ).strip()
             except subprocess.CalledProcessError as e:
                 raise RuntimeError(
                     f"Init command for '{key}' failed with exit code {e.returncode}."
@@ -1102,7 +1140,13 @@ def execute_workflow_step(
     # Case 2C: Active Step with verifier_cmd executed safely with shell=False
     try:
         eval_cmd = build_cmd_args(verifier_cmd, context)
-        check_res = subprocess.run(eval_cmd, shell=False, text=True, capture_output=True)
+        check_res = subprocess.run(
+            eval_cmd,
+            shell=False,
+            text=True,
+            capture_output=True,
+            env=_build_subprocess_env(),
+        )
     except FileNotFoundError as e:
         check_res = subprocess.CompletedProcess(
             args=verifier_cmd,

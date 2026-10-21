@@ -1,0 +1,37 @@
+# Code Review: Control Flow & Nesting Reduction Workflow (YAML)
+# Reviews a commit to simplify control flow, introduce guard clauses, and reduce nesting.
+
+name: review-control-flow
+description: Review a commit to simplify control flow, introduce guard clauses, and reduce nesting.
+
+args:
+  - name: commit
+    required: false
+    default: "HEAD"
+    help: "Target commit reference or hash to review (default: HEAD)"
+  - name: repo
+    required: false
+    default: "."
+    help: "Target Git repository directory (default: .)"
+
+steps:
+  - step: 0
+    title: Review Commit to Simplify Control Flow and Flatten Nesting
+    prompt: |
+      Please check commit '{commit}' in repository '{repo}' to simplify control flow and reduce branching complexity:
+
+      1. Inspect the changes introduced in '{commit}' (e.g. via `git show {commit}` or `git diff {commit}~1..{commit}`).
+      2. Check for control flow complexity and deep nesting in modified or newly added code:
+         - Deeply nested blocks (3+ levels of indentation) burying the happy path.
+         - Missing guard clauses or early exits (`return`, `continue`, `break`, `raise`) where checking preconditions early would flatten indentation.
+         - Overly complex boolean expressions with multiple conjunctions/disjunctions or confusing double-negatives.
+         - Long, repetitive `if-elif-else` ladders that could be simplified with a dictionary or lookup table.
+      3. If complex control flow is found:
+         - Introduce guard clauses to exit early and keep the happy path at the root indentation level.
+         - Extract complex boolean conditions into well-named explanatory predicate functions or boolean variables.
+         - Replace repetitive branching ladders with lookup dictionaries or dispatch maps where appropriate.
+         - Verify that changes compile and any relevant tests pass.
+         - Amend the commit (preserving any Gerrit Change-Id).
+      4. If the commit's control flow is already clean, flat, and readable:
+         - Confirm that no changes are needed.
+    verifier_cmd: null

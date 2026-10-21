@@ -27,7 +27,10 @@ from aemu.toolchains.darwin_generator import (
 from aemu.toolchains.linux_arm_generator import LinuxToLinuxAarch64Generator
 from aemu.toolchains.linux_generator import LinuxToLinuxGenerator
 from aemu.toolchains.toolchain_generator import ToolchainGenerator
-from aemu.toolchains.windows_generator import WindowsToWindowsGenerator
+from aemu.toolchains.windows_generator import (
+    WindowsToWindowsAarch64Generator,
+    WindowsToWindowsGenerator,
+)
 
 # A mapping of target aliases to their canonical names (e.g., "os-arch").
 # This allows for flexibility in specifying targets while maintaining a
@@ -36,6 +39,8 @@ TARGET_ALIAS = {
     "emulator-windows_x64": "windows-x64",
     "windows": "windows-x64",
     "windows-msvc-x86_64": "windows-x64",
+    "windows-aarch64": "windows-aarch64",
+    "windows-msvc-aarch64": "windows-aarch64",
     "linux": "linux-x64",
     "trusty": "linux-x64",
     "emulator-linux_x64": "linux-x64",
@@ -108,6 +113,7 @@ def get_toolchain_generator(
     # generation.
     generator_map = {
         "windows-x64": WindowsToWindowsGenerator,
+        "windows-aarch64": WindowsToWindowsAarch64Generator,
         "linux-x64": LinuxToLinuxGenerator,
         "linux-aarch64": LinuxToLinuxAarch64Generator,
         "mac-aarch64": DarwinToDarwinGenerator,

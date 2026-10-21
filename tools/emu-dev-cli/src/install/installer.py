@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 
+from commands.harness.plugin_installer import install_harness_plugin
 from commands.source_directory import (
     ensure_codesearch_urls_config,
     get_all_source_directories,
@@ -16,195 +17,6 @@ from commands.source_directory import (
 from lib.bazel import BazelRunner
 from lib.output import print_result
 from lib.workspace import WorkspacePathResolver
-
-SKILL_MARKDOWN_CONTENT = """---
-name: emu_dev_cli
-description: CLI tool for fetching prebuilt emulator binaries and system images from Android Build (go/ab), creating AVDs, launching emulator instances, and executing automated CTS-Verifier test modules (e.g. tts, battery_saver, vibrations) on the emulator using 'emu-dev-cli cts run-cts-verifier --module <name>' and discovering modules with '--list-modules'. Use when setting up test instances, reproducing bugs, or running CTS-Verifier tests.
----
-
-# Android Emulator Developer CLI (`emu-dev-cli`)
-
-`emu-dev-cli` is an agent-first CLI for emulator developers and AI engineering assistants to construct, manage, and verify Android Emulator environments.
-
-Executable command:
-```bash
-emu-dev-cli <command>
-```
-
----
-
-## 🛠️ Command Reference
-
-### 1. Fetch Artifacts from Android Build (`fetch-build`)
-
-Pulls and extracts prebuilt emulator host binaries or system image archives from `go/ab` into `/tmp/`.
-
-#### A. Fetch Host Emulator (`fetch-build emulator`)
-* **Fetch latest build on `emu-main-next` (Default):**
-  ```bash
-  emu-dev-cli fetch-build emulator --latest
-  ```
-* **Fetch latest build on `emu-main-dev`:**
-  ```bash
-  emu-dev-cli fetch-build emulator --latest --branch emu-main-dev
-  ```
-* **Fetch specific build by ID:**
-  ```bash
-  emu-dev-cli fetch-build emulator --build-id 15943073
-  ```
-
-#### B. Fetch System Image (`fetch-build system-image`)
-Auto-detects host CPU architecture (`x86_64` vs `arm64`).
-
-* **Fetch latest system image on `trunk-release` (Default):**
-  ```bash
-  emu-dev-cli fetch-build system-image --latest
-  ```
-* **Fetch latest system image on release branch:**
-  ```bash
-  emu-dev-cli fetch-build system-image --latest --branch 26Q2-emu-release
-  ```
-* **Fetch specific system image build ID:**
-  ```bash
-  emu-dev-cli fetch-build system-image --build-id 15900270
-  ```
-
----
-
-### 2. Source Directory Registry (`source-directory`)
-
-Manage mappings between branch names (`emu-main-dev`, `emu-main-next`, `git_main`) and their local source code checkout paths on disk. Stored in `~/.android/emu-dev-cli.json`.
-
-* **Get local repository path for branch:**
-  ```bash
-  emu-dev-cli source-directory get emu-main-dev
-  # Output: /work/emu-main-dev
-  ```
-* **Set local repository path for branch:**
-  ```bash
-  emu-dev-cli source-directory set emu-main-dev /work/emu-main-dev
-  ```
-* **List all configured mappings:**
-  ```bash
-  emu-dev-cli source-directory list
-  ```
-
----
-
-### 3. Create Android Virtual Devices (`create avd`)
-
-Creates a valid Android Virtual Device (AVD) pointer (`~/.android/avd/<name>.ini`) and hardware profile (`~/.android/avd/<name>.avd/config.ini`) bound to a system-image directory.
-
-#### Available Device Profiles (`--list-profiles`)
-`small_phone`, `medium_phone` (default), `medium_tablet`, `small_desktop`, `medium_desktop`, `large_desktop`.
-
-```bash
-# List available device profiles
-emu-dev-cli create avd --list-profiles
-
-# Create AVD with medium_phone profile
-emu-dev-cli create avd \\
-  --name my-dev-phone \\
-  --sysimg-dir /tmp/system-image-x86_64-26Q2-emu-release-latest/extracted/ \\
-  --profile medium_phone \\
-  --force
-```
-
----
-
-### 4. Launch Emulator Instances (`launch emulator`)
-
-Launches a prebuilt `emulator` executable. Auto-configures Linux dynamic shared library paths (`LD_LIBRARY_PATH` for Qt, Vulkan, and GLES) and verifies X11 `DISPLAY` sockets (`DISPLAY=:20` on CRD).
-
-* **Dry-run verification (no process spawned):**
-  ```bash
-  emu-dev-cli launch emulator \\
-    --emulator-dir /tmp/emulator-linux-x64-15942201/extracted/emulator \\
-    --dry-run \\
-    -- -avd my-dev-phone
-  ```
-* **Launch interactive foreground emulator:**
-  ```bash
-  emu-dev-cli launch emulator \\
-    --emulator-dir /tmp/emulator-linux-x64-15942201/extracted/emulator \\
-    -- -avd my-dev-phone
-  ```
-* **Launch detached daemon background emulator:**
-  ```bash
-  emu-dev-cli launch emulator \\
-    --emulator-dir /tmp/emulator-linux-x64-15942201/extracted/emulator \\
-    --detached \\
-    -- -avd my-dev-phone -no-window
-  ```
-
----
-
-### 5. Automated CTS-Verifier Runner (`cts run-cts-verifier`)
-
-Downloads and executes automated CTS-Verifier test modules (`tts`, `battery_saver`, `vibrations`, `tile_service`, `screen_pinning`, `has_vibrator`, etc.) against an online emulator.
-
-* **Discover available automated test modules (`--list-modules`):**
-  Dynamically scans and lists all available CTS-Verifier automation modules (e.g. `tts`, `battery_saver`, `vibrations`, `tile_service`, `screen_pinning`, `has_vibrator`):
-  ```bash
-  emu-dev-cli cts run-cts-verifier --list-modules
-  ```
-* **Run specific CTS-Verifier module on emulator (`--module <name>`):**
-  Runs the specified module against an active or launched emulator instance:
-  ```bash
-  emu-dev-cli cts run-cts-verifier --module tts
-  ```
-* **Run using specific Android Build (`go/ab`) build ID:**
-  ```bash
-  emu-dev-cli cts run-cts-verifier --build-id 15900270 --module vibrations
-  ```
-
----
-
-### 6. Onboarding Initialization (`init`)
-
-Installs global agent skills into `~/.gemini/` and launches interactive workspace source path setup if `~/.android/emu-dev-cli.json` is missing:
-```bash
-emu-dev-cli init
-```
-
----
-
-### 7. Codebase Wiki & Documentation Engine (`docs`)
-
-Provides a persistent **LLM Wiki** interface (`Query → Ingest → Lint`) across all `ARCHITECTURE.md`, `DESIGN.md`, and operational playbooks in the workspace:
-
-* **List all indexed architecture docs and playbooks (`docs index`):**
-  ```bash
-  emu-dev-cli docs index
-  ```
-* **Search across architecture docs and playbooks by keyword (`docs search`):**
-  ```bash
-  emu-dev-cli docs search VideoRecorder
-  ```
-* **Audit `ARCHITECTURE.md` and `DESIGN.md` for drift (`docs lint`):**
-  ```bash
-  emu-dev-cli docs lint
-  ```
-* **Resolve named documentation & operational playbooks:**
-  ```bash
-  emu-dev-cli docs playbook-index
-  emu-dev-cli docs playbook-build-and-tidy
-  emu-dev-cli docs playbook-git-and-gerrit
-  emu-dev-cli docs playbook-threading-and-invariants
-  emu-dev-cli docs goldfish-architecture
-  emu-dev-cli docs cts-verifier-automation
-  ```
-
----
-
-### 8. Rebuild & Update Executable (`update`)
-
-Rebuilds `//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli` via Bazel from the configured local `emu-main-next` source directory and re-installs the compiled release package:
-
-```bash
-emu-dev-cli update
-```
-"""
 
 
 def detect_default_install_path():
@@ -320,15 +132,28 @@ def copy_src_to_release_lib(src_dir, release_lib_dir):
                     if os.path.abspath(source_file) != os.path.abspath(dest_file):
                         _safe_copy2(source_file, dest_file)
 
-        docs_dir = os.path.join(parent_dir, "docs")
-        if os.path.isdir(docs_dir):
-            dest_docs = os.path.join(release_lib_dir, "docs")
-            for root, _, files in os.walk(docs_dir):
+        for subdir in ("docs", "skills"):
+            src_subdir = os.path.join(parent_dir, subdir)
+            if os.path.isdir(src_subdir):
+                dest_subdir = os.path.join(release_lib_dir, subdir)
+                for root, _, files in os.walk(src_subdir):
+                    for f in files:
+                        if not f.endswith(".md"):
+                            continue
+                        rel_path = os.path.relpath(os.path.join(root, f), src_subdir)
+                        dest_file = os.path.join(dest_subdir, rel_path)
+                        os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+                        source_file = os.path.join(root, f)
+                        if os.path.abspath(source_file) != os.path.abspath(dest_file):
+                            _safe_copy2(source_file, dest_file)
+
+        harness_dir = os.path.join(parent_dir, "harness")
+        if os.path.isdir(harness_dir):
+            dest_harness = os.path.join(release_lib_dir, "harness")
+            for root, _, files in os.walk(harness_dir):
                 for f in files:
-                    if not f.endswith(".md"):
-                        continue
-                    rel_path = os.path.relpath(os.path.join(root, f), docs_dir)
-                    dest_file = os.path.join(dest_docs, rel_path)
+                    rel_path = os.path.relpath(os.path.join(root, f), harness_dir)
+                    dest_file = os.path.join(dest_harness, rel_path)
                     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
                     source_file = os.path.join(root, f)
                     if os.path.abspath(source_file) != os.path.abspath(dest_file):
@@ -603,18 +428,25 @@ def install_skill(source_dir=None):
                 "SKILL.md",
             )
         )
+        candidate_skills.append(os.path.join(source_dir, "skills", "SKILL.md"))
+    module_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    candidate_skills.append(os.path.join(module_root, "skills", "SKILL.md"))
     candidate_skills.append(
-        os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "skills",
-            "SKILL.md",
-        )
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "SKILL.md")
     )
     candidate_skills.append(
         os.path.join(home_dir, ".android", "emu-dev-cli", "skills", "SKILL.md")
     )
+    candidate_skills.append(
+        os.path.join(home_dir, ".android", "emu-dev-cli", "lib", "skills", "SKILL.md")
+    )
+    resolved_ws_skill = WorkspacePathResolver("emu-main-next").find_file(
+        "hardware/google/aemu/tools/emu-dev-cli/skills/SKILL.md"
+    )
+    if resolved_ws_skill:
+        candidate_skills.append(str(resolved_ws_skill))
 
-    content_to_write = SKILL_MARKDOWN_CONTENT
+    content_to_write = None
     for cand in candidate_skills:
         if cand and os.path.exists(cand):
             try:
@@ -623,6 +455,10 @@ def install_skill(source_dir=None):
                 break
             except OSError as e:
                 sys.stderr.write(f"ℹ️ Could not read skill from {cand}: {e}\n")
+
+    if not content_to_write:
+        sys.stderr.write("⚠️ Warning: Could not locate skills/SKILL.md to install.\n")
+        return []
 
     for target_dir in target_dirs:
         try:
@@ -952,6 +788,7 @@ def run_install_cmd(args):
             final_installed = fallback
 
     skill_files = install_skill()
+    harness_report = install_harness_plugin(cli_command=str(final_installed) if final_installed else None)
     ensure_codesearch_urls_config()
 
     cleanup_reports = {}
@@ -966,9 +803,10 @@ def run_install_cmd(args):
         {
             "status": "success",
             "action": "install",
-            "summary": f"Successfully installed emu_dev_cli compiled release package and skills",
+            "summary": f"Successfully installed emu_dev_cli compiled release package, skills, and aemu-harness plugin",
             "launcher_path": str(final_installed),
             "skill_files": skill_files,
+            "harness_plugin": harness_report,
             "legacy_cleanup": cleanup_reports,
         },
         json_mode=json_mode,

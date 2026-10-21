@@ -2099,7 +2099,7 @@ value: string,
 
 export interface AudioFormat {
 /**
- * Sampling rate to use, defaulting to 44100 if this is not set.
+ * Sampling rate to use, defaulting to 48000 if this is not set.
  * Note, that android devices typically will not use a sampling
  * rate higher than 48kHz. See
  * https://developer.android.com/ndk/guides/audio.
@@ -11942,7 +11942,7 @@ streamScreenshot(request: ImageFormat,abortSignal?: AbortSignal): AsyncIterable<
 /**
  * Streams a series of audio packets in the desired format. This is a server-side streaming RPC.
  * A new frame is delivered approximately every 20-30ms when the emulated device produces audio.
- * If `samplingRate` is 0, it defaults to 44100 Hz.
+ * If `samplingRate` is 0, it defaults to 48000 Hz.
  * The stream may block indefinitely if the emulator ceases to produce audio.
  * Packets are allocated with a buffer size calculated based on the audio format and a 30ms frame time.
  * 
@@ -13532,7 +13532,7 @@ streamScreenshot:
 /**
  * Streams a series of audio packets in the desired format. This is a server-side streaming RPC.
  * A new frame is delivered approximately every 20-30ms when the emulated device produces audio.
- * If `samplingRate` is 0, it defaults to 44100 Hz.
+ * If `samplingRate` is 0, it defaults to 48000 Hz.
  * The stream may block indefinitely if the emulator ceases to produce audio.
  * Packets are allocated with a buffer size calculated based on the audio format and a 30ms frame time.
  * 

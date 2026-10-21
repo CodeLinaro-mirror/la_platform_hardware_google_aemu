@@ -25,8 +25,6 @@ from typing import Any
 _WORKFLOW_DIR = Path(__file__).resolve().parent
 _EMU_DEV_CLI_DIR = _WORKFLOW_DIR.parent.parent
 _SRC_DIR = _EMU_DEV_CLI_DIR / "src"
-if str(_SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(_SRC_DIR))
 
 from commands.crash.advisor import ensure_crashadvisor_imports
 from commands.crash.link_bug import (

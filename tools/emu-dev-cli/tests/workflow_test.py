@@ -8,11 +8,7 @@ import unittest
 SRC_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"
 )
-if SRC_DIR not in sys.path:
-    sys.path.insert(0, SRC_DIR)
 ROOT_DIR = os.path.dirname(SRC_DIR)
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
 
 from commands.workflow import (
     find_workflow_main,
@@ -92,6 +88,16 @@ class WorkflowCommandTest(unittest.TestCase):
         ctx = {"file": "/tmp/test file.txt"}
         args = build_cmd_args(["cat", "{file}"], ctx)
         self.assertEqual(args, ["cat", "/tmp/test file.txt"])
+
+    def test_build_cmd_args_substitutes_python_executable(self):
+        import sys
+        from workflows.core.yaml_runner import build_cmd_args
+        ctx = {"script": "myscript.py"}
+        args_py3 = build_cmd_args("python3 {script} --arg", ctx)
+        self.assertEqual(args_py3, [sys.executable, "myscript.py", "--arg"])
+
+        args_py = build_cmd_args(["python", "{script}"], ctx)
+        self.assertEqual(args_py, [sys.executable, "myscript.py"])
 
 
     def test_workflow_init_with_args(self):
@@ -585,6 +591,20 @@ steps:
                     os.environ["ANTIGRAVITY_CONVERSATION_ID"] = old_conv
                 else:
                     os.environ.pop("ANTIGRAVITY_CONVERSATION_ID", None)
+
+    def test_run_workflow_main_script_propagates_subprocess_env(self):
+        import tempfile
+        from commands.workflow import run_workflow_main
+
+        with tempfile.TemporaryDirectory() as td:
+            script_path = os.path.join(td, "script_wf.py")
+            with open(script_path, "w") as f:
+                f.write(
+                    "import os, sys\n"
+                    "sys.exit(0 if os.environ.get('PYTHONPATH') else 1)\n"
+                )
+            rc = run_workflow_main(script_path, ["--help"])
+            self.assertEqual(rc, 0)
 
 
 if __name__ == "__main__":

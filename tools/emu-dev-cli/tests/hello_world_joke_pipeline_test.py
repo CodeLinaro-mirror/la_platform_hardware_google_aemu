@@ -24,10 +24,7 @@ _TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 _EMU_DEV_CLI_DIR = os.path.dirname(_TESTS_DIR)
 _WORKFLOWS_DIR = os.path.join(_EMU_DEV_CLI_DIR, "workflows")
 _SRC_DIR = os.path.join(_EMU_DEV_CLI_DIR, "src")
-if _SRC_DIR not in sys.path:
-    sys.path.insert(0, _SRC_DIR)
-if _EMU_DEV_CLI_DIR not in sys.path:
-    sys.path.insert(0, _EMU_DEV_CLI_DIR)
+
 
 from commands.workflow import find_workflow_target, list_available_workflows
 from workflows.core.yaml_runner import load_state_yaml
