@@ -166,6 +166,57 @@ class DocsWikiTest(unittest.TestCase):
             report_standalone = docs.lint_wiki_documents([str(standalone_root)])
             self.assertEqual(report_standalone["issues"], [])
 
+    def test_search_wiki_documents_extracts_package_targets_files_and_camelcase_queries(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            grpc_dir = (
+                root
+                / "hardware"
+                / "generic"
+                / "goldfish"
+                / "emulator"
+                / "plugin"
+                / "grpc"
+            )
+            v2_dir = grpc_dir / "services" / "v2"
+            v2_dir.mkdir(parents=True)
+            (grpc_dir / "BUILD.bazel").write_text(
+                'cc_library(\n    name = "sensors_service_v2",\n)\n'
+                'cc_test(\n    name = "sensors_service_v2_test",\n)\n',
+                encoding="utf-8",
+            )
+            (v2_dir / "sensors_service.h").write_text("// header\n", encoding="utf-8")
+            (v2_dir / "sensors_service.cc").write_text("// impl\n", encoding="utf-8")
+            (v2_dir / "sensors_service_test.cc").write_text(
+                "// test\n", encoding="utf-8"
+            )
+            (v2_dir / "ARCHITECTURE.md").write_text(
+                "# Component: V2 gRPC Services\n\n"
+                "**Role:** Modern V2 gRPC services\n"
+                "**Location:** `emulator/plugin/grpc/services/v2/`\n",
+                encoding="utf-8",
+            )
+
+            # Query using CamelCase symbol + partial extra term
+            results = docs.search_wiki_documents(
+                "SensorsServiceImpl NonExistentToken", [str(root)]
+            )
+            self.assertEqual(len(results), 1)
+            hit = results[0]
+            self.assertIn(
+                "@goldfish//emulator/plugin/grpc:sensors_service_v2",
+                hit["targets"],
+            )
+            self.assertIn(
+                "@goldfish//emulator/plugin/grpc:sensors_service_v2_test",
+                hit["targets"],
+            )
+            self.assertTrue(
+                any(f.endswith("sensors_service.h") for f in hit["files"])
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

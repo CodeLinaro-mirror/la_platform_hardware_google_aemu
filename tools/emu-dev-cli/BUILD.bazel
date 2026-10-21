@@ -22,6 +22,7 @@ py_library(
     name = "emu_dev_cli_lib",
     srcs = glob(
         [
+            "benchmarks/**/*.py",
             "src/**/*.py",
             "workflows/**/*.py",
         ],
@@ -33,6 +34,8 @@ py_library(
     ),
     data = glob(
         [
+            "benchmarks/*.json",
+            "benchmarks/*.md",
             "docs/**/*.md",
             "harness/plugin/**",
             "skills/*.md",
@@ -89,6 +92,7 @@ cc_binary(
             ".",
             "workflows",
         ],
+        tags = ["manual"] if "benchmark" in f else [],
         deps = [
             ":emu_dev_cli_lib",
         ],
@@ -100,6 +104,9 @@ test_suite(
     name = "all_tests",
     tests = [
         f.replace("tests/", "").replace(".py", "")
-        for f in glob(["tests/*_test.py"])
+        for f in glob(
+            ["tests/*_test.py"],
+            exclude = ["tests/*benchmark*_test.py"],
+        )
     ],
 )

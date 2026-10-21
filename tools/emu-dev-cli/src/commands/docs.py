@@ -223,16 +223,207 @@ def discover_wiki_documents(source_dirs: list[str] | None = None) -> list[dict]:
     return documents
 
 
+_BAZEL_RULE_RE = re.compile(
+    r"\b(?:cc_library|cc_test|cc_binary|py_library|py_test|py_binary|rust_library|rust_test|alias|clang_tidy_test)\s*\([^)]*?\bname\s*=\s*\"([^\"]+)\"",
+    re.DOTALL,
+)
+_SOURCE_EXTS = (
+    ".h",
+    ".hpp",
+    ".cc",
+    ".cpp",
+    ".c",
+    ".mm",
+    ".py",
+    ".rs",
+    ".tsx",
+    ".ts",
+    ".ini",
+    ".proto",
+)
+
+
+def _expand_query_term_variants(term: str) -> list[str]:
+    """Expands a query term into lowercase, snake_case, hyphenated, and underscore-stripped variants."""
+    low = term.lower()
+    snake = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", term).lower()
+    stem = re.sub(r"_impl$", "", snake)
+    hyphen = low.replace("_", "-")
+    underscored = low.replace("-", "_")
+    no_us = low.replace("_", "").replace("-", "")
+    variants = []
+    for v in (low, snake, stem, hyphen, underscored, no_us):
+        if v and v not in variants:
+            variants.append(v)
+    return variants
+
+
+def _term_matches_text(term_variants: list[str], text_lower: str) -> bool:
+    text_no_us = text_lower.replace("_", "").replace("-", "")
+    return any(v in text_lower or (len(v) >= 4 and v in text_no_us) for v in term_variants)
+
+
+def _extract_package_brief(
+    doc_path: Path, workspace_root: Path, term_variant_groups: list[list[str]]
+) -> dict:
+    """Extracts Bazel targets and source/header files for the package containing doc_path."""
+    doc_dir = doc_path.parent
+    repo_root = _get_repo_root_for_file(doc_path, workspace_root)
+    rel_repo = (
+        repo_root.relative_to(workspace_root).as_posix()
+        if repo_root.is_relative_to(workspace_root)
+        else ""
+    )
+    if rel_repo == "hardware/generic/goldfish" or repo_root.name == "goldfish":
+        repo_prefix = "@goldfish"
+    elif rel_repo == "hardware/google/aemu" or repo_root.name == "aemu":
+        repo_prefix = "@aemu"
+    elif rel_repo == "external/qemu" or repo_root.name == "qemu":
+        repo_prefix = "@qemu"
+    else:
+        repo_prefix = ""
+
+    doc_rel = (
+        doc_dir.relative_to(repo_root).as_posix()
+        if doc_dir.is_relative_to(repo_root)
+        else ""
+    )
+    if doc_rel == ".":
+        doc_rel = ""
+
+    # Locate BUILD.bazel in doc_dir or up to 2 ancestor directories within repo_root
+    build_dir = doc_dir
+    build_file = build_dir / "BUILD.bazel"
+    if not build_file.is_file():
+        build_file = build_dir / "BUILD"
+    steps_up = 0
+    while not build_file.is_file() and build_dir != repo_root and steps_up < 2:
+        parent = build_dir.parent
+        if not parent.is_relative_to(repo_root) or parent == repo_root:
+            break
+        build_dir = parent
+        build_file = build_dir / "BUILD.bazel"
+        if not build_file.is_file():
+            build_file = build_dir / "BUILD"
+        steps_up += 1
+
+    build_pkg_rel = (
+        build_dir.relative_to(repo_root).as_posix()
+        if build_dir.is_relative_to(repo_root)
+        else ""
+    )
+    if build_pkg_rel == ".":
+        build_pkg_rel = ""
+
+    build_text = ""
+    targets = []
+    if build_file.is_file():
+        try:
+            build_text = build_file.read_text(encoding="utf-8")
+        except OSError:
+            build_text = ""
+        for match in _BAZEL_RULE_RE.finditer(build_text):
+            tname = match.group(1)
+            if tname == "tidy" or tname.endswith("_tidy"):
+                continue
+            label = (
+                f"{repo_prefix}//{build_pkg_rel}:{tname}"
+                if build_pkg_rel
+                else f"{repo_prefix}//:{tname}"
+            )
+            if label not in targets:
+                targets.append(label)
+
+    pkg_files = []
+    file_stems = set()
+    if doc_dir.is_dir():
+        for root_dir, dirnames, filenames in os.walk(doc_dir):
+            cur_dir = Path(root_dir)
+            if not doc_rel:
+                # For repository-root docs, only inspect root-level source files
+                dirnames[:] = []
+            elif cur_dir != doc_dir:
+                # Do not descend into child Bazel packages
+                if (cur_dir / "BUILD.bazel").is_file() or (
+                    cur_dir / "BUILD"
+                ).is_file():
+                    dirnames[:] = []
+                    continue
+            dirnames[:] = [
+                d
+                for d in sorted(dirnames)
+                if d not in _SKIP_DIRS and not d.startswith("bazel-")
+            ]
+            for fname in sorted(filenames):
+                if fname.endswith(_SOURCE_EXTS):
+                    full_f = cur_dir / fname
+                    f_rel = (
+                        full_f.relative_to(doc_dir).as_posix()
+                        if full_f.is_relative_to(doc_dir)
+                        else fname
+                    )
+                    pkg_files.append(f_rel)
+                    file_stems.add(Path(fname).stem.lower())
+
+    dir_stem = doc_dir.name.lower()
+    # Prioritize files and targets that match query terms and local directory stems
+    if term_variant_groups or file_stems:
+        pkg_files.sort(
+            key=lambda f: (
+                -sum(
+                    1
+                    for tv in term_variant_groups
+                    if _term_matches_text(tv, f.lower())
+                ),
+                0 if dir_stem and dir_stem in f.lower() else 1,
+                0
+                if f.endswith((".h", ".py", ".ini", "_test.cc", "_test.py"))
+                else 1,
+                f,
+            )
+        )
+        targets.sort(
+            key=lambda lbl: (
+                -sum(
+                    1
+                    for tv in term_variant_groups
+                    if _term_matches_text(tv, lbl.lower())
+                ),
+                0
+                if dir_stem
+                and dir_stem.replace("_", "")
+                in lbl.split(":")[-1].lower().replace("_", "")
+                else 1,
+                0
+                if lbl.endswith(("_test", "_unittests", "_tests"))
+                else 1,
+                lbl,
+            )
+        )
+
+    return {
+        "build_text": build_text,
+        "targets": targets[:10],
+        "files": pkg_files[:14],
+    }
+
+
 def search_wiki_documents(
     query: str, source_dirs: list[str] | None = None
 ) -> list[dict]:
     """
-    Searches discovered wiki documents by keyword across title, path, role, and content.
+    Searches discovered wiki documents by keyword across title, path, role,
+    markdown body, and co-located BUILD.bazel targets and source/header filenames.
+    Ranks documents by number of matched query terms and term frequency.
     """
-    docs_list = discover_wiki_documents(source_dirs)
-    terms = [t.lower() for t in query.split() if t.strip()]
-    if not terms:
+    roots = source_dirs if source_dirs is not None else get_all_source_directories()
+    docs_list = discover_wiki_documents(roots)
+    raw_terms = [t for t in re.split(r"[\s,;|]+", query) if t.strip()]
+    if not raw_terms:
         return docs_list
+
+    term_variant_groups = [_expand_query_term_variants(t) for t in raw_terms]
+    resolved_roots = [Path(r).resolve() for r in roots if Path(r).is_dir()]
 
     results = []
     for doc in docs_list:
@@ -242,49 +433,87 @@ def search_wiki_documents(
         except OSError:
             content = ""
 
+        workspace_root = fpath.parent
+        for rp in resolved_roots:
+            if fpath.is_relative_to(rp):
+                workspace_root = rp
+                break
+
+        brief = _extract_package_brief(
+            fpath, workspace_root, term_variant_groups
+        )
         haystack_title = doc["title"].lower()
         haystack_path = doc["relative_path"].lower()
+        haystack_dirname = fpath.parent.name.lower()
         haystack_role = doc["role"].lower()
         haystack_body = content.lower()
+        haystack_pkg = (
+            brief["build_text"].lower()
+            + "\n"
+            + " ".join(brief["files"]).lower()
+            + "\n"
+            + " ".join(brief["targets"]).lower()
+        )
 
         score = 0
-        matched_all = True
+        matched_terms = 0
         matching_snippets = []
 
-        for term in terms:
-            in_title = term in haystack_title
-            in_path = term in haystack_path
-            in_role = term in haystack_role
-            in_body = term in haystack_body
-            if not (in_title or in_path or in_role or in_body):
-                matched_all = False
-                break
+        for tv in term_variant_groups:
+            in_title = _term_matches_text(tv, haystack_title)
+            in_path = _term_matches_text(tv, haystack_path)
+            in_dirname = _term_matches_text(tv, haystack_dirname)
+            in_role = _term_matches_text(tv, haystack_role)
+            in_body = _term_matches_text(tv, haystack_body)
+            in_pkg = _term_matches_text(tv, haystack_pkg)
+            if not (in_title or in_path or in_role or in_body or in_pkg):
+                continue
+            matched_terms += 1
+            if in_dirname:
+                score += 25
             if in_title:
-                score += 10
+                score += 15
             if in_path:
-                score += 8
+                score += 12
+            if in_pkg:
+                score += 10
             if in_role:
                 score += 5
             if in_body:
-                score += haystack_body.count(term)
+                body_hits = sum(haystack_body.count(v) for v in tv)
+                score += min(15, body_hits * 2 + 2)
 
-        if not matched_all:
+        if matched_terms == 0:
             continue
 
         for line in content.splitlines():
             sline = line.strip()
-            if sline and any(t in sline.lower() for t in terms):
-                matching_snippets.append(sline[:140])
-                if len(matching_snippets) >= 3:
+            if sline and any(
+                _term_matches_text(tv, sline.lower())
+                for tv in term_variant_groups
+            ):
+                matching_snippets.append(sline[:180])
+                if len(matching_snippets) >= 2:
                     break
 
         entry = dict(doc)
-        entry["score"] = score
+        entry["score"] = score + (matched_terms * 100)
+        entry["matched_terms"] = matched_terms
+        entry["total_terms"] = len(raw_terms)
         entry["snippets"] = matching_snippets
+        entry["targets"] = brief["targets"]
+        entry["files"] = brief["files"]
         results.append(entry)
 
-    results.sort(key=lambda r: (-r["score"], r["relative_path"]))
-    return results
+    results.sort(
+        key=lambda r: (-r["matched_terms"], -r["score"], r["relative_path"])
+    )
+    full_matches = [r for r in results if r["matched_terms"] == len(raw_terms)]
+    if full_matches:
+        return full_matches[:4] + [
+            r for r in results if r["matched_terms"] < len(raw_terms)
+        ][: max(0, 4 - len(full_matches))]
+    return results[:4]
 
 
 def _resolve_bazel_pkg_dir(
@@ -616,6 +845,10 @@ def run_docs_search(args):
     for r in results:
         print(f"  • {r['path']}  (score: {r['score']})")
         print(f"    Title: {r['title']}")
+        if r.get("targets"):
+            print(f"    Targets: {', '.join(r['targets'])}")
+        if r.get("files"):
+            print(f"    Files: {', '.join(r['files'])}")
         for snip in r.get("snippets", []):
             print(f"      > {snip}")
         print()
