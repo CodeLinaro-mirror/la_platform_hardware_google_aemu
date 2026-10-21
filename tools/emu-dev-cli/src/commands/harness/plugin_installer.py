@@ -28,9 +28,17 @@ from commands.source_directory import (
     get_source_directory,
 )
 
+PLUGIN_EXECUTABLE_MODE: int = 0o755
 
-def get_default_plugin_dest_dir(home_dir: Optional[Union[Path, str]] = None) -> Path:
-    """Returns `~/.gemini/config/plugins/aemu-harness`."""
+def get_default_plugin_dest_dir(
+    home_dir: Optional[Union[Path, str]] = None,
+    scope: str = "global",
+    workspace_dir: Optional[Union[Path, str]] = None,
+) -> Path:
+    """Returns `~/.gemini/config/plugins/aemu-harness` (global) or `<workspace>/.agent/plugins/aemu-harness` (workspace)."""
+    if (scope or "global").strip().lower() == "workspace":
+        ws_root = Path(workspace_dir) if workspace_dir else Path.cwd()
+        return ws_root / ".agent" / "plugins" / PLUGIN_DIR_NAME
     base_home = Path(home_dir) if home_dir else Path.home()
     return base_home / ".gemini" / "config" / "plugins" / PLUGIN_DIR_NAME
 
@@ -115,13 +123,47 @@ def resolve_emu_dev_cli_command() -> str:
     return "emu-dev-cli"
 
 
+def _render_plugin_file(src_file: Path, dst_file: Path, resolved_cli: str) -> None:
+    """Renders or copies a single plugin file with JSON-safe cross-platform paths."""
+    if src_file.name == "hooks.json":
+        escaped_cli = json.dumps(resolved_cli, ensure_ascii=False)[1:-1]
+        rendered = src_file.read_text(encoding="utf-8").replace("__EMU_DEV_CLI_BIN__", escaped_cli)
+        dst_file.write_text(rendered, encoding="utf-8")
+    elif src_file.name == "mcp_config.json":
+        use_posix = os.name != "nt" and "\\" not in resolved_cli
+        cli_parts = [t.strip("\"'") for t in shlex.split(resolved_cli, posix=use_posix)] or ["emu-dev-cli"]
+        mcp_payload = {
+            "mcpServers": {
+                "aemu-harness-mcp": {
+                    "command": cli_parts[0],
+                    "args": cli_parts[1:] + ["harness", "mcp-server"],
+                }
+            }
+        }
+        dst_file.write_text(json.dumps(mcp_payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    else:
+        shutil.copy2(src_file, dst_file)
+
+    if dst_file.suffix == ".py":
+        try:
+            os.chmod(dst_file, PLUGIN_EXECUTABLE_MODE)
+        except OSError:
+            pass
+
+
 def install_harness_plugin(
     target_dir: Optional[Union[Path, str]] = None,
     source_plugin_dir: Optional[Union[Path, str]] = None,
     cli_command: Optional[str] = None,
+    scope: str = "global",
+    workspace_dir: Optional[Union[Path, str]] = None,
 ) -> Dict[str, Any]:
-    """Installs the `aemu-harness` plugin bundle into `~/.gemini/config/plugins/aemu-harness`."""
-    dest_dir = Path(target_dir) if target_dir else get_default_plugin_dest_dir()
+    """Installs the `aemu-harness` plugin bundle into global or workspace plugin dir."""
+    dest_dir = (
+        Path(target_dir)
+        if target_dir
+        else get_default_plugin_dest_dir(scope=scope, workspace_dir=workspace_dir)
+    )
     src_dir = resolve_bundled_plugin_source_dir(source_plugin_dir)
     if not src_dir or not src_dir.is_dir():
         return {
@@ -133,45 +175,16 @@ def install_harness_plugin(
 
     resolved_cli = cli_command or resolve_emu_dev_cli_command()
     installed_files: List[str] = []
-
     dest_dir.mkdir(parents=True, exist_ok=True)
     for root, _, files in os.walk(src_dir):
-        rel_root = Path(root).relative_to(src_dir)
-        target_root = dest_dir / rel_root
+        target_root = dest_dir / Path(root).relative_to(src_dir)
         target_root.mkdir(parents=True, exist_ok=True)
-
         for filename in sorted(files):
-            src_file = Path(root) / filename
             dst_file = target_root / filename
-            if filename == "hooks.json":
-                raw_text = src_file.read_text(encoding="utf-8")
-                rendered = raw_text.replace("__EMU_DEV_CLI_BIN__", resolved_cli)
-                dst_file.write_text(rendered, encoding="utf-8")
-            elif filename == "mcp_config.json":
-                cli_parts = shlex.split(resolved_cli) or ["emu-dev-cli"]
-                mcp_payload = {
-                    "mcpServers": {
-                        "aemu-harness-mcp": {
-                            "command": cli_parts[0],
-                            "args": cli_parts[1:] + ["harness", "mcp-server"],
-                        }
-                    }
-                }
-                dst_file.write_text(
-                    json.dumps(mcp_payload, indent=2) + "\n", encoding="utf-8"
-                )
-            else:
-                shutil.copy2(src_file, dst_file)
-
-            if dst_file.suffix == ".py":
-                try:
-                    os.chmod(dst_file, 0o755)
-                except OSError:
-                    pass
+            _render_plugin_file(Path(root) / filename, dst_file, resolved_cli)
             installed_files.append(str(dst_file))
 
     _enable_plugin_and_sidecar_in_config(dest_dir)
-
     return {
         "installed": True,
         "plugin_dir": str(dest_dir),

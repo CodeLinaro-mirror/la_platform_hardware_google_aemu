@@ -45,11 +45,15 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_GERRIT_HOST = "https://googleplex-android-review.git.corp.google.com"
 GERRIT_OAUTH_SCOPE = "https://www.googleapis.com/auth/gerritcodereview"
+GERRIT_HTTP_TIMEOUT_SEC = 20.0
+GERRIT_CLI_TIMEOUT_SEC = 25.0
 
 _URL_CL_RE = re.compile(r"/\+/(\d+)(?:/\d+)?(?:[?#].*)?$")
 _LEGACY_URL_CL_RE = re.compile(r"/c/(?:[^/]+/)*(\d+)(?:/\d+)?(?:[?#].*)?$")
+_AG_SHORTLINK_RE = re.compile(r"^ag/(\d+)(?:/\d+)?(?:[?#].*)?$", re.IGNORECASE)
 _CHANGE_ID_RE = re.compile(r"\b(I[0-9a-fA-F]{40})\b")
-_COMMIT_CHANGE_ID_RE = re.compile(r"(?im)^\s*Change-Id:\s*(I[0-9a-fA-F]{40})\b")
+_CHANGE_ID_FULL_RE = re.compile(r"^I[0-9a-fA-F]{40}$")
+COMMIT_CHANGE_ID_RE = re.compile(r"(?im)^\s*Change-Id:\s*(I[0-9a-fA-F]{40})\b")
 
 
 @dataclass
@@ -129,50 +133,67 @@ def strip_xssi_prefix(raw_text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def parse_cl_identifier(cl_input: str | None, cwd: Path | str | None = None) -> str:
-    """Normalizes a CL URL, numeric CL ID, Change-Id, or 'HEAD' into a Gerrit change identifier.
+def _resolve_head_change_id(cwd: Path | str | None) -> str:
+    """Extracts the `Change-Id: I...` footer from the local `HEAD` commit."""
+    work_dir = str(Path(cwd).resolve()) if cwd else None
+    try:
+        res = subprocess.run(
+            ["git", "log", "-1", "--format=%B", "HEAD"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+            cwd=work_dir,
+            timeout=GERRIT_CLI_TIMEOUT_SEC,
+        )
+    except Exception as exc:
+        stderr = (getattr(exc, "stderr", None) or "").strip()
+        detail = f"{exc}: {stderr}" if stderr else str(exc)
+        raise ValueError(
+            f"Failed to read HEAD commit message in '{work_dir or '.'}' ({detail}). "
+            "Provide an explicit CL number or URL."
+        ) from exc
+    match = COMMIT_CHANGE_ID_RE.search(res.stdout)
+    if match:
+        return match.group(1)
+    raise ValueError(
+        f"No 'Change-Id: I...' footer found in HEAD commit at '{work_dir or '.'}'. "
+        "Provide an explicit Gerrit CL number or URL."
+    )
 
-    @param cl_input Raw user input (URL, CL number, Change-Id, or 'HEAD'/empty).
-    @param cwd Working directory used when resolving 'HEAD' from local git history.
-    @return Normalized Gerrit change number or `I...` Change-Id string.
-    """
+
+def parse_cl_identifier(
+    cl_input: str | None,
+    cwd: Path | str | None = None,
+    *,
+    allow_head: bool = True,
+    strict: bool = False,
+) -> str:
+    """Normalizes a CL URL, `ag/<id>`, numeric CL ID, Change-Id, or `HEAD` into a Gerrit ID."""
     cleaned = (cl_input or "").strip()
     if not cleaned or cleaned.upper() == "HEAD":
-        work_dir = str(Path(cwd).resolve()) if cwd else None
-        try:
-            res = subprocess.run(
-                ["git", "log", "-1", "--format=%B", "HEAD"],
-                capture_output=True,
-                text=True,
-                check=True,
-                cwd=work_dir,
-            )
-            match = _COMMIT_CHANGE_ID_RE.search(res.stdout)
-            if match:
-                return match.group(1)
-        except Exception as exc:
-            raise ValueError(
-                f"Failed to read HEAD commit message in '{work_dir or '.'}': {exc}. "
-                "Provide an explicit CL number or URL."
-            ) from exc
-        raise ValueError(
-            f"No 'Change-Id: I...' footer found in HEAD commit at '{work_dir or '.'}'. "
-            "Provide an explicit Gerrit CL number or URL."
-        )
+        if allow_head:
+            return _resolve_head_change_id(cwd)
+    else:
+        for pattern in (_AG_SHORTLINK_RE, _URL_CL_RE, _LEGACY_URL_CL_RE):
+            matched = pattern.search(cleaned)
+            if matched:
+                return matched.group(1)
+        if cleaned.isdigit() or _CHANGE_ID_FULL_RE.fullmatch(cleaned):
+            return cleaned
+        if not strict:
+            m_cid = _CHANGE_ID_RE.search(cleaned)
+            return m_cid.group(1) if m_cid else cleaned
 
-    m_url = _URL_CL_RE.search(cleaned)
-    if m_url:
-        return m_url.group(1)
-    m_legacy = _LEGACY_URL_CL_RE.search(cleaned)
-    if m_legacy:
-        return m_legacy.group(1)
-    if cleaned.isdigit():
-        return cleaned
-    m_cid = _CHANGE_ID_RE.search(cleaned)
-    if m_cid:
-        return m_cid.group(1)
-
-    return cleaned
+    safe_input = cleaned.split("?", 1)[0]
+    raise ValueError(
+        f"Could not extract a Gerrit CL identifier from '{safe_input}' "
+        "(expected a numeric CL ID such as '43137255', 'ag/<id>', Gerrit review URL, "
+        "or 'I<40-hex>' Change-Id). Pass a valid Gerrit CL reference to `--cl`, or "
+        "use `--commit <ref>` to audit a local git commit."
+    )
 
 
 class GerritClient:
@@ -196,6 +217,145 @@ class GerritClient:
     def _get_token(self) -> str | None:
         return self._oauth.acquire_token(user_token=self._explicit_token)
 
+    def _handle_urllib_http_error(
+        self,
+        http_err: urllib.error.HTTPError,
+        method: str,
+        path: str,
+        transport_errors: list[str],
+    ) -> None:
+        """Closes `http_err` cleanly and raises RuntimeError on non-auth HTTP failures."""
+        clean_path = path.split("?", 1)[0]
+        with http_err:
+            if http_err.code in (401, 403):
+                transport_errors.append(f"urllib HTTP {http_err.code}")
+                return
+            reason = getattr(http_err, "reason", "") or "HTTP error"
+            raise RuntimeError(
+                f"Gerrit API {method} '{clean_path}' failed with HTTP {http_err.code} ({reason}). "
+                f"Verify that the target change and revision exist on '{self.host}' and retry."
+            ) from http_err
+
+    def _try_urllib_request(
+        self,
+        url: str,
+        path: str,
+        method: str,
+        body_bytes: bytes | None,
+        transport_errors: list[str],
+    ) -> str | None:
+        """Attempts an OAuth-authenticated HTTPS request via `urllib`, returning None on 401/403."""
+        token = self._get_token()
+        if not token:
+            transport_errors.append("no OAuth token available")
+            return None
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        }
+        if body_bytes is not None:
+            headers["Content-Type"] = "application/json; charset=UTF-8"
+        req = urllib.request.Request(url, data=body_bytes, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(
+                req, context=get_ssl_context(), timeout=GERRIT_HTTP_TIMEOUT_SEC
+            ) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as http_err:
+            self._handle_urllib_http_error(http_err, method, path, transport_errors)
+        except Exception as exc:
+            transport_errors.append(f"urllib {type(exc).__name__}")
+            logger.debug("Direct urllib Gerrit call failed, trying CLI fallback: %s", exc)
+        return None
+
+    def _run_cli_request(self, cmd: list[str], label: str, transport_errors: list[str]) -> str | None:
+        """Executes a `gob-curl` or `gosso` CLI fallback command with UTF-8 decoding."""
+        try:
+            res = subprocess.run(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+                timeout=GERRIT_CLI_TIMEOUT_SEC,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            transport_errors.append(f"{label} {type(exc).__name__}")
+            return None
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout
+        err_lines = (res.stderr or "").strip().splitlines()
+        err_detail = f" ({err_lines[0].split('?', 1)[0]})" if err_lines else ""
+        transport_errors.append(f"{label} exit code {res.returncode}{err_detail}")
+        return None
+
+    def _try_cli_fallbacks(
+        self,
+        path: str,
+        url: str,
+        method: str,
+        data: dict[str, Any] | None,
+        transport_errors: list[str],
+    ) -> str | None:
+        """Attempts authenticated Gerrit REST fallback via `gob-curl` then `gosso`."""
+        gob_curl = shutil.which("gob-curl")
+        if gob_curl:
+            cmd = [gob_curl, "-s", "-f", "-S", "-X", method]
+            if data is not None:
+                cmd.extend(["-H", "Content-Type: application/json", "-d", json.dumps(data)])
+            out = self._run_cli_request([*cmd, url], "gob-curl", transport_errors)
+            if out is not None:
+                return out
+        gosso = shutil.which("gosso")
+        if gosso:
+            unprefixed_path = path[2:] if path.startswith("/a/") else path
+            cmd = [gosso, "-method", method, "-url", f"{self.host}{unprefixed_path}"]
+            if data is not None:
+                cmd.extend(["-header", "Content-Type: application/json", "-data", json.dumps(data)])
+            return self._run_cli_request(cmd, "gosso", transport_errors)
+        return None
+
+    def _request_raw(
+        self,
+        endpoint: str,
+        method: str = "GET",
+        data: dict[str, Any] | None = None,
+    ) -> str:
+        """Executes an authenticated Gerrit REST API request and returns the raw response body."""
+        path = endpoint if endpoint.startswith("/") else f"/{endpoint}"
+        if not path.startswith("/a/"):
+            path = f"/a{path}"
+        clean_path = path.split("?", 1)[0]
+        if path.rstrip("/").endswith("/submit"):
+            raise PermissionError(
+                f"Blocked Gerrit submit request for '{clean_path}': automated CL submission via GerritClient "
+                "is disabled by safety policy. Ask a human reviewer to approve and submit in Gerrit."
+            )
+        if isinstance(data, dict) and "labels" in data:
+            raise PermissionError(
+                f"Blocked Gerrit label vote on '{clean_path}': automated voting via GerritClient is "
+                "disabled by safety policy. Use `gob-curl` with '\"notify\": \"OWNER\"' only when "
+                "setting Presubmit-Ready+1 as authorized by the user."
+            )
+        url = f"{self.api_host}{path}"
+        body_bytes = json.dumps(data).encode("utf-8") if data is not None else None
+        transport_errors: list[str] = []
+
+        direct_body = self._try_urllib_request(url, path, method, body_bytes, transport_errors)
+        if direct_body is not None:
+            return direct_body
+        cli_body = self._try_cli_fallbacks(path, url, method, data, transport_errors)
+        if cli_body is not None:
+            return cli_body
+
+        detail = "; ".join(transport_errors) or "no OAuth token, gob-curl, or gosso transport installed"
+        raise RuntimeError(
+            f"Unable to authenticate or reach Gerrit endpoint '{self.api_host}{clean_path}' ({detail}). "
+            "Run `gcert` or `oauth2l fetch --sso $USER@google.com gerritcodereview` and retry."
+        )
+
     def _request_json(
         self,
         endpoint: str,
@@ -203,75 +363,30 @@ class GerritClient:
         data: dict[str, Any] | None = None,
     ) -> Any:
         """Executes an authenticated Gerrit REST API request and parses its JSON response."""
-        path = endpoint if endpoint.startswith("/") else f"/{endpoint}"
-        if not path.startswith("/a/"):
-            path = f"/a{path}"
-        if path.rstrip("/").endswith("/submit"):
-            raise PermissionError(
-                "Submitting CLs via GerritClient is disabled for safety; human approval and submission are required."
+        raw = self._request_raw(endpoint, method=method, data=data)
+        cleaned = strip_xssi_prefix(raw)
+        try:
+            return json.loads(cleaned) if cleaned else {}
+        except json.JSONDecodeError as exc:
+            clean_path = endpoint.split("?", 1)[0]
+            raise RuntimeError(
+                f"Failed to parse JSON response from Gerrit {method} '{clean_path}' ({exc.msg}). "
+                f"Verify that the target CL exists on '{self.host}' and run `gcert` to refresh SSO credentials."
+            ) from exc
+
+    def get_revision_patch(self, change_id: str, revision: str = "current") -> str:
+        """Fetches the raw base64-encoded unified diff patch for a Gerrit change revision."""
+        encoded_id = urllib.parse.quote(str(change_id), safe="")
+        encoded_rev = urllib.parse.quote(str(revision), safe="")
+        raw_patch = self._request_raw(f"/a/changes/{encoded_id}/revisions/{encoded_rev}/patch")
+        stripped = raw_patch.strip()
+        if not stripped:
+            raise RuntimeError(
+                f"Received an empty unified diff patch for Gerrit CL '{change_id}' "
+                f"(revision '{revision}') from '{self.host}'. "
+                "Verify that the CL has at least one patchset uploaded and run `gcert` before retrying."
             )
-        if isinstance(data, dict) and "labels" in data:
-            raise PermissionError(
-                "Voting on review labels (such as Code-Review+2) via GerritClient is disabled for safety."
-            )
-        url = f"{self.api_host}{path}"
-        body_bytes = json.dumps(data).encode("utf-8") if data is not None else None
-
-        token = self._get_token()
-        if token:
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/json",
-            }
-            if body_bytes is not None:
-                headers["Content-Type"] = "application/json; charset=UTF-8"
-            req = urllib.request.Request(
-                url, data=body_bytes, headers=headers, method=method
-            )
-            try:
-                with urllib.request.urlopen(
-                    req, context=get_ssl_context(), timeout=20.0
-                ) as resp:
-                    raw = resp.read().decode("utf-8", errors="replace")
-                    cleaned = strip_xssi_prefix(raw)
-                    return json.loads(cleaned) if cleaned else {}
-            except urllib.error.HTTPError as http_err:
-                err_body = http_err.read().decode("utf-8", errors="replace")
-                if http_err.code not in (401, 403):
-                    raise RuntimeError(
-                        f"Gerrit API {method} {path} failed with HTTP {http_err.code}: {err_body.strip()}"
-                    ) from http_err
-            except Exception as exc:
-                logger.debug("Direct urllib Gerrit call failed, trying CLI fallback: %s", exc)
-
-        # Fallback to gob-curl or gosso on gLinux
-        gob_curl = shutil.which("gob-curl")
-        if gob_curl:
-            cmd = [gob_curl, "-s", "-X", method]
-            if body_bytes is not None:
-                cmd.extend(["-H", "Content-Type: application/json", "-d", json.dumps(data)])
-            cmd.append(url)
-            res = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=25.0)
-            if res.returncode == 0 and res.stdout.strip():
-                cleaned = strip_xssi_prefix(res.stdout)
-                return json.loads(cleaned) if cleaned else {}
-
-        gosso = shutil.which("gosso")
-        if gosso:
-            unprefixed_path = path[2:] if path.startswith("/a/") else path
-            gosso_url = f"{self.host}{unprefixed_path}"
-            cmd = [gosso, "-method", method, "-url", gosso_url]
-            if body_bytes is not None:
-                cmd.extend(["-header", "Content-Type: application/json", "-data", json.dumps(data)])
-            res = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=25.0)
-            if res.returncode == 0 and res.stdout.strip():
-                cleaned = strip_xssi_prefix(res.stdout)
-                return json.loads(cleaned) if cleaned else {}
-
-        raise RuntimeError(
-            f"Unable to authenticate or reach Gerrit endpoint '{url}'. "
-            "Ensure OAuth credentials (`oauth2l fetch --sso $USER@google.com gerritcodereview`) or `gob-curl` are available."
-        )
+        return stripped
 
     def list_open_changes(
         self,
@@ -328,17 +443,25 @@ class GerritClient:
             )
         return results
 
-    def get_change_detail(self, change_id: str) -> dict[str, Any]:
+    def get_change_detail(
+        self,
+        change_id: str,
+        include_files: bool = False,
+    ) -> dict[str, Any]:
         """Retrieves full change detail including revisions, commit metadata, labels, and messages."""
         encoded_id = urllib.parse.quote(str(change_id), safe="")
+        extra = "&o=CURRENT_FILES" if include_files else ""
         endpoint = (
             f"/a/changes/{encoded_id}/detail"
-            "?o=CURRENT_REVISION&o=ALL_REVISIONS&o=CURRENT_COMMIT"
-            "&o=MESSAGES&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS"
+            f"?o=CURRENT_REVISION&o=ALL_REVISIONS&o=CURRENT_COMMIT"
+            f"&o=MESSAGES&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS{extra}"
         )
         data = self._request_json(endpoint)
         if not isinstance(data, dict):
-            raise RuntimeError(f"Unexpected Gerrit detail response for '{change_id}'.")
+            raise RuntimeError(
+                f"Unexpected Gerrit detail response type ({type(data).__name__}) for CL '{change_id}' "
+                f"on '{self.host}'. Verify that the CL exists and run `gcert` before retrying."
+            )
         return data
 
     def get_comment_threads(

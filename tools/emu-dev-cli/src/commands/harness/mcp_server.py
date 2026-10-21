@@ -20,6 +20,8 @@ Exposes structured emulator development tools (`aemu_validate_commit_message`,
 """
 
 import json
+import os
+from pathlib import Path
 import sys
 from typing import Any, Dict, List, Optional
 
@@ -28,7 +30,13 @@ from commands.harness.guardrails import (
     _load_commit_verifier,
     discover_active_workflows,
 )
-from commands.harness.ledger import SessionLedgerStore
+from commands.harness.ledger import SessionLedgerStore, get_harness_base_dir
+from commands.harness.review_history import load_recent_swarm_metrics
+from commands.harness.review_swarm import (
+    REVIEW_SWARM_SUBDIR,
+    prepare_review_swarm_bundle,
+)
+from lib.output import ensure_utf8_stdio
 
 REUSABLE_LIBS_CATALOG: List[Dict[str, str]] = [
     {
@@ -158,6 +166,39 @@ MCP_TOOLS_SCHEMA: List[Dict[str, Any]] = [
             "required": ["log_text"],
         },
     },
+    {
+        "name": "aemu_prepare_review_swarm",
+        "description": (
+            "Prepare the single-wave 8-Specialist Parallel Code-Review Swarm (`run_workflow` "
+            "script, diff manifest, and `changed_lines_by_file` allowlist) for a Gerrit CL "
+            "or local git commit."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": "Gerrit CL ID/URL (e.g. '43137255', 'ag/43137255') or git commit ref (e.g. 'HEAD').",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["workflow", "swarm"],
+                    "description": "Execution mode: 'workflow' (run_workflow) or 'swarm' (native swarm).",
+                },
+                "repo_dir": {
+                    "type": "string",
+                    "description": (
+                        "Optional path to the target Git repository or Android `repo` workspace root "
+                        "(e.g. '/path/to/studio-main/tools/vendor/google' or '/path/to/studio-main')."
+                    ),
+                },
+                "force_full": {
+                    "type": "boolean",
+                    "description": "Force a full 8-specialist pass ignoring cached iteration history.",
+                },
+            },
+        },
+    },
 ]
 
 
@@ -176,6 +217,28 @@ def search_reusable_libs(query: str = "") -> List[Dict[str, str]]:
     return matches or list(REUSABLE_LIBS_CATALOG)
 
 
+def _execute_prepare_review_swarm(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolves Gerrit/Git arguments and prepares the 8-specialist review swarm bundle."""
+    target = str(arguments.get("target") or "HEAD").strip()
+    mode = str(arguments.get("mode") or "workflow").strip().lower()
+    raw_repo = (
+        arguments.get("repo_dir")
+        or arguments.get("workspace_dir")
+        or os.environ.get("WORKSPACE_DIR")
+    )
+    repo_path = (
+        Path(str(raw_repo).strip()).expanduser()
+        if isinstance(raw_repo, str) and str(raw_repo).strip()
+        else None
+    )
+    return prepare_review_swarm_bundle(
+        target=target,
+        mode=mode,
+        repo_dir=repo_path,
+        force_full=bool(arguments.get("force_full", False)),
+    )
+
+
 def execute_mcp_tool(
     tool_name: str,
     arguments: Dict[str, Any],
@@ -183,22 +246,14 @@ def execute_mcp_tool(
 ) -> Dict[str, Any]:
     """Executes one named AEMU Harness MCP tool and returns its structured result."""
     if tool_name == "aemu_validate_commit_message":
-        message = str(arguments.get("message") or "")
         verifier = _load_commit_verifier()
-        errors = verifier.validate_commit_message(message)
-        return {
-            "valid": len(errors) == 0,
-            "errors": errors,
-        }
+        errors = verifier.validate_commit_message(str(arguments.get("message") or ""))
+        return {"valid": len(errors) == 0, "errors": errors}
 
     if tool_name == "aemu_search_reusable_libs":
         query = str(arguments.get("query") or "")
         matches = search_reusable_libs(query)
-        return {
-            "query": query,
-            "count": len(matches),
-            "libraries": matches,
-        }
+        return {"query": query, "count": len(matches), "libraries": matches}
 
     if tool_name == "aemu_get_harness_state":
         conv_id = arguments.get("conversation_id")
@@ -206,17 +261,26 @@ def execute_mcp_tool(
         return {
             "ledger": ledger_store.load(conv_id),
             "active_workflows": discover_active_workflows(conversation_id=conv_id),
+            "recent_review_swarm_metrics": load_recent_swarm_metrics(
+                get_harness_base_dir() / REVIEW_SWARM_SUBDIR
+            ),
         }
 
     if tool_name == "aemu_diagnose_build_or_test_log":
-        log_text = str(arguments.get("log_text") or "")
-        diag = diagnose_command_failure("bazel test", log_text)
+        diag = diagnose_command_failure("bazel test", str(arguments.get("log_text") or ""))
         return {
             "detected": diag is not None,
             "diagnostic": diag or "No known sanitizer or missing-header signature matched.",
         }
 
-    raise ValueError(f"Unknown MCP tool: {tool_name}")
+    if tool_name == "aemu_prepare_review_swarm":
+        return _execute_prepare_review_swarm(arguments)
+
+    raise ValueError(
+        f"Unknown MCP tool '{tool_name}'. Supported tools: "
+        + ", ".join(s["name"] for s in MCP_TOOLS_SCHEMA)
+        + "."
+    )
 
 
 def handle_mcp_jsonrpc_request(
@@ -269,7 +333,7 @@ def handle_mcp_jsonrpc_request(
                     "content": [
                         {
                             "type": "text",
-                            "text": json.dumps(tool_out, indent=2),
+                            "text": json.dumps(tool_out, indent=2, ensure_ascii=False),
                         }
                     ],
                     "isError": False,
@@ -297,6 +361,7 @@ def handle_mcp_jsonrpc_request(
 
 def run_stdio_mcp_server() -> None:
     """Runs the newline-delimited JSON-RPC 2.0 MCP server loop over stdin/stdout."""
+    ensure_utf8_stdio()
     store = SessionLedgerStore()
     for raw_line in sys.stdin:
         line = raw_line.strip()
@@ -310,5 +375,5 @@ def run_stdio_mcp_server() -> None:
             continue
         response = handle_mcp_jsonrpc_request(request, store=store)
         if response is not None:
-            sys.stdout.write(json.dumps(response) + "\n")
+            sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
             sys.stdout.flush()

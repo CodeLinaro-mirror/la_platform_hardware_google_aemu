@@ -118,11 +118,16 @@ def evaluate_cpp_utf8_and_statusor(
     statusor_match = STATUSOR_HUNGARIAN_PATTERN.search(content)
     if statusor_match:
         bad_var = statusor_match.group(1)
-        clean_var = bad_var[:-3] if bad_var.endswith("_or") else bad_var
+        if bad_var.endswith("_or"):
+            clean_var = bad_var[: -len("_or")]
+        elif bad_var.startswith("maybe_"):
+            clean_var = bad_var[len("maybe_") :]
+        else:
+            clean_var = bad_var
         return (
             False,
             "Blocked by AEMU Harness TotW 181 Guardrail (go/totw/181): "
-            f"Avoid Hungarian '_or' suffix on StatusOr variable '{bad_var}' in '{norm_path}'. "
+            f"Avoid Hungarian '_or' / 'maybe_' naming on StatusOr variable '{bad_var}' in '{norm_path}'. "
             f"Name the variable '{clean_var}' directly, verify '{clean_var}.ok()', and access "
             f"via '*{clean_var}' or '{clean_var}->...'.",
         )

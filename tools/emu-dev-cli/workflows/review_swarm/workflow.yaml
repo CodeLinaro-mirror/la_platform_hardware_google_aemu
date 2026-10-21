@@ -1,0 +1,37 @@
+# Code Review: 8-Specialist Single-Wave Parallel Code-Review Swarm (YAML)
+
+name: review-swarm
+description: Fan out 8 non-overlapping review specialists in a single wave and deterministically filter findings to modified diff lines.
+
+args:
+  - name: target
+    required: false
+    default: "HEAD"
+    help: "Gerrit CL ID/URL (e.g. 43137255, ag/43137255) or git commit ref (default: HEAD)"
+  - name: mode
+    required: false
+    default: "workflow"
+    help: "Orchestration mode: 'workflow' (run_workflow) or 'swarm' (native swarm)"
+  - name: repo
+    required: false
+    default: "."
+    help: "Target Git repository directory when reviewing a local commit (default: .)"
+
+steps:
+  - step: 0
+    title: Prepare & Execute 8-Specialist Single-Wave Parallel Code-Review Swarm
+    prompt: |
+      Run the 8-Specialist Single-Wave Parallel Code-Review Swarm on '{target}' (mode='{mode}', repo='{repo}'):
+
+      1. Call the MCP tool `aemu_prepare_review_swarm(target="{target}", mode="{mode}", repo_dir="{repo}")` (or run `emu-dev-cli harness review-swarm --target "{target}" --mode {mode} --repo "{repo}"`).
+      2. If `mode == "workflow"`, execute the generated `run_review_swarm_workflow.py` script using `run_workflow(ScriptPath=..., Description="8-Specialist Parallel Code-Review Swarm")` to launch all 8 specialists concurrently (`max_concurrency=8`):
+         - `commit-and-bug-auditor` (`model="flash"`)
+         - `duplication-and-reuse-auditor` (`model="inherit"`, maps to `review-duplication`)
+         - `modularity-auditor` (`model="inherit"`, maps to `review-modularity`)
+         - `control-flow-auditor` (`model="flash"`, maps to `review-control-flow`)
+         - `constants-auditor` (`model="flash"`, maps to `review-constants`)
+         - `unicode-and-platform-auditor` (`model="inherit"`, maps to `review-unicode`)
+         - `error-messages-and-statusor-auditor` (`model="inherit"`)
+         - `concurrency-and-safety-auditor` (`model="inherit"`)
+      3. Present the deterministic Python-filtered Markdown report (including `Reuse audit: N abstractions checked, M duplicates` and `Error-message audit: N sites checked, M findings`) and the Gerrit review JSON payload (`"unresolved": true`, `"notify": "OWNER"`).
+    verifier_cmd: null
