@@ -34,6 +34,7 @@ py_library(
     data = glob(
         [
             "docs/**/*.md",
+            "harness/plugin/**",
             "src/templates/*.md",
             "workflows/**/*.yaml",
             "workflows/**/*.yml",

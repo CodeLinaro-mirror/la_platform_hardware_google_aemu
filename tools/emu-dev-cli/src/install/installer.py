@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 
+from commands.harness.plugin_installer import install_harness_plugin
 from commands.source_directory import (
     ensure_codesearch_urls_config,
     get_all_source_directories,
@@ -329,6 +330,18 @@ def copy_src_to_release_lib(src_dir, release_lib_dir):
                         continue
                     rel_path = os.path.relpath(os.path.join(root, f), docs_dir)
                     dest_file = os.path.join(dest_docs, rel_path)
+                    os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+                    source_file = os.path.join(root, f)
+                    if os.path.abspath(source_file) != os.path.abspath(dest_file):
+                        _safe_copy2(source_file, dest_file)
+
+        harness_dir = os.path.join(parent_dir, "harness")
+        if os.path.isdir(harness_dir):
+            dest_harness = os.path.join(release_lib_dir, "harness")
+            for root, _, files in os.walk(harness_dir):
+                for f in files:
+                    rel_path = os.path.relpath(os.path.join(root, f), harness_dir)
+                    dest_file = os.path.join(dest_harness, rel_path)
                     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
                     source_file = os.path.join(root, f)
                     if os.path.abspath(source_file) != os.path.abspath(dest_file):
@@ -952,6 +965,7 @@ def run_install_cmd(args):
             final_installed = fallback
 
     skill_files = install_skill()
+    harness_report = install_harness_plugin(cli_command=str(final_installed) if final_installed else None)
     ensure_codesearch_urls_config()
 
     cleanup_reports = {}
@@ -966,9 +980,10 @@ def run_install_cmd(args):
         {
             "status": "success",
             "action": "install",
-            "summary": f"Successfully installed emu_dev_cli compiled release package and skills",
+            "summary": f"Successfully installed emu_dev_cli compiled release package, skills, and aemu-harness plugin",
             "launcher_path": str(final_installed),
             "skill_files": skill_files,
+            "harness_plugin": harness_report,
             "legacy_cleanup": cleanup_reports,
         },
         json_mode=json_mode,

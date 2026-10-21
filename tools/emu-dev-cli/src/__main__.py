@@ -35,6 +35,9 @@ if SCRIPT_DIR not in sys.path:
 lib_dir = os.path.join(SCRIPT_DIR, "lib")
 if os.path.exists(lib_dir) and lib_dir not in sys.path:
     sys.path.insert(0, lib_dir)
+parent_dir = os.path.dirname(SCRIPT_DIR)
+if os.path.isdir(os.path.join(parent_dir, "workflows")) and parent_dir not in sys.path:
+    sys.path.append(parent_dir)
 
 from commands import (
     build_times,
@@ -45,6 +48,7 @@ from commands import (
     fetch_build,
     flakiness,
     gerrit,
+    harness,
     init_cmd,
     launch,
     mesh,
@@ -105,6 +109,7 @@ def main():
     fetch_build.register_parser(subparsers, default_host)
     flakiness.register_parser(subparsers)
     gerrit.register_parser(subparsers)
+    harness.register_parser(subparsers)
     init_cmd.register_parser(subparsers)
     installer.register_parser(subparsers)
     launch.register_parser(subparsers)

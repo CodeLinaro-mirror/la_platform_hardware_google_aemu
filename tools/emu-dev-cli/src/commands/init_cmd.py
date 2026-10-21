@@ -1,6 +1,7 @@
 import os
 import shutil
 from lib.output import print_result
+from commands.harness.plugin_installer import install_harness_plugin
 from commands.source_directory import run_first_time_setup, CONFIG_FILE_PATH, load_config
 
 SKILL_MARKDOWN_CONTENT = """---
@@ -245,10 +246,19 @@ def run_init(args):
             "exit_code": 1
         }, json_mode=json_mode, is_error=True)
 
+    harness_report = install_harness_plugin(
+        target_dir=os.path.join(
+            home_dir, ".gemini", "config", "plugins", "aemu-harness"
+        )
+        if os.path.isdir(home_dir)
+        else None
+    )
+
     print_result({
         "status": "success",
         "action": "init",
-        "summary": "Successfully initialized emu-dev-cli environment and agent skills",
+        "summary": "Successfully initialized emu-dev-cli environment, agent skills, and aemu-harness plugin",
         "config_file": CONFIG_FILE_PATH,
         "installed_locations": installed_files,
+        "harness_plugin": harness_report,
     }, json_mode=json_mode)
