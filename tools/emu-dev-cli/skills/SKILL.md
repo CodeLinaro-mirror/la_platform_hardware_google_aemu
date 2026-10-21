@@ -63,6 +63,37 @@ Auto-detects host CPU architecture (`x86_64` vs `arm64`).
   emu-dev-cli fetch-build system-image --build-id 15900270
   ```
 
+#### C. Update Checked-in Prebuilts (`update-prebuilt`)
+
+Fetches prebuilt artifacts or archive entries from Android Build (`go/ab`) and drops them into `prebuilts/android-emulator-build/common/`:
+
+- **List all registered prebuilt packages and supported targets:**
+  ```bash
+  emu-dev-cli update-prebuilt --list
+  ```
+- **Update Lavapipe prebuilts across all targets (`linux-x64`, `mac-arm64`, `win-x64`) when `--target` is omitted:**
+  ```bash
+  emu-dev-cli update-prebuilt lavapipe --build-number=16534139
+  ```
+- **Update a specific target (`linux-x64`, `mac-arm64`, or `win-x64`):**
+  ```bash
+  emu-dev-cli update-prebuilt lavapipe --target=linux-x64 --build-number=16534139
+  emu-dev-cli update-prebuilt lavapipe --target=mac-arm64 --build-number=16534139
+  emu-dev-cli update-prebuilt lavapipe --target=win-x64 --build-number=16534139
+  ```
+- **Update KosmicKrisp Vulkan ICD prebuilts (`mac-arm64` only):**
+  ```bash
+  emu-dev-cli update-prebuilt kosmickrisp --build-number=16476462
+  ```
+- **Update Android Device Hub prebuilts from `studio-main` (`linux-x64`, `mac-arm64`, `win-x64`):**
+  ```bash
+  emu-dev-cli update-prebuilt android-device-hub --latest
+  ```
+- **Dry-run preview without modifying workspace files:**
+  ```bash
+  emu-dev-cli update-prebuilt lavapipe --build-number=16534139 --dry-run
+  ```
+
 ---
 
 ### 2. Source Directory Registry (`source-directory`)
@@ -633,10 +664,60 @@ Decomposes every CI build into **4 layers + Per-Stage Breakdown**:
 
 ---
 
+### 12.5 Emulator Binary Performance Benchmarking & Profiling (`perf`)
+
+Profiles, benchmarks, and compares **fully built emulator binaries** (`qemu-next`, `qemu-now`, `stable`, `go/ab` build IDs, or running instances) across standardized workloads (`adb`, `adb-tmpfs`, `adb-disk`, `adb-dir`, `input`, `disk`, `memory`, `cpu`, `idle`, `boot`, `snapshot`, `display`) paired with cross-platform host/guest/hypervisor telemetry profilers (`proc`, `perf-stat`, `perf-record`, `perfetto`, `emu-perf-stat`).
+Uses clean, isolated per-run AVDs by default and automatically installs the packaged `perf_probe.apk` (`com.android.emulator.perfprobe`) for `input` (`EmulatorController` v1 gRPC `streamInputEvent` + `streamScreenshot`), `disk` (`virtio-blk` sequential & 4K `fsync` IOPS), `memory` (`SharedMemory` EPT demand-paging & stream copy), and `cpu` (SMP scaling & cross-vCPU IPI ping-pong) suites.
+
+- **List Available Suites & Profilers (`perf list`):**
+  ```bash
+  emu-dev-cli perf list
+  ```
+- **Run Benchmarks Against a Running or Managed Emulator (`perf run`):**
+  ```bash
+  # Benchmark ADB transport (guest /dev/shm tmpfs) against a running emulator with per-thread CPU% attribution
+  emu-dev-cli perf run --suite adb-tmpfs --iterations 5 -o /tmp/candidate_perf.json
+
+  # Run input, disk, memory, and cpu guest+host microbenchmarks via perf_probe.apk & v1 gRPC
+  emu-dev-cli perf run --suite input,disk,memory,cpu --iterations 3
+
+  # Cold-boot a go/ab build ID (auto-fetched if needed) on a clean isolated AVD and run full qualification
+  emu-dev-cli perf run --target 15075377 --avd Generic_Phone_API_36 --suite idle,adb-tmpfs,adb-disk,input,disk,memory,cpu
+  ```
+- **Compare Two Builds, Branches, or Saved JSON Runs (`perf compare`):**
+  ```bash
+  # Directly compare official stable release vs local/repo-release build across all suites
+  emu-dev-cli perf compare stable tree --suite all --iterations 5
+
+  # Compare latest qemu-now (emu-main-dev) vs local qemu-next build with Gerrit commit output format
+  emu-dev-cli perf compare latest:emu-main-dev local --suite adb-tmpfs --format commit
+
+  # Compare two saved JSON benchmark reports
+  emu-dev-cli perf compare /tmp/baseline.json /tmp/candidate.json
+  ```
+- **Run the Weekly Cross-Platform Performance Qualification Workflow (`workflow compare-perf`):**
+  ```bash
+  # Compare official stable release vs latest emu-main-next on go/ab (Linux & macOS)
+  emu-dev-cli workflow compare-perf init
+
+  # Compare official stable release vs local workspace tree build (//:emulator-repo-release)
+  emu-dev-cli workflow compare-perf init --baseline stable --candidate tree
+  ```
+- **Inspect Longitudinal Performance History (`perf history`):**
+  ```bash
+  emu-dev-cli perf history --limit 20
+  ```
+
+---
+
 ### 13. Common Natural Language Requests & Agent Action Mapping
 
 | User Request                                                                                                                               | Target Command                                                                                                                                                                                     |
 | :----------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _"Run the weekly emulator performance qualification / compare stable vs latest emu-main-next"_                                             | `emu-dev-cli workflow compare-perf init`                                                                                                                                                           |
+| _"Compare performance of stable release vs current emulator in the tree"_                                                                  | `emu-dev-cli workflow compare-perf init --baseline stable --candidate tree`                                                                                                                        |
+| _"Compare performance of emulator build 123 vs 321"_                                                                                       | `emu-dev-cli perf compare 123 321 --suite idle,adb-tmpfs,adb-disk`                                                                                                                                 |
+| _"Benchmark ADB push/pull throughput on the running emulator"_                                                                             | `emu-dev-cli perf run --suite adb-tmpfs,adb-disk --iterations 5`                                                                                                                                   |
 | _"How fast is build 16411294?"_                                                                                                            | `emu-dev-cli build-times inspect --build-id 16411294 --target all`                                                                                                                                 |
 | _"What happened to the last 10 mac arm builds?"_                                                                                           | `emu-dev-cli build-times history --target emulator_mac_aarch64 --limit 10`                                                                                                                         |
 | _"Can you find out why the mac arm builds all of a sudden became slow?"_                                                                   | `emu-dev-cli build-times diagnose --target emulator_mac_aarch64 --limit 10`                                                                                                                        |
@@ -649,6 +730,7 @@ Decomposes every CI build into **4 layers + Per-Stage Breakdown**:
 | _"Reproduce and stress-test Windows flaky test on Linux"_                                                                                  | `emu-dev-cli flakiness reproduce --test @goldfish//emulator/libs/async:loop_handoff_test --target emulator_windows_x64 --iterations 30` _(uses RBE `--config=rbe-win-x64` automatically on Linux)_ |
 | _"Fix flaky test bug b/123456789 and upload the CL"_                                                                                       | `emu-dev-cli flakiness fix --bug 123456789 --iterations 50 --upload`                                                                                                                               |
 | _"Run the daily untriaged production crash triage workflow"_                                                                               | `emu-dev-cli workflow triage-crashes init -- --days 2`                                                                                                                                             |
+| _"Review a commit to remove duplicate code and maximize code reuse"_                                                                        | `emu-dev-cli workflow review-duplication init -- --commit HEAD`                                                                                                                                     |
 | _"List untriaged production qemu-next crashes from the last 7 days"_                                                                       | `emu-dev-cli crash list-crashes --unassigned-only --days 7`                                                                                                                                        |
 | _"Associate Buganizer issue b/567125517 with crash signature virtio_gpu_rutabaga_load-e709a6ba in go/crash"_                               | `emu-dev-cli crash link-bug "virtio_gpu_rutabaga_load-e709a6ba" b/567125517`                                                                                                                       |
 
@@ -717,4 +799,36 @@ When tasked with triaging production `qemu-next` crashes from `go/crash` (see al
 4. **Remediate (If Actionable):**
    If the crash is still reproducible at `HEAD`, dispatch or implement the fix via
    `emu-dev-cli crash autofix <latest_report_id>`.
+
+---
+
+## 🤖 Agent Weekly Performance Qualification Protocol (`compare-perf`)
+
+When tasked with running a weekly emulator performance qualification (or comparing `stable` vs
+`latest:emu-main-next` / `tree` on Linux or macOS), use `emu-dev-cli workflow compare-perf`:
+
+1. **Initialize the Qualification Session:**
+   ```bash
+   emu-dev-cli workflow compare-perf init --baseline stable --candidate latest:emu-main-next
+   ```
+   - Automatically inspects host OS/architecture (`linux-x64`, `mac-arm64`, `mac-x64`), validates
+     all 22 workloads across 9 suites (`boot`, `idle`, `adb`, `input`, `disk`, `memory`, `cpu`,
+     `display`, `snapshot`), and verifies AVD/system-image readiness.
+2. **Execute the A/B Benchmark & Verify the 4-Part Scorecard (Step 0):**
+   ```bash
+   emu-dev-cli perf compare stable latest:emu-main-next \
+     --suite all \
+     --iterations 5 \
+     --output <comparison-json>
+   emu-dev-cli workflow compare-perf --state=<state_id>
+   ```
+   - `verify_perf_run.py` validates that every workload in the suite was measured and renders the
+     complete 4-part Markdown scorecard (`<raw-scorecard>`).
+3. **Analyze Regressions & Author the Weekly Report (Step 1):**
+   - Write the full qualification report to `<report-file>` containing the unredacted 4-part
+     scorecard tables, statistically significant wins (`p < 0.05`), and root-cause attribution for
+     any regressions or broken workloads.
+   - Advance `emu-dev-cli workflow compare-perf --state=<state_id>`; `verify_perf_report.py`
+     enforces that zero measured workloads were omitted from the final report.
+
 

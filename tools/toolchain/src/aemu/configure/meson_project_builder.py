@@ -226,10 +226,12 @@ class MesonProjectBuilder:
         # temporary paths into the cached artifact. Expand them to ['<python>', '<toolchain>/<script>.py']
         # in the local build directory so Meson invokes Python directly via CreateProcess.
         native_file = self.toolchain / "aosp-cl.ini"
+        is_cross = False
         if native_file.exists():
             config = configparser.ConfigParser(delimiters=["="], interpolation=None)
             config.optionxform = str
             config.read(native_file, encoding="utf-8")
+            is_cross = "host_machine" in config
             if "binaries" in config:
                 py_exe = strip_sandbox(Path(sys.executable).resolve()).as_posix()
                 modified = False
@@ -248,6 +250,8 @@ class MesonProjectBuilder:
         # Build the meson command line
         cmd = [self.toolchain / "meson", "setup", ".", source_path.as_posix()]
         cmd.append(f"--native-file={native_file}")
+        if is_cross:
+            cmd.append(f"--cross-file={native_file}")
         cmd.extend([f"{k}={v}" if v else k for k, v in meson_opts.items()])
         cmd.append(f"-Dprefix={prefix}")
         cmd.extend(meson_flags)
@@ -373,13 +377,16 @@ class MesonProjectBuilder:
         platform_specific_config = config_def.get(self.target, {})
         return {**common_config, **platform_specific_config}
 
-    def write_shim_file(self, dest: Path) -> None:
+    def write_shim_file(self, dest: Path, platform: Optional[str] = None) -> None:
         """Writes the shim configuration to the specified destination."""
         common = self.config.get("common", {})
 
         plat = self.config.get("platforms", {}).get(self.target, {})
 
         out = {}
+        target_platform = platform or plat.get("platform") or common.get("platform")
+        if target_platform:
+            out["platform"] = target_platform
         out["bazel_prefix"] = common.get("bazel_prefix", "") + plat.get(
             "bazel_prefix", ""
         )

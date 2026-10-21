@@ -8,6 +8,12 @@ querying framework documentation, and self-updating built binaries.
 
 ---
 
+## 📋 Prerequisites
+
+- **Python 3.10+** (matching the Bazel hermetic runtime environment).
+  - *macOS:* Install via Homebrew (`brew install python@3.11`) or pyenv if using Apple's default `/usr/bin/python3` (3.9).
+  - *Linux:* Standard `python3` on Ubuntu 22.04+, Debian 12+, or gLinux.
+
 ## 🚀 Getting Started
 
 ### 1. Build and install global launcher and agent roles/skills
@@ -320,6 +326,35 @@ and target lists:
 ```bash
 # Add clang_tidy_test rule to a BUILD.bazel package directory
 emu-dev-cli tidy add emulator/libs/sockets --target sockets
+```
+
+---
+
+### 10. Update Prebuilt Packages (`update-prebuilt`)
+
+Fetches prebuilt artifacts or archive entries from `go/ab` builds and drops them
+into `prebuilts/android-emulator-build/common/`:
+
+```bash
+# List all registered prebuilt packages and their supported targets
+emu-dev-cli update-prebuilt --list
+
+# Update Lavapipe ICD prebuilts across all targets (linux-x64, mac-arm64, win-x64)
+emu-dev-cli update-prebuilt lavapipe --build-number=16534139
+
+# Update a single target explicitly
+emu-dev-cli update-prebuilt lavapipe --target=linux-x64 --build-number=16534139
+emu-dev-cli update-prebuilt lavapipe --target=mac-arm64 --build-number=16534139
+emu-dev-cli update-prebuilt lavapipe --target=win-x64 --build-number=16534139
+
+# Update KosmicKrisp ICD prebuilt (mac-arm64)
+emu-dev-cli update-prebuilt kosmickrisp --build-number=16476462
+
+# Update Android Device Hub prebuilts from studio-main (linux-x64, mac-arm64, win-x64)
+emu-dev-cli update-prebuilt android-device-hub --latest
+
+# Preview prebuilt changes without modifying workspace files
+emu-dev-cli update-prebuilt lavapipe --build-number=16534139 --dry-run
 ```
 
 ---

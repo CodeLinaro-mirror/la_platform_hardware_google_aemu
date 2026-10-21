@@ -85,6 +85,10 @@ def bazel_command(args: argparse.Namespace) -> None:
     temp_build = tempfile.TemporaryDirectory(prefix="shadow")
     with tempfile.TemporaryDirectory(prefix="bazel") as shadow_build_dir:
         shadow_build_dir = Path(shadow_build_dir).resolve()
+        # QEMU's tests/qemu-iotests/testenv.py creates $TEST_DIR (defaulting to
+        # $PWD/scratch in the QEMU source dir, which is read-only in the Bazel
+        # sandbox) during 'meson setup'. Redirect it to the writable temp dir.
+        os.environ["TEST_DIR"] = (shadow_build_dir / "scratch").as_posix()
         builder = MesonProjectBuilder(
             config_file=args.config,
             aosp=args.aosp,
@@ -116,9 +120,17 @@ def bazel_command(args: argparse.Namespace) -> None:
             source_path_override=args.source_path,
         )
 
+        # Pass the platform dir name explicitly so BazelBackend does not rely on
+        # Python's host platform.machine() during cross-builds.
+        platform_dir_name = {
+            "linux-x64": "linux-x86_64",
+            "linux-aarch64": "linux-aarch64",
+            "windows-x64": "windows-amd64",
+            "mac-aarch64": "darwin-arm64",
+        }.get(target, target)
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".jsonc") as f:
             shim_path = Path(f.name)
-        builder.write_shim_file(shim_path)
+        builder.write_shim_file(shim_path, platform=platform_dir_name)
         shim_file = shim_path.absolute()
 
         try:
@@ -131,6 +143,8 @@ def bazel_command(args: argparse.Namespace) -> None:
             # Prevent diff in platform/linux-x86_64/config-host.h
             if target == "linux-x64":
                 extra_args.append("--libdir=lib/x86_64-linux-gnu")
+            elif target == "linux-aarch64":
+                extra_args.append("--libdir=lib/aarch64-linux-gnu")
             elif target.startswith("windows"):
                 extra_args.append("--libdir=lib")
             elif target.startswith("mac"):
@@ -158,7 +172,12 @@ def bazel_command(args: argparse.Namespace) -> None:
 
         # TODO: we currently have 3 different target names used in different
         # places. We should standardise on one!
-        suffix = {"linux-x64": "linux-x86_64", "windows-x64": "windows-x86_64", "mac-aarch64": "darwin-arm64"}.get(target)
+        suffix = {
+            "linux-x64": "linux-x86_64",
+            "linux-aarch64": "linux-aarch64",
+            "windows-x64": "windows-x86_64",
+            "mac-aarch64": "darwin-arm64",
+        }.get(target)
         dest = platform_dir / f"BUILD.{suffix}"
         logging.info("Copying BUILD.bazel to %s", dest.as_posix())
         shutil.copy2(build_file, dest)
