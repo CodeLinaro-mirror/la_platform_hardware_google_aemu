@@ -25,16 +25,10 @@ import re
 import subprocess
 from typing import List, Optional
 
-try:
-    from .gerrit_formatter import (
-        detect_formatting_errors_in_string,
-        parse_commit_message_string,
-    )
-except ImportError:
-    from gerrit_formatter import (  # type: ignore
-        detect_formatting_errors_in_string,
-        parse_commit_message_string,
-    )
+from workflows.common.git_commit.gerrit_formatter import (
+    detect_formatting_errors_in_string,
+    parse_commit_message_string,
+)
 
 
 # Allowed Semantic Commit <type> values

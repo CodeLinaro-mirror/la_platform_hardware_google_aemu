@@ -28,9 +28,6 @@ from typing import Any
 _CUR_DIR = Path(__file__).resolve().parent
 _TOOL_ROOT = _CUR_DIR.parent.parent
 _SRC_DIR = _TOOL_ROOT / "src"
-for _p in (str(_SRC_DIR), str(_TOOL_ROOT)):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
 
 from lib.gerrit_api import (  # noqa: E402
     DEFAULT_GERRIT_HOST,

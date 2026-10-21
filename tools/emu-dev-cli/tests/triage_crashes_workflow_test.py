@@ -25,12 +25,9 @@ from unittest.mock import MagicMock, patch
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(ROOT_DIR, "src")
 WORKFLOW_DIR = os.path.join(ROOT_DIR, "workflows", "triage_crashes")
-for p in (SRC_DIR, WORKFLOW_DIR):
-    if p not in sys.path:
-        sys.path.insert(0, p)
 
-import prepare_triage_batch
-import verify_triage_batch
+from workflows.triage_crashes import prepare_triage_batch
+from workflows.triage_crashes import verify_triage_batch
 from commands.workflow import list_available_workflows
 
 
@@ -41,9 +38,9 @@ class TriageCrashesWorkflowTest(unittest.TestCase):
         workflows = list_available_workflows()
         self.assertIn("triage-crashes", workflows)
 
-    @patch("prepare_triage_batch.update_crash_annotation")
-    @patch("prepare_triage_batch.ensure_crashadvisor_imports")
-    @patch("prepare_triage_batch.acquire_auth_token")
+    @patch("workflows.triage_crashes.prepare_triage_batch.update_crash_annotation")
+    @patch("workflows.triage_crashes.prepare_triage_batch.ensure_crashadvisor_imports")
+    @patch("workflows.triage_crashes.prepare_triage_batch.acquire_auth_token")
     def test_try_auto_link_existing_buganizer_matches(
         self, mock_token, mock_ensure_imports, mock_update_anno
     ):
@@ -218,7 +215,7 @@ class TriageCrashesWorkflowTest(unittest.TestCase):
             md,
         )
 
-    @patch("verify_triage_batch.search_crash_annotations")
+    @patch("workflows.triage_crashes.verify_triage_batch.search_crash_annotations")
     def test_verify_queue_blocks_unlinked_and_passes_when_linked(
         self, mock_search_anno
     ):
@@ -260,14 +257,14 @@ class TriageCrashesWorkflowTest(unittest.TestCase):
                     }
                 ]
             }
-            with patch("verify_triage_batch.audit_linked_bug_titles", return_value=[]):
+            with patch("workflows.triage_crashes.verify_triage_batch.audit_linked_bug_titles", return_value=[]):
                 ok, msg, _ = verify_triage_batch.verify_queue(q_path, d_path)
                 self.assertTrue(ok)
                 self.assertIn(
                     "Verified `go/crash` Bug Links", d_path.read_text(encoding="utf-8")
                 )
 
-    @patch("verify_triage_batch.ensure_crashadvisor_imports")
+    @patch("workflows.triage_crashes.verify_triage_batch.ensure_crashadvisor_imports")
     def test_audit_linked_bug_titles_catches_placeholders_and_aborts(
         self, mock_ensure_imports
     ):
@@ -305,8 +302,8 @@ class TriageCrashesWorkflowTest(unittest.TestCase):
         self.assertNotIn("105", v_ids)
         self.assertIn("issues mutate update title 101", violations[0]["suggested_fix"])
 
-    @patch("verify_triage_batch.audit_linked_bug_titles")
-    @patch("verify_triage_batch.search_crash_annotations")
+    @patch("workflows.triage_crashes.verify_triage_batch.audit_linked_bug_titles")
+    @patch("workflows.triage_crashes.verify_triage_batch.search_crash_annotations")
     def test_verify_queue_blocks_on_title_violations(
         self, mock_search_anno, mock_audit
     ):

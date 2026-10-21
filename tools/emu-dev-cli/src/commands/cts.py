@@ -6,9 +6,9 @@ import subprocess
 import urllib.request
 import zipfile
 import xml.etree.ElementTree as ET
+from lib.bazel import find_bazel_cmd
 from lib.output import print_result
 from commands.source_directory import get_source_directory, find_file_in_source_directories
-from commands.update_cmd import find_bazel_cmd
 
 PUBLIC_VERIFIER_URLS = {
     "x86":

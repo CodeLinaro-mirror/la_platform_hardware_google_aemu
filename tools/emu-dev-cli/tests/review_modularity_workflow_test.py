@@ -26,9 +26,6 @@ _TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 _EMU_DEV_CLI_DIR = os.path.dirname(_TESTS_DIR)
 _WORKFLOWS_DIR = os.path.join(_EMU_DEV_CLI_DIR, "workflows")
 _SRC_DIR = os.path.join(_EMU_DEV_CLI_DIR, "src")
-for p in (_SRC_DIR, _EMU_DEV_CLI_DIR, _WORKFLOWS_DIR):
-    if p not in sys.path:
-        sys.path.insert(0, p)
 
 from commands.workflow import (
     find_workflow_main,

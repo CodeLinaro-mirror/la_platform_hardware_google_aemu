@@ -28,8 +28,6 @@ from unittest.mock import MagicMock, patch
 SRC_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"
 )
-if SRC_DIR not in sys.path:
-    sys.path.insert(0, SRC_DIR)
 
 from install.installer import (
     KNOWN_LEGACY_SHA256_HASHES,
@@ -169,6 +167,18 @@ class InstallerTest(unittest.TestCase):
                 with open(skill_file, "r", encoding="utf-8") as f:
                     content = f.read()
                 self.assertIn("emu-dev-cli", content)
+                self.assertIn("flakiness", content)
+
+    @patch("commands.init_cmd.install_skill", return_value=[])
+    @patch("commands.init_cmd.load_config", return_value={"source_directories": {"emu-main-next": "/tmp"}})
+    def test_run_init_exits_on_failure(self, mock_load_config, mock_install_skill):
+        """Verifies run_init exits with code 1 when skill installation fails."""
+        from commands.init_cmd import run_init
+
+        args = argparse.Namespace(json=True)
+        with self.assertRaises(SystemExit) as cm:
+            run_init(args)
+        self.assertEqual(cm.exception.code, 1)
 
     @patch("commands.update_cmd.ensure_codesearch_urls_config")
     @patch("commands.update_cmd.install_skill")
