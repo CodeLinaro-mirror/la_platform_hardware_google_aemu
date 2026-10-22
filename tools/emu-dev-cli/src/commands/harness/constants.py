@@ -120,9 +120,13 @@ GERRIT_COMMENTS_PUBLISH_PATTERN: re.Pattern[str] = re.compile(
 GOB_CURL_REVIEW_POST_PATTERN: re.Pattern[str] = re.compile(
     r"\bgob-curl\b.*\/revisions\/[^\/\s]+\/review\b"
 )
+_MISE_UPLOAD_CMD_RE: str = (
+    rf"{_cli_exe_re('mise', _BATCH_OR_EXE_EXT_RE)}\s+(?:run\s+)?(?:presubmit|submit)\b"
+)
 GERRIT_UPLOAD_CMD_PATTERN: re.Pattern[str] = re.compile(
     rf"(?m)(?:^|[;&|]\s*)(?:{_REPO_UPLOAD_CMD_RE}"
     rf"|{_EMU_CLI_CMD_RE}\s+(?:gerrit|cr)\s+upload\b"
+    rf"|{_MISE_UPLOAD_CMD_RE}"
     rf"|{_cli_exe_re('git')}\s+(?:-C\s+(?:\"[^\"]+\"|'[^']+'|[^\s\"']+)\s+)*push\s+\S+\s+\S*refs/for/)"
 )
 SKIP_REVIEW_SWARM_PATTERN: re.Pattern[str] = re.compile(

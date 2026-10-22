@@ -40,14 +40,31 @@ GOLDFISH_DOC_FILENAMES = {"AGENTS.md", "ARCHITECTURE.md", "DESIGN.md"}
 
 
 def _extract_file_path_and_content(payload: Dict[str, Any]) -> Tuple[str, str]:
-    """Extracts target file path and new text content from a write_file/edit_file payload."""
+    """Extracts target file path and new text content from a file write/edit payload."""
     tool_call = payload.get("toolCall") or payload.get("tool_call") or {}
     args = tool_call.get("args") or payload.get("tool_input") or {}
     path_str = str(
-        args.get("Path") or args.get("path") or args.get("file_path") or ""
+        args.get("TargetFile")
+        or args.get("Path")
+        or args.get("path")
+        or args.get("file_path")
+        or ""
     ).strip()
+    chunks = args.get("ReplacementChunks")
+    chunk_text = (
+        "\n".join(
+            str(chunk.get("ReplacementContent") or "")
+            for chunk in chunks
+            if isinstance(chunk, dict)
+        )
+        if isinstance(chunks, list)
+        else ""
+    )
     content_str = str(
-        args.get("Content")
+        args.get("CodeContent")
+        or args.get("ReplacementContent")
+        or chunk_text
+        or args.get("Content")
         or args.get("Replacement")
         or args.get("content")
         or args.get("new_str")

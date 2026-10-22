@@ -114,7 +114,7 @@ Sample Invocations:
         dest="min_flake_rate",
         type=float,
         default=None,
-        help="Minimum failure/flake rate percentage threshold (default: any flake >0% for Android Device Hub, 5.0 for other targets)",
+        help="Minimum failure/flake rate percentage threshold (default: any flake >0%% for Android Device Hub, 5.0 for other targets)",
     )
     list_parser.add_argument(
         "--days",
@@ -287,7 +287,7 @@ Sample Invocations:
         dest="min_flake_rate",
         type=float,
         default=None,
-        help="Minimum failure/flake rate percentage threshold for bug filing (default: any flake >0% for Android Device Hub, 10.0 for other targets)",
+        help="Minimum failure/flake rate percentage threshold for bug filing (default: any flake >0%% for Android Device Hub, 10.0 for other targets)",
     )
     triage_parser.add_argument(
         "--days",

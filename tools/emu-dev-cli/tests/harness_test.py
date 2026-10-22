@@ -498,6 +498,27 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         report = install_harness_plugin(target_dir=target_str)
         self.assertTrue(report["installed"], msg=str(report))
         self.assertTrue(Path(target_str, "plugin.json").is_file())
+        reviewer_md = Path(target_str, "agents", "aemu-code-reviewer.md").read_text(encoding="utf-8")
+        self.assertIn("- view_file", reviewer_md)
+        self.assertNotIn("- read_file", reviewer_md)
+        self.assertNotIn("- code_search", reviewer_md)
+        deny_multi = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": "conv-multi-edit",
+                "toolCall": {
+                    "name": "multi_replace_file_content",
+                    "args": {
+                        "TargetFile": "/work/goldfish/emulator/net/client.cc",
+                        "ReplacementChunks": [
+                            {"ReplacementContent": 'std::ifstream in("测试_🚀_é.ini");\n'}
+                        ],
+                    },
+                },
+            },
+            store=SessionLedgerStore(base_dir=self.base_path / "harness"),
+        )
+        self.assertEqual(deny_multi["decision"], HookDecision.DENY.value)
 
     def test_goldfish_doc_drift_guardrails_on_edit_and_commit(self) -> None:
         ledger_store = SessionLedgerStore(base_dir=self.base_path / "harness")

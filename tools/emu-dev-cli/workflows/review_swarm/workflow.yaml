@@ -24,7 +24,7 @@ steps:
       Run the 8-Specialist Single-Wave Parallel Code-Review Swarm on '{target}' (mode='{mode}', repo='{repo}'):
 
       1. Call the MCP tool `aemu_prepare_review_swarm(target="{target}", mode="{mode}", repo_dir="{repo}")` (or run `emu-dev-cli harness review-swarm --target "{target}" --mode {mode} --repo "{repo}"`).
-      2. If `mode == "workflow"`, execute the generated `run_review_swarm_workflow.py` script using `run_workflow(ScriptPath=..., Description="8-Specialist Parallel Code-Review Swarm")` to launch all 8 specialists concurrently (`max_concurrency=8`):
+      2. Launch all 8 specialists concurrently (`max_concurrency=8`):
          - `commit-and-bug-auditor` (`model="flash"`)
          - `duplication-and-reuse-auditor` (`model="inherit"`, maps to `review-duplication`)
          - `modularity-auditor` (`model="inherit"`, maps to `review-modularity`)
@@ -33,5 +33,7 @@ steps:
          - `unicode-and-platform-auditor` (`model="inherit"`, maps to `review-unicode`)
          - `error-messages-and-statusor-auditor` (`model="inherit"`)
          - `concurrency-and-safety-auditor` (`model="inherit"`)
+         - **Path A (`run_workflow` available and `mode == "workflow"`)**: Execute the generated `run_review_swarm_workflow.py` script using `run_workflow(ScriptPath=..., Description="8-Specialist Parallel Code-Review Swarm")`.
+         - **Path B (`mode == "swarm"` or `run_workflow` unavailable in Jetski)**: Read `swarm_workers.json` from the prepared bundle, spawn all specialists in a single `invoke_subagent` call (`TypeName="aemu-code-reviewer"`), save their JSON outputs as a list to `<output_dir>/raw_specialist_outputs.json`, and run `emu-dev-cli harness review-swarm --target "{target}" --mode swarm --repo "{repo}" --aggregate-from <output_dir>/raw_specialist_outputs.json`.
       3. Present the deterministic Python-filtered Markdown report (including `Reuse audit: N abstractions checked, M duplicates` and `Error-message audit: N sites checked, M findings`) and the Gerrit review JSON payload (`"unresolved": true`, `"notify": "OWNER"`).
     verifier_cmd: null

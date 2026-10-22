@@ -33,13 +33,23 @@ from commands.harness.plugin_installer import (
     uninstall_harness_plugin,
 )
 from commands.harness.presets import list_harness_presets
-from commands.harness.review_history import load_recent_swarm_metrics
+from commands.harness.review_history import (
+    build_wave_metrics,
+    load_recent_swarm_metrics,
+    persist_iteration_and_metrics,
+)
 from commands.harness.review_swarm import (
     REVIEW_SWARM_SUBDIR,
+    atomic_write_text,
     filter_and_aggregate_findings,
     prepare_review_swarm_bundle,
 )
+from commands.harness.review_targets import sanitize_target_id
 from lib.output import ensure_utf8_stdio, print_result
+
+REPORT_MD_FILENAME: str = "review_swarm_report.md"
+GERRIT_PAYLOAD_FILENAME: str = "gerrit_review_payload.json"
+JSON_INDENT_SPACES: int = 2
 
 
 def _register_install_parser(harness_subparsers: Any) -> Any:
@@ -271,12 +281,51 @@ def run_harness_presets(args: argparse.Namespace) -> None:
     )
 
 
+def _persist_cli_aggregated_artifacts(
+    result_payload: Dict[str, Any],
+    manifest: Dict[str, Any],
+    raw_outputs: list[Dict[str, Any]],
+    aggregated: Dict[str, Any],
+    metrics: Dict[str, Any],
+) -> None:
+    """Writes report/payload artifacts and persists round history and telemetry."""
+    out_dir_path = Path(str(result_payload["output_dir"]))
+    out_dir_path.mkdir(parents=True, exist_ok=True)
+    report_md_path = out_dir_path / REPORT_MD_FILENAME
+    gerrit_json_path = out_dir_path / GERRIT_PAYLOAD_FILENAME
+    payload_text = (
+        json.dumps(
+            aggregated["gerrit_review_payload"],
+            indent=JSON_INDENT_SPACES,
+            ensure_ascii=False,
+        )
+        + "\n"
+    )
+    atomic_write_text(report_md_path, aggregated["markdown_report"])
+    atomic_write_text(gerrit_json_path, payload_text)
+
+    cache_root = get_harness_base_dir() / REVIEW_SWARM_SUBDIR
+    safe_id = sanitize_target_id(str(result_payload.get("target_id") or "HEAD"))
+    default_cache_out = cache_root / safe_id
+    if out_dir_path.resolve() != default_cache_out.resolve():
+        default_cache_out.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(default_cache_out / REPORT_MD_FILENAME, aggregated["markdown_report"])
+        atomic_write_text(default_cache_out / GERRIT_PAYLOAD_FILENAME, payload_text)
+
+    metrics_path = persist_iteration_and_metrics(
+        out_dir_path, cache_root, manifest, raw_outputs, aggregated, metrics
+    )
+    result_payload["report_md_path"] = str(report_md_path)
+    result_payload["gerrit_json_path"] = str(gerrit_json_path)
+    result_payload["metrics_path"] = str(metrics_path)
+
+
 def _attach_cli_aggregation(
     result_payload: Dict[str, Any],
     agg_from: str,
     changed_lines: Dict[str, Any],
 ) -> None:
-    """Loads specialist outputs from `agg_from` and attaches filtered results."""
+    """Loads specialist outputs from `agg_from`, writes artifacts, and attaches results."""
     raw_outputs = json.loads(Path(agg_from).read_text(encoding="utf-8"))
     bad_desc = (
         type(raw_outputs).__name__
@@ -292,7 +341,22 @@ def _attach_cli_aggregation(
             f"specialist result objects, got {bad_desc}. "
             "Write a top-level JSON list ('[...]') matching SPECIALIST_OUTPUT_SCHEMA and retry."
         )
-    aggregated = filter_and_aggregate_findings(raw_outputs, changed_lines)
+    manifest_path = Path(str(result_payload.get("manifest_path") or ""))
+    manifest = (
+        json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest_path.is_file()
+        else result_payload
+    )
+    wall_clock_sec = max(
+        (float(item.get("duration_sec") or 0.0) for item in raw_outputs),
+        default=0.0,
+    )
+    metrics = build_wave_metrics(manifest, raw_outputs, wall_clock_sec)
+    aggregated = filter_and_aggregate_findings(raw_outputs, changed_lines, metrics=metrics)
+    if "output_dir" in result_payload:
+        _persist_cli_aggregated_artifacts(
+            result_payload, manifest, raw_outputs, aggregated, metrics
+        )
     result_payload["aggregated"] = aggregated
     result_payload["summary"] = (
         f"Aggregated {aggregated['total_findings']} diff-bounded finding(s) | "
