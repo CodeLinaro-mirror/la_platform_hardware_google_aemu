@@ -108,4 +108,6 @@ message AvdInfo {
     // skip checks
     bool no_checks = 33;
     string sysdir = 34;
+
+    int32 api_level_minor = 35;
 }

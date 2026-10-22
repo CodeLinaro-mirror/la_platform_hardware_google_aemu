@@ -394,3 +394,12 @@ The `--state` CLI argument is resolved flexibly by the runner:
   5. **Step 4 (`commit-fix`)**: Sub-workflow `create-commit` commits the bug fix in its own atomic commit meeting Gerrit conventions.
   6. **Step 5 (`summary`)**: Summarizes the completed commits and bug resolution.
 
+### `compare-perf`
+- **Purpose**: Cross-platform (`linux-x64`, `mac-arm64`, `mac-x64`) weekly emulator performance qualification workflow comparing a baseline build (default: `stable`) against a candidate build (default: `latest:emu-main-next` or `tree`).
+- **Initialization**: `emu-dev-cli workflow compare-perf init [--baseline stable] [--candidate latest:emu-main-next] [--suite all] [--iterations 5] [--avd auto]`
+- **Workflow Steps**:
+  1. **Step 0 (`Run A/B Performance Benchmark & Generate Scorecard`)**: Executes `emu-dev-cli perf compare`, verifies that all requested suites/workloads are present in `{comparison-json}`, and auto-renders the 4-part Markdown scorecard to `{raw-scorecard}`.
+  2. **Step 1 (`Analyze Regressions, Telemetry & Author Weekly Qualification Report`)**: Verifies that `{report-file}` contains all required sections (`Executive Summary`, `Scorecard`, `Telemetry`, `Regressions`) and includes every measured workload from `{comparison-json}` without omissions.
+  3. **Step 2 (`Completion`)**: Outputs verified report and artifact paths.
+
+
