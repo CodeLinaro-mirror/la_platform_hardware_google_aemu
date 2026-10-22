@@ -11,11 +11,7 @@ import yaml
 SRC_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"
 )
-if SRC_DIR not in sys.path:
-    sys.path.insert(0, SRC_DIR)
 ROOT_DIR = os.path.dirname(SRC_DIR)
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
 
 from commands.workflow import (
     find_workflow_main,
@@ -146,6 +142,7 @@ class BugToMarkdownWorkflowTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_state_dir:
             env = os.environ.copy()
             env["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = tmp_state_dir
+            env["EMU_DEV_CLI_WORKFLOW_CACHE_DIR"] = os.path.join(tmp_state_dir, "cache")
 
             # 1. No arguments prints help
             help_res = subprocess.run(

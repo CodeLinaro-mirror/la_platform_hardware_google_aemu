@@ -211,8 +211,8 @@ def _take_psutil_snapshot(pid: int) -> Optional[ProcSnapshot]:
             ctx = proc.num_ctx_switches()
             vol_ctx = int(getattr(ctx, "voluntary", 0))
             invol_ctx = int(getattr(ctx, "involuntary", 0))
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in _take_psutil_snapshot: %s", exc)
 
         thread_ticks: Dict[str, int] = {}
         try:
@@ -220,8 +220,8 @@ def _take_psutil_snapshot(pid: int) -> Optional[ProcSnapshot]:
                 t_ticks = int((th.user_time + th.system_time) * hz)
                 t_name = "qemu-main" if th.id == pid else f"tid-{th.id}"
                 thread_ticks[t_name] = thread_ticks.get(t_name, 0) + t_ticks
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in _take_psutil_snapshot: %s", exc)
 
         return ProcSnapshot(
             pid=pid,
@@ -261,8 +261,8 @@ def take_proc_snapshot(pid: int, proc_root: str = "/proc") -> Optional[ProcSnaps
     try:
         with open(status_path, "r", encoding="utf-8", errors="replace") as f:
             status_metrics = parse_proc_status(f.read())
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in take_proc_snapshot: %s", exc)
 
     thread_ticks: Dict[str, int] = {}
     vcpu_guest_ticks = 0
@@ -292,10 +292,11 @@ def take_proc_snapshot(pid: int, proc_root: str = "/proc") -> Optional[ProcSnaps
                         vcpu_guest_ticks += t_guest
                         vcpu_kernel_ticks += t_s
                         vcpu_userspace_ticks += max(0, t_u - t_guest)
-                except Exception:
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Ignored error in take_proc_snapshot: %s", exc)
                     continue
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in take_proc_snapshot: %s", exc)
 
     if vcpu_guest_ticks == 0 and proc_guest > 0:
         vcpu_guest_ticks = proc_guest
@@ -401,10 +402,11 @@ def take_kvm_debugfs_snapshot(
                         val_str = f.read().strip()
                     if val_str.lstrip("-").isdigit():
                         counters[key] = counters.get(key, 0) + int(val_str)
-                except OSError:
+                except OSError as exc:
+                    logging.getLogger(__name__).debug("Ignored error in take_kvm_debugfs_snapshot: %s", exc)
                     continue
-    except OSError:
-        pass
+    except OSError as exc:
+        logging.getLogger(__name__).debug("Ignored error in take_kvm_debugfs_snapshot: %s", exc)
     return counters
 
 
@@ -533,8 +535,8 @@ def is_nested_virtualization(proc_root: str = "/proc") -> bool:
                 content = f.read()
             if re.search(r"^flags\s*:.*\bhypervisor\b", content, re.MULTILINE):
                 return True
-        except OSError:
-            pass
+        except OSError as exc:
+            logging.getLogger(__name__).debug("Ignored error in is_nested_virtualization: %s", exc)
     return False
 
 
@@ -575,10 +577,11 @@ def find_emulator_pid(
                         ):
                             return pid
                         candidates.append((pid, cmd_joined))
-                except Exception:
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Ignored error in find_emulator_pid: %s", exc)
                     continue
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in find_emulator_pid: %s", exc)
 
     if candidates:
         candidates.sort(key=lambda x: x[0], reverse=True)
@@ -601,8 +604,8 @@ def find_emulator_pid(
                     ps_candidates.append(int(proc.info["pid"]))
             if ps_candidates:
                 return sorted(ps_candidates)[-1]
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in find_emulator_pid: %s", exc)
 
     # Fallback to pgrep on macOS / non-procfs
     try:
@@ -619,8 +622,8 @@ def find_emulator_pid(
         ]
         if pids:
             return pids[-1]
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in find_emulator_pid: %s", exc)
     return None
 
 
@@ -644,8 +647,8 @@ def sample_host_cpu_pct(pid: int, window_sec: float = 1.0) -> float:
         lines = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
         if len(lines) >= 2:
             return float(lines[1])
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in sample_host_cpu_pct: %s", exc)
     return 0.0
 
 
@@ -666,14 +669,14 @@ def parse_perf_stat_output(stderr_text: str) -> Dict[str, float]:
             try:
                 val = float(val_str)
                 metrics[event_name] = val
-            except ValueError:
-                pass
+            except ValueError as exc:
+                logging.getLogger(__name__).debug("Ignored error in parse_perf_stat_output: %s", exc)
         m_ipc = re.search(r"#\s*([\d.]+)\s+insn per cycle", line_clean)
         if m_ipc:
             try:
                 metrics["ipc"] = float(m_ipc.group(1))
-            except ValueError:
-                pass
+            except ValueError as exc:
+                logging.getLogger(__name__).debug("Ignored error in parse_perf_stat_output: %s", exc)
 
     if (
         "ipc" not in metrics
@@ -845,8 +848,8 @@ class WorkloadProfilerSession:
                 if self._perf_data_file and os.path.exists(self._perf_data_file):
                     try:
                         os.remove(self._perf_data_file)
-                    except OSError:
-                        pass
+                    except OSError as exc:
+                        logging.getLogger(__name__).debug("Ignored error in __exit__: %s", exc)
 
         if self.perfetto_trace_path and os.path.isfile(self.perfetto_trace_path):
             self.telemetry.perfetto_slices = query_perfetto_top_slices(
@@ -906,7 +909,8 @@ def query_perfetto_top_slices(
                                 "avg_us": float(parts[3]),
                             }
                         )
-                    except ValueError:
+                    except ValueError as exc:
+                        logging.getLogger(__name__).debug("Ignored error in query_perfetto_top_slices: %s", exc)
                         continue
             return slices
         finally:

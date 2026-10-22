@@ -19,6 +19,7 @@ Checks live `QueryAPIService.SearchAnnotations` on `blade:crash-queryapi` to ver
 that every crash signature in the batch queue now has a linked Buganizer URL in `go/crash`.
 """
 
+import logging
 import argparse
 import json
 import re
@@ -29,8 +30,6 @@ from typing import Any
 _WORKFLOW_DIR = Path(__file__).resolve().parent
 _EMU_DEV_CLI_DIR = _WORKFLOW_DIR.parent.parent
 _SRC_DIR = _EMU_DEV_CLI_DIR / "src"
-if str(_SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(_SRC_DIR))
 
 from commands.crash.advisor import ensure_crashadvisor_imports
 from commands.crash.link_bug import normalize_bug_url_and_id, search_crash_annotations
@@ -101,8 +100,8 @@ def audit_linked_bug_titles(
                             ),
                         }
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in audit_linked_bug_titles: %s", exc)
 
     return violations
 

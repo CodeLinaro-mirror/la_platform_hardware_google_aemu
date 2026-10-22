@@ -20,13 +20,25 @@ package(default_visibility = ["//visibility:public"])
 
 py_library(
     name = "emu_dev_cli_lib",
-    srcs = glob([
-        "src/**/*.py",
-        "workflows/**/*.py",
-    ]),
+    srcs = glob(
+        [
+            "benchmarks/**/*.py",
+            "src/**/*.py",
+            "workflows/**/*.py",
+        ],
+        exclude = [
+            "workflows/tests/**",
+            "**/*_test.py",
+            "**/test_*.py",
+        ],
+    ),
     data = glob(
         [
+            "benchmarks/*.json",
+            "benchmarks/*.md",
             "docs/**/*.md",
+            "harness/plugin/**",
+            "skills/*.md",
             "src/templates/*.md",
             "workflows/**/*.yaml",
             "workflows/**/*.yml",
@@ -37,9 +49,11 @@ py_library(
     ) + [
         "//tools/emu-dev-cli/perf_probe:perf_probe.apk",
     ],
+    # do not sort
     imports = [
-        ".",
         "src",
+        ".",
+        "workflows",
     ],
     deps = [
         "//protos/aemu-grpc:aemu_grpc_lib",
@@ -50,7 +64,12 @@ py_library(
 py_binary(
     name = "emu-dev-cli-backend",
     srcs = ["src/__main__.py"],
-    imports = ["src"],
+    # do not sort
+    imports = [
+        "src",
+        ".",
+        "workflows",
+    ],
     main = "src/__main__.py",
     deps = [
         ":emu_dev_cli_lib",
@@ -67,7 +86,13 @@ cc_binary(
     py_test(
         name = f.replace("tests/", "").replace(".py", ""),
         srcs = [f],
-        imports = ["src"],
+        # do not sort
+        imports = [
+            "src",
+            ".",
+            "workflows",
+        ],
+        tags = ["manual"] if "benchmark" in f else [],
         deps = [
             ":emu_dev_cli_lib",
         ],
@@ -79,6 +104,9 @@ test_suite(
     name = "all_tests",
     tests = [
         f.replace("tests/", "").replace(".py", "")
-        for f in glob(["tests/*_test.py"])
+        for f in glob(
+            ["tests/*_test.py"],
+            exclude = ["tests/*benchmark*_test.py"],
+        )
     ],
 )

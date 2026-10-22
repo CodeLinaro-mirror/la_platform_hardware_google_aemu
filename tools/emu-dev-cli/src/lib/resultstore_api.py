@@ -15,6 +15,7 @@
 """ResultStore and Sponge / Fusion2 API integration for emulator test diagnostics."""
 
 from dataclasses import dataclass, field
+import json
 import logging
 import os
 from pathlib import Path
@@ -26,6 +27,7 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 CORP_RESULTSTORE_BLADE = "blade:google.devtools.resultstore.v2.corpresultstoredownload-prod"
+SPONGE_CLI_BIN = "/google/bin/releases/gemini-agents-sponge-cli/sponge"
 
 
 @dataclass
@@ -242,19 +244,164 @@ def query_resultstore_invocation(
             timeout=timeout_seconds,
         )
         if res.returncode != 0:
-            logger.warning("ResultStore ExportInvocation failed (code %d): %s", res.returncode, res.stderr)
-            return None
+            logger.warning(
+                "ResultStore ExportInvocation failed (code %d): %s",
+                res.returncode,
+                res.stderr,
+            )
+            return _query_sponge_cli_fallback(
+                uuid,
+                target_filter=target_filter,
+                timeout_seconds=timeout_seconds,
+            )
 
         raw_output = res.stdout
         return parse_resultstore_textproto(uuid, raw_output, target_filter=target_filter)
     except Exception as e:
         logger.error("Exception querying ResultStore for invocation %s: %s", uuid, e)
-        return None
+        return _query_sponge_cli_fallback(
+            uuid,
+            target_filter=target_filter,
+            timeout_seconds=timeout_seconds,
+        )
     finally:
         try:
             os.remove(ext_path)
-        except OSError:
-            pass
+        except OSError as exc:
+            logging.getLogger(__name__).debug("Ignored error in query_resultstore_invocation: %s", exc)
+
+
+def _run_sponge_json(
+    args_list: List[str],
+    sponge_bin: str = SPONGE_CLI_BIN,
+    timeout_seconds: int = 30,
+) -> Optional[Dict[str, Any]]:
+    """Executes the Gemini Sponge CLI with --json and returns parsed JSON output."""
+    if not os.path.exists(sponge_bin):
+        return None
+    cmd = [sponge_bin] + args_list + ["--json"]
+    try:
+        res = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+        if res.returncode != 0 or not res.stdout.strip():
+            return None
+        return json.loads(res.stdout)
+    except Exception as exc:
+        logger.debug("Sponge CLI call failed (%s): %s", " ".join(cmd), exc)
+        return None
+
+
+def _query_sponge_cli_fallback(
+    uuid: str,
+    target_filter: Optional[str] = None,
+    timeout_seconds: int = 45,
+    sponge_bin: str = SPONGE_CLI_BIN,
+) -> Optional[ResultStoreInvocation]:
+    """Queries the Gemini Sponge CLI when CorpResultStoreDownload rejects non-standard client projects."""
+    if not os.path.exists(sponge_bin):
+        return None
+
+    status_args = ["status", f"--invocation_id={uuid}"]
+    failures_args = ["failures", f"--invocation_id={uuid}"]
+    if target_filter:
+        status_args.append(f"--target={target_filter}")
+        failures_args.append(f"--target={target_filter}")
+
+    status_data = _run_sponge_json(
+        status_args, sponge_bin=sponge_bin, timeout_seconds=timeout_seconds
+    )
+    if not status_data:
+        return None
+
+    failures_data = (
+        _run_sponge_json(
+            failures_args, sponge_bin=sponge_bin, timeout_seconds=timeout_seconds
+        )
+        or {}
+    )
+    list_data = (
+        _run_sponge_json(
+            ["list", f"--invocation_id={uuid}", "--limit=200"],
+            sponge_bin=sponge_bin,
+            timeout_seconds=timeout_seconds,
+        )
+        or {}
+    )
+
+    failures_by_action: Dict[str, List[str]] = {}
+    for f_item in failures_data.get("failures", []) or []:
+        act_id = str(f_item.get("action_id") or "test")
+        msg = str(f_item.get("message") or "").strip()
+        if msg:
+            failures_by_action.setdefault(act_id, []).append(msg)
+
+    files_by_action: Dict[str, List[ResultStoreFile]] = {}
+    for art in list_data.get("artifacts", []) or []:
+        act_id = str(art.get("action_id") or "")
+        uid = str(art.get("uid") or "")
+        uri = str(art.get("uri") or "")
+        if uid and uri:
+            length = 0
+            m = re.search(r"/(\d+)$", uri)
+            if m:
+                try:
+                    length = int(m.group(1))
+                except ValueError:
+                    length = 0
+            files_by_action.setdefault(act_id, []).append(
+                ResultStoreFile(uid=uid, uri=uri, length=length)
+            )
+
+    actions: List[ResultStoreAction] = []
+    for t_item in status_data.get("targets", []) or []:
+        target_id = str(t_item.get("target") or "")
+        t_status = str(t_item.get("status") or "UNKNOWN")
+        if target_filter:
+            norm_filter = _normalize_target_label(target_filter)
+            norm_target = _normalize_target_label(target_id)
+            if norm_filter not in norm_target:
+                continue
+
+        failed_runs = t_item.get("failed_runs") or []
+        action_ids = list(failed_runs) if failed_runs else ["test"]
+        for act_id in action_ids:
+            err_msgs = list(failures_by_action.get(act_id, []))
+            act_files = list(files_by_action.get(act_id, []))
+            actions.append(
+                ResultStoreAction(
+                    invocation_id=uuid,
+                    target_id=target_id,
+                    action_id=str(act_id),
+                    configuration_id="",
+                    status=t_status,
+                    description=str(status_data.get("description") or ""),
+                    error_messages=err_msgs,
+                    duration_seconds=0.0,
+                    files=act_files,
+                    total_test_cases=int(t_item.get("total") or 0),
+                    failed_test_cases=[],
+                )
+            )
+
+    failed = [
+        a
+        for a in actions
+        if a.status in ("FAILED", "INCOMPLETE", "INTERRUPTED", "CANCELLED")
+    ]
+    passed = [a for a in actions if a.status in ("PASSED", "SUCCEEDED", "BUILT")]
+    return ResultStoreInvocation(
+        invocation_id=uuid,
+        fusion_url=f"https://fusion2.corp.google.com/invocations/{uuid}",
+        sponge_url=f"http://sponge2/{uuid}",
+        actions=actions,
+        failed_actions=failed,
+        passed_actions=passed,
+    )
 
 
 def parse_resultstore_textproto(

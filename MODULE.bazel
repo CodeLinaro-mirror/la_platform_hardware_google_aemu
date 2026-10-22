@@ -1,3 +1,69 @@
-# This file is a placeholder and ignored by Bazel when this module is used via
-# a registry. The "real" file lives at
-# build/bazel/registry/modules/aemu/0.0.2/MODULE.bazel.
+# Note: When this module is resolved via the local registry in emu-main-next,
+# Bazel uses build/bazel/registry/modules/aemu/0.0.2/MODULE.bazel instead.
+# This file is used when aemu is included via local_path_override (e.g. in studio-main).
+#
+# Differences from build/bazel/registry/modules/aemu/0.0.2/MODULE.bazel:
+# 1. Omits emulator C++/SDK/toolchain dependencies (goldfish_build, glib, lz4,
+#    pkg-config, ninja, webrtc_sdk_android, prebuilt_android_sdk, meson, and
+#    custom C++/Node/Python toolchains) that only exist in emu-main-next's local
+#    registry and are not needed by @aemu//tools/clownfish/... or @aemu//api/web/...
+# 2. Aligns bazel_dep versions with studio-main's toplevel MODULE.bazel
+# 3. Uses grpc_java_stub(name = "grpc-java") instead of bazel_dep(name = "grpc-java")
+#    because studio-main provides grpc-java via WORKSPACE rather than Bzlmod, while
+#    protos/services_v2/defs.bzl loads @grpc-java//:java_grpc_library.bzl.
+# 4. Configures @pypi_aemu for Python 3.11 (matching studio-main's default Python
+#    toolchain) with pip.whl_mods on protobuf to exclude duplicate namespace
+#    site-packages/__init__.py files in rules_python 2.3.2.
+
+module(
+    name = "aemu",
+    version = "0.0.2",
+)
+
+bazel_dep(name = "platforms", version = "0.0.10")
+bazel_dep(name = "rules_cc", version = "0.0.15")
+bazel_dep(name = "rules_java", version = "9.8.0")
+bazel_dep(name = "rules_license", version = "1.0.0")
+bazel_dep(name = "rules_proto", version = "7.1.0")
+bazel_dep(name = "rules_python", version = "2.3.2")
+bazel_dep(name = "protobuf", version = "35.1")
+bazel_dep(name = "grpc", version = "1.83.0")
+bazel_dep(name = "googleapis", version = "0.0.0-20251003-2193a2bf")
+bazel_dep(name = "rules_nodejs", version = "6.7.5")
+bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
+bazel_dep(name = "aspect_rules_js", version = "3.5.1")
+bazel_dep(name = "aspect_rules_ts", version = "3.10.1")
+
+grpc_java_stub = use_repo_rule("//protos/services_v2:ts_proto.bzl", "grpc_java_stub")
+
+grpc_java_stub(name = "grpc-java")
+
+rules_ts_ext = use_extension("@aspect_rules_ts//ts:extensions.bzl", "typescript")
+rules_ts_ext.deps()
+use_repo(rules_ts_ext, "npm_typescript")
+
+npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
+npm.npm_translate_lock(
+    name = "aemu_web_npm",
+    pnpm_lock = "//api/web:pnpm-lock.yaml",
+    verify_node_modules_ignored = "//:.bazelignore",
+)
+use_repo(npm, "aemu_web_npm")
+
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.whl_mods(
+    data_exclude_glob = ["site-packages/**"],
+    hub_name = "pypi_aemu_whl_mods",
+    srcs_exclude_glob = ["site-packages/**"],
+    whl_name = "protobuf",
+)
+pip.parse(
+    hub_name = "pypi_aemu",
+    python_version = "3.11",
+    requirements_lock = "//tools/libs_python:requirements_lock.txt",
+    requirements_windows = "//tools/libs_python:requirements_windows.txt",
+    whl_modifications = {
+        "@pypi_aemu_whl_mods//:protobuf.json": "protobuf",
+    },
+)
+use_repo(pip, "pypi_aemu", "pypi_aemu_whl_mods")

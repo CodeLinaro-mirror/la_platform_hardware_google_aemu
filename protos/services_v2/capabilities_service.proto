@@ -327,7 +327,9 @@ message InputCapabilities {
   // Output only. Input peripherals and behaviours this device accepts. Events for a feature
   // absent from this list fail with FAILED_PRECONDITION.
   repeated InputFeature supported_features = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
-  // Output only. Maximum number of concurrent active touch contact points supported (e.g., 10).
+  // Output only. Maximum number of concurrent active touch contact points supported per display
+  // across all connected input sources (e.g., 10). Human operator sessions (source 0) have
+  // reserved slot capacity so automated sources cannot starve the human operator.
   // Meaningful only when INPUT_FEATURE_MULTI_TOUCH is present.
   int32 max_touch_point_count = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
   // Output only. True if `InputService.StreamInputActivity` may be subscribed to on this endpoint.
@@ -342,6 +344,16 @@ message InputCapabilities {
   // gesture may span (e.g., 30000). Longer gestures are rejected with INVALID_ARGUMENT and
   // must be split across calls or issued over `StreamInputEvents`.
   int32 max_batch_duration_ms = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Idle timeout in milliseconds (e.g., 60000) after which contacts and keys left
+  // held at the end of an `InputService.SendInputEvents` batch from an identified caller
+  // (non-zero `input_source_id` or `x-client-id` header) are automatically released as
+  // synthesized `POINTER_ACTION_CANCEL` and `KEY_ACTION_UP` events when no further events arrive
+  // from that source. Contacts and keys left held by identified callers otherwise remain held
+  // across `SendInputEvents` calls until explicitly released, whereas anonymous
+  // `SendInputEvents` calls (`input_source_id == 0` with no `x-client-id` header) release any
+  // held contacts and keys when the call finishes. A value of 0 indicates that held input is
+  // never released automatically by an idle timer (or the server does not report a timeout).
+  int32 held_input_idle_timeout_ms = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
 }
 
 // Advertises biometric authentication hardware supported by SystemService.InjectFingerprint.
@@ -495,7 +507,9 @@ enum VmOperation {
   VM_OPERATION_PAUSE_RESUME = 1;
   // Cold power-cycle reset via HardResetVm.
   VM_OPERATION_HARD_RESET = 2;
-  // Graceful hypervisor shutdown via StopVm.
+  // Hypervisor termination (graceful shutdown, immediate exit, or crash dump) via StopVm.
+  // Typically omitted in managed cloud environments where container orchestration owns the
+  // process lifecycle.
   VM_OPERATION_SHUTDOWN = 3;
 }
 

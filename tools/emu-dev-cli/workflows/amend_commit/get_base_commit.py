@@ -17,19 +17,10 @@
 
 import argparse
 import os
-from pathlib import Path
 import subprocess
 import sys
 
-_CUR_DIR = Path(__file__).resolve().parent
-_GIT_COMMIT_DIR = str((_CUR_DIR.parent / "common" / "git_commit").resolve())
-if _GIT_COMMIT_DIR not in sys.path:
-    sys.path.insert(0, _GIT_COMMIT_DIR)
-
-try:
-    from commit_verifier import resolve_commit_hash
-except ImportError:
-    from workflows.common.git_commit import resolve_commit_hash
+from workflows.common.git_commit import resolve_commit_hash
 
 
 def main() -> int:
@@ -54,6 +45,7 @@ def main() -> int:
                 text=True,
                 check=True,
                 cwd=args.cwd,
+                timeout=30,
             )
         except Exception:
             print(f"Error: Specified directory is not a Git repository: '{args.cwd}'", file=sys.stderr)

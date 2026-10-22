@@ -73,8 +73,8 @@ def check_authentication_status(token: Optional[str] = None) -> Dict[str, Any]:
                         "error_message": "Corporate LOAS / gcert certificate is missing or expired.",
                         "procedure": "Run 'gcert' in your terminal to renew your corporate authentication certificate.",
                     }
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in check_authentication_status: %s", exc)
         return {
             "valid": True,
             "auth_method": "FETCH_ARTIFACT_CLI",
@@ -153,8 +153,8 @@ def check_authentication_status(token: Optional[str] = None) -> Dict[str, Any]:
         error_body = ""
         try:
             error_body = e.read().decode("utf-8", errors="replace")
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in check_authentication_status: %s", exc)
 
         if "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in error_body or "insufficient authentication scopes" in error_body:
             err_msg = (

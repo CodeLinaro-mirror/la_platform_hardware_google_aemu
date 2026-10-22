@@ -126,8 +126,12 @@ class GitNativeRefactoringEngine:
                     old_symbol
                 )  # Temporarily mark as failed so we don't infinite loop if it skips
 
-                print(
-                    f"\n--- [{idx}/{total_diags}] Refactoring Symbol: '{old_symbol}' -> '{new_symbol}' ---"
+                logger.info(
+                    "--- [%d/%d] Refactoring Symbol: '%s' -> '%s' ---",
+                    idx,
+                    total_diags,
+                    old_symbol,
+                    new_symbol,
                 )
                 decl_path = repo_dir / diag.file_path
                 if not decl_path.exists():
@@ -138,25 +142,32 @@ class GitNativeRefactoringEngine:
                     decl_path, diag, old_symbol, new_symbol
                 )
                 if applied:
-                    print(
-                        f"  [Seed] Updated declaration at {diag.file_path}:{diag.line} for '{old_symbol}' -> '{new_symbol}'"
+                    logger.info(
+                        "  [Seed] Updated declaration at %s:%d for '%s' -> '%s'",
+                        diag.file_path,
+                        diag.line,
+                        old_symbol,
+                        new_symbol,
                     )
                 else:
-                    print(
-                        f"  [Seed] Skipping '{old_symbol}' (could not apply seed rename)."
+                    logger.info(
+                        "  [Seed] Skipping '%s' (could not apply seed rename).",
+                        old_symbol,
                     )
                     continue
 
                 # 2. Compiler oracle: verify compilation of the actual library/test target closure
                 targets_str = ", ".join(compilation_targets)
-                print(f"  [Oracle] Checking compilation for {targets_str}...")
+                logger.info("  [Oracle] Checking compilation for %s...", targets_str)
                 report = self.oracle.run_compilation_check(
                     compilation_targets, workspace_root=self.source_dir
                 )
 
                 if not report.success:
-                    print(
-                        f"  [Oracle] Captured {len(report.errors)} broken call sites across {len(report.affected_files)} files."
+                    logger.info(
+                        "  [Oracle] Captured %d broken call sites across %d files.",
+                        len(report.errors),
+                        len(report.affected_files),
                     )
                     prompt = _build_refactor_prompt(
                         symbol_old=old_symbol,
@@ -168,8 +179,8 @@ class GitNativeRefactoringEngine:
                     )
 
                     # 3. Dispatch to agent with model tier escalation
-                    print(
-                        f"  [Agent] Dispatching call-site refactor (model={model})..."
+                    logger.info(
+                        "  [Agent] Dispatching call-site refactor (model=%s)...", model
                     )
                     step_ok = self.dispatcher.dispatch_refactor_step(
                         prompt=prompt,
@@ -183,21 +194,21 @@ class GitNativeRefactoringEngine:
                         compilation_targets, workspace_root=self.source_dir
                     )
                     if not verify.success:
-                        print(
-                            f"\n⚠️ Verification failed for symbol '{old_symbol}'. Automating transactional rollback.",
-                            file=sys.stderr,
+                        logger.error(
+                            "Verification failed for symbol '%s'. Automating transactional rollback.",
+                            old_symbol,
                         )
                         tx.rollback_step()
                         sys.exit(1)
 
                 # 4. Run test gate if test target is provided
                 if test_target:
-                    print(f"  [Test Gate] Verifying test suite {test_target}...")
+                    logger.info("  [Test Gate] Verifying test suite %s...", test_target)
                     test_res = self.runner.test([test_target], check=False)
                     if test_res.returncode != 0:
-                        print(
-                            f"⚠️ Unit tests failed for {test_target}. Automating transactional rollback.",
-                            file=sys.stderr,
+                        logger.error(
+                            "Unit tests failed for %s. Automating transactional rollback.",
+                            test_target,
                         )
                         tx.rollback_step()
                         sys.exit(1)
@@ -208,23 +219,23 @@ class GitNativeRefactoringEngine:
                     symbol_new=new_symbol,
                     message=f"style: Modernize identifier '{old_symbol}' to '{new_symbol}'",
                 )
-                print(
-                    f"  ✅ Verified and committed step for '{old_symbol}' -> '{new_symbol}'"
+                logger.info(
+                    "  Verified and committed step for '%s' -> '%s'",
+                    old_symbol,
+                    new_symbol,
                 )
                 failed_symbols.remove(old_symbol)  # Success! Remove from failed set
                 idx += 1
 
         except Exception as e:
-            print(
-                f"\n⚠️ Fatal orchestration error: {e}. Automating transactional rollback.",
-                file=sys.stderr,
+            logger.error(
+                "Fatal orchestration error: %s. Automating transactional rollback.", e
             )
             tx.rollback_step()
             raise
         except KeyboardInterrupt:
-            print(
-                f"\n⚠️ Transaction cancelled by user. Automating transactional rollback.",
-                file=sys.stderr,
+            logger.warning(
+                "Transaction cancelled by user. Automating transactional rollback."
             )
             tx.rollback_step()
             sys.exit(130)

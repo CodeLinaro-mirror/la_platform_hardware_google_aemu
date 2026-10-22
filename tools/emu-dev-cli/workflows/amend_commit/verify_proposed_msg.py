@@ -20,23 +20,11 @@ import os
 from pathlib import Path
 import sys
 
-_CUR_DIR = Path(__file__).resolve().parent
-_GIT_COMMIT_DIR = str((_CUR_DIR.parent / "common" / "git_commit").resolve())
-if _GIT_COMMIT_DIR not in sys.path:
-    sys.path.insert(0, _GIT_COMMIT_DIR)
-
-try:
-    from commit_verifier import (
-        extract_all_change_ids,
-        find_commit_by_change_id,
-        validate_commit_message_file,
-    )
-except ImportError:
-    from workflows.common.git_commit import (
-        extract_all_change_ids,
-        find_commit_by_change_id,
-        validate_commit_message_file,
-    )
+from workflows.common.git_commit import (
+    extract_all_change_ids,
+    find_commit_by_change_id,
+    validate_commit_message_file,
+)
 
 
 def verify_proposed_msg(

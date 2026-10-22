@@ -126,6 +126,7 @@ def bazel_command(args: argparse.Namespace) -> None:
             "linux-x64": "linux-x86_64",
             "linux-aarch64": "linux-aarch64",
             "windows-x64": "windows-amd64",
+            "windows-aarch64": "windows-aarch64",
             "mac-aarch64": "darwin-arm64",
         }.get(target, target)
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".jsonc") as f:
@@ -176,6 +177,7 @@ def bazel_command(args: argparse.Namespace) -> None:
             "linux-x64": "linux-x86_64",
             "linux-aarch64": "linux-aarch64",
             "windows-x64": "windows-x86_64",
+            "windows-aarch64": "windows-aarch64",
             "mac-aarch64": "darwin-arm64",
         }.get(target)
         dest = platform_dir / f"BUILD.{suffix}"

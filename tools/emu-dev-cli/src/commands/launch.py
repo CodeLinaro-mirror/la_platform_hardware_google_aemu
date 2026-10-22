@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import os
 import platform
 import re
@@ -50,8 +51,8 @@ def get_display_owner_label(disp_num):
                 elif "vnc" in proc_name.lower():
                     return f"{proc_name} (VNC)"
                 return f"{proc_name} (PID {pid})"
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in get_display_owner_label: %s", exc)
     return "Active X11 Display Server"
 
 
@@ -87,8 +88,8 @@ def check_display_health(env, emu_args, json_mode=False):
                     num = int(fname[1:])
                     label = get_display_owner_label(num)
                     active_displays.append((num, f":{num}", label))
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in check_display_health: %s", exc)
 
     active_displays.sort(key=lambda item: item[0])
     disp_str = current_disp if current_disp else "(not set)"

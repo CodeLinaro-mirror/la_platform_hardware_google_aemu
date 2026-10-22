@@ -333,6 +333,14 @@ class V2ServicesIntegrationTest(unittest.TestCase):
         self.assertTrue(imp_op.done)
         self.assertTrue(self.server.state.snapshots["v2_imported_snap"].imported)
 
+        stopped_state = self.hyp.StopVm(
+            hyp_pb.StopVmRequest(
+                mode=hyp_pb.StopVmRequest.CRASH,
+                reason="integration test hang dump",
+            )
+        )
+        self.assertEqual(stopped_state.state, hyp_pb.VmState.STOPPED)
+
 
 if __name__ == "__main__":
     unittest.main()

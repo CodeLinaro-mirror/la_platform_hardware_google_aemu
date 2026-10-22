@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { VmClient, VmState, VmState_State } from '../src/core/vm';
+import { StopVmRequest_Mode, VmClient, VmState, VmState_State } from '../src/core/vm';
 import { StopVmRequest } from '@android/emulator-services/hypervisor_service';
 import { FakeTransport } from './fake_transport';
 
@@ -89,6 +89,20 @@ describe('VmClient', () => {
 
     const request = StopVmRequest.decode(transport.lastCall.data);
     expect(request.saveQuickbootSnapshot).toBe(true);
+    expect(request.mode).toBe(StopVmRequest_Mode.MODE_UNSPECIFIED);
+  });
+
+  it('forwards termination mode and diagnostic reason to StopVm', async () => {
+    respondWith(VmState_State.STOPPED);
+
+    await client.StopVm({
+      mode: StopVmRequest_Mode.CRASH,
+      reason: 'integration test timeout',
+    });
+
+    const request = StopVmRequest.decode(transport.lastCall.data);
+    expect(request.mode).toBe(StopVmRequest_Mode.CRASH);
+    expect(request.reason).toBe('integration test timeout');
   });
 
   it('decodes each VmState pushed by StreamVmState', async () => {

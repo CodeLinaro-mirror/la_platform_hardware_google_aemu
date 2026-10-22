@@ -18,10 +18,12 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import io
 from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
+import urllib.error
 
 from lib.gerrit_api import (
     GerritClient,
@@ -231,6 +233,53 @@ class GerritApiTest(unittest.TestCase):
             "https://googleplex-android-review.googlesource.com/a/changes/42713016/revisions/2/review",
         )
         self.assertEqual(req.get_method(), "POST")
+
+    @mock.patch("shutil.which", side_effect=lambda cmd: "/usr/bin/gob-curl" if cmd == "gob-curl" else None)
+    @mock.patch("subprocess.run")
+    @mock.patch("urllib.request.urlopen")
+    def test_gerrit_client_falls_back_to_gob_curl_on_http_400_and_skips_repeat_urllib(
+        self,
+        mock_urlopen: mock.MagicMock,
+        mock_run: mock.MagicMock,
+        mock_which: mock.MagicMock,
+    ) -> None:
+        mock_urlopen.side_effect = urllib.error.HTTPError(
+            url="https://googleplex-android-review.googlesource.com/a/changes/",
+            code=400,
+            msg="Bad Request",
+            hdrs=None,  # type: ignore[arg-type]
+            fp=io.BytesIO(b"Invalid authentication credentials"),
+        )
+        mock_run.return_value = mock.MagicMock(
+            returncode=0,
+            stdout=")]}'\n[{\"_number\": 43149874}]",
+            stderr="",
+        )
+
+        client = GerritClient(token="service-account-token")
+        first = client._request_json("/a/changes/?q=status:open")
+        second = client._request_json("/a/changes/43149874/detail")
+
+        self.assertEqual(first, [{"_number": 43149874}])
+        self.assertEqual(second, [{"_number": 43149874}])
+        self.assertEqual(mock_urlopen.call_count, 1)
+        self.assertEqual(mock_run.call_count, 2)
+
+    @mock.patch("urllib.request.urlopen")
+    def test_gerrit_client_raises_on_non_auth_http_error(
+        self, mock_urlopen: mock.MagicMock
+    ) -> None:
+        mock_urlopen.side_effect = urllib.error.HTTPError(
+            url="https://googleplex-android-review.googlesource.com/a/changes/99999999/detail",
+            code=404,
+            msg="Not Found",
+            hdrs=None,  # type: ignore[arg-type]
+            fp=io.BytesIO(b"Not found: 99999999"),
+        )
+        client = GerritClient(token="fake-token")
+        with self.assertRaises(RuntimeError) as ctx:
+            client._request_json("/a/changes/99999999/detail")
+        self.assertIn("HTTP 404", str(ctx.exception))
 
     def test_wait_for_review_update_detects_new_comments_and_ai_completion(self) -> None:
         client = GerritClient(token="fake-token")

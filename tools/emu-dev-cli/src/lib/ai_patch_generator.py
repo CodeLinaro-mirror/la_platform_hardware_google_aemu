@@ -66,8 +66,8 @@ def _perform_in_process_log_analysis(
                         findings.append(line.strip())
                         if len(findings) >= 5:
                             break
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in _perform_in_process_log_analysis: %s", exc)
 
     if has_tsan:
         rc_summary = f"ThreadSanitizer data race in {record.module_name}"
@@ -247,13 +247,20 @@ def format_bug_body_with_ai_patch(
         if patch.investigation_cmd_path
         else ""
     )
+    studio_lines = ""
+    if record.l100_flake_rate_pct is not None:
+        studio_lines = (
+            f"\n* **L100 Flake Rate:** `{record.l100_flake_rate_pct:.1f}%` ({record.l100_failed or 0}/{record.l100_total or 0} runs)"
+            f"\n* **L250 Flake Rate:** `{(record.l250_flake_rate_pct or 0.0):.1f}%` ({record.l250_failed or 0}/{record.l250_total or 0} runs)"
+            f"\n* **Studio Flakes Dashboard:** [studio-flakes](https://dashboards.corp.google.com/_b69adbf1_bc7f_4b7f_a2a7_607d6fd07a8e?f=ab_target_name:ct:{record.target})"
+        )
     return f"""### ⚠️ Flakiness Alert: {record.test_identifier}
 
 Test target `{record.test_identifier}` experienced a **{record.flake_rate_pct:.1f}% failure rate** ({record.failed_runs}/{record.total_runs} runs) on platform `{record.target}`.
 
 * **Android Test Hub Config:** `{record.config_name}`
 * **Latest Build ID:** `{record.latest_build_id or 'N/A'}`
-* **Latest Invocation ID:** `{record.latest_invocation_id or 'N/A'}`{inv_script_line}
+* **Latest Invocation ID:** `{record.latest_invocation_id or 'N/A'}`{studio_lines}{inv_script_line}
 ---
 
 ### 🤖 AI-Suggested Root Cause & Proposed Fix

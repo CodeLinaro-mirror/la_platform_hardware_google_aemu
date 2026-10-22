@@ -1,0 +1,50 @@
+{
+  "aemu-harness": {
+    "enabled": true,
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "__EMU_DEV_CLI_BIN__ harness hook --event session-start",
+        "timeout": 10
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "__EMU_DEV_CLI_BIN__ harness hook --event pre-invocation",
+        "timeout": 10
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "run_command|write_file|edit_file|write_to_file|replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__EMU_DEV_CLI_BIN__ harness hook --event pre-tool",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__EMU_DEV_CLI_BIN__ harness hook --event post-tool",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "__EMU_DEV_CLI_BIN__ harness hook --event stop",
+        "timeout": 15
+      }
+    ]
+  }
+}

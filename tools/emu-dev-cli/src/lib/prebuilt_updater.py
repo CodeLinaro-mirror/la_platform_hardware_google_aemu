@@ -14,6 +14,7 @@
 
 """Minimal helper utilities for fetching and installing prebuilts from go/ab."""
 
+import logging
 import filecmp
 import json
 import os
@@ -241,8 +242,8 @@ def install_prebuilt_file(
             raw = src_file.read_bytes()
             if b"\r\n" in raw:
                 src_file.write_bytes(raw.replace(b"\r\n", b"\n"))
-        except OSError:
-            pass
+        except OSError as exc:
+            logging.getLogger(__name__).debug("Ignored error in install_prebuilt_file: %s", exc)
 
     new_size = src_file.stat().st_size
     old_size = dst_file.stat().st_size if dst_file.is_file() else 0
@@ -262,8 +263,8 @@ def install_prebuilt_file(
         shutil.copy2(src_file, dst_file)
         try:
             os.chmod(dst_file, mode)
-        except OSError:
-            pass
+        except OSError as exc:
+            logging.getLogger(__name__).debug("Ignored error in install_prebuilt_file: %s", exc)
 
     display_status = f"{status} (dry-run)" if (changed and dry_run) else status
     if changed:

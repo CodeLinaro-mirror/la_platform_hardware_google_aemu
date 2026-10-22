@@ -40,7 +40,18 @@ SUPPORTED_TARGET_PLATFORMS: List[str] = [
     "emulator_mac_aarch64",
 ]
 
-SUPPORTED_TARGET_CHOICES: List[str] = SUPPORTED_TARGET_PLATFORMS + ["all"]
+STUDIO_TARGET_PLATFORMS: List[str] = [
+    "studio-linux",
+    "studio-win",
+    "studio-mac",
+    "studio-mac-arm",
+]
+
+SUPPORTED_TARGET_CHOICES: List[str] = (
+    SUPPORTED_TARGET_PLATFORMS
+    + ["all", "studio-all"]
+    + STUDIO_TARGET_PLATFORMS
+)
 
 SUPPORTED_TEST_IDENTIFIERS: List[str] = [
     "android_emulator/ets",
@@ -106,6 +117,14 @@ class FlakyTestRecord:
     latest_invocation_id: str
     latest_work_unit_id: str
     stack_trace_snippet: Optional[str] = None
+    l100_failed: Optional[int] = None
+    l100_total: Optional[int] = None
+    l100_flake_rate_pct: Optional[float] = None
+    l250_failed: Optional[int] = None
+    l250_total: Optional[int] = None
+    l250_flake_rate_pct: Optional[float] = None
+    latest_failed_build_id: Optional[str] = None
+    latest_failed_invocation_id: Optional[str] = None
 
 
 @dataclass
@@ -366,8 +385,8 @@ class AthHttpClient:
                 return json.loads(resp.data.decode("utf-8"))
             except HTTPError:
                 raise
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in get_json: %s", exc)
 
         req = urllib.request.Request(url, headers=self._headers)
         try:
@@ -907,8 +926,27 @@ def query_test_history(
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     max_workers: int = 32,
     config_name: Optional[str] = None,
+    accounting_group: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], List[TestHistoryEntry]]:
-    """Queries Android Test Hub / AnTS API for the historical run status of a single test target."""
+    """Queries Android Test Hub / AnTS API (or F1 TestActions for Studio targets) for test history."""
+    from lib.f1_test_actions import is_studio_query, query_studio_test_history
+
+    if is_studio_query(
+        target=target,
+        branch=branch,
+        test_target=test_target,
+    ):
+        return query_studio_test_history(
+            test_target=test_target,
+            target=target,
+            branch=branch,
+            days=days,
+            mode=mode,
+            limit=limit,
+            accounting_group=accounting_group,
+            progress_callback=progress_callback,
+        )
+
     clean_target = sanitize_bazel_target(test_target)
     inferred_test_id = (
         resolve_test_identifiers(config_name)[0]

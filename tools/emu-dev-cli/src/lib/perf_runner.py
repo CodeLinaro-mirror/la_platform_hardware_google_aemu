@@ -358,8 +358,8 @@ def inspect_emulator_dir_metadata(emu_dir: str) -> Dict[str, Optional[str]]:
                     for line in f:
                         if line.startswith("Pkg.Revision="):
                             meta["pkg_revision"] = line.split("=", 1)[1].strip()
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in inspect_emulator_dir_metadata: %s", exc)
             break
 
     # Extract build_id from directory name if formatted like /tmp/emulator-linux-x64-15075377
@@ -384,8 +384,8 @@ def inspect_emulator_dir_metadata(emu_dir: str) -> Dict[str, Optional[str]]:
                 meta["engine"] = "qemu-next"
             else:
                 meta["engine"] = "qemu-now"
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in inspect_emulator_dir_metadata: %s", exc)
     return meta
 
 
@@ -472,9 +472,9 @@ def resolve_perf_target(
                     pkg_revision=meta.get("pkg_revision"),
                     engine=meta.get("engine"),
                 )
-            except Exception:
+            except Exception as exc:
                 # Fall through to workspace tree resolution if /tmp has no cached build
-                pass
+                logging.getLogger(__name__).debug("Ignored error in resolve_perf_target: %s", exc)
 
         import zipfile
 
@@ -671,8 +671,8 @@ def resolve_perf_target(
                     ):
                         try:
                             os.chmod(fp, os.stat(fp).st_mode | 0o755)
-                        except OSError:
-                            pass
+                        except OSError as exc:
+                            logging.getLogger(__name__).debug("Ignored error in resolve_perf_target: %s", exc)
             if platform.system().lower() == "darwin":
                 subprocess.run(
                     ["xattr", "-cr", emu_subdir],
@@ -727,8 +727,8 @@ def resolve_perf_target(
                             pkg_revision=meta.get("pkg_revision"),
                             engine=meta.get("engine"),
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Ignored error in resolve_perf_target: %s", exc)
 
         if not auto_fetch:
             raise FileNotFoundError(
@@ -1188,8 +1188,8 @@ def stabilize_guest_os_after_first_boot(
                         cpu_quiescent = False
                 prev_cpu_total = total_jiffies
                 prev_cpu_idle = idle_jiffies
-            except ValueError:
-                pass
+            except ValueError as exc:
+                logging.getLogger(__name__).debug("Ignored error in stabilize_guest_os_after_first_boot: %s", exc)
 
         if not busy_lines and cpu_quiescent:
             quiet_guest_streak += 1
@@ -1249,8 +1249,8 @@ def wait_for_guest_and_host_settled(
                 try:
                     with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
                         log_tail = "".join(f.readlines()[-15:]).strip()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Ignored error in wait_for_guest_and_host_settled: %s", exc)
             raise RuntimeError(
                 f"Emulator process for {serial} exited prematurely with code {proc.returncode}"
                 + (f":\n{log_tail}" if log_tail else "")
@@ -1629,8 +1629,8 @@ def run_probe_workload(
                     ],
                     timeout=15.0,
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in run_probe_workload: %s", exc)
         with WorkloadProfilerSession(
             pid=emu_pid, profiles=profiles, adb_fn=adb_fn
         ) as prof:
@@ -1681,8 +1681,8 @@ def run_idle_workload(
     if load_res.returncode == 0 and load_res.stdout.strip():
         try:
             guest_load_1m = float(load_res.stdout.strip().split()[0])
-        except ValueError:
-            pass
+        except ValueError as exc:
+            logging.getLogger(__name__).debug("Ignored error in run_idle_workload: %s", exc)
 
     t = prof.telemetry
     girqs = t.guest_irqs or {}
@@ -1735,8 +1735,8 @@ def _ensure_valid_console_auth_token() -> None:
             if 0 < len(raw) < 12:
                 with open(token_path, "wb") as f:
                     f.write(b"")
-        except OSError:
-            pass
+        except OSError as exc:
+            logging.getLogger(__name__).debug("Ignored error in _ensure_valid_console_auth_token: %s", exc)
 
 
 def run_snapshot_workload(
@@ -1796,8 +1796,8 @@ def run_snapshot_workload(
                 _adb_cmd(
                     serial, ["wait-for-device"], adb_bin=adb_bin, timeout=15.0
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in run_snapshot_workload: %s", exc)
 
     adb_fn = lambda args, timeout=30.0: _adb_cmd(
         serial, args, adb_bin=adb_bin, timeout=timeout
@@ -1825,8 +1825,8 @@ def run_snapshot_workload(
                 _adb_cmd(
                     serial, ["wait-for-device"], adb_bin=adb_bin, timeout=15.0
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in run_snapshot_workload: %s", exc)
         samples.append({"duration_ms": round(elapsed_ms, 2)})
         telemetries.append(prof.telemetry)
 
@@ -1937,10 +1937,10 @@ def _cleanup_stale_netsim(force: bool = False) -> None:
                 if pid_str.strip().isdigit():
                     try:
                         os.kill(int(pid_str.strip()), signal.SIGKILL)
-                    except OSError:
-                        pass
-        except Exception:
-            pass
+                    except OSError as exc:
+                        logging.getLogger(__name__).debug("Ignored error in _cleanup_stale_netsim: %s", exc)
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in _cleanup_stale_netsim: %s", exc)
 
     candidate_dirs = [
         os.environ.get("TMPDIR") or "",
@@ -1972,20 +1972,20 @@ def _cleanup_stale_netsim(force: bool = False) -> None:
                                 if k == "grpc.port" and v.isdigit():
                                     port = int(v)
                                     break
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logging.getLogger(__name__).debug("Ignored error in _cleanup_stale_netsim: %s", exc)
                 if port > 0:
                     try:
                         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                             s.settimeout(0.2)
                             if s.connect_ex(("127.0.0.1", port)) == 0:
                                 continue
-                    except OSError:
-                        pass
+                    except OSError as exc:
+                        logging.getLogger(__name__).debug("Ignored error in _cleanup_stale_netsim: %s", exc)
             try:
                 os.remove(ini_path)
-            except OSError:
-                pass
+            except OSError as exc:
+                logging.getLogger(__name__).debug("Ignored error in _cleanup_stale_netsim: %s", exc)
 
 
 def _parse_emulator_boot_completed_ms(log_path: Optional[str]) -> Optional[float]:
@@ -2004,8 +2004,8 @@ def _parse_emulator_boot_completed_ms(log_path: Optional[str]) -> Optional[float
         matches = re.findall(r"Boot completed in\s+(\d+)\s*ms", content)
         if matches:
             return float(matches[0])
-    except OSError:
-        pass
+    except OSError as exc:
+        logging.getLogger(__name__).debug("Ignored error in _parse_emulator_boot_completed_ms: %s", exc)
     return None
 
 
@@ -2019,18 +2019,18 @@ def _kill_emulator_process_tree(
     try:
         if hasattr(os, "killpg"):
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in _kill_emulator_process_tree: %s", exc)
     try:
         proc.kill()
         proc.wait(timeout=5.0)
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in _kill_emulator_process_tree: %s", exc)
     if emu_pid and emu_pid != proc.pid:
         try:
             os.kill(emu_pid, signal.SIGKILL)
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in _kill_emulator_process_tree: %s", exc)
     _cleanup_stale_netsim(force=True)
     _adb_cmd(serial, ["disconnect"], adb_bin=adb_bin, timeout=3.0)
 
@@ -2095,7 +2095,8 @@ def _resolve_perf_avd_template(
                         cand_disk = v
                     elif k in ("hw.cpu.arch", "abi.type") and v:
                         cand_arch = "arm64" if ("arm" in v or "aarch64" in v) else "x86_64"
-        except OSError:
+        except OSError as exc:
+            logging.getLogger(__name__).debug("Ignored error in _resolve_perf_avd_template: %s", exc)
             continue
 
         if source_avd is None:
@@ -2329,8 +2330,8 @@ def run_managed_emulator_benchmark(
             if os.path.isfile(qemu_ver_file):
                 try:
                     os.remove(qemu_ver_file)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logging.getLogger(__name__).debug("Ignored error in run_managed_emulator_benchmark: %s", exc)
 
         port = _find_free_console_port(5560 + boot_idx * 2)
         grpc_port = _find_free_console_port(8554 + boot_idx * 2)
@@ -2369,8 +2370,8 @@ def run_managed_emulator_benchmark(
         if os.path.isfile(log_path):
             try:
                 os.remove(log_path)
-            except OSError:
-                pass
+            except OSError as exc:
+                logging.getLogger(__name__).debug("Ignored error in run_managed_emulator_benchmark: %s", exc)
         t_boot_start = time.perf_counter()
         _ensure_valid_console_auth_token()
         _cleanup_stale_netsim(force=False)
@@ -2436,14 +2437,14 @@ def run_managed_emulator_benchmark(
                 )
                 try:
                     proc.wait(timeout=10.0)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Ignored error in run_managed_emulator_benchmark: %s", exc)
             _kill_emulator_process_tree(proc, serial, adb_bin=adb_bin)
             if ephemeral_ini and os.path.isfile(ephemeral_ini):
                 try:
                     os.unlink(ephemeral_ini)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    logging.getLogger(__name__).debug("Ignored error in run_managed_emulator_benchmark: %s", exc)
             if ephemeral_dir and os.path.isdir(ephemeral_dir):
                 shutil.rmtree(ephemeral_dir, ignore_errors=True)
 

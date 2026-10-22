@@ -1,0 +1,719 @@
+{
+  "version": "1.1",
+  "description": "32 discovery tasks for hardware/generic/goldfish and emu-dev-cli across Bug Fixing, Performance Bottlenecks, Feature Addition, and Operational CLI & Emulator Launch Scenarios (24 Dev + 8 Holdout).",
+  "tasks": [
+    {
+      "id": "BUG-01",
+      "workflow": "bug_fix",
+      "split": "dev",
+      "title": "gRPC QEMU Device Shutdown Notifier & Standard Layout",
+      "source_commit": "f9549217b",
+      "prompt": "We are investigating a compiler/runtime bug on Windows debug builds involving `container_of` and `shutdown_notifier` in the emulator's gRPC QEMU device integration (`GrpcConfig` vs `GrpcDev`). Find the exact implementation file where the QEMU gRPC device registers its shutdown notifier, identify the QOM device struct and notifier callback functions involved, and identify the Bazel build target for this plugin.",
+      "rubric": {
+        "files": [
+          "emulator/plugin/grpc/grpc\\.cc"
+        ],
+        "symbols": [
+          "GrpcDev",
+          "GrpcConfig",
+          "shutdown_notifier|grpc_shutdown_notify"
+        ],
+        "targets": [
+          "emulator/plugin/grpc"
+        ]
+      }
+    },
+    {
+      "id": "BUG-02",
+      "workflow": "bug_fix",
+      "split": "dev",
+      "title": "NFC, UWB, and Cellular Guest Reset on Netsim Chardev Open",
+      "source_commit": "411d37808",
+      "prompt": "When an Android guest reboots or loads from a snapshot and re-opens a virtio-serial chardev connected to netsimd, the NFC, UWB, or cellular state can get out of sync with the host. Locate the exact file in `hardware/generic/goldfish` that implements the netsim QEMU chardev backend, identify the functions/callbacks that handle frontend open (`fe_open`) and guest reset notifications for NFC/UWB/cellular, and give its Bazel package/target.",
+      "rubric": {
+        "files": [
+          "emulator/plugin/netsim/netsim_chardev\\.cc"
+        ],
+        "symbols": [
+          "netsim_chardev_set_fe_open|netsim_chr_open|reset"
+        ],
+        "targets": [
+          "emulator/plugin/netsim"
+        ]
+      }
+    },
+    {
+      "id": "BUG-03",
+      "workflow": "bug_fix",
+      "split": "dev",
+      "title": "Async EventLoop PostAndWait Nested absl::StatusOr Flattening",
+      "source_commit": "a1943c769",
+      "prompt": "When posting a callable that returns `absl::Status` or `absl::StatusOr<T>` to the emulator's async `EventLoop::PostAndWait`, we want to avoid returning nested `absl::StatusOr<absl::StatusOr<T>>`. Find the header files and test files for both `EventLoop::PostAndWait` and the status flattening utility in `hardware/generic/goldfish`, identify the key class/template names, and provide their Bazel test targets.",
+      "rubric": {
+        "files": [
+          "emulator/libs/async/include/goldfish/async/event_loop\\.h",
+          "emulator/libs/status_macros/include/android/status/flatten\\.h"
+        ],
+        "symbols": [
+          "EventLoop",
+          "PostAndWait",
+          "flatten_status_or|FlattenStatusOr"
+        ],
+        "targets": [
+          "emulator/libs/async",
+          "emulator/libs/status_macros"
+        ]
+      }
+    },
+    {
+      "id": "BUG-04",
+      "workflow": "bug_fix",
+      "split": "dev",
+      "title": "Windows Media Foundation Async H.264 Hardware Encoder Deadlock & MFT",
+      "source_commit": "2c67ccb16",
+      "prompt": "We are debugging `MF_E_NOTACCEPTING` errors and a mutex self-deadlock during dynamic resolution changes in the Windows Media Foundation H.264 hardware video encoder used by WebRTC `videobridge`. Locate the Windows H.264 encoder source/header files and its hardware test suite in `hardware/generic/goldfish`, identify the encoder class and initialization/release methods, and list the Bazel target for the Windows MF hardware test.",
+      "rubric": {
+        "files": [
+          "emulator/videobridge/core/win/mf_video_encoder_h264\\.cc",
+          "emulator/videobridge/core/win/test/mf_hardware_test\\.cc"
+        ],
+        "symbols": [
+          "MFVideoEncoderH264",
+          "InitEncode|ReleaseUnlocked|ProcessOutput"
+        ],
+        "targets": [
+          "emulator/videobridge.*mf_hardware_test"
+        ]
+      }
+    },
+    {
+      "id": "BUG-05",
+      "workflow": "bug_fix",
+      "split": "dev",
+      "title": "Flaky Screen Recording Foldable Test Under TSAN",
+      "source_commit": "ff02aa718",
+      "prompt": "The screen recording test (`StartRecordingWithFoldableResolution`) flakes under `--config=tsan` because VP9 encoding is slow and `StopRecording` is called before enough frames are encoded. Find the gRPC screen recording service implementation, its unit test file, and the underlying display `VideoRecorder` / `WebMEncoder` files in `hardware/generic/goldfish`, identify the classes involved, and give the Bazel test targets.",
+      "rubric": {
+        "files": [
+          "emulator/plugin/grpc/services/screen_recording_impl\\.cc",
+          "emulator/plugin/grpc/services/screen_recording_impl_test\\.cc",
+          "emulator/plugin/display/(video_recorder|webm_encoder)\\.cc"
+        ],
+        "symbols": [
+          "ScreenRecordingServiceImpl|ScreenRecordingImpl",
+          "VideoRecorder",
+          "WebMEncoder"
+        ],
+        "targets": [
+          "emulator/plugin/grpc/services.*screen_recording",
+          "emulator/plugin/display"
+        ]
+      }
+    },
+    {
+      "id": "BUG-06",
+      "workflow": "bug_fix",
+      "split": "dev",
+      "title": "Global TSAN Default Options and Suppressions Hook in Test Main",
+      "source_commit": "974b1b08a",
+      "prompt": "ThreadSanitizer (TSAN) reads its options and suppressions before `main()` starts, causing false-positive `race:__on_zero_shared_weak` reports from uninstrumented `libc++` unless TSAN hooks are compiled into the test main library. Find the exact file in `hardware/generic/goldfish` that defines `main()` and the TSAN default hooks for unit tests, identify the hook function names, and give its Bazel target.",
+      "rubric": {
+        "files": [
+          "emulator/libs/test/gtest_main\\.cc",
+          "emulator/libs/test/BUILD\\.bazel"
+        ],
+        "symbols": [
+          "__tsan_default_options",
+          "__tsan_default_suppressions"
+        ],
+        "targets": [
+          "emulator/libs/test"
+        ]
+      }
+    },
+    {
+      "id": "BUG-H1",
+      "workflow": "bug_fix",
+      "split": "holdout",
+      "title": "PII Gating in gRPC and ADB-Vsock Crash Breadcrumbs",
+      "source_commit": "75078afee",
+      "prompt": "To prevent leaking PII (like clipboard data or keystrokes) into minidump crash reports, raw payload capture in crash breadcrumbs for both gRPC calls and ADB-over-vsock messages must be gated behind `CONFIG_TRACE_GOLDFISH`. Locate both the gRPC breadcrumb interceptor files and the ADB-vsock breadcrumb/message logger files in `hardware/generic/goldfish`, name the key classes, and provide their Bazel test targets.",
+      "rubric": {
+        "files": [
+          "emulator/plugin/grpc/interceptors/breadcrumb_interceptor\\.cc",
+          "emulator/plugin/adb-vsock/logger/adb_message_logger\\.cc"
+        ],
+        "symbols": [
+          "BreadcrumbInterceptor",
+          "AdbMessageLogger|AdbBreadcrumb"
+        ],
+        "targets": [
+          "emulator/plugin/grpc/interceptors",
+          "emulator/plugin/adb-vsock"
+        ]
+      }
+    },
+    {
+      "id": "BUG-H2",
+      "workflow": "bug_fix",
+      "split": "holdout",
+      "title": "WebRTC V2 RtcService ICE Candidate JSON Envelope Unwrapping",
+      "source_commit": "843d5a6d3",
+      "prompt": "Clients of the V2 WebRTC `RtcService` are receiving empty ICE candidate strings because outgoing switchboard JSON wraps candidates inside a nested `candidate` or `sdp` JSON envelope. Find the V2 `RtcService` implementation and its unit test file in `hardware/generic/goldfish`, identify the JSON-to-JSEP parsing function/class, and give the Bazel test target.",
+      "rubric": {
+        "files": [
+          "emulator/plugin/grpc/services/v2/webrtc/rtc_service_impl\\.cc",
+          "emulator/plugin/grpc/services/v2/webrtc/rtc_service_impl_test\\.cc"
+        ],
+        "symbols": [
+          "RtcServiceImpl",
+          "ParseSwitchboardJsonToJsep"
+        ],
+        "targets": [
+          "emulator/plugin/grpc/services/v2.*rtc_service"
+        ]
+      }
+    },
+    {
+      "id": "PERF-01",
+      "workflow": "perf_bottleneck",
+      "split": "dev",
+      "title": "CPU Display Pipeline SlotPool, LatestFramePump, and DisplayFrames Hub",
+      "source_commit": "396e464ab",
+      "prompt": "We are analyzing frame copy overhead and slow-consumer stalls in the emulator's display pipeline. Locate the core `display_pipeline` library and its design doc in `hardware/generic/goldfish`, identify the classes responsible for slot pooling (`SlotPool` / `CpuSlotStorage`), reading frames (`CpuReadPipeline`), pumping latest frames (`LatestFramePump`), and distributing frames to consumers (`DisplayFrames`), and provide the Bazel package and test targets.",
+      "rubric": {
+        "files": [
+          "emulator/libs/display_pipeline/DESIGN\\.md",
+          "emulator/libs/display_pipeline/cpu_read_pipeline\\.cc",
+          "emulator/libs/display_pipeline/display_frames\\.cc",
+          "emulator/libs/display_pipeline/slot_pool\\.cc"
+        ],
+        "symbols": [
+          "SlotPool|CpuSlotStorage",
+          "CpuReadPipeline",
+          "LatestFramePump",
+          "DisplayFrames"
+        ],
+        "targets": [
+          "emulator/libs/display_pipeline"
+        ]
+      }
+    },
+    {
+      "id": "PERF-02",
+      "workflow": "perf_bottleneck",
+      "split": "dev",
+      "title": "Netsim Network Device Downlink Lockstep & Scatter-Gather IOV",
+      "source_commit": "3d6417f00",
+      "prompt": "Guest cellular/Wi-Fi network throughput through `netsim` is suffering from downlink stop-and-wait lockstep latency and lack of scatter-gather `receive_iov` support in the QEMU netdev backend. Find the exact file implementing `netsim-netdev` in `hardware/generic/goldfish`, identify the QEMU `NetClientInfo` receive/downlink functions, and provide its Bazel target.",
+      "rubric": {
+        "files": [
+          "emulator/plugin/netsim/netsim_netdev\\.cc"
+        ],
+        "symbols": [
+          "netsim_netdev|receive_iov|NetClientInfo"
+        ],
+        "targets": [
+          "emulator/plugin/netsim"
+        ]
+      }
+    },
+    {
+      "id": "PERF-03",
+      "workflow": "perf_bottleneck",
+      "split": "dev",
+      "title": "Dropped Frames and Frame Interval Tracking in gRPC streamScreenshot",
+      "source_commit": "c7bda68ad",
+      "prompt": "We need to diagnose dropped frames and write latency in the gRPC `streamScreenshot` RPC. Locate the file implementing `DisplayService` (`streamScreenshot`) in `hardware/generic/goldfish`, identify the class/method and the Perfetto counters/events used to track sequence drops and frame intervals, and give its Bazel target.",
+      "rubric": {
+        "files": [
+          "emulator/plugin/grpc/services/emulator_controller_methods/display_service\\.cc"
+        ],
+        "symbols": [
+          "DisplayServiceImpl|streamScreenshot",
+          "dropped_frames|FrameDropped|grpc_frame_interval_ms"
+        ],
+        "targets": [
+          "emulator/plugin/grpc/services/emulator_controller_methods"
+        ]
+      }
+    },
+    {
+      "id": "PERF-04",
+      "workflow": "perf_bottleneck",
+      "split": "dev",
+      "title": "Zero-Cost Compile-Time Gating of Perfetto Tracing",
+      "source_commit": "11df1e60a",
+      "prompt": "We want to ensure Perfetto tracing (`TRACE_EVENT*`, `TRACE_COUNTER`, `PerfettoInterceptor`, and QEMU trace hooks) compiles out to zero runtime overhead unless `--@qemu//:trace_backend=goldfish` (`CONFIG_TRACE_GOLDFISH`) is enabled. Find the Perfetto library headers/BUILD files, the gRPC Perfetto interceptor, and the QEMU plugin initialization file in `hardware/generic/goldfish`, identify the macro/config symbols, and list their Bazel test targets.",
+      "rubric": {
+        "files": [
+          "emulator/libs/perfetto/include/goldfish/perfetto/perfetto_categories\\.h",
+          "emulator/libs/perfetto/BUILD\\.bazel",
+          "emulator/plugin/grpc/interceptors/perfetto_interceptor\\.cc",
+          "emulator/plugin/plugin\\.cc"
+        ],
+        "symbols": [
+          "CONFIG_TRACE_GOLDFISH",
+          "TRACE_EVENT_CATEGORY_ENABLED",
+          "PerfettoInterceptor"
+        ],
+        "targets": [
+          "emulator/libs/perfetto",
+          "emulator/plugin/grpc/interceptors"
+        ]
+      }
+    },
+    {
+      "id": "PERF-05",
+      "workflow": "perf_bottleneck",
+      "split": "dev",
+      "title": "Eliminating Redundant Disk Image (-qemu.img) Copying Before QEMU Launch",
+      "source_commit": "89594d029",
+      "prompt": "Emulator startup is spending unnecessary disk I/O copying `.img` files to `-qemu.img` before launching QEMU. Find the files in `hardware/generic/goldfish` that configure disk drives and user data drives for `LaunchQemu`, identify the key drive configuration classes/functions, and list the unit test targets that verify drive configuration.",
+      "rubric": {
+        "files": [
+          "emulator/launcher/launch_qemu/configure_drives\\.cc",
+          "emulator/launcher/launch_qemu/disk_drive\\.cc",
+          "emulator/launcher/launch_qemu/user_data_drive\\.cc"
+        ],
+        "symbols": [
+          "ConfigureDrives|configure_drives|DiskDrive|UserDataDrive"
+        ],
+        "targets": [
+          "emulator/launcher/launch_qemu"
+        ]
+      }
+    },
+    {
+      "id": "PERF-06",
+      "workflow": "perf_bottleneck",
+      "split": "dev",
+      "title": "Screen Recording Pacing, Overrun, and WebM Encoder Queue Instrumentation",
+      "source_commit": "a806e4eb7",
+      "prompt": "To profile CPU bottlenecks during screen recording, we need to trace frame generation in the gRPC recording service through `VideoRecorder` pacing/overruns and `WebMEncoder` queue depth and `libavcodec` conversion spans. Locate the exact source files for these three components in `hardware/generic/goldfish`, identify the classes/methods traced, and give their Bazel targets.",
+      "rubric": {
+        "files": [
+          "emulator/plugin/display/video_recorder\\.cc",
+          "emulator/plugin/display/webm_encoder\\.cc",
+          "emulator/plugin/grpc/services/screen_recording_impl\\.cc"
+        ],
+        "symbols": [
+          "VideoRecorder",
+          "WebMEncoder",
+          "ScreenRecording"
+        ],
+        "targets": [
+          "emulator/plugin/display",
+          "emulator/plugin/grpc/services"
+        ]
+      }
+    },
+    {
+      "id": "PERF-H1",
+      "workflow": "perf_bottleneck",
+      "split": "holdout",
+      "title": "Pixman Display Surface Update and Pixel Readback Tracing",
+      "source_commit": "54e2ea2a9",
+      "prompt": "We want to profile surface updates, `memcpy` durations, and pixel retrieval in the display plugin (`IDisplay`, `PixmanDisplay`, `MultiDisplay`). Find the header and implementation files in `hardware/generic/goldfish/emulator/plugin/display` where display frames and pixman surfaces are updated and read back, identify the core classes/methods, and provide the Bazel test target.",
+      "rubric": {
+        "files": [
+          "emulator/plugin/display/pixman_display\\.cc",
+          "emulator/plugin/display/multi_display\\.cc",
+          "emulator/plugin/display/include/goldfish/display/display\\.h"
+        ],
+        "symbols": [
+          "PixmanDisplay",
+          "MultiDisplay",
+          "IDisplay|GetPixels|UpdateSurface"
+        ],
+        "targets": [
+          "emulator/plugin/display:display_unittests|emulator/plugin/display"
+        ]
+      }
+    },
+    {
+      "id": "PERF-H2",
+      "workflow": "perf_bottleneck",
+      "split": "holdout",
+      "title": "WebRTC InProcessVideoSource Frame Arrival, libyuv Conversion, and Drop Metrics",
+      "source_commit": "b2a7382c0",
+      "prompt": "We need to profile WebRTC video streaming frame drops and `libyuv` I420 conversion latency before frames enter the WebRTC encoder. Locate the `InProcessVideoSource` header, implementation, and unit test in `hardware/generic/goldfish`, identify the class/methods and Perfetto drop counter names, and give the Bazel test target.",
+      "rubric": {
+        "files": [
+          "emulator/videobridge/media/in_process_video_source\\.cc",
+          "emulator/videobridge/include/goldfish/videobridge/in_process_video_source\\.h",
+          "emulator/videobridge/media/in_process_video_source_test\\.cc"
+        ],
+        "symbols": [
+          "InProcessVideoSource",
+          "webrtc_dropped_frames|WebRTCFrameDropped|OnFrame"
+        ],
+        "targets": [
+          "emulator/videobridge:in_process_video_source_test|emulator/videobridge"
+        ]
+      }
+    },
+    {
+      "id": "FEAT-01",
+      "workflow": "add_feature",
+      "split": "dev",
+      "title": "Implementing V2 gRPC SensorsService Over PhysicalModel",
+      "source_commit": "d72ef51bb",
+      "prompt": "We want to add or extend a V2 gRPC service (`android.emulation.v2.SensorsService`) backed by the emulator's `PhysicalModel` sensor simulation. Locate the V2 gRPC services registration file, the `SensorsServiceImpl` header/implementation/test files, and the underlying `PhysicalModel` library files in `hardware/generic/goldfish`, and list their Bazel targets.",
+      "rubric": {
+        "files": [
+          "emulator/plugin/grpc/services/v2/v2_services\\.cc",
+          "emulator/plugin/grpc/services/v2/environment/sensors_service_impl\\.cc",
+          "emulator/libs/sensors/physical_model\\.cc"
+        ],
+        "symbols": [
+          "SensorsServiceImpl",
+          "PhysicalModel",
+          "RegisterV2Services|v2_services"
+        ],
+        "targets": [
+          "emulator/plugin/grpc/services/v2",
+          "emulator/libs/sensors"
+        ]
+      }
+    },
+    {
+      "id": "FEAT-02",
+      "workflow": "add_feature",
+      "split": "dev",
+      "title": "Adding a High-Frequency WebRTC DataChannel (sensors_v2) in Videobridge",
+      "source_commit": "ab18005b0",
+      "prompt": "We want to expose a new WebRTC SCTP DataChannel (like `sensors_v2`) so browser clients (such as the Aquarium UI) can stream high-frequency telemetry into the emulator. Trace the files across `emulator/videobridge`, `emulator/plugin/grpc/services` (`in_process_rtc_service`), and `emulator/ui/aquarium` that wire a WebRTC data channel to an in-process sender, identify the key C++ classes, and list their Bazel packages.",
+      "rubric": {
+        "files": [
+          "emulator/videobridge/core/participant\\.cc|emulator/videobridge/core/event_forwarder\\.cc",
+          "emulator/videobridge/core/in_process_input_sender\\.cc",
+          "emulator/plugin/grpc/services/in_process_rtc_service\\.cc"
+        ],
+        "symbols": [
+          "InProcessInputSender|InputSender",
+          "InProcessRtcService",
+          "Participant|EventForwarder"
+        ],
+        "targets": [
+          "emulator/videobridge",
+          "emulator/plugin/grpc/services"
+        ]
+      }
+    },
+    {
+      "id": "FEAT-03",
+      "workflow": "add_feature",
+      "split": "dev",
+      "title": "Supporting --android-device-hub UI Flag in Python Emulator Launcher",
+      "source_commit": "610718240",
+      "prompt": "We need to add a new launcher flag (such as `--android-device-hub`) to the Python emulator launcher wrapper that hides the default window, waits for the emulator discovery file, and spawns a companion UI binary. Locate the launcher Python scripts, library, test file, and `BUILD.bazel` in `hardware/generic/goldfish`, identify the key functions/classes, and give the Bazel test target.",
+      "rubric": {
+        "files": [
+          "emulator/launcher/tools/emulator_lib\\.py",
+          "emulator/launcher/tools/launch_emulator\\.py",
+          "emulator/launcher/tools/emulator_lib_test\\.py",
+          "emulator/launcher/BUILD\\.bazel"
+        ],
+        "symbols": [
+          "android_device_hub|launch_emulator|emulator_lib"
+        ],
+        "targets": [
+          "emulator/launcher:emulator_lib_test|emulator/launcher"
+        ]
+      }
+    },
+    {
+      "id": "FEAT-04",
+      "workflow": "add_feature",
+      "split": "dev",
+      "title": "Adding or Retiring C++ Emulator CLI Flags and Hardware Properties",
+      "source_commit": "23b53b1ae",
+      "prompt": "When adding or retiring a C++ command-line flag (such as `-cache` / `-cache_size`) and its corresponding hardware property in `hardware-properties.ini`, which exact files in `hardware/generic/goldfish` define the CLI option table, help text, drive/QEMU configuration consumption, and hardware property schema?",
+      "rubric": {
+        "files": [
+          "emulator/launcher/cmdline/include/android/cmdline_options\\.h",
+          "emulator/launcher/cmdline/help\\.cc",
+          "emulator/libs/hardware_config/data/hardware-properties\\.ini"
+        ],
+        "symbols": [
+          "CMDLINE_OPTION|cmdline_options|help"
+        ],
+        "targets": [
+          "emulator/launcher/cmdline",
+          "emulator/libs/hardware_config"
+        ]
+      }
+    },
+    {
+      "id": "FEAT-05",
+      "workflow": "add_feature",
+      "split": "dev",
+      "title": "Wiring Usage Metrics Reporting into the Telnet Console",
+      "source_commit": "59b0b9c87",
+      "prompt": "We want to record usage telemetry whenever a user executes commands in the emulator's telnet console. Find the telnet console command registry and bridge files as well as the metrics library (`MetricsReporter` / `FakeMetricsWriter`) in `hardware/generic/goldfish`, identify the key classes/methods that connect telnet command execution to metrics reporting, and provide their Bazel test targets.",
+      "rubric": {
+        "files": [
+          "emulator/telnet/command_registry\\.cc",
+          "emulator/telnet/legacy_console_bridge\\.cc",
+          "emulator/libs/metrics/BUILD\\.bazel"
+        ],
+        "symbols": [
+          "CommandRegistry",
+          "LegacyConsoleBridge|LegacyConsoleController",
+          "MetricsReporter|FakeMetricsWriter|MetricsWriter"
+        ],
+        "targets": [
+          "emulator/telnet",
+          "emulator/libs/metrics"
+        ]
+      }
+    },
+    {
+      "id": "FEAT-06",
+      "workflow": "add_feature",
+      "split": "dev",
+      "title": "Studio Analytics Config Protobuf Serialization & GDPR Salt Rotation",
+      "source_commit": "82dec939a",
+      "prompt": "We need to modify how the C++ emulator initializes Android Studio analytics config (`studio_config`) using `@studio_stats` Protobuf JSON serialization and 28-day GDPR cryptographic salt rotation. Locate the header, implementation, and unit test files for `studio_config` in `hardware/generic/goldfish`, identify the key functions/classes, and give the Bazel test target.",
+      "rubric": {
+        "files": [
+          "emulator/libs/metrics/studio_config\\.cc",
+          "emulator/libs/metrics/include/goldfish/metrics/studio_config\\.h",
+          "emulator/libs/metrics/studio_config_test\\.cc"
+        ],
+        "symbols": [
+          "studio_config|StudioConfig|PlaystoreMetricsWriter"
+        ],
+        "targets": [
+          "emulator/libs/metrics:studio_config_test|emulator/libs/metrics"
+        ]
+      }
+    },
+    {
+      "id": "FEAT-H1",
+      "workflow": "add_feature",
+      "split": "holdout",
+      "title": "Adding QEMU Devices via LaunchQemu::addDevice",
+      "source_commit": "a4874d030",
+      "prompt": "We are adding a new virtual device and need to register it with `LaunchQemu` so its QEMU command-line arguments and device properties are constructed properly. Find the `LaunchQemu` header and implementation files in `hardware/generic/goldfish`, explain how `LaunchQemu::addDevice` works, and identify the Bazel package and test targets for `launch_qemu`.",
+      "rubric": {
+        "files": [
+          "emulator/launcher/launch_qemu/launch_qemu\\.h",
+          "emulator/launcher/launch_qemu/launch_qemu\\.cc"
+        ],
+        "symbols": [
+          "LaunchQemu",
+          "addDevice"
+        ],
+        "targets": [
+          "emulator/launcher/launch_qemu"
+        ]
+      }
+    },
+    {
+      "id": "FEAT-H2",
+      "workflow": "add_feature",
+      "split": "holdout",
+      "title": "Crash Report Advisor Hotlist Organization & Buganizer Deduplication",
+      "source_commit": "562cdd7e4",
+      "prompt": "We want to extend the emulator's crash report `advisor` tool to organize crashes into Buganizer hotlists and deduplicate comments based on novel crash metadata/breadcrumbs. Locate the Python files and test files for the crash report `advisor` tool in `hardware/generic/goldfish`, identify the key modules/classes (`advisor.py`, `buganizer.py`, `client.py`, `metadata.py`), and provide its Bazel test target.",
+      "rubric": {
+        "files": [
+          "emulator/crashreport/tool/advisor/advisor\\.py",
+          "emulator/crashreport/tool/advisor/buganizer\\.py",
+          "emulator/crashreport/tool/advisor/client\\.py"
+        ],
+        "symbols": [
+          "Buganizer|advisor|GossoClient|CrashMetadata"
+        ],
+        "targets": [
+          "emulator/crashreport/tool/advisor"
+        ]
+      }
+    },
+    {
+      "id": "CLI-01",
+      "workflow": "operational_cli",
+      "split": "dev",
+      "title": "Fetching Prebuilt Emulator & System Image, Creating an AVD, and Launching Detached Headless Emulator",
+      "source_commit": "a6ce64515",
+      "prompt": "Using `emu-dev-cli`, what are the exact CLI commands and flags to: (1) fetch the latest prebuilt emulator binary on `emu-main-next` and the latest system image on `26Q2-emu-release`, (2) list available AVD device profiles and create a `medium_phone` AVD named `my-dev-phone`, and (3) launch the emulator in detached background daemon mode without a window (`-no-window`)?",
+      "rubric": {
+        "files": [
+          "/tmp/|\\.android/avd"
+        ],
+        "symbols": [
+          "fetch-build emulator --latest",
+          "fetch-build system-image --latest --branch 26Q2-emu-release",
+          "create avd --name my-dev-phone",
+          "launch emulator[\\s\\S]*--detached[\\s\\S]*-avd my-dev-phone[\\s\\S]*-no-window"
+        ],
+        "targets": [
+          "medium_phone",
+          "--list-profiles"
+        ]
+      }
+    },
+    {
+      "id": "CLI-02",
+      "workflow": "operational_cli",
+      "split": "dev",
+      "title": "Multi-Device Emulator Mesh Creation, Netsim Radio Launch, Readiness Verification, and Teardown",
+      "source_commit": "a6ce64515",
+      "prompt": "We need to spin up a 2-device emulator mesh (`bt-mesh`) for Bluetooth/Wi-Fi multi-device radio testing using `emu-dev-cli`. Provide the exact `emu-dev-cli` commands to batch-create the 2 mesh AVDs, launch the mesh headless with the default Netsim packet streamer, wait for both instances to finish booting and register their virtual radio chips, inspect mesh status, and tear down the mesh.",
+      "rubric": {
+        "files": [
+          "SKILL\\.md|\\.android/avd|bt-mesh"
+        ],
+        "symbols": [
+          "create mesh --prefix bt-mesh --count 2",
+          "launch mesh[\\s\\S]*--prefix bt-mesh[\\s\\S]*--count 2",
+          "mesh wait-ready --prefix bt-mesh --count 2",
+          "mesh status",
+          "mesh teardown --prefix bt-mesh --count 2"
+        ],
+        "targets": [
+          "medium_phone|--packet-streamer"
+        ]
+      }
+    },
+    {
+      "id": "CLI-03",
+      "workflow": "operational_cli",
+      "split": "dev",
+      "title": "Discovering and Running Automated CTS-Verifier Test Modules on the Emulator",
+      "source_commit": "a6ce64515",
+      "prompt": "How do you use `emu-dev-cli` to dynamically list all available automated CTS-Verifier test modules, execute a specific module (such as `tts` or `vibrations`) against a running emulator or specific Android Build (`go/ab`) build ID, and look up the CTS-Verifier automation documentation?",
+      "rubric": {
+        "files": [
+          "SKILL\\.md|cts-verifier|cts_verifier"
+        ],
+        "symbols": [
+          "cts run-cts-verifier --list-modules",
+          "cts run-cts-verifier --module tts",
+          "cts run-cts-verifier[\\s\\S]*--build-id[\\s\\S]*--module vibrations",
+          "docs cts-verifier-automation"
+        ],
+        "targets": [
+          "tts|vibrations|battery_saver"
+        ]
+      }
+    },
+    {
+      "id": "CLI-04",
+      "workflow": "operational_cli",
+      "split": "dev",
+      "title": "Token-Efficient Daily qemu-next Crash Triage Workflow, Direct RCA Bug Filing, and go/crash Linkage",
+      "source_commit": "a6ce64515",
+      "prompt": "What are the `emu-dev-cli` commands for the token-efficient daily `qemu-next` production crash triage protocol (`triage-crashes`), listing untriaged crashes over a 7-day window, linking an existing Buganizer issue to a `stable_signature` in `go/crash`, and filing a new Buganizer ticket directly from a local `/tmp/rca_<report_id>.md` file without spawning nested AI subprocesses?",
+      "rubric": {
+        "files": [
+          "/tmp/rca_"
+        ],
+        "symbols": [
+          "workflow triage-crashes init",
+          "crash list-crashes --unassigned-only --days 7",
+          "crash link-bug",
+          "crash file-bug[\\s\\S]*--signature[\\s\\S]*--from-rca"
+        ],
+        "targets": [
+          "workflow triage-crashes|29601"
+        ]
+      }
+    },
+    {
+      "id": "CLI-05",
+      "workflow": "operational_cli",
+      "split": "dev",
+      "title": "Reproducing Flaky Tests Under TSAN & Windows RBE and Fetching ResultStore/Sponge Logs",
+      "source_commit": "a6ce64515",
+      "prompt": "Using `emu-dev-cli flakiness`, what are the exact commands to: (1) reproduce a Windows flaky test (`@goldfish//emulator/libs/async:loop_handoff_test`) 30 times directly from a Linux workstation via RBE, (2) reproduce a TSAN flaky test locally, (3) inspect ResultStore/Sponge failure logs for a specific invocation UUID or the latest 3 failures, and (4) download all diagnostic artifacts (`ALL`) for an invocation ID?",
+      "rubric": {
+        "files": [
+          "SKILL\\.md|/tmp/|test\\.log|--out-dir"
+        ],
+        "symbols": [
+          "flakiness reproduce[\\s\\S]*loop_handoff_test[\\s\\S]*emulator_windows_x64[\\s\\S]*--iterations 30",
+          "flakiness sponge",
+          "flakiness fetch-logs[\\s\\S]*--invocation-id[\\s\\S]*--artifact-type ALL",
+          "--config=rbe-win-x64"
+        ],
+        "targets": [
+          "emulator_windows_x64",
+          "emulator_linux_x64_tsan"
+        ]
+      }
+    },
+    {
+      "id": "CLI-06",
+      "workflow": "operational_cli",
+      "split": "dev",
+      "title": "mise Workspace Task Runner Commands and Per-Repository Working Directory Rules",
+      "source_commit": "a6ce64515",
+      "prompt": "What `mise` tasks are configured in `<workspace_root>/mise.toml` (`hardware/generic/goldfish/development/mise.toml`) for fast C++ builds, fast unit tests, clang-tidy verification, `compile_commands.json` generation, and uploading a branch to Gerrit with `Presubmit-Ready+1`? Which `mise` tasks require `Cwd` to be set to the specific git repository (`hardware/generic/goldfish` or `hardware/google/aemu`) versus `<workspace_root>`?",
+      "rubric": {
+        "files": [
+          "development/mise\\.toml",
+          "fasttest_exclusions\\.txt"
+        ],
+        "symbols": [
+          "presubmit",
+          "submit",
+          "gum",
+          "fastbuild",
+          "fasttest",
+          "tidy"
+        ],
+        "targets": [
+          "@goldfish//emulator:release|//development/tools:generate_bcc"
+        ]
+      }
+    },
+    {
+      "id": "CLI-H1",
+      "workflow": "operational_cli",
+      "split": "holdout",
+      "title": "Dry-Run & Interactive Foreground Emulator Launch, Source Directory Registry, and Local Crash Reproduction Under LLDB",
+      "source_commit": "a6ce64515",
+      "prompt": "Using `emu-dev-cli`, how do you: (1) perform a dry-run emulator launch (`--dry-run`) and an interactive foreground launch for an AVD (`my-dev-phone`), (2) inspect or configure branch-to-source-directory mappings (`~/.android/emu-dev-cli.json`), and (3) reproduce a production crash report locally under the interactive LLDB debugger (`--lldb`)?",
+      "rubric": {
+        "files": [
+          "emu-dev-cli\\.json"
+        ],
+        "symbols": [
+          "launch emulator[\\s\\S]*--dry-run[\\s\\S]*-avd my-dev-phone",
+          "source-directory get|source-directory set|source-directory list",
+          "crash reproduce[\\s\\S]*--lldb"
+        ],
+        "targets": [
+          "emu-main-dev|emu-main-next"
+        ]
+      }
+    },
+    {
+      "id": "CLI-H2",
+      "workflow": "operational_cli",
+      "split": "holdout",
+      "title": "CI Build-Time Regression Diagnosis Across Bazel Stage Profiles and Progressive Clang-Tidy Remediation",
+      "source_commit": "a6ce64515",
+      "prompt": "How do you use `emu-dev-cli` to: (1) inspect a single CI build across all 8 targets (`build-times inspect`), view multi-build history on `emulator_mac_aarch64`, and diagnose why builds regressed (`build-times diagnose`), and (2) check clang-tidy diagnostics (`tidy check`) and run the automated progressive fix engine (`tidy fix`) with transaction status/continue/abort controls?",
+      "rubric": {
+        "files": [
+          "logs/bazel/.*\\.profile\\.gz"
+        ],
+        "symbols": [
+          "build-times inspect[\\s\\S]*--target all",
+          "build-times history[\\s\\S]*--target emulator_mac_aarch64",
+          "build-times diagnose[\\s\\S]*--target emulator_mac_aarch64",
+          "tidy check",
+          "tidy fix"
+        ],
+        "targets": [
+          "emulator_mac_aarch64",
+          ":tidy"
+        ]
+      }
+    }
+  ]
+}

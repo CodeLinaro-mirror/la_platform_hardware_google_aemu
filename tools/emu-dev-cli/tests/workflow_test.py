@@ -8,11 +8,7 @@ import unittest
 SRC_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"
 )
-if SRC_DIR not in sys.path:
-    sys.path.insert(0, SRC_DIR)
 ROOT_DIR = os.path.dirname(SRC_DIR)
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
 
 from commands.workflow import (
     find_workflow_main,
@@ -595,6 +591,20 @@ steps:
                     os.environ["ANTIGRAVITY_CONVERSATION_ID"] = old_conv
                 else:
                     os.environ.pop("ANTIGRAVITY_CONVERSATION_ID", None)
+
+    def test_run_workflow_main_script_propagates_subprocess_env(self):
+        import tempfile
+        from commands.workflow import run_workflow_main
+
+        with tempfile.TemporaryDirectory() as td:
+            script_path = os.path.join(td, "script_wf.py")
+            with open(script_path, "w") as f:
+                f.write(
+                    "import os, sys\n"
+                    "sys.exit(0 if os.environ.get('PYTHONPATH') else 1)\n"
+                )
+            rc = run_workflow_main(script_path, ["--help"])
+            self.assertEqual(rc, 0)
 
 
 if __name__ == "__main__":
