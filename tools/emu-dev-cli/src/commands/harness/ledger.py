@@ -142,6 +142,8 @@ class SessionLedgerStore:
             stats["commands_rewritten"] = int(stats.get("commands_rewritten", 0)) + 1
         elif kind == LedgerEventKind.DIAGNOSTIC_INJECTED:
             stats["diagnostics_injected"] = int(stats.get("diagnostics_injected", 0)) + 1
+        elif kind == LedgerEventKind.CONCURRENCY_TEST_WARNING:
+            stats["concurrency_test_warnings"] = int(stats.get("concurrency_test_warnings", 0)) + 1
 
         self.save(conversation_id, ledger)
         return ledger

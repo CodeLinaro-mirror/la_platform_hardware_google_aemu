@@ -125,6 +125,15 @@ def _resolve_upload_repo_dir(command: str, default_cwd: Optional[Path] = None) -
     )
 
 
+def resolve_command_repo_dir(command: str, default_cwd: Optional[Path] = None) -> Path:
+    """Resolves the Git repository targeted by a `git commit` or Gerrit upload shell command.
+
+    Honors `cd <dir> &&`, `git -C <dir>`, `--repo <dir>`, and `repo upload <project>`, and
+    falls back to `default_cwd` (or the process working directory).
+    """
+    return _resolve_upload_repo_dir(command, default_cwd=default_cwd)
+
+
 def _read_review_payload_finding_count(
     payload_path: Path,
     target_id: str,

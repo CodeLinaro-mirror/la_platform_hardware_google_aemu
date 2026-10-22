@@ -18,7 +18,9 @@ Implements Jetski Web & CLI lifecycle hooks:
   - PreToolUse (`pre-tool`): Enforces Semantic Commit Messages on direct `git commit`
     invocations and `--notify=OWNER` on Gerrit mutations.
   - PostToolUse (`post-tool`): Tracks spawned/stopped emulator instances and
-    workflow executions in the per-conversation Session Ledger.
+    workflow executions in the per-conversation Session Ledger, appends failure
+    diagnostics, and warns when a goldfish commit or upload changes
+    concurrency-sensitive code without touching a test.
   - PreInvocation (`pre-invocation`): Injects active `emu-dev-cli` workflow state
     and tracked emulator context as an `<ephemeralMessage>`.
   - SessionStart (`session-start`): Initializes the conversation ledger.
@@ -36,6 +38,7 @@ except ImportError:
     yaml = None
 
 from commands.harness.code_guardrails import evaluate_file_edit_payload
+from commands.harness.concurrency_test_check import build_concurrency_test_warning
 from commands.harness.constants import (
     AVD_FLAG_PATTERN,
     BAZEL_TEST_CMD_PATTERN,
@@ -437,6 +440,7 @@ def handle_post_tool_hook(
             {"command": command, "state_id": state_id},
         )
 
+    overwritten_result: Optional[str] = None
     enriched = enrich_post_tool_result(command, payload)
     if enriched is not None:
         overwritten_result, diag_summary = enriched
@@ -446,8 +450,30 @@ def handle_post_tool_hook(
             diag_summary,
             {"command": command},
         )
-        return {"overwriteResult": overwritten_result}
 
+    concurrency_warning = build_concurrency_test_warning(
+        command, payload, default_cwd=_extract_workspace_dir(payload)
+    )
+    if concurrency_warning is not None:
+        base_result = (
+            overwritten_result
+            if overwritten_result is not None
+            else str(payload.get("result") or "")
+        )
+        overwritten_result = (
+            f"{base_result.rstrip()}\n\n{concurrency_warning}\n"
+            if base_result.strip()
+            else f"{concurrency_warning}\n"
+        )
+        ledger_store.record_event(
+            conversation_id,
+            LedgerEventKind.CONCURRENCY_TEST_WARNING,
+            concurrency_warning.splitlines()[1].strip(),
+            {"command": command},
+        )
+
+    if overwritten_result is not None:
+        return {"overwriteResult": overwritten_result}
     return {}
 
 
