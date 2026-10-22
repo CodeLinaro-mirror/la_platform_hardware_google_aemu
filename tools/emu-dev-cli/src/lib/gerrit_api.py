@@ -47,6 +47,7 @@ DEFAULT_GERRIT_HOST = "https://googleplex-android-review.git.corp.google.com"
 GERRIT_OAUTH_SCOPE = "https://www.googleapis.com/auth/gerritcodereview"
 GERRIT_HTTP_TIMEOUT_SEC = 20.0
 GERRIT_CLI_TIMEOUT_SEC = 25.0
+_AUTH_FALLBACK_HTTP_CODES = (400, 401, 403)
 
 _URL_CL_RE = re.compile(r"/\+/(\d+)(?:/\d+)?(?:[?#].*)?$")
 _LEGACY_URL_CL_RE = re.compile(r"/c/(?:[^/]+/)*(\d+)(?:/\d+)?(?:[?#].*)?$")
@@ -209,6 +210,7 @@ class GerritClient:
             ".git.corp.google.com", ".googlesource.com"
         )
         self._explicit_token = token
+        self._urllib_auth_failed = False
         self._oauth = OAuthTokenManager(
             scopes=[GERRIT_OAUTH_SCOPE],
             env_vars=["GERRIT_TOKEN", "OAUTH2_TOKEN", "ANDROID_BUILD_TOKEN"],
@@ -227,7 +229,8 @@ class GerritClient:
         """Closes `http_err` cleanly and raises RuntimeError on non-auth HTTP failures."""
         clean_path = path.split("?", 1)[0]
         with http_err:
-            if http_err.code in (401, 403):
+            if http_err.code in _AUTH_FALLBACK_HTTP_CODES:
+                self._urllib_auth_failed = True
                 transport_errors.append(f"urllib HTTP {http_err.code}")
                 return
             reason = getattr(http_err, "reason", "") or "HTTP error"
@@ -244,7 +247,10 @@ class GerritClient:
         body_bytes: bytes | None,
         transport_errors: list[str],
     ) -> str | None:
-        """Attempts an OAuth-authenticated HTTPS request via `urllib`, returning None on 401/403."""
+        """Attempts an OAuth-authenticated HTTPS request via `urllib`, returning None on 400/401/403."""
+        if self._urllib_auth_failed:
+            transport_errors.append("urllib skipped after prior auth failure")
+            return None
         token = self._get_token()
         if not token:
             transport_errors.append("no OAuth token available")
