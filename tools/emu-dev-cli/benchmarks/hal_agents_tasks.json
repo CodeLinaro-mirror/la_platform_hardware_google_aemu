@@ -1,0 +1,137 @@
+{
+  "version": "1.0",
+  "description": "6 paired A/B evaluation tasks for hardware/generic/goldfish/emulator/plugin/hal/AGENTS.md across HAL Discovery, First-Pass HAL Implementation, and Seeded-Defect Code Review (4 Dev + 2 Holdout).",
+  "tasks": [
+    {
+      "id": "HAL-DISC-01",
+      "workflow": "hal_discovery",
+      "split": "dev",
+      "title": "Raw Binary vs. QEMUD Registration, Wire Framing & TestConnectorRegistry Teardown",
+      "prompt": "We need to add two new HAL devices under `hardware/generic/goldfish/emulator/plugin/hal/`: one using a raw 4-byte length-prefixed binary protocol and one using the legacy QEMUD text command protocol. Identify: (1) the exact `IConnectorRegistry` registration methods for each (and which legacy methods are deprecated), (2) the framing/parser utilities used in `OnReceive()` and `Send()` for each, (3) one canonical exemplar `.cc` file for each, and (4) the mandatory teardown call required when writing unit tests with `TestConnectorRegistry`.",
+      "rubric": {
+        "files": [
+          "emulator/plugin/hal/(clipboard/clipboard_device|vehicle/vehicle_device|guest-status/guest_status_device)\\.cc",
+          "emulator/plugin/hal/(bootproperties/boot_properties_device|fingerprint/fingerprint_device|sensors/sensor_device)\\.cc"
+        ],
+        "symbols": [
+          "IConnectorRegistry",
+          "RegisterHalDevice",
+          "RegisterHalQemuDevice",
+          "qemud::Parser",
+          "qemud::EncodeQemudPacket"
+        ],
+        "invariants": [
+          "registry_?(\\.|->)Close\\(\\)"
+        ]
+      }
+    },
+    {
+      "id": "HAL-DISC-H1",
+      "workflow": "hal_discovery",
+      "split": "holdout",
+      "title": "Threading Context (client_loop vs. qemu_loop) & Observable Lock-Ordering",
+      "prompt": "In `hardware/generic/goldfish/emulator/plugin/hal/`, explain the threading execution context of `HalDeviceFactory`, `OnConnect()`/`OnReceive()`/`OnClose()`, and `Socket()->Send()`. Specifically identify: (1) how a HAL device safely runs QEMU-thread-only operations such as `EmulatorResetCallbacks::do_unregister` or shutdown requests on close, (2) how a HAL device subscribes to `avd_universe` observables without leaking the plug or causing a lock-inversion deadlock when mutating device state/timers, and (3) the exemplar files demonstrating both patterns.",
+      "rubric": {
+        "files": [
+          "emulator/plugin/hal/guest-status/guest_status_device\\.cc",
+          "emulator/plugin/hal/gps/gps_device\\.cc"
+        ],
+        "symbols": [
+          "EmulatorResetCallbacks",
+          "do_unregister",
+          "MakeScopedCallback",
+          "ScopedEventCallback"
+        ],
+        "invariants": [
+          "(qemu_loop|mQemuLoop)_?\\s*->\\s*Post",
+          "weak_ptr|weak_from_this"
+        ]
+      }
+    },
+    {
+      "id": "HAL-IMPL-01",
+      "workflow": "hal_implementation",
+      "split": "dev",
+      "title": "First-Pass Implementation of a Raw Binary ThermalSensor HAL + Unit Test",
+      "prompt": "Inspect `hardware/generic/goldfish/emulator/plugin/hal/` and write the complete C++ public header (`include/goldfish/devices/thermal/thermal_sensor_device.h`), implementation (`thermal_sensor_device.cc`), `BUILD.bazel`, and unit test (`thermal_sensor_device_test.cc`) for a new `ThermalSensor` HAL (`kServiceName = \"thermal\"`) that bridges a 4-byte little-endian length-prefixed payload stream to a host `avd_universe` observable (`ThermalChannel::OnThermalChanged`). Do not modify files on disk; output the 4 complete file contents in your response.",
+      "rubric": {
+        "symbols": [
+          "class\\s+IThermalSensorDevice\\s*:\\s*public\\s+(goldfish::devices::)?HalPlug",
+          "RegisterHalDevice",
+          "MakeScopedCallback",
+          "TestConnectorRegistry"
+        ],
+        "invariants": [
+          "while\\s*\\(",
+          "absl::little_endian::(Load32|Store32)",
+          "weak_ptr|weak_from_this",
+          "alwayslink\\s*=\\s*True",
+          "clang_tidy_test",
+          "registry_?(\\.|->)Close\\(\\)"
+        ],
+        "forbidden": [
+          "->RegisterDevice\\(",
+          "ThermalSensorDevice\\([^)]*\\)\\s*[^{]*\\{[^}]*Socket\\(\\)->Send"
+        ]
+      }
+    },
+    {
+      "id": "HAL-IMPL-H1",
+      "workflow": "hal_implementation",
+      "split": "holdout",
+      "title": "First-Pass Implementation of a QEMUD PowerControl HAL + Reset Callback + Unit Test",
+      "prompt": "Inspect `hardware/generic/goldfish/emulator/plugin/hal/` and write the complete C++ public header (`include/goldfish/devices/power/power_control_device.h`), implementation (`power_control_device.cc`), `BUILD.bazel`, and unit test (`power_control_device_test.cc`) for a QEMUD-framed `PowerControl` HAL (`kServiceName = \"power\"`) that parses incoming guest text commands, replies using QEMUD framing, and registers/unregisters an `EmulatorResetCallbacks` listener across its lifecycle. Do not modify files on disk; output the 4 complete file contents in your response.",
+      "rubric": {
+        "symbols": [
+          "class\\s+IPowerControlDevice\\s*:\\s*public\\s+(goldfish::devices::)?HalPlug",
+          "RegisterHalQemuDevice",
+          "qemud::Parser",
+          "qemud::EncodeQemudPacket",
+          "EmulatorResetCallbacks"
+        ],
+        "invariants": [
+          "(qemu_loop|mQemuLoop)_?\\s*->\\s*Post\\([^;]*(do_unregister|unregister_reset|unregister_emulator_reset|mUnregisterEmulatorReset)",
+          "alwayslink\\s*=\\s*True",
+          "clang_tidy_test",
+          "registry_?(\\.|->)Close\\(\\)"
+        ],
+        "forbidden": [
+          "->RegisterQemuDevice\\("
+        ]
+      }
+    },
+    {
+      "id": "HAL-REV-01",
+      "workflow": "hal_code_review",
+      "split": "dev",
+      "title": "Seeded-Defect Code Review of a Raw Binary BarometerDevice Diff (6 Planted Bugs)",
+      "prompt": "Review the following proposed CL diff adding a new `BarometerDevice` under `hardware/generic/goldfish/emulator/plugin/hal/barometer/` against the conventions and invariants of `emulator/plugin/hal/`. List every concrete architectural, lifecycle, concurrency, wire-framing, build, or unit-test defect you find and explain how to fix each one:\n\n```cpp\n// emulator/plugin/hal/barometer/barometer_device.cc\nclass BarometerDevice : public IBarometerDevice,\n                        public std::enable_shared_from_this<BarometerDevice> {\n public:\n  explicit BarometerDevice(BarometerChannel* channel) : channel_(channel) {\n    // Send initial ready handshake to guest\n    Socket()->Send(\"READY\");\n  }\n\n  void OnConnect() override {\n    sub_ = channel_->OnPressureChanged().MakeScopedCallback(\n        [self = shared_from_this()](uint32_t pascals) {\n          char buf[4];\n          absl::little_endian::Store32(buf, pascals);\n          self->Socket()->Send(std::string_view(buf, 4));\n        });\n  }\n\n  void OnReceive(std::string_view data) override {\n    uint32_t len = absl::little_endian::Load32(data.data());\n    std::string_view payload = data.substr(4, len);\n    channel_->HandleGuestCommand(payload);\n  }\n\n  void OnClose() override {}\n\n private:\n  BarometerChannel* channel_;\n  std::unique_ptr<ScopedEventCallback> sub_;\n};\n\nvoid IBarometerDevice::RegisterDevice(IConnectorRegistry* registry,\n                                      BarometerChannel* channel) {\n  registry->RegisterDevice(kServiceName, [channel](std::string_view) {\n    return std::make_shared<BarometerDevice>(channel);\n  });\n}\n```\n\n```python\n# emulator/plugin/hal/barometer/BUILD.bazel\ncc_library(\n    name = \"barometer\",\n    srcs = [\"barometer_device.cc\"],\n    hdrs = [\"include/goldfish/devices/barometer/barometer_device.h\"],\n    deps = [\"//emulator/plugin/hal/connector\", \"//emulator/plugin/hal/plug\"],\n)\n```\n\n```cpp\n// emulator/plugin/hal/barometer/barometer_device_test.cc\nclass BarometerDeviceTest : public ::testing::Test {\n protected:\n  void SetUp() override {\n    IBarometerDevice::RegisterDevice(&registry_, &channel_);\n  }\n  void TearDown() override {\n    client_loop_.RunAll();\n  }\n  TestEventLoop client_loop_;\n  TestConnectorRegistry registry_{&client_loop_};\n  BarometerChannel channel_;\n};\n```",
+      "rubric": {
+        "defects": [
+          "RegisterHalDevice",
+          "(NullHalSocket|OnConnect|constructor.*Socket\\(\\)->Send|Socket\\(\\)->Send.*constructor)",
+          "(weak_ptr|weak_from_this|reference cycle|shared_from_this.*leak)",
+          "(partial|split|chunk|coalesc|buffer.*OnReceive|data\\.size\\(\\)\\s*<\\s*4)",
+          "(alwayslink|clang_tidy_test)",
+          "registry_?(\\.|->)Close\\(\\)"
+        ]
+      }
+    },
+    {
+      "id": "HAL-REV-H1",
+      "workflow": "hal_code_review",
+      "split": "holdout",
+      "title": "Seeded-Defect Code Review of a Periodic/Observable CompassDevice Diff (5 Planted Bugs)",
+      "prompt": "Review the following proposed CL diff adding a new `CompassDevice` under `hardware/generic/goldfish/emulator/plugin/hal/compass/` against the conventions and invariants of `emulator/plugin/hal/`. List every concrete architectural, lifecycle, concurrency, wire-framing, or formatting defect you find and explain how to fix each one:\n\n```cpp\n// emulator/plugin/hal/compass/include/goldfish/devices/compass/compass_device.h\nclass CompassDevice : public HalPlug,\n                      public std::enable_shared_from_this<CompassDevice> {\n public:\n  static constexpr std::string_view kServiceName = \"compass\";\n  CompassDevice(EventLoop* client_loop, EventLoop* qemu_loop,\n                CompassChannel* channel, EmulatorResetCallbacks* reset);\n  void OnConnect() override;\n  void OnReceive(std::string_view data) override;\n  void OnClose() override;\n private:\n  EventLoop* client_loop_;\n  EventLoop* qemu_loop_;\n  CompassChannel* channel_;\n  EmulatorResetCallbacks* reset_;\n  std::unique_ptr<ScopedEventCallback> sub_;\n};\n```\n\n```cpp\n// emulator/plugin/hal/compass/compass_device.cc\nvoid CompassDevice::OnConnect() {\n  std::weak_ptr<CompassDevice> weak_dev = shared_from_this();\n  sub_ = channel_->OnHeadingChanged().MakeScopedCallback(\n      [weak_dev](double heading_deg) {\n        if (auto dev = weak_dev.lock()) {\n          dev->client_loop_->Post([dev, heading_deg] {\n            char buf[64];\n            std::snprintf(buf, sizeof(buf), \"heading:%f\", heading_deg);\n            uint32_t len = strlen(buf);\n            char hdr[4];\n            absl::little_endian::Store32(hdr, len);\n            dev->Socket()->Send(std::string_view(hdr, 4));\n            dev->Socket()->Send(std::string_view(buf, len));\n          });\n        }\n      });\n}\n\nvoid CompassDevice::OnClose() {\n  reset_->do_unregister(this);\n}\n```",
+      "rubric": {
+        "defects": [
+          "(lock-inversion|deadlock|Post.*before.*lock|weak_dev\\.lock.*inside.*Post)",
+          "(qemu_loop.*do_unregister|do_unregister.*qemu_loop|QEMU.*thread.*do_unregister)",
+          "(locale|StrFormat|decimal|snprintf.*comma)",
+          "(interleav|single.*Send|concatenat.*header.*payload|two.*Socket\\(\\)->Send)",
+          "(ICompassDevice|interface.*header|concrete.*class.*private)"
+        ]
+      }
+    }
+  ]
+}

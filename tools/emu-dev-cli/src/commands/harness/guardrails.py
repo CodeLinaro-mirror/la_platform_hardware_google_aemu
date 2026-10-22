@@ -30,6 +30,7 @@ Implements Jetski Web & CLI lifecycle hooks:
 
 import os
 from pathlib import Path
+import re
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 try:
@@ -37,6 +38,7 @@ try:
 except ImportError:
     yaml = None
 
+from commands import docs
 from commands.harness.code_guardrails import evaluate_file_edit_payload
 from commands.harness.concurrency_test_check import build_concurrency_test_warning
 from commands.harness.constants import (
@@ -135,6 +137,63 @@ def _unescape_inline_commit_paragraph(paragraph: str) -> str:
     )
 
 
+_GIT_DIR_FLAG_RE = re.compile(
+    r'(?:git\s+-C\s+|cd\s+)(?:"([^"]+)"|\'([^\']+)\'|([^\s;&|]+))'
+)
+
+
+def _evaluate_goldfish_doc_drift_for_commit(
+    command: str,
+) -> Optional[Tuple[bool, str]]:
+    """Checks for AGENTS.md / ARCHITECTURE.md drift when committing inside goldfish."""
+    match = _GIT_DIR_FLAG_RE.search(command)
+    if not match:
+        return None
+    raw_dir = match.group(1) or match.group(2) or match.group(3) or ""
+    if not raw_dir:
+        return None
+    target_dir = Path(raw_dir)
+    if not target_dir.is_dir():
+        return None
+
+    norm_dir = target_dir.resolve().as_posix()
+    if "goldfish" not in norm_dir and not (target_dir / "emulator").is_dir():
+        return None
+
+    goldfish_root = target_dir.resolve()
+    for anc in [goldfish_root] + list(goldfish_root.parents):
+        if anc.name == "goldfish" or (anc / "emulator").is_dir():
+            goldfish_root = anc
+            break
+
+    scan_root = goldfish_root
+    if (
+        goldfish_root.parent.name == "generic"
+        and goldfish_root.parent.parent.name == "hardware"
+    ):
+        scan_root = goldfish_root.parent.parent.parent
+
+    report = docs.lint_wiki_documents([str(scan_root)])
+    goldfish_issues = [
+        iss
+        for iss in report.get("issues", [])
+        if "goldfish" in iss.get("file", "") or scan_root == goldfish_root
+    ]
+    if goldfish_issues:
+        bullets = "\n".join(
+            f"  - [{iss['kind']}] {iss['file']}: {iss['message']}"
+            for iss in goldfish_issues[:5]
+        )
+        return (
+            False,
+            "Blocked by AEMU Harness Documentation Drift Guardrail:\n"
+            f"{bullets}\n"
+            "Tip: Update out-of-sync AGENTS.md / ARCHITECTURE.md references or run "
+            "'emu-dev-cli docs lint --fix' before committing.",
+        )
+    return None
+
+
 def evaluate_git_commit_command(command: str) -> Optional[Tuple[bool, str]]:
     """Checks a shell command for direct `git commit` compliance with Semantic Commit rules.
 
@@ -144,6 +203,10 @@ def evaluate_git_commit_command(command: str) -> Optional[Tuple[bool, str]]:
     """
     if not GIT_COMMIT_CMD_PATTERN.search(command):
         return None
+
+    drift_verdict = _evaluate_goldfish_doc_drift_for_commit(command)
+    if drift_verdict is not None and not drift_verdict[0]:
+        return drift_verdict
 
     has_amend = bool(GIT_COMMIT_AMEND_PATTERN.search(command))
     has_no_edit = bool(GIT_COMMIT_NO_EDIT_PATTERN.search(command))
