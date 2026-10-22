@@ -17,19 +17,20 @@ Before introducing any new helper class, test fixture, server, socket wrapper, o
 - **Class**: `android::goldfish::IniFile`
 - **When to use**: Reading or writing `.ini` files (`config.ini`, `hardware-qemu.ini`, AVD `.ini` files). Never write custom `key=value` line splitters.
 
-## 3. Embedded HTTP Server (`//emulator/libs/http`)
+## 3. Embedded HTTP Server (`//emulator/libs/http:web_server`)
 - **Header**: `#include "goldfish/http/web_server.h"`
 - **API**: `goldfish::http::WebServer` / `goldfish::http::CreateWebServer`
 - **When to use**: Both production HTTP endpoints and hermetic C++ unit test servers. Never spin up raw socket `accept()` loops in unit tests to mock an HTTP server.
 
 ## 4. HTTP Client & Endpoint Resolution (`//emulator/libs/network`)
 - **HTTP Client Target**: `//emulator/libs/network:http_client` (`#include "goldfish/network/http_client.h"`, `goldfish::network::HttpClient`)
-- **Endpoint Resolution Target**: `//emulator/libs/network` (`#include "goldfish/network/resolve.h"`, `goldfish::network::ResolveEndpoints`)
+- **Endpoint Resolution Target**: `//emulator/libs/network` (`#include "goldfish/network/dns_resolver.h"`, `goldfish::network::ResolveEndpoints`)
 - **When to use**: Performing HTTP/HTTPS requests or DNS/socket endpoint resolution.
 
-## 5. Async Event Loops & Sockets (`//emulator/libs/async`)
-- **Headers**: `goldfish/async/libuv_event_loop.h`, `goldfish/async/threaded_event_loop.h`, `goldfish/async/async_socket.h`
-- **APIs**: `goldfish::async::LibuvEventLoop`, `ThreadedEventLoop`, `AsyncSocket`, `UvErrToAbslStatus`
+## 5. Async Event Loops & Sockets (`//emulator/libs/async:*`)
+- **Interfaces**: `//emulator/libs/async:async_api` (`#include "goldfish/async/async_socket.h"`, `goldfish::async::EventLoop`, `goldfish::async::AsyncSocket`)
+- **Event Loops**: `//emulator/libs/async:libuv_event_loop` (`goldfish/async/libuv_event_loop.h`, `LibuvEventLoop`) and `//emulator/libs/async:threaded_event_loop` (`goldfish/async/threaded_event_loop.h`, `ThreadedEventLoop`)
+- **libuv Errors**: `//emulator/libs/async:uv_to_absl` (`goldfish/async/uv_to_absl.h`, `UvErrToAbslStatus`)
 - **When to use**: Asynchronous I/O, timers, sockets, and background event loops instead of raw `uv_loop_t` boilerplate.
 
 ## 6. Environment & System Fakes (`//emulator/libs/system`)

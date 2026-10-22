@@ -16,7 +16,7 @@ Before writing any new utility, helper, test server, parser, or socket wrapper i
 - **File I/O & UTF-8 Paths**: Use `android::base::file` (`//emulator/libs/file`, `goldfish/file/file.h`) in `goldfish`, or `android/utils/file_io.h` (`android_fopen`, `android_stat`, `PathUtils`) in `external/qemu`. Never pass raw `std::string` paths directly to `fopen`/`std::ifstream`/`std::ofstream` on Windows.
 - **INI Parsing**: Use `android::goldfish::IniFile` (`//emulator/libs/ini_file`, `android/goldfish/ini_file.h`).
 - **Environment & System Queries**: Use `android::base::System::Get()->EnvGet(...)` (`//emulator/libs/system`, `android/base/system.h`) and `android::base::TestSystem` (`//emulator/libs/system:test-headers`) instead of `std::getenv`.
-- **HTTP Servers & Clients**: Use `goldfish::http::WebServer` (`//emulator/libs/http`, `goldfish/http/web_server.h`) and `goldfish::network::HttpClient` (`//emulator/libs/network:http_client`, `goldfish/network/http_client.h`) in both production and unit tests.
+- **HTTP Servers & Clients**: Use `goldfish::http::WebServer` (`//emulator/libs/http:web_server`, `goldfish/http/web_server.h`) and `goldfish::network::HttpClient` (`//emulator/libs/network:http_client`, `goldfish/network/http_client.h`) in both production and unit tests.
 - **Async Event Loops & Sockets**: Use `goldfish::async` (`LibuvEventLoop`, `ThreadedEventLoop`, `AsyncSocket`, `UvErrToAbslStatus`) and `goldfish::network::ResolveEndpoints`.
 
 ## 3. Code Quality, `absl::StatusOr` (TotW 181), & Error Messages (`go/error-messages`)

@@ -23,6 +23,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from commands.harness.goldfish_libs import REUSABLE_LIBS_CATALOG
 from commands.harness.ledger import get_harness_base_dir
 from commands.harness.review_aggregation import (
     SHORT_ID_DISPLAY_LEN,
@@ -67,6 +68,13 @@ SHARED_SPECIALIST_RULES: str = """## Shared Non-Negotiable Review Rules
 3. **Concise & Actionable**: Keep each finding's `message` to 1-3 sentences identifying the concrete defect or rule violation and provide a drop-in `suggested_fix`.
 """
 
+# The duplication auditor's library list comes from the canonical catalog, so the prompt
+# never recommends a label or header that goldfish does not have.
+_REUSABLE_LIBS_PROMPT_LIST: str = ", ".join(
+    f"`{entry['namespace']}` in `{entry['bazel_target']}` `{entry['header']}`"
+    for entry in REUSABLE_LIBS_CATALOG
+)
+
 REVIEW_SWARM_SPECIALISTS: List[Dict[str, str]] = [
     {
         "name": "commit-and-bug-auditor",
@@ -91,13 +99,7 @@ REVIEW_SWARM_SPECIALISTS: List[Dict[str, str]] = [
         "focus": (
             "Enumerate every new class, helper, parser, server, client, or `Fake*` test double in "
             "the diff (production and test code included) and check `//emulator/libs/*` "
-            "(`android::base::file` in `//emulator/libs/file` `goldfish/file/file.h`, "
-            "`android::goldfish::IniFile` in `//emulator/libs/ini_file` `android/goldfish/ini_file.h`, "
-            "`goldfish::http::WebServer` in `//emulator/libs/http` `goldfish/http/web_server.h`, "
-            "`goldfish::network::HttpClient` in `//emulator/libs/network:http_client`, "
-            "`goldfish::network::ResolveEndpoints` in `//emulator/libs/network`, "
-            "`goldfish::async` `LibuvEventLoop`/`ThreadedEventLoop`/`AsyncSocket` in `//emulator/libs/async`, "
-            "`android::base::System::Get()->EnvGet` & `TestSystem` in `//emulator/libs/system`), "
+            f"({_REUSABLE_LIBS_PROMPT_LIST}), "
             "`aemu`, and Abseil for existing implementations. Set `checked_count` to the number of "
             "new abstractions audited and `duplicate_count` to the number of duplicates found."
         ),

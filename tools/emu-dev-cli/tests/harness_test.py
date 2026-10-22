@@ -348,7 +348,7 @@ class HarnessGuardrailTest(unittest.TestCase):
         )
         self.assertIn("overwriteResult", post_out)
         self.assertIn("[AEMU Harness Auto-Diagnostic]", post_out["overwriteResult"])
-        self.assertIn("//emulator/libs/http", post_out["overwriteResult"])
+        self.assertIn("//emulator/libs/http:web_server", post_out["overwriteResult"])
         self.assertIn("--config=tsan", post_out["overwriteResult"])
         ledger = self.ledger_store.load(conv_id)
         self.assertEqual(ledger["stats"]["diagnostics_injected"], 1)
@@ -441,7 +441,7 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         self.assertFalse(libs_res["result"]["isError"])  # type: ignore[index]
         payload = json.loads(libs_res["result"]["content"][0]["text"])  # type: ignore[index]
         targets = [lib["bazel_target"] for lib in payload["libraries"]]
-        self.assertIn("//emulator/libs/http", targets)
+        self.assertIn("//emulator/libs/http:web_server", targets)
 
     def test_progressive_disclosure_rules_and_swarm_presets(self) -> None:
         presets = list_harness_presets()

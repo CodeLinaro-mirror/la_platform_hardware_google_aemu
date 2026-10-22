@@ -23,12 +23,16 @@ import sys
 from typing import Any, Dict, List, Optional, Union
 
 from commands.harness.constants import PLUGIN_DIR_NAME
+from commands.harness.goldfish_libs import REUSABLE_LIBS_CATALOG
 from commands.source_directory import (
     get_all_source_directories,
     get_source_directory,
 )
 
 PLUGIN_EXECUTABLE_MODE: int = 0o755
+# Rendered from `REUSABLE_LIBS_CATALOG` for the standalone AuxPane sidecar, which
+# cannot import the CLI; the bundled file is an empty placeholder.
+SIDECAR_LIBS_CATALOG_FILENAME: str = "libs_catalog.json"
 
 def get_default_plugin_dest_dir(
     home_dir: Optional[Union[Path, str]] = None,
@@ -183,6 +187,11 @@ def _render_plugin_file(
         escaped_src_root = json.dumps(src_root_str, ensure_ascii=False)[1:-1]
         rendered = src_file.read_text(encoding="utf-8").replace("__EMU_DEV_CLI_SRC_DIR__", escaped_src_root)
         dst_file.write_text(rendered, encoding="utf-8")
+    elif src_file.name == SIDECAR_LIBS_CATALOG_FILENAME:
+        dst_file.write_text(
+            json.dumps(REUSABLE_LIBS_CATALOG, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
     else:
         shutil.copy2(src_file, dst_file)
 

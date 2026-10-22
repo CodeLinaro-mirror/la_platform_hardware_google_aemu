@@ -22,35 +22,8 @@ append via Jetski's PostToolUse `overwriteResult` contract.
 import re
 from typing import Dict, List, Optional, Set, Tuple
 
-# Include-path prefixes mapped to the goldfish library that exports them. Ordered from
-# most to least specific: the first prefix of a missing header wins.
-GOLDFISH_HEADER_TO_TARGET: Tuple[Tuple[str, str], ...] = (
-    ("goldfish/async/testing/", "//emulator/libs/async:async_testing"),
-    ("goldfish/async/libuv_event_loop.h", "//emulator/libs/async:libuv_event_loop"),
-    ("goldfish/async/threaded_event_loop.h", "//emulator/libs/async:threaded_event_loop"),
-    ("goldfish/async/qemu_event_loop.h", "//emulator/libs/async:qemu_event_loop"),
-    ("goldfish/async/libuv_socket_factory.h", "//emulator/libs/async:libuv_sockets"),
-    ("goldfish/async/libuv_process_launcher.h", "//emulator/libs/async:libuv_process_launcher"),
-    ("goldfish/async/libuv_signal_handlers.h", "//emulator/libs/async:libuv_signal_handlers"),
-    ("goldfish/async/launch_config.h", "//emulator/libs/async:launch_config"),
-    ("goldfish/async/uv_to_absl.h", "//emulator/libs/async:uv_to_absl"),
-    ("goldfish/async/errno_to_absl.h", "//emulator/libs/async:errno_to_absl"),
-    ("goldfish/async/", "//emulator/libs/async:async_api"),
-    ("goldfish/http/web_server.h", "//emulator/libs/http:web_server"),
-    ("goldfish/http/", "//emulator/libs/http:http_server"),
-    ("goldfish/network/http_client.h", "//emulator/libs/network:http_client"),
-    (
-        "goldfish/network/generic_netlink_message.h",
-        "//emulator/libs/network:generic_netlink_message",
-    ),
-    ("goldfish/network/io_vector.h", "//emulator/libs/network:generic_netlink_message"),
-    ("goldfish/network/iovec.h", "//emulator/libs/network:generic_netlink_message"),
-    ("goldfish/network/", "//emulator/libs/network"),
-    ("goldfish/file/", "//emulator/libs/file"),
-    ("android/goldfish/ini_file.h", "//emulator/libs/ini_file"),
-    ("android/base/testing/test_system.h", "//emulator/libs/system:test-headers"),
-    ("android/base/system.h", "//emulator/libs/system"),
-)
+from commands.harness.goldfish_libs import target_for_include
+
 _MISSING_HEADER_MARKERS: Tuple[str, ...] = (
     "No such file or directory",
     "file not found",
@@ -69,10 +42,8 @@ _FAILED_EXIT_CODE_PATTERN = re.compile(r"(?m)^[ \t]*(?:Command )?exited with cod
 def _target_for_header(header_token: str) -> Optional[Tuple[str, str]]:
     """Maps a header path from a compiler or Bazel error to (include path, Bazel target)."""
     include_path = header_token.rsplit("include/", 1)[-1]
-    for prefix, target in GOLDFISH_HEADER_TO_TARGET:
-        if include_path.startswith(prefix):
-            return include_path, target
-    return None
+    target = target_for_include(include_path)
+    return None if target is None else (include_path, target)
 
 
 def diagnose_command_failure(

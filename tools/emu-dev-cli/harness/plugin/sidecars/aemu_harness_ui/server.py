@@ -22,6 +22,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import urllib.parse
 from typing import Any, Dict, List, Optional
 
@@ -40,57 +41,35 @@ SEMANTIC_SUBJECT_RE = re.compile(
 BUG_FOOTER_RE = re.compile(r"(?im)^\s*Bug:\s*(?:b/)?(\d+|N/A|None)\s*$")
 TEST_FOOTER_RE = re.compile(r"(?im)^\s*Test:\s*(\S.*?)\s*$")
 
-SIDE_CAR_LIBS_CATALOG: List[Dict[str, str]] = [
-    {
-        "name": "file",
-        "bazel_target": "//emulator/libs/file",
-        "header": "goldfish/file/file.h",
-        "namespace": "android::base::file",
-        "summary": "Cross-platform UTF-8 file I/O helpers safe on Windows non-ASCII paths.",
-    },
-    {
-        "name": "ini_file",
-        "bazel_target": "//emulator/libs/ini_file",
-        "header": "android/goldfish/ini_file.h",
-        "namespace": "android::goldfish::IniFile",
-        "summary": "INI configuration parser and writer for AVD and hardware profiles.",
-    },
-    {
-        "name": "http",
-        "bazel_target": "//emulator/libs/http",
-        "header": "goldfish/http/web_server.h",
-        "namespace": "goldfish::http::WebServer",
-        "summary": "Embedded HTTP WebServer (`CreateWebServer`) for production and unit tests.",
-    },
-    {
-        "name": "http_client",
-        "bazel_target": "//emulator/libs/network:http_client",
-        "header": "goldfish/network/http_client.h",
-        "namespace": "goldfish::network::HttpClient",
-        "summary": "HTTP/HTTPS client with StatusOr error propagation.",
-    },
-    {
-        "name": "network",
-        "bazel_target": "//emulator/libs/network",
-        "header": "goldfish/network/resolve.h",
-        "namespace": "goldfish::network::ResolveEndpoints",
-        "summary": "DNS and socket endpoint resolution helpers.",
-    },
-    {
-        "name": "async",
-        "bazel_target": "//emulator/libs/async",
-        "header": "goldfish/async/threaded_event_loop.h",
-        "namespace": "goldfish::async",
-        "summary": "LibuvEventLoop, ThreadedEventLoop, AsyncSocket, and UvErrToAbslStatus.",
-    },
-    {
-        "name": "system",
-        "bazel_target": "//emulator/libs/system",
-        "header": "android/base/system.h",
-        "namespace": "android::base::System",
-        "summary": "Environment variable queries (`EnvGet`) and `TestSystem` (`:test-headers`).",
-    },
-]
+LIBS_CATALOG_PATH: Path = Path(__file__).with_name("libs_catalog.json")
+
+
+def _load_libs_catalog() -> List[Dict[str, str]]:
+    """Loads the reusable-library catalog rendered next to this file.
+
+    The sidecar runs standalone and cannot import the CLI, so `emu-dev-cli harness install`
+    writes `libs_catalog.json` from `commands.harness.goldfish_libs.REUSABLE_LIBS_CATALOG`.
+    Returns an empty list, with a warning, if the file is missing or malformed.
+    """
+    try:
+        catalog = json.loads(LIBS_CATALOG_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        catalog = None
+        reason = str(exc)
+    else:
+        reason = f"expected a JSON list, got {type(catalog).__name__}"
+    if isinstance(catalog, list):
+        return catalog
+    print(
+        f"warning: aemu-harness sidecar could not load the library catalog "
+        f"'{LIBS_CATALOG_PATH}' ({reason}), so the Libraries panel is empty. "
+        "Re-run 'emu-dev-cli harness install' to regenerate it.",
+        file=sys.stderr,
+    )
+    return []
+
+
+SIDE_CAR_LIBS_CATALOG: List[Dict[str, str]] = _load_libs_catalog()
 
 
 def _get_harness_dir() -> Path:
