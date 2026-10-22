@@ -205,6 +205,15 @@ class ConcurrencyPostToolHookTest(unittest.TestCase):
         self._commit_files(other, {"src/queue.cc": "std::thread worker(Run);\n"})
         self.assertNotIn("overwriteResult", self._post_tool(f"git -C {other} commit --amend --no-edit"))
 
+    def test_no_warning_for_quoted_git_commit_mentions(self) -> None:
+        repo = self._init_repo(*GOLDFISH_PARTS)
+        self._commit_files(repo, {"emulator/libs/async/queue.cc": "std::thread worker(Run);\n"})
+        for command in (
+            f'cd {repo} && grep -rn "git commit" docs/',
+            f"cd {repo} && echo 'run git commit --amend later'",
+        ):
+            self.assertNotIn("overwriteResult", self._post_tool(command), msg=command)
+
 
 if __name__ == "__main__":
     unittest.main()

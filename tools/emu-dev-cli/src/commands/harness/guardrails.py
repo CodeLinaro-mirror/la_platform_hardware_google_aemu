@@ -31,6 +31,7 @@ Implements Jetski Web & CLI lifecycle hooks:
 import os
 from pathlib import Path
 import re
+import string
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 try:
@@ -50,10 +51,10 @@ from commands.harness.constants import (
     GERRIT_COMMENTS_PUBLISH_PATTERN,
     GERRIT_UNSAFE_CMD_PATTERN,
     GIT_COMMIT_AMEND_PATTERN,
-    GIT_COMMIT_CMD_PATTERN,
     GIT_COMMIT_FILE_FLAG_PATTERN,
     GIT_COMMIT_MSG_FLAG_PATTERN,
     GIT_COMMIT_NO_EDIT_PATTERN,
+    GIT_COMMIT_SEGMENT_PATTERN,
     GOB_CURL_REVIEW_POST_PATTERN,
     HookDecision,
     HookEvent,
@@ -61,11 +62,18 @@ from commands.harness.constants import (
     MAX_STOP_CONTINUATIONS,
     NOTIFY_OWNER_FLAG_PATTERN,
     NOTIFY_OWNER_JSON_PATTERN,
+    SHELL_ASSIGNMENT_PATTERN,
+    SHELL_WRITE_TARGET_PATTERN,
     WORKFLOW_STATE_FLAG_PATTERN,
 )
 from commands.harness.diagnostics import enrich_post_tool_result
 from commands.harness.ledger import SessionLedgerStore
-from commands.harness.upload_guardrails import evaluate_upload_command
+from commands.harness.shell_segments import find_command_segment
+from commands.harness.upload_guardrails import (
+    evaluate_upload_command,
+    first_regex_group,
+    resolve_command_cwd,
+)
 
 
 def _load_commit_verifier():
@@ -194,24 +202,141 @@ def _evaluate_goldfish_doc_drift_for_commit(
     return None
 
 
-def evaluate_git_commit_command(command: str) -> Optional[Tuple[bool, str]]:
+_SEMANTIC_COMMIT_BLOCK_PREFIX = "Blocked by AEMU Harness Semantic Commit Guardrail"
+
+
+def _expand_shell_word(word: str, command: str) -> Optional[str]:
+    """Expands `$VAR` / `${VAR}` and `~` in `word` the way the shell would.
+
+    Variables come from assignments in the same command line, which take precedence,
+    or from the environment. Returns None if a substitution remains unresolved.
+    """
+    assignments = {
+        name: value.strip("\"'") for name, value in SHELL_ASSIGNMENT_PATTERN.findall(command)
+    }
+    expanded = os.path.expanduser(
+        string.Template(word).safe_substitute(os.environ, **assignments)
+    )
+    if "$" in expanded or "`" in expanded:
+        return None
+    return expanded
+
+
+def _resolve_command_path(
+    raw_path: str,
+    command: str,
+    git_c_text: str,
+    default_cwd: Optional[Path],
+) -> Optional[Path]:
+    """Resolves a path argument of `command` to the absolute path the shell and git use.
+
+    Relative paths resolve against the working directory, a preceding `cd`, and any
+    `git -C` in `git_c_text`. Returns None if a shell variable cannot be resolved, so
+    the caller can skip validation instead of blocking on a path it cannot see.
+    """
+    expanded = _expand_shell_word(raw_path, command)
+    if expanded is None:
+        return None
+    return (resolve_command_cwd(command, git_c_text, default_cwd) / expanded).resolve()
+
+
+def _is_written_by_command(
+    message_path: Path,
+    command: str,
+    default_cwd: Optional[Path],
+) -> bool:
+    """Returns True if `command` redirects or tees output into `message_path`."""
+    for match in SHELL_WRITE_TARGET_PATTERN.finditer(command):
+        target = first_regex_group(match)
+        if target and _resolve_command_path(target, command, "", default_cwd) == message_path:
+            return True
+    return False
+
+
+def _find_git_commit_segment(command: str) -> Optional[str]:
+    """Returns the first top-level `git commit` segment of `command`, or None."""
+    found = find_command_segment(command, GIT_COMMIT_SEGMENT_PATTERN)
+    return None if found is None else found[1]
+
+
+def _evaluate_commit_message_file(
+    raw_path: str,
+    command: str,
+    commit_segment: str,
+    default_cwd: Optional[Path],
+    verifier: Any,
+) -> Tuple[bool, str]:
+    """Validates the `git commit -F` message file as git will read it.
+
+    Skips stdin (`-F -`) and paths with unresolvable shell variables. Blocks files that
+    the same command writes, because the PreToolUse hook runs before the command and
+    would otherwise validate a stale or missing file.
+    """
+    if raw_path == "-":
+        return True, "Skipped Semantic Commit validation: message is read from stdin (-F -)"
+    message_path = _resolve_command_path(raw_path, command, commit_segment, default_cwd)
+    if message_path is None:
+        return (
+            True,
+            "Skipped Semantic Commit validation: could not resolve shell variables in "
+            f"commit message path '{raw_path}'",
+        )
+    if _is_written_by_command(message_path, command, default_cwd):
+        return (
+            False,
+            f"{_SEMANTIC_COMMIT_BLOCK_PREFIX}: commit message file '{message_path}' (from -F "
+            f"'{raw_path}') is written by this same command, so the PreToolUse hook cannot "
+            "validate it before git reads it. Write the file in a separate command first, "
+            f"then run 'git commit -F {raw_path}' on its own.",
+        )
+    if not message_path.is_file():
+        return (
+            False,
+            f"{_SEMANTIC_COMMIT_BLOCK_PREFIX}: commit message file '{message_path}' (from -F "
+            f"'{raw_path}') does not exist when the PreToolUse hook runs. Create it in a "
+            "separate command before running 'git commit -F', or use "
+            "'emu-dev-cli workflow create-commit'.",
+        )
+    errors = verifier.validate_commit_message_file(message_path)
+    if errors:
+        bullet_errors = "\n".join(f"  - {err}" for err in errors)
+        return (
+            False,
+            f"{_SEMANTIC_COMMIT_BLOCK_PREFIX}:\n"
+            f"{bullet_errors}\n"
+            "Tip: Format the commit message as '<type>[optional scope]: <Description>' "
+            "with an explanatory body and 'Bug:' / 'Test:' footers, or use "
+            "'emu-dev-cli workflow create-commit' / 'emu-dev-cli workflow amend-commit'.",
+        )
+    return True, f"Verified Semantic Commit message file '{raw_path}'"
+
+
+def evaluate_git_commit_command(
+    command: str,
+    default_cwd: Optional[Path] = None,
+) -> Optional[Tuple[bool, str]]:
     """Checks a shell command for direct `git commit` compliance with Semantic Commit rules.
+
+    Only a top-level `git commit` segment counts, so quoted mentions (for example in
+    a `grep` pattern), heredoc bodies, and comments are ignored, and flags of other
+    segments (such as `grep -m 5`) are not mistaken for commit options.
 
     Returns:
         None if the command is not a `git commit` invocation, or
         (is_allowed, explanation) if it is a `git commit` command.
     """
-    if not GIT_COMMIT_CMD_PATTERN.search(command):
+    commit_segment = _find_git_commit_segment(command)
+    if commit_segment is None:
         return None
 
     drift_verdict = _evaluate_goldfish_doc_drift_for_commit(command)
     if drift_verdict is not None and not drift_verdict[0]:
         return drift_verdict
 
-    has_amend = bool(GIT_COMMIT_AMEND_PATTERN.search(command))
-    has_no_edit = bool(GIT_COMMIT_NO_EDIT_PATTERN.search(command))
-    file_match = GIT_COMMIT_FILE_FLAG_PATTERN.search(command)
-    msg_matches = GIT_COMMIT_MSG_FLAG_PATTERN.findall(command)
+    has_amend = bool(GIT_COMMIT_AMEND_PATTERN.search(commit_segment))
+    has_no_edit = bool(GIT_COMMIT_NO_EDIT_PATTERN.search(commit_segment))
+    file_match = GIT_COMMIT_FILE_FLAG_PATTERN.search(commit_segment)
+    msg_matches = GIT_COMMIT_MSG_FLAG_PATTERN.findall(commit_segment)
 
     if has_amend and has_no_edit and not file_match and not msg_matches:
         return True, "Allowed git commit --amend --no-edit"
@@ -219,19 +344,13 @@ def evaluate_git_commit_command(command: str) -> Optional[Tuple[bool, str]]:
     verifier = _load_commit_verifier()
 
     if file_match:
-        file_path_str = file_match.group(1) or file_match.group(2) or file_match.group(3)
-        errors = verifier.validate_commit_message_file(Path(file_path_str))
-        if errors:
-            bullet_errors = "\n".join(f"  - {err}" for err in errors)
-            return (
-                False,
-                "Blocked by AEMU Harness Semantic Commit Guardrail:\n"
-                f"{bullet_errors}\n"
-                "Tip: Format the commit message as '<type>[optional scope]: <Description>' "
-                "with an explanatory body and 'Bug:' / 'Test:' footers, or use "
-                "'emu-dev-cli workflow create-commit' / 'emu-dev-cli workflow amend-commit'.",
-            )
-        return True, f"Verified Semantic Commit message file '{file_path_str}'"
+        return _evaluate_commit_message_file(
+            first_regex_group(file_match) or "",
+            command,
+            commit_segment,
+            default_cwd,
+            verifier,
+        )
 
     if msg_matches:
         paragraphs = [
@@ -244,7 +363,7 @@ def evaluate_git_commit_command(command: str) -> Optional[Tuple[bool, str]]:
             bullet_errors = "\n".join(f"  - {err}" for err in errors)
             return (
                 False,
-                "Blocked by AEMU Harness Semantic Commit Guardrail:\n"
+                f"{_SEMANTIC_COMMIT_BLOCK_PREFIX}:\n"
                 f"{bullet_errors}\n"
                 "Tip: Provide a multi-line message (subject, explanatory body, Bug:, Test:) "
                 "or run 'emu-dev-cli workflow create-commit' / 'emu-dev-cli workflow amend-commit'.",
@@ -294,6 +413,18 @@ def evaluate_gerrit_command(command: str) -> Optional[Tuple[bool, str]]:
     return None
 
 
+def _inject_bazel_test_output_flag(command: str) -> Optional[str]:
+    """Adds `--test_output=errors` after the first top-level `bazel test`, if any."""
+    if BAZEL_TEST_OUTPUT_FLAG_PATTERN.search(command):
+        return None
+    found = find_command_segment(command, BAZEL_TEST_CMD_PATTERN)
+    if found is None:
+        return None
+    start, _, match = found
+    insert_at = start + match.end()
+    return f"{command[:insert_at]} --test_output=errors{command[insert_at:]}"
+
+
 def rewrite_command_if_needed(command: str) -> Optional[Tuple[str, str]]:
     """Transparently rewrites shell commands via PreToolUse `overwrite` when safe.
 
@@ -311,16 +442,10 @@ def rewrite_command_if_needed(command: str) -> Optional[Tuple[str, str]]:
             "Auto-injected '--notify=OWNER' on gerrit comments publish (b/567559614)",
         )
 
-    if BAZEL_TEST_CMD_PATTERN.search(command) and not BAZEL_TEST_OUTPUT_FLAG_PATTERN.search(
-        command
-    ):
-        rewritten = BAZEL_TEST_CMD_PATTERN.sub(
-            lambda m: f"{m.group(0)} --test_output=errors",
-            command,
-            count=1,
-        )
+    rewritten_bazel = _inject_bazel_test_output_flag(command)
+    if rewritten_bazel is not None:
         return (
-            rewritten,
+            rewritten_bazel,
             "Auto-injected '--test_output=errors' on bazel test for immediate failure diagnostics",
         )
 
@@ -429,7 +554,7 @@ def handle_pre_tool_hook(
 
     default_cwd = _extract_workspace_dir(payload)
     for evaluator in (
-        evaluate_git_commit_command,
+        lambda cmd: evaluate_git_commit_command(cmd, default_cwd=default_cwd),
         evaluate_gerrit_command,
         lambda cmd: evaluate_upload_command(cmd, default_cwd=default_cwd),
     ):

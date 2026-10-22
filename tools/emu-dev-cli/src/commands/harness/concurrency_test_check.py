@@ -33,10 +33,11 @@ from typing import Dict, List, Mapping, Optional, Tuple
 
 from commands.harness.constants import (
     GERRIT_UPLOAD_CMD_PATTERN,
-    GIT_COMMIT_CMD_PATTERN,
     GIT_COMMIT_MSG_FLAG_PATTERN,
+    GIT_COMMIT_SEGMENT_PATTERN,
     HELP_FLAG_PATTERN,
 )
+from commands.harness.shell_segments import find_command_segment
 from commands.harness.upload_guardrails import resolve_command_repo_dir
 
 WARNING_HEADER = "[AEMU Harness Concurrency-Test Check]"
@@ -253,8 +254,10 @@ def build_concurrency_test_warning(
     command_without_messages = GIT_COMMIT_MSG_FLAG_PATTERN.sub("", command)
     if HELP_FLAG_PATTERN.search(command_without_messages):
         return None
+    # Like the Semantic Commit guardrail, only a top-level `git commit` counts, so
+    # quoted mentions such as `grep "git commit" docs/` do not trigger the check.
     if not (
-        GIT_COMMIT_CMD_PATTERN.search(command_without_messages)
+        find_command_segment(command, GIT_COMMIT_SEGMENT_PATTERN)
         or GERRIT_UPLOAD_CMD_PATTERN.search(command_without_messages)
     ):
         return None

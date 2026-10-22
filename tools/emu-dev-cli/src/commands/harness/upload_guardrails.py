@@ -60,7 +60,7 @@ REPO_UPLOAD_VALUE_FLAGS = frozenset({
 })
 
 
-def _first_regex_group(match: Optional[re.Match[str]]) -> Optional[str]:
+def first_regex_group(match: Optional[re.Match[str]]) -> Optional[str]:
     """Returns the first non-empty captured group from a regex match, if any."""
     if not match:
         return None
@@ -105,15 +105,34 @@ def _extract_repo_upload_positional_dir(command: str, base_dir: Path) -> Optiona
     return None
 
 
+def resolve_command_cwd(
+    command: str,
+    git_c_text: str = "",
+    default_cwd: Optional[Path] = None,
+) -> Path:
+    """Returns the directory a command runs in after a leading `cd <dir>` and `git -C <dir>`.
+
+    `git_c_text` is the text searched for `-C <dir>`, for example only the `git commit`
+    segment, so that `grep -C 3` elsewhere in the command is not taken for a directory.
+    Relative directories resolve against `default_cwd` (or the process working directory).
+    """
+    base_dir = (default_cwd or Path.cwd()).expanduser().resolve()
+    for raw_dir in (
+        first_regex_group(REPO_DIR_CD_PATTERN.search(command)),
+        first_regex_group(GIT_C_FLAG_PATTERN.search(git_c_text)),
+    ):
+        if raw_dir:
+            base_dir = _resolve_relative_to_base(raw_dir, base_dir)
+    return base_dir
+
+
 def _resolve_upload_repo_dir(command: str, default_cwd: Optional[Path] = None) -> Path:
     """Extracts the target Git repository path from a Gerrit upload shell command."""
-    base_dir = (default_cwd or Path.cwd()).expanduser().resolve()
-    branch_hint = _first_regex_group(REPO_UPLOAD_BRANCH_FLAG_PATTERN.search(command))
-    cd_raw = _first_regex_group(REPO_DIR_CD_PATTERN.search(command))
-    current_base = _resolve_relative_to_base(cd_raw, base_dir) if cd_raw else base_dir
+    branch_hint = first_regex_group(REPO_UPLOAD_BRANCH_FLAG_PATTERN.search(command))
+    current_base = resolve_command_cwd(command, default_cwd=default_cwd)
 
     for pattern in (REPO_FLAG_PATTERN, GIT_C_FLAG_PATTERN):
-        raw_dir = _first_regex_group(pattern.search(command))
+        raw_dir = first_regex_group(pattern.search(command))
         if raw_dir:
             candidate = _resolve_relative_to_base(raw_dir, current_base)
             return resolve_git_repo_dir(repo_dir=candidate, branch_hint=branch_hint)
@@ -240,7 +259,7 @@ def evaluate_upload_command(
             "Allowed Gerrit upload (pre-upload review-swarm bypassed via --skip-review-swarm / AEMU_SKIP_REVIEW_SWARM=1)",
         )
 
-    branch_hint = _first_regex_group(REPO_UPLOAD_BRANCH_FLAG_PATTERN.search(unquoted_cmd))
+    branch_hint = first_regex_group(REPO_UPLOAD_BRANCH_FLAG_PATTERN.search(unquoted_cmd))
     try:
         repo_dir = _resolve_upload_repo_dir(command, default_cwd=default_cwd)
         bundle = prepare_review_swarm_bundle(
