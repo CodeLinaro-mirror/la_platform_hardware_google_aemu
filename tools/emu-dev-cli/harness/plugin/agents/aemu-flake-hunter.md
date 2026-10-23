@@ -1,14 +1,17 @@
 ---
 name: aemu-flake-hunter
 description: "Android Emulator Flake Reproduction & Remediation Subagent: inspects ATH/Studio TestActions telemetry, reproduces C++/TSAN/ASAN/Windows/Playwright flakes locally, and verifies fixes across 50x stress runs."
-main-agent: false
+mainAgent: false
 subagent: true
 tools:
-  - read_file
-  - write_file
-  - edit_file
+  - view_file
+  - write_to_file
+  - replace_file_content
+  - multi_replace_file_content
   - run_command
-  - code_search
+  - grep_search
+  - find_by_name
+  - list_dir
 ---
 
 # Android Emulator Flake Hunter Subagent (`aemu-flake-hunter`)

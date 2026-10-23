@@ -525,7 +525,13 @@ def handle_pre_tool_hook(
     conversation_id = payload.get("conversationId") or payload.get("conversation_id")
     tool_name = _extract_tool_name(payload)
 
-    if tool_name in ("write_file", "edit_file", "replace_file_content", "write_to_file"):
+    if tool_name in (
+        "write_file",
+        "edit_file",
+        "replace_file_content",
+        "multi_replace_file_content",
+        "write_to_file",
+    ):
         verdict = evaluate_file_edit_payload(payload)
         if verdict is not None:
             allowed, reason = verdict

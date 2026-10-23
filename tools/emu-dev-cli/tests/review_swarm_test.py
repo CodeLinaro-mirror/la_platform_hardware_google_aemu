@@ -406,6 +406,50 @@ class ReviewSwarmTest(unittest.TestCase):
         mcp_resp = json.loads(mcp_out.buffer.getvalue().decode("utf-8"))
         self.assertFalse(mcp_resp["result"]["isError"])
 
+    def test_cli_aggregate_from_persists_payload_and_satisfies_mise_presubmit_gate(self) -> None:
+        _, repo_dir = self._create_multi_project_repo_fixture()
+        blocked = evaluate_upload_command("mise presubmit", default_cwd=repo_dir)
+        self.assertIsNotNone(blocked)
+        self.assertFalse(blocked[0])  # type: ignore[index]
+
+        raw_file = self.base_path / "raw_specialist_outputs_测试_🚀_é.json"
+        raw_file.write_text(
+            json.dumps([
+                {
+                    "specialist": "duplication-and-reuse-auditor",
+                    "duration_sec": 1.2,
+                    "checked_count": 3,
+                    "duplicate_count": 0,
+                    "finding_count": 0,
+                    "findings": [],
+                }
+            ]),
+            encoding="utf-8",
+        )
+        custom_out = self.base_path / "custom_swarm_out_测试_🚀_é"
+        buf = io.TextIOWrapper(io.BytesIO(), encoding="utf-8", errors="strict")
+        with mock.patch.object(sys, "stdout", buf), self.assertRaises(SystemExit) as cm:
+            run_harness_review_swarm(
+                argparse.Namespace(
+                    target="HEAD",
+                    cl=None,
+                    commit="HEAD",
+                    mode="swarm",
+                    repo=str(repo_dir),
+                    output_dir=str(custom_out),
+                    aggregate_from=str(raw_file),
+                    full=False,
+                    json=True,
+                )
+            )
+        self.assertEqual(cm.exception.code, 0)
+        self.assertTrue((custom_out / "review_swarm_report.md").is_file())
+        self.assertTrue((custom_out / "gerrit_review_payload.json").is_file())
+        self.assertTrue((custom_out / "review_swarm_metrics.json").is_file())
+        allowed = evaluate_upload_command("mise presubmit", default_cwd=repo_dir)
+        self.assertIsNotNone(allowed)
+        self.assertTrue(allowed[0], msg=allowed[1])  # type: ignore[index]
+
 
 if __name__ == "__main__":
     unittest.main()
