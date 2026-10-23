@@ -31,6 +31,7 @@ from commands.harness.guardrails import (
 )
 from commands.harness.ledger import SessionLedgerStore
 from commands.harness.shell_segments import iter_command_segments
+from commands.harness.upload_guardrails import evaluate_upload_command
 
 VALID_COMMIT_MESSAGE = (
     "fix(harness): Resolve commit message paths 测试_🚀_é\n\n"
@@ -46,6 +47,8 @@ MISSING_HEADER_LINE = (
     "emulator/net/client.cc:12:10: fatal error: 'goldfish/http/web_server.h' file not found"
 )
 UNSET_VAR_NAME = "AEMU_HARNESS_TEST_UNSET_COMMIT_FILE"
+GIT_OPT_REPEAT_STRESS_COUNT = 40
+MAX_GIT_OPT_SCAN_SEC = 0.2
 
 
 class ShellSegmentTest(unittest.TestCase):
@@ -295,6 +298,21 @@ class DiagnosticsFalsePositiveTest(unittest.TestCase):
         )
         self.assertIsNone(enrich_post_tool_result("ls", {"result": " \n" * 20000}))
         self.assertLess(time.monotonic() - started, 1.0)
+
+    def test_quoted_and_commented_upload_mentions_do_not_trigger_upload_gate(self) -> None:
+        for command in (
+            'echo "Run git commit && repo upload --cbr -y . 测试_🚀_é"',
+            'grep -rn "repo upload" docs/',
+            'git commit -m "fix(harness): Block repo upload and git push origin HEAD:refs/for/main"',
+            "cat > notes.txt <<'EOF'\nrepo upload --cbr -y .\nmise presubmit\nEOF",
+            "echo ok # repo upload --cbr -y .",
+        ):
+            self.assertIsNone(evaluate_upload_command(command), msg=command)
+
+        started = time.monotonic()
+        many_git_flags = "git" + ' -c "a=1"' * GIT_OPT_REPEAT_STRESS_COUNT + " status && echo ok"
+        self.assertIsNone(evaluate_upload_command(many_git_flags))
+        self.assertLess(time.monotonic() - started, MAX_GIT_OPT_SCAN_SEC)
 
 
 if __name__ == "__main__":

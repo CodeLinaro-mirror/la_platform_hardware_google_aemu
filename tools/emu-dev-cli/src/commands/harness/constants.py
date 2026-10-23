@@ -104,7 +104,7 @@ REPO_UPLOAD_BRANCH_FLAG_PATTERN: re.Pattern[str] = re.compile(
     rf"(?:^|\s)--br(?:anch)?(?:=|\s+){_QUOTED_ARG_RE}"
 )
 REPO_UPLOAD_TAIL_PATTERN: re.Pattern[str] = re.compile(
-    rf"(?m)(?:^|[;&|]\s*){_REPO_UPLOAD_CMD_RE}([^;&|]*)"
+    rf"(?m)(?:^|[;&|])\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:env\s+)?{_REPO_UPLOAD_CMD_RE}([^;&|]*)"
 )
 MAX_REPO_SUBPROJECT_SCAN_DEPTH: int = 3
 
@@ -148,26 +148,59 @@ NOTIFY_OWNER_JSON_PATTERN: re.Pattern[str] = re.compile(
 _SEGMENT_ENV_PREFIX_RE: str = r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
 
 
-def _segment_exe_re(name_re: str) -> str:
+def _segment_exe_re(name_re: str, ext_re: str = r"(?:\.exe)?") -> str:
     """Builds a pattern for the binary that starts a command segment.
 
-    Accepts a bare name or a POSIX or Windows path, an optional `.exe`, and optional
+    Accepts a bare name or a POSIX or Windows path, an optional extension, and optional
     quotes. Unlike `_cli_exe_re`, the name must start the word or follow a path
     separator, so `legit commit` is not a `git commit`.
     """
     return (
-        rf"(?:\"(?:[^\"]*[/\\])?{name_re}(?:\.exe)?\""
-        rf"|'(?:[^']*[/\\])?{name_re}(?:\.exe)?'"
-        rf"|(?:[^\s\"';&|]*[/\\])?{name_re}(?:\.exe)?)"
+        rf"(?:\"(?:[^\"]*[/\\])?{name_re}{ext_re}\""
+        rf"|'(?:[^']*[/\\])?{name_re}{ext_re}'"
+        rf"|(?:[^\s\"';&|]*[/\\])?{name_re}{ext_re})"
     )
 
+
+_SEGMENT_PY_LAUNCHER_RE: str = (
+    rf"(?:{_segment_exe_re(_PY_BIN_NAME_RE)}\s+(?:-\d(?:\.\d+)?\s+)?)?"
+)
+_GIT_OPT_ARG_RE: str = r"(?:\"[^\"]*\"|'[^']*'|[^\s\"']+)"
+_GIT_PRE_SUBCMD_OPTS_RE: str = (
+    rf"(?:\s+(?:-[Cc]\s+{_GIT_OPT_ARG_RE}"
+    rf"|--(?:git-dir|work-tree)(?:=|\s+){_GIT_OPT_ARG_RE}"
+    rf"|--no-pager|--bare))*"
+)
 
 BAZEL_TEST_CMD_PATTERN: re.Pattern[str] = re.compile(
     rf"{_SEGMENT_ENV_PREFIX_RE}{_segment_exe_re('bazel(?:isk)?')}(?:\s+--\S+)*\s+test\b"
 )
 GIT_COMMIT_SEGMENT_PATTERN: re.Pattern[str] = re.compile(
     rf"{_SEGMENT_ENV_PREFIX_RE}{_segment_exe_re('git')}"
-    rf"(?:\s+-[Cc]\s+{_QUOTED_ARG_RE})*\s+commit\b"
+    rf"{_GIT_PRE_SUBCMD_OPTS_RE}\s+commit\b"
+)
+SKIP_REVIEW_SWARM_ENV_SEGMENT_PATTERN: re.Pattern[str] = re.compile(
+    r"^\s*(?:export\s+)?AEMU_SKIP_REVIEW_SWARM=(?:1|\"1\"|'1')(?:\s|$)"
+)
+UPLOAD_SEGMENT_PATTERN: re.Pattern[str] = re.compile(
+    rf"{_SEGMENT_ENV_PREFIX_RE}(?:env\s+)?(?:"
+    rf"{_SEGMENT_PY_LAUNCHER_RE}{_segment_exe_re('repo', _BATCH_OR_EXE_EXT_RE)}\s+upload\b"
+    rf"|{_SEGMENT_PY_LAUNCHER_RE}{_segment_exe_re(_EMU_CLI_NAME_RE, _BATCH_OR_EXE_EXT_RE)}"
+    rf"\s+(?:gerrit|cr)\s+upload\b"
+    rf"|{_segment_exe_re('mise', _BATCH_OR_EXE_EXT_RE)}\s+(?:run\s+)?(?:presubmit|submit)\b"
+    rf"|{_segment_exe_re('git')}{_GIT_PRE_SUBCMD_OPTS_RE}\s+push\b[^\r\n]*refs/for/"
+    rf")"
+)
+HEAD_MUTATING_SEGMENT_PATTERN: re.Pattern[str] = re.compile(
+    rf"{_SEGMENT_ENV_PREFIX_RE}(?:env\s+)?(?:"
+    rf"{_segment_exe_re('git')}{_GIT_PRE_SUBCMD_OPTS_RE}"
+    rf"\s+(?:commit|rebase|cherry-pick|merge|am|reset|pull|revert|checkout(?!\s+--(?!\S))|switch)\b"
+    rf"|{_SEGMENT_PY_LAUNCHER_RE}{_segment_exe_re(_EMU_CLI_NAME_RE, _BATCH_OR_EXE_EXT_RE)}"
+    rf"\s+workflow\s+(?:create-commit|amend-commit)\b"
+    rf"|{_segment_exe_re('mise', _BATCH_OR_EXE_EXT_RE)}\s+(?:run\s+)?gum\b"
+    rf"|{_SEGMENT_PY_LAUNCHER_RE}{_segment_exe_re('repo', _BATCH_OR_EXE_EXT_RE)}"
+    rf"\s+(?:sync|rebase)\b"
+    rf")"
 )
 BAZEL_TEST_OUTPUT_FLAG_PATTERN: re.Pattern[str] = re.compile(
     r"--test_output(?:=|\s+)\S+"
