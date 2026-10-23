@@ -1246,6 +1246,408 @@ class GerritUIServerTest(unittest.TestCase):
         self.assertIn("💬 Ping Reviewer", html)
         self.assertIn("💬 DM Reviewer", html)
 
+    def test_presubmit_status_and_last_updated_enrichment(self) -> None:
+        from commands.gerrit.presubmit_targets import (
+            extract_presubmit_status_from_change,
+            format_relative_age,
+        )
+
+        self.assertEqual(format_relative_age(0.005), "just now")
+        self.assertEqual(format_relative_age(0.25), "15m ago")
+        self.assertEqual(format_relative_age(3.2), "3h ago")
+        self.assertEqual(format_relative_age(36.0), "1.5d ago")
+
+        now = datetime(2026, 10, 23, 20, 0, 0, tzinfo=timezone.utc)
+        running_change = {
+            "_number": 43234462,
+            "project": "platform/hardware/google/aemu",
+            "branch": "studio-main",
+            "subject": "feat(gerrit-ui): Presubmit targets drawer 测试_🚀_é",
+            "created": "2026-10-23 18:00:00.000000000",
+            "updated": "2026-10-23 19:50:00.000000000",
+            "current_revision": "rev2",
+            "current_revision_number": 2,
+            "revisions": {"rev2": {"_number": 2, "files": {"src/ui.py": {}}}},
+            "owner": {"email": "joshuaduong@google.com", "name": "Joshua Duong"},
+            "labels": {
+                "Presubmit-Verified": {"all": []},
+                "Presubmit-Ready": {
+                    "all": [{"email": "joshuaduong@google.com", "name": "Joshua Duong", "value": 1}]
+                },
+            },
+            "messages": [
+                {
+                    "_revision_number": 2,
+                    "message": (
+                        "## Presubmit started: L08600030212195759\n"
+                        "View [Checks tab](https://googleplex-android-review.git.corp.google.com/c/"
+                        "platform/hardware/google/aemu/+/43234462/2?tab=checks) for progress."
+                    ),
+                }
+            ],
+        }
+        older_passed_change = {
+            "_number": 43217292,
+            "project": "platform/hardware/google/aemu",
+            "branch": "studio-main",
+            "subject": "feat(gerrit-ui): Reviewer voting",
+            "created": "2026-10-22 10:00:00.000000000",
+            "updated": "2026-10-23 17:00:00.000000000",
+            "current_revision": "rev1",
+            "current_revision_number": 1,
+            "revisions": {"rev1": {"_number": 1, "files": {"src/ui.py": {}}}},
+            "owner": {"email": "joshuaduong@google.com", "name": "Joshua Duong"},
+            "labels": {
+                "Presubmit-Verified": {"all": [{"email": "treehugger@google.com", "value": 2}]},
+                "Presubmit-Ready": {"all": []},
+            },
+            "messages": [
+                {"_revision_number": 1, "message": "## Presubmit started: L48000030211835060"},
+                {"_revision_number": 1, "message": "## Presubmit finished: 27 passed (2 new)."},
+            ],
+        }
+
+        en_running = enrich_change_for_ui(running_change, "joshuaduong@google.com", now_dt=now)
+        en_passed = enrich_change_for_ui(older_passed_change, "joshuaduong@google.com", now_dt=now)
+        self.assertGreater(en_running["updated_ts"], en_passed["updated_ts"])
+        self.assertEqual(en_running["updated_display"], "10m ago")
+        self.assertEqual(en_passed["updated_display"], "3h ago")
+        self.assertTrue(en_running["viewer_presubmit_ready"])
+        self.assertTrue(en_running["presubmit_ready_enabled"])
+        self.assertEqual(en_running["presubmit_status"], "running")
+        self.assertEqual(en_running["workplan_id"], "L08600030212195759")
+        self.assertEqual(
+            en_running["workplan_url"],
+            "https://android-build.corp.google.com/workplan/L08600030212195759",
+        )
+        self.assertEqual(en_passed["presubmit_status"], "passed")
+        self.assertEqual(en_passed["presubmit_summary"], "27 passed (2 new)")
+
+        # Check remaining status variants (queued, warning, failed, not_started)
+        st_queued = extract_presubmit_status_from_change(
+            {"_number": 100, "project": "p/a", "messages": []}, pv_score=0, pr_enabled=True, cur_ps=1
+        )
+        self.assertEqual(st_queued["presubmit_status"], "queued")
+        st_warn = extract_presubmit_status_from_change(
+            {"_number": 100, "project": "p/a", "messages": []}, pv_score=1, pr_enabled=False, cur_ps=1
+        )
+        self.assertEqual(st_warn["presubmit_status"], "warning")
+        st_fail = extract_presubmit_status_from_change(
+            {"_number": 100, "project": "p/a", "messages": []}, pv_score=-1, pr_enabled=False, cur_ps=1
+        )
+        self.assertEqual(st_fail["presubmit_status"], "failed")
+        st_idle = extract_presubmit_status_from_change(
+            {"_number": 100, "project": "p/a", "messages": []}, pv_score=0, pr_enabled=False, cur_ps=1
+        )
+        self.assertEqual(st_idle["presubmit_status"], "not_started")
+
+    @staticmethod
+    def _sample_presubmit_runs_rpc_json(now_us: int) -> str:
+        return json.dumps({
+            "presubmit_runs": [
+                {
+                    "presubmit_run_id": "run-old",
+                    "workplan_id": "L0000000001",
+                    "workplan_attempt": 1,
+                    "presubmit_run_state": "OBSOLETE",
+                    "create_timestamp_micro": str(now_us - 900_000_000),
+                    "requirements": [],
+                },
+                {
+                    "presubmit_run_id": "run-cur",
+                    "workplan_id": "L08600030212195759",
+                    "workplan_attempt": 2,
+                    "presubmit_run_state": "RUNNING",
+                    "create_timestamp_micro": str(now_us - 120_000_000),
+                    "requirements": [
+                        {
+                            "presubmit_requirement_id": "req-build-fail",
+                            "type": "BUILD",
+                            "status": "FAIL",
+                            "blocking_level": "BLOCKING",
+                            "latest_build_id": "P98765432",
+                            "create_timestamp_micro": str(now_us - 95_000_000),
+                            "update_timestamp_micro": str(now_us - 10_000_000),
+                            "requirement_identifier": {
+                                "build_requirement_identifier": {
+                                    "branch": "aosp-emu-main-next",
+                                    "target": "emulator-linux_x64_测试_🚀_é",
+                                }
+                            },
+                            "requirement_worknode_infos": [
+                                {"worknode_id": "L08600030212195759:N10", "primary": True}
+                            ],
+                        },
+                        {
+                            "presubmit_requirement_id": "req-test-running",
+                            "type": "TEST",
+                            "status": "RUNNING",
+                            "blocking_level": "BLOCKING",
+                            "create_timestamp_micro": str(now_us - 45_000_000),
+                            "requirement_identifier": {
+                                "test_requirement_identifier": {
+                                    "branch": "aosp-emu-main-next",
+                                    "build_target": "emulator-linux_x64",
+                                    "atp_test_name": "v2/emu-team/avd_boot_test_测试_🚀_é",
+                                }
+                            },
+                            "requirement_worknode_infos": [
+                                {"worknode_id": "L08600030212195759:N20", "primary": True}
+                            ],
+                        },
+                        {
+                            "presubmit_requirement_id": "req-test-pass",
+                            "type": "TEST",
+                            "status": "PASS",
+                            "blocking_level": "WARN",
+                            "ants_invocation_id": "I1234567890",
+                            "create_timestamp_micro": str(now_us - 80_000_000),
+                            "update_timestamp_micro": str(now_us - 20_000_000),
+                            "requirement_identifier": {
+                                "test_requirement_identifier": {
+                                    "branch": "studio-main",
+                                    "build_target": "studio-linux",
+                                    "atp_test_name": "v2/android-code-coverage-team/cov_suite",
+                                }
+                            },
+                            "requirement_worknode_infos": [
+                                {"worknode_id": "L08600030212195759:N30", "primary": True}
+                            ],
+                        },
+                        {
+                            "presubmit_requirement_id": "req-preflight-cached",
+                            "type": "PRE_FLIGHT",
+                            "status": "CACHED",
+                            "blocking_level": "BLOCKING",
+                            "requirement_identifier": {
+                                "pre_flight_requirement_identifier": {"task_name": "lint_check"}
+                            },
+                        },
+                    ],
+                },
+            ]
+        })
+
+    def test_parse_list_presubmit_runs_json(self) -> None:
+        from commands.gerrit.presubmit_targets import parse_list_presubmit_runs_json
+
+        now_dt = datetime(2026, 10, 23, 20, 10, 0, tzinfo=timezone.utc)
+        now_us = int(now_dt.timestamp() * 1_000_000)
+        checks_url = (
+            "https://googleplex-android-review.git.corp.google.com/c/"
+            "platform/hardware/google/aemu/+/43234462/2?tab=checks"
+        )
+        parsed = parse_list_presubmit_runs_json(
+            self._sample_presubmit_runs_rpc_json(now_us), "43234462", 2, checks_url, now_dt=now_dt
+        )
+        self.assertEqual(parsed["status"], "ok")
+        self.assertEqual(parsed["workplan_id"], "L08600030212195759")
+        self.assertEqual(parsed["attempt"], 2)
+        self.assertEqual(parsed["counts"]["total"], 4)
+        self.assertEqual(parsed["counts"]["failed"], 1)
+        self.assertEqual(parsed["counts"]["running"], 1)
+        self.assertEqual(parsed["counts"]["passed"], 2)
+        self.assertEqual(parsed["counts"]["cached"], 1)
+
+        first_target = parsed["targets"][0]
+        self.assertEqual(first_target["status"], "failed")
+        self.assertIn("build_error.log", first_target["url"])
+        self.assertIn("build-details/P98765432", first_target["secondary_url"])
+        running_target = parsed["targets"][1]
+        self.assertEqual(running_target["name"], "avd_boot_test_测试_🚀_é")
+        self.assertTrue(running_target["waiting_on_build"])
+        self.assertEqual(running_target["duration_display"], "45s")
+        cov_target = next(t for t in parsed["targets"] if t["id"] == "req-test-pass")
+        self.assertEqual(cov_target["name"], "Coverage")
+        self.assertIn("invocationId=I1234567890", cov_target["url"])
+
+        with self.assertRaisesRegex(RuntimeError, r"ag/43234462 \(PS2\)"):
+            parse_list_presubmit_runs_json("{corrupt-json", "43234462", 2, checks_url, now_dt=now_dt)
+
+    def test_get_presubmit_targets_caching_and_missing_stubby(self) -> None:
+        from unittest.mock import MagicMock
+
+        now_dt = datetime(2026, 10, 23, 20, 10, 0, tzinfo=timezone.utc)
+        sample_rpc_json = self._sample_presubmit_runs_rpc_json(int(now_dt.timestamp() * 1_000_000))
+        with patch.object(
+            GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"
+        ):
+            service = GerritUIService(default_viewer="joshuaduong@google.com")
+
+        stubby_calls: list[list[str]] = []
+
+        def fake_stubby_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+            stubby_calls.append(list(cmd))
+            return MagicMock(returncode=0, stdout=sample_rpc_json, stderr="")
+
+        with patch(
+            "commands.gerrit.presubmit_targets._resolve_stubby_bin",
+            return_value="/usr/bin/stubby",
+        ), patch("subprocess.run", side_effect=fake_stubby_run):
+            t1 = service.get_presubmit_targets(
+                43234462, patchset=2, project="platform/hardware/google/aemu"
+            )
+            t2 = service.get_presubmit_targets(
+                43234462, patchset=2, project="platform/hardware/google/aemu"
+            )
+            t3 = service.get_presubmit_targets(
+                43234462, patchset=2, project="platform/hardware/google/aemu", force_refresh=True
+            )
+        self.assertEqual(t1["workplan_id"], "L08600030212195759")
+        self.assertEqual(t2["workplan_id"], "L08600030212195759")
+        self.assertEqual(t3["workplan_id"], "L08600030212195759")
+        self.assertEqual(len(stubby_calls), 2)
+
+        with patch(
+            "commands.gerrit.presubmit_targets._resolve_stubby_bin", return_value=None
+        ), self.assertRaisesRegex(RuntimeError, "Checks tab"):
+            service.get_presubmit_targets(
+                43234462, patchset=2, project="platform/hardware/google/aemu", force_refresh=True
+            )
+
+    def test_presubmit_targets_http_endpoint(self) -> None:
+        from http.server import ThreadingHTTPServer
+        import threading
+        from unittest.mock import MagicMock
+        import urllib.error
+        import urllib.request
+        from commands.gerrit.ui_server import make_gerrit_ui_handler
+
+        now_dt = datetime(2026, 10, 23, 20, 10, 0, tzinfo=timezone.utc)
+        sample_rpc_json = self._sample_presubmit_runs_rpc_json(int(now_dt.timestamp() * 1_000_000))
+        with patch.object(
+            GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"
+        ):
+            service = GerritUIService(default_viewer="joshuaduong@google.com")
+
+        handler_cls = make_gerrit_ui_handler(service)
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+        port = httpd.server_address[1]
+        srv_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        srv_thread.start()
+        try:
+            with patch(
+                "commands.gerrit.presubmit_targets._resolve_stubby_bin",
+                return_value="/usr/bin/stubby",
+            ), patch(
+                "subprocess.run",
+                return_value=MagicMock(returncode=0, stdout=sample_rpc_json, stderr=""),
+            ):
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/api/gerrit/presubmit-targets"
+                    "?cl=43234462&ps=2&project=platform/hardware/google/aemu",
+                    timeout=5,
+                ) as resp:
+                    self.assertEqual(resp.status, 200)
+                    payload = json.loads(resp.read().decode("utf-8"))
+                self.assertEqual(payload["counts"]["total"], 4)
+
+            with self.assertRaises(urllib.error.HTTPError) as bad_err:
+                urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/api/gerrit/presubmit-targets?cl=abc", timeout=5
+                )
+            self.assertEqual(bad_err.exception.code, 400)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+    def test_presubmit_ready_vote_and_session_lag_handling(self) -> None:
+        from http.server import ThreadingHTTPServer
+        import threading
+        from unittest.mock import MagicMock
+        import urllib.request
+        from commands.gerrit.ui_server import make_gerrit_ui_handler
+
+        with patch.object(
+            GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"
+        ):
+            service = GerritUIService(default_viewer="joshuaduong@google.com")
+
+        posted_payloads: list[dict[str, object]] = []
+
+        def fake_gob_curl(cmd: list[str], **_kwargs: object) -> MagicMock:
+            posted_payloads.append(json.loads(cmd[cmd.index("-d") + 1]))
+            return MagicMock(returncode=0, stdout=")]}'\n{}", stderr="")
+
+        unstarted_change = {
+            "_number": 43234462,
+            "project": "platform/hardware/google/aemu",
+            "branch": "studio-main",
+            "subject": "feat(gerrit-ui): Trigger presubmit 测试_🚀_é",
+            "owner": {"email": "joshuaduong@google.com", "name": "Joshua Duong"},
+            "reviewers": {"REVIEWER": []},
+            "labels": {"Code-Review": {"all": []}, "Presubmit-Ready": {"all": []}},
+            "current_revision": "rev1",
+            "current_revision_number": 1,
+            "revisions": {"rev1": {"_number": 1, "files": {"a.py": {}}}},
+        }
+        service._presubmit_targets_cache[(43234462, 1)] = (9999999999.0, {"status": "ok"})
+
+        with patch("shutil.which", return_value="/usr/bin/gob-curl"), patch(
+            "subprocess.run", side_effect=fake_gob_curl
+        ):
+            res_pr1 = service.cast_batch_vote([43234462], code_review=None, presubmit_ready=1)
+            self.assertEqual(res_pr1["status"], "ok")
+            self.assertEqual(
+                posted_payloads[-1], {"labels": {"Presubmit-Ready": 1}, "notify": "OWNER"}
+            )
+            self.assertEqual(len(service._presubmit_targets_cache), 0)
+
+            with patch.object(service.client, "_request_json", return_value=[unstarted_change]):
+                q_lag = service.fetch_queue(viewer_email="joshuaduong@google.com", scope="owner")
+            self.assertTrue(q_lag["changes"][0]["viewer_presubmit_ready"])
+            self.assertEqual(q_lag["changes"][0]["presubmit_status"], "queued")
+
+            # Expire lag window -> TreeHugger finished state is respected without stale override
+            service._session_presubmit_voted_at[43234462] = 0.0
+            finished_change = {
+                **unstarted_change,
+                "labels": {
+                    "Code-Review": {"all": []},
+                    "Presubmit-Ready": {"all": []},
+                    "Presubmit-Verified": {"all": [{"email": "treehugger@google.com", "value": 2}]},
+                },
+            }
+            with patch.object(service.client, "_request_json", return_value=[finished_change]):
+                q_done = service.fetch_queue(viewer_email="joshuaduong@google.com", scope="owner")
+            self.assertFalse(q_done["changes"][0]["viewer_presubmit_ready"])
+            self.assertEqual(q_done["changes"][0]["presubmit_status"], "passed")
+
+            # Verify HTTP POST /api/gerrit/vote with presubmit_ready=0
+            handler_cls = make_gerrit_ui_handler(service)
+            httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+            port = httpd.server_address[1]
+            srv_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+            srv_thread.start()
+            try:
+                req_vote = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/api/gerrit/vote",
+                    data=json.dumps({
+                        "cls": [43234462],
+                        "code_review": None,
+                        "presubmit_ready": 0,
+                    }).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_vote, timeout=5) as resp:
+                    self.assertEqual(resp.status, 200)
+                self.assertEqual(
+                    posted_payloads[-1], {"labels": {"Presubmit-Ready": 0}, "notify": "OWNER"}
+                )
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+
+        html = render_static_gerrit_ui_html()
+        self.assertIn('id="queueSortSelect"', html)
+        self.assertIn('id="btnPresubmitReady"', html)
+        self.assertIn("function setSortMode(", html)
+        self.assertIn("function toggleCurrentClPresubmitReady(", html)
+        self.assertIn("function togglePresubmitTargets(", html)
+        self.assertIn("function fetchPresubmitTargetsForCl(", html)
+        self.assertIn("/api/gerrit/presubmit-targets", html)
+
 
 if __name__ == "__main__":
     unittest.main()

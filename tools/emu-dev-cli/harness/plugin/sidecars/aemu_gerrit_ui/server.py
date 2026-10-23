@@ -116,6 +116,9 @@ def main() -> None:
             if mod_file:
                 cur_mtime = Path(mod_file).stat().st_mtime
                 if cur_mtime != state["mtime"]:
+                    pt_mod = sys.modules.get("commands.gerrit.presubmit_targets")
+                    if pt_mod is not None:
+                        importlib.reload(pt_mod)
                     importlib.reload(ui_mod)
                     state["mtime"] = cur_mtime
                     state["handler_cls"] = ui_mod.make_gerrit_ui_handler(

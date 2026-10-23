@@ -39,10 +39,18 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 from typing import Any
 import urllib.parse
 import webbrowser
 
+from commands.gerrit.presubmit_targets import (
+    ACTIVE_TARGETS_CACHE_TTL_SEC,
+    COMPLETED_TARGETS_CACHE_TTL_SEC,
+    extract_presubmit_status_from_change,
+    format_relative_age,
+    query_presubmit_targets_via_stubby,
+)
 from commands.harness.review_swarm_status import (
     GERRIT_REVIEW_PAYLOAD_FILENAME,
     read_cl_swarm_status,
@@ -67,6 +75,7 @@ LOW_RISK_MAX_LINES = 60
 HIGH_RISK_MIN_LINES = 250
 DIFF_FETCH_WORKERS = 6
 DEFAULT_MAX_DIFF_LINES_PER_FILE = 500
+SESSION_PRESUBMIT_LAG_SEC = 25.0
 
 DEFAULT_EMULATOR_GERRIT_QUERY = (
     "status:open ("
@@ -620,14 +629,32 @@ def extract_reviewers_and_ccs(
     return reviewers_out, ccs_out
 
 
+def _extract_positive_label_voters(
+    votes: list[dict[str, Any]], viewer: str
+) -> tuple[list[str], bool]:
+    """Returns `(voter_short_names, viewer_voted_positive)` for a `+1` Gerrit label."""
+    voters: list[str] = []
+    viewer_voted = False
+    for vote in votes:
+        if int(vote.get("value", 0) or 0) < 1:
+            continue
+        em = (vote.get("email") or "").strip().lower()
+        short = em.split("@", 1)[0] if em else (vote.get("name") or "user")
+        voters.append(short)
+        if viewer and em == viewer:
+            viewer_voted = True
+    return voters, viewer_voted
+
+
 def _extract_autosubmit_and_viewer_votes(
     change: dict[str, Any], viewer_email: str
 ) -> dict[str, Any]:
-    """Extracts the viewer's current CR/Autosubmit votes and overall Autosubmit status."""
+    """Extracts the viewer's current CR/Autosubmit/Presubmit-Ready votes and label state."""
     viewer = (viewer_email or "").strip().lower()
     labels = change.get("labels") or {}
     cr_all = (labels.get("Code-Review") or {}).get("all") or []
     as_all = (labels.get("Autosubmit") or {}).get("all") or []
+    pr_all = (labels.get("Presubmit-Ready") or {}).get("all") or []
 
     viewer_cr_vote = 0
     for vote in cr_all:
@@ -635,23 +662,17 @@ def _extract_autosubmit_and_viewer_votes(
             viewer_cr_vote = int(vote.get("value", 0) or 0)
             break
 
-    autosubmit_voters: list[str] = []
-    viewer_autosubmit = False
-    for vote in as_all:
-        val = int(vote.get("value", 0) or 0)
-        if val < 1:
-            continue
-        em = (vote.get("email") or "").strip().lower()
-        short = em.split("@", 1)[0] if em else (vote.get("name") or "user")
-        autosubmit_voters.append(short)
-        if viewer and em == viewer:
-            viewer_autosubmit = True
+    autosubmit_voters, viewer_autosubmit = _extract_positive_label_voters(as_all, viewer)
+    pr_voters, viewer_pr = _extract_positive_label_voters(pr_all, viewer)
 
     return {
         "viewer_cr_vote": viewer_cr_vote,
         "viewer_autosubmit": viewer_autosubmit,
         "autosubmit_enabled": bool(autosubmit_voters),
         "autosubmit_voters": autosubmit_voters,
+        "viewer_presubmit_ready": viewer_pr,
+        "presubmit_ready_enabled": bool(pr_voters),
+        "presubmit_ready_voters": pr_voters,
     }
 
 
@@ -852,6 +873,10 @@ def enrich_change_for_ui(
     involvement = _extract_human_involvement(change, viewer, human_cr2, now)
     reviewers_detail, ccs_detail = extract_reviewers_and_ccs(change, viewer)
     vote_meta = _extract_autosubmit_and_viewer_votes(change, viewer)
+    cur_ps = int(change.get("current_revision_number", 1) or 1)
+    presubmit_info = extract_presubmit_status_from_change(
+        change, pv_score, vote_meta["presubmit_ready_enabled"], cur_ps
+    )
     slots: list[dict[str, str]] = []
     for voter in human_cr2[:required_cr2_count]:
         tag = "You (+2 ✓)" if voter["email"] == viewer else f"✓ {voter['short']} +2"
@@ -872,6 +897,9 @@ def enrich_change_for_ui(
     updated_dt = parse_gerrit_timestamp(change.get("updated"))
     hours_in_flight = max(0.0, (now - created_dt).total_seconds() / 3600.0) if created_dt else 0.0
     hours_idle = max(0.0, (now - updated_dt).total_seconds() / 3600.0) if updated_dt else 0.0
+    updated_ts = round(updated_dt.timestamp(), 3) if updated_dt else 0.0
+    updated_iso = updated_dt.isoformat() if updated_dt else str(change.get("updated") or "")
+    updated_display = format_relative_age(hours_idle) if updated_dt else ""
     mergeable = change.get("mergeable", True) is not False
 
     if not mergeable or hours_in_flight >= CLIFF_THRESHOLD_HOURS:
@@ -963,15 +991,28 @@ def enrich_change_for_ui(
         "viewer_autosubmit": vote_meta["viewer_autosubmit"],
         "autosubmit_enabled": vote_meta["autosubmit_enabled"],
         "autosubmit_voters": vote_meta["autosubmit_voters"],
+        "viewer_presubmit_ready": vote_meta["viewer_presubmit_ready"],
+        "presubmit_ready_enabled": vote_meta["presubmit_ready_enabled"],
+        "presubmit_ready_voters": vote_meta["presubmit_ready_voters"],
         "presubmit_score": pv_score,
         "presubmit_vetted": presubmit_vetted,
+        "presubmit_status": presubmit_info["presubmit_status"],
+        "presubmit_label": presubmit_info["presubmit_label"],
+        "presubmit_summary": presubmit_info["presubmit_summary"],
+        "workplan_id": presubmit_info["workplan_id"],
+        "workplan_url": presubmit_info["workplan_url"],
+        "checks_tab_url": presubmit_info["checks_tab_url"],
+        "explainer_url": presubmit_info["explainer_url"],
         "agent_vetted": agent_vetted,
         "unresolved_comment_count": unresolved_count,
-        "patch_set": int(change.get("current_revision_number", 1) or 1),
+        "patch_set": cur_ps,
         "current_revision": cur_rev,
         "parent_revision": parent_sha,
         "hours_in_flight": round(hours_in_flight, 1),
         "hours_idle": round(hours_idle, 1),
+        "updated_iso": updated_iso,
+        "updated_ts": updated_ts,
+        "updated_display": updated_display,
         "flight_display": flight_str,
         "mergeable": mergeable,
         "cliff_zone": cliff_zone,
@@ -1514,6 +1555,8 @@ class GerritUIService:
         self._session_lock = threading.Lock()
         self._session_approved_cls: set[int] = set()
         self._session_votes: dict[int, dict[str, int]] = {}
+        self._session_presubmit_voted_at: dict[int, float] = {}
+        self._presubmit_targets_cache: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
         self._bug_cache_path = (
             Path.home() / ".cache" / "emu-dev-cli" / "gerrit-ui" / "bug_metadata_cache.json"
         )
@@ -1793,14 +1836,46 @@ class GerritUIService:
             item["human_cr2"] = cr2_list
             item["human_cr2_count"] = len(cr2_list)
 
+    def _apply_session_presubmit_ready_vote(
+        self,
+        item: dict[str, Any],
+        viewer: str,
+        short: str,
+        pr_val: int,
+        is_fresh: bool,
+    ) -> None:
+        """Applies recent session `Presubmit-Ready` vote while Gerrit's secondary index catches up."""
+        if not is_fresh:
+            return
+        voters = [v for v in (item.get("presubmit_ready_voters") or []) if v != short]
+        if pr_val >= 1:
+            if item.get("presubmit_status") == "running":
+                return
+            voters.append(short)
+            item["viewer_presubmit_ready"] = True
+            item["presubmit_ready_voters"] = voters
+            item["presubmit_ready_enabled"] = True
+            item["presubmit_status"] = "queued"
+            item["presubmit_label"] = "⏳ Presubmit Queued"
+            self._sync_viewer_participant_vote(item, viewer, short, "Presubmit-Ready", "PR", 1)
+            return
+        item["viewer_presubmit_ready"] = False
+        item["presubmit_ready_voters"] = voters
+        item["presubmit_ready_enabled"] = bool(voters)
+        if not voters and item.get("presubmit_status") == "queued":
+            item["presubmit_status"] = "not_started"
+            item["presubmit_label"] = "⏸ Presubmit 0"
+        self._sync_viewer_participant_vote(item, viewer, short, "Presubmit-Ready", "PR", 0)
+
     def _apply_single_session_vote(
         self,
         item: dict[str, Any],
         viewer: str,
         short: str,
         vote_map: dict[str, int],
+        pr_is_fresh: bool = False,
     ) -> None:
-        """Applies cached session label votes (`Code-Review`, `Autosubmit`) to `item`."""
+        """Applies cached session label votes (`Code-Review`, `Autosubmit`, `Presubmit-Ready`) to `item`."""
         if "Code-Review" in vote_map:
             cr_val = int(vote_map["Code-Review"])
             item["viewer_cr_vote"] = cr_val
@@ -1815,14 +1890,20 @@ class GerritUIService:
             item["autosubmit_voters"] = voters
             item["autosubmit_enabled"] = bool(voters)
             self._sync_viewer_participant_vote(item, viewer, short, "Autosubmit", "AS", as_val)
+        if "Presubmit-Ready" in vote_map:
+            self._apply_session_presubmit_ready_vote(
+                item, viewer, short, int(vote_map["Presubmit-Ready"]), pr_is_fresh
+            )
 
     def _apply_session_approvals(
         self, enriched: list[dict[str, Any]], viewer_email: str
     ) -> None:
         """Applies in-memory session votes when Gerrit's secondary search index lags."""
+        now_mono = time.monotonic()
         with self._session_lock:
             approved_snapshot = set(self._session_approved_cls)
             votes_snapshot = {k: dict(v) for k, v in self._session_votes.items()}
+            pr_times = dict(self._session_presubmit_voted_at)
         if not approved_snapshot and not votes_snapshot:
             return
         active_voter = (self.auth_email or self.default_viewer or "").strip().lower()
@@ -1836,7 +1917,8 @@ class GerritUIService:
             if cl_num in approved_snapshot and "Code-Review" not in merged_votes:
                 merged_votes["Code-Review"] = 2
             if merged_votes:
-                self._apply_single_session_vote(item, viewer, short, merged_votes)
+                pr_fresh = (now_mono - pr_times.get(cl_num, 0.0)) <= SESSION_PRESUBMIT_LAG_SEC
+                self._apply_single_session_vote(item, viewer, short, merged_votes, pr_is_fresh=pr_fresh)
 
     def fetch_commit_diff_bundle(self, cl_number: str | int) -> dict[str, Any]:
         """Fetches decoded unified diff files, pure-rebase status, and comment threads for one CL."""
@@ -1940,7 +2022,7 @@ class GerritUIService:
     def _build_vote_labels(
         code_review: int | None,
         autosubmit: bool | int | None,
-        presubmit_ready: bool,
+        presubmit_ready: bool | int | None,
     ) -> dict[str, int]:
         """Constructs Gerrit `labels` dict for `Code-Review`, `Autosubmit`, and `Presubmit-Ready`."""
         labels: dict[str, int] = {}
@@ -1951,8 +2033,11 @@ class GerritUIService:
                 labels["Autosubmit"] = 1
         elif autosubmit is not None:
             labels["Autosubmit"] = int(autosubmit)
-        if presubmit_ready:
-            labels["Presubmit-Ready"] = 1
+        if isinstance(presubmit_ready, bool):
+            if presubmit_ready:
+                labels["Presubmit-Ready"] = 1
+        elif presubmit_ready is not None:
+            labels["Presubmit-Ready"] = int(presubmit_ready)
         if not labels:
             raise ValueError(
                 "Cannot cast Gerrit vote: no label values specified "
@@ -1965,6 +2050,8 @@ class GerritUIService:
     ) -> None:
         """Caches successful session votes in memory to mask Gerrit secondary-index lag."""
         cr_label = labels.get("Code-Review")
+        has_pr = "Presubmit-Ready" in labels
+        now_mono = time.monotonic()
         with self._session_lock:
             for r in results:
                 raw_cl_num = str(r.get("cl") or "").strip()
@@ -1972,6 +2059,11 @@ class GerritUIService:
                     continue
                 cl_num = int(raw_cl_num)
                 self._session_votes[cl_num] = {**self._session_votes.get(cl_num, {}), **labels}
+                if has_pr:
+                    self._session_presubmit_voted_at[cl_num] = now_mono
+                    stale_keys = [k for k in self._presubmit_targets_cache if str(k[0]) == raw_cl_num]
+                    for k in stale_keys:
+                        self._presubmit_targets_cache.pop(k, None)
                 if cr_label is None:
                     continue
                 if cr_label >= 2:
@@ -1984,7 +2076,7 @@ class GerritUIService:
         cl_numbers: list[str | int],
         code_review: int | None = 2,
         autosubmit: bool | int | None = False,
-        presubmit_ready: bool = False,
+        presubmit_ready: bool | int | None = False,
         message: str = "",
     ) -> dict[str, Any]:
         """Casts labels across one or more CLs using `gob-curl` with mandatory `notify: OWNER`."""
@@ -2248,6 +2340,66 @@ class GerritUIService:
             "message_name": message_name,
             "chat_url": chat_url,
         }
+
+    def _resolve_change_patchset_and_project(
+        self, cl_id: str, patchset: int | None, project: str
+    ) -> tuple[int, str]:
+        """Resolves `(patchset, project)` from explicit args or Gerrit change detail."""
+        resolved_ps = int(patchset or 0)
+        resolved_proj = (project or "").strip()
+        if resolved_ps > 0 and resolved_proj:
+            return resolved_ps, resolved_proj
+        detail = self.client.get_change_detail(cl_id, include_files=False)
+        if resolved_ps <= 0:
+            resolved_ps = int(detail.get("current_revision_number", 1) or 1)
+        if not resolved_proj:
+            resolved_proj = str(detail.get("project") or "")
+        return max(1, resolved_ps), resolved_proj
+
+    def get_presubmit_targets(
+        self,
+        cl_number: str | int,
+        patchset: int | None = None,
+        project: str = "",
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        """Fetches TreeHugger build/test targets for `(cl_number, patchset)` with TTL caching."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False, strict=True)
+        if not cl_id.isdigit():
+            raise ValueError(
+                f"Cannot query presubmit targets for '{cl_number}': expected a numeric Gerrit CL ID "
+                "(e.g. '43234462' or 'ag/43234462')."
+            )
+        resolved_ps, resolved_proj = self._resolve_change_patchset_and_project(
+            cl_id, patchset, project
+        )
+        cache_key = (cl_id, resolved_ps)
+        now_mono = time.monotonic()
+        if not force_refresh:
+            with self._session_lock:
+                cached_entry = self._presubmit_targets_cache.get(cache_key)
+            if cached_entry is not None:
+                cached_at, payload = cached_entry
+                ttl = (
+                    COMPLETED_TARGETS_CACHE_TTL_SEC
+                    if payload.get("run_status") in ("passed", "failed", "warning")
+                    else ACTIVE_TARGETS_CACHE_TTL_SEC
+                )
+                if now_mono - cached_at < ttl:
+                    return payload
+
+        payload = query_presubmit_targets_via_stubby(
+            cl_id=cl_id,
+            patchset=resolved_ps,
+            gerrit_host=self.host,
+            project=resolved_proj,
+        )
+        with self._session_lock:
+            voted_at = self._session_presubmit_voted_at.get(int(cl_id), 0.0)
+            existing = self._presubmit_targets_cache.get(cache_key)
+            if now_mono >= voted_at and (existing is None or existing[0] <= now_mono):
+                self._presubmit_targets_cache[cache_key] = (time.monotonic(), payload)
+        return payload
 
     def get_swarm_statuses(self, cl_numbers: list[str | int]) -> dict[str, dict[str, Any]]:
         """Reads live or completed Review Swarm status objects from disk for `cl_numbers`."""
@@ -2784,7 +2936,30 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                         {"suggestions": service.suggest_reviewers(cl_num, query=query_str)}
                     )
                     return
+                if parsed.path == "/api/gerrit/presubmit-targets":
+                    cl_num = (qs.get("cl") or [""])[0].strip()
+                    if not cl_num:
+                        self._send_json(
+                            {"error": "Missing required `cl` query parameter for `/api/gerrit/presubmit-targets`."},
+                            status=400,
+                        )
+                        return
+                    raw_ps = (qs.get("ps") or [""])[0].strip()
+                    ps_val = int(raw_ps) if raw_ps.isdigit() else None
+                    proj = (qs.get("project") or [""])[0].strip()
+                    refresh_flag = (qs.get("refresh") or [""])[0].strip().lower() in ("1", "true", "yes")
+                    self._send_json(
+                        service.get_presubmit_targets(
+                            cl_num,
+                            patchset=ps_val,
+                            project=proj,
+                            force_refresh=refresh_flag,
+                        )
+                    )
+                    return
                 self._send_json({"error": f"Unknown endpoint '{parsed.path}'"}, status=404)
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, status=400)
             except Exception as exc:
                 self._send_json({"error": str(exc)}, status=500)
 
@@ -2846,11 +3021,15 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                     as_arg: bool | int | None = (
                         raw_as if isinstance(raw_as, bool) or raw_as is None else int(raw_as)
                     )
+                    raw_pr = body.get("presubmit_ready", False)
+                    pr_arg: bool | int | None = (
+                        raw_pr if isinstance(raw_pr, bool) or raw_pr is None else int(raw_pr)
+                    )
                     res = service.cast_batch_vote(
                         cl_numbers=body.get("cls") or [],
                         code_review=cr_arg,
                         autosubmit=as_arg,
-                        presubmit_ready=bool(body.get("presubmit_ready", False)),
+                        presubmit_ready=pr_arg,
                         message=str(body.get("message", "")),
                     )
                     self._send_json(res)

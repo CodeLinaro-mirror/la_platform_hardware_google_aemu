@@ -2276,6 +2276,300 @@
     border-color: #c59b3c;
     color: #ffe8b3;
   }
+  .quick-vote-chip.active-pr {
+    background: rgba(130, 177, 255, 0.2);
+    border-color: #5b8def;
+    color: #e2eeff;
+  }
+  .queue-sort-select {
+    background: #16181c;
+    color: var(--g-text);
+    border: 1px solid var(--g-border);
+    padding: 3px 7px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .queue-sort-select:focus {
+    border-color: var(--g-accent);
+    outline: none;
+  }
+  .updated-age-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--g-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .updated-age-pill.sort-highlight {
+    color: #cfe0ff;
+    font-weight: 600;
+  }
+  .btn-presubmit {
+    background: #1f2b3a;
+    border-color: #395575;
+    color: #cfe3ff;
+  }
+  .btn-presubmit:hover:not(:disabled) {
+    background: #27374b;
+  }
+  .btn-presubmit.is-active-vote {
+    background: #283b54;
+    border-color: #6ea4f4;
+    color: #e9f2ff;
+  }
+  .pv-badge {
+    cursor: pointer;
+    font-family: var(--g-font);
+    transition: filter 0.12s ease, border-color 0.12s ease;
+  }
+  .pv-badge:hover {
+    filter: brightness(1.14);
+  }
+  .pv-passed {
+    background: var(--g-green-bg);
+    color: #a8e6bc;
+    border: 1px solid rgba(78, 173, 107, 0.45);
+  }
+  .pv-warning {
+    background: var(--g-amber-bg);
+    color: #f0ca86;
+    border: 1px solid rgba(212, 151, 59, 0.48);
+  }
+  .pv-failed {
+    background: var(--g-red-bg);
+    color: #f6b5b0;
+    border: 1px solid rgba(223, 91, 83, 0.52);
+  }
+  .pv-running {
+    background: rgba(130, 177, 255, 0.16);
+    color: #cfe2ff;
+    border: 1px solid rgba(130, 177, 255, 0.48);
+  }
+  .pv-queued {
+    background: rgba(212, 151, 59, 0.14);
+    color: #f0cf95;
+    border: 1px dashed rgba(212, 151, 59, 0.55);
+  }
+  .pv-idle {
+    background: #262932;
+    color: #9da5b4;
+    border: 1px solid #3a3f4b;
+  }
+  .pv-mini-spinner {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border: 1.6px solid rgba(207, 226, 255, 0.28);
+    border-top-color: #82b1ff;
+    border-radius: 50%;
+    animation: gerritSpin 0.68s linear infinite;
+    flex-shrink: 0;
+  }
+  .presubmit-targets-drawer {
+    margin-top: 6px;
+    border-radius: 7px;
+    background: #14171d;
+    border: 1px solid #323948;
+    overflow: hidden;
+  }
+  .ps-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 7px 10px;
+    background: #1b1f27;
+    border-bottom: 1px solid #2b313e;
+  }
+  .ps-filter-tabs {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .ps-filter-tab {
+    background: #232833;
+    border: 1px solid #343b49;
+    color: var(--g-btn-inactive-text);
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-size: 10.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .ps-filter-tab:hover {
+    color: #ffffff;
+    border-color: #4f596e;
+  }
+  .ps-filter-tab.active {
+    background: #2f3a4d;
+    border-color: #6b96e0;
+    color: #ffffff;
+  }
+  .ps-targets-list {
+    max-height: 280px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .ps-target-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 5px 10px;
+    border-bottom: 1px solid #222630;
+    font-size: 11.5px;
+    transition: background 0.12s ease;
+  }
+  .ps-target-row:last-child {
+    border-bottom: none;
+  }
+  .ps-target-row:hover {
+    background: #1d222c;
+  }
+  .ps-target-row.status-failed {
+    background: rgba(223, 91, 83, 0.08);
+  }
+  .ps-target-row.status-failed:hover {
+    background: rgba(223, 91, 83, 0.14);
+  }
+  .ps-target-row.status-running {
+    background: rgba(130, 177, 255, 0.06);
+  }
+  .ps-target-main-link {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    flex: 1;
+    color: var(--g-text);
+    text-decoration: none;
+  }
+  .ps-target-main-link:hover .ps-target-name {
+    color: #a8cbff;
+    text-decoration: underline;
+  }
+  .ps-target-name {
+    font-family: var(--g-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: #e6eaf2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ps-target-sub {
+    color: var(--g-muted);
+    font-size: 10.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ps-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .ps-status-pill.st-failed {
+    background: rgba(223, 91, 83, 0.22);
+    color: #ffb4ae;
+    border: 1px solid rgba(223, 91, 83, 0.5);
+  }
+  .ps-status-pill.st-warning {
+    background: rgba(212, 151, 59, 0.2);
+    color: #f3cd89;
+    border: 1px solid rgba(212, 151, 59, 0.48);
+  }
+  .ps-status-pill.st-running {
+    background: rgba(130, 177, 255, 0.18);
+    color: #cfe2ff;
+    border: 1px solid rgba(130, 177, 255, 0.45);
+  }
+  .ps-status-pill.st-queued {
+    background: #272b35;
+    color: #c2c9d6;
+    border: 1px dashed #454c5c;
+  }
+  .ps-status-pill.st-passed {
+    background: rgba(78, 173, 107, 0.18);
+    color: #a8e6bc;
+    border: 1px solid rgba(78, 173, 107, 0.42);
+  }
+  .ps-status-pill.st-cached {
+    background: rgba(78, 173, 107, 0.1);
+    color: #8fd1a6;
+    border: 1px solid rgba(78, 173, 107, 0.28);
+  }
+  .ps-status-pill.st-skipped {
+    background: #22252d;
+    color: #8b93a3;
+    border: 1px solid #333844;
+  }
+  .ps-kind-tag {
+    padding: 0 5px;
+    border-radius: 3px;
+    font-size: 9.5px;
+    font-weight: 700;
+    background: #252934;
+    border: 1px solid #383f4f;
+    color: #b8c2d4;
+    flex-shrink: 0;
+  }
+  .ps-meta-tag {
+    padding: 0 5px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    background: rgba(212, 151, 59, 0.15);
+    border: 1px solid rgba(212, 151, 59, 0.38);
+    color: #ecc886;
+    flex-shrink: 0;
+  }
+  .ps-target-right {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    flex-shrink: 0;
+    font-size: 10.5px;
+    color: var(--g-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .ps-artifact-tag {
+    font-family: var(--g-mono);
+    font-size: 10px;
+    color: #9aa4b6;
+    background: #1e222b;
+    border: 1px solid #2f3543;
+    padding: 0 5px;
+    border-radius: 3px;
+  }
+  .ps-target-sec-link {
+    color: var(--g-accent);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 10.5px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(130, 177, 255, 0.1);
+    border: 1px solid rgba(130, 177, 255, 0.28);
+    white-space: nowrap;
+  }
+  .ps-target-sec-link:hover {
+    background: rgba(130, 177, 255, 0.2);
+    text-decoration: underline;
+  }
 </style>
 </head>
 <body>
@@ -2383,10 +2677,22 @@
 
     <div class="queue-type-toolbar">
       <div class="queue-group-row">
-        <span style="font-size:10.5px;font-weight:700;color:var(--g-muted);letter-spacing:0.3px;">COMMIT TYPE &amp; GROUPING:</span>
-        <div class="group-toggle">
-          <button id="grpType" class="active" onclick="setGroupMode('type')">Group by Type</button>
-          <button id="grpStack" onclick="setGroupMode('stack')">Group by Stack</button>
+        <span style="font-size:10.5px;font-weight:700;color:var(--g-muted);letter-spacing:0.3px;">COMMIT TYPE &amp; SORT:</span>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <select
+            id="queueSortSelect"
+            class="queue-sort-select"
+            onchange="setSortMode(this.value)"
+            title="Sort commit list by smart queue priority or last updated timestamp"
+          >
+            <option value="smart" selected>⚡ Sort: Smart Queue</option>
+            <option value="updated_desc">🕒 Last Updated (Newest)</option>
+            <option value="updated_asc">🕰️ Last Updated (Oldest)</option>
+          </select>
+          <div class="group-toggle">
+            <button id="grpType" class="active" onclick="setGroupMode('type')">Group by Type</button>
+            <button id="grpStack" onclick="setGroupMode('stack')">Group by Stack</button>
+          </div>
         </div>
       </div>
       <div class="type-filters">
@@ -2423,6 +2729,7 @@
         <button id="btnVoteCurrent" class="btn btn-approve" onclick="voteCurrentCl(this)" title="Vote Code-Review +2 on selected CL (Shortcut: a or 2)">✓ Vote +2</button>
         <button id="btnVotePlus2Auto" class="btn btn-approve-auto" onclick="voteCurrentClPlus2Auto(this)" title="Vote Code-Review +2 and Autosubmit +1 on selected CL (Shortcut: Shift+A)">⚡ +2 &amp; Autosubmit</button>
         <button id="btnVoteAutosubmit" class="btn btn-autosubmit" onclick="toggleCurrentClAutosubmit(this)" title="Set or clear Autosubmit +1 on selected CL (Shortcut: u)">Autosubmit +1</button>
+        <button id="btnPresubmitReady" class="btn btn-presubmit" onclick="toggleCurrentClPresubmitReady(this)" title="Trigger or clear Presubmit-Ready +1 on selected CL (Shortcut: p)">▶ Presubmit-Ready +1</button>
         <button id="btnVoteStack" class="btn btn-approve-stack" onclick="voteActiveStack(this)" title="Vote Code-Review +2 across all commits in active stack">✓✓ Stack +2</button>
       </div>
       <div class="harness-group">
@@ -2439,7 +2746,7 @@
       <div style="display:flex;align-items:center;gap:8px;">
         <span id="drawerDot" class="dot dot-green"></span>
         <strong>Harness &amp; Gerrit Bridge:</strong>
-        <span id="drawerStatus" style="color:var(--g-muted);">Ready · Shortcuts: j/k (next/prev), 1 (+1), a/2 (+2), A (+2 &amp; Autosubmit), u (Autosubmit +1), s (Swarm)</span>
+        <span id="drawerStatus" style="color:var(--g-muted);">Ready · Shortcuts: j/k (next/prev), 1 (+1), a/2 (+2), A (+2 &amp; Autosubmit), u (Autosubmit +1), p (Presubmit-Ready +1), s (Swarm)</span>
       </div>
       <a id="openGerritLink" href="#" target="_blank" style="color:var(--g-accent);font-weight:600;text-decoration:none;">Open in Gerrit ↗</a>
     </div>
@@ -2529,6 +2836,12 @@
     authEmail: "",
     activeChatComposer: null,
     sentChatDms: {},
+    sortBy: "smart",
+    presubmitTargetsByCl: {},
+    nextPresubmitReqSeq: 0,
+    expandedPresubmitCls: new Set(),
+    autoExpandedPresubmitCls: new Set(),
+    presubmitTargetFilterByCl: {},
   };
 
   function showToast(msg) {
@@ -2578,10 +2891,12 @@
       "btnRefreshQueue",
       "queueSearchInput",
       "authorFilterSelect",
+      "queueSortSelect",
       "btnVotePlus1",
       "btnVoteCurrent",
       "btnVotePlus2Auto",
       "btnVoteAutosubmit",
+      "btnPresubmitReady",
       "btnVoteStack",
       "btnRunSwarm",
       "btnAutoFix",
@@ -2801,9 +3116,67 @@
     state.scope = newScope;
     state.selectedClNumber = null;
     state.selectedStackId = null;
+    if (newScope === "owner") {
+      state.gates.presubmit = false;
+      state.gates.hideMine = false;
+      document.getElementById("gatePresubmit")?.classList.remove("active");
+      document.getElementById("gateHideMine")?.classList.remove("active");
+    }
     fetchQueueData(state.viewer, newScope, {
       loadingTitle: `Loading "${scopeLabel}"…`,
       loadingSub: `Viewer: ${state.viewer} · Querying Gerrit changes and stack dependencies`,
+    });
+  }
+
+  function setSortMode(mode) {
+    const valid = mode === "updated_desc" || mode === "updated_asc" ? mode : "smart";
+    state.sortBy = valid;
+    const sel = document.getElementById("queueSortSelect");
+    if (sel && sel.value !== valid) {
+      sel.value = valid;
+    }
+    renderAll();
+  }
+
+  function getClUpdatedSortKey(cl) {
+    if (!cl) return 0;
+    const ts = Number(cl.updated_ts || 0);
+    if (ts > 0) return ts;
+    if (cl.updated_iso) {
+      const parsed = Date.parse(cl.updated_iso);
+      if (!Number.isNaN(parsed)) return parsed / 1000;
+    }
+    return -Number(cl.hours_idle || 0) * 3600;
+  }
+
+  function compareCommitsByUpdated(a, b) {
+    const diff = getClUpdatedSortKey(b) - getClUpdatedSortKey(a);
+    if (diff !== 0) {
+      return state.sortBy === "updated_asc" ? -diff : diff;
+    }
+    return Number(b.number || 0) - Number(a.number || 0);
+  }
+
+  function getStackUpdatedSortKey(st) {
+    const commits = (st && st.commits) || [];
+    if (!commits.length) return 0;
+    const keys = commits.map(getClUpdatedSortKey);
+    return state.sortBy === "updated_asc" ? Math.min(...keys) : Math.max(...keys);
+  }
+
+  function sortStacksIfNeeded(stacks) {
+    if (state.sortBy !== "updated_desc" && state.sortBy !== "updated_asc") {
+      return stacks;
+    }
+    return [...stacks].sort((a, b) => {
+      const ka = getStackUpdatedSortKey(a);
+      const kb = getStackUpdatedSortKey(b);
+      if (kb !== ka) {
+        return state.sortBy === "updated_asc" ? ka - kb : kb - ka;
+      }
+      const na = (a.commits && a.commits[0] && a.commits[0].number) || 0;
+      const nb = (b.commits && b.commits[0] && b.commits[0].number) || 0;
+      return nb - na;
     });
   }
 
@@ -3193,6 +3566,9 @@
           allItems.push({ commit: c, stack: st });
         });
       });
+      if (state.sortBy === "updated_desc" || state.sortBy === "updated_asc") {
+        return allItems.sort((a, b) => compareCommitsByUpdated(a.commit, b.commit));
+      }
       const ordered = [];
       COMMIT_TYPE_ORDER.forEach(t => {
         allItems.forEach(item => {
@@ -3207,7 +3583,7 @@
       return ordered;
     }
     const ordered = [];
-    stacks.forEach(st => {
+    sortStacksIfNeeded(stacks).forEach(st => {
       st.commits.forEach(c => {
         ordered.push({ commit: c, stack: st });
       });
@@ -3334,6 +3710,63 @@
     }).join("") || `<span style="color:var(--g-subtle);font-size:11px;">0 CLs in Cliff Zone</span>`;
   }
 
+  const PRESUBMIT_BADGE_CLASS_MAP = {
+    passed: "pv-passed",
+    warning: "pv-warning",
+    failed: "pv-failed",
+    running: "pv-running",
+    queued: "pv-queued",
+    not_started: "pv-idle",
+  };
+
+  function resolveFallbackPresubmitStatusAndLabel(c) {
+    const score = Number((c && c.presubmit_score) || 0);
+    if (c && c.presubmit_ready_enabled) return { status: "queued", label: "⏳ Presubmit Queued" };
+    if ((c && c.presubmit_vetted) || score >= 2) return { status: "passed", label: `✓ Presubmit +${score || 2}` };
+    if (score === 1) return { status: "warning", label: "⚠ Presubmit +1" };
+    if (score < 0) return { status: "failed", label: `✗ Presubmit ${score}` };
+    return { status: "not_started", label: "⏸ Presubmit 0" };
+  }
+
+  function getClPresubmitDisplay(c) {
+    const fb = resolveFallbackPresubmitStatusAndLabel(c);
+    let status = (c && c.presubmit_status) || fb.status;
+    let label = (c && c.presubmit_label) || fb.label;
+    const targetEntry = c ? state.presubmitTargetsByCl[Number(c.number)] : null;
+    const tData = targetEntry && targetEntry.data ? targetEntry.data : null;
+    if (tData && tData.run_status === "running" && (status === "queued" || status === "not_started")) {
+      status = "running";
+      label = "⏳ Presubmit Running";
+    }
+    const badgeCls = PRESUBMIT_BADGE_CLASS_MAP[status] || "pv-idle";
+    const isSpinning = status === "running" || status === "queued";
+    const spinnerHtml = isSpinning ? `<span class="pv-mini-spinner"></span> ` : "";
+    let cleanLabel = isSpinning ? label.replace(/^⏳\s*/, "") : label;
+    if (tData && tData.counts && tData.counts.total > 0 && status === "running") {
+      const doneCnt = tData.counts.total - tData.counts.running - tData.counts.queued;
+      cleanLabel = `${cleanLabel} (${doneCnt}/${tData.counts.total})`;
+    }
+    const workplanId = (tData && tData.workplan_id) || (c && c.workplan_id) || "";
+    const workplanUrl = (tData && tData.workplan_url) || (c && c.workplan_url) || "";
+    const checksUrl = (tData && tData.checks_tab_url) || (c && c.checks_tab_url) || "";
+    const summary = (c && c.presubmit_summary) || "";
+    const tipParts = [label];
+    if (summary) tipParts.push(summary);
+    if (workplanId) tipParts.push(`Workplan ${workplanId}`);
+    tipParts.push("Click to inspect presubmit build & test targets");
+    return {
+      status,
+      label: cleanLabel,
+      badgeCls,
+      spinnerHtml,
+      summary,
+      tooltip: tipParts.join(" · "),
+      checksUrl,
+      workplanId,
+      workplanUrl,
+    };
+  }
+
   function renderClCardHtml(c, stackId, stackLen) {
     const isSelected = (state.groupMode === "stack" && state.viewMode === "stack" && stackId === state.selectedStackId) ||
                        (c.number === state.selectedClNumber);
@@ -3346,7 +3779,12 @@
     const ownerTooltip = `${c.owner_name || ownerShort} <${c.owner_email || ownerShort + "@google.com"}> · Click to filter by this author`;
     const authorBadgeHtml = `<span class="author-badge ${isBotOwner ? "author-bot" : ""}" onclick="event.stopPropagation(); setAuthorFilter('${escapeHtml(ownerShort)}')" title="${escapeHtml(ownerTooltip)}">${authorIcon} ${escapeHtml(ownerShort)}@</span>`;
     const reqTag = c.is_agent_cl ? "[Agent CL: 2x +2 req]" : "(1x +2 req)";
-    const pvTag = c.presubmit_vetted ? `✓ Presubmit +${c.presubmit_score}` : `Presubmit ${c.presubmit_score}`;
+    const pv = getClPresubmitDisplay(c);
+    const updatedLabel = c.updated_display || "";
+    const updatedTitle = c.updated_iso ? `Last updated: ${c.updated_iso}` : "Last updated timestamp";
+    const updatedPillHtml = updatedLabel
+      ? `<span class="updated-age-pill ${state.sortBy !== "smart" ? "sort-highlight" : ""}" title="${escapeHtml(updatedTitle)}">· 🕒 ${escapeHtml(updatedLabel)}</span>`
+      : "";
     const typeObj = getCommitTypeObj(c);
     const typeBadgeHtml = `<span class="type-badge type-${escapeHtml(typeObj.id)}">${escapeHtml(typeObj.short)}</span>`;
     const bugBadgesHtml = renderBugBadgesHtml(c);
@@ -3377,12 +3815,23 @@
           ${authorBadgeHtml}
           ${bugBadgesHtml}
           <span>· ${escapeHtml(reqTag)} · ${escapeHtml(c.flight_display)} in flight</span>
+          ${updatedPillHtml}
         </span>
-        <span class="badge badge-rebase">${escapeHtml(pvTag)}</span>
+        <button id="clPvBadge-${c.number}" type="button" class="badge pv-badge ${pv.badgeCls}" onclick="event.stopPropagation(); openPresubmitTargetsFromCard('${escapeHtml(stackId)}', ${c.number})" title="${escapeHtml(pv.tooltip)}">${pv.spinnerHtml}${escapeHtml(pv.label)}</button>
       </div>
       ${participantsStripHtml}
       <div class="approval-slots"><span id="clSwarmSlot-${c.number}">${swarmSlotHtml}</span>${slotsHtml}${invHtml}</div>
     </div>`;
+  }
+
+  function batchApproveVisibleCommits(btnEl) {
+    const ordered = getOrderedVisibleCommits(getVisibleStacks());
+    const nums = ordered.map(item => item.commit.number);
+    if (!nums.length) {
+      showToast("No visible CLs to approve.");
+      return;
+    }
+    castVotes(nums, btnEl);
   }
 
   function batchApproveTypeGroup(typeId, btnEl) {
@@ -3447,15 +3896,42 @@
 
     if (visibleStacks.length === 0) {
       const qRaw = (state.searchQuery || "").trim() || (state.authorFilter !== "all" ? state.authorFilter : "");
-      const gerritQueryBtn = qRaw
-        ? `<div style="margin-top:10px;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;">
-            <button class="btn" onclick="queryGerritForAuthor('${escapeHtml(qRaw)}')">🔎 Query Gerrit for owner:${escapeHtml(qRaw)}</button>
-            <button class="btn" onclick="clearQueueSearchAndAuthor()">Clear Search / Author Filter</button>
-          </div>`
+      const showUnverifiedBtn = (state.gates.presubmit && state.changes.length > 0)
+        ? `<button class="btn" onclick="toggleGate('presubmit')">👁 Show Unverified / Running Presubmit CLs</button>`
+        : "";
+      const actionBtns = [];
+      if (showUnverifiedBtn) actionBtns.push(showUnverifiedBtn);
+      if (qRaw) {
+        actionBtns.push(`<button class="btn" onclick="queryGerritForAuthor('${escapeHtml(qRaw)}')">🔎 Query Gerrit for owner:${escapeHtml(qRaw)}</button>`);
+        actionBtns.push(`<button class="btn" onclick="clearQueueSearchAndAuthor()">Clear Search / Author Filter</button>`);
+      }
+      const actionsRowHtml = actionBtns.length > 0
+        ? `<div style="margin-top:10px;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;">${actionBtns.join("")}</div>`
         : "";
       container.innerHTML = `${bannerHtml}<div style="padding:24px;text-align:center;color:var(--g-muted);">
         No CLs match the current filter${qRaw ? ` (<strong>${escapeHtml(qRaw)}</strong>)` : ""}. Toggle off a gate pill or type filter above to view unverified or already-approved CLs.
-        ${gerritQueryBtn}
+        ${actionsRowHtml}
+      </div>`;
+      return;
+    }
+
+    if (state.groupMode === "type" && (state.sortBy === "updated_desc" || state.sortBy === "updated_asc")) {
+      const orderedItems = getOrderedVisibleCommits(visibleStacks);
+      const sortHeadline = state.sortBy === "updated_asc"
+        ? "🕰️ Sorted by Last Updated · Oldest First"
+        : "🕒 Sorted by Last Updated · Newest First";
+      const cardsHtml = orderedItems.map(
+        item => renderClCardHtml(item.commit, item.stack.stack_id, item.stack.commits.length)
+      ).join("");
+      container.innerHTML = `${bannerHtml}<div class="stack-box type-group-box">
+        <div class="stack-header">
+          <span>${sortHeadline}</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="color:#cbd5e1;">${orderedItems.length} Commit${orderedItems.length === 1 ? "" : "s"}</span>
+            <button class="nudge-btn" onclick="event.stopPropagation(); batchApproveVisibleCommits(this)">✓ +2 All (${orderedItems.length})</button>
+          </div>
+        </div>
+        ${cardsHtml}
       </div>`;
       return;
     }
@@ -3491,7 +3967,8 @@
       return;
     }
 
-    const stackBoxesHtml = visibleStacks.map(st => {
+    const sortedStacks = sortStacksIfNeeded(visibleStacks);
+    const stackBoxesHtml = sortedStacks.map(st => {
       const cardsHtml = st.commits.map(c => renderClCardHtml(c, st.stack_id, st.commits.length)).join("");
 
       if (st.is_stack) {
@@ -3610,7 +4087,7 @@
   }
 
   function setToolbarVoteButtonsDisabled(disabled) {
-    ["btnVotePlus1", "btnVoteCurrent", "btnVotePlus2Auto", "btnVoteAutosubmit", "btnVoteStack"].forEach(id => {
+    ["btnVotePlus1", "btnVoteCurrent", "btnVotePlus2Auto", "btnVoteAutosubmit", "btnPresubmitReady", "btnVoteStack"].forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
       el.disabled = disabled;
@@ -3618,11 +4095,22 @@
     });
   }
 
+  function formatToolbarPresubmitButtonText(primary) {
+    if (primary.viewer_presubmit_ready) return "⏳ Presubmit-Ready +1 ✓";
+    const pv = getClPresubmitDisplay(primary);
+    if (pv.status === "running") return "↻ Re-trigger Presubmit";
+    if (pv.status === "passed" || pv.status === "failed" || pv.status === "warning") {
+      return "↻ Re-run Presubmit +1";
+    }
+    return "▶ Presubmit-Ready +1";
+  }
+
   function syncActiveActionButtons(commits, isDiffLoading) {
     const btnCr1 = document.getElementById("btnVotePlus1");
     const btnCurrent = document.getElementById("btnVoteCurrent");
     const btnCr2Auto = document.getElementById("btnVotePlus2Auto");
     const btnAuto = document.getElementById("btnVoteAutosubmit");
+    const btnPr = document.getElementById("btnPresubmitReady");
     const btnStack = document.getElementById("btnVoteStack");
     const btnAutoFix = document.getElementById("btnAutoFix");
     if (btnAutoFix && !btnAutoFix.classList.contains("is-running-action")) {
@@ -3635,6 +4123,7 @@
       if (btnCurrent) btnCurrent.textContent = "✓ Queue Clear";
       if (btnCr2Auto) btnCr2Auto.textContent = "⚡ +2 & Autosubmit";
       if (btnAuto) btnAuto.textContent = "Autosubmit +1";
+      if (btnPr) btnPr.textContent = "▶ Presubmit-Ready +1";
       if (btnStack) btnStack.textContent = "✓✓ Stack Clear";
       return;
     }
@@ -3652,6 +4141,7 @@
     setToolbarVoteButtonsDisabled(false);
     const myCr = Number(primary.viewer_cr_vote || (primary.approved_by_viewer ? 2 : 0));
     const myAs = Boolean(primary.viewer_autosubmit);
+    const myPr = Boolean(primary.viewer_presubmit_ready);
     if (btnCr1) {
       btnCr1.textContent = myCr === 1 ? `✓ +1 (ag/${primary.number})` : `+1`;
       btnCr1.classList.toggle("is-active-vote", myCr === 1);
@@ -3668,6 +4158,10 @@
       btnAuto.textContent = myAs ? `✓ Autosubmit +1` : (primary.autosubmit_enabled ? `Autosubmit +1 (On)` : `Autosubmit +1`);
       btnAuto.classList.toggle("is-active-vote", myAs);
     }
+    if (btnPr) {
+      btnPr.textContent = formatToolbarPresubmitButtonText(primary);
+      btnPr.classList.toggle("is-active-vote", myPr);
+    }
     if (btnStack) {
       btnStack.textContent = `✓✓ Stack +2 (${commits.length})`;
     }
@@ -3682,9 +4176,17 @@
     }
     const primary = commits.find(c => c.number === state.selectedClNumber) || commits[0];
     document.getElementById("openGerritLink").href = primary.url;
+    const isBootstrap = Boolean(window.__GERRIT_UI_BOOTSTRAP__ && window.__GERRIT_UI_BOOTSTRAP__.changes);
+    const pNum = Number(primary.number);
+    if (!isBootstrap && !state.autoExpandedPresubmitCls.has(pNum)) {
+      if (primary.presubmit_status === "running" || primary.presubmit_status === "failed") {
+        state.autoExpandedPresubmitCls.add(pNum);
+        state.expandedPresubmitCls.add(pNum);
+      }
+    }
 
     const missing = commits.map(c => c.number).filter(num => !state.diffsByCl[num]);
-    const needsFetch = missing.length > 0 && !(window.__GERRIT_UI_BOOTSTRAP__ && window.__GERRIT_UI_BOOTSTRAP__.changes);
+    const needsFetch = missing.length > 0 && !isBootstrap;
     syncActiveActionButtons(commits, needsFetch);
     if (needsFetch) {
       renderDiffPane();
@@ -3695,6 +4197,15 @@
       syncActiveActionButtons(getActiveCommitsForDiff(), false);
     }
     renderDiffPane();
+    if (!isBootstrap) {
+      commits.forEach(c => {
+        const cNum = Number(c.number);
+        if (state.expandedPresubmitCls.has(cNum) && !state.presubmitTargetsByCl[cNum]) {
+          fetchPresubmitTargetsForCl(cNum);
+        }
+      });
+      ensurePresubmitTargetsPollingTimer();
+    }
     pollTranscriptCodeQuestions();
     ensureCodeQuestionPollingTimer();
     if (!opts.preserveScroll) {
@@ -5429,7 +5940,25 @@
     me.votes = nextVotes;
   }
 
-  function applyOptimisticVoteToCl(c, codeReview, autosubmit) {
+  function applyOptimisticPresubmitReadyToCl(c, viewerShort, presubmitReady) {
+    const prVal = presubmitReady === true ? 1 : (presubmitReady === false ? 0 : Number(presubmitReady));
+    c.viewer_presubmit_ready = prVal >= 1;
+    const others = (c.presubmit_ready_voters || []).filter(x => x !== viewerShort);
+    if (prVal >= 1) others.push(viewerShort);
+    c.presubmit_ready_voters = others;
+    c.presubmit_ready_enabled = others.length > 0;
+    if (prVal >= 1) {
+      c.presubmit_status = "queued";
+      c.presubmit_label = "⏳ Presubmit Queued";
+    } else if (c.presubmit_status === "queued" && !c.presubmit_ready_enabled) {
+      const fb = resolveFallbackPresubmitStatusAndLabel(c);
+      c.presubmit_status = fb.status;
+      c.presubmit_label = fb.label;
+    }
+    syncLocalParticipantVoteBadge(c, "Presubmit-Ready", "PR", prVal);
+  }
+
+  function applyOptimisticVoteToCl(c, codeReview, autosubmit, presubmitReady) {
     const viewerEmail = (state.viewer || "").toLowerCase();
     const viewerShort = (state.viewer || "you").split("@")[0];
     if (codeReview !== null && codeReview !== undefined) {
@@ -5463,11 +5992,15 @@
       c.autosubmit_enabled = others.length > 0;
       syncLocalParticipantVoteBadge(c, "Autosubmit", "AS", asVal);
     }
+    if (presubmitReady !== null && presubmitReady !== undefined) {
+      applyOptimisticPresubmitReadyToCl(c, viewerShort, presubmitReady);
+    }
   }
 
   function markClsVotedOptimistically(cls, voteOpts = {}) {
     const cr = voteOpts.codeReview;
     const asOpt = voteOpts.autosubmit;
+    const prOpt = voteOpts.presubmitReady;
     const targetNums = new Set();
     (cls || []).forEach(rawNum => {
       const num = Number(rawNum);
@@ -5477,10 +6010,13 @@
         if (Number(cr) >= 2) state.sessionApprovedCls.add(num);
         else state.sessionApprovedCls.delete(num);
       }
+      if (prOpt !== null && prOpt !== undefined) {
+        delete state.presubmitTargetsByCl[num];
+      }
     });
     const visit = (c) => {
       if (c && targetNums.has(Number(c.number))) {
-        applyOptimisticVoteToCl(c, cr, asOpt);
+        applyOptimisticVoteToCl(c, cr, asOpt, prOpt);
       }
     };
     state.changes.forEach(visit);
@@ -5491,7 +6027,7 @@
     markClsVotedOptimistically(cls, { codeReview: 2 });
   }
 
-  function formatVoteLabelsText(codeReview, autosubmit) {
+  function formatVoteLabelsText(codeReview, autosubmit, presubmitReady) {
     const parts = [];
     const shortParts = [];
     if (codeReview !== null && codeReview !== undefined) {
@@ -5505,6 +6041,12 @@
       const asFmt = asVal > 0 ? `+${asVal}` : String(asVal);
       parts.push(`Autosubmit ${asFmt}`);
       shortParts.push(`Autosubmit ${asFmt}`);
+    }
+    if (presubmitReady !== null && presubmitReady !== undefined && presubmitReady !== false) {
+      const prVal = presubmitReady === true ? 1 : Number(presubmitReady);
+      const prFmt = prVal > 0 ? `+${prVal}` : String(prVal);
+      parts.push(`Presubmit-Ready ${prFmt}`);
+      shortParts.push(`Presubmit-Ready ${prFmt}`);
     }
     return {
       full: parts.join(" & ") || "Vote",
@@ -5532,7 +6074,7 @@
   }
 
   function setVoteButtonsBusy(busy, activeBtn, labelHtml) {
-    const ids = ["btnVotePlus1", "btnVoteCurrent", "btnVotePlus2Auto", "btnVoteAutosubmit", "btnVoteStack"];
+    const ids = ["btnVotePlus1", "btnVoteCurrent", "btnVotePlus2Auto", "btnVoteAutosubmit", "btnPresubmitReady", "btnVoteStack"];
     ids.forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
@@ -5596,6 +6138,9 @@
       return;
     }
     markClsVotedOptimistically(cls, voteOpts);
+    if (voteOpts.presubmitReady && Number(voteOpts.presubmitReady) >= 1 && cls.length === 1) {
+      state.expandedPresubmitCls.add(Number(cls[0]));
+    }
     state.votingInFlight = false;
     syncGlobalLoadingBar();
     setVoteButtonsBusy(false);
@@ -5603,6 +6148,10 @@
     syncActiveActionButtons(getActiveCommitsForDiff(), false);
     document.getElementById("drawerStatus").textContent = `Voted ${labelsText.full} on ${targetDesc} (notify: OWNER)`;
     showToast(`Voted ${labelsText.full} on ${cls.map(x => "ag/" + x).join(", ")} (notify: OWNER)!`);
+    if (voteOpts.presubmitReady && Number(voteOpts.presubmitReady) >= 1 && cls.length === 1) {
+      setTimeout(() => fetchPresubmitTargetsForCl(cls[0], { forceRefresh: true }), 2200);
+      ensurePresubmitTargetsPollingTimer();
+    }
     scheduleSilentPostVoteRefresh();
   }
 
@@ -5657,20 +6206,25 @@
     if (!cls.length || state.votingInFlight) return;
     const cr = voteOpts.codeReview === undefined ? 2 : voteOpts.codeReview;
     const asOpt = voteOpts.autosubmit;
-    const labelsText = formatVoteLabelsText(cr, asOpt);
+    const prOpt = voteOpts.presubmitReady;
+    const labelsText = formatVoteLabelsText(cr, asOpt, prOpt);
     const reqBody = { cls, code_review: cr };
     if (asOpt !== undefined && asOpt !== null && asOpt !== false) {
       reqBody.autosubmit = asOpt === true ? 1 : Number(asOpt);
     }
+    if (prOpt !== undefined && prOpt !== null && prOpt !== false) {
+      reqBody.presubmit_ready = prOpt === true ? 1 : Number(prOpt);
+    }
     const targetDesc = cls.length === 1 ? `ag/${cls[0]}` : `${cls.length} CLs`;
     const activeBtn = triggerBtn || document.getElementById("btnVoteCurrent");
     const shouldAdvanceQueue = cr !== null && Number(cr) >= 2 && state.scope !== "owner";
+    const normOpts = { codeReview: cr, autosubmit: asOpt, presubmitReady: prOpt };
 
     state.votingInFlight = true;
     syncGlobalLoadingBar();
     try {
       if (!shouldAdvanceQueue) {
-        await castInPlaceVoteFlow(cls, activeBtn, reqBody, targetDesc, labelsText, { codeReview: cr, autosubmit: asOpt });
+        await castInPlaceVoteFlow(cls, activeBtn, reqBody, targetDesc, labelsText, normOpts);
         return;
       }
       state.gates.hideMine = true;
@@ -5700,7 +6254,7 @@
       showVoteStampBanner(cls, nextTarget, labelsText.short);
       animateExitingApprovedCards(cls);
       await Promise.all([sleepMs(210), prefetchPromise]);
-      finalizeApprovedQueueTransition(cls, nextTarget, { codeReview: cr, autosubmit: asOpt });
+      finalizeApprovedQueueTransition(cls, nextTarget, normOpts);
       document.getElementById("drawerStatus").textContent = nextTarget
         ? `Voted ${labelsText.short} on ${targetDesc} · Now reviewing ag/${nextTarget.clNumber}`
         : `Voted ${labelsText.short} on ${targetDesc} · Queue cleared!`;
@@ -5738,6 +6292,17 @@
     const clObj = state.changes.find(c => Number(c.number) === Number(state.selectedClNumber));
     const nextAs = clObj && clObj.viewer_autosubmit ? 0 : 1;
     castVotes([state.selectedClNumber], btnEl || document.getElementById("btnVoteAutosubmit"), { codeReview: null, autosubmit: nextAs });
+  }
+
+  function toggleCurrentClPresubmitReady(btnEl) {
+    if (!state.selectedClNumber) return;
+    const clObj = state.changes.find(c => Number(c.number) === Number(state.selectedClNumber));
+    const nextPr = clObj && clObj.viewer_presubmit_ready ? 0 : 1;
+    castVotes(
+      [state.selectedClNumber],
+      btnEl || document.getElementById("btnPresubmitReady"),
+      { codeReview: null, presubmitReady: nextPr }
+    );
   }
 
   function voteActiveStack(btnEl) {
@@ -6187,10 +6752,15 @@
     const revs = getFallbackReviewersForCl(c).filter(p => !p.is_bot && !p.is_owner);
     const humanCcs = (c.ccs_detail || []).filter(p => !p.is_bot);
     const hasAs = Boolean(c.autosubmit_enabled);
-    if (revs.length === 0 && humanCcs.length === 0 && !hasAs) return "";
-    const asPill = hasAs
-      ? [`<span class="card-rev-pill cr-autosubmit" title="Autosubmit +1 enabled (${escapeHtml((c.autosubmit_voters || []).join(', ') || 'active')})">⚡ AS +1</span>`]
-      : [];
+    const hasPr = Boolean(c.presubmit_ready_enabled);
+    if (revs.length === 0 && humanCcs.length === 0 && !hasAs && !hasPr) return "";
+    const statusPills = [];
+    if (hasAs) {
+      statusPills.push(`<span class="card-rev-pill cr-autosubmit" title="Autosubmit +1 enabled (${escapeHtml((c.autosubmit_voters || []).join(', ') || 'active')})">⚡ AS +1</span>`);
+    }
+    if (hasPr) {
+      statusPills.push(`<span class="card-rev-pill" style="background:rgba(130,177,255,0.16);border-color:rgba(130,177,255,0.45);color:#d7e7ff;" title="Presubmit-Ready +1 active (${escapeHtml((c.presubmit_ready_voters || []).join(', ') || 'queued')})">▶ PR +1</span>`);
+    }
     const revPills = revs.map(p => {
       const v = Number(p.cr_vote || 0);
       const cls = v >= 2 ? "cr-pos2" : (v === 1 ? "cr-pos1" : (v < 0 ? "cr-neg" : ""));
@@ -6203,7 +6773,7 @@
       const tip = `${p.full_name || p.name} <${p.email}> · CC`;
       return `<span class="card-rev-pill is-cc" title="${escapeHtml(tip)}">CC: ${escapeHtml(p.short)}</span>`;
     });
-    return `<div class="card-participants-strip">${asPill.concat(revPills, ccPills).join("")}</div>`;
+    return `<div class="card-participants-strip">${statusPills.concat(revPills, ccPills).join("")}</div>`;
   }
 
   function renderVoteBadgesForParticipantHtml(p) {
@@ -6312,6 +6882,12 @@
     const asTitle = myAs
       ? "Click to clear your Autosubmit +1 vote (set 0, notify: OWNER)"
       : "Vote Autosubmit +1 without changing Code-Review (notify: OWNER)";
+    const myPr = Boolean(c.viewer_presubmit_ready);
+    const nextPr = myPr ? 0 : 1;
+    const prLabel = myPr ? "⏳ Presubmit-Ready +1 ✓" : "▶ Presubmit-Ready +1";
+    const prTitle = myPr
+      ? "Click to clear your Presubmit-Ready +1 vote (set 0, notify: OWNER)"
+      : `Vote Presubmit-Ready +1 to trigger TreeHugger presubmit on ag/${c.number} (notify: OWNER)`;
     const clearCrBtn = myCr !== 0
       ? `<button class="quick-vote-chip" title="Clear your Code-Review vote to 0 (notify: OWNER)" onclick="castVotes([${c.number}], this, { codeReview: 0 })">Clear CR (0)</button>`
       : "";
@@ -6322,9 +6898,347 @@
         <button class="quick-vote-chip ${myCr >= 2 ? "active-cr2" : ""}" title="Vote Code-Review +2 on ag/${c.number} (notify: OWNER)" onclick="castVotes([${c.number}], this, { codeReview: 2 })">${myCr >= 2 ? "✓ " : ""}CR +2</button>
         <button class="quick-vote-chip ${(myCr >= 2 && myAs) ? "active-cr2" : ""}" title="Vote Code-Review +2 and Autosubmit +1 on ag/${c.number} (notify: OWNER)" onclick="castVotes([${c.number}], this, { codeReview: 2, autosubmit: 1 })">⚡ +2 &amp; Autosubmit +1</button>
         <button class="quick-vote-chip ${myAs ? "active-as" : ""}" title="${escapeHtml(asTitle)}" onclick="castVotes([${c.number}], this, { codeReview: null, autosubmit: ${nextAs} })">${escapeHtml(asLabel)}</button>
+        <button class="quick-vote-chip ${myPr ? "active-pr" : ""}" title="${escapeHtml(prTitle)}" onclick="castVotes([${c.number}], this, { codeReview: null, presubmitReady: ${nextPr} })">${escapeHtml(prLabel)}</button>
         ${clearCrBtn}
       </div>
     </div>`;
+  }
+
+  const PRESUBMIT_KIND_LABELS = {
+    build: "BUILD",
+    test: "TEST",
+    preflight: "PREFLIGHT",
+    test_module: "MODULE",
+  };
+  const PRESUBMIT_POLL_INTERVAL_MS = 8000;
+
+  function renderPresubmitStatusPillHtml(t) {
+    const st = t.status || "queued";
+    if (st === "failed") {
+      const txt = t.raw_status === "TIMED_OUT" ? "✗ TIMEOUT" : (t.raw_status === "INFRA_ERROR" ? "✗ INFRA ERR" : "✗ FAIL");
+      return `<span class="ps-status-pill st-failed">${escapeHtml(txt)}</span>`;
+    }
+    if (st === "warning") return `<span class="ps-status-pill st-warning">⚠ WARN</span>`;
+    if (st === "running") {
+      return `<span class="ps-status-pill st-running"><span class="pv-mini-spinner"></span> RUN</span>`;
+    }
+    if (st === "queued") return `<span class="ps-status-pill st-queued">⏳ QUEUED</span>`;
+    if (st === "passed" && t.cached) return `<span class="ps-status-pill st-cached">✓ CACHED</span>`;
+    if (st === "passed") return `<span class="ps-status-pill st-passed">✓ PASS</span>`;
+    const skipTxt = t.raw_status === "DEPENDENCY_FAILED" ? "— DEP FAIL" : "— SKIP";
+    return `<span class="ps-status-pill st-skipped">${escapeHtml(skipTxt)}</span>`;
+  }
+
+  function renderSinglePresubmitTargetRowHtml(t, fallbackChecksUrl) {
+    const mainUrl = t.url || fallbackChecksUrl || "#";
+    const kindLabel = PRESUBMIT_KIND_LABELS[t.kind] || "TARGET";
+    const waitTag = t.waiting_on_build
+      ? `<span class="ps-meta-tag" title="Waiting for prerequisite build target to finish">⏳ waiting on build</span>`
+      : "";
+    const isWarnOrNonBlock = t.blocking_level === "WARN" || t.blocking_level === "NON_BLOCKING";
+    const nonBlockTag = (!t.waiting_on_build && isWarnOrNonBlock)
+      ? `<span class="ps-meta-tag">${escapeHtml(t.blocking_level === "WARN" ? "warn-only" : "non-blocking")}</span>`
+      : "";
+    const subHtml = (t.subtitle && t.subtitle !== t.name)
+      ? `<span class="ps-target-sub">· ${escapeHtml(t.subtitle)}</span>`
+      : "";
+    const durHtml = t.duration_display ? `<span>${escapeHtml(t.duration_display)}</span>` : "";
+    const artHtml = t.artifact_id
+      ? `<span class="ps-artifact-tag" title="Android Build / AnTS Invocation ID">${escapeHtml(t.artifact_id)}</span>`
+      : "";
+    const secLinkHtml = t.secondary_url
+      ? `<a class="ps-target-sec-link" href="${escapeHtml(t.secondary_url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${escapeHtml(t.secondary_label || "Details")} ↗</a>`
+      : "";
+    const tipParts = [`[${kindLabel}] ${t.name}`, `Status: ${t.raw_status || t.status}`];
+    if (t.subtitle) tipParts.push(t.subtitle);
+    if (t.artifact_id) tipParts.push(`ID: ${t.artifact_id}`);
+    if (t.duration_display) tipParts.push(`Duration: ${t.duration_display}`);
+    return `<div class="ps-target-row status-${escapeHtml(t.status || "queued")}">
+      <a class="ps-target-main-link" href="${escapeHtml(mainUrl)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(tipParts.join(" · "))}" onclick="event.stopPropagation()">
+        ${renderPresubmitStatusPillHtml(t)}
+        <span class="ps-kind-tag">${escapeHtml(kindLabel)}</span>
+        <span class="ps-target-name">${escapeHtml(t.name)} ↗</span>
+        ${waitTag}${nonBlockTag}${subHtml}
+      </a>
+      <div class="ps-target-right">
+        ${durHtml}${artHtml}${secLinkHtml}
+      </div>
+    </div>`;
+  }
+
+  function filterPresubmitTargetsList(targets, filterId) {
+    if (!filterId || filterId === "all") return targets;
+    if (filterId === "failed") return targets.filter(t => t.status === "failed" || t.status === "warning");
+    if (filterId === "running") return targets.filter(t => t.status === "running" || t.status === "queued");
+    if (filterId === "passed") return targets.filter(t => t.status === "passed");
+    return targets;
+  }
+
+  function renderPresubmitDrawerBodyHtml(c, entry, filterId, checksUrl) {
+    const num = Number(c.number);
+    const ps = Number((entry && entry.data && entry.data.patch_set) || c.patch_set || 1);
+    if (!entry || (entry.loading && !entry.data)) {
+      return `<div style="padding:14px 12px;color:var(--g-muted);font-size:11.5px;display:flex;align-items:center;gap:8px;">
+        <span class="btn-spinner"></span>
+        <span>Querying TreeHugger presubmit build &amp; test targets for <strong>ag/${num}</strong> (PS${ps})…</span>
+      </div>`;
+    }
+    if (entry.error && !entry.data) {
+      const checksLink = checksUrl
+        ? `<a class="ag-link" href="${escapeHtml(checksUrl)}" target="_blank" rel="noopener noreferrer">Open Gerrit Checks Tab ↗</a>`
+        : "";
+      return `<div style="padding:12px;font-size:11.5px;color:#f4b4af;display:flex;flex-direction:column;gap:8px;">
+        <div>${escapeHtml(entry.error)}</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <button class="nudge-btn" onclick="event.stopPropagation(); fetchPresubmitTargetsForCl(${num}, { forceRefresh: true })">↻ Retry</button>
+          ${checksLink}
+        </div>
+      </div>`;
+    }
+    const targets = (entry.data && entry.data.targets) || [];
+    if (targets.length === 0) {
+      const triggerBtn = !c.viewer_presubmit_ready
+        ? `<button class="nudge-btn" onclick="event.stopPropagation(); castVotes([${num}], this, { codeReview: null, presubmitReady: 1 })">▶ Trigger Presubmit-Ready +1</button>`
+        : `<span style="color:#f0cf95;font-weight:600;">⏳ Waiting for TreeHugger workplan to allocate targets…</span>`;
+      return `<div style="padding:12px;font-size:11.5px;color:var(--g-muted);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+        <span>No TreeHugger build/test targets recorded yet for <strong>ag/${num}</strong> (PS${ps}).</span>
+        <div style="display:inline-flex;align-items:center;gap:8px;">${triggerBtn}</div>
+      </div>`;
+    }
+    const filtered = filterPresubmitTargetsList(targets, filterId);
+    if (filtered.length === 0) {
+      return `<div style="padding:12px;font-size:11.5px;color:var(--g-muted);">
+        No targets match the <strong>${escapeHtml(filterId)}</strong> filter.
+        <button class="nudge-btn" style="margin-left:6px;" onclick="event.stopPropagation(); setPresubmitTargetFilter(${num}, 'all')">Show All (${targets.length})</button>
+      </div>`;
+    }
+    return `<div class="ps-targets-list">${filtered.map(t => renderSinglePresubmitTargetRowHtml(t, checksUrl)).join("")}</div>`;
+  }
+
+  function renderPresubmitTargetsDrawerHtml(c) {
+    const num = Number(c.number);
+    if (!state.expandedPresubmitCls.has(num)) return "";
+    const entry = state.presubmitTargetsByCl[num] || null;
+    const tData = entry && entry.data ? entry.data : null;
+    const counts = (tData && tData.counts) || { total: 0, failed: 0, warning: 0, running: 0, queued: 0, passed: 0, cached: 0 };
+    const filterId = state.presubmitTargetFilterByCl[num] || "all";
+    const pv = getClPresubmitDisplay(c);
+    const failWarnCnt = counts.failed + counts.warning;
+    const activeCnt = counts.running + counts.queued;
+    const cachedNote = counts.cached > 0 ? ` (${counts.cached} cached)` : "";
+    const isRefreshing = Boolean(entry && entry.loading);
+    const refreshInner = isRefreshing ? `<span class="btn-spinner"></span> Syncing…` : `↻ Refresh`;
+    const wpLink = pv.workplanUrl
+      ? `<a class="ag-link" style="font-size:11px;" href="${escapeHtml(pv.workplanUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Workplan ${escapeHtml(pv.workplanId)} ↗</a>`
+      : "";
+    const checksLink = pv.checksUrl
+      ? `<a class="ag-link" style="font-size:11px;" href="${escapeHtml(pv.checksUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Checks Tab ↗</a>`
+      : "";
+    return `<div class="presubmit-targets-drawer" onclick="event.stopPropagation()">
+      <div class="ps-drawer-header">
+        <div class="ps-filter-tabs">
+          <button type="button" class="ps-filter-tab ${filterId === "all" ? "active" : ""}" onclick="setPresubmitTargetFilter(${num}, 'all')">All (${counts.total})</button>
+          <button type="button" class="ps-filter-tab ${filterId === "failed" ? "active" : ""}" onclick="setPresubmitTargetFilter(${num}, 'failed')">Failed (${failWarnCnt})</button>
+          <button type="button" class="ps-filter-tab ${filterId === "running" ? "active" : ""}" onclick="setPresubmitTargetFilter(${num}, 'running')">Running (${activeCnt})</button>
+          <button type="button" class="ps-filter-tab ${filterId === "passed" ? "active" : ""}" onclick="setPresubmitTargetFilter(${num}, 'passed')">Passed (${counts.passed}${escapeHtml(cachedNote)})</button>
+        </div>
+        <div style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          ${wpLink}
+          ${checksLink}
+          <button type="button" class="nudge-btn" ${isRefreshing ? "disabled" : ""} onclick="fetchPresubmitTargetsForCl(${num}, { forceRefresh: true })">${refreshInner}</button>
+        </div>
+      </div>
+      ${renderPresubmitDrawerBodyHtml(c, entry, filterId, pv.checksUrl)}
+    </div>`;
+  }
+
+  function formatLiveTargetsSummaryText(c, pv) {
+    const entry = state.presubmitTargetsByCl[Number(c.number)];
+    const counts = entry && entry.data && entry.data.counts ? entry.data.counts : null;
+    if (counts && counts.total > 0) {
+      const parts = [];
+      if (counts.failed > 0) parts.push(`${counts.failed} failed`);
+      if (counts.warning > 0) parts.push(`${counts.warning} warn`);
+      if (counts.running > 0) parts.push(`${counts.running} running`);
+      if (counts.queued > 0) parts.push(`${counts.queued} queued`);
+      if (counts.passed > 0) {
+        parts.push(counts.cached > 0 ? `${counts.passed} passed (${counts.cached} cached)` : `${counts.passed} passed`);
+      }
+      return parts.join(" · ");
+    }
+    return pv.summary || "";
+  }
+
+  function renderCommitPresubmitRowHtml(c) {
+    const num = Number(c.number);
+    const pv = getClPresubmitDisplay(c);
+    const isExpanded = state.expandedPresubmitCls.has(num);
+    const entry = state.presubmitTargetsByCl[num];
+    const totalTargets = entry && entry.data && entry.data.counts ? entry.data.counts.total : null;
+    const countSuffix = totalTargets !== null ? ` (${totalTargets})` : "";
+    const toggleLabel = isExpanded ? `▴ Hide Targets${countSuffix}` : `▾ View Targets${countSuffix}`;
+    const summaryText = formatLiveTargetsSummaryText(c, pv);
+    const summaryHtml = summaryText
+      ? `<span style="font-size:11px;color:var(--g-muted);">${escapeHtml(summaryText)}</span>`
+      : "";
+    const quickRunBtnHtml = c.viewer_presubmit_ready
+      ? `<button type="button" class="add-participant-btn" title="Clear Presubmit-Ready +1 (notify: OWNER)" onclick="event.stopPropagation(); castVotes([${num}], this, { codeReview: null, presubmitReady: 0 })">✕ Clear PR+1</button>`
+      : `<button type="button" class="add-participant-btn" title="Vote Presubmit-Ready +1 to run TreeHugger presubmit on ag/${num} (notify: OWNER)" onclick="event.stopPropagation(); castVotes([${num}], this, { codeReview: null, presubmitReady: 1 })">${pv.status === "not_started" ? "▶ Run Presubmit" : "↻ Re-run"}</button>`;
+    const wpLinkHtml = pv.workplanUrl
+      ? `<a class="ag-link" style="font-size:11px;" href="${escapeHtml(pv.workplanUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Workplan ${escapeHtml(pv.workplanId)} ↗</a>`
+      : "";
+    const checksLinkHtml = pv.checksUrl
+      ? `<a class="ag-link" style="font-size:11px;" href="${escapeHtml(pv.checksUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Checks ↗</a>`
+      : "";
+    return `<div class="participants-row">
+      <span class="participants-label">Presubmit</span>
+      <div class="participants-chips">
+        <button type="button" class="badge pv-badge ${pv.badgeCls}" onclick="event.stopPropagation(); togglePresubmitTargets(${num})" title="${escapeHtml(pv.tooltip)}">${pv.spinnerHtml}${escapeHtml(pv.label)}</button>
+        ${summaryHtml}
+        <button type="button" class="add-participant-btn" onclick="event.stopPropagation(); togglePresubmitTargets(${num})">${escapeHtml(toggleLabel)}</button>
+        ${quickRunBtnHtml}
+        ${wpLinkHtml}
+        ${checksLinkHtml}
+      </div>
+    </div>`;
+  }
+
+  function rerenderPresubmitDrawerDom(clNum) {
+    const num = Number(clNum);
+    const clObj = state.changes.find(x => Number(x.number) === num);
+    if (!clObj) return;
+    const rowSlot = document.getElementById(`presubmitRowSlot-${num}`);
+    if (rowSlot) {
+      rowSlot.innerHTML = renderCommitPresubmitRowHtml(clObj);
+    }
+    const drawerSlot = document.getElementById(`presubmitDrawerSlot-${num}`);
+    if (drawerSlot) {
+      drawerSlot.innerHTML = renderPresubmitTargetsDrawerHtml(clObj);
+    }
+    const cardBadge = document.getElementById(`clPvBadge-${num}`);
+    if (cardBadge) {
+      const pv = getClPresubmitDisplay(clObj);
+      cardBadge.className = `badge pv-badge ${pv.badgeCls}`;
+      cardBadge.title = pv.tooltip;
+      cardBadge.innerHTML = `${pv.spinnerHtml}${escapeHtml(pv.label)}`;
+    }
+    if (Number(state.selectedClNumber) === num) {
+      syncActiveActionButtons(getActiveCommitsForDiff(), false);
+    }
+  }
+
+  function togglePresubmitTargets(clNum) {
+    const num = Number(clNum);
+    if (state.expandedPresubmitCls.has(num)) {
+      state.expandedPresubmitCls.delete(num);
+      rerenderPresubmitDrawerDom(num);
+      return;
+    }
+    state.expandedPresubmitCls.add(num);
+    rerenderPresubmitDrawerDom(num);
+    fetchPresubmitTargetsForCl(num);
+    ensurePresubmitTargetsPollingTimer();
+  }
+
+  function openPresubmitTargetsFromCard(stackId, clNum) {
+    const num = Number(clNum);
+    state.expandedPresubmitCls.add(num);
+    const alreadySelected = Number(state.selectedClNumber) === num && state.selectedStackId === stackId;
+    if (alreadySelected) {
+      rerenderPresubmitDrawerDom(num);
+      fetchPresubmitTargetsForCl(num);
+      ensurePresubmitTargetsPollingTimer();
+    } else {
+      selectStackAndCl(stackId, num);
+    }
+    setTimeout(() => {
+      const slot = document.getElementById(`presubmitRowSlot-${num}`);
+      if (slot && typeof slot.scrollIntoView === "function") {
+        slot.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
+    }, 60);
+  }
+
+  function setPresubmitTargetFilter(clNum, filterId) {
+    const num = Number(clNum);
+    state.presubmitTargetFilterByCl[num] = filterId || "all";
+    rerenderPresubmitDrawerDom(num);
+  }
+
+  async function fetchPresubmitTargetsForCl(clNum, opts = {}) {
+    const num = Number(clNum);
+    if (!num || (window.__GERRIT_UI_BOOTSTRAP__ && window.__GERRIT_UI_BOOTSTRAP__.changes)) return;
+    const prev = state.presubmitTargetsByCl[num];
+    if (prev && prev.loading && !opts.forceRefresh) return;
+    const clObj = state.changes.find(x => Number(x.number) === num);
+    const ps = clObj && clObj.patch_set ? Number(clObj.patch_set) : 0;
+    const project = (clObj && clObj.project) || "";
+    state.nextPresubmitReqSeq = (state.nextPresubmitReqSeq || 0) + 1;
+    const reqSeq = state.nextPresubmitReqSeq;
+    state.presubmitTargetsByCl[num] = {
+      loading: true,
+      error: "",
+      data: prev ? prev.data : null,
+      reqSeq,
+    };
+    rerenderPresubmitDrawerDom(num);
+    try {
+      const qsParts = [`cl=${encodeURIComponent(num)}`];
+      if (ps > 0) qsParts.push(`ps=${encodeURIComponent(ps)}`);
+      if (project) qsParts.push(`project=${encodeURIComponent(project)}`);
+      if (opts.forceRefresh) qsParts.push("refresh=1");
+      const resp = await sidecarFetch(`/api/gerrit/presubmit-targets?${qsParts.join("&")}`);
+      const data = await resp.json();
+      const cur = state.presubmitTargetsByCl[num];
+      if (!cur || cur.reqSeq !== reqSeq) return;
+      if (!resp.ok || data.error || data.status !== "ok") {
+        throw new Error(data.error || `HTTP ${resp.status} while querying presubmit targets for ag/${num}`);
+      }
+      state.presubmitTargetsByCl[num] = { loading: false, error: "", data, reqSeq };
+      if (!state.presubmitTargetFilterByCl[num] && data.counts && (data.counts.failed + data.counts.warning) > 0) {
+        state.presubmitTargetFilterByCl[num] = "all";
+      }
+      rerenderPresubmitDrawerDom(num);
+      ensurePresubmitTargetsPollingTimer();
+    } catch (err) {
+      const cur = state.presubmitTargetsByCl[num];
+      if (!cur || cur.reqSeq !== reqSeq) return;
+      state.presubmitTargetsByCl[num] = {
+        loading: false,
+        error: err.message || String(err),
+        data: cur.data,
+        reqSeq,
+      };
+      rerenderPresubmitDrawerDom(num);
+    }
+  }
+
+  function getExpandedActivePresubmitCls() {
+    const out = [];
+    state.expandedPresubmitCls.forEach(num => {
+      const clObj = state.changes.find(x => Number(x.number) === Number(num));
+      const entry = state.presubmitTargetsByCl[Number(num)];
+      const runSt = entry && entry.data ? entry.data.run_status : "";
+      const clSt = clObj ? clObj.presubmit_status : "";
+      if (runSt === "running" || runSt === "queued" || clSt === "running" || clSt === "queued") {
+        out.push(Number(num));
+      }
+    });
+    return out;
+  }
+
+  function ensurePresubmitTargetsPollingTimer() {
+    if (window._presubmitTargetsPollInterval) return;
+    if (getExpandedActivePresubmitCls().length === 0) return;
+    window._presubmitTargetsPollInterval = setInterval(() => {
+      const activeNums = getExpandedActivePresubmitCls();
+      if (activeNums.length === 0) {
+        clearInterval(window._presubmitTargetsPollInterval);
+        window._presubmitTargetsPollInterval = null;
+        return;
+      }
+      activeNums.forEach(num => fetchPresubmitTargetsForCl(num, { forceRefresh: true }));
+    }, PRESUBMIT_POLL_INTERVAL_MS);
   }
 
   function renderCommitReviewersPanelHtml(c, includeClPrefix) {
@@ -6356,6 +7270,8 @@
 
     return `<div id="reviewersPanel-${c.number}" class="cl-participants-panel" data-has-prefix="${includeClPrefix ? "1" : "0"}">
       ${renderCommitQuickVoteRowHtml(c)}
+      <div id="presubmitRowSlot-${c.number}">${renderCommitPresubmitRowHtml(c)}</div>
+      <div id="presubmitDrawerSlot-${c.number}">${renderPresubmitTargetsDrawerHtml(c)}</div>
       <div class="participants-row">
         <span class="participants-label">Reviewers</span>
         <div class="participants-chips">
@@ -6372,9 +7288,12 @@
           ${renderReviewerComposerHtml(c.number, "CC")}
         </div>
       </div>
-      ${renderSentChatDmBannerHtml(c)}
-      ${renderChatDmComposerHtml(c)}
+      ${renderSentChatDmDmOrEmptyHtml(c)}
     </div>`;
+  }
+
+  function renderSentChatDmDmOrEmptyHtml(c) {
+    return `${renderSentChatDmBannerHtml(c)}${renderChatDmComposerHtml(c)}`;
   }
 
   function applyUpdatedSingleClToState(updatedCl) {
@@ -6943,6 +7862,8 @@
       voteCurrentClPlus2Auto();
     } else if (e.key === "u") {
       toggleCurrentClAutosubmit();
+    } else if (e.key === "p") {
+      toggleCurrentClPresubmitReady();
     } else if (e.key === "s") {
       triggerHarness("review-swarm");
     }
