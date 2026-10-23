@@ -1,4 +1,3 @@
-load("@goldfish-build-pypi//:requirements.bzl", "requirement")
 # Copyright 2026 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -58,7 +57,7 @@ py_library(
     ],
     deps = [
         "//protos/aemu-grpc:aemu_grpc_lib",
-        requirement("PyYAML"),
+        "@pypi_aemu//pyyaml",
     ],
 )
 

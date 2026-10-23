@@ -43,7 +43,7 @@ class TidyAddTest(unittest.TestCase):
             self.assertTrue(lines[0].startswith("# Copyright"))
             self.assertTrue(lines[1].startswith("# License"))
             self.assertIn(
-                'load("@goldfish_build//rules:clang_tidy.bzl", "clang_tidy_test")',
+                'load("@aemu//tools/clang_tidy:defs.bzl", "clang_tidy_test")',
                 result,
             )
             self.assertIn("clang_tidy_test(", result)
@@ -54,7 +54,7 @@ class TidyAddTest(unittest.TestCase):
             build_file = Path(tmpdir) / "BUILD.bazel"
             build_file.write_text(
                 """# Copyright 2026
-load("@goldfish_build//rules:clang_tidy.bzl", "clang_tidy_test")
+load("@aemu//tools/clang_tidy:defs.bzl", "clang_tidy_test")
 
 clang_tidy_test(
     name = "tidy",

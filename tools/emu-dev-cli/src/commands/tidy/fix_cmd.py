@@ -208,7 +208,7 @@ def _run_tidy_fix_single_level(
     )
     runner.build(
         [report_target],
-        flags=["--@goldfish_build//:clang_tidy_enabled=true"],
+        flags=["--@aemu//tools/clang_tidy:clang_tidy_enabled=true"],
         check=False,
     )
     yaml_file = lib.tidy_engine._find_yaml_file(runner, report_target, source_dir)
