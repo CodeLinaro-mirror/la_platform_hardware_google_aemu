@@ -38,7 +38,10 @@
     font-family: var(--g-font);
     font-size: 13px;
     line-height: 1.45;
-    overflow-x: hidden;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
   }
 
   .dot {
@@ -144,28 +147,67 @@
   }
 
   .cliff-radar {
-    margin: 10px 18px 8px;
+    margin: 6px 18px 2px;
     background: var(--g-panel);
     border: 1px solid var(--g-border);
-    border-radius: 8px;
-    padding: 10px 14px;
+    border-radius: 7px;
+    padding: 8px 14px;
+    flex-shrink: 0;
+  }
+  .cliff-radar.collapsed {
+    padding: 5px 12px;
+  }
+  .cliff-radar.collapsed .cliff-header {
+    margin-bottom: 0;
+  }
+  .cliff-radar.collapsed .cliff-track {
+    display: none;
+  }
+  .cliff-radar.collapsed .cliff-subtitle {
+    display: none;
   }
   .cliff-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 8px;
+    cursor: pointer;
+    user-select: none;
+    gap: 10px;
+    flex-wrap: wrap;
   }
   .cliff-title {
     font-weight: 700;
-    font-size: 12px;
+    font-size: 11.5px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: #d0d5df;
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: wrap;
   }
+  .cliff-summary-pills {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .cliff-summary-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    border-radius: 4px;
+    background: #23262e;
+    border: 1px solid #353944;
+  }
+  .cliff-summary-pill.fresh { color: #a3e4b7; border-color: rgba(78, 173, 107, 0.35); }
+  .cliff-summary-pill.aging { color: #e8c27d; border-color: rgba(212, 151, 59, 0.35); }
+  .cliff-summary-pill.cliff { color: #f0a39e; border-color: rgba(223, 91, 83, 0.35); }
   .cliff-track {
     display: grid;
     grid-template-columns: 1.15fr 1.25fr 1.6fr;
@@ -237,17 +279,22 @@
     display: grid;
     grid-template-columns: 475px 1fr;
     gap: 12px;
-    padding: 4px 18px 14px;
-    height: calc(100vh - 165px);
+    padding: 4px 18px 12px;
+    flex: 1;
+    min-height: 0;
   }
   @media (max-width: 960px) {
+    body {
+      height: auto;
+      overflow-y: auto;
+    }
     .cliff-track {
       grid-template-columns: 1fr;
     }
     .workspace {
       grid-template-columns: 1fr;
       height: auto;
-      min-height: calc(100vh - 165px);
+      min-height: calc(100vh - 120px);
     }
     .queue-pane {
       max-height: 42vh;
@@ -264,6 +311,149 @@
     flex-direction: column;
     overflow: hidden;
     position: relative;
+  }
+  .queue-search-bar {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--g-border);
+    background: #181a1f;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .queue-search-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .queue-search-input-wrap {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+  }
+  .queue-search-icon {
+    position: absolute;
+    left: 8px;
+    font-size: 11.5px;
+    color: var(--g-muted);
+    pointer-events: none;
+  }
+  .queue-search-input {
+    width: 100%;
+    background: #22252c;
+    border: 1px solid var(--g-border);
+    color: var(--g-text);
+    padding: 5px 26px 5px 26px;
+    border-radius: 5px;
+    font-size: 11.5px;
+    font-family: var(--g-font);
+    outline: none;
+  }
+  .queue-search-input:focus {
+    border-color: var(--g-accent);
+    background: #262a33;
+  }
+  .queue-search-input::placeholder {
+    color: #8b93a4;
+  }
+  .queue-search-clear {
+    position: absolute;
+    right: 5px;
+    background: transparent;
+    border: none;
+    color: var(--g-muted);
+    font-size: 11px;
+    padding: 2px 5px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: none;
+  }
+  .queue-search-clear:hover {
+    color: #ffffff;
+    background: #353944;
+  }
+  .author-filter-select {
+    background: #22252c;
+    color: var(--g-text);
+    border: 1px solid var(--g-border);
+    padding: 4px 8px;
+    border-radius: 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    max-width: 175px;
+  }
+  .author-filter-select:focus {
+    border-color: var(--g-accent);
+    outline: none;
+  }
+  .author-chips-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .author-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    background: #23262e;
+    border: 1px solid #353944;
+    color: var(--g-btn-inactive-text);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .author-chip:hover {
+    color: #ffffff;
+    background: #2d313b;
+    border-color: #4d5464;
+  }
+  .author-chip.active {
+    color: #ffffff;
+    background: #2a3952;
+    border-color: #5b87d6;
+  }
+  .author-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    background: #252932;
+    border: 1px solid #3c4352;
+    color: #c8d6f0;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .author-badge:hover {
+    background: #303643;
+    border-color: #5b87d6;
+    color: #ffffff;
+  }
+  .author-badge.author-bot {
+    background: #26232e;
+    border-color: #433c54;
+    color: #d4c5ef;
+  }
+  .queue-filter-banner {
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: #1f2633;
+    border: 1px solid #3a4b69;
+    color: #dbe7ff;
+    font-size: 11px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
   }
   .queue-toolbar {
     padding: 10px 12px;
@@ -981,7 +1171,7 @@
     color: #ffffff;
   }
   .commit-msg-body {
-    padding: 12px 16px;
+    padding: 8px 0;
     font-family: var(--g-font);
     font-size: 12.5px;
     line-height: 1.55;
@@ -989,10 +1179,35 @@
     word-break: break-word;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 2px;
   }
   .commit-msg-panel.collapsed .commit-msg-body {
     display: none;
+  }
+  .code-line.commit-msg-line {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    padding: 2px 14px 2px 6px;
+    white-space: normal;
+    word-break: break-word;
+    align-items: baseline;
+  }
+  .code-line.commit-msg-line:hover {
+    background: rgba(130, 177, 255, 0.05);
+  }
+  .ln.ln-commit-msg {
+    font-family: var(--g-mono);
+    font-size: 10.5px;
+    padding-right: 10px;
+    white-space: nowrap;
+  }
+  .commit-msg-cell {
+    min-width: 0;
+  }
+  .commit-msg-first-footer {
+    margin-top: 4px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--g-border);
   }
   .commit-msg-subject-line {
     font-weight: 700;
@@ -1133,6 +1348,14 @@
     color: #c0c7d4;
     display: flex;
     justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .file-header-hint {
+    font-family: var(--g-font);
+    font-size: 10.5px;
+    color: var(--g-muted);
+    font-weight: 500;
   }
   .code-table {
     width: 100%;
@@ -1141,16 +1364,365 @@
   }
   .code-line {
     display: grid;
-    grid-template-columns: 44px 44px 1fr;
+    grid-template-columns: 44px 52px 1fr;
     padding: 1px 10px;
     white-space: pre-wrap;
     word-break: break-all;
+    position: relative;
+    border-left: 3px solid transparent;
+    transition: background 0.08s ease;
   }
-  .ln { color: var(--g-subtle); user-select: none; text-align: right; padding-right: 10px; }
+  .code-line:not(.code-hunk):hover {
+    filter: brightness(1.08);
+  }
+  .ln {
+    color: var(--g-subtle);
+    user-select: none;
+    text-align: right;
+    padding-right: 10px;
+    cursor: pointer;
+    position: relative;
+  }
+  .ln:hover {
+    color: #ffffff;
+    text-decoration: underline;
+  }
+  .ln-add-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    border-radius: 3px;
+    background: #2d4263;
+    border: 1px solid #4d73ab;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    margin-right: 4px;
+    opacity: 0;
+    transform: scale(0.9);
+    transition: opacity 0.1s ease, transform 0.1s ease, background 0.1s ease;
+    vertical-align: middle;
+  }
+  .code-line:not(.code-hunk):hover .ln-add-btn,
+  .code-line.code-line-selected .ln-add-btn {
+    opacity: 1;
+    transform: scale(1);
+  }
+  .ln-add-btn:hover {
+    background: #3b5987;
+  }
   .code-add { background: rgba(78, 173, 107, 0.11); color: #b7e3c4; }
   .code-del { background: rgba(223, 91, 83, 0.12); color: #f2bdb9; }
   .code-hunk { background: rgba(130, 177, 255, 0.08); color: #a6c4fa; }
   .code-ctx { color: #c9cdd6; }
+  .code-line.code-line-selected {
+    border-left-color: var(--g-accent) !important;
+    background: rgba(130, 177, 255, 0.19) !important;
+    color: #ffffff;
+  }
+  .code-line.code-line-selected .ln {
+    color: #b9d5ff;
+    font-weight: 700;
+  }
+
+  .code-selection-composer {
+    margin: 6px 12px 10px 44px;
+    background: #1e2128;
+    border: 1px solid #3c4659;
+    border-left: 3px solid var(--g-accent);
+    border-radius: 6px;
+    font-family: var(--g-font);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.38);
+    overflow: hidden;
+  }
+  .composer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 7px 12px;
+    background: #242831;
+    border-bottom: 1px solid var(--g-border);
+  }
+  .composer-loc-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #e4e8f0;
+  }
+  .composer-loc-range {
+    font-family: var(--g-mono);
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: #2e3543;
+    border: 1px solid #455066;
+    color: #a6c8ff;
+  }
+  .composer-mode-switch {
+    display: inline-flex;
+    background: #181a20;
+    border: 1px solid var(--g-border);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .composer-mode-tab {
+    background: transparent;
+    border: none;
+    color: var(--g-btn-inactive-text);
+    padding: 4px 10px;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .composer-mode-tab:hover {
+    color: #ffffff;
+    background: #252831;
+  }
+  .composer-mode-tab.active {
+    background: #313846;
+    color: #ffffff;
+  }
+  .composer-body {
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .composer-quick-chips {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .composer-quick-chip {
+    background: #262a34;
+    border: 1px solid #3b4252;
+    color: var(--g-btn-inactive-text);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .composer-quick-chip:hover {
+    background: #303643;
+    border-color: #525d73;
+    color: #ffffff;
+  }
+  .composer-textarea {
+    width: 100%;
+    min-height: 64px;
+    resize: vertical;
+    background: #15171c;
+    border: 1px solid #383e4c;
+    border-radius: 5px;
+    padding: 8px 10px;
+    color: var(--g-text);
+    font-family: var(--g-font);
+    font-size: 12.5px;
+    line-height: 1.45;
+    outline: none;
+  }
+  .composer-textarea:focus {
+    border-color: var(--g-accent);
+  }
+  .composer-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .composer-checkbox-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--g-btn-inactive-text);
+    cursor: pointer;
+    user-select: none;
+  }
+  .composer-sent-banner {
+    padding: 7px 10px;
+    border-radius: 5px;
+    background: #1e2d24;
+    border: 1px solid #355c44;
+    color: #b7e3c4;
+    font-size: 11.5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .diff-inline-comment {
+    margin: 4px 14px 6px 44px;
+    background: #21242c;
+    border: 1px solid #3b414f;
+    border-left: 3px solid var(--g-amber);
+    border-radius: 5px;
+    padding: 7px 11px;
+    font-family: var(--g-font);
+    transition: background 0.12s ease, border-color 0.12s ease;
+  }
+  .diff-inline-comment.resolved {
+    border-left-color: var(--g-green);
+  }
+  .diff-inline-comment.agent-question {
+    background: #1d222d;
+    border-color: #39455c;
+    border-left-color: var(--g-accent);
+  }
+  .diff-inline-comment.draft-item {
+    background: #22202a;
+    border-color: #463f57;
+    border-left-color: var(--g-purple);
+  }
+  .diff-inline-comment.collapsed {
+    padding: 5px 10px;
+  }
+  .diff-inline-comment.collapsed:hover {
+    background: #262b36;
+    border-color: #4c566d;
+  }
+  .diff-inline-comment-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: nowrap;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #e8c27d;
+    margin-bottom: 5px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .diff-inline-comment.agent-question .diff-inline-comment-head {
+    color: #9ec5ff;
+  }
+  .diff-inline-comment.draft-item .diff-inline-comment-head {
+    color: #d8cbf2;
+  }
+  .diff-inline-comment.collapsed .diff-inline-comment-head {
+    margin-bottom: 0;
+  }
+  .diff-inline-head-left {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+  .diff-inline-head-title {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .diff-inline-preview {
+    display: none;
+    color: var(--g-btn-inactive-text);
+    font-weight: 400;
+    font-size: 11.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .diff-inline-comment.collapsed .diff-inline-preview {
+    display: inline-block;
+  }
+  .diff-inline-comment.collapsed .diff-inline-comment-body-wrap {
+    display: none;
+  }
+  .diff-inline-comment-body {
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--g-text);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .diff-inline-actions {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid #2e3442;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .diff-inline-status-pill {
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: #252b37;
+    border: 1px solid #3c4659;
+    color: #cbd5e1;
+    white-space: nowrap;
+  }
+  .diff-inline-status-pill.sent {
+    background: #1e2d24;
+    border-color: #355c44;
+    color: #b7e3c4;
+  }
+  .diff-inline-agent-reply {
+    margin-top: 8px;
+    padding: 9px 12px;
+    background: #171b24;
+    border: 1px solid #323d52;
+    border-left: 3px solid var(--g-green);
+    border-radius: 5px;
+  }
+  .diff-inline-agent-reply.pending {
+    border-left-color: var(--g-accent);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #b9c9e8;
+    font-size: 11.5px;
+  }
+  .diff-inline-agent-reply-head {
+    font-size: 11px;
+    font-weight: 700;
+    color: #96d9ab;
+    margin-bottom: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .diff-inline-agent-reply-body {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--g-text);
+    white-space: normal;
+    word-break: break-word;
+  }
+  .diff-inline-agent-reply-body p {
+    margin: 0 0 6px 0;
+  }
+  .diff-inline-agent-reply-body p:last-child {
+    margin-bottom: 0;
+  }
+  .code-line.code-line-has-thread {
+    box-shadow: inset 3px 0 0 rgba(217, 160, 91, 0.75);
+  }
+  .code-line.code-line-has-question {
+    box-shadow: inset 3px 0 0 rgba(104, 157, 246, 0.85);
+    background: rgba(104, 157, 246, 0.06);
+  }
 
   .swarm-finding {
     margin: 6px 14px 8px 88px;
@@ -1227,14 +1799,22 @@
   </div>
 </div>
 
-<div class="cliff-radar">
-  <div class="cliff-header">
+<div id="cliffRadar" class="cliff-radar collapsed">
+  <div class="cliff-header" onclick="toggleCliffRadar()" title="Click to expand or collapse Time-in-Flight &amp; Cliff Radar">
     <div class="cliff-title">
       <span class="dot dot-blue"></span>
-      <span>TIME-IN-FLIGHT &amp; "CLIFF" RADAR (OPEN CLS WAITING ON REVIEW / MERGE)</span>
+      <span>TIME-IN-FLIGHT &amp; "CLIFF" RADAR</span>
+      <span class="cliff-summary-pills">
+        <span class="cliff-summary-pill fresh">● Fresh: <span id="freshSummaryCount">0</span></span>
+        <span class="cliff-summary-pill aging">● Aging: <span id="agingSummaryCount">0</span></span>
+        <span class="cliff-summary-pill cliff">▲ Cliff: <span id="cliffSummaryCount">0</span></span>
+      </span>
     </div>
-    <div style="font-size:11.5px;color:var(--g-muted);">
-      Highlights CLs approaching staleness, missing a 2nd human reviewer, or needing rebase
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span class="cliff-subtitle" style="font-size:11.5px;color:var(--g-muted);">
+        Highlights CLs approaching staleness, missing a 2nd human reviewer, or needing rebase
+      </span>
+      <button id="cliffToggleBtn" class="nudge-btn" onclick="event.stopPropagation(); toggleCliffRadar()">Show Radar ▾</button>
     </div>
   </div>
   <div class="cliff-track">
@@ -1255,6 +1835,37 @@
 
 <div class="workspace">
   <div class="queue-pane">
+    <div id="queueSearchBar" class="queue-search-bar">
+      <div class="queue-search-row">
+        <div class="queue-search-input-wrap">
+          <span class="queue-search-icon">🔍</span>
+          <input
+            id="queueSearchInput"
+            class="queue-search-input"
+            type="text"
+            placeholder="Search author, subject, ag/#, b/#, or file… (press /)"
+            oninput="onQueueSearchInput(this.value)"
+            onkeydown="onQueueSearchKeydown(event)"
+          />
+          <button
+            id="queueSearchClearBtn"
+            class="queue-search-clear"
+            onclick="clearQueueSearchAndAuthor()"
+            title="Clear search &amp; author filter (Esc)"
+          >✕</button>
+        </div>
+        <select
+          id="authorFilterSelect"
+          class="author-filter-select"
+          onchange="setAuthorFilter(this.value)"
+          title="Filter commits by author"
+        >
+          <option value="all">👤 All Authors</option>
+        </select>
+      </div>
+      <div id="authorChipsBar" class="author-chips-row"></div>
+    </div>
+
     <div class="queue-toolbar">
       <div class="risk-filters">
         <div id="riskAll" class="risk-tab active" onclick="setRiskFilter('all')">All (<span id="cntAll">0</span>)</div>
@@ -1371,16 +1982,24 @@
     swarmByCl: {},
     sessionApprovedCls: new Set(),
     collapsedCommitMsgs: new Set(),
+    cliffRadarCollapsed: true,
     gates: { presubmit: true, agent: false, hideMine: true },
     riskFilter: "all",
     groupMode: "type",
     typeFilter: "all",
+    authorFilter: "all",
+    searchQuery: "",
+    includeUngatedMatches: false,
     viewMode: "stack",
     selectedStackId: null,
     selectedClNumber: null,
     votingInFlight: false,
     justEnteredClNumber: null,
     queueClearedCount: 0,
+    codeSelection: null,
+    inlineCommentsByCl: {},
+    nextInlineItemId: 1,
+    collapsedInlineIds: new Set(),
   };
 
   function showToast(msg) {
@@ -1427,7 +2046,11 @@
     try {
       const v = viewerOverride || state.viewer || "";
       const sc = scopeOverride || state.scope || "reviewer";
-      const qs = `?scope=${encodeURIComponent(sc)}${v ? `&viewer=${encodeURIComponent(v)}` : ""}`;
+      const authorQ = opts.author || "";
+      let qs = `?scope=${encodeURIComponent(sc)}${v ? `&viewer=${encodeURIComponent(v)}` : ""}`;
+      if (authorQ) {
+        qs += `&author=${encodeURIComponent(authorQ)}`;
+      }
       const resp = await sidecarFetch(`/api/gerrit/queue${qs}`);
       const data = await resp.json();
       if (data.error) {
@@ -1469,7 +2092,12 @@
       }
     });
     if (Array.isArray(data.prefetched_diffs)) {
-      data.prefetched_diffs.forEach(d => { state.diffsByCl[d.number] = d; });
+      data.prefetched_diffs.forEach(d => {
+        state.diffsByCl[d.number] = d;
+        if (Array.isArray(d.code_questions)) {
+          mergeTranscriptCodeQuestions(d.code_questions, { silentDom: true });
+        }
+      });
     }
     const scopeEl = document.getElementById("scopeSelect");
     if (scopeEl && state.scope) {
@@ -1478,6 +2106,7 @@
     renderViewerDropdown();
     renderAll({ preserveScroll: Boolean(opts.preserveScroll) });
     ensureSwarmPollingTimer();
+    ensureCodeQuestionPollingTimer();
   }
 
   function renderViewerDropdown() {
@@ -1647,6 +2276,206 @@
     return Boolean(cl.approved_by_viewer || state.sessionApprovedCls.has(Number(cl.number)));
   }
 
+  function getClPrimaryAuthorShort(cl) {
+    if (!cl) return "unknown";
+    return String(cl.owner_short || (cl.owner_email || "").split("@")[0] || "unknown").toLowerCase();
+  }
+
+  function isClBotOwner(cl) {
+    if (!cl) return false;
+    if (typeof cl.owner_is_bot === "boolean") return cl.owner_is_bot;
+    const s = getClPrimaryAuthorShort(cl);
+    return (
+      s.startsWith("groupagent-") ||
+      s.startsWith("corpagent-") ||
+      s.startsWith("android-build-") ||
+      s.includes("-presubmit") ||
+      s.includes("robot") ||
+      s.includes("automerger")
+    );
+  }
+
+  function hasActiveAuthorOrSearchFilter() {
+    return (state.authorFilter && state.authorFilter !== "all") || Boolean((state.searchQuery || "").trim());
+  }
+
+  function matchesAuthorFilter(cl) {
+    const af = (state.authorFilter || "all").toLowerCase();
+    if (!af || af === "all") return true;
+    const ownerShort = getClPrimaryAuthorShort(cl);
+    const authorShort = String(cl.author_short || "").toLowerCase();
+    const uploaderShort = String(cl.uploader_short || "").toLowerCase();
+    return ownerShort === af || authorShort === af || uploaderShort === af;
+  }
+
+  function matchesSearchQuery(cl) {
+    const raw = (state.searchQuery || "").trim().toLowerCase();
+    if (!raw) return true;
+    const tokens = raw.split(/\s+/).filter(Boolean);
+    if (!tokens.length) return true;
+
+    const bugs = getClBugs(cl);
+    const bugStr = bugs.map(b => `b/${b.id} ${b.id} ${b.title || ""}`).join(" ");
+    const filesStr = Array.isArray(cl.files) ? cl.files.join(" ") : "";
+    const haystack = [
+      `ag/${cl.number}`,
+      String(cl.number || ""),
+      cl.owner_short || "",
+      cl.owner_email || "",
+      cl.owner_name || "",
+      cl.author_short || "",
+      cl.author_email || "",
+      cl.author_name || "",
+      cl.uploader_short || "",
+      cl.uploader_email || "",
+      cl.uploader_name || "",
+      cl.subject || "",
+      cl.commit_message || "",
+      cl.project_short || "",
+      cl.project || "",
+      cl.branch || "",
+      cl.topic || "",
+      bugStr,
+      filesStr,
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return tokens.every(tok => {
+      const cleaned = tok.replace(/^(author:|owner:|from:|by:|file:|path:)/, "");
+      return haystack.includes(cleaned || tok);
+    });
+  }
+
+  function matchesAuthorAndSearch(cl) {
+    return matchesAuthorFilter(cl) && matchesSearchQuery(cl);
+  }
+
+  function onQueueSearchInput(val) {
+    state.searchQuery = String(val || "");
+    state.includeUngatedMatches = false;
+    state.explicitRadarSelection = false;
+    syncSearchClearButton();
+    renderAll();
+  }
+
+  function onQueueSearchKeydown(event) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (state.searchQuery || state.authorFilter !== "all") {
+        clearQueueSearchAndAuthor();
+      } else {
+        event.target.blur();
+      }
+    }
+  }
+
+  function setAuthorFilter(authorShort) {
+    const norm = String(authorShort || "all").trim().toLowerCase() || "all";
+    state.authorFilter = state.authorFilter === norm && norm !== "all" ? "all" : norm;
+    state.includeUngatedMatches = false;
+    state.explicitRadarSelection = false;
+    const sel = document.getElementById("authorFilterSelect");
+    if (sel) sel.value = state.authorFilter;
+    syncSearchClearButton();
+    renderAll();
+  }
+
+  function clearQueueSearchAndAuthor() {
+    state.searchQuery = "";
+    state.authorFilter = "all";
+    state.includeUngatedMatches = false;
+    state.explicitRadarSelection = false;
+    const inp = document.getElementById("queueSearchInput");
+    if (inp) inp.value = "";
+    const sel = document.getElementById("authorFilterSelect");
+    if (sel) sel.value = "all";
+    syncSearchClearButton();
+    renderAll();
+  }
+
+  function toggleIncludeUngatedMatches() {
+    state.includeUngatedMatches = !state.includeUngatedMatches;
+    renderAll();
+  }
+
+  async function queryGerritForAuthor(authorStr) {
+    const clean = String(authorStr || "").replace(/^(author:|owner:|from:|by:)/i, "").trim();
+    if (!clean) return;
+    showToast(`Querying Gerrit for reviewer:${state.viewer} owner:${clean}…`);
+    await fetchQueueData(state.viewer, state.scope, { author: clean, preserveDiffCache: true });
+  }
+
+  function syncSearchClearButton() {
+    const btn = document.getElementById("queueSearchClearBtn");
+    if (!btn) return;
+    btn.style.display = hasActiveAuthorOrSearchFilter() ? "inline-block" : "none";
+  }
+
+  function renderAuthorFilterControls() {
+    const sel = document.getElementById("authorFilterSelect");
+    const chipsBar = document.getElementById("authorChipsBar");
+    if (!sel && !chipsBar) return;
+
+    const byAuthor = new Map();
+    state.changes.forEach(c => {
+      const short = getClPrimaryAuthorShort(c);
+      if (!byAuthor.has(short)) {
+        byAuthor.set(short, {
+          short,
+          name: c.owner_name || short,
+          email: c.owner_email || `${short}@google.com`,
+          isBot: isClBotOwner(c),
+          total: 0,
+          gated: 0,
+        });
+      }
+      const entry = byAuthor.get(short);
+      entry.total += 1;
+      if (passesGates(c)) {
+        entry.gated += 1;
+      }
+    });
+
+    const authors = Array.from(byAuthor.values()).sort((a, b) => {
+      if (a.isBot !== b.isBot) return a.isBot ? 1 : -1;
+      if (b.total !== a.total) return b.total - a.total;
+      return a.short.localeCompare(b.short);
+    });
+
+    if (sel) {
+      const optsHtml = [
+        `<option value="all" ${state.authorFilter === "all" ? "selected" : ""}>👤 All Authors (${state.changes.length})</option>`,
+        ...authors.map(a => {
+          const icon = a.isBot ? "🤖" : "👤";
+          const label = a.name && a.name.toLowerCase() !== a.short ? `${a.short} (${a.name})` : `${a.short}@`;
+          return `<option value="${escapeHtml(a.short)}" ${state.authorFilter === a.short ? "selected" : ""}>${icon} ${escapeHtml(label)} · ${a.total}</option>`;
+        }),
+      ];
+      sel.innerHTML = optsHtml.join("");
+    }
+
+    if (chipsBar) {
+      if (authors.length === 0) {
+        chipsBar.innerHTML = "";
+        return;
+      }
+      const allActive = state.authorFilter === "all" ? "active" : "";
+      const chipsHtml = [
+        `<span class="author-chip ${allActive}" onclick="setAuthorFilter('all')" title="Show all authors in queue">All Authors (${state.changes.length})</span>`,
+        ...authors.map(a => {
+          const isActive = state.authorFilter === a.short ? "active" : "";
+          const icon = a.isBot ? "🤖" : "👤";
+          const shortDisplay = a.short.length > 20 ? a.short.slice(0, 18) + "…" : a.short;
+          const gateNote = a.gated < a.total ? ` (${a.gated} vetted / ${a.total} total)` : ` (${a.total} CLs)`;
+          const title = `${a.name} <${a.email}>${gateNote}`;
+          return `<span class="author-chip ${isActive}" onclick="setAuthorFilter('${escapeHtml(a.short)}')" title="${escapeHtml(title)}">${icon} ${escapeHtml(shortDisplay)} (${a.total})</span>`;
+        }),
+      ];
+      chipsBar.innerHTML = chipsHtml.join("");
+    }
+  }
+
   function passesGates(cl) {
     if (state.gates.presubmit && !cl.presubmit_vetted) return false;
     if (state.gates.agent && !cl.agent_vetted) return false;
@@ -1654,20 +2483,47 @@
     return true;
   }
 
-  function getVisibleStacks() {
-    const visibleStacks = [];
+  function getFilteredStacksSummary() {
+    const gatedStacks = [];
+    const ungatedStacks = [];
+    let gatedCommitCount = 0;
+    let ungatedCommitCount = 0;
+
     state.stacks.forEach(st => {
-      const commits = st.commits.filter(c => {
-        if (!passesGates(c)) return false;
+      const baseMatches = st.commits.filter(c => {
+        if (!matchesAuthorAndSearch(c)) return false;
         if (state.riskFilter !== "all" && c.risk.tier !== state.riskFilter) return false;
         if (state.typeFilter !== "all" && getCommitTypeId(c) !== state.typeFilter) return false;
         return true;
       });
-      if (commits.length > 0) {
-        visibleStacks.push({ ...st, commits });
+      if (baseMatches.length > 0) {
+        ungatedStacks.push({ ...st, commits: baseMatches });
+        ungatedCommitCount += baseMatches.length;
+      }
+      const gatedCommits = baseMatches.filter(passesGates);
+      if (gatedCommits.length > 0) {
+        gatedStacks.push({ ...st, commits: gatedCommits });
+        gatedCommitCount += gatedCommits.length;
       }
     });
-    return visibleStacks;
+
+    const filterActive = hasActiveAuthorOrSearchFilter();
+    const autoBypassedGates =
+      filterActive && (state.includeUngatedMatches || (gatedCommitCount === 0 && ungatedCommitCount > 0));
+    const hiddenByGatesCount = Math.max(0, ungatedCommitCount - gatedCommitCount);
+
+    return {
+      visibleStacks: autoBypassedGates ? ungatedStacks : gatedStacks,
+      gatedCommitCount,
+      ungatedCommitCount,
+      hiddenByGatesCount,
+      autoBypassedGates,
+      filterActive,
+    };
+  }
+
+  function getVisibleStacks() {
+    return getFilteredStacksSummary().visibleStacks;
   }
 
   function getOrderedVisibleCommits(visibleStacks) {
@@ -1712,17 +2568,24 @@
     document.getElementById("bottomHiddenCount").textContent = `${alreadyMine.length} CLs auto-hidden`;
 
     renderCliffRadar();
+    renderAuthorFilterControls();
+    syncSearchClearButton();
 
-    const gated = state.changes.filter(passesGates);
-    const lowCnt = gated.filter(c => c.risk.tier === "low").length;
-    const medCnt = gated.filter(c => c.risk.tier === "medium").length;
-    const highCnt = gated.filter(c => c.risk.tier === "high").length;
-    document.getElementById("cntAll").textContent = gated.length;
+    const authorAndSearchMatched = state.changes.filter(matchesAuthorAndSearch);
+    const gated = authorAndSearchMatched.filter(passesGates);
+    const activePool =
+      hasActiveAuthorOrSearchFilter() && (state.includeUngatedMatches || gated.length === 0)
+        ? authorAndSearchMatched
+        : gated;
+    const lowCnt = activePool.filter(c => c.risk.tier === "low").length;
+    const medCnt = activePool.filter(c => c.risk.tier === "medium").length;
+    const highCnt = activePool.filter(c => c.risk.tier === "high").length;
+    document.getElementById("cntAll").textContent = activePool.length;
     document.getElementById("cntLow").textContent = lowCnt;
     document.getElementById("cntMed").textContent = medCnt;
     document.getElementById("cntHigh").textContent = highCnt;
 
-    const riskGated = gated.filter(c => state.riskFilter === "all" || c.risk.tier === state.riskFilter);
+    const riskGated = activePool.filter(c => state.riskFilter === "all" || c.risk.tier === state.riskFilter);
     COMMIT_TYPE_ORDER.forEach(t => {
       const cntEl = document.getElementById(`cntType_${t.id}`);
       if (cntEl) {
@@ -1730,7 +2593,8 @@
       }
     });
 
-    const visibleStacks = getVisibleStacks();
+    const summary = getFilteredStacksSummary();
+    const visibleStacks = summary.visibleStacks;
     const orderedVisible = getOrderedVisibleCommits(visibleStacks);
     if (!isSelectedVisibleInStacks(visibleStacks) && !state.explicitRadarSelection) {
       if (orderedVisible.length > 0) {
@@ -1742,19 +2606,50 @@
       }
     }
 
-    renderQueueList(visibleStacks);
+    renderQueueList(visibleStacks, summary);
     ensureActiveDiffsLoaded(opts);
   }
 
-  function renderCliffRadar() {
-    const visibleForRadar = state.changes.filter(c => !isClApprovedByViewer(c));
-    const fresh = visibleForRadar.filter(c => c.cliff_zone === "fresh").slice(0, 5);
-    const aging = visibleForRadar.filter(c => c.cliff_zone === "aging").slice(0, 5);
-    const cliff = visibleForRadar.filter(c => c.cliff_zone === "cliff").slice(0, 5);
+  function toggleCliffRadar() {
+    state.cliffRadarCollapsed = !state.cliffRadarCollapsed;
+    const radarEl = document.getElementById("cliffRadar");
+    const btnEl = document.getElementById("cliffToggleBtn");
+    if (radarEl) {
+      radarEl.classList.toggle("collapsed", state.cliffRadarCollapsed);
+    }
+    if (btnEl) {
+      btnEl.textContent = state.cliffRadarCollapsed ? "Show Radar ▾" : "Hide Radar ▴";
+    }
+  }
 
-    document.getElementById("freshCount").textContent = `${fresh.length} CLs`;
-    document.getElementById("agingCount").textContent = `${aging.length} CLs`;
-    document.getElementById("cliffCount").textContent = `${cliff.length} CLs`;
+  function renderCliffRadar() {
+    const radarEl = document.getElementById("cliffRadar");
+    const btnEl = document.getElementById("cliffToggleBtn");
+    if (radarEl) {
+      radarEl.classList.toggle("collapsed", Boolean(state.cliffRadarCollapsed));
+    }
+    if (btnEl) {
+      btnEl.textContent = state.cliffRadarCollapsed ? "Show Radar ▾" : "Hide Radar ▴";
+    }
+
+    const visibleForRadar = state.changes.filter(c => !isClApprovedByViewer(c));
+    const allFresh = visibleForRadar.filter(c => c.cliff_zone === "fresh");
+    const allAging = visibleForRadar.filter(c => c.cliff_zone === "aging");
+    const allCliff = visibleForRadar.filter(c => c.cliff_zone === "cliff");
+    const fresh = allFresh.slice(0, 5);
+    const aging = allAging.slice(0, 5);
+    const cliff = allCliff.slice(0, 5);
+
+    document.getElementById("freshCount").textContent = `${allFresh.length} CLs`;
+    document.getElementById("agingCount").textContent = `${allAging.length} CLs`;
+    document.getElementById("cliffCount").textContent = `${allCliff.length} CLs`;
+
+    const freshSumEl = document.getElementById("freshSummaryCount");
+    const agingSumEl = document.getElementById("agingSummaryCount");
+    const cliffSumEl = document.getElementById("cliffSummaryCount");
+    if (freshSumEl) freshSumEl.textContent = String(allFresh.length);
+    if (agingSumEl) agingSumEl.textContent = String(allAging.length);
+    if (cliffSumEl) cliffSumEl.textContent = String(allCliff.length);
 
     document.getElementById("freshChips").innerHTML = fresh.map(c =>
       `<div class="radar-chip" onclick="selectCl(${c.number})">
@@ -1787,7 +2682,12 @@
     const riskClass = `risk-${c.risk.tier}`;
     const dotClass = c.risk.tier === "low" ? "dot-green" : (c.risk.tier === "medium" ? "dot-amber" : "dot-red");
     const prefix = stackLen > 1 ? `${c.stack_index}/${c.stack_total} · ` : "";
-    const agentTag = c.is_agent_cl ? "[Agent CL: 2x +2 req]" : `${c.owner_short}@ (1x +2 req)`;
+    const ownerShort = getClPrimaryAuthorShort(c);
+    const isBotOwner = isClBotOwner(c);
+    const authorIcon = isBotOwner ? "🤖" : "👤";
+    const ownerTooltip = `${c.owner_name || ownerShort} <${c.owner_email || ownerShort + "@google.com"}> · Click to filter by this author`;
+    const authorBadgeHtml = `<span class="author-badge ${isBotOwner ? "author-bot" : ""}" onclick="event.stopPropagation(); setAuthorFilter('${escapeHtml(ownerShort)}')" title="${escapeHtml(ownerTooltip)}">${authorIcon} ${escapeHtml(ownerShort)}@</span>`;
+    const reqTag = c.is_agent_cl ? "[Agent CL: 2x +2 req]" : "(1x +2 req)";
     const pvTag = c.presubmit_vetted ? `✓ Presubmit +${c.presubmit_score}` : `Presubmit ${c.presubmit_score}`;
     const typeObj = getCommitTypeObj(c);
     const typeBadgeHtml = `<span class="type-badge type-${escapeHtml(typeObj.id)}">${escapeHtml(typeObj.short)}</span>`;
@@ -1815,8 +2715,9 @@
       <div class="cl-meta">
         <span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
           <a class="ag-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">ag/${c.number} ↗</a>
+          ${authorBadgeHtml}
           ${bugBadgesHtml}
-          <span>· ${escapeHtml(agentTag)} · ${escapeHtml(c.flight_display)} in flight</span>
+          <span>· ${escapeHtml(reqTag)} · ${escapeHtml(c.flight_display)} in flight</span>
         </span>
         <span class="badge badge-rebase">${escapeHtml(pvTag)}</span>
       </div>
@@ -1841,11 +2742,60 @@
     castVotes(nums, btnEl);
   }
 
-  function renderQueueList(visibleStacks) {
+  function renderQueueFilterBannerHtml(summary) {
+    if (!summary || !summary.filterActive) return "";
+    const activeDesc = [];
+    if (state.authorFilter && state.authorFilter !== "all") {
+      activeDesc.push(`author:${state.authorFilter}`);
+    }
+    if ((state.searchQuery || "").trim()) {
+      activeDesc.push(`"${state.searchQuery.trim()}"`);
+    }
+    const labelStr = activeDesc.join(" · ");
+
+    if (summary.autoBypassedGates && summary.gatedCommitCount === 0 && summary.ungatedCommitCount > 0) {
+      return `<div class="queue-filter-banner">
+        <span>ℹ️ Showing <strong>${summary.ungatedCommitCount}</strong> matching CL${summary.ungatedCommitCount === 1 ? "" : "s"} for <strong>${escapeHtml(labelStr)}</strong> (including unvetted / already +2'd CLs).</span>
+        <button class="nudge-btn" onclick="clearQueueSearchAndAuthor()">Clear Filter ✕</button>
+      </div>`;
+    }
+    if (summary.hiddenByGatesCount > 0 && !state.includeUngatedMatches) {
+      return `<div class="queue-filter-banner">
+        <span>🔍 Showing <strong>${summary.gatedCommitCount}</strong> vetted CL${summary.gatedCommitCount === 1 ? "" : "s"} for <strong>${escapeHtml(labelStr)}</strong> · <strong>+${summary.hiddenByGatesCount} more</strong> hidden by active gates.</span>
+        <div style="display:flex;gap:6px;">
+          <button class="nudge-btn" onclick="toggleIncludeUngatedMatches()">Show All (${summary.ungatedCommitCount})</button>
+          <button class="nudge-btn" onclick="clearQueueSearchAndAuthor()">Clear ✕</button>
+        </div>
+      </div>`;
+    }
+    if (state.includeUngatedMatches && summary.hiddenByGatesCount > 0) {
+      return `<div class="queue-filter-banner">
+        <span>🔍 Showing all <strong>${summary.ungatedCommitCount}</strong> matching CLs for <strong>${escapeHtml(labelStr)}</strong> (including ${summary.hiddenByGatesCount} ungated).</span>
+        <div style="display:flex;gap:6px;">
+          <button class="nudge-btn" onclick="toggleIncludeUngatedMatches()">Vetted Only (${summary.gatedCommitCount})</button>
+          <button class="nudge-btn" onclick="clearQueueSearchAndAuthor()">Clear ✕</button>
+        </div>
+      </div>`;
+    }
+    return "";
+  }
+
+  function renderQueueList(visibleStacks, summaryOverride) {
     const container = document.getElementById("queueList");
+    const summary = summaryOverride || getFilteredStacksSummary();
+    const bannerHtml = renderQueueFilterBannerHtml(summary);
+
     if (visibleStacks.length === 0) {
-      container.innerHTML = `<div style="padding:24px;text-align:center;color:var(--g-muted);">
-        No CLs match the active filter gates. Toggle off a gate pill or type filter above to view unvetted or already-approved CLs.
+      const qRaw = (state.searchQuery || "").trim() || (state.authorFilter !== "all" ? state.authorFilter : "");
+      const gerritQueryBtn = qRaw
+        ? `<div style="margin-top:10px;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;">
+            <button class="btn" onclick="queryGerritForAuthor('${escapeHtml(qRaw)}')">🔎 Query Gerrit for owner:${escapeHtml(qRaw)}</button>
+            <button class="btn" onclick="clearQueueSearchAndAuthor()">Clear Search / Author Filter</button>
+          </div>`
+        : "";
+      container.innerHTML = `${bannerHtml}<div style="padding:24px;text-align:center;color:var(--g-muted);">
+        No CLs match the current filter${qRaw ? ` (<strong>${escapeHtml(qRaw)}</strong>)` : ""}. Toggle off a gate pill or type filter above to view unvetted or already-approved CLs.
+        ${gerritQueryBtn}
       </div>`;
       return;
     }
@@ -1861,7 +2811,7 @@
         });
       });
 
-      const sectionsHtml = [];
+      const sectionsHtml = bannerHtml ? [bannerHtml] : [];
       COMMIT_TYPE_ORDER.forEach(t => {
         const items = grouped.get(t.id) || [];
         if (items.length === 0) return;
@@ -1881,7 +2831,7 @@
       return;
     }
 
-    container.innerHTML = visibleStacks.map(st => {
+    const stackBoxesHtml = visibleStacks.map(st => {
       const cardsHtml = st.commits.map(c => renderClCardHtml(c, st.stack_id, st.commits.length)).join("");
 
       if (st.is_stack) {
@@ -1895,6 +2845,7 @@
       }
       return `<div class="stack-box">${cardsHtml}</div>`;
     }).join("");
+    container.innerHTML = `${bannerHtml}${stackBoxesHtml}`;
   }
 
   function selectCl(clNum, fromRadar = true, animDir = "next") {
@@ -1974,7 +2925,12 @@
     try {
       const resp = await sidecarFetch(`/api/gerrit/diffs?cls=${missing.join(",")}`);
       const data = await resp.json();
-      (data.diffs || []).forEach(d => { state.diffsByCl[d.number] = d; });
+      (data.diffs || []).forEach(d => {
+        state.diffsByCl[d.number] = d;
+        if (Array.isArray(d.code_questions)) {
+          mergeTranscriptCodeQuestions(d.code_questions, { silentDom: true });
+        }
+      });
     } catch (err) {
       console.error(err);
     }
@@ -2017,6 +2973,8 @@
       await prefetchDiffsForNumbers(missing);
     }
     renderDiffPane();
+    pollTranscriptCodeQuestions();
+    ensureCodeQuestionPollingTimer();
     if (!opts.preserveScroll) {
       const nextIdx = commits.findIndex(c => c.number !== primary.number);
       if (nextIdx >= 0) {
@@ -2025,16 +2983,421 @@
     }
   }
 
-  function renderFileDiffBlock(f) {
-    const linesHtml = (f.lines || []).map(ln => {
+  function mergeTranscriptCodeQuestions(questions, opts = {}) {
+    if (!Array.isArray(questions) || questions.length === 0) return false;
+    let changed = false;
+    questions.forEach(q => {
+      const num = Number(q.cl);
+      if (!num) return;
+      if (!state.inlineCommentsByCl[num]) {
+        state.inlineCommentsByCl[num] = [];
+      }
+      const list = state.inlineCommentsByCl[num];
+      const qFile = q.file_path || "/COMMIT_MSG";
+      const qStart = Number(q.start_line || q.line || 1);
+      const qEnd = Number(q.end_line || q.line || qStart);
+      const qMsg = String(q.question || "").trim();
+      const qReply = String(q.reply || "").trim();
+      const qStatus = q.status || (qReply ? "answered" : "thinking");
+
+      const existing = list.find(item =>
+        item.kind === "agent_question" &&
+        (String(item.id) === String(q.id) ||
+          ((item.file_path || "") === qFile &&
+            Number(item.start_line || item.line || 1) === qStart &&
+            Number(item.end_line || item.line || 1) === qEnd &&
+            String(item.message || "").trim() === qMsg))
+      );
+
+      if (existing) {
+        const hadReply = Boolean(existing.reply);
+        if (qReply && existing.reply !== qReply) {
+          existing.reply = qReply;
+          existing.reply_status = "answered";
+          existing.sending = false;
+          existing.dispatched = true;
+          changed = true;
+          if (!opts.silentDom) {
+            insertOrReplaceInlineItemInDom(num, existing);
+            if (!hadReply) {
+              showToast(`✨ Jetski Agent replied on ${qFile}:L${qStart}!`);
+            }
+          }
+        } else if (existing.sending && qStatus) {
+          existing.sending = false;
+          existing.dispatched = true;
+          existing.reply_status = qStatus;
+          if (!opts.silentDom) {
+            insertOrReplaceInlineItemInDom(num, existing);
+          }
+        }
+      } else {
+        const newItem = {
+          id: q.id || `inline-${state.nextInlineItemId++}`,
+          kind: "agent_question",
+          author_name: (state.viewer || "you").split("@")[0],
+          file_path: qFile,
+          line: qEnd,
+          start_line: qStart,
+          end_line: qEnd,
+          side: q.side || "REVISION",
+          message: qMsg,
+          reply: qReply,
+          reply_status: qStatus,
+          code_snippet: q.code_snippet || "",
+          sending: false,
+          dispatched: true,
+          collapsed: false,
+        };
+        list.push(newItem);
+        changed = true;
+        if (!opts.silentDom) {
+          insertOrReplaceInlineItemInDom(num, newItem);
+        }
+      }
+    });
+    return changed;
+  }
+
+  async function pollTranscriptCodeQuestions() {
+    if (window.__GERRIT_UI_BOOTSTRAP__ && window.__GERRIT_UI_BOOTSTRAP__.changes) {
+      return;
+    }
+    const commits = getActiveCommitsForDiff();
+    const clNums = commits.map(c => c.number).filter(Boolean);
+    if (clNums.length === 0) return;
+    const convId = (window.sidecar && window.sidecar.conversationId) || "";
+    try {
+      const qs = `?cls=${encodeURIComponent(clNums.join(","))}${convId ? `&conversationId=${encodeURIComponent(convId)}` : ""}`;
+      const resp = await sidecarFetch(`/api/gerrit/code-questions${qs}`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (Array.isArray(data.questions)) {
+        mergeTranscriptCodeQuestions(data.questions, { silentDom: false });
+      }
+    } catch (_err) {
+      // Ignore transient poll errors
+    }
+  }
+
+  function hasPendingCodeQuestions() {
+    for (const clKey of Object.keys(state.inlineCommentsByCl || {})) {
+      const list = state.inlineCommentsByCl[clKey] || [];
+      if (list.some(it => it.kind === "agent_question" && !it.reply)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function ensureCodeQuestionPollingTimer() {
+    if (window._codeQuestionPollTimer) return;
+    window._codeQuestionPollTimer = setInterval(() => {
+      if (hasPendingCodeQuestions()) {
+        pollTranscriptCodeQuestions();
+      }
+    }, 2200);
+  }
+
+  function getInlineCommentsForFile(clNum, filePath) {
+    const num = Number(clNum);
+    const list = [];
+    const bundle = state.diffsByCl[num];
+    if (bundle && Array.isArray(bundle.unresolved_threads)) {
+      bundle.unresolved_threads.forEach((t, tIdx) => {
+        if ((t.file_path || "") === filePath) {
+          const itemId = `srv-thread-${num}-${tIdx}`;
+          list.push({
+            id: itemId,
+            kind: "comment",
+            author_name: t.author_name || "reviewer",
+            file_path: t.file_path,
+            line: Number(t.line || 1),
+            start_line: Number(t.start_line || t.line || 1),
+            end_line: Number(t.end_line || t.line || 1),
+            side: t.side || "REVISION",
+            unresolved: true,
+            message: t.latest_message || "",
+            collapsed: state.collapsedInlineIds.has(itemId),
+          });
+        }
+      });
+    }
+    if (bundle && Array.isArray(bundle.code_questions)) {
+      mergeTranscriptCodeQuestions(bundle.code_questions, { silentDom: true });
+    }
+    const localList = state.inlineCommentsByCl[num] || [];
+    localList.forEach(c => {
+      if ((c.file_path || "") === filePath) {
+        if (!c.id) {
+          c.id = `inline-${state.nextInlineItemId++}`;
+        }
+        list.push(c);
+      }
+    });
+    return list;
+  }
+
+  function renderAgentReplyMarkdownHtml(rawReply) {
+    let text = String(rawReply || "").trim();
+    if (!text) return "";
+    // If an earlier turn included multiple sections separated by ---, prefer the section answering the code question
+    const answerSplit = text.match(/(?:^|\n)---\s*\n+([\s\S]*Answer to Your Sidecar Code Question[\s\S]*)$/i);
+    if (answerSplit) {
+      text = answerSplit[1].trim();
+    }
+    const lines = text.split(/\r?\n/);
+    const blocks = [];
+    let i = 0;
+    let para = [];
+    const flushPara = () => {
+      if (para.length > 0) {
+        blocks.push(`<p>${para.map(ln => renderInlineMarkdownHtml(ln, false)).join("<br/>")}</p>`);
+        para = [];
+      }
+    };
+    while (i < lines.length) {
+      const line = lines[i];
+      const trimmed = line.trim();
+      if (!trimmed) {
+        flushPara();
+        i++;
+        continue;
+      }
+      const fenceMatch = trimmed.match(/^(`{3,}|~{3,})(.*)$/);
+      if (fenceMatch) {
+        flushPara();
+        const fence = fenceMatch[1];
+        const lang = fenceMatch[2].trim();
+        const codeLines = [];
+        i++;
+        while (i < lines.length && !lines[i].trim().startsWith(fence)) {
+          codeLines.push(lines[i]);
+          i++;
+        }
+        if (i < lines.length) i++;
+        const langHtml = lang ? `<div class="commit-md-pre-lang">${escapeHtml(lang)}</div>` : "";
+        blocks.push(`<pre class="commit-md-pre">${langHtml}<code class="commit-md-code-block">${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+        continue;
+      }
+      const hMatch = line.match(/^\s*(#{1,4})\s+(.+)$/);
+      if (hMatch) {
+        flushPara();
+        const lvl = Math.min(4, hMatch[1].length);
+        blocks.push(`<div class="commit-md-h commit-md-h${lvl}">${renderInlineMarkdownHtml(hMatch[2].trim(), false)}</div>`);
+        i++;
+        continue;
+      }
+      const listMatch = line.match(/^(\s*)([-*+•]|\d+\.)\s+(.+)$/);
+      if (listMatch) {
+        flushPara();
+        const isOrd = /\d+\./.test(listMatch[2]);
+        const tag = isOrd ? "ol" : "ul";
+        const items = [];
+        while (i < lines.length) {
+          const m = lines[i].match(/^(\s*)([-*+•]|\d+\.)\s+(.+)$/);
+          if (!m) break;
+          const indentPx = Math.min(36, Math.floor(m[1].length / 2) * 12);
+          items.push(`<li class="commit-md-li" ${indentPx ? `style="margin-left:${indentPx}px"` : ""}>${renderInlineMarkdownHtml(m[3], false)}</li>`);
+          i++;
+        }
+        blocks.push(`<${tag} class="commit-md-list">${items.join("")}</${tag}>`);
+        continue;
+      }
+      para.push(line);
+      i++;
+    }
+    flushPara();
+    return blocks.join("");
+  }
+
+  function renderAgentQuestionCardHtml(num, c, itemId, rangeStr, collapsedCls, toggleLabel, singleLinePreview) {
+    const hasReply = Boolean(c.reply && String(c.reply).trim());
+    const replyPreview = hasReply
+      ? ` · ✨ ${String(c.reply).replace(/[#*`_>~]/g, "").replace(/\s+/g, " ").trim()}`
+      : "";
+    const statusText = hasReply
+      ? "✓ Agent Replied"
+      : (c.sending ? "Sending…" : "⏳ Agent Thinking…");
+    const replyHtml = hasReply
+      ? `<div class="diff-inline-agent-reply">
+          <div class="diff-inline-agent-reply-head">
+            <span>✨ Jetski Agent Reply</span>
+          </div>
+          <div class="diff-inline-agent-reply-body">${renderAgentReplyMarkdownHtml(c.reply)}</div>
+        </div>`
+      : `<div class="diff-inline-agent-reply pending">
+          <span class="btn-spinner"></span>
+          <span>Waiting for Jetski Agent reply on <code>${escapeHtml(c.file_path || "")}:${escapeHtml(rangeStr)}</code>…</span>
+        </div>`;
+
+    return `<div id="inlineItem-${escapeHtml(itemId)}" class="diff-inline-comment agent-question ${collapsedCls}" data-inline-id="${escapeHtml(itemId)}" data-cl="${num}">
+      <div class="diff-inline-comment-head" onclick="toggleInlineItemCollapse(${num}, '${escapeHtml(itemId)}')" title="Click to expand or collapse agent question &amp; reply">
+        <div class="diff-inline-head-left">
+          <span class="diff-inline-head-title">🤖 Asked Agent · <code>${escapeHtml(rangeStr)}</code></span>
+          <span class="diff-inline-preview">— "${escapeHtml(singleLinePreview)}"${escapeHtml(replyPreview)}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+          <span class="diff-inline-status-pill ${hasReply ? "sent" : ""}">${escapeHtml(statusText)}</span>
+          <button class="commit-msg-btn inline-collapse-btn" onclick="event.stopPropagation(); toggleInlineItemCollapse(${num}, '${escapeHtml(itemId)}')">${toggleLabel}</button>
+        </div>
+      </div>
+      <div class="diff-inline-comment-body-wrap">
+        <div class="diff-inline-comment-body"><strong>Question:</strong> ${renderInlineMarkdownHtml(c.message || "", false)}</div>
+        ${replyHtml}
+        <div class="diff-inline-actions">
+          <span style="font-size:11px;color:var(--g-muted);">Anchored to <code>${escapeHtml(c.file_path || "")}:${escapeHtml(rangeStr)}</code></span>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            <button class="commit-msg-btn" onclick="reopenInlineBlockInComposer(${num}, '${escapeHtml(itemId)}', 'ask')">🤖 Ask Follow-up</button>
+            <button class="commit-msg-btn" onclick="reopenInlineBlockInComposer(${num}, '${escapeHtml(itemId)}', 'comment')">💬 Comment on Block</button>
+            <button class="commit-msg-btn" onclick="copyInlineAgentPrompt(${num}, '${escapeHtml(itemId)}')">Copy Prompt</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function renderInlineDraftCardHtml(num, c, itemId, rangeStr, collapsedCls, toggleLabel, singleLinePreview) {
+    const modeLabel = c.draft_mode === "ask" ? "Ask Agent Draft" : "Comment Draft";
+    return `<div id="inlineItem-${escapeHtml(itemId)}" class="diff-inline-comment draft-item ${collapsedCls}" data-inline-id="${escapeHtml(itemId)}" data-cl="${num}">
+      <div class="diff-inline-comment-head" onclick="toggleInlineItemCollapse(${num}, '${escapeHtml(itemId)}')" title="Click to expand or collapse saved draft">
+        <div class="diff-inline-head-left">
+          <span class="diff-inline-head-title">📝 ${escapeHtml(modeLabel)} · <code>${escapeHtml(rangeStr)}</code></span>
+          <span class="diff-inline-preview">— "${escapeHtml(singleLinePreview)}"</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+          <span class="diff-inline-status-pill">Unsent Draft</span>
+          <button class="commit-msg-btn inline-collapse-btn" onclick="event.stopPropagation(); toggleInlineItemCollapse(${num}, '${escapeHtml(itemId)}')">${toggleLabel}</button>
+        </div>
+      </div>
+      <div class="diff-inline-comment-body-wrap">
+        <div class="diff-inline-comment-body">${renderInlineMarkdownHtml(c.message || "", false)}</div>
+        <div class="diff-inline-actions">
+          <span style="font-size:11px;color:var(--g-muted);">Saved when you highlighted another block</span>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            <button class="commit-msg-btn" onclick="reopenInlineBlockInComposer(${num}, '${escapeHtml(itemId)}', '${c.draft_mode === "ask" ? "ask" : "comment"}', true)">✎ Resume in Composer</button>
+            <button class="commit-msg-btn" onclick="discardInlineDraft(${num}, '${escapeHtml(itemId)}')">✕ Discard</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function renderInlineCommentCardHtml(clNum, c) {
+    const num = Number(clNum);
+    const itemId = c.id || `inline-${state.nextInlineItemId++}`;
+    const kind = c.kind || "comment";
+    const rangeStr = (c.start_line && c.end_line && Number(c.end_line) > Number(c.start_line))
+      ? `L${c.start_line}–L${c.end_line}`
+      : `L${c.line || 1}`;
+    const isCollapsed = Boolean(c.collapsed);
+    const collapsedCls = isCollapsed ? "collapsed" : "";
+    const toggleLabel = isCollapsed ? "Show ▾" : "Hide ▴";
+    const singleLinePreview = String(c.message || "").replace(/\s+/g, " ").trim();
+
+    if (kind === "agent_question") {
+      return renderAgentQuestionCardHtml(num, c, itemId, rangeStr, collapsedCls, toggleLabel, singleLinePreview);
+    }
+    if (kind === "draft") {
+      return renderInlineDraftCardHtml(num, c, itemId, rangeStr, collapsedCls, toggleLabel, singleLinePreview);
+    }
+
+    const statusLabel = c.unresolved === false ? "Resolved" : "Unresolved";
+    const resolvedCls = c.unresolved === false ? "resolved" : "";
+    return `<div id="inlineItem-${escapeHtml(itemId)}" class="diff-inline-comment ${resolvedCls} ${collapsedCls}" data-inline-id="${escapeHtml(itemId)}" data-cl="${num}">
+      <div class="diff-inline-comment-head" onclick="toggleInlineItemCollapse(${num}, '${escapeHtml(itemId)}')" title="Click to expand or collapse inline comment">
+        <div class="diff-inline-head-left">
+          <span class="diff-inline-head-title">💬 ${escapeHtml(c.author_name || "you")} · <code>${escapeHtml(rangeStr)}</code> (${statusLabel})</span>
+          <span class="diff-inline-preview">— "${escapeHtml(singleLinePreview)}"</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+          <button class="nudge-btn" onclick="event.stopPropagation(); triggerHarnessForCl(${num}, 'address-review')">→ Auto-Fix with Agent</button>
+          <button class="commit-msg-btn inline-collapse-btn" onclick="event.stopPropagation(); toggleInlineItemCollapse(${num}, '${escapeHtml(itemId)}')">${toggleLabel}</button>
+        </div>
+      </div>
+      <div class="diff-inline-comment-body-wrap">
+        <div class="diff-inline-comment-body">${renderInlineMarkdownHtml(c.message || "", false)}</div>
+      </div>
+    </div>`;
+  }
+
+  function renderInlineLineCommentsHtml(clNum, filePath, oldLn, newLn, fileComments, startLn = null, lineIdx = null) {
+    if (!Array.isArray(fileComments) || fileComments.length === 0) return "";
+    const matched = fileComments.filter(c => {
+      if (c.end_idx != null && lineIdx != null) {
+        return Number(c.end_idx) === Number(lineIdx);
+      }
+      if (filePath === "/COMMIT_MSG" && startLn != null && newLn !== "") {
+        const cLn = Number(c.line);
+        return cLn >= Number(startLn) && cLn <= Number(newLn);
+      }
+      const targetSide = String(c.side || "REVISION").toUpperCase();
+      if (targetSide === "PARENT") {
+        return oldLn !== "" && Number(c.line) === Number(oldLn) && !newLn;
+      }
+      return newLn !== "" && Number(c.line) === Number(newLn);
+    });
+    if (matched.length === 0) return "";
+    return matched.map(c => renderInlineCommentCardHtml(clNum, c)).join("");
+  }
+
+  function getLineThreadIndicatorClass(fileComments, oldLn, newLn, startLn = null, lineIdx = null) {
+    if (!Array.isArray(fileComments) || fileComments.length === 0) return "";
+    let hasQuestion = false;
+    let hasThread = false;
+    for (const c of fileComments) {
+      let inRange = false;
+      if (c.start_idx != null && c.end_idx != null && lineIdx != null) {
+        inRange = Number(lineIdx) >= Number(c.start_idx) && Number(lineIdx) <= Number(c.end_idx);
+      } else {
+        const sLn = Number(c.start_line || c.line || 0);
+        const eLn = Number(c.end_line || c.line || 0);
+        const checkLn = String(c.side || "REVISION").toUpperCase() === "PARENT"
+          ? Number(oldLn || 0)
+          : Number(newLn || startLn || 0);
+        if (checkLn > 0 && sLn > 0 && eLn >= sLn) {
+          inRange = checkLn >= sLn && checkLn <= eLn;
+        }
+      }
+      if (inRange) {
+        if (c.kind === "agent_question") {
+          hasQuestion = true;
+        } else {
+          hasThread = true;
+        }
+      }
+    }
+    if (hasQuestion) return "code-line-has-question";
+    if (hasThread) return "code-line-has-thread";
+    return "";
+  }
+
+  function renderFileDiffBlock(f, defaultClNum) {
+    const fallbackCl = Number(defaultClNum || state.selectedClNumber || 0);
+    const fileComments = getInlineCommentsForFile(fallbackCl, f.file);
+    const linesHtml = (f.lines || []).map((ln, idx) => {
       const cls = ln.type === "add" ? "code-add" : (ln.type === "del" ? "code-del" : (ln.type === "hunk" ? "code-hunk" : "code-ctx"));
-      return `<div class="code-line ${cls}"><span class="ln">${escapeHtml(ln.old)}</span><span class="ln">${escapeHtml(ln.new)}</span><span>${escapeHtml(ln.text)}</span></div>`;
+      if (ln.type === "hunk") {
+        return `<div class="code-line ${cls}" data-type="hunk"><span class="ln">${escapeHtml(ln.old)}</span><span class="ln">${escapeHtml(ln.new)}</span><span>${escapeHtml(ln.text)}</span></div>`;
+      }
+      const lineCl = Number(ln.clNum || fallbackCl || 0);
+      const oldStr = ln.old != null ? String(ln.old) : "";
+      const newStr = ln.new != null ? String(ln.new) : "";
+      const threadCls = getLineThreadIndicatorClass(fileComments, oldStr, newStr, null, idx);
+      const inlineCommentsHtml = renderInlineLineCommentsHtml(lineCl, f.file, oldStr, newStr, fileComments, null, idx);
+      return `<div class="code-line ${cls} ${threadCls}" data-cl="${lineCl}" data-file="${escapeHtml(f.file)}" data-idx="${idx}" data-old-ln="${escapeHtml(oldStr)}" data-new-ln="${escapeHtml(newStr)}" data-type="${escapeHtml(ln.type || "ctx")}"><span class="ln ln-old" onclick="onDiffLineGutterClick(event, this)" title="Click to select line · Shift+Click to highlight block">${escapeHtml(oldStr)}</span><span class="ln ln-new" onclick="onDiffLineGutterClick(event, this)" title="Click to Comment or Ask Agent · Shift+Click to highlight block"><span class="ln-add-btn">+</span>${escapeHtml(newStr)}</span><span class="code-text">${escapeHtml(ln.text)}</span></div>${inlineCommentsHtml}`;
     }).join("");
     const truncHtml = f.truncated
-      ? `<div class="code-line code-hunk"><span class="ln">…</span><span class="ln">…</span><span>Diff truncated — click "Open in Gerrit ↗" to view remaining lines</span></div>`
+      ? `<div class="code-line code-hunk" data-type="hunk"><span class="ln">…</span><span class="ln">…</span><span>Diff truncated — click "Open in Gerrit ↗" to view remaining lines</span></div>`
       : "";
-    return `<div class="file-header"><span>${escapeHtml(f.file)}</span><span>+${f.additions} / -${f.deletions}</span></div>
-            <div class="code-table">${linesHtml}${truncHtml}</div>`;
+    return `<div class="file-header">
+              <span>${escapeHtml(f.file)}</span>
+              <div style="display:flex;align-items:center;gap:12px;">
+                <span class="file-header-hint">💡 Drag to highlight code or click line # (+ Shift) to Comment or Ask Agent</span>
+                <span>+${f.additions} / -${f.deletions}</span>
+              </div>
+            </div>
+            <div class="code-table" data-cl="${fallbackCl}" data-file="${escapeHtml(f.file)}">${linesHtml}${truncHtml}</div>`;
   }
 
   function getFullCommitMessage(c, bundle) {
@@ -2054,7 +3417,7 @@
     const stash = html => {
       const idx = tokens.length;
       tokens.push(html);
-      return `\x00MDTOK_${idx}_\x00`;
+      return `\x00MDTOK${idx}\x00`;
     };
 
     let s = escapeHtml(String(rawText || ""));
@@ -2064,9 +3427,12 @@
       stash(`<code class="commit-md-inline-code">${code}</code>`)
     );
 
-    // 2. Explicit Markdown links [label](https://...)
+    // 2. Explicit Markdown links [label](https://...) or [label](file:///...)
     s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, (_m, label, url) =>
       stash(`<a class="ag-link" href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`)
+    );
+    s = s.replace(/\[([^\]]+)\]\((file:\/\/[^\s)]+)\)/gi, (_m, label, url) =>
+      stash(`<span class="ag-link" title="${url}">${label}</span>`)
     );
 
     // 3. Bare http/https URLs
@@ -2098,8 +3464,11 @@
     s = s.replace(/(^|[^*])\*([^\s*](?:[^*]*[^\s*])?)\*(?!\*)/g, "$1<em>$2</em>");
     s = s.replace(/(^|[\s(])_([^\s_](?:[^_]*[^\s_])?)_(?=$|[\s.,;:!?)])/g, "$1<em>$2</em>");
 
-    // Restore stashed tokens
-    return s.replace(/\x00MDTOK_(\d+)_\x00/g, (_m, idx) => tokens[Number(idx)] || "");
+    // Restore stashed tokens (multi-pass for nested tokens like [`code`](url))
+    for (let pass = 0; pass < 4 && s.includes("\x00MDTOK"); pass++) {
+      s = s.replace(/\x00MDTOK(\d+)\x00/g, (_m, idx) => tokens[Number(idx)] || "");
+    }
+    return s;
   }
 
   function _isFooterLine(line) {
@@ -2117,33 +3486,58 @@
     return `<div class="commit-msg-footer-line">${leading}<span class="commit-msg-footer-key">${key}${sep}</span>${rhs}</div>`;
   }
 
-  function formatCommitMessageHtml(rawMsg) {
+  function formatCommitMessageHtml(rawMsg, clNum = 0) {
     const text = String(rawMsg || "").trim();
-    if (!text) return `<span style="color:var(--g-muted);">(No commit message)</span>`;
+    if (!text) return `<span style="color:var(--g-muted);padding:6px 14px;">(No commit message)</span>`;
     const lines = text.split(/\r?\n/);
+    const lineCl = Number(clNum || state.selectedClNumber || 0);
+    const msgComments = getInlineCommentsForFile(lineCl, "/COMMIT_MSG");
 
     // Extract first non-empty line as subject
     let i = 0;
     while (i < lines.length && !lines[i].trim()) i++;
     const subjectLine = i < lines.length ? lines[i] : "";
+    const subjectLn = i + 1;
     i++;
 
-    const blocks = [];
+    const rows = [];
     if (subjectLine) {
-      blocks.push(`<div class="commit-msg-subject-line">${renderInlineMarkdownHtml(subjectLine, false)}</div>`);
+      rows.push({
+        startLn: subjectLn,
+        endLn: subjectLn,
+        rawText: subjectLine,
+        html: `<div class="commit-msg-subject-line">${renderInlineMarkdownHtml(subjectLine, false)}</div>`,
+        extraCls: "",
+      });
     }
 
     let paraLines = [];
     let footerLines = [];
     const flushPara = () => {
       if (paraLines.length > 0) {
-        blocks.push(`<p class="commit-md-p">${paraLines.map(l => renderInlineMarkdownHtml(l, false)).join("\n")}</p>`);
+        const sLn = paraLines[0].ln;
+        const eLn = paraLines[paraLines.length - 1].ln;
+        rows.push({
+          startLn: sLn,
+          endLn: eLn,
+          rawText: paraLines.map(p => p.text).join("\n"),
+          html: `<p class="commit-md-p">${paraLines.map(p => renderInlineMarkdownHtml(p.text, false)).join("\n")}</p>`,
+          extraCls: "",
+        });
         paraLines = [];
       }
     };
     const flushFooters = () => {
       if (footerLines.length > 0) {
-        blocks.push(`<div class="commit-md-footers">${footerLines.map(_renderFooterLineHtml).join("")}</div>`);
+        footerLines.forEach((f, fIdx) => {
+          rows.push({
+            startLn: f.ln,
+            endLn: f.ln,
+            rawText: f.text,
+            html: _renderFooterLineHtml(f.text),
+            extraCls: fIdx === 0 ? "commit-msg-first-footer" : "",
+          });
+        });
         footerLines = [];
       }
     };
@@ -2151,6 +3545,7 @@
     while (i < lines.length) {
       const line = lines[i];
       const trimmed = line.trim();
+      const curLn = i + 1;
 
       // Blank line
       if (!trimmed) {
@@ -2166,22 +3561,35 @@
         flushFooters();
         const fence = fenceMatch[1];
         const lang = fenceMatch[2].trim();
+        const startFenceLn = curLn;
+        const rawBlockLines = [line];
         const codeLines = [];
         i++;
         while (i < lines.length && !lines[i].trim().startsWith(fence)) {
+          rawBlockLines.push(lines[i]);
           codeLines.push(lines[i]);
           i++;
         }
-        if (i < lines.length) i++;
+        if (i < lines.length) {
+          rawBlockLines.push(lines[i]);
+          i++;
+        }
+        const endFenceLn = i;
         const langHtml = lang ? `<div class="commit-md-pre-lang">${escapeHtml(lang)}</div>` : "";
-        blocks.push(`<pre class="commit-md-pre">${langHtml}<code class="commit-md-code-block">${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+        rows.push({
+          startLn: startFenceLn,
+          endLn: endFenceLn,
+          rawText: rawBlockLines.join("\n"),
+          html: `<pre class="commit-md-pre">${langHtml}<code class="commit-md-code-block">${escapeHtml(codeLines.join("\n"))}</code></pre>`,
+          extraCls: "",
+        });
         continue;
       }
 
       // Git / Gerrit trailer footer line
       if (_isFooterLine(line)) {
         flushPara();
-        footerLines.push(line);
+        footerLines.push({ ln: curLn, text: line });
         i++;
         continue;
       }
@@ -2192,7 +3600,13 @@
       // Horizontal rule
       if (/^(---|\*\*\*|___)\s*$/.test(trimmed)) {
         flushPara();
-        blocks.push(`<hr class="commit-md-hr" />`);
+        rows.push({
+          startLn: curLn,
+          endLn: curLn,
+          rawText: line,
+          html: `<hr class="commit-md-hr" />`,
+          extraCls: "",
+        });
         i++;
         continue;
       }
@@ -2202,7 +3616,13 @@
       if (headingMatch) {
         flushPara();
         const level = Math.min(4, headingMatch[1].length);
-        blocks.push(`<div class="commit-md-h commit-md-h${level}">${renderInlineMarkdownHtml(headingMatch[2].trim(), false)}</div>`);
+        rows.push({
+          startLn: curLn,
+          endLn: curLn,
+          rawText: line,
+          html: `<div class="commit-md-h commit-md-h${level}">${renderInlineMarkdownHtml(headingMatch[2].trim(), false)}</div>`,
+          extraCls: "",
+        });
         i++;
         continue;
       }
@@ -2210,12 +3630,22 @@
       // Blockquote (> ...)
       if (/^\s*>\s?/.test(line)) {
         flushPara();
+        const qStartLn = curLn;
+        const rawQuoteLines = [];
         const quoteLines = [];
         while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+          rawQuoteLines.push(lines[i]);
           quoteLines.push(lines[i].replace(/^\s*>\s?/, ""));
           i++;
         }
-        blocks.push(`<blockquote class="commit-md-quote">${quoteLines.map(q => renderInlineMarkdownHtml(q, false)).join("<br/>")}</blockquote>`);
+        const qEndLn = i;
+        rows.push({
+          startLn: qStartLn,
+          endLn: qEndLn,
+          rawText: rawQuoteLines.join("\n"),
+          html: `<blockquote class="commit-md-quote">${quoteLines.map(q => renderInlineMarkdownHtml(q, false)).join("<br/>")}</blockquote>`,
+          extraCls: "",
+        });
         continue;
       }
 
@@ -2226,18 +3656,28 @@
         /^\s*\|?[\s:-]+\|[\s|:-]*$/.test(lines[i + 1])
       ) {
         flushPara();
+        const tStartLn = curLn;
+        const rawTableLines = [lines[i], lines[i + 1]];
         const parseCells = row =>
           row.trim().replace(/^\||\|$/g, "").split("|").map(c => renderInlineMarkdownHtml(c.trim(), false));
         const headers = parseCells(lines[i]);
         i += 2;
-        const rows = [];
+        const tableRows = [];
         while (i < lines.length && lines[i].trim().startsWith("|")) {
-          rows.push(parseCells(lines[i]));
+          rawTableLines.push(lines[i]);
+          tableRows.push(parseCells(lines[i]));
           i++;
         }
+        const tEndLn = i;
         const theadHtml = `<thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead>`;
-        const tbodyHtml = `<tbody>${rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody>`;
-        blocks.push(`<table class="commit-md-table">${theadHtml}${tbodyHtml}</table>`);
+        const tbodyHtml = `<tbody>${tableRows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody>`;
+        rows.push({
+          startLn: tStartLn,
+          endLn: tEndLn,
+          rawText: rawTableLines.join("\n"),
+          html: `<table class="commit-md-table">${theadHtml}${tbodyHtml}</table>`,
+          extraCls: "",
+        });
         continue;
       }
 
@@ -2251,32 +3691,67 @@
         while (i < lines.length) {
           const m = lines[i].match(/^(\s*)([-*+•]|\d+\.)\s+(.+)$/);
           if (!m) {
-            // Continuation line of current list item if indented
             if (items.length > 0 && /^\s{2,}\S/.test(lines[i]) && !_isFooterLine(lines[i])) {
               items[items.length - 1].text += " " + lines[i].trim();
+              items[items.length - 1].rawLines.push(lines[i]);
+              items[items.length - 1].endLn = i + 1;
               i++;
               continue;
             }
             break;
           }
           const indentPx = Math.min(48, Math.floor(m[1].length / 2) * 14);
-          items.push({ indentPx, text: m[3] });
+          items.push({
+            indentPx,
+            text: m[3],
+            marker: m[2],
+            startLn: i + 1,
+            endLn: i + 1,
+            rawLines: [lines[i]],
+          });
           i++;
         }
-        const lisHtml = items
-          .map(it => `<li class="commit-md-li" ${it.indentPx ? `style="margin-left:${it.indentPx}px"` : ""}>${renderInlineMarkdownHtml(it.text, false)}</li>`)
-          .join("");
-        blocks.push(`<${tag} class="commit-md-list">${lisHtml}</${tag}>`);
+        items.forEach((it, itemIdx) => {
+          const startAttr = isOrdered ? ` start="${parseInt(it.marker, 10) || (itemIdx + 1)}"` : "";
+          const liHtml = `<li class="commit-md-li" ${it.indentPx ? `style="margin-left:${it.indentPx}px"` : ""}>${renderInlineMarkdownHtml(it.text, false)}</li>`;
+          rows.push({
+            startLn: it.startLn,
+            endLn: it.endLn,
+            rawText: it.rawLines.join("\n"),
+            html: `<${tag} class="commit-md-list"${startAttr}>${liHtml}</${tag}>`,
+            extraCls: "",
+          });
+        });
         continue;
       }
 
-      paraLines.push(line);
+      paraLines.push({ ln: curLn, text: line });
       i++;
     }
 
     flushPara();
     flushFooters();
-    return blocks.join("");
+
+    return rows.map((row, idx) => {
+      const lnLabel = row.startLn === row.endLn ? String(row.startLn) : `${row.startLn}–${row.endLn}`;
+      const threadCls = getLineThreadIndicatorClass(
+        msgComments,
+        String(row.startLn),
+        String(row.endLn),
+        row.startLn,
+        idx
+      );
+      const inlineCommentsHtml = renderInlineLineCommentsHtml(
+        lineCl,
+        "/COMMIT_MSG",
+        String(row.startLn),
+        String(row.endLn),
+        msgComments,
+        row.startLn,
+        idx
+      );
+      return `<div class="code-line commit-msg-line ${row.extraCls || ""} ${threadCls}" data-cl="${lineCl}" data-file="/COMMIT_MSG" data-idx="${idx}" data-start-ln="${row.startLn}" data-old-ln="${row.startLn}" data-new-ln="${row.endLn}" data-type="msg" data-raw-text="${escapeHtml(row.rawText)}"><span class="ln ln-new ln-commit-msg" onclick="onDiffLineGutterClick(event, this)" title="Click to Comment or Ask Agent on commit message line · Shift+Click to highlight block"><span class="ln-add-btn">+</span>${escapeHtml(lnLabel)}</span><div class="code-text commit-msg-cell">${row.html}</div></div>${inlineCommentsHtml}`;
+    }).join("");
   }
 
   function renderCommitMessagePanelHtml(c, bundle) {
@@ -2292,14 +3767,42 @@
           <span class="commit-msg-title">📝 Commit Message (${lineCount} ${lineCount === 1 ? "line" : "lines"})</span>
           <span class="commit-msg-meta">Author: <strong>${escapeHtml(c.owner_email || c.owner_short || "unknown")}</strong></span>
           ${branchMeta ? `<span class="commit-msg-meta">${branchMeta}${topicMeta}</span>` : ""}
+          <span class="file-header-hint">💡 Drag text or click line # to Comment / Ask Agent</span>
         </div>
         <div class="commit-msg-actions">
+          <button class="commit-msg-btn" onclick="selectFullCommitMessage(${c.number}, 'comment')">💬 Comment</button>
+          <button class="commit-msg-btn" onclick="selectFullCommitMessage(${c.number}, 'ask')">🤖 Ask Agent</button>
           <button class="commit-msg-btn" onclick="copyCommitMessage(${c.number})">Copy Message</button>
           <button id="commitMsgToggleBtn-${c.number}" class="commit-msg-btn" onclick="toggleCommitMessage(${c.number})">${isCollapsed ? "Show ▾" : "Hide ▴"}</button>
         </div>
       </div>
-      <div class="commit-msg-body">${formatCommitMessageHtml(fullMsg)}</div>
+      <div class="commit-msg-body code-table commit-msg-table" data-cl="${c.number}" data-file="/COMMIT_MSG">${formatCommitMessageHtml(fullMsg, c.number)}</div>
     </div>`;
+  }
+
+  function selectFullCommitMessage(clNum, mode = "comment") {
+    const num = Number(clNum);
+    if (state.collapsedCommitMsgs.has(num)) {
+      state.collapsedCommitMsgs.delete(num);
+      const panel = document.getElementById(`commitMsgPanel-${num}`);
+      const btn = document.getElementById(`commitMsgToggleBtn-${num}`);
+      if (panel) panel.classList.remove("collapsed");
+      if (btn) btn.textContent = "Hide ▴";
+    }
+    const tableEl = document.querySelector(`.commit-msg-table[data-cl="${num}"]`);
+    if (!tableEl) return;
+    const allLines = tableEl.querySelectorAll(".code-line[data-idx]");
+    if (!allLines.length) return;
+    const prev = state.codeSelection;
+    if (prev && Number(prev.clNum) === num && prev.filePath === "/COMMIT_MSG") {
+      setCodeSelectionMode(mode);
+      return;
+    }
+    selectCodeBlockRange(tableEl, 0, allLines.length - 1, {
+      anchorIdx: 0,
+      mode,
+      focusInput: true,
+    });
   }
 
   function toggleCommitMessage(clNum) {
@@ -2358,6 +3861,7 @@
       commits.forEach(c => {
         const bundle = state.diffsByCl[c.number];
         ((bundle && bundle.files) || []).forEach(f => {
+          const taggedLines = (f.lines || []).map(ln => Object.assign({}, ln, { clNum: c.number }));
           const prev = byFile.get(f.file);
           if (!prev) {
             byFile.set(f.file, {
@@ -2365,20 +3869,21 @@
               additions: f.additions,
               deletions: f.deletions,
               truncated: Boolean(f.truncated),
-              lines: (f.lines || []).slice(),
+              lines: taggedLines,
             });
           } else {
             prev.additions += f.additions;
             prev.deletions += f.deletions;
             prev.truncated = prev.truncated || Boolean(f.truncated);
             prev.lines.push({ type: "hunk", old: "", new: "", text: `── Commit ag/${c.number}: ${c.subject} ──` });
-            prev.lines.push(...(f.lines || []));
+            prev.lines.push(...taggedLines);
           }
         });
       });
       const squashedFiles = Array.from(byFile.values());
+      const primaryCl = commits[0] ? commits[0].number : state.selectedClNumber;
       const filesHtml = squashedFiles.length > 0
-        ? squashedFiles.map(renderFileDiffBlock).join("")
+        ? squashedFiles.map(f => renderFileDiffBlock(f, primaryCl)).join("")
         : `<div style="padding:12px;color:var(--g-muted);">No file diffs in this stack.</div>`;
       const squashCommitMsgsHtml = commits.map(c => renderCommitMessagePanelHtml(c, state.diffsByCl[c.number])).join("");
       const squashSwarmHtml = commits.map(c => `<div id="swarmPanel-${c.number}">${renderCommitSwarmPanelHtml(c.number)}</div>`).join("");
@@ -2411,7 +3916,7 @@
       } else if (bundle.files.length === 0) {
         filesHtml = `<div style="padding:12px;color:var(--g-muted);">No file diffs in this patchset (commit message or merge-only change).</div>`;
       } else {
-        filesHtml = bundle.files.map(renderFileDiffBlock).join("");
+        filesHtml = bundle.files.map(f => renderFileDiffBlock(f, c.number)).join("");
       }
 
       const threadsHtml = (bundle && Array.isArray(bundle.unresolved_threads) && bundle.unresolved_threads.length > 0)
@@ -2447,6 +3952,677 @@
       </div>`;
     }).join("");
     syncSwarmIndicatorsOnly();
+  }
+
+  function findInlineItemById(clNum, itemId) {
+    const list = state.inlineCommentsByCl[Number(clNum)] || [];
+    return list.find(item => String(item.id) === String(itemId)) || null;
+  }
+
+  function collapseAllInlinePopups() {
+    Object.keys(state.inlineCommentsByCl || {}).forEach(clKey => {
+      (state.inlineCommentsByCl[clKey] || []).forEach(item => {
+        item.collapsed = true;
+      });
+    });
+    document.querySelectorAll(".diff-inline-comment").forEach(el => {
+      el.classList.add("collapsed");
+      const idAttr = el.getAttribute("data-inline-id") || "";
+      if (idAttr.startsWith("srv-thread-")) {
+        state.collapsedInlineIds.add(idAttr);
+      }
+      const btn = el.querySelector(".inline-collapse-btn");
+      if (btn) btn.textContent = "Show ▾";
+    });
+  }
+
+  function insertOrReplaceInlineItemInDom(clNum, item) {
+    if (!item) return;
+    const num = Number(clNum);
+    if (!item.id) {
+      item.id = `inline-${state.nextInlineItemId++}`;
+    }
+    const cardHtml = renderInlineCommentCardHtml(num, item);
+    const existingEl = document.getElementById(`inlineItem-${item.id}`);
+    if (existingEl) {
+      existingEl.outerHTML = cardHtml;
+      return;
+    }
+
+    const tables = Array.from(document.querySelectorAll(".code-table"));
+    const tableEl = tables.find(
+      t =>
+        Number(t.getAttribute("data-cl")) === num &&
+        (t.getAttribute("data-file") || "") === (item.file_path || "")
+    ) || tables.find(t => (t.getAttribute("data-file") || "") === (item.file_path || ""));
+    if (!tableEl) return;
+
+    const allLines = Array.from(tableEl.querySelectorAll(".code-line[data-idx]"));
+    if (item.start_idx != null && item.end_idx != null) {
+      const indicatorCls = item.kind === "agent_question" ? "code-line-has-question" : "code-line-has-thread";
+      allLines.forEach(lineEl => {
+        const idx = Number(lineEl.getAttribute("data-idx"));
+        if (!Number.isNaN(idx) && idx >= Number(item.start_idx) && idx <= Number(item.end_idx)) {
+          lineEl.classList.add(indicatorCls);
+        }
+      });
+    }
+
+    let anchorLineEl = null;
+    if (item.end_idx != null) {
+      anchorLineEl = allLines.find(el => Number(el.getAttribute("data-idx")) === Number(item.end_idx)) || null;
+    }
+    if (!anchorLineEl && allLines.length > 0) {
+      anchorLineEl = allLines.find(el => Number(el.getAttribute("data-new-ln")) === Number(item.line)) || allLines[allLines.length - 1];
+    }
+    if (!anchorLineEl) return;
+
+    let insertAfterEl = anchorLineEl;
+    while (
+      insertAfterEl.nextElementSibling &&
+      insertAfterEl.nextElementSibling.classList &&
+      insertAfterEl.nextElementSibling.classList.contains("diff-inline-comment")
+    ) {
+      insertAfterEl = insertAfterEl.nextElementSibling;
+    }
+    insertAfterEl.insertAdjacentHTML("afterend", cardHtml);
+  }
+
+  function saveSelectionDraftAsCollapsedItem(prevSel) {
+    if (!prevSel || prevSel.savedInlineId) return;
+    const askInput = document.getElementById("codeBlockAskInput");
+    const commentInput = document.getElementById("codeBlockCommentInput");
+    if (askInput) prevSel.askDraft = askInput.value;
+    if (commentInput) prevSel.commentDraft = commentInput.value;
+
+    const askText = (prevSel.askDraft || "").trim();
+    const commentText = (prevSel.commentDraft || "").trim();
+    const activeMode = prevSel.mode === "ask"
+      ? (askText ? "ask" : (commentText ? "comment" : "ask"))
+      : (commentText ? "comment" : (askText ? "ask" : "comment"));
+    const draftMsg = activeMode === "ask" ? askText : commentText;
+    if (!draftMsg) return;
+
+    if (!state.inlineCommentsByCl[prevSel.clNum]) {
+      state.inlineCommentsByCl[prevSel.clNum] = [];
+    }
+    const draftItem = {
+      id: `inline-${state.nextInlineItemId++}`,
+      kind: "draft",
+      draft_mode: activeMode,
+      author_name: (state.viewer || "you").split("@")[0],
+      file_path: prevSel.filePath,
+      line: prevSel.endLine,
+      start_line: prevSel.startLine,
+      end_line: prevSel.endLine,
+      start_idx: prevSel.startIdx,
+      end_idx: prevSel.endIdx,
+      side: prevSel.side,
+      unresolved: prevSel.unresolved !== false,
+      message: draftMsg,
+      code_snippet: prevSel.codeSnippet,
+      collapsed: true,
+    };
+    prevSel.savedInlineId = draftItem.id;
+    state.inlineCommentsByCl[prevSel.clNum].push(draftItem);
+    insertOrReplaceInlineItemInDom(prevSel.clNum, draftItem);
+  }
+
+  function toggleInlineItemCollapse(clNum, itemId) {
+    const idStr = String(itemId || "");
+    const cardEl = document.getElementById(`inlineItem-${idStr}`);
+    if (idStr.startsWith("srv-thread-")) {
+      const nowCollapsed = !state.collapsedInlineIds.has(idStr);
+      if (nowCollapsed) {
+        state.collapsedInlineIds.add(idStr);
+      } else {
+        state.collapsedInlineIds.delete(idStr);
+      }
+      if (cardEl) {
+        cardEl.classList.toggle("collapsed", nowCollapsed);
+        const btn = cardEl.querySelector(".inline-collapse-btn");
+        if (btn) btn.textContent = nowCollapsed ? "Show ▾" : "Hide ▴";
+      }
+      return;
+    }
+
+    const item = findInlineItemById(clNum, idStr);
+    if (!item) return;
+    item.collapsed = !item.collapsed;
+    if (cardEl) {
+      cardEl.classList.toggle("collapsed", Boolean(item.collapsed));
+      const btn = cardEl.querySelector(".inline-collapse-btn");
+      if (btn) btn.textContent = item.collapsed ? "Show ▾" : "Hide ▴";
+    }
+  }
+
+  function copyInlineAgentPrompt(clNum, itemId) {
+    const item = findInlineItemById(clNum, itemId);
+    if (!item) return;
+    const text = item.prompt || item.message || "";
+    navigator.clipboard?.writeText(text);
+    showToast("Copied agent question prompt to clipboard!");
+  }
+
+  function discardInlineDraft(clNum, itemId) {
+    const num = Number(clNum);
+    const list = state.inlineCommentsByCl[num] || [];
+    state.inlineCommentsByCl[num] = list.filter(x => String(x.id) !== String(itemId));
+    const el = document.getElementById(`inlineItem-${itemId}`);
+    if (el) el.remove();
+    showToast("Discarded saved draft.");
+  }
+
+  function reopenInlineBlockInComposer(clNum, itemId, mode = "ask", consumeDraft = false) {
+    const num = Number(clNum);
+    const item = findInlineItemById(num, itemId);
+    if (!item) return;
+    const tables = Array.from(document.querySelectorAll(".code-table"));
+    const tableEl = tables.find(
+      t =>
+        Number(t.getAttribute("data-cl")) === num &&
+        (t.getAttribute("data-file") || "") === (item.file_path || "")
+    ) || tables.find(t => (t.getAttribute("data-file") || "") === (item.file_path || ""));
+    if (!tableEl) return;
+
+    const allLines = Array.from(tableEl.querySelectorAll(".code-line[data-idx]"));
+    let startIdx = item.start_idx != null ? Number(item.start_idx) : 0;
+    let endIdx = item.end_idx != null ? Number(item.end_idx) : startIdx;
+    if (item.start_idx == null && allLines.length > 0) {
+      const matchedLine = allLines.find(el => Number(el.getAttribute("data-new-ln")) === Number(item.line));
+      if (matchedLine) {
+        startIdx = Number(matchedLine.getAttribute("data-idx") || 0);
+        endIdx = startIdx;
+      }
+    }
+
+    const draftText = consumeDraft ? (item.message || "") : "";
+    if (consumeDraft && item.kind === "draft") {
+      state.inlineCommentsByCl[num] = (state.inlineCommentsByCl[num] || []).filter(
+        x => String(x.id) !== String(itemId)
+      );
+      const draftEl = document.getElementById(`inlineItem-${itemId}`);
+      if (draftEl) draftEl.remove();
+    }
+
+    selectCodeBlockRange(tableEl, startIdx, endIdx, {
+      anchorIdx: startIdx,
+      mode,
+      focusInput: true,
+      initialDraft: draftText,
+    });
+  }
+
+  function clearCodeSelection() {
+    if (state.codeSelection) {
+      saveSelectionDraftAsCollapsedItem(state.codeSelection);
+    }
+    state.codeSelection = null;
+    document.querySelectorAll(".code-line.code-line-selected").forEach(el => {
+      el.classList.remove("code-line-selected");
+    });
+    const existingComposer = document.getElementById("codeSelectionComposer");
+    if (existingComposer) {
+      existingComposer.remove();
+    }
+  }
+
+  function buildCodeSelectionComposerInnerHtml(sel) {
+    if (!sel) return "";
+    const isCommitMsg = sel.filePath === "/COMMIT_MSG";
+    const rangeLabel = sel.startLine === sel.endLine
+      ? `L${sel.startLine}`
+      : `L${sel.startLine}–L${sel.endLine}`;
+    const lineCountLabel = sel.lineCount === 1 ? "1 line" : `${sel.lineCount} lines`;
+    const sideBadge = sel.side === "PARENT" ? " · Base/Parent" : "";
+    const isComment = sel.mode !== "ask";
+    const commentDraft = escapeHtml(sel.commentDraft || "");
+    const askDraft = escapeHtml(sel.askDraft || "");
+    const unresolvedChecked = sel.unresolved !== false ? "checked" : "";
+    const targetLabel = isCommitMsg ? "Commit Message (/COMMIT_MSG)" : sel.filePath;
+
+    const quickChipsHtml = isCommitMsg
+      ? `<div class="composer-quick-chips">
+          <span style="font-size:11px;color:var(--g-muted);font-weight:600;">Quick prompts:</span>
+          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Check whether this commit message follows Semantic Commit formatting, line length limits, and required Bug:/Test:/Change-Id: footers.')">Validate Semantic Commit format</button>
+          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Does this commit message accurately and completely describe the code changes in the CL?')">Does message match diff?</button>
+          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Suggest a clearer, more concise commit message for this CL.')">Suggest clearer rewrite</button>
+          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Explain the background and motivation described in this commit message.')">Explain context</button>
+        </div>`
+      : `<div class="composer-quick-chips">
+          <span style="font-size:11px;color:var(--g-muted);font-weight:600;">Quick prompts:</span>
+          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Explain what this highlighted code block does and how it fits into the CL.')">Explain this block</button>
+          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Check this highlighted code block for bugs, race conditions, lifetime issues, or edge cases.')">Check for bugs / edge cases</button>
+          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Is there an existing helper in //emulator/libs/* or a cleaner pattern we should reuse here?')">Check library reuse</button>
+          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Can this code block be simplified or made more readable?')">Suggest simplification</button>
+        </div>`;
+
+    const bodyHtml = isComment
+      ? `<div class="composer-body">
+          <textarea id="codeBlockCommentInput" class="composer-textarea" placeholder="Write an inline Gerrit review comment for ${escapeHtml(targetLabel)} (${rangeLabel}) — Markdown supported…" oninput="onCodeComposerInput('comment', this.value)" onkeydown="onCodeComposerKeydown(event, 'comment')">${commentDraft}</textarea>
+          <div class="composer-footer">
+            <label class="composer-checkbox-label">
+              <input id="codeBlockUnresolvedChk" type="checkbox" ${unresolvedChecked} onchange="if(state.codeSelection) state.codeSelection.unresolved = this.checked;" />
+              <span>Mark as Unresolved</span>
+            </label>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <button class="btn" onclick="setCodeSelectionMode('ask')">🤖 Switch to Ask Agent</button>
+              <button id="btnSubmitCodeComment" class="btn btn-approve" onclick="submitSelectedCodeComment(this)">💬 Post Comment to Gerrit (notify: OWNER)</button>
+            </div>
+          </div>
+        </div>`
+      : `<div class="composer-body">
+          ${quickChipsHtml}
+          <textarea id="codeBlockAskInput" class="composer-textarea" placeholder="Ask the Jetski agent a question about ${escapeHtml(targetLabel)} (${rangeLabel})…" oninput="onCodeComposerInput('ask', this.value)" onkeydown="onCodeComposerKeydown(event, 'ask')">${askDraft}</textarea>
+          ${sel.sentPrompt ? `<div class="composer-sent-banner">
+            <span>✓ Sent question &amp; ${isCommitMsg ? "commit message" : "code block"} (<code>${escapeHtml(rangeLabel)}</code>) to Jetski Agent!</span>
+            <button class="commit-msg-btn" onclick="copyLastSentCodePrompt()">Copy Prompt</button>
+          </div>` : ""}
+          <div class="composer-footer">
+            <span style="font-size:11px;color:var(--g-muted);">Includes <code>ag/${sel.clNum}</code>, <code>${escapeHtml(sel.filePath)}:${escapeHtml(rangeLabel)}</code>, and the ${lineCountLabel} snippet</span>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <button class="btn" onclick="setCodeSelectionMode('comment')">💬 Switch to Gerrit Comment</button>
+              <button id="btnSubmitCodeAsk" class="btn btn-swarm" onclick="submitSelectedCodeQuestion(this)">🤖 Ask Agent About Selection</button>
+            </div>
+          </div>
+        </div>`;
+
+    return `<div class="composer-header">
+      <div class="composer-loc-badge">
+        <span>${isCommitMsg ? "Selected Commit Message" : "Selected Block"} · <strong>ag/${sel.clNum}</strong></span>
+        <span>·</span>
+        <code>${escapeHtml(sel.filePath)}</code>
+        <span class="composer-loc-range">${escapeHtml(rangeLabel)}${escapeHtml(sideBadge)} (${lineCountLabel})</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div class="composer-mode-switch">
+          <button class="composer-mode-tab ${isComment ? "active" : ""}" onclick="setCodeSelectionMode('comment')">💬 Make a Comment</button>
+          <button class="composer-mode-tab ${!isComment ? "active" : ""}" onclick="setCodeSelectionMode('ask')">🤖 Ask Agent Question</button>
+        </div>
+        <button class="commit-msg-btn" onclick="copySelectedCodeSnippet()">${isCommitMsg ? "Copy Text" : "Copy Code"}</button>
+        <button class="commit-msg-btn" onclick="clearCodeSelection()" title="Clear highlight (Esc)">✕ Close</button>
+      </div>
+    </div>
+    ${bodyHtml}`;
+  }
+
+  function extractSelectedBlockMetadata(tableEl, selectedEls) {
+    const lastEl = selectedEls[selectedEls.length - 1];
+    const clNum = Number(lastEl.getAttribute("data-cl") || tableEl.getAttribute("data-cl") || state.selectedClNumber || 0);
+    const filePath = lastEl.getAttribute("data-file") || tableEl.getAttribute("data-file") || "";
+    const isCommitMsg = filePath === "/COMMIT_MSG";
+    const side = selectedEls.some(el => (el.getAttribute("data-new-ln") || "").trim() !== "") ? "REVISION" : "PARENT";
+    const lineNums = [];
+    selectedEls.forEach(el => {
+      const startAttr = Number(el.getAttribute("data-start-ln") || 0);
+      if (!Number.isNaN(startAttr) && startAttr > 0) lineNums.push(startAttr);
+      const rawLn = side === "PARENT"
+        ? (el.getAttribute("data-old-ln") || el.getAttribute("data-new-ln") || "")
+        : (el.getAttribute("data-new-ln") || el.getAttribute("data-old-ln") || "");
+      const n = Number(rawLn);
+      if (!Number.isNaN(n) && n > 0) lineNums.push(n);
+    });
+    const startLine = lineNums.length > 0 ? Math.min(...lineNums) : 1;
+    const endLine = lineNums.length > 0 ? Math.max(...lineNums) : startLine;
+    const snippetLines = selectedEls.map(el => {
+      if (isCommitMsg) return el.getAttribute("data-raw-text") ?? (el.querySelector(".code-text")?.textContent || "");
+      const tp = el.getAttribute("data-type") || "ctx";
+      const prefix = tp === "add" ? "+" : (tp === "del" ? "-" : " ");
+      return prefix + (el.querySelector(".code-text")?.textContent || "");
+    });
+    const lineCount = isCommitMsg ? Math.max(1, endLine - startLine + 1) : selectedEls.length;
+    return { clNum, filePath, side, startLine, endLine, lineCount, codeSnippet: snippetLines.join("\n") };
+  }
+
+  function mountCodeSelectionComposer(lastEl, focusInput = false) {
+    let composerEl = document.getElementById("codeSelectionComposer");
+    if (!composerEl) {
+      composerEl = document.createElement("div");
+      composerEl.id = "codeSelectionComposer";
+      composerEl.className = "code-selection-composer";
+    }
+    composerEl.innerHTML = buildCodeSelectionComposerInnerHtml(state.codeSelection);
+    lastEl.insertAdjacentElement("afterend", composerEl);
+    if (typeof composerEl.scrollIntoView === "function") {
+      composerEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+    if (focusInput) {
+      const inputId = state.codeSelection.mode === "ask" ? "codeBlockAskInput" : "codeBlockCommentInput";
+      document.getElementById(inputId)?.focus();
+    }
+  }
+
+  function selectCodeBlockRange(tableEl, rawStartIdx, rawEndIdx, opts = {}) {
+    if (!tableEl) return;
+    const minIdx = Math.min(Number(rawStartIdx), Number(rawEndIdx));
+    const maxIdx = Math.max(Number(rawStartIdx), Number(rawEndIdx));
+    const selectedEls = Array.from(tableEl.querySelectorAll(".code-line[data-idx]")).filter(el => {
+      const idx = Number(el.getAttribute("data-idx"));
+      return !Number.isNaN(idx) && idx >= minIdx && idx <= maxIdx;
+    });
+    if (selectedEls.length === 0) return;
+
+    document.querySelectorAll(".code-line.code-line-selected").forEach(el => el.classList.remove("code-line-selected"));
+    selectedEls.forEach(el => el.classList.add("code-line-selected"));
+
+    const meta = extractSelectedBlockMetadata(tableEl, selectedEls);
+    const prevSel = state.codeSelection;
+    const isSameBlock = Boolean(
+      prevSel && prevSel.clNum === meta.clNum && prevSel.filePath === meta.filePath &&
+      prevSel.startIdx === minIdx && prevSel.endIdx === maxIdx
+    );
+    if (!isSameBlock) {
+      if (prevSel) saveSelectionDraftAsCollapsedItem(prevSel);
+      collapseAllInlinePopups();
+    }
+
+    const resolvedMode = opts.mode || (prevSel && prevSel.mode) || "comment";
+    const initialDraft = typeof opts.initialDraft === "string" ? opts.initialDraft : null;
+    state.codeSelection = {
+      ...meta,
+      anchorIdx: opts.anchorIdx != null ? Number(opts.anchorIdx) : minIdx,
+      startIdx: minIdx,
+      endIdx: maxIdx,
+      mode: resolvedMode,
+      commentDraft: initialDraft !== null && resolvedMode !== "ask" ? initialDraft : (isSameBlock ? (prevSel.commentDraft || "") : ""),
+      askDraft: initialDraft !== null && resolvedMode === "ask" ? initialDraft : (isSameBlock ? (prevSel.askDraft || "") : ""),
+      unresolved: isSameBlock && prevSel.unresolved !== undefined ? prevSel.unresolved : true,
+      sentPrompt: "",
+      savedInlineId: null,
+    };
+    mountCodeSelectionComposer(selectedEls[selectedEls.length - 1], Boolean(opts.focusInput));
+  }
+
+  function onDiffLineGutterClick(event, lnEl) {
+    event.stopPropagation();
+    const lineEl = lnEl ? lnEl.closest(".code-line[data-idx]") : null;
+    if (!lineEl) return;
+    const tableEl = lineEl.closest(".code-table");
+    if (!tableEl) return;
+    const clickedIdx = Number(lineEl.getAttribute("data-idx"));
+    if (Number.isNaN(clickedIdx)) return;
+
+    const prev = state.codeSelection;
+    const sameFile = Boolean(
+      prev &&
+      prev.filePath === (lineEl.getAttribute("data-file") || "") &&
+      Number(prev.clNum) === Number(lineEl.getAttribute("data-cl"))
+    );
+
+    if (event.shiftKey && sameFile && prev.anchorIdx != null) {
+      selectCodeBlockRange(tableEl, prev.anchorIdx, clickedIdx, {
+        anchorIdx: prev.anchorIdx,
+        focusInput: true,
+      });
+    } else {
+      selectCodeBlockRange(tableEl, clickedIdx, clickedIdx, {
+        anchorIdx: clickedIdx,
+        focusInput: true,
+      });
+    }
+  }
+
+  function setCodeSelectionMode(mode) {
+    if (!state.codeSelection) return;
+    state.codeSelection.mode = mode === "ask" ? "ask" : "comment";
+    const composerEl = document.getElementById("codeSelectionComposer");
+    if (composerEl) {
+      composerEl.innerHTML = buildCodeSelectionComposerInnerHtml(state.codeSelection);
+      const inputId = state.codeSelection.mode === "ask" ? "codeBlockAskInput" : "codeBlockCommentInput";
+      const inputEl = document.getElementById(inputId);
+      if (inputEl) inputEl.focus();
+    }
+  }
+
+  function onCodeComposerInput(mode, val) {
+    if (!state.codeSelection) return;
+    if (mode === "ask") {
+      state.codeSelection.askDraft = val;
+    } else {
+      state.codeSelection.commentDraft = val;
+    }
+  }
+
+  function onCodeComposerKeydown(event, mode) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      clearCodeSelection();
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      if (mode === "ask") {
+        submitSelectedCodeQuestion(document.getElementById("btnSubmitCodeAsk"));
+      } else {
+        submitSelectedCodeComment(document.getElementById("btnSubmitCodeComment"));
+      }
+    }
+  }
+
+  function applyQuickCodeQuestion(promptText) {
+    if (!state.codeSelection) return;
+    state.codeSelection.mode = "ask";
+    state.codeSelection.askDraft = promptText;
+    const inputEl = document.getElementById("codeBlockAskInput");
+    if (inputEl) {
+      inputEl.value = promptText;
+      inputEl.focus();
+    }
+  }
+
+  function copySelectedCodeSnippet() {
+    if (!state.codeSelection) return;
+    navigator.clipboard?.writeText(state.codeSelection.codeSnippet || "");
+    showToast(`Copied ${state.codeSelection.lineCount} highlighted code line(s)!`);
+  }
+
+  function copyLastSentCodePrompt() {
+    if (!state.codeSelection || !state.codeSelection.sentPrompt) return;
+    navigator.clipboard?.writeText(state.codeSelection.sentPrompt);
+    showToast("Copied agent question prompt to clipboard!");
+  }
+
+  async function submitSelectedCodeComment(btnEl) {
+    const sel = state.codeSelection;
+    if (!sel) return;
+    const inputEl = document.getElementById("codeBlockCommentInput");
+    const message = (inputEl ? inputEl.value : sel.commentDraft || "").trim();
+    if (!message) {
+      showToast("Please enter a comment message before posting.");
+      if (inputEl) inputEl.focus();
+      return;
+    }
+    const chkEl = document.getElementById("codeBlockUnresolvedChk");
+    const unresolved = chkEl ? Boolean(chkEl.checked) : Boolean(sel.unresolved);
+
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.innerHTML = `<span class="btn-spinner"></span> Posting to Gerrit…`;
+    }
+    try {
+      const resp = await sidecarFetch("/api/gerrit/comment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cl: sel.clNum,
+          file_path: sel.filePath,
+          line: sel.endLine,
+          start_line: sel.startLine,
+          end_line: sel.endLine,
+          side: sel.side,
+          unresolved,
+          message,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.error || data.status !== "ok") {
+        throw new Error(data.error || "Failed to post inline comment to Gerrit");
+      }
+
+      if (!state.inlineCommentsByCl[sel.clNum]) {
+        state.inlineCommentsByCl[sel.clNum] = [];
+      }
+      const commentItem = {
+        id: `inline-${state.nextInlineItemId++}`,
+        kind: "comment",
+        author_name: data.author_name || (state.viewer || "you").split("@")[0],
+        file_path: sel.filePath,
+        line: sel.endLine,
+        start_line: sel.startLine,
+        end_line: sel.endLine,
+        start_idx: sel.startIdx,
+        end_idx: sel.endIdx,
+        side: sel.side,
+        unresolved,
+        message,
+        collapsed: false,
+      };
+      sel.savedInlineId = commentItem.id;
+      state.inlineCommentsByCl[sel.clNum].push(commentItem);
+
+      const rangeLabel = sel.startLine === sel.endLine
+        ? `L${sel.startLine}`
+        : `L${sel.startLine}–L${sel.endLine}`;
+      clearCodeSelection();
+      insertOrReplaceInlineItemInDom(sel.clNum, commentItem);
+      document.getElementById("drawerStatus").textContent =
+        `Posted inline comment on ag/${sel.clNum} (${sel.filePath}:${rangeLabel}, notify: OWNER)`;
+      showToast(`✓ Posted comment on ${sel.filePath}:${rangeLabel} (notify: OWNER)!`);
+    } catch (err) {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.textContent = "💬 Post Comment to Gerrit (notify: OWNER)";
+      }
+      showToast("Comment post failed: " + err);
+    }
+  }
+
+  async function dispatchCodeQuestionWithFallback(sel, rangeLabel, formattedPrompt, question) {
+    let sentViaSidecar = false;
+    if (window.sidecar && window.sidecar.agent) {
+      sentViaSidecar = await dispatchAgentPrompt(
+        sel.clNum,
+        `Code Question (${sel.filePath}:${rangeLabel})`,
+        formattedPrompt
+      );
+    }
+    let serverDispatched = false;
+    if (!sentViaSidecar) {
+      const resp = await sidecarFetch("/api/gerrit/ask-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cl: sel.clNum,
+          file_path: sel.filePath,
+          start_line: sel.startLine,
+          end_line: sel.endLine,
+          side: sel.side,
+          code_snippet: sel.codeSnippet,
+          question,
+          conversationId: (window.sidecar && window.sidecar.conversationId) || "",
+        }),
+      });
+      const data = await resp.json();
+      serverDispatched = Boolean(data && data.dispatched);
+    }
+    const dispatched = Boolean(sentViaSidecar || serverDispatched);
+    if (!dispatched) {
+      navigator.clipboard?.writeText(formattedPrompt);
+    }
+    return dispatched;
+  }
+
+  async function submitSelectedCodeQuestion(btnEl) {
+    const sel = state.codeSelection;
+    if (!sel) return;
+    const inputEl = document.getElementById("codeBlockAskInput");
+    const question = (inputEl ? inputEl.value : sel.askDraft || "").trim()
+      || "Please explain this highlighted code block and check for any potential bugs or edge cases.";
+    sel.askDraft = question;
+
+    const rangeLabel = sel.startLine === sel.endLine ? `L${sel.startLine}` : `L${sel.startLine}-${sel.endLine}`;
+    const sideNote = sel.side === "PARENT" ? " (PARENT / base)" : "";
+    const formattedPrompt =
+      `Regarding Gerrit CL \`ag/${sel.clNum}\` in \`${sel.filePath}\` (${rangeLabel}${sideNote}):\n\n` +
+      `\`\`\`\n${sel.codeSnippet}\n\`\`\`\n\n` +
+      `**Question:** ${question}`;
+
+    if (!state.inlineCommentsByCl[sel.clNum]) state.inlineCommentsByCl[sel.clNum] = [];
+    const questionItem = {
+      id: `inline-${state.nextInlineItemId++}`,
+      kind: "agent_question",
+      author_name: (state.viewer || "you").split("@")[0],
+      file_path: sel.filePath,
+      line: sel.endLine,
+      start_line: sel.startLine,
+      end_line: sel.endLine,
+      start_idx: sel.startIdx,
+      end_idx: sel.endIdx,
+      side: sel.side,
+      message: question,
+      prompt: formattedPrompt,
+      code_snippet: sel.codeSnippet,
+      sending: true,
+      dispatched: false,
+      collapsed: false,
+    };
+    sel.savedInlineId = questionItem.id;
+    sel.sentPrompt = formattedPrompt;
+    state.inlineCommentsByCl[sel.clNum].push(questionItem);
+
+    clearCodeSelection();
+    insertOrReplaceInlineItemInDom(sel.clNum, questionItem);
+
+    try {
+      const dispatched = await dispatchCodeQuestionWithFallback(sel, rangeLabel, formattedPrompt, question);
+      questionItem.sending = false;
+      questionItem.dispatched = dispatched;
+      insertOrReplaceInlineItemInDom(sel.clNum, questionItem);
+      ensureCodeQuestionPollingTimer();
+      document.getElementById("drawerStatus").textContent =
+        `Sent question about ${sel.filePath}:${rangeLabel} on ag/${sel.clNum} to Jetski Agent`;
+      showToast(
+        dispatched
+          ? `🤖 Sent code question (${sel.filePath}:${rangeLabel}) to Jetski Agent!`
+          : `🤖 Prepared code question (${sel.filePath}:${rangeLabel}) and copied to clipboard!`
+      );
+    } catch (err) {
+      questionItem.sending = false;
+      insertOrReplaceInlineItemInDom(sel.clNum, questionItem);
+      showToast("Could not send question to agent: " + err);
+    }
+  }
+
+  function initDiffCodeSelectionListeners() {
+    const diffScrollEl = document.getElementById("diffScroll");
+    if (!diffScrollEl) return;
+    diffScrollEl.addEventListener("mouseup", (event) => {
+      if (event.target && event.target.closest("#codeSelectionComposer, .ln, .diff-inline-comment, button, a, input, textarea")) {
+        return;
+      }
+      const sel = window.getSelection ? window.getSelection() : null;
+      if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+        return;
+      }
+      const findCodeLine = (node) => {
+        if (!node) return null;
+        const el = node.nodeType === 1 ? node : node.parentElement;
+        return el ? el.closest(".code-line[data-idx]") : null;
+      };
+      const anchorLine = findCodeLine(sel.anchorNode);
+      const focusLine = findCodeLine(sel.focusNode);
+      if (!anchorLine && !focusLine) return;
+      const startLineEl = anchorLine || focusLine;
+      const endLineEl = focusLine || anchorLine;
+      const tableA = startLineEl.closest(".code-table");
+      const tableB = endLineEl.closest(".code-table");
+      if (!tableA || tableA !== tableB) return;
+
+      const idxA = Number(startLineEl.getAttribute("data-idx"));
+      const idxB = Number(endLineEl.getAttribute("data-idx"));
+      if (Number.isNaN(idxA) || Number.isNaN(idxB)) return;
+      selectCodeBlockRange(tableA, idxA, idxB, { anchorIdx: idxA, focusInput: false });
+    });
   }
 
   function copyPingForCl(clNum) {
@@ -3099,7 +5275,24 @@
   }
 
   document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.codeSelection) {
+      clearCodeSelection();
+      return;
+    }
     if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA") return;
+    if (e.key === "/") {
+      const inp = document.getElementById("queueSearchInput");
+      if (inp) {
+        e.preventDefault();
+        inp.focus();
+        inp.select();
+      }
+      return;
+    }
+    if (e.key === "Escape" && hasActiveAuthorOrSearchFilter()) {
+      clearQueueSearchAndAuthor();
+      return;
+    }
     const orderedItems = getOrderedVisibleCommits(getVisibleStacks());
     const flatVisible = orderedItems.map(item => item.commit);
     if (!flatVisible.length) return;
@@ -3117,6 +5310,7 @@
     }
   });
 
+  initDiffCodeSelectionListeners();
   initApp();
 </script>
 </body>

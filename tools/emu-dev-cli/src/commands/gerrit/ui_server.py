@@ -369,15 +369,23 @@ def is_explicit_reviewer(change: dict[str, Any], viewer_email: str) -> bool:
     return any((r.get("email") or "").strip().lower() == viewer for r in explicit_reviewers)
 
 
-def build_viewer_gerrit_query(viewer_email: str, scope: str = "reviewer") -> str:
-    """Builds the Gerrit search query for the active `viewer_email` and `scope`."""
+def build_viewer_gerrit_query(
+    viewer_email: str, scope: str = "reviewer", author: str = ""
+) -> str:
+    """Builds the Gerrit search query for the active `viewer_email`, `scope`, and optional `author`."""
     viewer = (viewer_email or "").strip().lower()
     norm_scope = (scope or "reviewer").strip().lower()
+    norm_author = (author or "").strip()
     if norm_scope == "owner" and viewer:
-        return f"status:open -is:wip owner:{viewer}"
-    if norm_scope == "team" or not viewer:
-        return DEFAULT_EMULATOR_GERRIT_QUERY
-    return f"status:open -is:wip reviewer:{viewer} -owner:{viewer}"
+        base_q = f"status:open -is:wip owner:{viewer}"
+    elif norm_scope == "team" or not viewer:
+        base_q = DEFAULT_EMULATOR_GERRIT_QUERY
+    else:
+        base_q = f"status:open -is:wip reviewer:{viewer} -owner:{viewer}"
+    if norm_author and norm_scope != "owner":
+        author_q = norm_author if "@" in norm_author else f"{norm_author}@google.com"
+        return f"{base_q} owner:{author_q}"
+    return base_q
 
 
 def is_agent_authored_or_uploaded(change: dict[str, Any]) -> bool:
@@ -594,6 +602,8 @@ def enrich_change_for_ui(
     owner = change.get("owner") or {}
     owner_email = (owner.get("email") or "").strip().lower()
     owner_short = owner_email.split("@", 1)[0] if owner_email else "unknown"
+    owner_name = (owner.get("name") or owner_short or "").strip()
+    owner_is_bot = is_agent_or_bot_email(owner_email, owner_name)
 
     requires_two_humans = is_agent_authored_or_uploaded(change)
     required_cr2_count = 2 if requires_two_humans else 1
@@ -683,6 +693,17 @@ def enrich_change_for_ui(
     commit_message = raw_commit_msg if raw_commit_msg else subject
     parents = commit_obj.get("parents") or []
     parent_sha = parents[0].get("commit", "") if parents else ""
+    files_list = [p for p in (rev_obj.get("files") or {}).keys() if p != "/COMMIT_MSG"]
+
+    commit_author = (commit_obj.get("author") or {}) if isinstance(commit_obj, dict) else {}
+    author_email = (commit_author.get("email") or owner_email or "").strip().lower()
+    author_short = author_email.split("@", 1)[0] if author_email else owner_short
+    author_name = (commit_author.get("name") or owner_name or author_short or "").strip()
+
+    uploader_obj = (rev_obj.get("uploader") or {}) if isinstance(rev_obj, dict) else {}
+    uploader_email = (uploader_obj.get("email") or "").strip().lower()
+    uploader_short = uploader_email.split("@", 1)[0] if uploader_email else ""
+    uploader_name = (uploader_obj.get("name") or uploader_short or "").strip()
 
     return {
         "number": num,
@@ -695,6 +716,15 @@ def enrich_change_for_ui(
         "commit_message": commit_message,
         "owner_email": owner_email,
         "owner_short": owner_short,
+        "owner_name": owner_name,
+        "owner_is_bot": owner_is_bot,
+        "author_email": author_email,
+        "author_short": author_short,
+        "author_name": author_name,
+        "uploader_email": uploader_email,
+        "uploader_short": uploader_short,
+        "uploader_name": uploader_name,
+        "files": files_list,
         "is_agent_cl": requires_two_humans,
         "required_cr2_count": required_cr2_count,
         "human_cr2_count": len(human_cr2),
@@ -942,6 +972,198 @@ def parse_unified_diff_files(
     return files
 
 
+_CODE_QUESTION_PROMPT_RE = re.compile(
+    r"Regarding Gerrit CL `ag/(?P<cl>\d+)` in `(?P<file_path>[^`]+)` "
+    r"\(L(?P<start_line>\d+)(?:[-–](?:L)?(?P<end_line>\d+))?(?P<side_note>[^)]*)\):\s*"
+    r"```[^\n]*\n(?P<snippet>.*?)\n```\s*"
+    r"\*\*Question:\*\*\s*(?P<question>.*?)(?:</SYSTEM_MESSAGE>|</USER_REQUEST>|\Z)",
+    re.DOTALL,
+)
+
+
+def build_code_question_prompt(
+    cl_number: str | int,
+    file_path: str,
+    start_line: int,
+    end_line: int,
+    code_snippet: str,
+    question: str,
+    *,
+    side: str = "REVISION",
+) -> str:
+    """Builds a structured Markdown prompt for asking an agent about a highlighted code block."""
+    cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+    cleaned_file = (file_path or "").strip() or "/COMMIT_MSG"
+    s_ln = max(1, int(start_line or 1))
+    e_ln = max(s_ln, int(end_line or s_ln))
+    range_label = f"L{s_ln}" if s_ln == e_ln else f"L{s_ln}-L{e_ln}"
+    side_note = " (PARENT / base)" if str(side).upper() == "PARENT" else ""
+    cleaned_question = (
+        (question or "").strip()
+        or "Please explain this code block and check for any bugs or edge cases."
+    )
+    snippet = (code_snippet or "").rstrip()
+    return (
+        f"Regarding Gerrit CL `ag/{cl_id}` in `{cleaned_file}` ({range_label}{side_note}):\n\n"
+        f"```\n{snippet}\n```\n\n"
+        f"**Question:** {cleaned_question}"
+    )
+
+
+def parse_code_questions_from_transcript_lines(
+    lines: list[str],
+    conv_id: str = "",
+    filter_cls: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Extracts inline code block questions and their corresponding Jetski agent replies from JSONL transcript lines."""
+    steps: list[dict[str, Any]] = []
+    for raw_line in lines:
+        raw_line = raw_line.strip()
+        if not raw_line:
+            continue
+        try:
+            obj = json.loads(raw_line)
+            if isinstance(obj, dict):
+                steps.append(obj)
+        except Exception:
+            continue
+
+    results: list[dict[str, Any]] = []
+    n_steps = len(steps)
+    for idx, step in enumerate(steps):
+        step_type = str(step.get("type") or "")
+        if step_type not in ("SYSTEM_MESSAGE", "USER_INPUT"):
+            continue
+        content = str(step.get("content") or "")
+        if "Regarding Gerrit CL `ag/" not in content:
+            continue
+        m = _CODE_QUESTION_PROMPT_RE.search(content)
+        if not m:
+            continue
+        cl_str = m.group("cl").strip()
+        if filter_cls and cl_str not in filter_cls:
+            continue
+        file_path = m.group("file_path").strip() or "/COMMIT_MSG"
+        s_ln = max(1, int(m.group("start_line") or 1))
+        e_ln = max(s_ln, int(m.group("end_line") or s_ln))
+        side_note = m.group("side_note") or ""
+        side = "PARENT" if "PARENT" in side_note.upper() else "REVISION"
+        snippet = m.group("snippet") or ""
+        question = (m.group("question") or "").strip()
+        step_index = int(step.get("step_index", idx) or idx)
+
+        reply_parts: list[str] = []
+        for next_step in steps[idx + 1 :]:
+            next_type = str(next_step.get("type") or "")
+            next_content = str(next_step.get("content") or "")
+            if next_type == "USER_INPUT":
+                break
+            if next_type == "SYSTEM_MESSAGE" and "Regarding Gerrit CL `ag/" in next_content:
+                break
+            if next_type == "PLANNER_RESPONSE" and next_content.strip():
+                reply_parts.append(next_content.strip())
+
+        reply_text = "\n\n".join(reply_parts).strip()
+        short_conv = (conv_id or "local")[:8]
+        results.append(
+            {
+                "id": f"tx-q-{short_conv}-{step_index}",
+                "step_index": step_index,
+                "cl": int(cl_str) if cl_str.isdigit() else cl_str,
+                "file_path": file_path,
+                "line": e_ln,
+                "start_line": s_ln,
+                "end_line": e_ln,
+                "side": side,
+                "code_snippet": snippet,
+                "question": question,
+                "reply": reply_text,
+                "status": "answered" if reply_text else "thinking",
+                "created_at": str(step.get("created_at") or ""),
+            }
+        )
+    return results
+
+
+def _resolve_candidate_conversation_dirs(
+    root: Path, conversation_id: str | None = None
+) -> list[Path]:
+    """Resolves active and recently updated Jetski conversation directories."""
+    candidate_dirs: list[Path] = []
+    explicit_conv = str(
+        conversation_id
+        or os.environ.get("ANTIGRAVITY_SIDECAR_CONVERSATION_ID")
+        or os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
+        or ""
+    ).strip()
+    if explicit_conv and (root / explicit_conv).is_dir():
+        candidate_dirs.append(root / explicit_conv)
+
+    try:
+        subdirs = [d for d in root.iterdir() if d.is_dir() and d not in candidate_dirs]
+        subdirs.sort(
+            key=lambda d: (
+                (d / ".system_generated" / "logs" / "transcript_full.jsonl").stat().st_mtime
+                if (d / ".system_generated" / "logs" / "transcript_full.jsonl").is_file()
+                else 0.0
+            ),
+            reverse=True,
+        )
+        candidate_dirs.extend(subdirs[:5])
+    except OSError:
+        pass
+    return candidate_dirs
+
+
+def discover_transcript_code_questions(
+    conversation_id: str | None = None,
+    cl_numbers: list[str | int] | None = None,
+    brain_root: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Finds inline code questions and agent replies from Jetski conversation transcripts."""
+    filter_cls = (
+        {parse_cl_identifier(str(x), allow_head=False) for x in cl_numbers if str(x).strip()}
+        if cl_numbers
+        else None
+    )
+    root = brain_root or (Path.home() / ".gemini" / "jetski" / "brain")
+    if not root.is_dir():
+        return []
+
+    by_key: dict[tuple[str, str, int, int, str], dict[str, Any]] = {}
+    for conv_dir in _resolve_candidate_conversation_dirs(root, conversation_id):
+        logs_dir = conv_dir / ".system_generated" / "logs"
+        tx_file = logs_dir / "transcript_full.jsonl"
+        if not tx_file.is_file():
+            tx_file = logs_dir / "transcript.jsonl"
+        if not tx_file.is_file():
+            continue
+        try:
+            raw_text = tx_file.read_text(encoding="utf-8", errors="replace")
+            if "Regarding Gerrit CL `ag/" not in raw_text:
+                continue
+            items = parse_code_questions_from_transcript_lines(
+                raw_text.splitlines(),
+                conv_id=conv_dir.name,
+                filter_cls=filter_cls,
+            )
+            for item in items:
+                key = (
+                    str(item["cl"]),
+                    str(item["file_path"]),
+                    int(item["start_line"]),
+                    int(item["end_line"]),
+                    str(item["question"]).strip(),
+                )
+                prev = by_key.get(key)
+                if prev is None or (item.get("reply") and not prev.get("reply")):
+                    by_key[key] = item
+        except OSError:
+            continue
+
+    return list(by_key.values())
+
+
 class GerritUIService:
     """Backend coordinator querying Gerrit, caching diffs, and executing review/harness actions."""
 
@@ -1093,13 +1315,17 @@ class GerritUIService:
         viewer_email: str | None = None,
         query: str | None = None,
         scope: str = "reviewer",
-        limit: int = 40,
+        author: str | None = None,
+        limit: int = 100,
     ) -> dict[str, Any]:
         """Fetches open CLs matching the viewer's review queue (or custom `query`) and enriches them."""
         viewer = (viewer_email or self.default_viewer).strip().lower()
         norm_scope = (scope or "reviewer").strip().lower()
+        norm_author = (author or "").strip()
         explicit_query = (query or self.default_query).strip()
-        q_str = explicit_query or build_viewer_gerrit_query(viewer, scope=norm_scope)
+        q_str = explicit_query or build_viewer_gerrit_query(
+            viewer, scope=norm_scope, author=norm_author
+        )
         encoded_q = urllib.parse.quote(q_str, safe=":+()")
         endpoint = (
             f"/a/changes/?q={encoded_q}&n={limit}"
@@ -1217,7 +1443,20 @@ class GerritUIService:
             "is_pure_rebase": is_pure_rebase,
             "files": files,
             "unresolved_threads": threads,
+            "code_questions": discover_transcript_code_questions(cl_numbers=[cl_id]),
         }
+
+    def get_code_questions(
+        self,
+        cl_numbers: list[str | int],
+        conversation_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Returns inline code questions and their Jetski agent replies for `cl_numbers`."""
+        cleaned = [str(x).strip() for x in cl_numbers if str(x).strip()]
+        return discover_transcript_code_questions(
+            conversation_id=conversation_id,
+            cl_numbers=cleaned or None,
+        )
 
     def fetch_multi_commit_diffs(self, cl_numbers: list[str | int]) -> list[dict[str, Any]]:
         """Fetches diff bundles concurrently for a list of CLs in a stack or queue."""
@@ -1424,6 +1663,141 @@ class GerritUIService:
             "stderr": (res.stderr or "").strip(),
         }
 
+    def post_inline_comment(
+        self,
+        cl_number: str | int,
+        file_path: str,
+        line: int,
+        message: str,
+        *,
+        start_line: int | None = None,
+        end_line: int | None = None,
+        side: str = "REVISION",
+        unresolved: bool = True,
+    ) -> dict[str, Any]:
+        """Posts an inline file/line/range comment on `cl_number` with mandatory `notify: OWNER`."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        cleaned_file = (file_path or "").strip() or "/COMMIT_MSG"
+        cleaned_msg = (message or "").strip()
+        if not cleaned_msg:
+            raise ValueError("Comment message cannot be empty.")
+
+        target_line = max(1, int(end_line or line or 1))
+        s_ln = max(1, int(start_line or target_line))
+        e_ln = max(s_ln, int(end_line or target_line))
+        side_norm = "PARENT" if str(side or "").strip().upper() == "PARENT" else "REVISION"
+
+        comment_entry: dict[str, Any] = {
+            "line": e_ln,
+            "side": side_norm,
+            "message": cleaned_msg,
+            "unresolved": bool(unresolved),
+        }
+        if e_ln > s_ln:
+            comment_entry["range"] = {
+                "start_line": s_ln,
+                "start_character": 0,
+                "end_line": e_ln,
+                "end_character": 0,
+            }
+
+        payload: dict[str, Any] = {
+            "notify": "OWNER",
+            "comments": {
+                cleaned_file: [comment_entry],
+            },
+        }
+        endpoint = f"/a/changes/{cl_id}/revisions/current/review"
+        try:
+            self.client._request_json(endpoint, method="POST", data=payload)
+        except Exception as exc:
+            gob_curl = shutil.which("gob-curl")
+            if not gob_curl:
+                raise
+            post_res = self._post_single_vote(gob_curl, cl_id, json.dumps(payload), code_review=0)
+            if not post_res.get("ok"):
+                raise RuntimeError(post_res.get("error") or str(exc)) from exc
+
+        author = (self.auth_email or self.default_viewer or "you").split("@")[0]
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "file_path": cleaned_file,
+            "line": e_ln,
+            "start_line": s_ln,
+            "end_line": e_ln,
+            "side": side_norm,
+            "unresolved": bool(unresolved),
+            "message": cleaned_msg,
+            "author_name": author,
+            "notify": "OWNER",
+        }
+
+    def ask_agent_about_code(
+        self,
+        cl_number: str | int,
+        file_path: str,
+        start_line: int,
+        end_line: int,
+        code_snippet: str,
+        question: str,
+        *,
+        side: str = "REVISION",
+        conversation_id: str | None = None,
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Formats and dispatches a question about a highlighted code block to the Jetski agent."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        cleaned_file = (file_path or "").strip() or "/COMMIT_MSG"
+        s_ln = max(1, int(start_line or 1))
+        e_ln = max(s_ln, int(end_line or s_ln))
+        prompt = build_code_question_prompt(
+            cl_number=cl_id,
+            file_path=cleaned_file,
+            start_line=s_ln,
+            end_line=e_ln,
+            code_snippet=code_snippet,
+            question=question,
+            side=side,
+        )
+        conv_id = str(
+            conversation_id
+            or os.environ.get("ANTIGRAVITY_SIDECAR_CONVERSATION_ID")
+            or os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
+            or ""
+        ).strip()
+        dispatched = False
+        agent_res: dict[str, Any] = {}
+        try:
+            if conv_id:
+                agent_res = _run_sidecar_agentapi(
+                    ["send-message", conv_id, prompt],
+                    project_id=project_id,
+                )
+                dispatched = True
+            else:
+                short_name = Path(cleaned_file).name or cleaned_file
+                title = f"Question on ag/{cl_id} ({short_name}:L{s_ln})"
+                agent_res = _run_sidecar_agentapi(
+                    ["new-conversation", "--title", title, prompt],
+                    project_id=project_id,
+                )
+                dispatched = True
+        except Exception:
+            dispatched = False
+
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "file_path": cleaned_file,
+            "start_line": s_ln,
+            "end_line": e_ln,
+            "dispatched": dispatched,
+            "conversation_id": conv_id,
+            "prompt": prompt,
+            "agent_response": agent_res,
+        }
+
 
 def _candidate_gerrit_ui_template_paths() -> list[Path]:
     """Builds ordered candidate paths for `templates/gerrit_ui.html`."""
@@ -1618,7 +1992,7 @@ def render_static_gerrit_ui_html(initial_payload: dict[str, Any] | None = None) 
     html = tpl_path.read_text(encoding="utf-8")
     inline_preload = f"<script>\n{SIDECAR_PRELOAD_JS}\n</script>"
     html = html.replace(SIDECAR_PRELOAD_SCRIPT_TAG, inline_preload)
-    html = html.replace("__GERRIT_UI_VERSION__", get_gerrit_ui_template_version())
+    html = html.replace('"__GERRIT_UI_VERSION__"', json.dumps(get_gerrit_ui_template_version()))
     bootstrap_json = json.dumps(initial_payload or {}, ensure_ascii=False).replace("</", "<\\/")
     return html.replace("__GERRIT_UI_BOOTSTRAP_JSON__", bootstrap_json)
 
@@ -1715,10 +2089,12 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                     viewer = (qs.get("viewer") or [""])[0]
                     query = (qs.get("query") or [""])[0]
                     scope = (qs.get("scope") or ["reviewer"])[0]
+                    author = (qs.get("author") or [""])[0]
                     data = service.fetch_queue(
                         viewer_email=viewer or None,
                         query=query or None,
                         scope=scope,
+                        author=author or None,
                     )
                     self._send_json(data)
                     return
@@ -1732,6 +2108,14 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                     raw_cls = (qs.get("cls") or [""])[0]
                     cl_list = [x.strip() for x in raw_cls.split(",") if x.strip()]
                     self._send_json({"statuses": service.get_swarm_statuses(cl_list)})
+                    return
+                if parsed.path == "/api/gerrit/code-questions":
+                    raw_cls = (qs.get("cls") or [""])[0]
+                    conv_id = (qs.get("conversationId") or [""])[0].strip() or None
+                    cl_list = [x.strip() for x in raw_cls.split(",") if x.strip()]
+                    self._send_json(
+                        {"questions": service.get_code_questions(cl_list, conversation_id=conv_id)}
+                    )
                     return
                 self._send_json({"error": f"Unknown endpoint '{parsed.path}'"}, status=404)
             except Exception as exc:
@@ -1810,6 +2194,41 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                     return
                 if parsed.path == "/api/gerrit/post-swarm-review":
                     self._send_json(service.post_swarm_review(cl_number=body.get("cl", "")))
+                    return
+                if parsed.path == "/api/gerrit/comment":
+                    res = service.post_inline_comment(
+                        cl_number=body.get("cl", ""),
+                        file_path=str(body.get("file_path") or body.get("file") or ""),
+                        line=int(body.get("line") or body.get("end_line") or 1),
+                        message=str(body.get("message") or ""),
+                        start_line=(
+                            int(body["start_line"])
+                            if body.get("start_line") is not None
+                            else None
+                        ),
+                        end_line=(
+                            int(body["end_line"])
+                            if body.get("end_line") is not None
+                            else None
+                        ),
+                        side=str(body.get("side") or "REVISION"),
+                        unresolved=bool(body.get("unresolved", True)),
+                    )
+                    self._send_json(res)
+                    return
+                if parsed.path == "/api/gerrit/ask-code":
+                    res = service.ask_agent_about_code(
+                        cl_number=body.get("cl", ""),
+                        file_path=str(body.get("file_path") or body.get("file") or ""),
+                        start_line=int(body.get("start_line") or body.get("line") or 1),
+                        end_line=int(body.get("end_line") or body.get("line") or 1),
+                        code_snippet=str(body.get("code_snippet") or body.get("code") or ""),
+                        question=str(body.get("question") or ""),
+                        side=str(body.get("side") or "REVISION"),
+                        conversation_id=str(body.get("conversationId") or "").strip() or None,
+                        project_id=str(body.get("projectId") or "").strip() or None,
+                    )
+                    self._send_json(res)
                     return
                 self._send_json({"error": f"Unknown POST endpoint '{parsed.path}'"}, status=404)
             except Exception as exc:
