@@ -701,6 +701,173 @@ class GerritUIServerTest(unittest.TestCase):
         self.assertIn("renderCommitMessagePanelHtml", rendered_html)
         self.assertIn("formatCommitMessageHtml", rendered_html)
         self.assertIn("commit-msg-panel", rendered_html)
+        self.assertIn("selectCodeBlockRange", rendered_html)
+        self.assertIn("selectFullCommitMessage", rendered_html)
+        self.assertIn("commit-msg-table", rendered_html)
+        self.assertIn("submitSelectedCodeComment", rendered_html)
+        self.assertIn("submitSelectedCodeQuestion", rendered_html)
+        self.assertIn("code-selection-composer", rendered_html)
+        self.assertIn("initDiffCodeSelectionListeners", rendered_html)
+        self.assertIn("collapseAllInlinePopups", rendered_html)
+        self.assertIn("toggleInlineItemCollapse", rendered_html)
+        self.assertIn("saveSelectionDraftAsCollapsedItem", rendered_html)
+        self.assertIn("diff-inline-comment agent-question", rendered_html)
+        self.assertIn("window.__GERRIT_UI_VERSION__ =", rendered_html)
+
+    def test_post_inline_comment_and_ask_agent_about_code(self) -> None:
+        from commands.gerrit.ui_server import build_code_question_prompt
+
+        prompt = build_code_question_prompt(
+            cl_number=43152171,
+            file_path="emulator/net/socket_测试_🚀_é.cc",
+            start_line=42,
+            end_line=48,
+            code_snippet="+  if (!sock.ok()) {\n+    return sock.status();\n+  }",
+            question="Is there any leak if sock fails here?",
+            side="REVISION",
+        )
+        self.assertIn("ag/43152171", prompt)
+        self.assertIn("emulator/net/socket_测试_🚀_é.cc", prompt)
+        self.assertIn("L42-L48", prompt)
+        self.assertIn("Is there any leak if sock fails here?", prompt)
+
+        with patch.object(
+            GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"
+        ):
+            service = GerritUIService(default_viewer="joshuaduong@google.com")
+
+        captured_payloads: list[tuple[str, str, dict]] = []
+
+        def fake_request_json(endpoint: str, method: str = "GET", data: dict | None = None):
+            captured_payloads.append((endpoint, method, data or {}))
+            return {}
+
+        service.client._request_json = fake_request_json  # type: ignore[method-assign]
+        comment_res = service.post_inline_comment(
+            cl_number=43152171,
+            file_path="emulator/net/socket_测试_🚀_é.cc",
+            line=48,
+            start_line=42,
+            end_line=48,
+            side="REVISION",
+            unresolved=True,
+            message="Please guard against null pointer here (测试_🚀_é).",
+        )
+        self.assertEqual(comment_res["status"], "ok")
+        self.assertEqual(comment_res["notify"], "OWNER")
+        self.assertEqual(comment_res["start_line"], 42)
+        self.assertEqual(comment_res["end_line"], 48)
+        self.assertEqual(len(captured_payloads), 1)
+        ep, method, sent_body = captured_payloads[0]
+        self.assertEqual(ep, "/a/changes/43152171/revisions/current/review")
+        self.assertEqual(method, "POST")
+        self.assertEqual(sent_body["notify"], "OWNER")
+        file_comments = sent_body["comments"]["emulator/net/socket_测试_🚀_é.cc"]
+        self.assertEqual(len(file_comments), 1)
+        self.assertEqual(file_comments[0]["line"], 48)
+        self.assertEqual(file_comments[0]["range"]["start_line"], 42)
+        self.assertEqual(file_comments[0]["range"]["end_line"], 48)
+        self.assertTrue(file_comments[0]["unresolved"])
+
+        with patch(
+            "commands.gerrit.ui_server._run_sidecar_agentapi",
+            return_value={"conversationId": "conv-123"},
+        ) as mock_agentapi:
+            ask_res = service.ask_agent_about_code(
+                cl_number=43152171,
+                file_path="emulator/net/socket_测试_🚀_é.cc",
+                start_line=42,
+                end_line=48,
+                code_snippet="+  return sock.status();",
+                question="Explain this status return.",
+                conversation_id="conv-123",
+            )
+            self.assertEqual(ask_res["status"], "ok")
+            self.assertTrue(ask_res["dispatched"])
+            mock_agentapi.assert_called_once()
+
+        from commands.gerrit.ui_server import parse_code_questions_from_transcript_lines
+
+        tx_lines = [
+            json.dumps(
+                {
+                    "step_index": 1443,
+                    "type": "SYSTEM_MESSAGE",
+                    "content": (
+                        "<SYSTEM_MESSAGE>\n"
+                        "[Message] content=Regarding Gerrit CL `ag/43166566` in "
+                        "`emulator/libs/ver/src/RendererVulkan.cpp` (L969):\n\n"
+                        "```\n++    data.mGeneration = mNextTextureGeneration++;\n```\n\n"
+                        "**Question:** Is this an atomic variable?\n"
+                        "</SYSTEM_MESSAGE>"
+                    ),
+                }
+            ),
+            json.dumps(
+                {
+                    "step_index": 1445,
+                    "type": "PLANNER_RESPONSE",
+                    "content": "",
+                }
+            ),
+            json.dumps(
+                {
+                    "step_index": 1464,
+                    "type": "PLANNER_RESPONSE",
+                    "content": "**No, `mNextTextureGeneration` is not an `std::atomic` — it is guarded by `mResourceLock`.**",
+                }
+            ),
+        ]
+        parsed_questions = parse_code_questions_from_transcript_lines(tx_lines, conv_id="8f2cdf4d")
+        self.assertEqual(len(parsed_questions), 1)
+        self.assertEqual(parsed_questions[0]["cl"], 43166566)
+        self.assertEqual(
+            parsed_questions[0]["file_path"], "emulator/libs/ver/src/RendererVulkan.cpp"
+        )
+        self.assertEqual(parsed_questions[0]["start_line"], 969)
+        self.assertEqual(parsed_questions[0]["question"], "Is this an atomic variable?")
+        self.assertEqual(parsed_questions[0]["status"], "answered")
+        self.assertIn("mResourceLock", parsed_questions[0]["reply"])
+
+    def test_author_search_and_filter_enrichment(self) -> None:
+        q = build_viewer_gerrit_query("joshuaduong@google.com", scope="reviewer", author="rpaquay")
+        self.assertEqual(
+            q,
+            "status:open -is:wip reviewer:joshuaduong@google.com -owner:joshuaduong@google.com owner:rpaquay@google.com",
+        )
+        raw_change = {
+            "_number": 43204076,
+            "project": "platform/hardware/google/aemu",
+            "branch": "emu-main-next",
+            "subject": "android-cli: disable daemon by default",
+            "owner": {"email": "rpaquay@google.com", "name": "Renaud Paquay"},
+            "current_revision": "rev1",
+            "revisions": {
+                "rev1": {
+                    "uploader": {
+                        "email": "groupagent-android-emulator@google.com",
+                        "name": "Emulator Agent",
+                    },
+                    "commit": {
+                        "author": {"email": "rpaquay@google.com", "name": "Renaud Paquay"},
+                        "message": "android-cli: disable daemon by default\n\nBug: b/12345678\n",
+                    },
+                    "files": {"tools/android-cli/main.rs": {}},
+                }
+            },
+        }
+        enriched = enrich_change_for_ui(raw_change, "joshuaduong@google.com")
+        self.assertEqual(enriched["owner_short"], "rpaquay")
+        self.assertEqual(enriched["owner_name"], "Renaud Paquay")
+        self.assertFalse(enriched["owner_is_bot"])
+        self.assertEqual(enriched["uploader_short"], "groupagent-android-emulator")
+        self.assertEqual(enriched["files"], ["tools/android-cli/main.rs"])
+
+        html = render_static_gerrit_ui_html()
+        self.assertIn('id="queueSearchInput"', html)
+        self.assertIn('id="authorFilterSelect"', html)
+        self.assertIn('id="authorChipsBar"', html)
+        self.assertIn("setAuthorFilter(", html)
 
 
 if __name__ == "__main__":
