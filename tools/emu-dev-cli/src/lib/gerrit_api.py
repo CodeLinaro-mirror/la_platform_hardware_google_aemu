@@ -355,7 +355,14 @@ class GerritClient:
             logger.debug("Direct urllib Gerrit call failed, trying CLI fallback: %s", exc)
         return None
 
-    def _run_cli_request(self, cmd: list[str], label: str, transport_errors: list[str]) -> str | None:
+    def _run_cli_request(
+        self,
+        cmd: list[str],
+        label: str,
+        transport_errors: list[str],
+        *,
+        allow_empty: bool = False,
+    ) -> str | None:
         """Executes a `gob-curl` or `gosso` CLI fallback command with UTF-8 decoding."""
         try:
             res = subprocess.run(
@@ -371,7 +378,7 @@ class GerritClient:
         except (subprocess.TimeoutExpired, OSError) as exc:
             transport_errors.append(f"{label} {type(exc).__name__}")
             return None
-        if res.returncode == 0 and res.stdout.strip():
+        if res.returncode == 0 and (allow_empty or res.stdout.strip()):
             return res.stdout
         err_lines = (res.stderr or "").strip().splitlines()
         err_detail = f" ({err_lines[0].split('?', 1)[0]})" if err_lines else ""
@@ -387,12 +394,15 @@ class GerritClient:
         transport_errors: list[str],
     ) -> str | None:
         """Attempts authenticated Gerrit REST fallback via `gob-curl` then `gosso`."""
+        allow_empty = method.upper() != "GET"
         gob_curl = shutil.which("gob-curl")
         if gob_curl:
             cmd = [gob_curl, "-s", "-f", "-S", "-X", method]
             if data is not None:
                 cmd.extend(["-H", "Content-Type: application/json", "-d", json.dumps(data)])
-            out = self._run_cli_request([*cmd, url], "gob-curl", transport_errors)
+            out = self._run_cli_request(
+                [*cmd, url], "gob-curl", transport_errors, allow_empty=allow_empty
+            )
             if out is not None:
                 return out
         gosso = shutil.which("gosso")
@@ -401,7 +411,9 @@ class GerritClient:
             cmd = [gosso, "-method", method, "-url", f"{self.host}{unprefixed_path}"]
             if data is not None:
                 cmd.extend(["-header", "Content-Type: application/json", "-data", json.dumps(data)])
-            return self._run_cli_request(cmd, "gosso", transport_errors)
+            return self._run_cli_request(
+                cmd, "gosso", transport_errors, allow_empty=allow_empty
+            )
         return None
 
     def _request_raw(

@@ -38,6 +38,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 from typing import Any
 import urllib.parse
 import webbrowser
@@ -124,6 +125,19 @@ _BUG_ID_NUMBER_RE = re.compile(
 )
 _INLINE_B_LINK_RE = re.compile(r"\bb/(\d{6,12})\b", re.IGNORECASE)
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+_SIMPLE_LDAP_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9._-]*$")
+
+_LABEL_SHORT_NAMES: dict[str, str] = {
+    "Code-Review": "CR",
+    "Presubmit-Verified": "PV",
+    "Presubmit-Ready": "PR",
+    "Autosubmit": "AS",
+    "Performance": "Perf",
+    "Open-Source-Licensing": "OSL",
+    "Presubmit-Verified-Together": "PVT",
+    "API-Review": "API",
+    "Owners-Override": "OO",
+}
 
 
 def extract_bug_ids_from_change(change: dict[str, Any]) -> list[str]:
@@ -429,6 +443,213 @@ def _extract_human_votes(change: dict[str, Any]) -> tuple[list[dict[str, Any]], 
     return human_cr2, human_cr1, agent_cr1
 
 
+def _account_lookup_key(acct: dict[str, Any]) -> str:
+    """Returns a stable normalized key (`email` or `id:<account_id>`) for a Gerrit account dict."""
+    email = (acct.get("email") or "").strip().lower()
+    if email:
+        return email
+    acct_id = acct.get("_account_id")
+    if acct_id is not None:
+        return f"id:{acct_id}"
+    return (acct.get("display_name") or acct.get("name") or "").strip().lower()
+
+
+def _collect_votes_by_account(
+    labels: dict[str, Any]
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, Any]]]:
+    """Collects non-zero label votes keyed by `_account_lookup_key` and raw voter account objects."""
+    priority_labels = ("Code-Review", "Presubmit-Verified", "Presubmit-Ready", "Autosubmit")
+    ordered_names = [k for k in priority_labels if k in labels] + sorted(
+        k for k in labels.keys() if k not in priority_labels
+    )
+    votes_by_key: dict[str, list[dict[str, Any]]] = {}
+    voter_accounts: dict[str, dict[str, Any]] = {}
+    for label_name in ordered_names:
+        label_obj = labels.get(label_name) or {}
+        short_lbl = _LABEL_SHORT_NAMES.get(label_name, label_name)
+        for vote in label_obj.get("all") or []:
+            val = int(vote.get("value", 0) or 0)
+            if val == 0:
+                continue
+            key = _account_lookup_key(vote)
+            if not key:
+                continue
+            voter_accounts.setdefault(key, vote)
+            votes_by_key.setdefault(key, []).append(
+                {
+                    "label": label_name,
+                    "short_label": short_lbl,
+                    "value": val,
+                    "formatted": f"+{val}" if val > 0 else str(val),
+                }
+            )
+    return votes_by_key, voter_accounts
+
+
+def _build_participant_entry(
+    acct: dict[str, Any],
+    state: str,
+    *,
+    owner_email: str,
+    viewer_email: str,
+    removable_keys: set[str] | None,
+    attention_keys: set[str],
+    votes_by_key: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    """Formats one `REVIEWER` or `CC` participant with votes, bot status, and removability."""
+    key = _account_lookup_key(acct)
+    email = (acct.get("email") or "").strip().lower()
+    short = (
+        email.split("@", 1)[0]
+        if email
+        else (acct.get("display_name") or acct.get("name") or "unknown").strip()
+    )
+    display_name = (acct.get("display_name") or acct.get("name") or short).strip()
+    full_name = (acct.get("name") or display_name or short).strip()
+    tags = list(acct.get("tags") or [])
+    is_bot = is_agent_or_bot_email(email, full_name) or ("SERVICE_USER" in tags)
+    is_owner = bool(email and email == owner_email)
+    votes = [dict(v) for v in (votes_by_key.get(key) or [])]
+    cr_vote = next((int(v["value"]) for v in votes if v["label"] == "Code-Review"), 0)
+    is_removable = (
+        (key in removable_keys or (bool(email) and email in removable_keys))
+        if removable_keys is not None
+        else (not is_owner)
+    )
+    return {
+        "account_id": acct.get("_account_id"),
+        "email": email,
+        "short": short,
+        "name": display_name,
+        "full_name": full_name,
+        "state": state,
+        "is_bot": is_bot,
+        "is_team_agent": is_team_review_agent(email),
+        "is_owner": is_owner,
+        "is_viewer": bool(email and email == viewer_email),
+        "in_attention_set": key in attention_keys or (bool(email) and email in attention_keys),
+        "removable": is_removable,
+        "cr_vote": cr_vote,
+        "votes": votes,
+    }
+
+
+def _append_unique_participants(
+    raw_accounts: list[dict[str, Any]],
+    state: str,
+    seen_keys: set[str],
+    out_list: list[dict[str, Any]],
+    *,
+    owner_email: str,
+    viewer_email: str,
+    removable_keys: set[str] | None,
+    attention_keys: set[str],
+    votes_by_key: dict[str, list[dict[str, Any]]],
+) -> None:
+    """Appends deduplicated formatted participant entries for `state` (`REVIEWER` or `CC`)."""
+    for acct in raw_accounts:
+        key = _account_lookup_key(acct)
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        out_list.append(
+            _build_participant_entry(
+                acct,
+                state,
+                owner_email=owner_email,
+                viewer_email=viewer_email,
+                removable_keys=removable_keys,
+                attention_keys=attention_keys,
+                votes_by_key=votes_by_key,
+            )
+        )
+
+
+def extract_reviewers_and_ccs(
+    change: dict[str, Any], viewer_email: str = ""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Extracts ordered `REVIEWER` and `CC` participant lists with all label votes."""
+    viewer = (viewer_email or "").strip().lower()
+    owner_email = ((change.get("owner") or {}).get("email") or "").strip().lower()
+    votes_by_key, voter_accounts = _collect_votes_by_account(change.get("labels") or {})
+    removable_keys = (
+        {_account_lookup_key(r) for r in (change.get("removable_reviewers") or [])}
+        if "removable_reviewers" in change
+        else None
+    )
+    attention_keys = {
+        _account_lookup_key((info or {}).get("account") or {})
+        for info in (change.get("attention_set") or {}).values()
+    } - {""}
+
+    rev_block = change.get("reviewers") or {}
+    seen_keys: set[str] = set()
+    reviewers_out: list[dict[str, Any]] = []
+    ccs_out: list[dict[str, Any]] = []
+    shared_kwargs = {
+        "owner_email": owner_email,
+        "viewer_email": viewer,
+        "removable_keys": removable_keys,
+        "attention_keys": attention_keys,
+        "votes_by_key": votes_by_key,
+    }
+    _append_unique_participants(
+        rev_block.get("REVIEWER") or [], "REVIEWER", seen_keys, reviewers_out, **shared_kwargs
+    )
+    _append_unique_participants(
+        rev_block.get("CC") or [], "CC", seen_keys, ccs_out, **shared_kwargs
+    )
+    _append_unique_participants(
+        list(voter_accounts.values()), "REVIEWER", seen_keys, reviewers_out, **shared_kwargs
+    )
+    reviewers_out.sort(
+        key=lambda p: (
+            2 if (p["is_bot"] and not p["is_team_agent"]) else (1 if p["is_team_agent"] else 0),
+            0 if p["votes"] else 1,
+            -p["cr_vote"],
+            0 if p["is_viewer"] else 1,
+            p["short"].lower(),
+        )
+    )
+    ccs_out.sort(key=lambda p: (1 if p["is_bot"] else 0, p["short"].lower()))
+    return reviewers_out, ccs_out
+
+
+def _extract_autosubmit_and_viewer_votes(
+    change: dict[str, Any], viewer_email: str
+) -> dict[str, Any]:
+    """Extracts the viewer's current CR/Autosubmit votes and overall Autosubmit status."""
+    viewer = (viewer_email or "").strip().lower()
+    labels = change.get("labels") or {}
+    cr_all = (labels.get("Code-Review") or {}).get("all") or []
+    as_all = (labels.get("Autosubmit") or {}).get("all") or []
+
+    viewer_cr_vote = 0
+    for vote in cr_all:
+        if (vote.get("email") or "").strip().lower() == viewer:
+            viewer_cr_vote = int(vote.get("value", 0) or 0)
+            break
+
+    autosubmit_voters: list[str] = []
+    viewer_autosubmit = False
+    for vote in as_all:
+        val = int(vote.get("value", 0) or 0)
+        if val < 1:
+            continue
+        em = (vote.get("email") or "").strip().lower()
+        short = em.split("@", 1)[0] if em else (vote.get("name") or "user")
+        autosubmit_voters.append(short)
+        if viewer and em == viewer:
+            viewer_autosubmit = True
+
+    return {
+        "viewer_cr_vote": viewer_cr_vote,
+        "viewer_autosubmit": viewer_autosubmit,
+        "autosubmit_enabled": bool(autosubmit_voters),
+        "autosubmit_voters": autosubmit_voters,
+    }
+
+
 def _extract_human_involvement(
     change: dict[str, Any],
     viewer_email: str,
@@ -624,6 +845,8 @@ def enrich_change_for_ui(
     agent_vetted = (agent_cr1 or not requires_two_humans) and unresolved_count == 0
 
     involvement = _extract_human_involvement(change, viewer, human_cr2, now)
+    reviewers_detail, ccs_detail = extract_reviewers_and_ccs(change, viewer)
+    vote_meta = _extract_autosubmit_and_viewer_votes(change, viewer)
     slots: list[dict[str, str]] = []
     for voter in human_cr2[:required_cr2_count]:
         tag = "You (+2 ✓)" if voter["email"] == viewer else f"✓ {voter['short']} +2"
@@ -682,7 +905,7 @@ def enrich_change_for_ui(
     ping_target = f"@{silent_targets[0]}" if silent_targets else "team"
     chat_ping = (
         f"Hey {ping_target}, could you take a quick look at ag/{num} "
-        f"(\"{subject}\", {risk['tier']} load, presubmit+agent vetted)? "
+        f"(\"{subject}\", {risk['tier']} load, presubmit+agent verified)? "
         f"https://googleplex-android-review.git.corp.google.com/c/{project}/+/{num}"
     )
 
@@ -731,6 +954,10 @@ def enrich_change_for_ui(
         "human_cr2": human_cr2,
         "human_cr1": human_cr1,
         "approved_by_viewer": approved_by_viewer,
+        "viewer_cr_vote": vote_meta["viewer_cr_vote"],
+        "viewer_autosubmit": vote_meta["viewer_autosubmit"],
+        "autosubmit_enabled": vote_meta["autosubmit_enabled"],
+        "autosubmit_voters": vote_meta["autosubmit_voters"],
         "presubmit_score": pv_score,
         "presubmit_vetted": presubmit_vetted,
         "agent_vetted": agent_vetted,
@@ -749,6 +976,8 @@ def enrich_change_for_ui(
         "bugs": bugs_list,
         "approval_slots": slots,
         "human_involvement": other_humans,
+        "reviewers_detail": reviewers_detail,
+        "ccs_detail": ccs_detail,
         "is_orphaned": is_orphaned,
         "chat_ping": chat_ping,
         "swarm_status": read_cl_swarm_status(num, current_revision=cur_rev, now_dt=now),
@@ -1178,7 +1407,9 @@ class GerritUIService:
         self.auth_email = self._detect_auth_email()
         self.default_viewer = default_viewer or self._detect_viewer_email()
         self.default_query = default_query
+        self._session_lock = threading.Lock()
         self._session_approved_cls: set[int] = set()
+        self._session_votes: dict[int, dict[str, int]] = {}
         self._bug_cache_path = (
             Path.home() / ".cache" / "emu-dev-cli" / "gerrit-ui" / "bug_metadata_cache.json"
         )
@@ -1387,11 +1618,108 @@ class GerritUIService:
             "cliff_radar": cliff_summary,
         }
 
+    @staticmethod
+    def _sync_viewer_participant_vote(
+        item: dict[str, Any],
+        viewer: str,
+        short: str,
+        label_name: str,
+        short_label: str,
+        val: int,
+    ) -> None:
+        """Updates or inserts `viewer`'s vote badge in `item['reviewers_detail']`."""
+        revs = item.setdefault("reviewers_detail", [])
+        target = next((r for r in revs if (r.get("email") or "").lower() == viewer), None)
+        if target is None and val != 0:
+            target = {
+                "account_id": None,
+                "email": viewer,
+                "short": short,
+                "name": short,
+                "full_name": short,
+                "state": "REVIEWER",
+                "is_bot": False,
+                "is_team_agent": False,
+                "is_owner": viewer == (item.get("owner_email") or "").lower(),
+                "is_viewer": True,
+                "in_attention_set": False,
+                "removable": viewer != (item.get("owner_email") or "").lower(),
+                "cr_vote": 0,
+                "votes": [],
+            }
+            revs.insert(0, target)
+        if target is None:
+            return
+        if label_name == "Code-Review":
+            target["cr_vote"] = val
+        votes = [v for v in (target.get("votes") or []) if v.get("label") != label_name]
+        if val != 0:
+            fmt = f"+{val}" if val > 0 else str(val)
+            entry = {"label": label_name, "short_label": short_label, "value": val, "formatted": fmt}
+            if label_name == "Code-Review":
+                votes.insert(0, entry)
+            else:
+                votes.append(entry)
+        target["votes"] = votes
+
+    @staticmethod
+    def _sync_viewer_cr_approval(
+        item: dict[str, Any], viewer: str, short: str, cr_val: int
+    ) -> None:
+        """Synchronizes `approved_by_viewer`, `human_cr2`, and `approval_slots` for `cr_val`."""
+        if cr_val >= 2 and not item.get("approved_by_viewer"):
+            item["approved_by_viewer"] = True
+            cr2_list = item.setdefault("human_cr2", [])
+            if not any((v.get("email") or "").lower() == viewer for v in cr2_list):
+                cr2_list.append({"email": viewer, "name": short, "short": short, "value": 2})
+                item["human_cr2_count"] = len(cr2_list)
+            slot = next(
+                (s for s in (item.get("approval_slots") or []) if s.get("state") != "done"),
+                None,
+            )
+            if slot is not None:
+                slot["state"] = "done"
+                slot["text"] = "You (+2 ✓)"
+            return
+        if cr_val < 2 and item.get("approved_by_viewer"):
+            item["approved_by_viewer"] = False
+            cr2_list = [
+                v for v in (item.get("human_cr2") or []) if (v.get("email") or "").lower() != viewer
+            ]
+            item["human_cr2"] = cr2_list
+            item["human_cr2_count"] = len(cr2_list)
+
+    def _apply_single_session_vote(
+        self,
+        item: dict[str, Any],
+        viewer: str,
+        short: str,
+        vote_map: dict[str, int],
+    ) -> None:
+        """Applies cached session label votes (`Code-Review`, `Autosubmit`) to `item`."""
+        if "Code-Review" in vote_map:
+            cr_val = int(vote_map["Code-Review"])
+            item["viewer_cr_vote"] = cr_val
+            self._sync_viewer_participant_vote(item, viewer, short, "Code-Review", "CR", cr_val)
+            self._sync_viewer_cr_approval(item, viewer, short, cr_val)
+        if "Autosubmit" in vote_map:
+            as_val = int(vote_map["Autosubmit"])
+            item["viewer_autosubmit"] = as_val >= 1
+            voters = [v for v in (item.get("autosubmit_voters") or []) if v != short]
+            if as_val >= 1:
+                voters.append(short)
+            item["autosubmit_voters"] = voters
+            item["autosubmit_enabled"] = bool(voters)
+            self._sync_viewer_participant_vote(item, viewer, short, "Autosubmit", "AS", as_val)
+
     def _apply_session_approvals(
         self, enriched: list[dict[str, Any]], viewer_email: str
     ) -> None:
-        """Applies in-memory `Code-Review +2` votes when Gerrit's secondary search index lags."""
-        if not self._session_approved_cls:
+        """Applies in-memory session votes when Gerrit's secondary search index lags."""
+        with self._session_lock:
+            approved_snapshot = set(self._session_approved_cls)
+            votes_snapshot = {k: dict(v) for k, v in self._session_votes.items()}
+        if not approved_snapshot and not votes_snapshot:
             return
         active_voter = (self.auth_email or self.default_viewer or "").strip().lower()
         viewer = (viewer_email or "").strip().lower()
@@ -1399,20 +1727,12 @@ class GerritUIService:
             return
         short = (viewer or "you").split("@", 1)[0]
         for item in enriched:
-            if int(item.get("number", 0) or 0) not in self._session_approved_cls:
-                continue
-            if item.get("approved_by_viewer"):
-                continue
-            item["approved_by_viewer"] = True
-            cr2_list = item.setdefault("human_cr2", [])
-            if not any((v.get("email") or "").lower() == viewer for v in cr2_list):
-                cr2_list.append({"email": viewer, "name": short, "short": short, "value": 2})
-                item["human_cr2_count"] = len(cr2_list)
-            for slot in item.get("approval_slots") or []:
-                if slot.get("state") != "done":
-                    slot["state"] = "done"
-                    slot["text"] = "You (+2 ✓)"
-                    break
+            cl_num = int(item.get("number", 0) or 0)
+            merged_votes = dict(votes_snapshot.get(cl_num) or {})
+            if cl_num in approved_snapshot and "Code-Review" not in merged_votes:
+                merged_votes["Code-Review"] = 2
+            if merged_votes:
+                self._apply_single_session_vote(item, viewer, short, merged_votes)
 
     def fetch_commit_diff_bundle(self, cl_number: str | int) -> dict[str, Any]:
         """Fetches decoded unified diff files, pure-rebase status, and comment threads for one CL."""
@@ -1512,11 +1832,54 @@ class GerritUIService:
             "error": err_msg,
         }
 
+    @staticmethod
+    def _build_vote_labels(
+        code_review: int | None,
+        autosubmit: bool | int | None,
+        presubmit_ready: bool,
+    ) -> dict[str, int]:
+        """Constructs Gerrit `labels` dict for `Code-Review`, `Autosubmit`, and `Presubmit-Ready`."""
+        labels: dict[str, int] = {}
+        if code_review is not None:
+            labels["Code-Review"] = int(code_review)
+        if isinstance(autosubmit, bool):
+            if autosubmit:
+                labels["Autosubmit"] = 1
+        elif autosubmit is not None:
+            labels["Autosubmit"] = int(autosubmit)
+        if presubmit_ready:
+            labels["Presubmit-Ready"] = 1
+        if not labels:
+            raise ValueError(
+                "Cannot cast Gerrit vote: no label values specified "
+                "(provide code_review, autosubmit, or presubmit_ready)."
+            )
+        return labels
+
+    def _record_session_vote_results(
+        self, results: list[dict[str, Any]], labels: dict[str, int]
+    ) -> None:
+        """Caches successful session votes in memory to mask Gerrit secondary-index lag."""
+        cr_label = labels.get("Code-Review")
+        with self._session_lock:
+            for r in results:
+                raw_cl_num = str(r.get("cl") or "").strip()
+                if not (r.get("ok") and raw_cl_num.isdigit()):
+                    continue
+                cl_num = int(raw_cl_num)
+                self._session_votes[cl_num] = {**self._session_votes.get(cl_num, {}), **labels}
+                if cr_label is None:
+                    continue
+                if cr_label >= 2:
+                    self._session_approved_cls.add(cl_num)
+                else:
+                    self._session_approved_cls.discard(cl_num)
+
     def cast_batch_vote(
         self,
         cl_numbers: list[str | int],
-        code_review: int = 2,
-        autosubmit: bool = False,
+        code_review: int | None = 2,
+        autosubmit: bool | int | None = False,
         presubmit_ready: bool = False,
         message: str = "",
     ) -> dict[str, Any]:
@@ -1527,16 +1890,9 @@ class GerritUIService:
                 "Cannot cast Gerrit vote: `gob-curl` is not installed on PATH. "
                 "Run `gcert` on a gLinux / Cloudtop machine with `gob-curl` installed."
             )
-        labels: dict[str, int] = {"Code-Review": int(code_review)}
-        if autosubmit:
-            labels["Autosubmit"] = 1
-        if presubmit_ready:
-            labels["Presubmit-Ready"] = 1
-
-        payload: dict[str, Any] = {
-            "labels": labels,
-            "notify": "OWNER",
-        }
+        labels = self._build_vote_labels(code_review, autosubmit, presubmit_ready)
+        cr_hint = int(labels.get("Code-Review", 0))
+        payload: dict[str, Any] = {"labels": labels, "notify": "OWNER"}
         if message.strip():
             payload["message"] = message.strip()
 
@@ -1546,19 +1902,12 @@ class GerritUIService:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             results = list(
                 pool.map(
-                    lambda cid: self._post_single_vote(
-                        gob_curl, cid, payload_json, int(code_review)
-                    ),
+                    lambda cid: self._post_single_vote(gob_curl, cid, payload_json, cr_hint),
                     cleaned_cls,
                 )
             )
 
-        if int(code_review) >= 2:
-            for r in results:
-                raw_cl_num = str(r.get("cl") or "").strip()
-                if r.get("ok") and raw_cl_num.isdigit():
-                    self._session_approved_cls.add(int(raw_cl_num))
-
+        self._record_session_vote_results(results, labels)
         all_ok = all(r["ok"] for r in results)
         cloudtop_cmd = " && ".join(
             f"gob-curl -s -X POST -H 'Content-Type: application/json' -d '{payload_json}' "
@@ -1568,6 +1917,7 @@ class GerritUIService:
         out: dict[str, Any] = {
             "status": "ok" if all_ok else "partial_error",
             "auth_email": self.auth_email,
+            "labels": labels,
             "cloudtop_cmd": cloudtop_cmd,
             "results": results,
         }
@@ -1578,16 +1928,173 @@ class GerritUIService:
 
     def assign_second_human_reviewer(self, cl_number: str | int, reviewer_email: str) -> dict[str, Any]:
         """Adds a 2nd human reviewer to an agent CL with `notify: OWNER`."""
-        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
-        reviewer = (reviewer_email or "").strip()
-        if not reviewer:
-            raise ValueError("Reviewer email is required to assign a 2nd human reviewer.")
-        resp = self.client._request_json(
-            f"/a/changes/{cl_id}/reviewers",
-            method="POST",
-            data={"reviewer": reviewer, "notify": "OWNER"},
+        return self.modify_reviewer(
+            cl_number=cl_number,
+            action="add",
+            account=reviewer_email,
+            state="REVIEWER",
         )
-        return {"status": "ok", "cl": cl_id, "reviewer": reviewer, "response": resp}
+
+    def fetch_single_enriched_change(
+        self, cl_id: str, viewer_email: str | None = None
+    ) -> dict[str, Any] | None:
+        """Fetches fresh primary-storage change detail for `cl_id` and returns its UI-enriched dict."""
+        viewer = (viewer_email or self.default_viewer).strip().lower()
+        encoded_id = urllib.parse.quote(str(cl_id), safe="")
+        endpoint = (
+            f"/a/changes/{encoded_id}/detail"
+            "?o=CURRENT_REVISION&o=ALL_REVISIONS&o=CURRENT_COMMIT&o=CURRENT_FILES"
+            "&o=MESSAGES&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=SUBMIT_REQUIREMENTS"
+        )
+        detail = self.client._request_json(endpoint)
+        if not isinstance(detail, dict):
+            return None
+        bug_ids = extract_bug_ids_from_change(detail)
+        bug_lookup = self.fetch_bug_metadata_batch(bug_ids) if bug_ids else self._bug_cache
+        enriched = enrich_change_for_ui(detail, viewer, bug_lookup=bug_lookup)
+        self._apply_session_approvals([enriched], viewer)
+        return enriched
+
+    def _fetch_remote_reviewer_suggestions(
+        self, cl_number: str | int, query: str, limit: int
+    ) -> list[dict[str, Any]]:
+        """Queries Gerrit `/suggest_reviewers` and normalizes account/group entries."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        enc_q = urllib.parse.quote(query, safe="@._-")
+        raw_list = self.client._request_json(
+            f"/a/changes/{cl_id}/suggest_reviewers?q={enc_q}&n={max(1, int(limit))}"
+        )
+        if not isinstance(raw_list, list):
+            return []
+        parsed: list[dict[str, Any]] = []
+        for item in raw_list:
+            acct = item.get("account") if isinstance(item, dict) else None
+            grp = item.get("group") if isinstance(item, dict) else None
+            if isinstance(acct, dict):
+                em = (acct.get("email") or "").strip().lower()
+                val = em or str(acct.get("_account_id") or "")
+                short = em.split("@", 1)[0] if em else (acct.get("name") or val)
+                if val:
+                    parsed.append({
+                        "value": val,
+                        "email": em,
+                        "name": (acct.get("display_name") or acct.get("name") or short).strip(),
+                        "short": short,
+                        "is_group": False,
+                    })
+            elif isinstance(grp, dict) and grp.get("name"):
+                gname = str(grp["name"]).strip()
+                parsed.append({
+                    "value": gname,
+                    "email": "",
+                    "name": gname,
+                    "short": gname,
+                    "is_group": True,
+                })
+        return parsed
+
+    def suggest_reviewers(
+        self, cl_number: str | int, query: str = "", limit: int = 8
+    ) -> list[dict[str, Any]]:
+        """Returns reviewer/CC autocomplete candidates combining Gerrit `suggest_reviewers` and team roster."""
+        q = (query or "").strip()
+        q_lower = q.lower()
+        suggestions: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        if len(q) >= 2 and str(cl_number).strip():
+            try:
+                for entry in self._fetch_remote_reviewer_suggestions(cl_number, q, limit):
+                    dedup_key = entry["value"].lower()
+                    if dedup_key not in seen:
+                        seen.add(dedup_key)
+                        suggestions.append(entry)
+            except Exception:
+                pass
+
+        for roster_em in TEAM_ROSTER_EMAILS:
+            if roster_em not in seen and (not q_lower or q_lower in roster_em):
+                seen.add(roster_em)
+                short = roster_em.split("@", 1)[0]
+                suggestions.append({
+                    "value": roster_em,
+                    "email": roster_em,
+                    "name": short,
+                    "short": short,
+                    "is_group": False,
+                })
+        return suggestions[: max(1, int(limit))]
+
+    def _execute_reviewer_mutation(
+        self, cl_id: str, norm_action: str, raw_acct: str, state: str
+    ) -> tuple[str, str, Any]:
+        """Executes the Gerrit REST reviewer add/move or delete call with `notify: OWNER`."""
+        if norm_action == "remove":
+            enc_acct = urllib.parse.quote(raw_acct, safe="")
+            try:
+                resp = self.client._request_json(
+                    f"/a/changes/{cl_id}/reviewers/{enc_acct}/delete",
+                    method="POST",
+                    data={"notify": "OWNER"},
+                )
+            except RuntimeError as exc:
+                if "exit code 0" not in str(exc):
+                    raise
+                resp = {}
+            return "REMOVED", raw_acct, resp
+        if norm_action == "add":
+            norm_state = "CC" if str(state or "").strip().upper() == "CC" else "REVIEWER"
+            resolved_acct = (
+                f"{raw_acct.lower()}@google.com"
+                if _SIMPLE_LDAP_RE.fullmatch(raw_acct) and not raw_acct.isdigit()
+                else raw_acct
+            )
+            resp = self.client._request_json(
+                f"/a/changes/{cl_id}/reviewers",
+                method="POST",
+                data={"reviewer": resolved_acct, "state": norm_state, "notify": "OWNER"},
+            )
+            if isinstance(resp, dict) and resp.get("error"):
+                err_detail = str(resp["error"]).strip()
+                raise RuntimeError(
+                    f"Failed to add {norm_state} '{resolved_acct}' to CL {cl_id}: {err_detail}. "
+                    "Verify the Gerrit email, LDAP, or group name and your CL permissions."
+                )
+            return norm_state, resolved_acct, resp
+        raise ValueError(f"Unsupported reviewer action '{norm_action}' (expected 'add' or 'remove').")
+
+    def modify_reviewer(
+        self,
+        cl_number: str | int,
+        action: str,
+        account: str | int,
+        *,
+        state: str = "REVIEWER",
+        viewer_email: str | None = None,
+    ) -> dict[str, Any]:
+        """Adds, moves (`REVIEWER` <-> `CC`), or removes a reviewer/CC on `cl_number` with `notify: OWNER`."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        norm_action = (action or "add").strip().lower()
+        raw_acct = str(account or "").strip()
+        if not raw_acct:
+            raise ValueError("Reviewer or CC account email/ID is required.")
+        norm_state, resolved_acct, resp = self._execute_reviewer_mutation(
+            cl_id, norm_action, raw_acct, state
+        )
+        updated_change: dict[str, Any] | None = None
+        try:
+            updated_change = self.fetch_single_enriched_change(cl_id, viewer_email=viewer_email)
+        except Exception:
+            updated_change = None
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "action": norm_action,
+            "reviewer": resolved_acct,
+            "state": norm_state,
+            "notify": "OWNER",
+            "response": resp,
+            "change": updated_change,
+        }
 
     def get_swarm_statuses(self, cl_numbers: list[str | int]) -> dict[str, dict[str, Any]]:
         """Reads live or completed Review Swarm status objects from disk for `cl_numbers`."""
@@ -2117,6 +2624,13 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                         {"questions": service.get_code_questions(cl_list, conversation_id=conv_id)}
                     )
                     return
+                if parsed.path == "/api/gerrit/suggest-reviewers":
+                    cl_num = (qs.get("cl") or [""])[0]
+                    query_str = (qs.get("q") or [""])[0]
+                    self._send_json(
+                        {"suggestions": service.suggest_reviewers(cl_num, query=query_str)}
+                    )
+                    return
                 self._send_json({"error": f"Unknown endpoint '{parsed.path}'"}, status=404)
             except Exception as exc:
                 self._send_json({"error": str(exc)}, status=500)
@@ -2169,10 +2683,20 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                     self._send_json(_run_sidecar_agentapi(args, project_id=body.get("projectId")))
                     return
                 if parsed.path == "/api/gerrit/vote":
+                    if "code_review" in body:
+                        cr_arg = int(body["code_review"]) if body["code_review"] is not None else None
+                    elif "autosubmit" in body or "presubmit_ready" in body:
+                        cr_arg = None
+                    else:
+                        cr_arg = 2
+                    raw_as = body.get("autosubmit", False)
+                    as_arg: bool | int | None = (
+                        raw_as if isinstance(raw_as, bool) or raw_as is None else int(raw_as)
+                    )
                     res = service.cast_batch_vote(
                         cl_numbers=body.get("cls") or [],
-                        code_review=int(body.get("code_review", 2)),
-                        autosubmit=bool(body.get("autosubmit", False)),
+                        code_review=cr_arg,
+                        autosubmit=as_arg,
                         presubmit_ready=bool(body.get("presubmit_ready", False)),
                         message=str(body.get("message", "")),
                     )
@@ -2182,6 +2706,16 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                     res = service.assign_second_human_reviewer(
                         cl_number=body.get("cl", ""),
                         reviewer_email=body.get("reviewer", ""),
+                    )
+                    self._send_json(res)
+                    return
+                if parsed.path == "/api/gerrit/reviewer":
+                    res = service.modify_reviewer(
+                        cl_number=body.get("cl", ""),
+                        action=str(body.get("action") or "add"),
+                        account=body.get("account") or body.get("reviewer") or "",
+                        state=str(body.get("state") or "REVIEWER"),
+                        viewer_email=str(body.get("viewer") or "").strip() or None,
                     )
                     self._send_json(res)
                     return

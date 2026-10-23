@@ -261,6 +261,9 @@
     color: #f4c2bf;
   }
   .nudge-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     background: #2b2f38;
     color: #d4dce8;
     border: 1px solid #414652;
@@ -270,9 +273,13 @@
     font-weight: 600;
     cursor: pointer;
   }
-  .nudge-btn:hover {
+  .nudge-btn:hover:not(:disabled) {
     background: #353a45;
     color: #ffffff;
+  }
+  .nudge-btn:disabled {
+    opacity: 0.62;
+    cursor: wait;
   }
 
   .workspace {
@@ -454,51 +461,6 @@
     align-items: center;
     gap: 8px;
     flex-wrap: wrap;
-  }
-  .queue-toolbar {
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--g-border);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-    background: var(--g-panel-alt);
-  }
-  .risk-filters { display: flex; gap: 5px; }
-  .risk-tab {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 4px 9px;
-    border-radius: 5px;
-    font-size: 11.5px;
-    font-weight: 600;
-    background: #252830;
-    border: 1px solid var(--g-border);
-    color: var(--g-btn-inactive-text);
-    cursor: pointer;
-  }
-  .risk-tab:hover {
-    background: #2d313b;
-    color: var(--g-text);
-  }
-  .risk-tab.active {
-    color: #ffffff;
-    border-color: #586173;
-    background: #343946;
-  }
-  .batch-low-btn {
-    background: #233329;
-    color: #a3e4b7;
-    border: 1px solid rgba(78, 173, 107, 0.45);
-    padding: 4px 10px;
-    border-radius: 5px;
-    font-size: 11.5px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .batch-low-btn:hover {
-    background: #2a3e31;
   }
   .queue-type-toolbar {
     padding: 7px 12px;
@@ -799,15 +761,29 @@
   .btn:hover:not(:disabled) { background: #2f333c; }
   .btn:active:not(:disabled) { transform: scale(0.98); }
   .btn:disabled { cursor: wait; opacity: 0.72; }
+  .btn-vote-cr1 { background: #213244; border-color: #38597a; color: #cde2ff; }
+  .btn-vote-cr1:hover:not(:disabled) { background: #293f56; }
   .btn-approve { background: #2b6342; border-color: #3a7d56; color: #f4f7f5; }
   .btn-approve:hover:not(:disabled) { background: #32734d; }
+  .btn-approve-auto { background: #23493b; border-color: #489476; color: #d8faeb; }
+  .btn-approve-auto:hover:not(:disabled) { background: #2b5948; }
+  .btn-autosubmit { background: #2e2920; border-color: #6b5832; color: #f6dca6; }
+  .btn-autosubmit:hover:not(:disabled) { background: #3a3327; }
   .btn-approve-stack { background: #223027; border-color: #365942; color: #a3e4b7; }
   .btn-approve-stack:hover:not(:disabled) { background: #293b30; }
-  .btn.is-voting, .batch-low-btn.is-voting {
+  .btn.is-active-vote {
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35), 0 0 0 1px rgba(130, 177, 255, 0.28);
+  }
+  .btn-autosubmit.is-active-vote {
+    background: #3d331d;
+    border-color: #c59b3c;
+    color: #ffe8b3;
+  }
+  .btn.is-voting {
     opacity: 1 !important;
     border-color: var(--g-green);
   }
-  .btn.is-voted, .batch-low-btn.is-voted {
+  .btn.is-voted {
     opacity: 1 !important;
     background: #2b6342 !important;
     border-color: #4ead6b !important;
@@ -1186,7 +1162,7 @@
   }
   .code-line.commit-msg-line {
     display: grid;
-    grid-template-columns: 56px 1fr;
+    grid-template-columns: 64px minmax(0, 1fr);
     padding: 2px 14px 2px 6px;
     white-space: normal;
     word-break: break-word;
@@ -1198,8 +1174,12 @@
   .ln.ln-commit-msg {
     font-family: var(--g-mono);
     font-size: 10.5px;
+    padding-left: 18px;
     padding-right: 10px;
     white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
+    font-variant-numeric: tabular-nums;
   }
   .commit-msg-cell {
     min-width: 0;
@@ -1364,7 +1344,7 @@
   }
   .code-line {
     display: grid;
-    grid-template-columns: 44px 52px 1fr;
+    grid-template-columns: var(--ln-old-col, 52px) var(--ln-new-col, 68px) minmax(0, 1fr);
     padding: 1px 10px;
     white-space: pre-wrap;
     word-break: break-all;
@@ -1382,12 +1362,22 @@
     padding-right: 10px;
     cursor: pointer;
     position: relative;
+    white-space: nowrap;
+    word-break: normal;
+    overflow-wrap: normal;
+    font-variant-numeric: tabular-nums;
+  }
+  .ln-new {
+    padding-left: 18px;
   }
   .ln:hover {
     color: #ffffff;
     text-decoration: underline;
   }
   .ln-add-btn {
+    position: absolute;
+    left: 1px;
+    top: 50%;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1400,16 +1390,14 @@
     font-size: 11px;
     font-weight: 700;
     line-height: 1;
-    margin-right: 4px;
     opacity: 0;
-    transform: scale(0.9);
+    transform: translateY(-50%) scale(0.9);
     transition: opacity 0.1s ease, transform 0.1s ease, background 0.1s ease;
-    vertical-align: middle;
   }
   .code-line:not(.code-hunk):hover .ln-add-btn,
   .code-line.code-line-selected .ln-add-btn {
     opacity: 1;
-    transform: scale(1);
+    transform: translateY(-50%) scale(1);
   }
   .ln-add-btn:hover {
     background: #3b5987;
@@ -1766,6 +1754,401 @@
     box-shadow: 0 6px 18px rgba(0,0,0,0.4);
     z-index: 100;
   }
+
+  .viewer-select:disabled,
+  .author-filter-select:disabled,
+  .queue-search-input:disabled {
+    opacity: 0.56;
+    cursor: wait;
+  }
+  .topbar-loading-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: rgba(130, 177, 255, 0.14);
+    border: 1px solid rgba(130, 177, 255, 0.38);
+    color: #cde0ff;
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .global-loading-bar {
+    height: 2px;
+    width: 100%;
+    background: transparent;
+    overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .global-loading-bar.active {
+    background: rgba(130, 177, 255, 0.14);
+  }
+  .global-loading-bar.active::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 36%;
+    background: linear-gradient(90deg, transparent, var(--g-accent), #a3e4b7, transparent);
+    animation: gerritIndeterminateBar 1.05s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+  @keyframes gerritIndeterminateBar {
+    0% { left: -36%; }
+    100% { left: 100%; }
+  }
+  .cliff-radar.is-loading {
+    opacity: 0.45;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+  }
+  .pane-loading-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 25;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(19, 20, 23, 0.82);
+    backdrop-filter: blur(2px);
+  }
+  .pane-loading-overlay.active {
+    display: flex;
+  }
+  .pane-loading-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    max-width: 340px;
+    text-align: center;
+    padding: 20px 24px;
+    border-radius: 8px;
+    background: #20232a;
+    border: 1px solid #383e4c;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  }
+  .pane-loading-spinner {
+    width: 24px;
+    height: 24px;
+    border: 2.5px solid rgba(130, 177, 255, 0.22);
+    border-top-color: var(--g-accent);
+    border-right-color: #a3e4b7;
+    border-radius: 50%;
+    animation: gerritSpin 0.68s linear infinite;
+  }
+  .pane-loading-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--g-text);
+  }
+  .pane-loading-sub {
+    font-size: 11.5px;
+    color: var(--g-muted);
+    line-height: 1.4;
+  }
+  .diff-loading-card {
+    padding: 18px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: #17191d;
+  }
+  .diff-loading-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: #cde0ff;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .diff-skeleton-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 2px;
+  }
+  .diff-skeleton-bar {
+    height: 10px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #21242b 25%, #2b303a 50%, #21242b 75%);
+    background-size: 200% 100%;
+    animation: gerritSkeletonShimmer 1.25s ease-in-out infinite;
+  }
+  @keyframes gerritSkeletonShimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  .dot-blue-pulse {
+    background: var(--g-accent);
+    box-shadow: 0 0 0 3px rgba(130, 177, 255, 0.24);
+  }
+  .cl-participants-panel {
+    padding: 8px 14px;
+    background: #17191e;
+    border-bottom: 1px solid var(--g-border);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .participants-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 11.5px;
+  }
+  .participants-label {
+    min-width: 78px;
+    padding-top: 3px;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--g-muted);
+    flex-shrink: 0;
+  }
+  .participants-chips {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    flex: 1;
+  }
+  .participant-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: #23262e;
+    border: 1px solid #363b47;
+    color: var(--g-text);
+    font-size: 11.5px;
+    font-weight: 500;
+    line-height: 1.35;
+  }
+  .participant-chip.is-viewer {
+    border-color: rgba(130, 177, 255, 0.5);
+    background: rgba(130, 177, 255, 0.11);
+  }
+  .participant-chip.is-bot {
+    background: #1e2027;
+    border-color: #2f333e;
+    color: #c7cdd8;
+    font-size: 11px;
+  }
+  .participant-chip .att-bolt {
+    color: #f2c97d;
+    font-size: 11px;
+  }
+  .participant-owner-tag {
+    font-size: 10px;
+    color: var(--g-muted);
+    font-weight: 600;
+  }
+  .p-vote {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 5px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .p-vote-pos2 {
+    background: rgba(78, 173, 107, 0.24);
+    color: #a3e4b7;
+    border: 1px solid rgba(78, 173, 107, 0.5);
+  }
+  .p-vote-pos1 {
+    background: rgba(130, 177, 255, 0.18);
+    color: #c9dfff;
+    border: 1px solid rgba(130, 177, 255, 0.4);
+  }
+  .p-vote-neg {
+    background: rgba(223, 91, 83, 0.24);
+    color: #f4b7b3;
+    border: 1px solid rgba(223, 91, 83, 0.5);
+  }
+  .p-vote-zero {
+    background: #2b2f38;
+    color: #9098a8;
+    border: 1px dashed #434957;
+  }
+  .participant-act-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: #929aab;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 0 2px;
+    border-radius: 3px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .participant-act-btn:hover:not(:disabled) {
+    color: #ffffff;
+    background: #353b48;
+  }
+  .participant-act-btn.remove:hover:not(:disabled) {
+    color: #ffb3ae;
+    background: rgba(223, 91, 83, 0.24);
+  }
+  .participant-act-btn:disabled {
+    opacity: 0.55;
+    cursor: wait;
+  }
+  .add-participant-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px dashed #454c5c;
+    background: #1d2027;
+    color: var(--g-accent);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .add-participant-btn:hover {
+    background: #252a34;
+    border-color: var(--g-accent);
+    color: #cde0ff;
+  }
+  .reviewer-add-box {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .reviewer-add-input {
+    width: 220px;
+    background: #14161a;
+    border: 1px solid var(--g-accent);
+    color: var(--g-text);
+    border-radius: 5px;
+    padding: 3px 8px;
+    font-size: 11.5px;
+    font-family: var(--g-font);
+    outline: none;
+  }
+  .reviewer-suggest-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 280px;
+    max-width: 360px;
+    max-height: 220px;
+    overflow-y: auto;
+    background: #20232b;
+    border: 1px solid #414858;
+    border-radius: 6px;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55);
+    z-index: 45;
+    padding: 4px;
+  }
+  .reviewer-suggest-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    color: var(--g-text);
+    cursor: pointer;
+  }
+  .reviewer-suggest-item:hover,
+  .reviewer-suggest-item.active {
+    background: rgba(130, 177, 255, 0.18);
+    color: #ffffff;
+  }
+  .card-participants-strip {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+    margin-bottom: 5px;
+  }
+  .card-rev-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 600;
+    background: #20232b;
+    border: 1px solid #333844;
+    color: #d4dae4;
+  }
+  .card-rev-pill.cr-pos2 {
+    background: rgba(78, 173, 107, 0.14);
+    border-color: rgba(78, 173, 107, 0.4);
+    color: #a8e6bc;
+  }
+  .card-rev-pill.cr-pos1 {
+    background: rgba(130, 177, 255, 0.13);
+    border-color: rgba(130, 177, 255, 0.36);
+    color: #c7ddff;
+  }
+  .card-rev-pill.cr-neg {
+    background: rgba(223, 91, 83, 0.16);
+    border-color: rgba(223, 91, 83, 0.45);
+    color: #f4b7b3;
+  }
+  .card-rev-pill.is-cc {
+    border-style: dashed;
+    color: var(--g-muted);
+  }
+  .card-rev-pill.cr-autosubmit {
+    background: rgba(230, 180, 80, 0.15);
+    border-color: rgba(230, 180, 80, 0.45);
+    color: #ffe29e;
+  }
+  .quick-vote-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid #353b48;
+    background: #232730;
+    color: #d6dce6;
+    transition: background 0.14s ease, border-color 0.14s ease;
+  }
+  .quick-vote-chip:hover:not(:disabled) {
+    background: #2d3340;
+    border-color: #4f596d;
+  }
+  .quick-vote-chip:disabled {
+    opacity: 0.65;
+    cursor: wait;
+  }
+  .quick-vote-chip.active-cr1 {
+    background: rgba(130, 177, 255, 0.18);
+    border-color: #5b8def;
+    color: #dceaff;
+  }
+  .quick-vote-chip.active-cr2 {
+    background: rgba(78, 173, 107, 0.22);
+    border-color: #4ead6b;
+    color: #d4f8df;
+  }
+  .quick-vote-chip.active-as {
+    background: rgba(230, 180, 80, 0.2);
+    border-color: #c59b3c;
+    color: #ffe8b3;
+  }
 </style>
 </head>
 <body>
@@ -1781,11 +2164,15 @@
       <option value="owner">Authored by Me</option>
       <option value="team">All Team Repos</option>
     </select>
+    <span id="topbarLoadingPill" class="topbar-loading-pill" style="display:none;">
+      <span class="btn-spinner"></span>
+      <span id="topbarLoadingText">Loading…</span>
+    </span>
   </div>
 
   <div class="gate-pills">
-    <div id="gatePresubmit" class="gate-pill active" onclick="toggleGate('presubmit')">✓ Presubmit Vetted (+1/+2)</div>
-    <div id="gateAgent" class="gate-pill active" onclick="toggleGate('agent')">✓ Agent Vetted (0 unresolved)</div>
+    <div id="gatePresubmit" class="gate-pill active" onclick="toggleGate('presubmit')">✓ Presubmit Verified (+1/+2)</div>
+    <div id="gateAgent" class="gate-pill active" onclick="toggleGate('agent')">✓ Agent Verified (0 unresolved)</div>
     <div id="gateHideMine" class="gate-pill active" onclick="toggleGate('hideMine')">✓ Hide Already +2'd by Me (<span id="hiddenMineCount">0</span>)</div>
   </div>
 
@@ -1798,6 +2185,7 @@
     <button id="btnRefreshQueue" class="btn" onclick="manualRefreshQueue()">↻ Refresh</button>
   </div>
 </div>
+<div id="globalLoadingBar" class="global-loading-bar"></div>
 
 <div id="cliffRadar" class="cliff-radar collapsed">
   <div class="cliff-header" onclick="toggleCliffRadar()" title="Click to expand or collapse Time-in-Flight &amp; Cliff Radar">
@@ -1866,16 +2254,6 @@
       <div id="authorChipsBar" class="author-chips-row"></div>
     </div>
 
-    <div class="queue-toolbar">
-      <div class="risk-filters">
-        <div id="riskAll" class="risk-tab active" onclick="setRiskFilter('all')">All (<span id="cntAll">0</span>)</div>
-        <div id="riskLow" class="risk-tab" onclick="setRiskFilter('low')"><span class="dot dot-green"></span> Low (<span id="cntLow">0</span>)</div>
-        <div id="riskMed" class="risk-tab" onclick="setRiskFilter('medium')"><span class="dot dot-amber"></span> Med (<span id="cntMed">0</span>)</div>
-        <div id="riskHigh" class="risk-tab" onclick="setRiskFilter('high')"><span class="dot dot-red"></span> High (<span id="cntHigh">0</span>)</div>
-      </div>
-      <button id="btnBatchLow" class="batch-low-btn" onclick="batchApproveLowRisk(this)">+2 All Low Load</button>
-    </div>
-
     <div class="queue-type-toolbar">
       <div class="queue-group-row">
         <span style="font-size:10.5px;font-weight:700;color:var(--g-muted);letter-spacing:0.3px;">COMMIT TYPE &amp; GROUPING:</span>
@@ -1885,7 +2263,7 @@
         </div>
       </div>
       <div class="type-filters">
-        <div id="typeTab_all" class="type-tab active" onclick="setTypeFilter('all')">All Types</div>
+        <div id="typeTab_all" class="type-tab active" onclick="setTypeFilter('all')">All Types (<span id="cntType_all">0</span>)</div>
         <div id="typeTab_bugfix" class="type-tab" onclick="setTypeFilter('bugfix')">🐛 Bug Fix (<span id="cntType_bugfix">0</span>)</div>
         <div id="typeTab_perf" class="type-tab" onclick="setTypeFilter('perf')">⚡ Perf (<span id="cntType_perf">0</span>)</div>
         <div id="typeTab_ets_test" class="type-tab" onclick="setTypeFilter('ets_test')">🧪 ETS/Test (<span id="cntType_ets_test">0</span>)</div>
@@ -1901,19 +2279,29 @@
       <span>✓ <strong id="bottomHiddenCount">0 CLs auto-hidden</strong> (You already voted <strong>+2</strong> · Waiting on 2nd Human)</span>
       <button class="nudge-btn" onclick="copyAllWaitingPings()">Copy Follow-up Digest</button>
     </div>
+    <div id="queuePaneOverlay" class="pane-loading-overlay" aria-hidden="true">
+      <div class="pane-loading-card">
+        <div class="pane-loading-spinner"></div>
+        <div id="queueOverlayTitle" class="pane-loading-title">Loading Gerrit Queue…</div>
+        <div id="queueOverlaySub" class="pane-loading-sub">Fetching open CLs, approval slots, and Buganizer metadata</div>
+      </div>
+    </div>
   </div>
 
   <div class="diff-pane">
     <div id="voteStampBanner" class="vote-stamp-banner"></div>
     <div class="harness-bar">
       <div class="vote-group">
-        <button id="btnVoteCurrent" class="btn btn-approve" onclick="voteCurrentCl(this)">✓ Vote +2 on Selected</button>
-        <button id="btnVoteStack" class="btn btn-approve-stack" onclick="voteActiveStack(this)">✓✓ Vote +2 on Entire Stack</button>
+        <button id="btnVotePlus1" class="btn btn-vote-cr1" onclick="voteCurrentClPlus1(this)" title="Vote Code-Review +1 on selected CL (Shortcut: 1)">+1</button>
+        <button id="btnVoteCurrent" class="btn btn-approve" onclick="voteCurrentCl(this)" title="Vote Code-Review +2 on selected CL (Shortcut: a or 2)">✓ Vote +2</button>
+        <button id="btnVotePlus2Auto" class="btn btn-approve-auto" onclick="voteCurrentClPlus2Auto(this)" title="Vote Code-Review +2 and Autosubmit +1 on selected CL (Shortcut: Shift+A)">⚡ +2 &amp; Autosubmit</button>
+        <button id="btnVoteAutosubmit" class="btn btn-autosubmit" onclick="toggleCurrentClAutosubmit(this)" title="Set or clear Autosubmit +1 on selected CL (Shortcut: u)">Autosubmit +1</button>
+        <button id="btnVoteStack" class="btn btn-approve-stack" onclick="voteActiveStack(this)" title="Vote Code-Review +2 across all commits in active stack">✓✓ Stack +2</button>
       </div>
       <div class="harness-group">
         <span style="font-size:11px;color:var(--g-muted);font-weight:700;">HARNESS ACTIONS:</span>
-        <button id="btnRunSwarm" class="btn btn-swarm" onclick="triggerHarness('review-swarm')">★ Run Review Swarm (8 Specialists)</button>
-        <button id="btnAutoFix" class="btn btn-fix" onclick="triggerHarness('address-review')">→ Auto-Address Comments</button>
+        <button id="btnRunSwarm" class="btn btn-swarm" onclick="triggerHarness('review-swarm', this)">★ Run Review Swarm (8 Specialists)</button>
+        <button id="btnAutoFix" class="btn btn-fix" onclick="triggerHarness('address-review', this)">→ Auto-Address Comments</button>
         <span id="activeSwarmsPill" class="active-swarms-pill" style="display:none;" onclick="jumpToActiveSwarmCl()"></span>
       </div>
     </div>
@@ -1924,9 +2312,16 @@
       <div style="display:flex;align-items:center;gap:8px;">
         <span id="drawerDot" class="dot dot-green"></span>
         <strong>Harness &amp; Gerrit Bridge:</strong>
-        <span id="drawerStatus" style="color:var(--g-muted);">Ready · Keyboard shortcuts: j/k (next/prev commit), a (+2 current), s (run Review Swarm)</span>
+        <span id="drawerStatus" style="color:var(--g-muted);">Ready · Shortcuts: j/k (next/prev), 1 (+1), a/2 (+2), A (+2 &amp; Autosubmit), u (Autosubmit +1), s (Swarm)</span>
       </div>
       <a id="openGerritLink" href="#" target="_blank" style="color:var(--g-accent);font-weight:600;text-decoration:none;">Open in Gerrit ↗</a>
+    </div>
+    <div id="diffPaneOverlay" class="pane-loading-overlay" aria-hidden="true">
+      <div class="pane-loading-card">
+        <div class="pane-loading-spinner"></div>
+        <div id="diffOverlayTitle" class="pane-loading-title">Updating Diff Workspace…</div>
+        <div id="diffOverlaySub" class="pane-loading-sub">Waiting for new queue selection</div>
+      </div>
     </div>
   </div>
 </div>
@@ -1984,7 +2379,6 @@
     collapsedCommitMsgs: new Set(),
     cliffRadarCollapsed: true,
     gates: { presubmit: true, agent: false, hideMine: true },
-    riskFilter: "all",
     groupMode: "type",
     typeFilter: "all",
     authorFilter: "all",
@@ -1994,12 +2388,17 @@
     selectedStackId: null,
     selectedClNumber: null,
     votingInFlight: false,
+    queueLoading: false,
+    queueFetchSeq: 0,
+    diffLoadingCount: 0,
+    diffLoadingLabel: "",
     justEnteredClNumber: null,
     queueClearedCount: 0,
     codeSelection: null,
     inlineCommentsByCl: {},
     nextInlineItemId: 1,
     collapsedInlineIds: new Set(),
+    activeReviewerComposer: null,
   };
 
   function showToast(msg) {
@@ -2018,12 +2417,114 @@
       .replace(/"/g, "&quot;");
   }
 
+  function getScopeDisplayLabel(scope) {
+    if (scope === "owner") return "Authored by Me";
+    if (scope === "team") return "All Team Repos";
+    return "Assigned to Me (Reviewer)";
+  }
+
+  function syncGlobalLoadingBar() {
+    const bar = document.getElementById("globalLoadingBar");
+    const isBusy = Boolean(state.queueLoading || state.diffLoadingCount > 0 || state.votingInFlight);
+    if (bar) {
+      bar.classList.toggle("active", isBusy);
+    }
+    if (!state.queueLoading && !state.votingInFlight && state.diffLoadingCount > 0) {
+      const drawerDot = document.getElementById("drawerDot");
+      const drawerStatus = document.getElementById("drawerStatus");
+      if (drawerDot) drawerDot.className = "dot dot-blue-pulse";
+      if (drawerStatus && state.diffLoadingLabel) {
+        drawerStatus.textContent = state.diffLoadingLabel;
+      }
+    } else if (!state.queueLoading && !state.votingInFlight && state.diffLoadingCount === 0) {
+      syncSwarmIndicatorsOnly();
+    }
+  }
+
+  function setQueueControlsDisabled(disabled) {
+    const controlIds = [
+      "viewerSelect",
+      "scopeSelect",
+      "btnRefreshQueue",
+      "queueSearchInput",
+      "authorFilterSelect",
+      "btnVotePlus1",
+      "btnVoteCurrent",
+      "btnVotePlus2Auto",
+      "btnVoteAutosubmit",
+      "btnVoteStack",
+      "btnRunSwarm",
+      "btnAutoFix",
+    ];
+    controlIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = disabled;
+    });
+  }
+
+  function setQueueLoadingState(isLoading, titleText, subText) {
+    state.queueLoading = Boolean(isLoading);
+    const pill = document.getElementById("topbarLoadingPill");
+    const pillText = document.getElementById("topbarLoadingText");
+    const qOverlay = document.getElementById("queuePaneOverlay");
+    const dOverlay = document.getElementById("diffPaneOverlay");
+    const radar = document.getElementById("cliffRadar");
+    if (pill) pill.style.display = isLoading ? "inline-flex" : "none";
+    if (pillText && titleText) pillText.textContent = titleText;
+    if (qOverlay) {
+      qOverlay.classList.toggle("active", isLoading);
+      qOverlay.setAttribute("aria-hidden", isLoading ? "false" : "true");
+    }
+    if (dOverlay) {
+      dOverlay.classList.toggle("active", isLoading);
+      dOverlay.setAttribute("aria-hidden", isLoading ? "false" : "true");
+    }
+    if (radar) radar.classList.toggle("is-loading", isLoading);
+    if (isLoading) {
+      const qTitle = document.getElementById("queueOverlayTitle");
+      const qSub = document.getElementById("queueOverlaySub");
+      const dTitle = document.getElementById("diffOverlayTitle");
+      const dSub = document.getElementById("diffOverlaySub");
+      if (qTitle && titleText) qTitle.textContent = titleText;
+      if (qSub && subText) qSub.textContent = subText;
+      if (dTitle) dTitle.textContent = titleText || "Updating Diff Workspace…";
+      if (dSub) dSub.textContent = "Refreshing commit selection and unified diffs…";
+      const drawerDot = document.getElementById("drawerDot");
+      const drawerStatus = document.getElementById("drawerStatus");
+      if (drawerDot) drawerDot.className = "dot dot-blue-pulse";
+      if (drawerStatus && titleText) drawerStatus.textContent = titleText;
+    }
+    setQueueControlsDisabled(isLoading);
+    syncGlobalLoadingBar();
+  }
+
+  function renderDiffLoadingPlaceholderHtml(titleText, subText) {
+    const subHtml = subText
+      ? `<div style="font-size:11.5px;color:var(--g-muted);">${escapeHtml(subText)}</div>`
+      : "";
+    return `<div class="diff-loading-card">
+      <div class="diff-loading-row">
+        <span class="btn-spinner"></span>
+        <span>${escapeHtml(titleText || "Loading unified diff…")}</span>
+      </div>
+      ${subHtml}
+      <div class="diff-skeleton-lines">
+        <div class="diff-skeleton-bar" style="width:92%;"></div>
+        <div class="diff-skeleton-bar" style="width:78%;"></div>
+        <div class="diff-skeleton-bar" style="width:64%;"></div>
+      </div>
+    </div>`;
+  }
+
   async function initApp() {
     if (window.__GERRIT_UI_BOOTSTRAP__ && Array.isArray(window.__GERRIT_UI_BOOTSTRAP__.changes)) {
       applyQueuePayload(window.__GERRIT_UI_BOOTSTRAP__);
       return;
     }
-    await fetchQueueData();
+    await fetchQueueData(state.viewer, state.scope, {
+      loadingTitle: "Loading Gerrit Review Queue…",
+      loadingSub: "Fetching open CLs, approval slots, and Buganizer metadata",
+    });
   }
 
   async function manualRefreshQueue() {
@@ -2033,7 +2534,11 @@
       btn.innerHTML = `<span class="btn-spinner"></span> Refreshing…`;
     }
     try {
-      await fetchQueueData(state.viewer, state.scope, { preserveDiffCache: false });
+      await fetchQueueData(state.viewer, state.scope, {
+        preserveDiffCache: false,
+        loadingTitle: "Refreshing Gerrit Queue…",
+        loadingSub: `Syncing latest patchsets, labels, and diffs for ${state.viewer}`,
+      });
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -2043,16 +2548,25 @@
   }
 
   async function fetchQueueData(viewerOverride, scopeOverride, opts = {}) {
+    const seq = ++state.queueFetchSeq;
+    const v = viewerOverride || state.viewer || "";
+    const sc = scopeOverride || state.scope || "reviewer";
+    const authorQ = opts.author || "";
+    if (!opts.silent) {
+      const defaultTitle = authorQ
+        ? `Querying Gerrit for owner:${authorQ}…`
+        : `Loading ${getScopeDisplayLabel(sc)}…`;
+      const defaultSub = `Viewer: ${v || "auto"} · Fetching open CLs, approval slots & Buganizer metadata`;
+      setQueueLoadingState(true, opts.loadingTitle || defaultTitle, opts.loadingSub || defaultSub);
+    }
     try {
-      const v = viewerOverride || state.viewer || "";
-      const sc = scopeOverride || state.scope || "reviewer";
-      const authorQ = opts.author || "";
       let qs = `?scope=${encodeURIComponent(sc)}${v ? `&viewer=${encodeURIComponent(v)}` : ""}`;
       if (authorQ) {
         qs += `&author=${encodeURIComponent(authorQ)}`;
       }
       const resp = await sidecarFetch(`/api/gerrit/queue${qs}`);
       const data = await resp.json();
+      if (seq !== state.queueFetchSeq) return;
       if (data.error) {
         showToast("Error loading Gerrit queue: " + data.error);
         return;
@@ -2060,10 +2574,24 @@
       if (!opts.preserveDiffCache) {
         state.diffsByCl = {};
       }
-      applyQueuePayload(data, opts);
-    } catch (err) {
       if (!opts.silent) {
+        setQueueLoadingState(false);
+      }
+      applyQueuePayload(data, opts);
+      if (!opts.silent && getActiveRunningSwarmClNumbers().length === 0 && state.diffLoadingCount === 0) {
+        const drawerStatus = document.getElementById("drawerStatus");
+        if (drawerStatus) {
+          drawerStatus.textContent = `Ready · Loaded ${state.changes.length} open CLs (${getScopeDisplayLabel(state.scope)} · ${state.viewer})`;
+        }
+      }
+    } catch (err) {
+      if (seq === state.queueFetchSeq && !opts.silent) {
         showToast("Could not reach local Gerrit UI server: " + err);
+      }
+    } finally {
+      if (seq === state.queueFetchSeq && state.queueLoading) {
+        setQueueLoadingState(false);
+        ensureActiveDiffsLoaded({ preserveScroll: Boolean(opts.preserveScroll) });
       }
     }
   }
@@ -2119,6 +2647,7 @@
 
   function onViewerChange() {
     const newViewer = document.getElementById("viewerSelect").value;
+    const shortViewer = (newViewer || "").split("@")[0] || newViewer;
     state.viewer = newViewer;
     state.selectedClNumber = null;
     state.selectedStackId = null;
@@ -2129,15 +2658,22 @@
       renderAll();
       return;
     }
-    fetchQueueData(newViewer, state.scope);
+    fetchQueueData(newViewer, state.scope, {
+      loadingTitle: `Switching viewer to ${shortViewer}@…`,
+      loadingSub: `${getScopeDisplayLabel(state.scope)} · Reloading open CLs and +2 status for ${newViewer}`,
+    });
   }
 
   function onScopeChange() {
     const newScope = document.getElementById("scopeSelect").value;
+    const scopeLabel = getScopeDisplayLabel(newScope);
     state.scope = newScope;
     state.selectedClNumber = null;
     state.selectedStackId = null;
-    fetchQueueData(state.viewer, newScope);
+    fetchQueueData(state.viewer, newScope, {
+      loadingTitle: `Loading "${scopeLabel}"…`,
+      loadingSub: `Viewer: ${state.viewer} · Querying Gerrit changes and stack dependencies`,
+    });
   }
 
   function toggleGate(name) {
@@ -2148,24 +2684,12 @@
     renderAll();
   }
 
-  function setRiskFilter(tier) {
-    state.riskFilter = tier;
-    ["All", "Low", "Med", "High"].forEach(k => {
-      const el = document.getElementById("risk" + k);
-      if (el) el.classList.remove("active");
-    });
-    const map = { all: "riskAll", low: "riskLow", medium: "riskMed", high: "riskHigh" };
-    const activeEl = document.getElementById(map[tier] || "riskAll");
-    if (activeEl) activeEl.classList.add("active");
-    renderAll();
-  }
-
   function setViewMode(mode) {
     state.viewMode = mode;
     document.getElementById("modeSplit").classList.toggle("active", mode === "split");
     document.getElementById("modeStack").classList.toggle("active", mode === "stack");
     document.getElementById("modeSquash").classList.toggle("active", mode === "squash");
-    renderDiffPane();
+    ensureActiveDiffsLoaded();
   }
 
   function setGroupMode(mode) {
@@ -2402,8 +2926,12 @@
   async function queryGerritForAuthor(authorStr) {
     const clean = String(authorStr || "").replace(/^(author:|owner:|from:|by:)/i, "").trim();
     if (!clean) return;
-    showToast(`Querying Gerrit for reviewer:${state.viewer} owner:${clean}…`);
-    await fetchQueueData(state.viewer, state.scope, { author: clean, preserveDiffCache: true });
+    await fetchQueueData(state.viewer, state.scope, {
+      author: clean,
+      preserveDiffCache: true,
+      loadingTitle: `Querying Gerrit for owner:${clean}…`,
+      loadingSub: `Searching reviewer:${state.viewer} owner:${clean} across Gerrit`,
+    });
   }
 
   function syncSearchClearButton() {
@@ -2467,7 +2995,7 @@
           const isActive = state.authorFilter === a.short ? "active" : "";
           const icon = a.isBot ? "🤖" : "👤";
           const shortDisplay = a.short.length > 20 ? a.short.slice(0, 18) + "…" : a.short;
-          const gateNote = a.gated < a.total ? ` (${a.gated} vetted / ${a.total} total)` : ` (${a.total} CLs)`;
+          const gateNote = a.gated < a.total ? ` (${a.gated} verified / ${a.total} total)` : ` (${a.total} CLs)`;
           const title = `${a.name} <${a.email}>${gateNote}`;
           return `<span class="author-chip ${isActive}" onclick="setAuthorFilter('${escapeHtml(a.short)}')" title="${escapeHtml(title)}">${icon} ${escapeHtml(shortDisplay)} (${a.total})</span>`;
         }),
@@ -2492,7 +3020,6 @@
     state.stacks.forEach(st => {
       const baseMatches = st.commits.filter(c => {
         if (!matchesAuthorAndSearch(c)) return false;
-        if (state.riskFilter !== "all" && c.risk.tier !== state.riskFilter) return false;
         if (state.typeFilter !== "all" && getCommitTypeId(c) !== state.typeFilter) return false;
         return true;
       });
@@ -2577,19 +3104,14 @@
       hasActiveAuthorOrSearchFilter() && (state.includeUngatedMatches || gated.length === 0)
         ? authorAndSearchMatched
         : gated;
-    const lowCnt = activePool.filter(c => c.risk.tier === "low").length;
-    const medCnt = activePool.filter(c => c.risk.tier === "medium").length;
-    const highCnt = activePool.filter(c => c.risk.tier === "high").length;
-    document.getElementById("cntAll").textContent = activePool.length;
-    document.getElementById("cntLow").textContent = lowCnt;
-    document.getElementById("cntMed").textContent = medCnt;
-    document.getElementById("cntHigh").textContent = highCnt;
-
-    const riskGated = activePool.filter(c => state.riskFilter === "all" || c.risk.tier === state.riskFilter);
+    const cntAllEl = document.getElementById("cntType_all");
+    if (cntAllEl) {
+      cntAllEl.textContent = activePool.length;
+    }
     COMMIT_TYPE_ORDER.forEach(t => {
       const cntEl = document.getElementById(`cntType_${t.id}`);
       if (cntEl) {
-        cntEl.textContent = riskGated.filter(c => getCommitTypeId(c) === t.id).length;
+        cntEl.textContent = activePool.filter(c => getCommitTypeId(c) === t.id).length;
       }
     });
 
@@ -2704,6 +3226,7 @@
     const swarmObj = state.swarmByCl[c.number];
     const swarmingCls = swarmObj && swarmObj.state === "running" ? "cl-card-swarming" : "";
     const swarmSlotHtml = renderClSwarmBadgeHtml(c.number);
+    const participantsStripHtml = renderCardParticipantsSummaryHtml(c);
     return `<div class="cl-card ${isSelected ? "selected" : ""} ${enteringCls} ${swarmingCls}" data-cl-num="${c.number}" onclick="selectStackAndCl('${escapeHtml(stackId)}', ${c.number})">
       <div class="cl-row-top">
         <span class="cl-subj">${escapeHtml(prefix + c.subject)}</span>
@@ -2721,6 +3244,7 @@
         </span>
         <span class="badge badge-rebase">${escapeHtml(pvTag)}</span>
       </div>
+      ${participantsStripHtml}
       <div class="approval-slots"><span id="clSwarmSlot-${c.number}">${swarmSlotHtml}</span>${slotsHtml}${invHtml}</div>
     </div>`;
   }
@@ -2736,7 +3260,7 @@
       });
     });
     if (!nums.length) {
-      showToast("No vetted CLs in this commit type group.");
+      showToast("No verified CLs in this commit type group.");
       return;
     }
     castVotes(nums, btnEl);
@@ -2755,13 +3279,13 @@
 
     if (summary.autoBypassedGates && summary.gatedCommitCount === 0 && summary.ungatedCommitCount > 0) {
       return `<div class="queue-filter-banner">
-        <span>ℹ️ Showing <strong>${summary.ungatedCommitCount}</strong> matching CL${summary.ungatedCommitCount === 1 ? "" : "s"} for <strong>${escapeHtml(labelStr)}</strong> (including unvetted / already +2'd CLs).</span>
+        <span>ℹ️ Showing <strong>${summary.ungatedCommitCount}</strong> matching CL${summary.ungatedCommitCount === 1 ? "" : "s"} for <strong>${escapeHtml(labelStr)}</strong> (including unverified / already +2'd CLs).</span>
         <button class="nudge-btn" onclick="clearQueueSearchAndAuthor()">Clear Filter ✕</button>
       </div>`;
     }
     if (summary.hiddenByGatesCount > 0 && !state.includeUngatedMatches) {
       return `<div class="queue-filter-banner">
-        <span>🔍 Showing <strong>${summary.gatedCommitCount}</strong> vetted CL${summary.gatedCommitCount === 1 ? "" : "s"} for <strong>${escapeHtml(labelStr)}</strong> · <strong>+${summary.hiddenByGatesCount} more</strong> hidden by active gates.</span>
+        <span>🔍 Showing <strong>${summary.gatedCommitCount}</strong> verified CL${summary.gatedCommitCount === 1 ? "" : "s"} for <strong>${escapeHtml(labelStr)}</strong> · <strong>+${summary.hiddenByGatesCount} more</strong> hidden by active gates.</span>
         <div style="display:flex;gap:6px;">
           <button class="nudge-btn" onclick="toggleIncludeUngatedMatches()">Show All (${summary.ungatedCommitCount})</button>
           <button class="nudge-btn" onclick="clearQueueSearchAndAuthor()">Clear ✕</button>
@@ -2772,7 +3296,7 @@
       return `<div class="queue-filter-banner">
         <span>🔍 Showing all <strong>${summary.ungatedCommitCount}</strong> matching CLs for <strong>${escapeHtml(labelStr)}</strong> (including ${summary.hiddenByGatesCount} ungated).</span>
         <div style="display:flex;gap:6px;">
-          <button class="nudge-btn" onclick="toggleIncludeUngatedMatches()">Vetted Only (${summary.gatedCommitCount})</button>
+          <button class="nudge-btn" onclick="toggleIncludeUngatedMatches()">Verified Only (${summary.gatedCommitCount})</button>
           <button class="nudge-btn" onclick="clearQueueSearchAndAuthor()">Clear ✕</button>
         </div>
       </div>`;
@@ -2794,7 +3318,7 @@
           </div>`
         : "";
       container.innerHTML = `${bannerHtml}<div style="padding:24px;text-align:center;color:var(--g-muted);">
-        No CLs match the current filter${qRaw ? ` (<strong>${escapeHtml(qRaw)}</strong>)` : ""}. Toggle off a gate pill or type filter above to view unvetted or already-approved CLs.
+        No CLs match the current filter${qRaw ? ` (<strong>${escapeHtml(qRaw)}</strong>)` : ""}. Toggle off a gate pill or type filter above to view unverified or already-approved CLs.
         ${gerritQueryBtn}
       </div>`;
       return;
@@ -2917,10 +3441,15 @@
     return chosen ? [chosen] : [];
   }
 
-  async function prefetchDiffsForNumbers(clNums) {
+  async function prefetchDiffsForNumbers(clNums, opts = {}) {
     const missing = (clNums || []).filter(num => num && !state.diffsByCl[num]);
     if (!missing.length || (window.__GERRIT_UI_BOOTSTRAP__ && window.__GERRIT_UI_BOOTSTRAP__.changes)) {
       return;
+    }
+    if (opts.trackLoading) {
+      state.diffLoadingCount += 1;
+      state.diffLoadingLabel = opts.label || `Loading unified diff for ${missing.map(n => "ag/" + n).join(", ")}…`;
+      syncGlobalLoadingBar();
     }
     try {
       const resp = await sidecarFetch(`/api/gerrit/diffs?cls=${missing.join(",")}`);
@@ -2933,44 +3462,101 @@
       });
     } catch (err) {
       console.error(err);
+    } finally {
+      if (opts.trackLoading) {
+        state.diffLoadingCount = Math.max(0, state.diffLoadingCount - 1);
+        if (state.diffLoadingCount === 0) {
+          state.diffLoadingLabel = "";
+        }
+        syncGlobalLoadingBar();
+      }
+    }
+  }
+
+  function setToolbarVoteButtonsDisabled(disabled) {
+    ["btnVotePlus1", "btnVoteCurrent", "btnVotePlus2Auto", "btnVoteAutosubmit", "btnVoteStack"].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.disabled = disabled;
+      if (disabled) el.classList.remove("is-active-vote");
+    });
+  }
+
+  function syncActiveActionButtons(commits, isDiffLoading) {
+    const btnCr1 = document.getElementById("btnVotePlus1");
+    const btnCurrent = document.getElementById("btnVoteCurrent");
+    const btnCr2Auto = document.getElementById("btnVotePlus2Auto");
+    const btnAuto = document.getElementById("btnVoteAutosubmit");
+    const btnStack = document.getElementById("btnVoteStack");
+    const btnAutoFix = document.getElementById("btnAutoFix");
+    if (btnAutoFix && !btnAutoFix.classList.contains("is-running-action")) {
+      btnAutoFix.disabled = Boolean(state.queueLoading || commits.length === 0);
+    }
+    if (state.votingInFlight || state.queueLoading) return;
+    if (commits.length === 0) {
+      setToolbarVoteButtonsDisabled(true);
+      if (btnCr1) btnCr1.textContent = "+1";
+      if (btnCurrent) btnCurrent.textContent = "✓ Queue Clear";
+      if (btnCr2Auto) btnCr2Auto.textContent = "⚡ +2 & Autosubmit";
+      if (btnAuto) btnAuto.textContent = "Autosubmit +1";
+      if (btnStack) btnStack.textContent = "✓✓ Stack Clear";
+      return;
+    }
+    const primary = commits.find(c => c.number === state.selectedClNumber) || commits[0];
+    if (isDiffLoading) {
+      setToolbarVoteButtonsDisabled(true);
+      if (btnCurrent) {
+        btnCurrent.innerHTML = `<span class="btn-spinner"></span> Loading ag/${primary.number}…`;
+      }
+      if (btnStack) {
+        btnStack.innerHTML = `<span class="btn-spinner"></span> Loading Stack…`;
+      }
+      return;
+    }
+    setToolbarVoteButtonsDisabled(false);
+    const myCr = Number(primary.viewer_cr_vote || (primary.approved_by_viewer ? 2 : 0));
+    const myAs = Boolean(primary.viewer_autosubmit);
+    if (btnCr1) {
+      btnCr1.textContent = myCr === 1 ? `✓ +1 (ag/${primary.number})` : `+1`;
+      btnCr1.classList.toggle("is-active-vote", myCr === 1);
+    }
+    if (btnCurrent) {
+      btnCurrent.textContent = myCr >= 2 ? `✓ Voted +2 on ag/${primary.number}` : `✓ Vote +2 on ag/${primary.number}`;
+      btnCurrent.classList.toggle("is-active-vote", myCr >= 2);
+    }
+    if (btnCr2Auto) {
+      btnCr2Auto.textContent = (myCr >= 2 && myAs) ? `⚡ +2 & AS ✓` : `⚡ +2 & Autosubmit`;
+      btnCr2Auto.classList.toggle("is-active-vote", myCr >= 2 && myAs);
+    }
+    if (btnAuto) {
+      btnAuto.textContent = myAs ? `✓ Autosubmit +1` : (primary.autosubmit_enabled ? `Autosubmit +1 (On)` : `Autosubmit +1`);
+      btnAuto.classList.toggle("is-active-vote", myAs);
+    }
+    if (btnStack) {
+      btnStack.textContent = `✓✓ Stack +2 (${commits.length})`;
     }
   }
 
   async function ensureActiveDiffsLoaded(opts = {}) {
     const commits = getActiveCommitsForDiff();
-    const btnCurrent = document.getElementById("btnVoteCurrent");
-    const btnStack = document.getElementById("btnVoteStack");
     if (commits.length === 0) {
-      if (!state.votingInFlight) {
-        if (btnCurrent) {
-          btnCurrent.disabled = true;
-          btnCurrent.textContent = "✓ Queue Clear";
-        }
-        if (btnStack) {
-          btnStack.disabled = true;
-          btnStack.textContent = "✓✓ Stack Clear";
-        }
-      }
+      syncActiveActionButtons([], false);
       renderDiffPane();
       return;
     }
     const primary = commits.find(c => c.number === state.selectedClNumber) || commits[0];
-    if (!state.votingInFlight) {
-      if (btnCurrent) {
-        btnCurrent.disabled = false;
-        btnCurrent.textContent = `✓ Vote +2 on ag/${primary.number}`;
-      }
-      if (btnStack) {
-        btnStack.disabled = false;
-        btnStack.textContent = `✓✓ Vote +2 on Stack (${commits.length} Commits)`;
-      }
-    }
     document.getElementById("openGerritLink").href = primary.url;
 
     const missing = commits.map(c => c.number).filter(num => !state.diffsByCl[num]);
-    if (missing.length > 0 && !(window.__GERRIT_UI_BOOTSTRAP__ && window.__GERRIT_UI_BOOTSTRAP__.changes)) {
+    const needsFetch = missing.length > 0 && !(window.__GERRIT_UI_BOOTSTRAP__ && window.__GERRIT_UI_BOOTSTRAP__.changes);
+    syncActiveActionButtons(commits, needsFetch);
+    if (needsFetch) {
       renderDiffPane();
-      await prefetchDiffsForNumbers(missing);
+      await prefetchDiffsForNumbers(missing, {
+        trackLoading: true,
+        label: `Fetching unified diff for ${missing.map(n => "ag/" + n).join(", ")}…`,
+      });
+      syncActiveActionButtons(getActiveCommitsForDiff(), false);
     }
     renderDiffPane();
     pollTranscriptCodeQuestions();
@@ -3375,6 +3961,7 @@
   function renderFileDiffBlock(f, defaultClNum) {
     const fallbackCl = Number(defaultClNum || state.selectedClNumber || 0);
     const fileComments = getInlineCommentsForFile(fallbackCl, f.file);
+    let maxDigits = 4;
     const linesHtml = (f.lines || []).map((ln, idx) => {
       const cls = ln.type === "add" ? "code-add" : (ln.type === "del" ? "code-del" : (ln.type === "hunk" ? "code-hunk" : "code-ctx"));
       if (ln.type === "hunk") {
@@ -3383,10 +3970,14 @@
       const lineCl = Number(ln.clNum || fallbackCl || 0);
       const oldStr = ln.old != null ? String(ln.old) : "";
       const newStr = ln.new != null ? String(ln.new) : "";
+      maxDigits = Math.max(maxDigits, oldStr.length, newStr.length);
       const threadCls = getLineThreadIndicatorClass(fileComments, oldStr, newStr, null, idx);
       const inlineCommentsHtml = renderInlineLineCommentsHtml(lineCl, f.file, oldStr, newStr, fileComments, null, idx);
       return `<div class="code-line ${cls} ${threadCls}" data-cl="${lineCl}" data-file="${escapeHtml(f.file)}" data-idx="${idx}" data-old-ln="${escapeHtml(oldStr)}" data-new-ln="${escapeHtml(newStr)}" data-type="${escapeHtml(ln.type || "ctx")}"><span class="ln ln-old" onclick="onDiffLineGutterClick(event, this)" title="Click to select line · Shift+Click to highlight block">${escapeHtml(oldStr)}</span><span class="ln ln-new" onclick="onDiffLineGutterClick(event, this)" title="Click to Comment or Ask Agent · Shift+Click to highlight block"><span class="ln-add-btn">+</span>${escapeHtml(newStr)}</span><span class="code-text">${escapeHtml(ln.text)}</span></div>${inlineCommentsHtml}`;
     }).join("");
+    const colStyle = maxDigits > 5
+      ? ` style="--ln-old-col:${maxDigits * 8 + 14}px;--ln-new-col:${maxDigits * 8 + 30}px;"`
+      : "";
     const truncHtml = f.truncated
       ? `<div class="code-line code-hunk" data-type="hunk"><span class="ln">…</span><span class="ln">…</span><span>Diff truncated — click "Open in Gerrit ↗" to view remaining lines</span></div>`
       : "";
@@ -3397,7 +3988,7 @@
                 <span>+${f.additions} / -${f.deletions}</span>
               </div>
             </div>
-            <div class="code-table" data-cl="${fallbackCl}" data-file="${escapeHtml(f.file)}">${linesHtml}${truncHtml}</div>`;
+            <div class="code-table" data-cl="${fallbackCl}" data-file="${escapeHtml(f.file)}"${colStyle}>${linesHtml}${truncHtml}</div>`;
   }
 
   function getFullCommitMessage(c, bundle) {
@@ -3836,7 +4427,7 @@
       if (state.queueClearedCount > 0) {
         container.innerHTML = `<div class="inbox-zero-card">
           <div style="font-size:32px;margin-bottom:8px;">🎉</div>
-          <div style="font-size:16px;font-weight:700;color:#96d9ab;margin-bottom:6px;">Queue Cleared — All Vetted Commits Reviewed!</div>
+          <div style="font-size:16px;font-weight:700;color:#96d9ab;margin-bottom:6px;">Queue Cleared — All Verified Commits Reviewed!</div>
           <div style="color:var(--g-muted);font-size:12.5px;margin-bottom:16px;">
             You voted <strong>Code-Review +2</strong> on ${state.queueClearedCount} commit${state.queueClearedCount === 1 ? "" : "s"} this session.
           </div>
@@ -3852,9 +4443,12 @@
     }
 
     if (state.viewMode === "squash" && commits.length > 1) {
-      const anyLoading = commits.some(c => !state.diffsByCl[c.number]);
-      if (anyLoading) {
-        container.innerHTML = `<div style="padding:16px;color:var(--g-muted);">Loading squashed stack diff across ${commits.length} commits...</div>`;
+      const missingStackNums = commits.filter(c => !state.diffsByCl[c.number]).map(c => `ag/${c.number}`);
+      if (missingStackNums.length > 0) {
+        container.innerHTML = renderDiffLoadingPlaceholderHtml(
+          `Loading squashed stack diff across ${commits.length} commits…`,
+          `Downloading missing patchset diffs (${missingStackNums.join(", ")})`
+        );
         return;
       }
       const byFile = new Map();
@@ -3885,6 +4479,7 @@
       const filesHtml = squashedFiles.length > 0
         ? squashedFiles.map(f => renderFileDiffBlock(f, primaryCl)).join("")
         : `<div style="padding:12px;color:var(--g-muted);">No file diffs in this stack.</div>`;
+      const squashReviewersHtml = commits.map(c => renderCommitReviewersPanelHtml(c, true)).join("");
       const squashCommitMsgsHtml = commits.map(c => renderCommitMessagePanelHtml(c, state.diffsByCl[c.number])).join("");
       const squashSwarmHtml = commits.map(c => `<div id="swarmPanel-${c.number}">${renderCommitSwarmPanelHtml(c.number)}</div>`).join("");
       container.innerHTML = `<div class="commit-section">
@@ -3895,6 +4490,7 @@
           </div>
           <div style="font-size:11.5px;color:var(--g-muted);">${squashedFiles.length} touched files</div>
         </div>
+        ${squashReviewersHtml}
         ${squashCommitMsgsHtml}
         ${squashSwarmHtml}
         ${filesHtml}
@@ -3912,7 +4508,10 @@
 
       let filesHtml = "";
       if (!bundle || !Array.isArray(bundle.files)) {
-        filesHtml = `<div style="padding:12px;color:var(--g-muted);">Loading unified diff for ag/${c.number}...</div>`;
+        filesHtml = renderDiffLoadingPlaceholderHtml(
+          `Loading unified diff for ag/${c.number}…`,
+          `Fetching patchset PS${c.patch_set} file hunks and inline comment threads`
+        );
       } else if (bundle.files.length === 0) {
         filesHtml = `<div style="padding:12px;color:var(--g-muted);">No file diffs in this patchset (commit message or merge-only change).</div>`;
       } else {
@@ -3923,7 +4522,7 @@
         ? bundle.unresolved_threads.map(t => `<div class="swarm-finding">
             <div class="swarm-finding-head">
               <span>Unresolved Comment · ${escapeHtml(t.author_name)} on ${escapeHtml(t.file_path)}:${t.line}</span>
-              <button class="nudge-btn" onclick="triggerHarnessForCl(${c.number}, 'address-review')">→ Auto-Fix with Agent</button>
+              <button class="nudge-btn" onclick="triggerHarnessForCl(${c.number}, 'address-review', this)">→ Auto-Fix with Agent</button>
             </div>
             <div style="color:var(--g-text);font-size:12px;">${escapeHtml(t.latest_message)}</div>
           </div>`).join("")
@@ -3945,6 +4544,7 @@
           </div>
           <div style="font-size:11.5px;color:var(--g-muted);">${escapeHtml(c.project_short)} · PS${c.patch_set}</div>
         </div>
+        ${renderCommitReviewersPanelHtml(c, false)}
         ${renderCommitMessagePanelHtml(c, bundle)}
         <div id="swarmPanel-${c.number}">${renderCommitSwarmPanelHtml(c.number)}</div>
         ${threadsHtml}
@@ -4659,40 +5259,124 @@
     return null;
   }
 
-  function markClsApprovedOptimistically(cls) {
-    (cls || []).forEach(rawNum => {
-      const num = Number(rawNum);
-      if (!Number.isNaN(num) && num > 0) {
-        state.sessionApprovedCls.add(num);
-      }
-    });
-    const votedSet = state.sessionApprovedCls;
+  function syncLocalParticipantVoteBadge(c, labelName, shortLabel, val) {
+    const viewerEmail = (state.viewer || "").toLowerCase();
     const viewerShort = (state.viewer || "you").split("@")[0];
-    const applyOnCl = (c) => {
-      if (!c || !votedSet.has(Number(c.number))) return;
-      c.approved_by_viewer = true;
-      c.human_cr2 = c.human_cr2 || [];
-      if (!c.human_cr2.some(v => v.email === state.viewer)) {
-        c.human_cr2.push({ email: state.viewer, name: viewerShort });
-      }
-      if (Array.isArray(c.approval_slots)) {
-        const alreadyDoneByMe = c.approval_slots.some(
-          s => s.state === "done" && (String(s.text || "").includes(viewerShort) || String(s.text || "").includes("You (+2"))
-        );
-        if (!alreadyDoneByMe) {
-          const neededSlot = c.approval_slots.find(s => s.state !== "done");
-          if (neededSlot) {
-            neededSlot.state = "done";
-            neededSlot.text = `✓ ${viewerShort}@ (+2)`;
-          }
-        }
-      }
-    };
-    state.changes.forEach(applyOnCl);
-    state.stacks.forEach(st => (st.commits || []).forEach(applyOnCl));
+    if (!Array.isArray(c.reviewers_detail)) {
+      c.reviewers_detail = getFallbackReviewersForCl(c);
+    }
+    let me = c.reviewers_detail.find(p => (p.email || "").toLowerCase() === viewerEmail);
+    if (!me && val !== 0) {
+      me = {
+        email: viewerEmail,
+        short: viewerShort,
+        name: viewerShort,
+        full_name: viewerShort,
+        state: "REVIEWER",
+        is_bot: false,
+        is_owner: viewerEmail === (c.owner_email || "").toLowerCase(),
+        is_viewer: true,
+        removable: viewerEmail !== (c.owner_email || "").toLowerCase(),
+        cr_vote: 0,
+        votes: [],
+      };
+      c.reviewers_detail.unshift(me);
+    }
+    if (!me) return;
+    if (labelName === "Code-Review") me.cr_vote = val;
+    const nextVotes = (me.votes || []).filter(v => v.label !== labelName);
+    if (val !== 0) {
+      const entry = { label: labelName, short_label: shortLabel, value: val, formatted: val > 0 ? `+${val}` : String(val) };
+      if (labelName === "Code-Review") nextVotes.unshift(entry);
+      else nextVotes.push(entry);
+    }
+    me.votes = nextVotes;
   }
 
-  function showVoteStampBanner(votedCls, nextTarget) {
+  function applyOptimisticVoteToCl(c, codeReview, autosubmit) {
+    const viewerEmail = (state.viewer || "").toLowerCase();
+    const viewerShort = (state.viewer || "you").split("@")[0];
+    if (codeReview !== null && codeReview !== undefined) {
+      const crVal = Number(codeReview);
+      c.viewer_cr_vote = crVal;
+      syncLocalParticipantVoteBadge(c, "Code-Review", "CR", crVal);
+      if (crVal >= 2) {
+        c.approved_by_viewer = true;
+        c.human_cr2 = c.human_cr2 || [];
+        if (!c.human_cr2.some(v => (v.email || "").toLowerCase() === viewerEmail)) {
+          c.human_cr2.push({ email: state.viewer, name: viewerShort, short: viewerShort, value: 2 });
+        }
+        const neededSlot = (c.approval_slots || []).find(s => s.state !== "done");
+        const alreadyDone = (c.approval_slots || []).some(
+          s => s.state === "done" && (String(s.text || "").includes(viewerShort) || String(s.text || "").includes("You (+2"))
+        );
+        if (!alreadyDone && neededSlot) {
+          neededSlot.state = "done";
+          neededSlot.text = `✓ ${viewerShort}@ (+2)`;
+        }
+      } else {
+        c.approved_by_viewer = false;
+      }
+    }
+    if (autosubmit !== null && autosubmit !== undefined) {
+      const asVal = autosubmit === true ? 1 : (autosubmit === false ? 0 : Number(autosubmit));
+      c.viewer_autosubmit = asVal >= 1;
+      const others = (c.autosubmit_voters || []).filter(x => x !== viewerShort);
+      if (asVal >= 1) others.push(viewerShort);
+      c.autosubmit_voters = others;
+      c.autosubmit_enabled = others.length > 0;
+      syncLocalParticipantVoteBadge(c, "Autosubmit", "AS", asVal);
+    }
+  }
+
+  function markClsVotedOptimistically(cls, voteOpts = {}) {
+    const cr = voteOpts.codeReview;
+    const asOpt = voteOpts.autosubmit;
+    const targetNums = new Set();
+    (cls || []).forEach(rawNum => {
+      const num = Number(rawNum);
+      if (Number.isNaN(num) || num <= 0) return;
+      targetNums.add(num);
+      if (cr !== null && cr !== undefined) {
+        if (Number(cr) >= 2) state.sessionApprovedCls.add(num);
+        else state.sessionApprovedCls.delete(num);
+      }
+    });
+    const visit = (c) => {
+      if (c && targetNums.has(Number(c.number))) {
+        applyOptimisticVoteToCl(c, cr, asOpt);
+      }
+    };
+    state.changes.forEach(visit);
+    state.stacks.forEach(st => (st.commits || []).forEach(visit));
+  }
+
+  function markClsApprovedOptimistically(cls) {
+    markClsVotedOptimistically(cls, { codeReview: 2 });
+  }
+
+  function formatVoteLabelsText(codeReview, autosubmit) {
+    const parts = [];
+    const shortParts = [];
+    if (codeReview !== null && codeReview !== undefined) {
+      const cr = Number(codeReview);
+      const crFmt = cr > 0 ? `+${cr}` : String(cr);
+      parts.push(`Code-Review ${crFmt}`);
+      shortParts.push(cr === 0 ? "CR 0" : crFmt);
+    }
+    if (autosubmit !== null && autosubmit !== undefined && autosubmit !== false) {
+      const asVal = autosubmit === true ? 1 : Number(autosubmit);
+      const asFmt = asVal > 0 ? `+${asVal}` : String(asVal);
+      parts.push(`Autosubmit ${asFmt}`);
+      shortParts.push(`Autosubmit ${asFmt}`);
+    }
+    return {
+      full: parts.join(" & ") || "Vote",
+      short: shortParts.join(" & ") || "Vote",
+    };
+  }
+
+  function showVoteStampBanner(votedCls, nextTarget, shortVoteText) {
     const banner = document.getElementById("voteStampBanner");
     if (!banner) return;
     const votedLabel = votedCls.length === 1
@@ -4701,7 +5385,7 @@
     const nextLabel = nextTarget
       ? `→ Next: ag/${nextTarget.clNumber}`
       : "→ Queue Cleared! 🎉";
-    banner.textContent = `✓ Voted +2 on ${votedLabel} ${nextLabel}`;
+    banner.textContent = `✓ Voted ${shortVoteText || "+2"} on ${votedLabel} ${nextLabel}`;
     banner.classList.remove("active");
     void banner.offsetWidth;
     banner.classList.add("active");
@@ -4712,7 +5396,7 @@
   }
 
   function setVoteButtonsBusy(busy, activeBtn, labelHtml) {
-    const ids = ["btnVoteCurrent", "btnVoteStack", "btnBatchLow"];
+    const ids = ["btnVotePlus1", "btnVoteCurrent", "btnVotePlus2Auto", "btnVoteAutosubmit", "btnVoteStack"];
     ids.forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
@@ -4729,156 +5413,200 @@
 
   const sleepMs = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-  async function castVotes(rawCls, triggerBtn) {
+  function handleVoteHttpFailure(cls, data) {
+    state.votingInFlight = false;
+    syncGlobalLoadingBar();
+    setVoteButtonsBusy(false);
+    ensureActiveDiffsLoaded({ preserveScroll: true });
+    if (data && data.cloudtop_cmd) {
+      navigator.clipboard?.writeText(data.cloudtop_cmd);
+    }
+    if (cls.length === 1) {
+      const clObj = state.changes.find(c => Number(c.number) === cls[0]);
+      if (clObj && clObj.url) {
+        window.open(clObj.url, "_blank", "noopener,noreferrer");
+      }
+    }
+    showToast(
+      ((data && data.error) || "Vote failed") +
+      (data && data.cloudtop_cmd ? " (Cloudtop command copied to clipboard!)" : "")
+    );
+  }
+
+  function scheduleSilentPostVoteRefresh() {
+    clearTimeout(window._postVoteQueueRefreshTimer);
+    window._postVoteQueueRefreshTimer = setTimeout(() => {
+      fetchQueueData(state.viewer, state.scope, {
+        preserveDiffCache: true,
+        preserveScroll: true,
+        silent: true,
+      });
+    }, 1200);
+  }
+
+  async function castInPlaceVoteFlow(cls, activeBtn, reqBody, targetDesc, labelsText, voteOpts) {
+    const origBtnHtml = activeBtn ? activeBtn.innerHTML : "";
+    setVoteButtonsBusy(true, activeBtn, `${escapeHtml(labelsText.short)}…`);
+    document.getElementById("drawerStatus").textContent = `Posting ${labelsText.full} on ${targetDesc} (notify: OWNER)…`;
+    const resp = await sidecarFetch("/api/gerrit/vote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(reqBody),
+    });
+    const data = await resp.json();
+    if (!resp.ok || data.error || data.status !== "ok") {
+      if (activeBtn && origBtnHtml) activeBtn.innerHTML = origBtnHtml;
+      handleVoteHttpFailure(cls, data);
+      return;
+    }
+    markClsVotedOptimistically(cls, voteOpts);
+    state.votingInFlight = false;
+    syncGlobalLoadingBar();
+    setVoteButtonsBusy(false);
+    cls.forEach(num => rerenderReviewersPanelDom(num));
+    syncActiveActionButtons(getActiveCommitsForDiff(), false);
+    document.getElementById("drawerStatus").textContent = `Voted ${labelsText.full} on ${targetDesc} (notify: OWNER)`;
+    showToast(`Voted ${labelsText.full} on ${cls.map(x => "ag/" + x).join(", ")} (notify: OWNER)!`);
+    scheduleSilentPostVoteRefresh();
+  }
+
+  function animateExitingApprovedCards(cls) {
+    cls.forEach(num => {
+      const cardEl = document.querySelector(`.cl-card[data-cl-num="${num}"]`);
+      if (!cardEl) return;
+      cardEl.classList.add("cl-card-exiting");
+      const boxEl = cardEl.closest(".stack-box");
+      if (boxEl && boxEl.querySelectorAll(".cl-card:not(.cl-card-exiting)").length === 0) {
+        boxEl.classList.add("stack-box-exiting");
+      }
+    });
+    const diffEl = document.getElementById("diffScroll");
+    if (diffEl) {
+      diffEl.classList.remove("diff-enter-next", "diff-enter-prev");
+      diffEl.classList.add("diff-exit-approved");
+    }
+  }
+
+  function finalizeApprovedQueueTransition(cls, nextTarget, voteOpts) {
+    state.queueClearedCount += cls.length;
+    state.explicitRadarSelection = false;
+    state.gates.hideMine = true;
+    const hideMinePill = document.getElementById("gateHideMine");
+    if (hideMinePill) hideMinePill.classList.add("active");
+    markClsVotedOptimistically(cls, voteOpts);
+    state.selectedStackId = nextTarget ? nextTarget.stackId : null;
+    state.selectedClNumber = nextTarget ? nextTarget.clNumber : null;
+    state.justEnteredClNumber = nextTarget ? nextTarget.clNumber : null;
+    state.votingInFlight = false;
+    syncGlobalLoadingBar();
+    setVoteButtonsBusy(false);
+    renderAll();
+    cls.forEach(num => {
+      const staleCard = document.querySelector(`.cl-card[data-cl-num="${num}"]`);
+      if (staleCard && state.gates.hideMine) {
+        const boxEl = staleCard.closest(".stack-box");
+        staleCard.remove();
+        if (boxEl && boxEl.querySelectorAll(".cl-card").length === 0) boxEl.remove();
+      }
+    });
+    const diffEl = document.getElementById("diffScroll");
+    if (diffEl) diffEl.scrollTop = 0;
+    triggerDiffEnterAnimation("diff-enter-next");
+    scrollSelectedCardIntoView();
+    setTimeout(() => { state.justEnteredClNumber = null; }, 600);
+  }
+
+  async function castVotes(rawCls, triggerBtn, voteOpts = {}) {
     const cls = (rawCls || []).map(x => Number(x)).filter(x => !Number.isNaN(x) && x > 0);
     if (!cls.length || state.votingInFlight) return;
+    const cr = voteOpts.codeReview === undefined ? 2 : voteOpts.codeReview;
+    const asOpt = voteOpts.autosubmit;
+    const labelsText = formatVoteLabelsText(cr, asOpt);
+    const reqBody = { cls, code_review: cr };
+    if (asOpt !== undefined && asOpt !== null && asOpt !== false) {
+      reqBody.autosubmit = asOpt === true ? 1 : Number(asOpt);
+    }
+    const targetDesc = cls.length === 1 ? `ag/${cls[0]}` : `${cls.length} CLs`;
+    const activeBtn = triggerBtn || document.getElementById("btnVoteCurrent");
+    const shouldAdvanceQueue = cr !== null && Number(cr) >= 2 && state.scope !== "owner";
+
     state.votingInFlight = true;
-    if (!state.gates.hideMine) {
+    syncGlobalLoadingBar();
+    try {
+      if (!shouldAdvanceQueue) {
+        await castInPlaceVoteFlow(cls, activeBtn, reqBody, targetDesc, labelsText, { codeReview: cr, autosubmit: asOpt });
+        return;
+      }
       state.gates.hideMine = true;
       const hideMinePill = document.getElementById("gateHideMine");
       if (hideMinePill) hideMinePill.classList.add("active");
-    }
-    const activeBtn = triggerBtn || document.getElementById("btnVoteCurrent");
-    const targetDesc = cls.length === 1 ? `ag/${cls[0]}` : `${cls.length} CLs`;
-    setVoteButtonsBusy(true, activeBtn, `Voting +2 on ${escapeHtml(targetDesc)}…`);
-    document.getElementById("drawerStatus").textContent = `Posting Code-Review +2 on ${targetDesc} (notify: OWNER)…`;
+      setVoteButtonsBusy(true, activeBtn, `Voting ${escapeHtml(labelsText.short)} on ${escapeHtml(targetDesc)}…`);
+      document.getElementById("drawerStatus").textContent = `Posting ${labelsText.full} on ${targetDesc} (notify: OWNER)…`;
 
-    const nextTarget = resolveNextTargetAfterVote(cls);
-    const prefetchNums = nextTarget
-      ? (state.viewMode === "split" ? [nextTarget.clNumber] : nextTarget.stackCommits)
-      : [];
-    const prefetchPromise = prefetchDiffsForNumbers(prefetchNums);
-
-    try {
+      const nextTarget = resolveNextTargetAfterVote(cls);
+      const prefetchNums = nextTarget ? (state.viewMode === "split" ? [nextTarget.clNumber] : nextTarget.stackCommits) : [];
+      const prefetchPromise = prefetchDiffsForNumbers(prefetchNums);
       const resp = await sidecarFetch("/api/gerrit/vote", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cls, code_review: 2 }),
+        body: JSON.stringify(reqBody),
       });
       const data = await resp.json();
       if (!resp.ok || data.error || data.status !== "ok") {
-        state.votingInFlight = false;
-        setVoteButtonsBusy(false);
-        await ensureActiveDiffsLoaded({ preserveScroll: true });
-        if (data.cloudtop_cmd) {
-          navigator.clipboard?.writeText(data.cloudtop_cmd);
-        }
-        if (cls.length === 1) {
-          const clObj = state.changes.find(c => Number(c.number) === cls[0]);
-          if (clObj && clObj.url) {
-            window.open(clObj.url, "_blank", "noopener,noreferrer");
-          }
-        }
-        showToast(
-          (data.error || "Vote failed") +
-          (data.cloudtop_cmd ? " (Cloudtop +2 command copied to clipboard!)" : "")
-        );
+        handleVoteHttpFailure(cls, data);
         return;
       }
-
       if (activeBtn) {
         activeBtn.classList.remove("is-voting");
         activeBtn.classList.add("is-voted");
-        activeBtn.textContent = `✓ +2 Sent!`;
+        activeBtn.textContent = `✓ ${labelsText.short} Sent!`;
       }
-      showVoteStampBanner(cls, nextTarget);
-
-      cls.forEach(num => {
-        const cardEl = document.querySelector(`.cl-card[data-cl-num="${num}"]`);
-        if (cardEl) {
-          cardEl.classList.add("cl-card-exiting");
-          const boxEl = cardEl.closest(".stack-box");
-          if (boxEl) {
-            const remainingCards = boxEl.querySelectorAll(".cl-card:not(.cl-card-exiting)");
-            if (remainingCards.length === 0) {
-              boxEl.classList.add("stack-box-exiting");
-            }
-          }
-        }
-      });
-      const diffEl = document.getElementById("diffScroll");
-      if (diffEl) {
-        diffEl.classList.remove("diff-enter-next", "diff-enter-prev");
-        diffEl.classList.add("diff-exit-approved");
-      }
-
+      showVoteStampBanner(cls, nextTarget, labelsText.short);
+      animateExitingApprovedCards(cls);
       await Promise.all([sleepMs(210), prefetchPromise]);
-
-      state.queueClearedCount += cls.length;
-      state.explicitRadarSelection = false;
-      state.gates.hideMine = true;
-      const hideMinePill = document.getElementById("gateHideMine");
-      if (hideMinePill) hideMinePill.classList.add("active");
-      markClsApprovedOptimistically(cls);
-      if (nextTarget) {
-        state.selectedStackId = nextTarget.stackId;
-        state.selectedClNumber = nextTarget.clNumber;
-        state.justEnteredClNumber = nextTarget.clNumber;
-      } else {
-        state.selectedStackId = null;
-        state.selectedClNumber = null;
-        state.justEnteredClNumber = null;
-      }
-
-      state.votingInFlight = false;
-      setVoteButtonsBusy(false);
-      renderAll();
-      cls.forEach(num => {
-        const staleCard = document.querySelector(`.cl-card[data-cl-num="${num}"]`);
-        if (staleCard && state.gates.hideMine) {
-          const boxEl = staleCard.closest(".stack-box");
-          staleCard.remove();
-          if (boxEl && boxEl.querySelectorAll(".cl-card").length === 0) {
-            boxEl.remove();
-          }
-        }
-      });
-      if (diffEl) {
-        diffEl.scrollTop = 0;
-      }
-      triggerDiffEnterAnimation("diff-enter-next");
-      scrollSelectedCardIntoView();
-      setTimeout(() => { state.justEnteredClNumber = null; }, 600);
-
+      finalizeApprovedQueueTransition(cls, nextTarget, { codeReview: cr, autosubmit: asOpt });
       document.getElementById("drawerStatus").textContent = nextTarget
-        ? `Voted +2 on ${targetDesc} · Now reviewing ag/${nextTarget.clNumber}`
-        : `Voted +2 on ${targetDesc} · Queue cleared!`;
-      showToast(`Voted Code-Review +2 on ${cls.map(x => "ag/" + x).join(", ")} (notify: OWNER)!`);
-
-      clearTimeout(window._postVoteQueueRefreshTimer);
-      window._postVoteQueueRefreshTimer = setTimeout(() => {
-        fetchQueueData(state.viewer, state.scope, {
-          preserveDiffCache: true,
-          preserveScroll: true,
-          silent: true,
-        });
-      }, 1200);
+        ? `Voted ${labelsText.short} on ${targetDesc} · Now reviewing ag/${nextTarget.clNumber}`
+        : `Voted ${labelsText.short} on ${targetDesc} · Queue cleared!`;
+      showToast(`Voted ${labelsText.full} on ${cls.map(x => "ag/" + x).join(", ")} (notify: OWNER)!`);
+      scheduleSilentPostVoteRefresh();
     } catch (err) {
       state.votingInFlight = false;
+      syncGlobalLoadingBar();
       setVoteButtonsBusy(false);
       await ensureActiveDiffsLoaded({ preserveScroll: true });
       showToast("Vote request failed: " + err);
     }
   }
 
+  function voteCurrentClPlus1(btnEl) {
+    if (state.selectedClNumber) {
+      castVotes([state.selectedClNumber], btnEl || document.getElementById("btnVotePlus1"), { codeReview: 1 });
+    }
+  }
+
   function voteCurrentCl(btnEl) {
     if (state.selectedClNumber) {
-      castVotes([state.selectedClNumber], btnEl || document.getElementById("btnVoteCurrent"));
+      castVotes([state.selectedClNumber], btnEl || document.getElementById("btnVoteCurrent"), { codeReview: 2 });
     }
+  }
+
+  function voteCurrentClPlus2Auto(btnEl) {
+    if (state.selectedClNumber) {
+      castVotes([state.selectedClNumber], btnEl || document.getElementById("btnVotePlus2Auto"), { codeReview: 2, autosubmit: 1 });
+    }
+  }
+
+  function toggleCurrentClAutosubmit(btnEl) {
+    if (!state.selectedClNumber) return;
+    const clObj = state.changes.find(c => Number(c.number) === Number(state.selectedClNumber));
+    const nextAs = clObj && clObj.viewer_autosubmit ? 0 : 1;
+    castVotes([state.selectedClNumber], btnEl || document.getElementById("btnVoteAutosubmit"), { codeReview: null, autosubmit: nextAs });
   }
 
   function voteActiveStack(btnEl) {
     const commits = getActiveCommitsForDiff();
-    castVotes(commits.map(c => c.number), btnEl || document.getElementById("btnVoteStack"));
-  }
-
-  function batchApproveLowRisk(btnEl) {
-    const lowCls = state.changes.filter(c => passesGates(c) && c.risk.tier === "low").map(c => c.number);
-    if (!lowCls.length) {
-      showToast("No Low-Load vetted CLs in queue.");
-      return;
-    }
-    castVotes(lowCls, btnEl || document.getElementById("btnBatchLow"));
+    castVotes(commits.map(c => c.number), btnEl || document.getElementById("btnVoteStack"), { codeReview: 2 });
   }
 
   function getSwarmElapsedSec(swarmObj) {
@@ -4987,7 +5715,7 @@
           </div>
           <div style="display:flex;align-items:center;gap:6px;">
             ${fCnt > 0 ? `<button class="nudge-btn" onclick="postSwarmFindingsToGerrit(${clNum}, this)">Post Finding${fCnt === 1 ? "" : "s"} to Gerrit (notify: OWNER)</button>` : ""}
-            <button class="nudge-btn" onclick="triggerHarnessForCl(${clNum}, 'review-swarm')">↻ Re-Run Swarm</button>
+            <button class="nudge-btn" onclick="triggerHarnessForCl(${clNum}, 'review-swarm', this)">↻ Re-Run Swarm</button>
           </div>
         </div>
         <div class="swarm-specialist-grid">${renderSpecialistChipsHtml(sw.agents, false)}</div>
@@ -5030,7 +5758,7 @@
     const btnSwarm = document.getElementById("btnRunSwarm");
     const selCl = state.selectedClNumber;
     const selSwarm = selCl ? state.swarmByCl[selCl] : null;
-    if (btnSwarm) {
+    if (btnSwarm && !state.queueLoading) {
       if (selSwarm && selSwarm.state === "running") {
         const done = Number(selSwarm.completed_specialists || 0);
         const total = Number(selSwarm.total_specialists || 8);
@@ -5066,6 +5794,9 @@
 
     const drawerDot = document.getElementById("drawerDot");
     const drawerStatus = document.getElementById("drawerStatus");
+    if (state.queueLoading || state.diffLoadingCount > 0) {
+      return;
+    }
     if (runningCls.length > 0 && !state.votingInFlight) {
       const targetNum = runningCls.includes(selCl) ? selCl : runningCls[0];
       const sw = state.swarmByCl[targetNum];
@@ -5156,7 +5887,7 @@
   async function postSwarmFindingsToGerrit(clNum, btnEl) {
     if (btnEl) {
       btnEl.disabled = true;
-      btnEl.textContent = "Posting to Gerrit…";
+      btnEl.innerHTML = `<span class="btn-spinner"></span> Posting to Gerrit…`;
     }
     try {
       const resp = await sidecarFetch("/api/gerrit/post-swarm-review", {
@@ -5198,12 +5929,34 @@
     return false;
   }
 
-  async function triggerHarness(action) {
-    if (!state.selectedClNumber) return;
-    await triggerHarnessForCl(state.selectedClNumber, action);
+  function initOptimisticSwarmRun(clNum) {
+    state.swarmByCl[clNum] = {
+      state: "running",
+      phase: "queued",
+      target_id: String(clNum),
+      total_specialists: 8,
+      completed_specialists: 0,
+      startedAtClientMs: Date.now(),
+      optimisticPending: true,
+      elapsed_sec: 0,
+      agents: DEFAULT_SWARM_SPECIALISTS.map(s => ({
+        specialist: s.specialist,
+        role: s.role,
+        status: "running",
+        duration_sec: null,
+        finding_count: null,
+      })),
+    };
+    syncSwarmIndicatorsOnly();
+    ensureSwarmPollingTimer();
   }
 
-  async function triggerHarnessForCl(clNum, action) {
+  async function triggerHarness(action, btnEl) {
+    if (!state.selectedClNumber) return;
+    await triggerHarnessForCl(state.selectedClNumber, action, btnEl);
+  }
+
+  async function triggerHarnessForCl(clNum, action, btnEl) {
     const prompt = action === "review-swarm"
       ? `Run \`emu-dev-cli harness review-swarm --cl ${clNum}\` and execute the 8-specialist review swarm workflow for ag/${clNum}.`
       : `Run \`emu-dev-cli workflow address-review init --cl ${clNum}\` to address unresolved review comments on ag/${clNum}.`;
@@ -5214,25 +5967,14 @@
         showToast(`Review Swarm is already running on ag/${clNum}!`);
         return;
       }
-      state.swarmByCl[clNum] = {
-        state: "running",
-        phase: "queued",
-        target_id: String(clNum),
-        total_specialists: 8,
-        completed_specialists: 0,
-        startedAtClientMs: Date.now(),
-        optimisticPending: true,
-        elapsed_sec: 0,
-        agents: DEFAULT_SWARM_SPECIALISTS.map(s => ({
-          specialist: s.specialist,
-          role: s.role,
-          status: "running",
-          duration_sec: null,
-          finding_count: null,
-        })),
-      };
-      syncSwarmIndicatorsOnly();
-      ensureSwarmPollingTimer();
+      initOptimisticSwarmRun(clNum);
+    }
+
+    const origBtnText = btnEl ? btnEl.textContent : "";
+    if (btnEl && action !== "review-swarm") {
+      btnEl.disabled = true;
+      btnEl.classList.add("is-running-action");
+      btnEl.innerHTML = `<span class="btn-spinner"></span> Launching Agent…`;
     }
 
     document.getElementById("drawerStatus").textContent =
@@ -5264,17 +6006,465 @@
       } else {
         syncSwarmIndicatorsOnly();
       }
-    } catch (err) {
+    } catch (_err) {
       if (action !== "review-swarm") {
         document.getElementById("drawerStatus").textContent = `Prepared ${action} for ag/${clNum}`;
       }
     } finally {
       const cur = state.swarmByCl[clNum];
       if (cur) cur.optimisticPending = false;
+      if (btnEl && action !== "review-swarm") {
+        btnEl.classList.remove("is-running-action");
+        btnEl.disabled = btnEl.id === "btnAutoFix" ? !state.selectedClNumber : false;
+        btnEl.textContent = origBtnText;
+      }
+    }
+  }
+
+  function getFallbackReviewersForCl(c) {
+    if (Array.isArray(c.reviewers_detail)) return c.reviewers_detail;
+    const out = [];
+    const seen = new Set();
+    [...(c.human_cr2 || []), ...(c.human_cr1 || [])].forEach(v => {
+      const em = (v.email || "").toLowerCase();
+      if (!em || seen.has(em)) return;
+      seen.add(em);
+      const val = Number(v.value || 0);
+      out.push({
+        email: em,
+        short: v.short || em.split("@")[0],
+        name: v.name || v.short || em,
+        full_name: v.name || v.short || em,
+        state: "REVIEWER",
+        is_bot: false,
+        is_owner: em === (c.owner_email || "").toLowerCase(),
+        is_viewer: em === (state.viewer || "").toLowerCase(),
+        removable: em !== (c.owner_email || "").toLowerCase(),
+        cr_vote: val,
+        votes: val ? [{ label: "Code-Review", short_label: "CR", value: val, formatted: val > 0 ? `+${val}` : String(val) }] : [],
+      });
+    });
+    return out;
+  }
+
+  function renderCardParticipantsSummaryHtml(c) {
+    const revs = getFallbackReviewersForCl(c).filter(p => !p.is_bot && !p.is_owner);
+    const humanCcs = (c.ccs_detail || []).filter(p => !p.is_bot);
+    const hasAs = Boolean(c.autosubmit_enabled);
+    if (revs.length === 0 && humanCcs.length === 0 && !hasAs) return "";
+    const asPill = hasAs
+      ? [`<span class="card-rev-pill cr-autosubmit" title="Autosubmit +1 enabled (${escapeHtml((c.autosubmit_voters || []).join(', ') || 'active')})">⚡ AS +1</span>`]
+      : [];
+    const revPills = revs.map(p => {
+      const v = Number(p.cr_vote || 0);
+      const cls = v >= 2 ? "cr-pos2" : (v === 1 ? "cr-pos1" : (v < 0 ? "cr-neg" : ""));
+      const vStr = v > 0 ? `+${v}` : (v < 0 ? String(v) : "•");
+      const bolt = p.in_attention_set ? "⚡" : "";
+      const tip = `${p.full_name || p.name} <${p.email}> · Reviewer (CR ${v > 0 ? "+" + v : v})`;
+      return `<span class="card-rev-pill ${cls}" title="${escapeHtml(tip)}">${bolt}${escapeHtml(p.short)} <strong>${escapeHtml(vStr)}</strong></span>`;
+    });
+    const ccPills = humanCcs.map(p => {
+      const tip = `${p.full_name || p.name} <${p.email}> · CC`;
+      return `<span class="card-rev-pill is-cc" title="${escapeHtml(tip)}">CC: ${escapeHtml(p.short)}</span>`;
+    });
+    return `<div class="card-participants-strip">${asPill.concat(revPills, ccPills).join("")}</div>`;
+  }
+
+  function renderVoteBadgesForParticipantHtml(p) {
+    const votes = Array.isArray(p.votes) ? p.votes : [];
+    if (votes.length === 0) {
+      return p.state === "REVIEWER"
+        ? `<span class="p-vote p-vote-zero" title="No vote cast yet">0</span>`
+        : "";
+    }
+    return votes.map(v => {
+      const val = Number(v.value || 0);
+      const cls = val >= 2 ? "p-vote-pos2" : (val === 1 ? "p-vote-pos1" : "p-vote-neg");
+      const fmt = v.formatted || (val > 0 ? `+${val}` : String(val));
+      const lbl = v.short_label || v.label || "CR";
+      return `<span class="p-vote ${cls}" title="${escapeHtml((v.label || lbl) + ": " + fmt)}">${escapeHtml(lbl)} ${escapeHtml(fmt)}</span>`;
+    }).join("");
+  }
+
+  function renderParticipantChipHtml(clNum, p) {
+    const acctKey = p.email || (p.account_id != null ? String(p.account_id) : p.short);
+    const icon = p.is_bot ? "🤖" : "👤";
+    const bolt = p.in_attention_set ? `<span class="att-bolt" title="In Gerrit Attention Set">⚡</span>` : "";
+    const ownerTag = p.is_owner ? `<span class="participant-owner-tag">(owner)</span>` : "";
+    const disp = (!p.is_bot && p.name && p.name.toLowerCase() !== p.short.toLowerCase())
+      ? `${p.name} (${p.short})`
+      : (p.name || p.short);
+    const voteSummary = (p.votes || []).map(v => `${v.label}: ${v.formatted}`).join(", ") || "No votes yet";
+    const tip = `${p.full_name || p.name}${p.email ? " <" + p.email + ">" : ""} · ${p.state} · ${voteSummary}`;
+    const nextState = p.state === "CC" ? "REVIEWER" : "CC";
+    const moveTitle = p.state === "CC" ? "Move CC → Reviewer (notify: OWNER)" : "Move Reviewer → CC (notify: OWNER)";
+    const moveBtn = (!p.is_owner && acctKey)
+      ? `<button class="participant-act-btn" title="${escapeHtml(moveTitle)}" onclick="moveParticipantState(${clNum}, '${escapeHtml(acctKey)}', '${nextState}', '${escapeHtml(p.short)}', this)">⇄</button>`
+      : "";
+    const removeBtn = (p.removable !== false && !p.is_owner && acctKey)
+      ? `<button class="participant-act-btn remove" title="Remove ${escapeHtml(p.short)} from CL (notify: OWNER)" onclick="removeParticipantFromCl(${clNum}, '${escapeHtml(acctKey)}', '${escapeHtml(p.short)}', this)">×</button>`
+      : "";
+    const roleCls = `${p.is_viewer ? "is-viewer" : ""} ${p.is_bot ? "is-bot" : ""}`;
+    return `<span class="participant-chip ${roleCls}" title="${escapeHtml(tip)}">
+      ${bolt}<span>${icon} ${escapeHtml(disp)}</span>${ownerTag}
+      ${renderVoteBadgesForParticipantHtml(p)}
+      ${moveBtn}${removeBtn}
+    </span>`;
+  }
+
+  function renderSuggestMenuInnerHtml(clNum, targetState, comp) {
+    if (comp.loading && (!comp.suggestions || comp.suggestions.length === 0)) {
+      return `<div style="padding:6px 8px;color:var(--g-muted);font-size:11px;"><span class="btn-spinner"></span> Searching Gerrit accounts…</div>`;
+    }
+    const items = comp.suggestions || [];
+    if (items.length === 0) {
+      return `<div style="padding:6px 8px;color:var(--g-muted);font-size:11px;">Press <strong>Enter</strong> to add typed LDAP or email</div>`;
+    }
+    return items.map((s, idx) => {
+      const activeCls = idx === comp.activeIdx ? "active" : "";
+      const icon = s.is_group ? "👥" : "👤";
+      const rightTxt = s.email && s.email !== s.name ? s.email : "";
+      return `<div class="reviewer-suggest-item ${activeCls}" onmousedown="event.preventDefault(); submitReviewerAdd(${clNum}, '${targetState}', '${escapeHtml(s.value)}')">
+        <span>${icon} <strong>${escapeHtml(s.name || s.short)}</strong></span>
+        <span style="color:var(--g-muted);font-size:10.5px;">${escapeHtml(rightTxt)}</span>
+      </div>`;
+    }).join("");
+  }
+
+  function renderReviewerComposerHtml(clNum, targetState) {
+    const comp = state.activeReviewerComposer;
+    const isOpen = comp && Number(comp.clNum) === Number(clNum) && comp.targetState === targetState;
+    const btnLabel = targetState === "CC" ? "+ Add CC" : "+ Add Reviewer";
+    if (!isOpen) {
+      return `<button class="add-participant-btn" onclick="event.stopPropagation(); openReviewerComposer(${clNum}, '${targetState}')">${btnLabel}</button>`;
+    }
+    const ph = targetState === "CC" ? "Add CC (LDAP, name, email)…" : "Add reviewer (LDAP, name, email)…";
+    const btnHtml = comp.submitting
+      ? `<span class="btn-spinner"></span> Adding…`
+      : (targetState === "CC" ? "Add CC" : "Add");
+    return `<div class="reviewer-add-box" onclick="event.stopPropagation()">
+      <input
+        id="reviewerInput-${clNum}-${targetState}"
+        class="reviewer-add-input"
+        type="text"
+        value="${escapeHtml(comp.query || "")}"
+        placeholder="${ph}"
+        ${comp.submitting ? "disabled" : ""}
+        oninput="onReviewerInputChanged(${clNum}, '${targetState}', this.value)"
+        onkeydown="onReviewerInputKeydown(event, ${clNum}, '${targetState}')"
+      />
+      <button class="nudge-btn" ${comp.submitting ? "disabled" : ""} onclick="submitReviewerAdd(${clNum}, '${targetState}', null, this)">${btnHtml}</button>
+      <button class="nudge-btn" ${comp.submitting ? "disabled" : ""} onclick="closeReviewerComposer()" title="Cancel (Esc)">✕</button>
+      <div id="reviewerSuggestMenu-${clNum}-${targetState}" class="reviewer-suggest-menu">
+        ${renderSuggestMenuInnerHtml(clNum, targetState, comp)}
+      </div>
+    </div>`;
+  }
+
+  function renderCommitQuickVoteRowHtml(c) {
+    const myCr = Number(c.viewer_cr_vote || (c.approved_by_viewer ? 2 : 0));
+    const myAs = Boolean(c.viewer_autosubmit);
+    const nextAs = myAs ? 0 : 1;
+    const asLabel = myAs ? "✓ Autosubmit +1" : "Autosubmit +1";
+    const asTitle = myAs
+      ? "Click to clear your Autosubmit +1 vote (set 0, notify: OWNER)"
+      : "Vote Autosubmit +1 without changing Code-Review (notify: OWNER)";
+    const clearCrBtn = myCr !== 0
+      ? `<button class="quick-vote-chip" title="Clear your Code-Review vote to 0 (notify: OWNER)" onclick="castVotes([${c.number}], this, { codeReview: 0 })">Clear CR (0)</button>`
+      : "";
+    return `<div class="participants-row">
+      <span class="participants-label">Your Vote</span>
+      <div class="participants-chips">
+        <button class="quick-vote-chip ${myCr === 1 ? "active-cr1" : ""}" title="Vote Code-Review +1 on ag/${c.number} (notify: OWNER)" onclick="castVotes([${c.number}], this, { codeReview: 1 })">${myCr === 1 ? "✓ " : ""}CR +1</button>
+        <button class="quick-vote-chip ${myCr >= 2 ? "active-cr2" : ""}" title="Vote Code-Review +2 on ag/${c.number} (notify: OWNER)" onclick="castVotes([${c.number}], this, { codeReview: 2 })">${myCr >= 2 ? "✓ " : ""}CR +2</button>
+        <button class="quick-vote-chip ${(myCr >= 2 && myAs) ? "active-cr2" : ""}" title="Vote Code-Review +2 and Autosubmit +1 on ag/${c.number} (notify: OWNER)" onclick="castVotes([${c.number}], this, { codeReview: 2, autosubmit: 1 })">⚡ +2 &amp; Autosubmit +1</button>
+        <button class="quick-vote-chip ${myAs ? "active-as" : ""}" title="${escapeHtml(asTitle)}" onclick="castVotes([${c.number}], this, { codeReview: null, autosubmit: ${nextAs} })">${escapeHtml(asLabel)}</button>
+        ${clearCrBtn}
+      </div>
+    </div>`;
+  }
+
+  function renderCommitReviewersPanelHtml(c, includeClPrefix) {
+    if (!c) return "";
+    const allRevs = getFallbackReviewersForCl(c);
+    const humanRevs = allRevs.filter(p => !p.is_bot);
+    const botRevs = allRevs.filter(p => p.is_bot);
+    const ccs = Array.isArray(c.ccs_detail) ? c.ccs_detail : [];
+    const prefixHtml = includeClPrefix
+      ? `<span class="badge badge-rebase" style="margin-right:4px;">ag/${c.number}</span>`
+      : "";
+    const humanHtml = humanRevs.length > 0
+      ? humanRevs.map(p => renderParticipantChipHtml(c.number, p)).join("")
+      : `<span style="color:var(--g-subtle);font-size:11px;">No human reviewers yet</span>`;
+    const botsRowHtml = botRevs.length > 0
+      ? `<div class="participants-row">
+          <span class="participants-label">Bots / CI</span>
+          <div class="participants-chips">${botRevs.map(p => renderParticipantChipHtml(c.number, p)).join("")}</div>
+        </div>`
+      : "";
+    const ccChipsHtml = ccs.length > 0
+      ? ccs.map(p => renderParticipantChipHtml(c.number, p)).join("")
+      : `<span style="color:var(--g-subtle);font-size:11px;">None</span>`;
+
+    return `<div id="reviewersPanel-${c.number}" class="cl-participants-panel" data-has-prefix="${includeClPrefix ? "1" : "0"}">
+      ${renderCommitQuickVoteRowHtml(c)}
+      <div class="participants-row">
+        <span class="participants-label">Reviewers</span>
+        <div class="participants-chips">
+          ${prefixHtml}${humanHtml}
+          ${renderReviewerComposerHtml(c.number, "REVIEWER")}
+        </div>
+      </div>
+      ${botsRowHtml}
+      <div class="participants-row">
+        <span class="participants-label">CC</span>
+        <div class="participants-chips">
+          ${ccChipsHtml}
+          ${renderReviewerComposerHtml(c.number, "CC")}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function applyUpdatedSingleClToState(updatedCl) {
+    if (!updatedCl || !updatedCl.number) return;
+    const num = Number(updatedCl.number);
+    state.changes = state.changes.map(c => {
+      if (Number(c.number) !== num) return c;
+      return Object.assign({}, c, updatedCl, {
+        stack_index: c.stack_index,
+        stack_total: c.stack_total,
+        stack_label: c.stack_label,
+      });
+    });
+    state.stacks.forEach(st => {
+      st.commits = (st.commits || []).map(c => {
+        if (Number(c.number) !== num) return c;
+        return Object.assign({}, c, updatedCl, {
+          stack_index: c.stack_index,
+          stack_total: c.stack_total,
+          stack_label: c.stack_label,
+        });
+      });
+    });
+  }
+
+  function rerenderReviewersPanelDom(clNum) {
+    const num = Number(clNum);
+    const panelEl = document.getElementById(`reviewersPanel-${num}`);
+    const clObj = state.changes.find(x => Number(x.number) === num);
+    if (panelEl && clObj) {
+      const hasPrefix = panelEl.getAttribute("data-has-prefix") === "1";
+      panelEl.outerHTML = renderCommitReviewersPanelHtml(clObj, hasPrefix);
+    }
+    const summary = getFilteredStacksSummary();
+    renderQueueList(summary.visibleStacks, summary);
+    renderCliffRadar();
+  }
+
+  function getFilteredSuggestionsForCl(clNum, targetState, rawSuggestions) {
+    const clObj = state.changes.find(x => Number(x.number) === Number(clNum));
+    const existingSameState = new Set();
+    if (clObj) {
+      const list = targetState === "CC" ? (clObj.ccs_detail || []) : getFallbackReviewersForCl(clObj);
+      list.forEach(p => {
+        if (p.email) existingSameState.add(p.email.toLowerCase());
+      });
+    }
+    return (rawSuggestions || []).filter(s => !existingSameState.has((s.email || s.value || "").toLowerCase()));
+  }
+
+  async function fetchReviewerSuggestions(clNum, targetState, queryStr) {
+    const comp = state.activeReviewerComposer;
+    if (!comp || Number(comp.clNum) !== Number(clNum) || comp.targetState !== targetState) return;
+    const reqSeq = (comp.reqSeq || 0) + 1;
+    comp.reqSeq = reqSeq;
+    comp.loading = true;
+    try {
+      const resp = await sidecarFetch(
+        `/api/gerrit/suggest-reviewers?cl=${encodeURIComponent(clNum)}&q=${encodeURIComponent(queryStr || "")}`
+      );
+      const data = await resp.json();
+      const cur = state.activeReviewerComposer;
+      if (!cur || cur.reqSeq !== reqSeq) return;
+      cur.loading = false;
+      cur.suggestions = getFilteredSuggestionsForCl(clNum, targetState, data.suggestions || []);
+      cur.activeIdx = 0;
+      const menuEl = document.getElementById(`reviewerSuggestMenu-${clNum}-${targetState}`);
+      if (menuEl) {
+        menuEl.innerHTML = renderSuggestMenuInnerHtml(clNum, targetState, cur);
+      }
+    } catch (_err) {
+      if (state.activeReviewerComposer && state.activeReviewerComposer.reqSeq === reqSeq) {
+        state.activeReviewerComposer.loading = false;
+      }
+    }
+  }
+
+  function openReviewerComposer(clNum, targetState) {
+    const num = Number(clNum);
+    const initialRoster = (state.roster || []).map(em => ({
+      value: em,
+      email: em,
+      name: em.split("@")[0],
+      short: em.split("@")[0],
+      is_group: false,
+    }));
+    state.activeReviewerComposer = {
+      clNum: num,
+      targetState,
+      query: "",
+      suggestions: getFilteredSuggestionsForCl(num, targetState, initialRoster),
+      activeIdx: 0,
+      loading: false,
+      submitting: false,
+      reqSeq: 0,
+    };
+    rerenderReviewersPanelDom(num);
+    const inp = document.getElementById(`reviewerInput-${num}-${targetState}`);
+    if (inp) inp.focus();
+    fetchReviewerSuggestions(num, targetState, "");
+  }
+
+  function closeReviewerComposer() {
+    const prev = state.activeReviewerComposer;
+    state.activeReviewerComposer = null;
+    if (prev && prev.clNum) {
+      rerenderReviewersPanelDom(prev.clNum);
+    }
+  }
+
+  function onReviewerInputChanged(clNum, targetState, val) {
+    const comp = state.activeReviewerComposer;
+    if (!comp || Number(comp.clNum) !== Number(clNum) || comp.targetState !== targetState) return;
+    comp.query = val;
+    clearTimeout(window._revSuggestTimer);
+    window._revSuggestTimer = setTimeout(() => {
+      fetchReviewerSuggestions(clNum, targetState, val);
+    }, 140);
+  }
+
+  function onReviewerInputKeydown(event, clNum, targetState) {
+    const comp = state.activeReviewerComposer;
+    if (!comp) return;
+    const items = comp.suggestions || [];
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeReviewerComposer();
+      return;
+    }
+    if (event.key === "ArrowDown" && items.length > 0) {
+      event.preventDefault();
+      comp.activeIdx = (comp.activeIdx + 1) % items.length;
+      const menuEl = document.getElementById(`reviewerSuggestMenu-${clNum}-${targetState}`);
+      if (menuEl) menuEl.innerHTML = renderSuggestMenuInnerHtml(clNum, targetState, comp);
+      return;
+    }
+    if (event.key === "ArrowUp" && items.length > 0) {
+      event.preventDefault();
+      comp.activeIdx = (comp.activeIdx - 1 + items.length) % items.length;
+      const menuEl = document.getElementById(`reviewerSuggestMenu-${clNum}-${targetState}`);
+      if (menuEl) menuEl.innerHTML = renderSuggestMenuInnerHtml(clNum, targetState, comp);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const typed = (comp.query || "").trim();
+      const picked = items[comp.activeIdx];
+      const chosen = (picked && (!typed || (picked.email || picked.value).toLowerCase().includes(typed.toLowerCase()) || (picked.name || "").toLowerCase().includes(typed.toLowerCase())))
+        ? picked.value
+        : typed;
+      submitReviewerAdd(clNum, targetState, chosen);
+    }
+  }
+
+  async function submitReviewerAdd(clNum, targetState, explicitValue, btnEl) {
+    const num = Number(clNum);
+    const comp = state.activeReviewerComposer;
+    const rawVal = String(explicitValue != null ? explicitValue : (comp ? comp.query : "")).trim();
+    if (!rawVal) {
+      showToast("Enter a name, LDAP, or email to add.");
+      return;
+    }
+    if (comp && Number(comp.clNum) === num && comp.targetState === targetState) {
+      comp.submitting = true;
+      rerenderReviewersPanelDom(num);
+    } else if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.innerHTML = `<span class="btn-spinner"></span>`;
+    }
+    const roleLabel = targetState === "CC" ? "CC" : "reviewer";
+    try {
+      const resp = await sidecarFetch("/api/gerrit/reviewer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cl: num, action: "add", account: rawVal, state: targetState, viewer: state.viewer }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.error || data.status !== "ok") {
+        throw new Error(
+          data.error ||
+          `HTTP ${resp.status} while setting ${roleLabel} '${rawVal}' on ag/${num} (check account email/LDAP and gcert)`
+        );
+      }
+      state.activeReviewerComposer = null;
+      if (data.change) {
+        applyUpdatedSingleClToState(data.change);
+      } else {
+        await fetchQueueData(state.viewer, state.scope, { preserveDiffCache: true, preserveScroll: true, silent: true });
+      }
+      rerenderReviewersPanelDom(num);
+      showToast(`Added ${data.reviewer} as ${targetState} on ag/${num} (notify: OWNER)!`);
+    } catch (err) {
+      if (state.activeReviewerComposer && Number(state.activeReviewerComposer.clNum) === num) {
+        state.activeReviewerComposer.submitting = false;
+        rerenderReviewersPanelDom(num);
+      }
+      showToast(`Could not set ${roleLabel} '${rawVal}' on ag/${num}: ${err.message}`);
+    }
+  }
+
+  async function moveParticipantState(clNum, accountKey, newState, displayLabel, btnEl) {
+    await submitReviewerAdd(clNum, newState, accountKey, btnEl);
+  }
+
+  async function removeParticipantFromCl(clNum, accountKey, displayLabel, btnEl) {
+    const num = Number(clNum);
+    if (btnEl) {
+      btnEl.disabled = true;
+      btnEl.innerHTML = `<span class="btn-spinner" style="width:10px;height:10px;border-width:1.5px;"></span>`;
+    }
+    try {
+      const resp = await sidecarFetch("/api/gerrit/reviewer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cl: num, action: "remove", account: accountKey, viewer: state.viewer }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.error || data.status !== "ok") {
+        throw new Error(data.error || "Failed to remove reviewer");
+      }
+      if (data.change) {
+        applyUpdatedSingleClToState(data.change);
+      } else {
+        await fetchQueueData(state.viewer, state.scope, { preserveDiffCache: true, preserveScroll: true, silent: true });
+      }
+      rerenderReviewersPanelDom(num);
+      showToast(`Removed ${displayLabel || accountKey} from ag/${num} (notify: OWNER)!`);
+    } catch (err) {
+      if (btnEl) {
+        btnEl.disabled = false;
+        btnEl.textContent = "×";
+      }
+      showToast("Could not remove reviewer: " + err.message);
     }
   }
 
   document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.activeReviewerComposer) {
+      closeReviewerComposer();
+      return;
+    }
     if (e.key === "Escape" && state.codeSelection) {
       clearCodeSelection();
       return;
@@ -5303,10 +6493,22 @@
     } else if (e.key === "k") {
       const prev = flatVisible[(idx - 1 + flatVisible.length) % flatVisible.length];
       selectCl(prev.number, false, "prev");
-    } else if (e.key === "a") {
+    } else if (e.key === "1") {
+      voteCurrentClPlus1();
+    } else if (e.key === "a" || e.key === "2") {
       voteCurrentCl();
+    } else if (e.key === "A") {
+      voteCurrentClPlus2Auto();
+    } else if (e.key === "u") {
+      toggleCurrentClAutosubmit();
     } else if (e.key === "s") {
       triggerHarness("review-swarm");
+    }
+  });
+
+  document.addEventListener("click", () => {
+    if (state.activeReviewerComposer && !state.activeReviewerComposer.submitting) {
+      closeReviewerComposer();
     }
   });
 

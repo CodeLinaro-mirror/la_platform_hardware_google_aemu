@@ -469,6 +469,21 @@ class GerritApiTest(unittest.TestCase):
         self.assertIn("notify=OWNER", retry_cmd)
         self.assertIn("--no-verify", retry_cmd)
 
+    @mock.patch("shutil.which", side_effect=lambda cmd: "/usr/bin/gob-curl" if cmd == "gob-curl" else None)
+    @mock.patch("subprocess.run")
+    def test_post_empty_204_response_via_gob_curl_returns_empty_dict(
+        self, mock_run: mock.MagicMock, _mock_which: mock.MagicMock
+    ) -> None:
+        mock_run.return_value = mock.MagicMock(returncode=0, stdout="", stderr="")
+        client = GerritClient(token=None)
+        client._urllib_auth_failed = True
+        resp = client._request_json(
+            "/a/changes/43216799/reviewers/rkir%40google.com/delete",
+            method="POST",
+            data={"notify": "OWNER"},
+        )
+        self.assertEqual(resp, {})
+
 
 if __name__ == "__main__":
     unittest.main()

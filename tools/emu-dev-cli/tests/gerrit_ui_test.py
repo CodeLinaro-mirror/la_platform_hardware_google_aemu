@@ -868,6 +868,267 @@ class GerritUIServerTest(unittest.TestCase):
         self.assertIn('id="authorFilterSelect"', html)
         self.assertIn('id="authorChipsBar"', html)
         self.assertIn("setAuthorFilter(", html)
+        self.assertIn("var(--ln-old-col, 52px) var(--ln-new-col, 68px)", html)
+        self.assertIn("font-variant-numeric: tabular-nums;", html)
+        self.assertIn("✓ Presubmit Verified (+1/+2)", html)
+        self.assertIn("✓ Agent Verified (0 unresolved)", html)
+        self.assertNotIn("Presubmit Vetted", html)
+        self.assertNotIn("Agent Vetted", html)
+
+    def test_loading_transition_indicators(self) -> None:
+        html = render_static_gerrit_ui_html()
+        self.assertIn('id="topbarLoadingPill"', html)
+        self.assertIn('id="globalLoadingBar"', html)
+        self.assertIn('id="queuePaneOverlay"', html)
+        self.assertIn('id="diffPaneOverlay"', html)
+        self.assertIn("function setQueueLoadingState(", html)
+        self.assertIn("function renderDiffLoadingPlaceholderHtml(", html)
+        self.assertIn("function syncActiveActionButtons(", html)
+
+    def test_reviewers_ccs_votes_extraction_and_mutations(self) -> None:
+        raw_change = {
+            "_number": 43166568,
+            "project": "platform/hardware/generic/goldfish",
+            "branch": "emu-main-next",
+            "subject": "fix(ver): Guard generation counter",
+            "owner": {"_account_id": 1111, "email": "kocdemir@google.com", "name": "Serdar Kocdemir"},
+            "attention_set": {
+                "2222": {"account": {"_account_id": 2222, "email": "sergiuferentz@google.com"}}
+            },
+            "removable_reviewers": [
+                {"_account_id": 1045, "email": "joshuaduong@google.com"},
+                {"_account_id": 2222, "email": "sergiuferentz@google.com"},
+                {"_account_id": 3333, "email": "rkir@google.com"},
+            ],
+            "reviewers": {
+                "REVIEWER": [
+                    {"_account_id": 1045, "email": "joshuaduong@google.com", "name": "Joshua Duong"},
+                    {"_account_id": 2222, "email": "sergiuferentz@google.com", "name": "Sergiu 测试_🚀_é"},
+                    {"_account_id": 5107, "email": "groupagent-android-emulator@google.com", "name": "groupagent-android-emulator"},
+                    {"_account_id": 1136, "email": "treehugger@system.gserviceaccount.com", "display_name": "Treehugger Robot", "tags": ["SERVICE_USER"]},
+                ],
+                "CC": [
+                    {"_account_id": 3333, "email": "rkir@google.com", "name": "Roman Kiryanov"},
+                ],
+            },
+            "labels": {
+                "Code-Review": {
+                    "all": [
+                        {"_account_id": 1045, "email": "joshuaduong@google.com", "value": 2},
+                        {"_account_id": 5107, "email": "groupagent-android-emulator@google.com", "value": 1},
+                        {"_account_id": 2222, "email": "sergiuferentz@google.com", "value": 0},
+                    ]
+                },
+                "Presubmit-Verified": {
+                    "all": [
+                        {"_account_id": 1136, "email": "treehugger@system.gserviceaccount.com", "value": 2},
+                    ]
+                },
+            },
+            "current_revision": "rev1",
+            "revisions": {"rev1": {"files": {"a.cc": {}}}},
+        }
+        enriched = enrich_change_for_ui(raw_change, "joshuaduong@google.com")
+        revs = enriched["reviewers_detail"]
+        ccs = enriched["ccs_detail"]
+        self.assertEqual(len(revs), 4)
+        self.assertEqual(revs[0]["short"], "joshuaduong")
+        self.assertEqual(revs[0]["cr_vote"], 2)
+        self.assertTrue(revs[0]["removable"])
+        sergiu = next(r for r in revs if r["short"] == "sergiuferentz")
+        self.assertEqual(sergiu["cr_vote"], 0)
+        self.assertTrue(sergiu["in_attention_set"])
+        self.assertIn("测试_🚀_é", sergiu["name"])
+        th = next(r for r in revs if r["name"] == "Treehugger Robot")
+        self.assertTrue(th["is_bot"])
+        self.assertEqual(th["votes"][0]["short_label"], "PV")
+        self.assertEqual(th["votes"][0]["formatted"], "+2")
+        self.assertEqual(len(ccs), 1)
+        self.assertEqual(ccs[0]["short"], "rkir")
+        self.assertEqual(ccs[0]["state"], "CC")
+
+        with patch.object(GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"):
+            service = GerritUIService(default_viewer="joshuaduong@google.com")
+
+        seen_calls: list[tuple[str, str, object]] = []
+
+        def fake_request_json(endpoint: str, method: str = "GET", data: object = None) -> object:
+            seen_calls.append((method, endpoint, data))
+            if "/suggest_reviewers" in endpoint:
+                return [{"account": {"_account_id": 99, "email": "whollins@google.com", "name": "Will Hollins"}}]
+            if "/detail" in endpoint:
+                return raw_change
+            return {}
+
+        with patch.object(service.client, "_request_json", side_effect=fake_request_json):
+            sug = service.suggest_reviewers(43166568, "wholl")
+            self.assertEqual(sug[0]["email"], "whollins@google.com")
+
+            add_res = service.modify_reviewer(43166568, "add", "whollins", state="CC")
+            self.assertEqual(add_res["reviewer"], "whollins@google.com")
+            self.assertEqual(add_res["state"], "CC")
+            self.assertEqual(add_res["notify"], "OWNER")
+
+            rm_res = service.modify_reviewer(43166568, "remove", "rkir@google.com")
+            self.assertEqual(rm_res["state"], "REMOVED")
+
+        post_calls = [c for c in seen_calls if c[0] == "POST"]
+        self.assertEqual(
+            post_calls[0],
+            (
+                "POST",
+                "/a/changes/43166568/reviewers",
+                {"reviewer": "whollins@google.com", "state": "CC", "notify": "OWNER"},
+            ),
+        )
+        self.assertEqual(
+            post_calls[1],
+            (
+                "POST",
+                "/a/changes/43166568/reviewers/rkir%40google.com/delete",
+                {"notify": "OWNER"},
+            ),
+        )
+
+        html = render_static_gerrit_ui_html()
+        self.assertIn("function renderCommitReviewersPanelHtml(", html)
+        self.assertIn("function submitReviewerAdd(", html)
+        self.assertIn("function removeParticipantFromCl(", html)
+        self.assertIn("function moveParticipantState(", html)
+
+    def test_vote_plus1_plus2_and_autosubmit_labels(self) -> None:
+        from unittest.mock import MagicMock
+
+        with patch.object(
+            GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"
+        ):
+            service = GerritUIService(default_viewer="joshuaduong@google.com")
+
+        posted_payloads: list[dict[str, object]] = []
+
+        def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+            posted_payloads.append(json.loads(cmd[cmd.index("-d") + 1]))
+            return MagicMock(returncode=0, stdout=")]}'\n{}", stderr="")
+
+        base_change = {
+            "_number": 43212920,
+            "project": "platform/hardware/google/aemu",
+            "branch": "emu-main-next",
+            "subject": "feat(gerrit-ui): Support +1/+2 and Autosubmit+1 测试_🚀_é",
+            "owner": {"email": "rpaquay@google.com", "name": "Renaud Paquay"},
+            "reviewers": {
+                "REVIEWER": [{"email": "joshuaduong@google.com", "name": "Joshua Duong"}]
+            },
+            "labels": {"Code-Review": {"all": []}, "Autosubmit": {"all": []}},
+            "current_revision": "rev1",
+            "revisions": {"rev1": {"files": {"a.py": {}}}},
+        }
+
+        with patch("shutil.which", return_value="/usr/bin/gob-curl"), patch(
+            "subprocess.run", side_effect=fake_run
+        ):
+            # 1) Vote Code-Review +1 only -> does NOT mark approved_by_viewer (+2)
+            r_cr1 = service.cast_batch_vote([43212920], code_review=1)
+            self.assertEqual(r_cr1["status"], "ok")
+            self.assertEqual(
+                posted_payloads[-1], {"labels": {"Code-Review": 1}, "notify": "OWNER"}
+            )
+            with patch.object(service.client, "_request_json", return_value=[base_change]):
+                q1 = service.fetch_queue(viewer_email="joshuaduong@google.com")
+            self.assertFalse(q1["changes"][0]["approved_by_viewer"])
+            self.assertEqual(q1["changes"][0]["viewer_cr_vote"], 1)
+
+            # 2) Vote Autosubmit +1 standalone without touching Code-Review
+            r_as1 = service.cast_batch_vote([43212920], code_review=None, autosubmit=1)
+            self.assertEqual(r_as1["status"], "ok")
+            self.assertEqual(
+                posted_payloads[-1], {"labels": {"Autosubmit": 1}, "notify": "OWNER"}
+            )
+            with patch.object(service.client, "_request_json", return_value=[base_change]):
+                q2 = service.fetch_queue(viewer_email="joshuaduong@google.com")
+            self.assertEqual(q2["changes"][0]["viewer_cr_vote"], 1)
+            self.assertTrue(q2["changes"][0]["viewer_autosubmit"])
+            self.assertTrue(q2["changes"][0]["autosubmit_enabled"])
+
+            # 3) Vote Code-Review +2 & Autosubmit +1 together
+            r_cr2_as = service.cast_batch_vote([43212920], code_review=2, autosubmit=True)
+            self.assertEqual(r_cr2_as["status"], "ok")
+            self.assertEqual(
+                posted_payloads[-1],
+                {"labels": {"Code-Review": 2, "Autosubmit": 1}, "notify": "OWNER"},
+            )
+            with patch.object(service.client, "_request_json", return_value=[base_change]):
+                q3 = service.fetch_queue(viewer_email="joshuaduong@google.com")
+            self.assertTrue(q3["changes"][0]["approved_by_viewer"])
+            self.assertEqual(q3["changes"][0]["viewer_cr_vote"], 2)
+            self.assertTrue(q3["changes"][0]["viewer_autosubmit"])
+
+            # 4) Clear Autosubmit (0) while keeping Code-Review +2
+            r_as0 = service.cast_batch_vote([43212920], code_review=None, autosubmit=0)
+            self.assertEqual(r_as0["status"], "ok")
+            self.assertEqual(
+                posted_payloads[-1], {"labels": {"Autosubmit": 0}, "notify": "OWNER"}
+            )
+            with patch.object(service.client, "_request_json", return_value=[base_change]):
+                q4 = service.fetch_queue(viewer_email="joshuaduong@google.com")
+            self.assertTrue(q4["changes"][0]["approved_by_viewer"])
+            self.assertFalse(q4["changes"][0]["viewer_autosubmit"])
+
+        html = render_static_gerrit_ui_html()
+        self.assertIn('id="btnVotePlus1"', html)
+        self.assertIn('id="btnVotePlus2Auto"', html)
+        self.assertIn('id="btnVoteAutosubmit"', html)
+        self.assertIn("function renderCommitQuickVoteRowHtml(", html)
+        self.assertIn("function voteCurrentClPlus1(", html)
+        self.assertIn("function voteCurrentClPlus2Auto(", html)
+        self.assertIn("function toggleCurrentClAutosubmit(", html)
+        self.assertNotIn("+2 All Low Load", html)
+        self.assertNotIn('id="btnBatchLow"', html)
+        self.assertNotIn("setRiskFilter(", html)
+
+    def test_vote_downgrade_and_reviewer_remote_error_context(self) -> None:
+        from unittest.mock import MagicMock
+
+        with patch.object(
+            GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"
+        ):
+            service = GerritUIService(default_viewer="joshuaduong@google.com")
+
+        stale_cr2_change = {
+            "_number": 43212920,
+            "project": "platform/hardware/google/aemu",
+            "branch": "emu-main-next",
+            "subject": "feat(gerrit-ui): Support +1/+2 测试_🚀_é",
+            "owner": {"email": "rpaquay@google.com", "name": "Renaud Paquay"},
+            "reviewers": {
+                "REVIEWER": [{"email": "joshuaduong@google.com", "name": "Joshua Duong"}]
+            },
+            "labels": {
+                "Code-Review": {
+                    "all": [{"email": "joshuaduong@google.com", "name": "Joshua Duong", "value": 2}]
+                },
+                "Autosubmit": {"all": []},
+            },
+            "current_revision": "rev1",
+            "revisions": {"rev1": {"files": {"a.py": {}}}},
+        }
+        with patch("shutil.which", return_value="/usr/bin/gob-curl"), patch(
+            "subprocess.run", return_value=MagicMock(returncode=0, stdout=")]}'\n{}", stderr="")
+        ):
+            service.cast_batch_vote([43212920], code_review=2)
+            service.cast_batch_vote([43212920], code_review=1)
+        with patch.object(service.client, "_request_json", return_value=[stale_cr2_change]):
+            q5 = service.fetch_queue(viewer_email="joshuaduong@google.com")
+        self.assertFalse(q5["changes"][0]["approved_by_viewer"])
+        self.assertEqual(q5["changes"][0]["viewer_cr_vote"], 1)
+        self.assertEqual(q5["changes"][0]["human_cr2_count"], 0)
+
+        with patch.object(
+            service.client, "_request_json", return_value={"error": "Account not found\n"}
+        ), self.assertRaises(RuntimeError) as err_cm:
+            service.modify_reviewer(43212920, "add", "unknownldap", state="CC")
+        self.assertIn("unknownldap@google.com", str(err_cm.exception))
+        self.assertIn("CC", str(err_cm.exception))
 
 
 if __name__ == "__main__":
