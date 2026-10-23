@@ -1130,6 +1130,122 @@ class GerritUIServerTest(unittest.TestCase):
         self.assertIn("unknownldap@google.com", str(err_cm.exception))
         self.assertIn("CC", str(err_cm.exception))
 
+    def test_send_reviewer_chat_dm_validation_and_http_endpoint(self) -> None:
+        import urllib.error
+        import urllib.request
+        from http.server import ThreadingHTTPServer
+        import threading
+        from unittest.mock import MagicMock
+        from commands.gerrit.ui_server import make_gerrit_ui_handler
+
+        with patch.object(
+            GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"
+        ):
+            service = GerritUIService(default_viewer="joshuaduong@google.com")
+
+        recorded_cmds: list[list[str]] = []
+
+        def fake_gchat_run(cmd: list[str], **kwargs: object) -> MagicMock:
+            recorded_cmds.append(list(cmd))
+            return MagicMock(
+                returncode=0,
+                stdout=json.dumps({
+                    "space_name": "spaces/AAAA1234xyz",
+                    "message_name": "spaces/AAAA1234xyz/messages/msg99",
+                    "recipients": "jansene@google.com",
+                }),
+                stderr="",
+            )
+
+        unicode_msg = 'Hi Erwin, could you review http://ag/43217292 ("测试_🚀_é")? Thanks!'
+        with patch(
+            "commands.gerrit.ui_server._resolve_gchat_cli_bin",
+            return_value="/google/bin/releases/gemini-agents-gchat/gchat",
+        ), patch("subprocess.run", side_effect=fake_gchat_run):
+            res = service.send_reviewer_chat_dm(43217292, "jansene", unicode_msg)
+        self.assertEqual(res["status"], "ok")
+        self.assertEqual(res["recipient"], "jansene@google.com")
+        self.assertEqual(res["chat_url"], "https://chat.google.com/dm/AAAA1234xyz")
+        self.assertEqual(
+            recorded_cmds[-1],
+            [
+                "/google/bin/releases/gemini-agents-gchat/gchat",
+                "mutate",
+                "send-direct-message",
+                "--usernames",
+                "jansene@google.com",
+                "--text",
+                unicode_msg,
+                "--json",
+            ],
+        )
+
+        # Reject self-DM, multi-recipient group chat, bot account, and empty message
+        with self.assertRaisesRegex(ValueError, "yourself"):
+            service.send_reviewer_chat_dm(43217292, "joshuaduong@google.com", "Self ping")
+        with self.assertRaisesRegex(ValueError, "multi-recipient"):
+            service.send_reviewer_chat_dm(43217292, "jansene@google.com,rkir@google.com", "Group")
+        with self.assertRaisesRegex(ValueError, "human '@google.com'"):
+            service.send_reviewer_chat_dm(43217292, "treehugger-robot@google.com", "Bot ping")
+        with self.assertRaisesRegex(ValueError, "empty"):
+            service.send_reviewer_chat_dm(43217292, "jansene@google.com", "   ")
+
+        # Actionable error when gchat CLI is unavailable
+        with patch(
+            "commands.gerrit.ui_server._resolve_gchat_cli_bin", return_value=None
+        ), self.assertRaisesRegex(RuntimeError, "Copy Text"):
+            service.send_reviewer_chat_dm(43217292, "jansene@google.com", unicode_msg)
+
+        # Verify HTTP POST /api/gerrit/chat-dm returns 200 on success and 400 on ValueError
+        handler_cls = make_gerrit_ui_handler(service)
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+        port = httpd.server_address[1]
+        srv_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        srv_thread.start()
+        try:
+            with patch(
+                "commands.gerrit.ui_server._resolve_gchat_cli_bin",
+                return_value="/google/bin/releases/gemini-agents-gchat/gchat",
+            ), patch("subprocess.run", side_effect=fake_gchat_run):
+                req_ok = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/api/gerrit/chat-dm",
+                    data=json.dumps({
+                        "cl": 43217292,
+                        "recipient": "jansene@google.com",
+                        "message": unicode_msg,
+                    }).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_ok, timeout=5) as resp_ok:
+                    self.assertEqual(resp_ok.status, 200)
+                    body_ok = json.loads(resp_ok.read().decode("utf-8"))
+                self.assertEqual(body_ok["chat_url"], "https://chat.google.com/dm/AAAA1234xyz")
+
+                req_bad = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/api/gerrit/chat-dm",
+                    data=json.dumps({
+                        "cl": 43217292,
+                        "recipient": "joshuaduong@google.com",
+                        "message": "Self ping",
+                    }).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with self.assertRaises(urllib.error.HTTPError) as http_err:
+                    urllib.request.urlopen(req_bad, timeout=5)
+                self.assertEqual(http_err.exception.code, 400)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+        html = render_static_gerrit_ui_html()
+        self.assertIn("function openChatDmComposer(", html)
+        self.assertIn("function submitChatDm(", html)
+        self.assertIn("/api/gerrit/chat-dm", html)
+        self.assertIn("💬 Ping Reviewer", html)
+        self.assertIn("💬 DM Reviewer", html)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -106,6 +106,11 @@ _HIGH_RISK_SUBJECT_RE = re.compile(
 DEFAULT_ISSUES_CLI_BIN = "/google/bin/releases/issues-cli/issues"
 BUG_LOOKUP_TIMEOUT_SEC = 8
 
+DEFAULT_GCHAT_CLI_BIN = "/google/bin/releases/gemini-agents-gchat/gchat"
+GCHAT_DM_TIMEOUT_SEC = 25
+MAX_CHAT_DM_LENGTH = 4000
+_GOOGLE_CORP_EMAIL_RE = re.compile(r"^[a-z0-9._+-]+@google\.com$")
+
 COMMIT_TYPE_SPECS: dict[str, dict[str, str]] = {
     "bugfix": {"id": "bugfix", "label": "🐛 Bug Fixes", "short": "Bug Fix"},
     "perf": {"id": "perf", "label": "⚡ Performance", "short": "Perf"},
@@ -1393,6 +1398,105 @@ def discover_transcript_code_questions(
     return list(by_key.values())
 
 
+def _resolve_gchat_cli_bin() -> str | None:
+    """Resolves the `gchat` CLI executable path from env override, `/google/bin`, or `PATH`."""
+    override = (os.environ.get("AEMU_GCHAT_CLI_BIN") or "").strip()
+    if override and os.path.isfile(override) and os.access(override, os.X_OK):
+        return override
+    if os.path.isfile(DEFAULT_GCHAT_CLI_BIN) and os.access(DEFAULT_GCHAT_CLI_BIN, os.X_OK):
+        return DEFAULT_GCHAT_CLI_BIN
+    return shutil.which("gchat")
+
+
+def _normalize_chat_dm_recipient(raw_recipient: str, sender_email: str) -> str:
+    """Validates and normalizes a single human `@google.com` recipient for a 1:1 Google Chat DM."""
+    cleaned = str(raw_recipient or "").strip().lower()
+    if not cleaned:
+        raise ValueError(
+            "Failed to validate Google Chat DM recipient: recipient is empty. "
+            "Select a human '@google.com' reviewer on the CL."
+        )
+    if "," in cleaned or any(ch.isspace() for ch in cleaned):
+        raise ValueError(
+            f"Failed to validate Google Chat DM recipient '{raw_recipient}': "
+            "multi-recipient DMs are blocked to prevent creating duplicate group chats. "
+            "Send 1:1 DMs one reviewer at a time."
+        )
+    resolved = (
+        f"{cleaned}@google.com"
+        if _SIMPLE_LDAP_RE.fullmatch(cleaned) and not cleaned.isdigit()
+        else cleaned
+    )
+    if not _GOOGLE_CORP_EMAIL_RE.fullmatch(resolved) or is_agent_or_bot_email(resolved):
+        raise ValueError(
+            f"Failed to validate Google Chat DM recipient '{resolved}': "
+            "only human '@google.com' accounts can receive 1:1 Chat DMs. "
+            "Select a human reviewer on the CL."
+        )
+    if sender_email and resolved == sender_email.lower():
+        raise ValueError(
+            f"Failed to send Google Chat DM to '{resolved}': "
+            "Google Chat API does not support 1:1 DMs with yourself. "
+            "Choose another reviewer on the CL."
+        )
+    return resolved
+
+
+def _run_gchat_send_dm_command(
+    gchat_bin: str, recipient_email: str, msg_text: str, cl_id: str
+) -> subprocess.CompletedProcess[str]:
+    """Executes `gchat mutate send-direct-message` for one verified 1:1 recipient."""
+    cmd = [
+        gchat_bin,
+        "mutate",
+        "send-direct-message",
+        "--usernames",
+        recipient_email,
+        "--text",
+        msg_text,
+        "--json",
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=GCHAT_DM_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"Timed out after {GCHAT_DM_TIMEOUT_SEC}s while sending Google Chat DM to "
+            f"'{recipient_email}' for ag/{cl_id}. Run 'gcert' in your terminal and retry, "
+            "or click 'Copy Text' to paste into Google Chat."
+        ) from exc
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or f"exit code {proc.returncode}").strip()
+        raise RuntimeError(
+            f"Failed to send Google Chat DM to '{recipient_email}' for ag/{cl_id}: {detail}. "
+            "Run 'gcert' in your terminal and retry, or click 'Copy Text' to paste into Google Chat."
+        )
+    return proc
+
+
+def _parse_gchat_dm_output(stdout_str: str) -> tuple[str, str, str]:
+    """Parses `gchat mutate send-direct-message --json` stdout into `(space_name, message_name, chat_url)`."""
+    raw = (stdout_str or "").strip()
+    if not raw:
+        return "", "", ""
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return "", "", ""
+    if not isinstance(payload, dict):
+        return "", "", ""
+    space_name = str(payload.get("space_name") or "").strip()
+    message_name = str(payload.get("message_name") or "").strip()
+    space_id = space_name.split("/", 1)[1] if space_name.startswith("spaces/") else space_name
+    chat_url = f"https://chat.google.com/dm/{space_id}" if space_id else ""
+    return space_name, message_name, chat_url
+
+
 class GerritUIService:
     """Backend coordinator querying Gerrit, caching diffs, and executing review/harness actions."""
 
@@ -2096,6 +2200,55 @@ class GerritUIService:
             "change": updated_change,
         }
 
+    def _resolve_chat_sender_email(self) -> str:
+        """Returns the authenticated human `@google.com` email running the UI server."""
+        auth = (self.auth_email or "").strip().lower()
+        if auth and _GOOGLE_CORP_EMAIL_RE.fullmatch(auth) and not is_agent_or_bot_email(auth):
+            return auth
+        os_user = (os.environ.get("USER") or "").strip().lower()
+        if os_user and _SIMPLE_LDAP_RE.fullmatch(os_user):
+            return f"{os_user}@google.com"
+        return ""
+
+    def send_reviewer_chat_dm(
+        self,
+        cl_number: str | int,
+        recipient: str,
+        message: str,
+    ) -> dict[str, Any]:
+        """Sends a 1:1 Google Chat direct message to `recipient` via `gchat` after UI confirmation."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        resolved_email = _normalize_chat_dm_recipient(recipient, self._resolve_chat_sender_email())
+        msg_text = str(message or "").strip()
+        if not msg_text:
+            raise ValueError(
+                f"Failed to send Google Chat DM to '{resolved_email}' for ag/{cl_id}: "
+                "message text is empty. Enter a non-empty review reminder message."
+            )
+        if len(msg_text) > MAX_CHAT_DM_LENGTH:
+            raise ValueError(
+                f"Failed to send Google Chat DM to '{resolved_email}' for ag/{cl_id}: "
+                f"message length ({len(msg_text)} chars) exceeds {MAX_CHAT_DM_LENGTH}. "
+                "Shorten the message and retry."
+            )
+        gchat_bin = _resolve_gchat_cli_bin()
+        if not gchat_bin:
+            raise RuntimeError(
+                f"Failed to send Google Chat DM to '{resolved_email}' for ag/{cl_id}: "
+                f"Google Chat CLI ('{DEFAULT_GCHAT_CLI_BIN}') was not found on this host. "
+                "Run Fast Gerrit UI on gLinux/Cloudtop or click 'Copy Text' to paste into Chat."
+            )
+        proc = _run_gchat_send_dm_command(gchat_bin, resolved_email, msg_text, cl_id)
+        space_name, message_name, chat_url = _parse_gchat_dm_output(proc.stdout)
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "recipient": resolved_email,
+            "space_name": space_name,
+            "message_name": message_name,
+            "chat_url": chat_url,
+        }
+
     def get_swarm_statuses(self, cl_numbers: list[str | int]) -> dict[str, dict[str, Any]]:
         """Reads live or completed Review Swarm status objects from disk for `cl_numbers`."""
         now_dt = datetime.now(timezone.utc)
@@ -2719,6 +2872,14 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                     )
                     self._send_json(res)
                     return
+                if parsed.path == "/api/gerrit/chat-dm":
+                    res = service.send_reviewer_chat_dm(
+                        cl_number=body.get("cl", ""),
+                        recipient=str(body.get("recipient") or body.get("reviewer") or ""),
+                        message=str(body.get("message") or ""),
+                    )
+                    self._send_json(res)
+                    return
                 if parsed.path == "/api/gerrit/harness":
                     res = service.run_harness_action(
                         cl_number=body.get("cl", ""),
@@ -2765,6 +2926,8 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                     self._send_json(res)
                     return
                 self._send_json({"error": f"Unknown POST endpoint '{parsed.path}'"}, status=404)
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, status=400)
             except Exception as exc:
                 self._send_json({"error": str(exc)}, status=500)
 

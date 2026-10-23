@@ -1999,6 +1999,133 @@
     color: #ffb3ae;
     background: rgba(223, 91, 83, 0.24);
   }
+  .participant-act-btn.chat-ping {
+    color: #8ebdff;
+    font-size: 11px;
+    padding: 0 3px;
+  }
+  .participant-act-btn.chat-ping:hover:not(:disabled) {
+    color: #d9e9ff;
+    background: rgba(130, 177, 255, 0.22);
+  }
+  .participant-act-btn.chat-ping.chat-sent {
+    color: #9de2b2;
+  }
+  .chat-dm-composer {
+    margin-top: 6px;
+    padding: 9px 11px;
+    border-radius: 7px;
+    background: #171a21;
+    border: 1px solid rgba(130, 177, 255, 0.42);
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .chat-dm-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 11.5px;
+    color: #d5deed;
+    font-weight: 600;
+  }
+  .chat-dm-recipients {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+  .chat-dm-recipient-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid #353c4b;
+    background: #20242e;
+    color: #c5cedd;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .chat-dm-recipient-pill:hover:not(:disabled) {
+    border-color: var(--g-accent);
+    color: #ffffff;
+  }
+  .chat-dm-recipient-pill.active {
+    background: rgba(130, 177, 255, 0.2);
+    border-color: var(--g-accent);
+    color: #e6f0ff;
+  }
+  .chat-dm-textarea {
+    width: 100%;
+    min-height: 54px;
+    resize: vertical;
+    background: #111318;
+    border: 1px solid #343b49;
+    border-radius: 5px;
+    color: var(--g-text);
+    padding: 6px 8px;
+    font-size: 12px;
+    font-family: var(--g-font);
+    line-height: 1.45;
+    outline: none;
+    box-sizing: border-box;
+  }
+  .chat-dm-textarea:focus {
+    border-color: var(--g-accent);
+  }
+  .chat-dm-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .chat-dm-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 11px;
+    border-radius: 5px;
+    border: 1px solid rgba(130, 177, 255, 0.55);
+    background: rgba(130, 177, 255, 0.2);
+    color: #e7f0ff;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .chat-dm-btn-primary:hover:not(:disabled) {
+    background: rgba(130, 177, 255, 0.3);
+  }
+  .chat-dm-btn-primary:disabled {
+    opacity: 0.6;
+    cursor: wait;
+  }
+  .chat-dm-error {
+    font-size: 11px;
+    color: #f4b7b3;
+    background: rgba(223, 91, 83, 0.14);
+    border: 1px solid rgba(223, 91, 83, 0.4);
+    border-radius: 5px;
+    padding: 4px 8px;
+  }
+  .chat-dm-sent-banner {
+    margin-top: 4px;
+    padding: 4px 9px;
+    border-radius: 5px;
+    background: rgba(78, 173, 107, 0.14);
+    border: 1px solid rgba(78, 173, 107, 0.42);
+    color: #b4ecc6;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
   .participant-act-btn:disabled {
     opacity: 0.55;
     cursor: wait;
@@ -2399,6 +2526,9 @@
     nextInlineItemId: 1,
     collapsedInlineIds: new Set(),
     activeReviewerComposer: null,
+    authEmail: "",
+    activeChatComposer: null,
+    sentChatDms: {},
   };
 
   function showToast(msg) {
@@ -2607,6 +2737,7 @@
       return;
     }
     state.viewer = data.viewer || state.viewer;
+    state.authEmail = data.auth_email || state.authEmail || "";
     state.scope = data.scope || state.scope || "reviewer";
     state.roster = data.roster || ["jansene@google.com", "joshuaduong@google.com", "rkir@google.com", "whollins@google.com"];
     state.changes = data.changes || [];
@@ -3190,9 +3321,14 @@
     document.getElementById("cliffChips").innerHTML = cliff.map(c => {
       const conflictTag = !c.mergeable ? " · Merge Conflict!" : "";
       const waitTag = c.is_orphaned ? "[Agent CL] Needs 2x +2" : "Needs Your +2";
+      const canDm = getDmEligibleParticipantsForCl(c).length > 0;
+      const dmBtnHtml = canDm
+        ? `<button class="nudge-btn" title="Open 1:1 Google Chat DM composer for ag/${c.number}" onclick="event.stopPropagation(); openChatDmFromRadar(${c.number})">💬 DM Reviewer</button>`
+        : "";
       return `<div class="radar-chip danger" onclick="selectCl(${c.number})">
         <span>▲ <a class="ag-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">ag/${c.number} ↗</a> ${renderBugBadgesHtml(c)} (${escapeHtml(c.flight_display)}${conflictTag})</span>
         <span style="color:#e2b870;">${escapeHtml(waitTag)}</span>
+        ${dmBtnHtml}
         <button class="nudge-btn" onclick="event.stopPropagation(); copyPingForCl(${c.number})">Copy Chat Ping</button>
       </div>`;
     }).join("") || `<span style="color:var(--g-subtle);font-size:11px;">0 CLs in Cliff Zone</span>`;
@@ -6098,6 +6234,13 @@
     const tip = `${p.full_name || p.name}${p.email ? " <" + p.email + ">" : ""} · ${p.state} · ${voteSummary}`;
     const nextState = p.state === "CC" ? "REVIEWER" : "CC";
     const moveTitle = p.state === "CC" ? "Move CC → Reviewer (notify: OWNER)" : "Move Reviewer → CC (notify: OWNER)";
+    const sentMeta = p.email ? state.sentChatDms[`${clNum}:${p.email.toLowerCase()}`] : null;
+    const chatTitle = sentMeta
+      ? `Chat DM sent at ${sentMeta.sentAtStr} — click to message ${p.email} again`
+      : `Send 1:1 Google Chat DM to ${p.email} about ag/${clNum}`;
+    const chatBtn = isDmEligibleParticipant(p)
+      ? `<button class="participant-act-btn chat-ping ${sentMeta ? "chat-sent" : ""}" data-email="${escapeHtml(p.email)}" title="${escapeHtml(chatTitle)}" onclick="event.stopPropagation(); openChatDmComposer(${clNum}, this.dataset.email)">${sentMeta ? "💬✓" : "💬"}</button>`
+      : "";
     const moveBtn = (!p.is_owner && acctKey)
       ? `<button class="participant-act-btn" title="${escapeHtml(moveTitle)}" onclick="moveParticipantState(${clNum}, '${escapeHtml(acctKey)}', '${nextState}', '${escapeHtml(p.short)}', this)">⇄</button>`
       : "";
@@ -6108,7 +6251,7 @@
     return `<span class="participant-chip ${roleCls}" title="${escapeHtml(tip)}">
       ${bolt}<span>${icon} ${escapeHtml(disp)}</span>${ownerTag}
       ${renderVoteBadgesForParticipantHtml(p)}
-      ${moveBtn}${removeBtn}
+      ${chatBtn}${moveBtn}${removeBtn}
     </span>`;
   }
 
@@ -6205,6 +6348,11 @@
     const ccChipsHtml = ccs.length > 0
       ? ccs.map(p => renderParticipantChipHtml(c.number, p)).join("")
       : `<span style="color:var(--g-subtle);font-size:11px;">None</span>`;
+    const pendingDmTargets = getDmEligibleParticipantsForCl(c).filter(p => !p.is_owner && Number(p.cr_vote || 0) < 2);
+    const isChatOpen = Boolean(state.activeChatComposer && Number(state.activeChatComposer.clNum) === Number(c.number));
+    const quickPingBtnHtml = (!isChatOpen && pendingDmTargets.length > 0)
+      ? `<button class="add-participant-btn" data-email="${escapeHtml(pendingDmTargets[0].email)}" title="Compose a 1:1 Google Chat DM reminder for ${escapeHtml(pendingDmTargets[0].email)}" onclick="event.stopPropagation(); openChatDmComposer(${c.number}, this.dataset.email)">💬 Ping Reviewer</button>`
+      : "";
 
     return `<div id="reviewersPanel-${c.number}" class="cl-participants-panel" data-has-prefix="${includeClPrefix ? "1" : "0"}">
       ${renderCommitQuickVoteRowHtml(c)}
@@ -6213,6 +6361,7 @@
         <div class="participants-chips">
           ${prefixHtml}${humanHtml}
           ${renderReviewerComposerHtml(c.number, "REVIEWER")}
+          ${quickPingBtnHtml}
         </div>
       </div>
       ${botsRowHtml}
@@ -6223,6 +6372,8 @@
           ${renderReviewerComposerHtml(c.number, "CC")}
         </div>
       </div>
+      ${renderSentChatDmBannerHtml(c)}
+      ${renderChatDmComposerHtml(c)}
     </div>`;
   }
 
@@ -6302,7 +6453,14 @@
   }
 
   function openReviewerComposer(clNum, targetState) {
+    if ((state.activeReviewerComposer && state.activeReviewerComposer.submitting) ||
+        (state.activeChatComposer && state.activeChatComposer.submitting)) {
+      return;
+    }
     const num = Number(clNum);
+    const prevChatCl = state.activeChatComposer ? Number(state.activeChatComposer.clNum) : null;
+    const prevRevCl = state.activeReviewerComposer ? Number(state.activeReviewerComposer.clNum) : null;
+    state.activeChatComposer = null;
     const initialRoster = (state.roster || []).map(em => ({
       value: em,
       email: em,
@@ -6320,6 +6478,8 @@
       submitting: false,
       reqSeq: 0,
     };
+    if (prevChatCl && prevChatCl !== num) rerenderReviewersPanelDom(prevChatCl);
+    if (prevRevCl && prevRevCl !== num && prevRevCl !== prevChatCl) rerenderReviewersPanelDom(prevRevCl);
     rerenderReviewersPanelDom(num);
     const inp = document.getElementById(`reviewerInput-${num}-${targetState}`);
     if (inp) inp.focus();
@@ -6460,7 +6620,289 @@
     }
   }
 
+  function getChatSenderEmail() {
+    return String(state.authEmail || state.viewer || "").trim().toLowerCase();
+  }
+
+  function isDmEligibleParticipant(p) {
+    if (!p || p.is_bot || !p.email) return false;
+    const em = String(p.email).trim().toLowerCase();
+    return em.endsWith("@google.com") && em !== getChatSenderEmail();
+  }
+
+  function getDmEligibleParticipantsForCl(c) {
+    if (!c) return [];
+    const seen = new Set();
+    const out = [];
+    const pushIfEligible = (p) => {
+      if (!isDmEligibleParticipant(p)) return;
+      const em = String(p.email).trim().toLowerCase();
+      if (seen.has(em)) return;
+      seen.add(em);
+      out.push(p);
+    };
+    const revs = getFallbackReviewersForCl(c);
+    revs.filter(p => !p.is_owner && Number(p.cr_vote || 0) < 2).forEach(pushIfEligible);
+    revs.filter(p => !p.is_owner && Number(p.cr_vote || 0) >= 2).forEach(pushIfEligible);
+    (c.ccs_detail || []).forEach(pushIfEligible);
+    revs.filter(p => p.is_owner).forEach(pushIfEligible);
+    if (!c.owner_is_bot && c.owner_email) {
+      pushIfEligible({
+        email: c.owner_email,
+        short: c.owner_short || c.owner_email.split("@")[0],
+        name: c.owner_name || c.owner_short,
+        full_name: c.owner_name || c.owner_short,
+        state: "OWNER",
+        is_bot: false,
+        is_owner: true,
+        cr_vote: 0,
+      });
+    }
+    return out;
+  }
+
+  function resolveGreetingForParticipant(p) {
+    if (!p) return "Hey";
+    const full = String(p.full_name || p.name || "").trim();
+    const short = String(p.short || "").trim();
+    if (!full || full.includes("@") || full.includes(",") || full.toLowerCase() === short.toLowerCase()) {
+      return "Hey";
+    }
+    const firstToken = full.split(/\s+/)[0];
+    return firstToken ? `Hi ${firstToken}` : "Hey";
+  }
+
+  function buildDefaultChatDmMessage(c, p) {
+    const greeting = resolveGreetingForParticipant(p);
+    const subj = String(c.subject || "").trim();
+    const subjPart = subj ? ` ("${subj}")` : "";
+    return `${greeting}, could you take a quick look at http://ag/${c.number}${subjPart} when you get a chance? Thanks!`;
+  }
+
+  function renderSentChatDmBannerHtml(c) {
+    const prefix = `${c.number}:`;
+    const entries = Object.entries(state.sentChatDms)
+      .filter(([k, val]) => k.startsWith(prefix) && val && !val.dismissed);
+    if (entries.length === 0) return "";
+    const [latestKey, info] = entries[entries.length - 1];
+    const openLinkHtml = info.chatUrl
+      ? `<a class="ag-link" href="${escapeHtml(info.chatUrl)}" target="_blank" rel="noopener noreferrer">Open 1:1 Chat ↗</a>`
+      : "";
+    return `<div class="chat-dm-sent-banner" onclick="event.stopPropagation()">
+      <span>✓ Sent Google Chat DM to <strong>${escapeHtml(info.recipient)}</strong> at ${escapeHtml(info.sentAtStr)}</span>
+      <span style="display:inline-flex;align-items:center;gap:8px;">
+        ${openLinkHtml}
+        <button class="participant-act-btn" data-key="${escapeHtml(latestKey)}" title="Dismiss" onclick="dismissSentChatBanner(${c.number}, this.dataset.key)">✕</button>
+      </span>
+    </div>`;
+  }
+
+  function renderChatDmComposerHtml(c) {
+    const comp = state.activeChatComposer;
+    if (!comp || Number(comp.clNum) !== Number(c.number)) return "";
+    const eligible = getDmEligibleParticipantsForCl(c);
+    const pillsHtml = eligible.map(p => {
+      const em = String(p.email).toLowerCase();
+      const isAct = em === String(comp.recipientEmail || "").toLowerCase();
+      const v = Number(p.cr_vote || 0);
+      const roleTag = p.is_owner ? "owner" : (p.state === "CC" ? "CC" : `CR ${v > 0 ? "+" + v : v}`);
+      return `<button class="chat-dm-recipient-pill ${isAct ? "active" : ""}" data-email="${escapeHtml(p.email)}" ${comp.submitting ? "disabled" : ""} onclick="selectChatDmRecipient(${c.number}, this.dataset.email)">
+        👤 ${escapeHtml(p.short)} <span style="opacity:0.75;">(${escapeHtml(roleTag)})</span>
+      </button>`;
+    }).join("");
+    const sendBtnInner = comp.submitting
+      ? `<span class="btn-spinner"></span> Sending DM…`
+      : `💬 Send Chat DM`;
+    const errHtml = comp.error
+      ? `<div class="chat-dm-error">${escapeHtml(comp.error)}</div>`
+      : "";
+    return `<div class="chat-dm-composer" onclick="event.stopPropagation()">
+      <div class="chat-dm-header">
+        <span>💬 Google Chat 1:1 Direct Message · <strong>${escapeHtml(comp.recipientEmail)}</strong></span>
+        <span style="font-size:10.5px;color:var(--g-muted);font-weight:500;">⌘/Ctrl+Enter to send · Esc to cancel</span>
+      </div>
+      <div class="chat-dm-recipients">${pillsHtml}</div>
+      <textarea
+        id="chatDmTextarea-${c.number}"
+        class="chat-dm-textarea"
+        rows="2"
+        ${comp.submitting ? "disabled" : ""}
+        oninput="onChatDmTextChanged(${c.number}, this.value)"
+        onkeydown="onChatDmKeydown(event, ${c.number})"
+      >${escapeHtml(comp.message || "")}</textarea>
+      ${errHtml}
+      <div class="chat-dm-actions">
+        <div style="display:inline-flex;align-items:center;gap:6px;">
+          <button class="chat-dm-btn-primary" ${comp.submitting ? "disabled" : ""} onclick="submitChatDm(${c.number})">${sendBtnInner}</button>
+          <button class="nudge-btn" ${comp.submitting ? "disabled" : ""} onclick="copyChatDmComposerText(${c.number})">Copy Text</button>
+        </div>
+        <button class="nudge-btn" ${comp.submitting ? "disabled" : ""} onclick="closeChatDmComposer()">Cancel</button>
+      </div>
+    </div>`;
+  }
+
+  function openChatDmComposer(clNum, explicitEmail) {
+    if ((state.activeChatComposer && state.activeChatComposer.submitting) ||
+        (state.activeReviewerComposer && state.activeReviewerComposer.submitting)) {
+      showToast("Wait for the current action to finish before opening a new Chat DM.");
+      return;
+    }
+    const num = Number(clNum);
+    const clObj = state.changes.find(x => Number(x.number) === num);
+    if (!clObj) return;
+    const eligible = getDmEligibleParticipantsForCl(clObj);
+    if (eligible.length === 0) {
+      showToast(`No other @google.com human reviewers on ag/${num} to DM.`);
+      return;
+    }
+    const wanted = String(explicitEmail || "").trim().toLowerCase();
+    const target = eligible.find(p => String(p.email).toLowerCase() === wanted) || eligible[0];
+    const prevClNum = state.activeChatComposer ? Number(state.activeChatComposer.clNum) : null;
+    const prevRevClNum = state.activeReviewerComposer ? Number(state.activeReviewerComposer.clNum) : null;
+    state.activeReviewerComposer = null;
+    state.activeChatComposer = {
+      clNum: num,
+      recipientEmail: target.email,
+      message: buildDefaultChatDmMessage(clObj, target),
+      userEdited: false,
+      submitting: false,
+      error: "",
+    };
+    if (prevClNum && prevClNum !== num) rerenderReviewersPanelDom(prevClNum);
+    if (prevRevClNum && prevRevClNum !== num && prevRevClNum !== prevClNum) {
+      rerenderReviewersPanelDom(prevRevClNum);
+    }
+    rerenderReviewersPanelDom(num);
+    const area = document.getElementById(`chatDmTextarea-${num}`);
+    if (area) {
+      area.focus();
+      area.setSelectionRange(area.value.length, area.value.length);
+    }
+  }
+
+  function openChatDmFromRadar(clNum) {
+    if (state.activeChatComposer && state.activeChatComposer.submitting) {
+      showToast("Wait for the current Google Chat DM to finish sending.");
+      return;
+    }
+    const num = Number(clNum);
+    selectCl(num, true);
+    openChatDmComposer(num, null);
+    const panelEl = document.getElementById(`reviewersPanel-${num}`);
+    if (panelEl && typeof panelEl.scrollIntoView === "function") {
+      panelEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }
+
+  function selectChatDmRecipient(clNum, email) {
+    const comp = state.activeChatComposer;
+    const num = Number(clNum);
+    if (!comp || Number(comp.clNum) !== num || comp.submitting) return;
+    const clObj = state.changes.find(x => Number(x.number) === num);
+    const eligible = getDmEligibleParticipantsForCl(clObj);
+    const target = eligible.find(p => String(p.email).toLowerCase() === String(email || "").toLowerCase());
+    if (!target) return;
+    comp.recipientEmail = target.email;
+    comp.error = "";
+    if (!comp.userEdited && clObj) {
+      comp.message = buildDefaultChatDmMessage(clObj, target);
+    }
+    rerenderReviewersPanelDom(num);
+    const area = document.getElementById(`chatDmTextarea-${num}`);
+    if (area) area.focus();
+  }
+
+  function onChatDmTextChanged(clNum, val) {
+    const comp = state.activeChatComposer;
+    if (!comp || Number(comp.clNum) !== Number(clNum)) return;
+    comp.message = val;
+    comp.userEdited = true;
+    comp.error = "";
+  }
+
+  function onChatDmKeydown(event, clNum) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeChatDmComposer();
+      return;
+    }
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      submitChatDm(clNum);
+    }
+  }
+
+  function closeChatDmComposer() {
+    const prev = state.activeChatComposer;
+    if (prev && prev.submitting) return;
+    state.activeChatComposer = null;
+    if (prev && prev.clNum) {
+      rerenderReviewersPanelDom(prev.clNum);
+    }
+  }
+
+  function copyChatDmComposerText(clNum) {
+    const comp = state.activeChatComposer;
+    if (!comp || Number(comp.clNum) !== Number(clNum)) return;
+    navigator.clipboard?.writeText(comp.message || "");
+    showToast(`Copied Chat message for ${comp.recipientEmail}!`);
+  }
+
+  function dismissSentChatBanner(clNum, mapKey) {
+    if (mapKey && state.sentChatDms[mapKey]) {
+      state.sentChatDms[mapKey].dismissed = true;
+    }
+    rerenderReviewersPanelDom(clNum);
+  }
+
+  async function submitChatDm(clNum) {
+    const num = Number(clNum);
+    const comp = state.activeChatComposer;
+    if (!comp || Number(comp.clNum) !== num || comp.submitting) return;
+    const msg = String(comp.message || "").trim();
+    if (!msg) {
+      comp.error = "Enter a message before sending.";
+      rerenderReviewersPanelDom(num);
+      return;
+    }
+    comp.submitting = true;
+    comp.error = "";
+    rerenderReviewersPanelDom(num);
+    try {
+      const resp = await sidecarFetch("/api/gerrit/chat-dm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cl: num, recipient: comp.recipientEmail, message: msg }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.error || data.status !== "ok") {
+        throw new Error(data.error || `HTTP ${resp.status} while sending Google Chat DM`);
+      }
+      const recip = String(data.recipient || comp.recipientEmail).toLowerCase();
+      state.sentChatDms[`${num}:${recip}`] = {
+        recipient: recip,
+        chatUrl: data.chat_url || "",
+        sentAtStr: new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+        dismissed: false,
+      };
+      state.activeChatComposer = null;
+      rerenderReviewersPanelDom(num);
+      showToast(`Sent Google Chat DM to ${recip} for ag/${num}!`);
+    } catch (err) {
+      if (state.activeChatComposer && Number(state.activeChatComposer.clNum) === num) {
+        state.activeChatComposer.submitting = false;
+        state.activeChatComposer.error = err.message || String(err);
+        rerenderReviewersPanelDom(num);
+      }
+      showToast("Could not send Chat DM: " + (err.message || err));
+    }
+  }
+
   document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.activeChatComposer && !state.activeChatComposer.submitting) {
+      closeChatDmComposer();
+      return;
+    }
     if (e.key === "Escape" && state.activeReviewerComposer) {
       closeReviewerComposer();
       return;
