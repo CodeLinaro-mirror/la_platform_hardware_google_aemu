@@ -76,7 +76,7 @@ Fetches prebuilt artifacts from Android Build (`go/ab`) into `prebuilts/android-
 emu-dev-cli update-prebuilt --list
 emu-dev-cli update-prebuilt lavapipe --build-number=16534139 [--target=linux-x64|mac-arm64|win-x64] [--dry-run]
 emu-dev-cli update-prebuilt kosmickrisp --build-number=16476462
-emu-dev-cli update-prebuilt android-device-hub --latest
+emu-dev-cli update-prebuilt android-device-hub --latest [--target=linux-x64|linux-arm64|mac-arm64|win-x64]
 ```
 ### 2. Source Directory Registry (`source-directory`)
 Manage mappings between branch names (`emu-main-dev`, `emu-main-next`, `git_main`) and local checkout paths in `~/.android/emu-dev-cli.json`:
