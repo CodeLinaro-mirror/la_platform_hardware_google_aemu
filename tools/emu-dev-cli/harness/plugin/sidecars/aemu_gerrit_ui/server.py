@@ -99,12 +99,22 @@ def _bootstrap_emu_dev_cli_path() -> Path | None:
 def main() -> None:
     _bootstrap_emu_dev_cli_path()
     import importlib
+    import threading
     import commands.gerrit.ui_server as ui_mod
+    import lib.gerrit_api as gerrit_api_mod
+
+    def _current_bundle_mtime() -> tuple[float, float]:
+        ui_f = getattr(ui_mod, "__file__", None)
+        api_f = getattr(gerrit_api_mod, "__file__", None)
+        return (
+            Path(ui_f).stat().st_mtime if ui_f else 0.0,
+            Path(api_f).stat().st_mtime if api_f else 0.0,
+        )
 
     viewer = os.environ.get("AEMU_GERRIT_VIEWER", "")
-    mod_file_init = getattr(ui_mod, "__file__", None)
+    reload_lock = threading.Lock()
     state: dict[str, object] = {
-        "mtime": Path(mod_file_init).stat().st_mtime if mod_file_init else 0.0,
+        "mtime": _current_bundle_mtime(),
         "handler_cls": ui_mod.make_gerrit_ui_handler(
             ui_mod.GerritUIService(default_viewer=viewer)
         ),
@@ -112,18 +122,18 @@ def main() -> None:
 
     def _dispatch_handler(request, client_address, server_obj):
         try:
-            mod_file = getattr(ui_mod, "__file__", None)
-            if mod_file:
-                cur_mtime = Path(mod_file).stat().st_mtime
-                if cur_mtime != state["mtime"]:
-                    pt_mod = sys.modules.get("commands.gerrit.presubmit_targets")
-                    if pt_mod is not None:
-                        importlib.reload(pt_mod)
-                    importlib.reload(ui_mod)
-                    state["mtime"] = cur_mtime
-                    state["handler_cls"] = ui_mod.make_gerrit_ui_handler(
-                        ui_mod.GerritUIService(default_viewer=viewer)
-                    )
+            if _current_bundle_mtime() != state["mtime"]:
+                with reload_lock:
+                    if _current_bundle_mtime() != state["mtime"]:
+                        importlib.reload(gerrit_api_mod)
+                        pt_mod = sys.modules.get("commands.gerrit.presubmit_targets")
+                        if pt_mod is not None:
+                            importlib.reload(pt_mod)
+                        importlib.reload(ui_mod)
+                        state["mtime"] = _current_bundle_mtime()
+                        state["handler_cls"] = ui_mod.make_gerrit_ui_handler(
+                            ui_mod.GerritUIService(default_viewer=viewer)
+                        )
         except Exception:
             pass
         handler_cls = state["handler_cls"]

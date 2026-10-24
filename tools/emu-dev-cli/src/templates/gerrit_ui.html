@@ -92,25 +92,21 @@
     font-weight: 600;
     cursor: pointer;
   }
-  .gate-pills {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
   .gate-pill {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 5px 10px;
-    border-radius: 6px;
-    font-size: 12px;
+    gap: 3px;
+    padding: 2px 6px;
+    border-radius: 5px;
+    font-size: 10.5px;
     font-weight: 600;
-    background: #252830;
+    font-family: var(--g-font);
+    background: #23262e;
     border: 1px solid var(--g-border);
     color: var(--g-btn-inactive-text);
     cursor: pointer;
     user-select: none;
+    white-space: nowrap;
   }
   .gate-pill:hover {
     background: #2c303a;
@@ -118,8 +114,43 @@
   }
   .gate-pill.active {
     background: var(--g-green-bg);
-    border-color: rgba(78, 173, 107, 0.45);
+    border-color: rgba(78, 173, 107, 0.48);
     color: #a3e4b7;
+  }
+  .queue-filter-toolbar {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--g-border);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: #1a1c21;
+  }
+  .queue-filter-toolbar.collapsed {
+    gap: 0;
+  }
+  .queue-filter-toolbar.collapsed .filter-extra-body {
+    display: none;
+  }
+  .queue-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+  .filter-row-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--g-muted);
+    letter-spacing: 0.2px;
+    flex-shrink: 0;
+  }
+  .filter-extra-body {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding-top: 2px;
   }
   .view-toggle {
     display: inline-flex;
@@ -320,21 +351,36 @@
     position: relative;
   }
   .queue-search-bar {
-    padding: 8px 12px;
+    padding: 6px 10px;
     border-bottom: 1px solid var(--g-border);
     background: #181a1f;
     display: flex;
     flex-direction: column;
     gap: 6px;
   }
+  .queue-search-bar.collapsed {
+    gap: 0;
+  }
+  .queue-search-bar.collapsed .author-presets-body {
+    display: none;
+  }
+  .author-presets-body {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding-top: 2px;
+  }
   .queue-search-row {
     display: flex;
     align-items: center;
     gap: 6px;
+    flex-wrap: nowrap;
+    min-width: 0;
   }
   .queue-search-input-wrap {
     position: relative;
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 0;
     display: flex;
     align-items: center;
   }
@@ -449,6 +495,23 @@
     border-color: #433c54;
     color: #d4c5ef;
   }
+  .author-badge-prefix {
+    color: var(--g-muted);
+    font-weight: 500;
+  }
+  .repo-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: var(--g-mono);
+    font-size: 10.5px;
+    font-weight: 500;
+    background: #20232b;
+    border: 1px solid #353a46;
+    color: #b6c2d6;
+    white-space: nowrap;
+  }
   .queue-filter-banner {
     padding: 8px 10px;
     border-radius: 6px;
@@ -463,18 +526,52 @@
     flex-wrap: wrap;
   }
   .queue-type-toolbar {
-    padding: 7px 12px;
+    padding: 6px 10px;
     border-bottom: 1px solid var(--g-border);
     display: flex;
     flex-direction: column;
     gap: 6px;
     background: #1c1e22;
   }
+  .queue-type-toolbar.collapsed {
+    gap: 0;
+  }
+  .queue-type-toolbar.collapsed .type-filters {
+    display: none;
+  }
   .queue-group-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+  .preset-collapse-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 7px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--g-font);
+    background: #23262e;
+    border: 1px solid var(--g-border);
+    color: var(--g-btn-inactive-text);
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .preset-collapse-btn:hover {
+    color: #ffffff;
+    background: #2d313b;
+    border-color: #4d5464;
+  }
+  .preset-collapse-btn.has-active-filter {
+    color: #dceaff;
+    background: #28364e;
+    border-color: #5b87d6;
   }
   .group-toggle {
     display: inline-flex;
@@ -482,15 +579,17 @@
     border: 1px solid var(--g-border);
     border-radius: 5px;
     overflow: hidden;
+    flex-shrink: 0;
   }
   .group-toggle button {
     background: transparent;
     border: none;
     color: var(--g-btn-inactive-text);
-    padding: 3px 9px;
+    padding: 3px 8px;
     font-size: 11px;
     font-weight: 600;
     cursor: pointer;
+    white-space: nowrap;
   }
   .group-toggle button:hover {
     color: var(--g-text);
@@ -621,7 +720,7 @@
     color: #d8dde6;
   }
   .cl-card {
-    padding: 9px 11px;
+    padding: 6px 10px;
     border-bottom: 1px solid var(--g-border-subtle);
     background: var(--g-card);
     cursor: pointer;
@@ -632,6 +731,17 @@
   .cl-card:last-child { border-bottom: none; }
   .cl-card.selected {
     background: #2e323b;
+    border-left: 3px solid var(--g-accent);
+  }
+  .cl-card.cl-card-submittable {
+    background: linear-gradient(90deg, rgba(46, 160, 88, 0.17) 0%, rgba(46, 160, 88, 0.08) 100%), var(--g-card);
+    border-left: 3px solid rgba(78, 173, 107, 0.72);
+  }
+  .cl-card.cl-card-submittable:hover {
+    background: linear-gradient(90deg, rgba(46, 160, 88, 0.24) 0%, rgba(46, 160, 88, 0.12) 100%), var(--g-card-hover);
+  }
+  .cl-card.cl-card-submittable.selected {
+    background: linear-gradient(90deg, rgba(46, 160, 88, 0.24) 0%, rgba(46, 160, 88, 0.11) 100%), #2e323b;
     border-left: 3px solid var(--g-accent);
   }
   .cl-card.cl-card-exiting {
@@ -650,14 +760,17 @@
   }
   .cl-row-top {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    gap: 6px;
-    margin-bottom: 4px;
+    min-width: 0;
+    margin-bottom: 3px;
   }
   .cl-subj {
+    display: block;
+    width: 100%;
+    min-width: 0;
     font-weight: 600;
-    font-size: 12.5px;
+    font-size: 12px;
+    line-height: 1.25;
     color: var(--g-text);
     white-space: nowrap;
     overflow: hidden;
@@ -666,10 +779,11 @@
   .badge {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
-    padding: 2px 7px;
+    gap: 4px;
+    padding: 1px 6px;
     border-radius: 4px;
     font-size: 10.5px;
+    line-height: 1.3;
     font-weight: 600;
     white-space: nowrap;
   }
@@ -682,29 +796,50 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 6px;
     font-size: 11px;
     color: var(--g-muted);
-    margin-bottom: 6px;
+    margin-bottom: 0;
+  }
+  .card-status-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+  .card-status-row:not(:has(.slot, .card-rev-pill)) {
+    display: none;
+  }
+  .swarm-slot-wrap {
+    display: contents;
+  }
+  .rev-eye-icon {
+    width: 11px;
+    height: 11px;
+    flex-shrink: 0;
+    opacity: 0.9;
   }
   .approval-slots {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     flex-wrap: wrap;
   }
   .slot {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 2px 7px;
+    padding: 1px 6px;
     border-radius: 4px;
-    font-size: 11px;
+    font-size: 10.5px;
+    line-height: 1.3;
     font-weight: 600;
   }
   .slot-needed {
-    background: var(--g-amber-bg);
-    color: #e8c27d;
-    border: 1px dashed rgba(212, 151, 59, 0.5);
+    background: rgba(223, 91, 83, 0.2);
+    color: #ffb4ae;
+    border: 1px solid rgba(223, 91, 83, 0.55);
   }
   .slot-done {
     background: var(--g-green-bg);
@@ -1330,6 +1465,30 @@
     justify-content: space-between;
     align-items: center;
     gap: 8px;
+  }
+  .file-cs-link {
+    color: #c8d7f0;
+    text-decoration: none;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: color 0.12s ease;
+  }
+  .file-cs-link:hover {
+    color: #9ec5ff;
+    text-decoration: underline;
+  }
+  .file-cs-link-icon {
+    font-size: 10px;
+    color: var(--g-muted);
+    opacity: 0.78;
+    text-decoration: none;
+    transition: opacity 0.12s ease, color 0.12s ease;
+  }
+  .file-cs-link:hover .file-cs-link-icon {
+    opacity: 1;
+    color: #9ec5ff;
   }
   .file-header-hint {
     font-family: var(--g-font);
@@ -2285,11 +2444,13 @@
     background: #16181c;
     color: var(--g-text);
     border: 1px solid var(--g-border);
-    padding: 3px 7px;
+    padding: 3px 6px;
     border-radius: 5px;
     font-size: 11px;
     font-weight: 600;
     cursor: pointer;
+    flex: 1 1 0;
+    min-width: 0;
   }
   .queue-sort-select:focus {
     border-color: var(--g-accent);
@@ -2570,6 +2731,19 @@
     background: rgba(130, 177, 255, 0.2);
     text-decoration: underline;
   }
+  .sidebar-hydrating-pill {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 8px 4px 12px 4px;
+    padding: 7px 12px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    color: var(--g-muted);
+    background: rgba(130, 177, 255, 0.07);
+    border: 1px dashed rgba(130, 177, 255, 0.26);
+  }
 </style>
 </head>
 <body>
@@ -2589,12 +2763,6 @@
       <span class="btn-spinner"></span>
       <span id="topbarLoadingText">Loading…</span>
     </span>
-  </div>
-
-  <div class="gate-pills">
-    <div id="gatePresubmit" class="gate-pill active" onclick="toggleGate('presubmit')">✓ Presubmit Verified (+1/+2)</div>
-    <div id="gateAgent" class="gate-pill active" onclick="toggleGate('agent')">✓ Agent Verified (0 unresolved)</div>
-    <div id="gateHideMine" class="gate-pill active" onclick="toggleGate('hideMine')">✓ Hide Already +2'd by Me (<span id="hiddenMineCount">0</span>)</div>
   </div>
 
   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -2644,7 +2812,7 @@
 
 <div class="workspace">
   <div class="queue-pane">
-    <div id="queueSearchBar" class="queue-search-bar">
+    <div id="queueSearchBar" class="queue-search-bar collapsed">
       <div class="queue-search-row">
         <div class="queue-search-input-wrap">
           <span class="queue-search-icon">🔍</span>
@@ -2652,7 +2820,7 @@
             id="queueSearchInput"
             class="queue-search-input"
             type="text"
-            placeholder="Search author, subject, ag/#, b/#, or file… (press /)"
+            placeholder="Search author, subject, ag/#, b/#, or file… (/)"
             oninput="onQueueSearchInput(this.value)"
             onkeydown="onQueueSearchKeydown(event)"
           />
@@ -2663,39 +2831,57 @@
             title="Clear search &amp; author filter (Esc)"
           >✕</button>
         </div>
-        <select
-          id="authorFilterSelect"
-          class="author-filter-select"
-          onchange="setAuthorFilter(this.value)"
-          title="Filter commits by author"
-        >
-          <option value="all">👤 All Authors</option>
-        </select>
+        <button
+          id="authorPresetsToggleBtn"
+          type="button"
+          class="preset-collapse-btn"
+          onclick="toggleAuthorPresets()"
+          title="Expand or collapse author filter presets"
+          aria-expanded="false"
+        >Authors ▾</button>
       </div>
-      <div id="authorChipsBar" class="author-chips-row"></div>
+      <div id="authorPresetsBody" class="author-presets-body">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+          <span style="font-size:10px;font-weight:700;color:var(--g-muted);letter-spacing:0.3px;">AUTHOR PRESETS:</span>
+          <select
+            id="authorFilterSelect"
+            class="author-filter-select"
+            onchange="setAuthorFilter(this.value)"
+            title="Filter commits by author"
+          >
+            <option value="all">👤 All Authors</option>
+          </select>
+        </div>
+        <div id="authorChipsBar" class="author-chips-row"></div>
+      </div>
     </div>
 
-    <div class="queue-type-toolbar">
+    <div id="queueTypeToolbar" class="queue-type-toolbar collapsed">
       <div class="queue-group-row">
-        <span style="font-size:10.5px;font-weight:700;color:var(--g-muted);letter-spacing:0.3px;">COMMIT TYPE &amp; SORT:</span>
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-          <select
-            id="queueSortSelect"
-            class="queue-sort-select"
-            onchange="setSortMode(this.value)"
-            title="Sort commit list by smart queue priority or last updated timestamp"
-          >
-            <option value="smart" selected>⚡ Sort: Smart Queue</option>
-            <option value="updated_desc">🕒 Last Updated (Newest)</option>
-            <option value="updated_asc">🕰️ Last Updated (Oldest)</option>
-          </select>
-          <div class="group-toggle">
-            <button id="grpType" class="active" onclick="setGroupMode('type')">Group by Type</button>
-            <button id="grpStack" onclick="setGroupMode('stack')">Group by Stack</button>
-          </div>
+        <select
+          id="queueSortSelect"
+          class="queue-sort-select"
+          onchange="setSortMode(this.value)"
+          title="Sort commit list by smart queue priority or last updated timestamp"
+        >
+          <option value="smart" selected>⚡ Sort: Smart Queue</option>
+          <option value="updated_desc">🕒 Last Updated (Newest)</option>
+          <option value="updated_asc">🕰️ Last Updated (Oldest)</option>
+        </select>
+        <div class="group-toggle">
+          <button id="grpType" class="active" onclick="setGroupMode('type')">Group by Type</button>
+          <button id="grpStack" onclick="setGroupMode('stack')">Group by Stack</button>
         </div>
+        <button
+          id="typePresetsToggleBtn"
+          type="button"
+          class="preset-collapse-btn"
+          onclick="toggleTypePresets()"
+          title="Expand or collapse commit type filter presets"
+          aria-expanded="false"
+        >Types ▾</button>
       </div>
-      <div class="type-filters">
+      <div id="typeFiltersBar" class="type-filters">
         <div id="typeTab_all" class="type-tab active" onclick="setTypeFilter('all')">All Types (<span id="cntType_all">0</span>)</div>
         <div id="typeTab_bugfix" class="type-tab" onclick="setTypeFilter('bugfix')">🐛 Bug Fix (<span id="cntType_bugfix">0</span>)</div>
         <div id="typeTab_perf" class="type-tab" onclick="setTypeFilter('perf')">⚡ Perf (<span id="cntType_perf">0</span>)</div>
@@ -2703,6 +2889,55 @@
         <div id="typeTab_cleanup" class="type-tab" onclick="setTypeFilter('cleanup')">🧹 Cleanup (<span id="cntType_cleanup">0</span>)</div>
         <div id="typeTab_feature" class="type-tab" onclick="setTypeFilter('feature')">✨ Feature (<span id="cntType_feature">0</span>)</div>
         <div id="typeTab_docs_build" class="type-tab" onclick="setTypeFilter('docs_build')">📦 Build/Docs (<span id="cntType_docs_build">0</span>)</div>
+      </div>
+    </div>
+
+    <div id="queueFilterToolbar" class="queue-filter-toolbar collapsed">
+      <div class="queue-filter-row">
+        <span class="filter-row-label">Filter:</span>
+        <button
+          id="gatePresubmit"
+          type="button"
+          class="gate-pill active"
+          onclick="toggleGate('presubmit')"
+          title="Only show CLs with Presubmit-Verified +1 or +2"
+          aria-pressed="true"
+        >✓ PV +1/+2</button>
+        <button
+          id="gateHideMine"
+          type="button"
+          class="gate-pill active"
+          onclick="toggleGate('hideMine')"
+          title="Hide CLs where the selected viewer has already voted Code-Review +2"
+          aria-pressed="true"
+        >✓ Hide +2 by Me (<span id="hiddenMineCount">0</span>)</button>
+        <button
+          id="gateHideSubmittable"
+          type="button"
+          class="gate-pill active"
+          onclick="toggleGate('hideSubmittable')"
+          title="Hide CLs that already have all required human +2 approvals and vetted presubmit"
+          aria-pressed="true"
+        >✓ Hide Submittable (<span id="hiddenSubmittableCount">0</span>)</button>
+        <button
+          id="filterPresetsToggleBtn"
+          type="button"
+          class="preset-collapse-btn"
+          style="margin-left:auto;"
+          onclick="toggleFilterPresets()"
+          title="Expand or collapse additional queue filters"
+          aria-expanded="false"
+        >More ▾</button>
+      </div>
+      <div id="filterExtraBody" class="filter-extra-body">
+        <button
+          id="gateAgent"
+          type="button"
+          class="gate-pill"
+          onclick="toggleGate('agent')"
+          title="Only show CLs verified by an agent (or non-agent CLs) with 0 unresolved comments"
+          aria-pressed="false"
+        >Agent Verified (0 unresolved)</button>
       </div>
     </div>
 
@@ -2812,7 +3047,11 @@
     sessionApprovedCls: new Set(),
     collapsedCommitMsgs: new Set(),
     cliffRadarCollapsed: true,
-    gates: { presubmit: true, agent: false, hideMine: true },
+    authorPresetsCollapsed: true,
+    typePresetsCollapsed: true,
+    filterPresetsCollapsed: true,
+    gates: { presubmit: true, agent: false, hideMine: true, hideSubmittable: true },
+    savedNonOwnerGates: null,
     groupMode: "type",
     typeFilter: "all",
     authorFilter: "all",
@@ -2842,7 +3081,129 @@
     expandedPresubmitCls: new Set(),
     autoExpandedPresubmitCls: new Set(),
     presubmitTargetFilterByCl: {},
+    queueCacheByKey: {},
+    sidebarHydrating: false,
+    inFlightDiffPromises: {},
+    lastKnownPatchSetByCl: {},
+    lastRenderedDiffSignature: "",
   };
+
+  const QUEUE_CLIENT_CACHE_TTL_MS = 45000;
+  const QUEUE_CLIENT_STALE_MAX_MS = 300000;
+
+  function buildQueueCacheKey(viewer, scope, author) {
+    const v = String(viewer || "").trim().toLowerCase();
+    const sc = String(scope || "reviewer").trim().toLowerCase();
+    const a = String(author || "").trim().toLowerCase();
+    return `${v}|${sc}|${a}`;
+  }
+
+  function cloneQueuePayload(data) {
+    if (typeof structuredClone === "function") {
+      return structuredClone(data);
+    }
+    return JSON.parse(JSON.stringify(data));
+  }
+
+  function invalidateClientQueueCache() {
+    state.queueCacheByKey = {};
+  }
+
+  function recomputeApprovalSlotsForViewer(c, viewerNorm) {
+    const reqCount = c.is_agent_cl ? 2 : 1;
+    const humanCr2 = Array.isArray(c.human_cr2) ? c.human_cr2 : [];
+    const slots = [];
+    humanCr2.slice(0, reqCount).forEach(voter => {
+      const em = String(voter.email || "").trim().toLowerCase();
+      const tag = em === viewerNorm ? "You (+2 ✓)" : `✓ ${voter.short || em.split("@")[0]} +2`;
+      slots.push({ state: "done", text: tag });
+    });
+    const remaining = Math.max(0, reqCount - humanCr2.length);
+    if (remaining >= 2) {
+      slots.push({ state: "needed", text: "Needs two +2s" });
+    } else if (remaining === 1) {
+      slots.push({ state: "needed", text: "Needs +2" });
+    }
+    return slots;
+  }
+
+  function applyViewerProjectionToCl(c, viewerNorm, viewerShort) {
+    const humanCr2 = Array.isArray(c.human_cr2) ? c.human_cr2 : [];
+    c.approved_by_viewer = humanCr2.some(v => String(v.email || "").toLowerCase() === viewerNorm);
+    if (Array.isArray(c.reviewers_detail)) {
+      c.reviewers_detail.forEach(p => {
+        p.is_viewer = String(p.email || "").toLowerCase() === viewerNorm;
+      });
+      const me = c.reviewers_detail.find(p => p.is_viewer);
+      c.viewer_cr_vote = me ? Number(me.cr_vote || 0) : (c.approved_by_viewer ? 2 : 0);
+    } else {
+      c.viewer_cr_vote = c.approved_by_viewer ? 2 : 0;
+    }
+    if (Array.isArray(c.ccs_detail)) {
+      c.ccs_detail.forEach(p => {
+        p.is_viewer = String(p.email || "").toLowerCase() === viewerNorm;
+      });
+    }
+    c.viewer_autosubmit = (c.autosubmit_voters || []).some(
+      s => String(s || "").toLowerCase() === viewerShort
+    );
+    c.viewer_presubmit_ready = (c.presubmit_ready_voters || []).some(
+      s => String(s || "").toLowerCase() === viewerShort
+    );
+    c.approval_slots = recomputeApprovalSlotsForViewer(c, viewerNorm);
+  }
+
+  function reprojectQueuePayloadForViewer(baseData, targetViewer) {
+    const cloned = cloneQueuePayload(baseData);
+    const viewerNorm = String(targetViewer || "").trim().toLowerCase();
+    const viewerShort = (viewerNorm.split("@")[0]) || "you";
+    cloned.viewer = viewerNorm;
+    (cloned.changes || []).forEach(c => applyViewerProjectionToCl(c, viewerNorm, viewerShort));
+    const byNum = new Map((cloned.changes || []).map(c => [Number(c.number), c]));
+    (cloned.stacks || []).forEach(st => {
+      st.commits = (st.commits || []).map(sc => byNum.get(Number(sc.number)) || sc);
+    });
+    return cloned;
+  }
+
+  function lookupClientQueueCache(viewer, scope, author) {
+    const now = Date.now();
+    const exactKey = buildQueueCacheKey(viewer, scope, author);
+    const exact = state.queueCacheByKey[exactKey];
+    if (exact && (now - exact.fetchedAt) < QUEUE_CLIENT_STALE_MAX_MS) {
+      const age = now - exact.fetchedAt;
+      return {
+        payload: cloneQueuePayload(exact.data),
+        isPartial: Boolean(exact.isPartial),
+        needsRevalidate: Boolean(exact.isPartial || age >= QUEUE_CLIENT_CACHE_TTL_MS),
+      };
+    }
+    if (String(scope || "").toLowerCase() === "team" && viewer) {
+      const suffix = `|team|${String(author || "").trim().toLowerCase()}`;
+      const donorEntry = Object.entries(state.queueCacheByKey)
+        .map(([k, val]) => ({ k, val }))
+        .find(({ k, val }) => k.endsWith(suffix) && val && !val.isPartial && (now - val.fetchedAt) < QUEUE_CLIENT_STALE_MAX_MS);
+      if (donorEntry) {
+        return {
+          payload: reprojectQueuePayloadForViewer(donorEntry.val.data, viewer),
+          isPartial: false,
+          needsRevalidate: true,
+        };
+      }
+    }
+    return null;
+  }
+
+  function storeClientQueueCache(viewer, scope, author, data, isPartial) {
+    const resolvedViewer = (data && data.viewer) || viewer || state.viewer;
+    const resolvedScope = (data && data.scope) || scope || state.scope;
+    const key = buildQueueCacheKey(resolvedViewer, resolvedScope, author);
+    state.queueCacheByKey[key] = {
+      fetchedAt: Date.now(),
+      isPartial: Boolean(isPartial),
+      data: cloneQueuePayload(data),
+    };
+  }
 
   function showToast(msg) {
     const el = document.getElementById("toast");
@@ -2979,7 +3340,9 @@
       btn.innerHTML = `<span class="btn-spinner"></span> Refreshing…`;
     }
     try {
+      invalidateClientQueueCache();
       await fetchQueueData(state.viewer, state.scope, {
+        forceRefresh: true,
         preserveDiffCache: false,
         loadingTitle: "Refreshing Gerrit Queue…",
         loadingSub: `Syncing latest patchsets, labels, and diffs for ${state.viewer}`,
@@ -2992,42 +3355,117 @@
     }
   }
 
+  function syncReadyDrawerStatus() {
+    if (getActiveRunningSwarmClNumbers().length > 0 || state.diffLoadingCount > 0) return;
+    const drawerStatus = document.getElementById("drawerStatus");
+    if (!drawerStatus) return;
+    const suffix = state.sidebarHydrating ? " · loading remaining commits…" : "";
+    drawerStatus.textContent =
+      `Ready · Loaded ${state.changes.length} open CLs (${getScopeDisplayLabel(state.scope)} · ${state.viewer})${suffix}`;
+  }
+
+  function triggerServerPrewarmOnly(viewer) {
+    const vParam = viewer ? `&viewer=${encodeURIComponent(viewer)}` : "";
+    sidecarFetch(`/api/gerrit/queue?prewarm_only=1${vParam}`).catch(() => {});
+  }
+
+  async function hydrateFullQueueInBackground(seq, viewer, scope, authorQ) {
+    let qs = `?scope=${encodeURIComponent(scope)}${viewer ? `&viewer=${encodeURIComponent(viewer)}` : ""}&prewarm=1`;
+    if (authorQ) {
+      qs += `&author=${encodeURIComponent(authorQ)}`;
+    }
+    try {
+      const resp = await sidecarFetch(`/api/gerrit/queue${qs}`);
+      const fullData = await resp.json();
+      if (!fullData || fullData.error) return;
+      storeClientQueueCache(viewer, scope, authorQ, fullData, Boolean(fullData.is_partial));
+      if (seq !== state.queueFetchSeq) return;
+      state.sidebarHydrating = false;
+      applyQueuePayload(fullData, {
+        preserveDiffCache: true,
+        preserveScroll: true,
+        silentRevalidate: true,
+      });
+      syncReadyDrawerStatus();
+    } catch (_err) {
+      if (seq === state.queueFetchSeq && state.sidebarHydrating) {
+        state.sidebarHydrating = false;
+        const summary = getFilteredStacksSummary();
+        renderQueueList(summary.visibleStacks, summary);
+      }
+    }
+  }
+
+  function tryServeClientQueueCache(seq, viewer, scope, authorQ, opts) {
+    if (opts.forceRefresh || opts.silent) return false;
+    const cachedHit = lookupClientQueueCache(viewer, scope, authorQ);
+    if (!cachedHit) return false;
+    state.sidebarHydrating = Boolean(cachedHit.isPartial);
+    if (state.queueLoading) setQueueLoadingState(false);
+    applyQueuePayload(cachedHit.payload, opts);
+    syncReadyDrawerStatus();
+    if (cachedHit.needsRevalidate) {
+      hydrateFullQueueInBackground(seq, cachedHit.payload.viewer || viewer, scope, authorQ);
+    }
+    return true;
+  }
+
+  async function fetchSilentQueue(seq, baseQs, viewer, scope, authorQ, opts) {
+    const silentQs = `${baseQs}&prewarm=1${opts.forceRefresh ? "&refresh=1" : ""}`;
+    const resp = await sidecarFetch(`/api/gerrit/queue${silentQs}`);
+    const data = await resp.json();
+    if (!data || data.error) return;
+    storeClientQueueCache(viewer, scope, authorQ, data, Boolean(data.is_partial));
+    if (seq !== state.queueFetchSeq) return;
+    state.sidebarHydrating = false;
+    applyQueuePayload(data, { ...opts, silentRevalidate: true });
+  }
+
+  async function fetchProgressiveQueueStage1(seq, baseQs, viewer, scope, authorQ, opts) {
+    const stage1Qs = `${baseQs}&fast=1${opts.forceRefresh ? "&refresh=1" : ""}`;
+    const resp = await sidecarFetch(`/api/gerrit/queue${stage1Qs}`);
+    const data = await resp.json();
+    if (seq !== state.queueFetchSeq) return;
+    if (data.error) {
+      showToast("Error loading Gerrit queue: " + data.error);
+      return;
+    }
+    if (opts.preserveDiffCache === false) {
+      state.diffsByCl = {};
+    }
+    storeClientQueueCache(viewer, scope, authorQ, data, Boolean(data.is_partial));
+    state.sidebarHydrating = Boolean(data.is_partial);
+    setQueueLoadingState(false);
+    applyQueuePayload(data, opts);
+    syncReadyDrawerStatus();
+    if (data.is_partial || data.stale) {
+      hydrateFullQueueInBackground(seq, data.viewer || viewer, scope, authorQ);
+    } else {
+      triggerServerPrewarmOnly(data.viewer || viewer);
+    }
+  }
+
   async function fetchQueueData(viewerOverride, scopeOverride, opts = {}) {
     const seq = ++state.queueFetchSeq;
     const v = viewerOverride || state.viewer || "";
     const sc = scopeOverride || state.scope || "reviewer";
     const authorQ = opts.author || "";
+    if (tryServeClientQueueCache(seq, v, sc, authorQ, opts)) return;
+
     if (!opts.silent) {
+      state.sidebarHydrating = false;
       const defaultTitle = authorQ
         ? `Querying Gerrit for owner:${authorQ}…`
         : `Loading ${getScopeDisplayLabel(sc)}…`;
-      const defaultSub = `Viewer: ${v || "auto"} · Fetching open CLs, approval slots & Buganizer metadata`;
+      const defaultSub = `Viewer: ${v || "auto"} · Fetching top commit & dismissing spinner asynchronously`;
       setQueueLoadingState(true, opts.loadingTitle || defaultTitle, opts.loadingSub || defaultSub);
     }
+    const baseQs = `?scope=${encodeURIComponent(sc)}${v ? `&viewer=${encodeURIComponent(v)}` : ""}${authorQ ? `&author=${encodeURIComponent(authorQ)}` : ""}`;
     try {
-      let qs = `?scope=${encodeURIComponent(sc)}${v ? `&viewer=${encodeURIComponent(v)}` : ""}`;
-      if (authorQ) {
-        qs += `&author=${encodeURIComponent(authorQ)}`;
-      }
-      const resp = await sidecarFetch(`/api/gerrit/queue${qs}`);
-      const data = await resp.json();
-      if (seq !== state.queueFetchSeq) return;
-      if (data.error) {
-        showToast("Error loading Gerrit queue: " + data.error);
-        return;
-      }
-      if (!opts.preserveDiffCache) {
-        state.diffsByCl = {};
-      }
-      if (!opts.silent) {
-        setQueueLoadingState(false);
-      }
-      applyQueuePayload(data, opts);
-      if (!opts.silent && getActiveRunningSwarmClNumbers().length === 0 && state.diffLoadingCount === 0) {
-        const drawerStatus = document.getElementById("drawerStatus");
-        if (drawerStatus) {
-          drawerStatus.textContent = `Ready · Loaded ${state.changes.length} open CLs (${getScopeDisplayLabel(state.scope)} · ${state.viewer})`;
-        }
+      if (opts.silent) {
+        await fetchSilentQueue(seq, baseQs, v, sc, authorQ, opts);
+      } else {
+        await fetchProgressiveQueueStage1(seq, baseQs, v, sc, authorQ, opts);
       }
     } catch (err) {
       if (seq === state.queueFetchSeq && !opts.silent) {
@@ -3057,10 +3495,20 @@
     state.roster = data.roster || ["jansene@google.com", "joshuaduong@google.com", "rkir@google.com", "whollins@google.com"];
     state.changes = data.changes || [];
     state.stacks = data.stacks || [];
-    if (state.sessionApprovedCls.size > 0) {
-      markClsApprovedOptimistically(Array.from(state.sessionApprovedCls));
+    const activeVoter = String(state.authEmail || state.viewer || "").toLowerCase();
+    const viewerSessionNums = getSessionApprovedNumsForViewer(state.viewer);
+    if (viewerSessionNums.length > 0 && (!activeVoter || String(state.viewer || "").toLowerCase() === activeVoter)) {
+      markClsApprovedOptimistically(viewerSessionNums, { skipCacheInvalidate: true });
     }
     state.changes.forEach(c => {
+      const cNum = Number(c.number);
+      const nextPs = Number(c.patch_set || 1);
+      if (cNum && state.lastKnownPatchSetByCl[cNum] && state.lastKnownPatchSetByCl[cNum] !== nextPs) {
+        delete state.diffsByCl[cNum];
+      }
+      if (cNum) {
+        state.lastKnownPatchSetByCl[cNum] = nextPs;
+      }
       if (c.swarm_status) {
         mergePolledSwarmStatus(c.number, c.swarm_status, { silentToast: true });
       }
@@ -3078,7 +3526,10 @@
       scopeEl.value = state.scope;
     }
     renderViewerDropdown();
-    renderAll({ preserveScroll: Boolean(opts.preserveScroll) });
+    renderAll({
+      preserveScroll: Boolean(opts.preserveScroll),
+      silentRevalidate: Boolean(opts.silentRevalidate),
+    });
     ensureSwarmPollingTimer();
     ensureCodeQuestionPollingTimer();
   }
@@ -3111,17 +3562,22 @@
   }
 
   function onScopeChange() {
+    const prevScope = state.scope;
     const newScope = document.getElementById("scopeSelect").value;
     const scopeLabel = getScopeDisplayLabel(newScope);
     state.scope = newScope;
     state.selectedClNumber = null;
     state.selectedStackId = null;
-    if (newScope === "owner") {
+    if (newScope === "owner" && prevScope !== "owner") {
+      state.savedNonOwnerGates = { ...state.gates };
       state.gates.presubmit = false;
       state.gates.hideMine = false;
-      document.getElementById("gatePresubmit")?.classList.remove("active");
-      document.getElementById("gateHideMine")?.classList.remove("active");
+      state.gates.hideSubmittable = false;
+    } else if (newScope !== "owner" && prevScope === "owner" && state.savedNonOwnerGates) {
+      state.gates = { ...state.savedNonOwnerGates };
+      state.savedNonOwnerGates = null;
     }
+    syncGateControls();
     fetchQueueData(state.viewer, newScope, {
       loadingTitle: `Loading "${scopeLabel}"…`,
       loadingSub: `Viewer: ${state.viewer} · Querying Gerrit changes and stack dependencies`,
@@ -3180,12 +3636,55 @@
     });
   }
 
+  function syncGateControls(hiddenMineCountOverride = null, submittableCountOverride = null) {
+    const alreadyMineCount = hiddenMineCountOverride !== null
+      ? Number(hiddenMineCountOverride)
+      : state.changes.filter(isClApprovedByViewer).length;
+    const submittableCount = submittableCountOverride !== null
+      ? Number(submittableCountOverride)
+      : state.changes.filter(isClSubmittable).length;
+    const pvEl = document.getElementById("gatePresubmit");
+    const hmEl = document.getElementById("gateHideMine");
+    const hsEl = document.getElementById("gateHideSubmittable");
+    const agEl = document.getElementById("gateAgent");
+    if (pvEl) {
+      const on = Boolean(state.gates.presubmit);
+      pvEl.classList.toggle("active", on);
+      pvEl.setAttribute("aria-pressed", String(on));
+      pvEl.textContent = `${on ? "✓ " : ""}PV +1/+2`;
+    }
+    if (hmEl) {
+      const on = Boolean(state.gates.hideMine);
+      hmEl.classList.toggle("active", on);
+      hmEl.setAttribute("aria-pressed", String(on));
+      hmEl.innerHTML = `${on ? "✓ " : ""}Hide +2 by Me (<span id="hiddenMineCount">${alreadyMineCount}</span>)`;
+    }
+    if (hsEl) {
+      const on = Boolean(state.gates.hideSubmittable);
+      hsEl.classList.toggle("active", on);
+      hsEl.setAttribute("aria-pressed", String(on));
+      hsEl.innerHTML = `${on ? "✓ " : ""}Hide Submittable (<span id="hiddenSubmittableCount">${submittableCount}</span>)`;
+    }
+    if (agEl) {
+      const on = Boolean(state.gates.agent);
+      agEl.classList.toggle("active", on);
+      agEl.setAttribute("aria-pressed", String(on));
+      agEl.textContent = `${on ? "✓ " : ""}Agent Verified (0 unresolved)`;
+    }
+    syncPresetCollapseControls();
+  }
+
   function toggleGate(name) {
     state.gates[name] = !state.gates[name];
-    document.getElementById("gatePresubmit").classList.toggle("active", state.gates.presubmit);
-    document.getElementById("gateAgent").classList.toggle("active", state.gates.agent);
-    document.getElementById("gateHideMine").classList.toggle("active", state.gates.hideMine);
+    state.includeUngatedMatches = false;
+    state.explicitRadarSelection = false;
+    syncGateControls();
     renderAll();
+  }
+
+  function toggleFilterPresets() {
+    state.filterPresetsCollapsed = !state.filterPresetsCollapsed;
+    syncPresetCollapseControls();
   }
 
   function setViewMode(mode) {
@@ -3194,6 +3693,65 @@
     document.getElementById("modeStack").classList.toggle("active", mode === "stack");
     document.getElementById("modeSquash").classList.toggle("active", mode === "squash");
     ensureActiveDiffsLoaded();
+  }
+
+  function toggleAuthorPresets() {
+    state.authorPresetsCollapsed = !state.authorPresetsCollapsed;
+    syncPresetCollapseControls();
+  }
+
+  function toggleTypePresets() {
+    state.typePresetsCollapsed = !state.typePresetsCollapsed;
+    syncPresetCollapseControls();
+  }
+
+  function syncPresetCollapseControls() {
+    const searchBarEl = document.getElementById("queueSearchBar");
+    const authorBtnEl = document.getElementById("authorPresetsToggleBtn");
+    const authorCollapsed = Boolean(state.authorPresetsCollapsed);
+    if (searchBarEl) {
+      searchBarEl.classList.toggle("collapsed", authorCollapsed);
+    }
+    if (authorBtnEl) {
+      const arrow = authorCollapsed ? "▾" : "▴";
+      const hasAuthor = Boolean(state.authorFilter && state.authorFilter !== "all");
+      const shortAuthor = hasAuthor
+        ? (state.authorFilter.length > 10 ? state.authorFilter.slice(0, 9) + "…" : state.authorFilter)
+        : "";
+      authorBtnEl.textContent = hasAuthor ? `👤 ${shortAuthor} ${arrow}` : `Authors ${arrow}`;
+      authorBtnEl.classList.toggle("has-active-filter", hasAuthor);
+      authorBtnEl.setAttribute("aria-expanded", String(!authorCollapsed));
+    }
+
+    const typeToolbarEl = document.getElementById("queueTypeToolbar");
+    const typeBtnEl = document.getElementById("typePresetsToggleBtn");
+    const typeCollapsed = Boolean(state.typePresetsCollapsed);
+    if (typeToolbarEl) {
+      typeToolbarEl.classList.toggle("collapsed", typeCollapsed);
+    }
+    if (typeBtnEl) {
+      const arrow = typeCollapsed ? "▾" : "▴";
+      const hasType = Boolean(state.typeFilter && state.typeFilter !== "all");
+      const activeType = hasType ? COMMIT_TYPE_ORDER.find(t => t.id === state.typeFilter) : null;
+      const typeLabel = activeType ? activeType.short : "Types";
+      typeBtnEl.textContent = `${typeLabel} ${arrow}`;
+      typeBtnEl.classList.toggle("has-active-filter", hasType);
+      typeBtnEl.setAttribute("aria-expanded", String(!typeCollapsed));
+    }
+
+    const filterToolbarEl = document.getElementById("queueFilterToolbar");
+    const filterBtnEl = document.getElementById("filterPresetsToggleBtn");
+    const filterCollapsed = Boolean(state.filterPresetsCollapsed);
+    if (filterToolbarEl) {
+      filterToolbarEl.classList.toggle("collapsed", filterCollapsed);
+    }
+    if (filterBtnEl) {
+      const arrow = filterCollapsed ? "▾" : "▴";
+      const hasAgentGate = Boolean(state.gates.agent);
+      filterBtnEl.textContent = hasAgentGate ? `✓ Agent ${arrow}` : `More ${arrow}`;
+      filterBtnEl.classList.toggle("has-active-filter", hasAgentGate);
+      filterBtnEl.setAttribute("aria-expanded", String(!filterCollapsed));
+    }
   }
 
   function setGroupMode(mode) {
@@ -3299,9 +3857,29 @@
     }).join(" ");
   }
 
+  function makeSessionApprovalKey(viewer, clNum) {
+    const vNorm = String(viewer || state.viewer || "").trim().toLowerCase();
+    return `${vNorm}:${Number(clNum)}`;
+  }
+
+  function getSessionApprovedNumsForViewer(viewer) {
+    const prefix = `${String(viewer || state.viewer || "").trim().toLowerCase()}:`;
+    const out = [];
+    state.sessionApprovedCls.forEach(entry => {
+      const s = String(entry);
+      if (s.startsWith(prefix)) {
+        const num = Number(s.slice(prefix.length));
+        if (!Number.isNaN(num) && num > 0) out.push(num);
+      }
+    });
+    return out;
+  }
+
   function isClApprovedByViewer(cl) {
     if (!cl) return false;
-    return Boolean(cl.approved_by_viewer || state.sessionApprovedCls.has(Number(cl.number)));
+    return Boolean(
+      cl.approved_by_viewer || state.sessionApprovedCls.has(makeSessionApprovalKey(state.viewer, cl.number))
+    );
   }
 
   function getClPrimaryAuthorShort(cl) {
@@ -3370,7 +3948,7 @@
       .toLowerCase();
 
     return tokens.every(tok => {
-      const cleaned = tok.replace(/^(author:|owner:|from:|by:|file:|path:)/, "");
+      const cleaned = tok.replace(/^(author:|owner:|from:|by:|file:|path:|repo:)/, "");
       return haystack.includes(cleaned || tok);
     });
   }
@@ -3509,9 +4087,18 @@
   }
 
   function passesGates(cl) {
-    if (state.gates.presubmit && !cl.presubmit_vetted) return false;
-    if (state.gates.agent && !cl.agent_vetted) return false;
+    if (!cl) return false;
+    const pvOk = Boolean(cl.presubmit_vetted || Number(cl.presubmit_score || 0) >= 1);
+    if (state.gates.presubmit && !pvOk) return false;
+    if (state.gates.agent) {
+      const sw = state.swarmByCl[Number(cl.number)];
+      const swarmClean = Boolean(
+        sw && sw.state === "completed" && Number(sw.findings_count || 0) === 0 && Number(cl.unresolved_comments || 0) === 0
+      );
+      if (!cl.agent_vetted && !swarmClean) return false;
+    }
     if (state.gates.hideMine && isClApprovedByViewer(cl)) return false;
+    if (state.gates.hideSubmittable && isClSubmittable(cl)) return false;
     return true;
   }
 
@@ -3539,8 +4126,7 @@
     });
 
     const filterActive = hasActiveAuthorOrSearchFilter();
-    const autoBypassedGates =
-      filterActive && (state.includeUngatedMatches || (gatedCommitCount === 0 && ungatedCommitCount > 0));
+    const autoBypassedGates = filterActive && Boolean(state.includeUngatedMatches);
     const hiddenByGatesCount = Math.max(0, ungatedCommitCount - gatedCommitCount);
 
     return {
@@ -3598,17 +4184,18 @@
 
   function renderAll(opts = {}) {
     const alreadyMine = state.changes.filter(isClApprovedByViewer);
-    document.getElementById("hiddenMineCount").textContent = alreadyMine.length;
+    const submittableCls = state.changes.filter(isClSubmittable);
     document.getElementById("bottomHiddenCount").textContent = `${alreadyMine.length} CLs auto-hidden`;
 
     renderCliffRadar();
     renderAuthorFilterControls();
     syncSearchClearButton();
+    syncGateControls(alreadyMine.length, submittableCls.length);
 
     const authorAndSearchMatched = state.changes.filter(matchesAuthorAndSearch);
     const gated = authorAndSearchMatched.filter(passesGates);
     const activePool =
-      hasActiveAuthorOrSearchFilter() && (state.includeUngatedMatches || gated.length === 0)
+      hasActiveAuthorOrSearchFilter() && state.includeUngatedMatches
         ? authorAndSearchMatched
         : gated;
     const cntAllEl = document.getElementById("cntType_all");
@@ -3635,7 +4222,12 @@
       }
     }
 
+    const qContainer = document.getElementById("queueList");
+    const prevQueueScroll = (opts.preserveScroll && qContainer) ? qContainer.scrollTop : null;
     renderQueueList(visibleStacks, summary);
+    if (prevQueueScroll !== null && qContainer) {
+      qContainer.scrollTop = prevQueueScroll;
+    }
     ensureActiveDiffsLoaded(opts);
   }
 
@@ -3696,7 +4288,7 @@
 
     document.getElementById("cliffChips").innerHTML = cliff.map(c => {
       const conflictTag = !c.mergeable ? " · Merge Conflict!" : "";
-      const waitTag = c.is_orphaned ? "[Agent CL] Needs 2x +2" : "Needs Your +2";
+      const waitTag = c.is_orphaned ? "Needs two +2s" : "Needs +2";
       const canDm = getDmEligibleParticipantsForCl(c).length > 0;
       const dmBtnHtml = canDm
         ? `<button class="nudge-btn" title="Open 1:1 Google Chat DM composer for ag/${c.number}" onclick="event.stopPropagation(); openChatDmFromRadar(${c.number})">💬 DM Reviewer</button>`
@@ -3721,22 +4313,22 @@
 
   function resolveFallbackPresubmitStatusAndLabel(c) {
     const score = Number((c && c.presubmit_score) || 0);
-    if (c && c.presubmit_ready_enabled) return { status: "queued", label: "⏳ Presubmit Queued" };
-    if ((c && c.presubmit_vetted) || score >= 2) return { status: "passed", label: `✓ Presubmit +${score || 2}` };
-    if (score === 1) return { status: "warning", label: "⚠ Presubmit +1" };
-    if (score < 0) return { status: "failed", label: `✗ Presubmit ${score}` };
-    return { status: "not_started", label: "⏸ Presubmit 0" };
+    if (c && c.presubmit_ready_enabled) return { status: "queued", label: "⏳ PV Queued" };
+    if ((c && c.presubmit_vetted) || score >= 2) return { status: "passed", label: `✓ PV +${score || 2}` };
+    if (score === 1) return { status: "warning", label: "⚠ PV +1" };
+    if (score < 0) return { status: "failed", label: `✗ PV ${score}` };
+    return { status: "not_started", label: "⏸ PV 0" };
   }
 
   function getClPresubmitDisplay(c) {
     const fb = resolveFallbackPresubmitStatusAndLabel(c);
     let status = (c && c.presubmit_status) || fb.status;
-    let label = (c && c.presubmit_label) || fb.label;
+    let label = String((c && c.presubmit_label) || fb.label).replace(/\bPresubmit\b/g, "PV");
     const targetEntry = c ? state.presubmitTargetsByCl[Number(c.number)] : null;
     const tData = targetEntry && targetEntry.data ? targetEntry.data : null;
     if (tData && tData.run_status === "running" && (status === "queued" || status === "not_started")) {
       status = "running";
-      label = "⏳ Presubmit Running";
+      label = "⏳ PV Running";
     }
     const badgeCls = PRESUBMIT_BADGE_CLASS_MAP[status] || "pv-idle";
     const isSpinning = status === "running" || status === "queued";
@@ -3750,7 +4342,7 @@
     const workplanUrl = (tData && tData.workplan_url) || (c && c.workplan_url) || "";
     const checksUrl = (tData && tData.checks_tab_url) || (c && c.checks_tab_url) || "";
     const summary = (c && c.presubmit_summary) || "";
-    const tipParts = [label];
+    const tipParts = [`Presubmit-Verified (${cleanLabel})`];
     if (summary) tipParts.push(summary);
     if (workplanId) tipParts.push(`Workplan ${workplanId}`);
     tipParts.push("Click to inspect presubmit build & test targets");
@@ -3767,60 +4359,82 @@
     };
   }
 
-  function renderClCardHtml(c, stackId, stackLen) {
+  function formatRepoDisplayPath(c) {
+    if (!c) return "";
+    if (c.repo_label) return String(c.repo_label);
+    const rawProject = String(c.project || "").trim().replace(/^\/+|\/+$/g, "");
+    if (rawProject.startsWith("platform/")) {
+      return rawProject.slice("platform/".length);
+    }
+    return rawProject || String(c.project_short || "");
+  }
+
+  function formatStackHeaderTitle(st) {
+    return String((st && st.title) || "")
+      .replace(/\s*\(\d+\s+Commits[^)]*\)/i, "")
+      .trim();
+  }
+
+  function isClSubmittable(c) {
+    if (!c) return false;
+    const reqCount = Number(c.required_cr2_count || (c.is_agent_cl ? 2 : 1));
+    const doneCount = Array.isArray(c.human_cr2)
+      ? c.human_cr2.length
+      : Number(c.human_cr2_count || 0);
+    if (doneCount < reqCount) return false;
+    const pv = getClPresubmitDisplay(c);
+    const pvScore = Number(c.presubmit_score || 0);
+    const pvOk = Boolean(c.presubmit_vetted || pvScore >= 1) &&
+      pv.status !== "running" &&
+      pv.status !== "queued" &&
+      pv.status !== "failed";
+    if (!pvOk) return false;
+    if (c.mergeable === false) return false;
+    const revs = Array.isArray(c.reviewers_detail) ? c.reviewers_detail : [];
+    if (revs.some(p => Number(p.cr_vote || 0) < 0)) return false;
+    return true;
+  }
+
+  function renderClCardHtml(c, stackId) {
     const isSelected = (state.groupMode === "stack" && state.viewMode === "stack" && stackId === state.selectedStackId) ||
                        (c.number === state.selectedClNumber);
-    const riskClass = `risk-${c.risk.tier}`;
-    const dotClass = c.risk.tier === "low" ? "dot-green" : (c.risk.tier === "medium" ? "dot-amber" : "dot-red");
-    const prefix = stackLen > 1 ? `${c.stack_index}/${c.stack_total} · ` : "";
     const ownerShort = getClPrimaryAuthorShort(c);
     const isBotOwner = isClBotOwner(c);
-    const authorIcon = isBotOwner ? "🤖" : "👤";
     const ownerTooltip = `${c.owner_name || ownerShort} <${c.owner_email || ownerShort + "@google.com"}> · Click to filter by this author`;
-    const authorBadgeHtml = `<span class="author-badge ${isBotOwner ? "author-bot" : ""}" onclick="event.stopPropagation(); setAuthorFilter('${escapeHtml(ownerShort)}')" title="${escapeHtml(ownerTooltip)}">${authorIcon} ${escapeHtml(ownerShort)}@</span>`;
-    const reqTag = c.is_agent_cl ? "[Agent CL: 2x +2 req]" : "(1x +2 req)";
+    const authorBadgeHtml = `<span class="author-badge ${isBotOwner ? "author-bot" : ""}" onclick="event.stopPropagation(); setAuthorFilter('${escapeHtml(ownerShort)}')" title="${escapeHtml(ownerTooltip)}"><span class="author-badge-prefix">Author:</span> ${isBotOwner ? "🤖 " : ""}${escapeHtml(ownerShort)}</span>`;
+    const repoLabel = formatRepoDisplayPath(c);
+    const repoBadgeHtml = repoLabel
+      ? `<span class="repo-badge" title="Repository: ${escapeHtml(c.project || repoLabel)}">${escapeHtml(repoLabel)}</span>`
+      : "";
     const pv = getClPresubmitDisplay(c);
     const updatedLabel = c.updated_display || "";
     const updatedTitle = c.updated_iso ? `Last updated: ${c.updated_iso}` : "Last updated timestamp";
     const updatedPillHtml = updatedLabel
-      ? `<span class="updated-age-pill ${state.sortBy !== "smart" ? "sort-highlight" : ""}" title="${escapeHtml(updatedTitle)}">· 🕒 ${escapeHtml(updatedLabel)}</span>`
+      ? `<span class="updated-age-pill ${state.sortBy !== "smart" ? "sort-highlight" : ""}" title="${escapeHtml(updatedTitle)}">🕒 ${escapeHtml(updatedLabel)}</span>`
       : "";
-    const typeObj = getCommitTypeObj(c);
-    const typeBadgeHtml = `<span class="type-badge type-${escapeHtml(typeObj.id)}">${escapeHtml(typeObj.short)}</span>`;
     const bugBadgesHtml = renderBugBadgesHtml(c);
-
-    const slotsHtml = (c.approval_slots || []).map(s =>
-      `<span class="slot ${s.state === "done" ? "slot-done" : "slot-needed"}">${escapeHtml(s.text)}</span>`
-    ).join("");
-    const invHtml = (c.human_involvement || []).slice(0, 2).map(h =>
-      `<span class="slot ${h.state === "silent_attention" ? "slot-silent" : "slot-done"}">${escapeHtml(h.label)}</span>`
-    ).join("");
 
     const enteringCls = state.justEnteredClNumber === c.number ? "cl-card-entering" : "";
     const swarmObj = state.swarmByCl[c.number];
     const swarmingCls = swarmObj && swarmObj.state === "running" ? "cl-card-swarming" : "";
+    const submittableCls = isClSubmittable(c) ? "cl-card-submittable" : "";
     const swarmSlotHtml = renderClSwarmBadgeHtml(c.number);
-    const participantsStripHtml = renderCardParticipantsSummaryHtml(c);
-    return `<div class="cl-card ${isSelected ? "selected" : ""} ${enteringCls} ${swarmingCls}" data-cl-num="${c.number}" onclick="selectStackAndCl('${escapeHtml(stackId)}', ${c.number})">
+    const statusRowItemsHtml = renderCardStatusRowItemsHtml(c);
+    return `<div class="cl-card ${isSelected ? "selected" : ""} ${submittableCls} ${enteringCls} ${swarmingCls}" data-cl-num="${c.number}" onclick="selectStackAndCl('${escapeHtml(stackId)}', ${c.number})">
       <div class="cl-row-top">
-        <span class="cl-subj">${escapeHtml(prefix + c.subject)}</span>
-        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
-          ${typeBadgeHtml}
-          <span class="badge ${riskClass}"><span class="dot ${dotClass}"></span> ${escapeHtml(c.risk.label)}</span>
-        </div>
+        <span class="cl-subj" title="${escapeHtml(c.subject)}">${escapeHtml(c.subject)}</span>
       </div>
       <div class="cl-meta">
-        <span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        <span style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;min-width:0;">
           <a class="ag-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">ag/${c.number} ↗</a>
+          ${repoBadgeHtml}
           ${authorBadgeHtml}
           ${bugBadgesHtml}
-          <span>· ${escapeHtml(reqTag)} · ${escapeHtml(c.flight_display)} in flight</span>
           ${updatedPillHtml}
         </span>
         <button id="clPvBadge-${c.number}" type="button" class="badge pv-badge ${pv.badgeCls}" onclick="event.stopPropagation(); openPresubmitTargetsFromCard('${escapeHtml(stackId)}', ${c.number})" title="${escapeHtml(pv.tooltip)}">${pv.spinnerHtml}${escapeHtml(pv.label)}</button>
       </div>
-      ${participantsStripHtml}
-      <div class="approval-slots"><span id="clSwarmSlot-${c.number}">${swarmSlotHtml}</span>${slotsHtml}${invHtml}</div>
+      <div class="card-status-row"><span id="clSwarmSlot-${c.number}" class="swarm-slot-wrap">${swarmSlotHtml}</span>${statusRowItemsHtml}</div>
     </div>`;
   }
 
@@ -3889,18 +4503,43 @@
     return "";
   }
 
+  function renderSidebarHydratingPillHtml() {
+    if (!state.sidebarHydrating) return "";
+    return `<div class="sidebar-hydrating-pill">
+      <span class="pv-mini-spinner"></span>
+      <span>Loading remaining commits in background…</span>
+    </div>`;
+  }
+
   function renderQueueList(visibleStacks, summaryOverride) {
     const container = document.getElementById("queueList");
     const summary = summaryOverride || getFilteredStacksSummary();
     const bannerHtml = renderQueueFilterBannerHtml(summary);
+    const hydratingHtml = renderSidebarHydratingPillHtml();
 
     if (visibleStacks.length === 0) {
+      if (state.sidebarHydrating) {
+        container.innerHTML = `${bannerHtml}${hydratingHtml}`;
+        return;
+      }
       const qRaw = (state.searchQuery || "").trim() || (state.authorFilter !== "all" ? state.authorFilter : "");
       const showUnverifiedBtn = (state.gates.presubmit && state.changes.length > 0)
-        ? `<button class="btn" onclick="toggleGate('presubmit')">👁 Show Unverified / Running Presubmit CLs</button>`
+        ? `<button class="btn" onclick="toggleGate('presubmit')">👁 Turn Off PV +1/+2 Filter</button>`
+        : "";
+      const showMineBtn = (state.gates.hideMine && state.changes.some(isClApprovedByViewer))
+        ? `<button class="btn" onclick="toggleGate('hideMine')">👁 Show +2 by Me</button>`
+        : "";
+      const showSubmittableBtn = (state.gates.hideSubmittable && state.changes.some(isClSubmittable))
+        ? `<button class="btn" onclick="toggleGate('hideSubmittable')">👁 Show Submittable CLs</button>`
+        : "";
+      const showUngatedSearchBtn = (summary.filterActive && summary.hiddenByGatesCount > 0 && !state.includeUngatedMatches)
+        ? `<button class="btn" onclick="toggleIncludeUngatedMatches()">👁 Show All ${summary.ungatedCommitCount} Matching CLs</button>`
         : "";
       const actionBtns = [];
+      if (showUngatedSearchBtn) actionBtns.push(showUngatedSearchBtn);
       if (showUnverifiedBtn) actionBtns.push(showUnverifiedBtn);
+      if (showMineBtn) actionBtns.push(showMineBtn);
+      if (showSubmittableBtn) actionBtns.push(showSubmittableBtn);
       if (qRaw) {
         actionBtns.push(`<button class="btn" onclick="queryGerritForAuthor('${escapeHtml(qRaw)}')">🔎 Query Gerrit for owner:${escapeHtml(qRaw)}</button>`);
         actionBtns.push(`<button class="btn" onclick="clearQueueSearchAndAuthor()">Clear Search / Author Filter</button>`);
@@ -3932,7 +4571,7 @@
           </div>
         </div>
         ${cardsHtml}
-      </div>`;
+      </div>${hydratingHtml}`;
       return;
     }
 
@@ -3963,6 +4602,7 @@
           ${cardsHtml}
         </div>`);
       });
+      if (hydratingHtml) sectionsHtml.push(hydratingHtml);
       container.innerHTML = sectionsHtml.join("");
       return;
     }
@@ -3974,15 +4614,15 @@
       if (st.is_stack) {
         return `<div class="stack-box">
           <div class="stack-header">
-            <span>${escapeHtml(st.title)}</span>
-            <span style="color:#96d9ab;">${st.commits.length} Commits</span>
+            <span>${escapeHtml(formatStackHeaderTitle(st))}</span>
+            <span style="color:#96d9ab;">${st.commits.length} Commit${st.commits.length === 1 ? "" : "s"}</span>
           </div>
           ${cardsHtml}
         </div>`;
       }
       return `<div class="stack-box">${cardsHtml}</div>`;
     }).join("");
-    container.innerHTML = `${bannerHtml}${stackBoxesHtml}`;
+    container.innerHTML = `${bannerHtml}${stackBoxesHtml}${hydratingHtml}`;
   }
 
   function selectCl(clNum, fromRadar = true, animDir = "next") {
@@ -4055,24 +4695,42 @@
   }
 
   async function prefetchDiffsForNumbers(clNums, opts = {}) {
-    const missing = (clNums || []).filter(num => num && !state.diffsByCl[num]);
+    const missing = Array.from(new Set((clNums || []).map(Number).filter(num => num > 0 && !state.diffsByCl[num])));
     if (!missing.length || (window.__GERRIT_UI_BOOTSTRAP__ && window.__GERRIT_UI_BOOTSTRAP__.changes)) {
       return;
     }
+    const toRequest = missing.filter(num => !state.inFlightDiffPromises[num]);
     if (opts.trackLoading) {
       state.diffLoadingCount += 1;
       state.diffLoadingLabel = opts.label || `Loading unified diff for ${missing.map(n => "ag/" + n).join(", ")}…`;
       syncGlobalLoadingBar();
     }
     try {
-      const resp = await sidecarFetch(`/api/gerrit/diffs?cls=${missing.join(",")}`);
-      const data = await resp.json();
-      (data.diffs || []).forEach(d => {
-        state.diffsByCl[d.number] = d;
-        if (Array.isArray(d.code_questions)) {
-          mergeTranscriptCodeQuestions(d.code_questions, { silentDom: true });
-        }
-      });
+      if (toRequest.length > 0) {
+        const reqPromise = (async () => {
+          try {
+            const resp = await sidecarFetch(`/api/gerrit/diffs?cls=${toRequest.join(",")}`);
+            const data = await resp.json();
+            (data.diffs || []).forEach(d => {
+              state.diffsByCl[d.number] = d;
+              if (Array.isArray(d.code_questions)) {
+                mergeTranscriptCodeQuestions(d.code_questions, { silentDom: true });
+              }
+            });
+          } finally {
+            toRequest.forEach(num => {
+              delete state.inFlightDiffPromises[num];
+            });
+          }
+        })();
+        toRequest.forEach(num => {
+          state.inFlightDiffPromises[num] = reqPromise;
+        });
+      }
+      const pending = Array.from(new Set(missing.map(num => state.inFlightDiffPromises[num]).filter(Boolean)));
+      if (pending.length > 0) {
+        await Promise.all(pending);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -4171,7 +4829,7 @@
     const commits = getActiveCommitsForDiff();
     if (commits.length === 0) {
       syncActiveActionButtons([], false);
-      renderDiffPane();
+      renderDiffPane(opts);
       return;
     }
     const primary = commits.find(c => c.number === state.selectedClNumber) || commits[0];
@@ -4189,14 +4847,16 @@
     const needsFetch = missing.length > 0 && !isBootstrap;
     syncActiveActionButtons(commits, needsFetch);
     if (needsFetch) {
-      renderDiffPane();
+      renderDiffPane(opts);
       await prefetchDiffsForNumbers(missing, {
         trackLoading: true,
         label: `Fetching unified diff for ${missing.map(n => "ag/" + n).join(", ")}…`,
       });
       syncActiveActionButtons(getActiveCommitsForDiff(), false);
+      renderDiffPane({ preserveScroll: Boolean(opts.preserveScroll) });
+    } else {
+      renderDiffPane(opts);
     }
-    renderDiffPane();
     if (!isBootstrap) {
       commits.forEach(c => {
         const cNum = Number(c.number);
@@ -4605,8 +5265,98 @@
     return "";
   }
 
+  const CODE_SEARCH_BASE_HOST = "https://source.corp.google.com/h/googleplex-android";
+  const GERRIT_MAGIC_FILES = new Set(["/COMMIT_MSG", "/MERGE_LIST", "/PATCHSET_LEVEL"]);
+
+  function findChangeByNumber(clOrNum) {
+    if (clOrNum && typeof clOrNum === "object") return clOrNum;
+    const num = Number(clOrNum || 0);
+    if (!num || !Array.isArray(state.changes)) return null;
+    return state.changes.find(c => Number(c.number) === num) || null;
+  }
+
+  const ANDROID_BRANCH_SUPERPROJECTS = {
+    "emu-main-next": ["platform/superproject/emu-main-next", "emu-main-next"],
+    "emu-main-dev": ["platform/superproject/emu-main-dev", "emu-main-dev"],
+    "studio-main": ["platform/superproject/base", "studio-main"],
+    "main": ["platform/superproject/main", "main"],
+  };
+
+  const ANDROID_PROJECT_BRANCH_RULES = {
+    "platform/hardware/google/aemu": { allowed: ["emu-main-dev", "main"], fallback: "emu-main-next" },
+    "platform/hardware/google/gfxstream": { allowed: ["main", "emu-main-dev"], fallback: "emu-main-next" },
+    "platform/build/bazel": { allowed: ["studio-main", "main"], fallback: "emu-main-next" },
+  };
+
+  function resolveAndroidSuperproject(cleanProject, cleanBranch) {
+    if (!cleanProject.startsWith("platform/")) return null;
+    const sub = cleanProject.slice("platform/".length);
+    if (cleanProject === "platform/hardware/generic/goldfish") {
+      return [...ANDROID_BRANCH_SUPERPROJECTS["emu-main-next"], sub];
+    }
+    if (cleanProject === "platform/external/qemu") {
+      if (cleanBranch.startsWith("emu-main-next")) {
+        return [...ANDROID_BRANCH_SUPERPROJECTS["emu-main-next"], "third_party/qemu"];
+      }
+      const key = cleanBranch === "main" ? "main" : "emu-main-dev";
+      return [...ANDROID_BRANCH_SUPERPROJECTS[key], sub];
+    }
+    const rule = ANDROID_PROJECT_BRANCH_RULES[cleanProject];
+    const spKey = rule
+      ? (rule.allowed.includes(cleanBranch) ? cleanBranch : rule.fallback)
+      : cleanBranch;
+    const sp = ANDROID_BRANCH_SUPERPROJECTS[spKey];
+    return sp ? [sp[0], sp[1], sub] : null;
+  }
+
+  function resolveCodeSearchBaseUrl(project, branch) {
+    const cleanProject = String(project || "").trim().replace(/^\/+|\/+$/g, "");
+    if (!cleanProject) return "";
+    const rawBranch = String(branch || "").trim();
+    const cleanBranch = (rawBranch.startsWith("refs/heads/")
+      ? rawBranch.slice("refs/heads/".length)
+      : rawBranch) || "main";
+    const sp = resolveAndroidSuperproject(cleanProject, cleanBranch);
+    if (sp) {
+      return `${CODE_SEARCH_BASE_HOST}/${sp[0]}/+/${sp[1]}:${sp[2]}`;
+    }
+    return `${CODE_SEARCH_BASE_HOST}/${cleanProject}/+/${encodeURIComponent(cleanBranch)}:`;
+  }
+
+  function buildCodeSearchFileUrl(clOrNum, filePath, lineNum = null) {
+    const rawPath = String(filePath || "").trim();
+    if (!rawPath || GERRIT_MAGIC_FILES.has(rawPath)) return "";
+    const relPath = rawPath.replace(/^\/+/, "");
+    if (!relPath || relPath === "dev/null") return "";
+    const clObj = findChangeByNumber(clOrNum);
+    const baseUrl = (clObj && clObj.code_search_base_url)
+      || (clObj ? resolveCodeSearchBaseUrl(clObj.project, clObj.branch) : "");
+    if (!baseUrl) return "";
+    const encodedPath = relPath.split("/").filter(Boolean).map(seg => encodeURIComponent(seg)).join("/");
+    if (!encodedPath) return "";
+    let url = baseUrl.endsWith(":") ? `${baseUrl}${encodedPath}` : `${baseUrl}/${encodedPath}`;
+    const ln = Number(lineNum || 0);
+    if (ln > 0) {
+      url += `;l=${Math.floor(ln)}`;
+    }
+    return url;
+  }
+
+  function renderCodeSearchFileLinkHtml(clOrNum, filePath, displayLabel = null, lineNum = null) {
+    const label = displayLabel != null ? String(displayLabel) : String(filePath || "");
+    const csUrl = buildCodeSearchFileUrl(clOrNum, filePath, lineNum);
+    if (!csUrl) {
+      return `<span>${escapeHtml(label)}</span>`;
+    }
+    const lineHint = Number(lineNum || 0) > 0 ? ` (line ${Math.floor(Number(lineNum))})` : "";
+    return `<a class="file-cs-link" href="${escapeHtml(csUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" title="Open ${escapeHtml(filePath)}${escapeHtml(lineHint)} in Code Search ↗">${escapeHtml(label)}<span class="file-cs-link-icon" aria-hidden="true">↗</span></a>`;
+  }
+
   function renderFileDiffBlock(f, defaultClNum) {
-    const fallbackCl = Number(defaultClNum || state.selectedClNumber || 0);
+    const firstTaggedCl = Array.isArray(f.lines)
+      ? (f.lines.find(l => Number(l.clNum || 0) > 0) || {}).clNum
+      : 0;
+    const fallbackCl = Number(defaultClNum || firstTaggedCl || state.selectedClNumber || 0);
     const fileComments = getInlineCommentsForFile(fallbackCl, f.file);
     let maxDigits = 4;
     const linesHtml = (f.lines || []).map((ln, idx) => {
@@ -4629,7 +5379,7 @@
       ? `<div class="code-line code-hunk" data-type="hunk"><span class="ln">…</span><span class="ln">…</span><span>Diff truncated — click "Open in Gerrit ↗" to view remaining lines</span></div>`
       : "";
     return `<div class="file-header">
-              <span>${escapeHtml(f.file)}</span>
+              ${renderCodeSearchFileLinkHtml(fallbackCl, f.file)}
               <div style="display:flex;align-items:center;gap:12px;">
                 <span class="file-header-hint">💡 Drag to highlight code or click line # (+ Shift) to Comment or Ask Agent</span>
                 <span>+${f.additions} / -${f.deletions}</span>
@@ -5067,9 +5817,40 @@
     showToast(`Copied full commit message for ag/${num}!`);
   }
 
-  function renderDiffPane() {
+  function computeDiffRenderSignature(commits) {
+    if (!commits || commits.length === 0) {
+      return `empty:${state.queueClearedCount}`;
+    }
+    const parts = commits.map(c => {
+      const b = state.diffsByCl[c.number];
+      const hasFiles = Boolean(b && Array.isArray(b.files));
+      const threadCnt = hasFiles && Array.isArray(b.unresolved_threads) ? b.unresolved_threads.length : -1;
+      const bugStr = (c.bugs || []).map(x => `${x.id}:${x.priority || ""}`).join(",");
+      const revStr = (c.reviewers_detail || []).map(p => `${p.email}:${p.cr_vote}:${(p.votes || []).length}`).join(",");
+      const ccCnt = (c.ccs_detail || []).length;
+      return `${c.number}@${c.patch_set}|${hasFiles ? 1 : 0}|${threadCnt}|${c.viewer_cr_vote}|${c.viewer_autosubmit ? 1 : 0}|${c.viewer_presubmit_ready ? 1 : 0}|${c.presubmit_status}|${bugStr}|${revStr}|${ccCnt}`;
+    });
+    return `${state.viewer}|${state.viewMode}|${parts.join(";;")}`;
+  }
+
+  function renderDiffPane(opts = {}) {
     const commits = getActiveCommitsForDiff();
     const container = document.getElementById("diffScroll");
+    if (!container) return;
+    const nextSig = computeDiffRenderSignature(commits);
+    if (
+      opts.silentRevalidate &&
+      (state.codeSelection ||
+        state.activeReviewerComposer ||
+        state.activeChatComposer ||
+        nextSig === state.lastRenderedDiffSignature)
+    ) {
+      syncSwarmIndicatorsOnly();
+      return;
+    }
+    const prevDiffScroll = opts.preserveScroll ? container.scrollTop : null;
+    state.lastRenderedDiffSignature = nextSig;
+
     if (commits.length === 0) {
       if (state.queueClearedCount > 0) {
         container.innerHTML = `<div class="inbox-zero-card">
@@ -5142,6 +5923,9 @@
         ${squashSwarmHtml}
         ${filesHtml}
       </div>`;
+      if (prevDiffScroll !== null) {
+        container.scrollTop = prevDiffScroll;
+      }
       syncSwarmIndicatorsOnly();
       return;
     }
@@ -5168,7 +5952,7 @@
       const threadsHtml = (bundle && Array.isArray(bundle.unresolved_threads) && bundle.unresolved_threads.length > 0)
         ? bundle.unresolved_threads.map(t => `<div class="swarm-finding">
             <div class="swarm-finding-head">
-              <span>Unresolved Comment · ${escapeHtml(t.author_name)} on ${escapeHtml(t.file_path)}:${t.line}</span>
+              <span>Unresolved Comment · ${escapeHtml(t.author_name)} on ${renderCodeSearchFileLinkHtml(c, t.file_path, `${t.file_path}:${t.line}`, t.line)}</span>
               <button class="nudge-btn" onclick="triggerHarnessForCl(${c.number}, 'address-review', this)">→ Auto-Fix with Agent</button>
             </div>
             <div style="color:var(--g-text);font-size:12px;">${escapeHtml(t.latest_message)}</div>
@@ -5198,6 +5982,9 @@
         ${filesHtml}
       </div>`;
     }).join("");
+    if (prevDiffScroll !== null) {
+      container.scrollTop = prevDiffScroll;
+    }
     syncSwarmIndicatorsOnly();
   }
 
@@ -5478,7 +6265,7 @@
       <div class="composer-loc-badge">
         <span>${isCommitMsg ? "Selected Commit Message" : "Selected Block"} · <strong>ag/${sel.clNum}</strong></span>
         <span>·</span>
-        <code>${escapeHtml(sel.filePath)}</code>
+        <code>${isCommitMsg ? escapeHtml(sel.filePath) : renderCodeSearchFileLinkHtml(sel.clNum, sel.filePath, sel.filePath, sel.startLine)}</code>
         <span class="composer-loc-range">${escapeHtml(rangeLabel)}${escapeHtml(sideBadge)} (${lineCountLabel})</span>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -5731,6 +6518,7 @@
         ? `L${sel.startLine}`
         : `L${sel.startLine}–L${sel.endLine}`;
       clearCodeSelection();
+      invalidateClientQueueCache();
       insertOrReplaceInlineItemInDom(sel.clNum, commentItem);
       document.getElementById("drawerStatus").textContent =
         `Posted inline comment on ag/${sel.clNum} (${sel.filePath}:${rangeLabel}, notify: OWNER)`;
@@ -5949,13 +6737,14 @@
     c.presubmit_ready_enabled = others.length > 0;
     if (prVal >= 1) {
       c.presubmit_status = "queued";
-      c.presubmit_label = "⏳ Presubmit Queued";
+      c.presubmit_label = "⏳ PV Queued";
     } else if (c.presubmit_status === "queued" && !c.presubmit_ready_enabled) {
       const fb = resolveFallbackPresubmitStatusAndLabel(c);
       c.presubmit_status = fb.status;
       c.presubmit_label = fb.label;
     }
     syncLocalParticipantVoteBadge(c, "Presubmit-Ready", "PR", prVal);
+    c.is_submittable = isClSubmittable(c);
   }
 
   function applyOptimisticVoteToCl(c, codeReview, autosubmit, presubmitReady) {
@@ -5971,17 +6760,15 @@
         if (!c.human_cr2.some(v => (v.email || "").toLowerCase() === viewerEmail)) {
           c.human_cr2.push({ email: state.viewer, name: viewerShort, short: viewerShort, value: 2 });
         }
-        const neededSlot = (c.approval_slots || []).find(s => s.state !== "done");
-        const alreadyDone = (c.approval_slots || []).some(
-          s => s.state === "done" && (String(s.text || "").includes(viewerShort) || String(s.text || "").includes("You (+2"))
-        );
-        if (!alreadyDone && neededSlot) {
-          neededSlot.state = "done";
-          neededSlot.text = `✓ ${viewerShort}@ (+2)`;
-        }
       } else {
         c.approved_by_viewer = false;
+        if (Array.isArray(c.human_cr2)) {
+          c.human_cr2 = c.human_cr2.filter(v => (v.email || "").toLowerCase() !== viewerEmail);
+        }
       }
+      c.human_cr2_count = Array.isArray(c.human_cr2) ? c.human_cr2.length : 0;
+      c.approval_slots = recomputeApprovalSlotsForViewer(c, viewerEmail);
+      c.is_submittable = isClSubmittable(c);
     }
     if (autosubmit !== null && autosubmit !== undefined) {
       const asVal = autosubmit === true ? 1 : (autosubmit === false ? 0 : Number(autosubmit));
@@ -5998,6 +6785,9 @@
   }
 
   function markClsVotedOptimistically(cls, voteOpts = {}) {
+    if (!voteOpts.skipCacheInvalidate) {
+      invalidateClientQueueCache();
+    }
     const cr = voteOpts.codeReview;
     const asOpt = voteOpts.autosubmit;
     const prOpt = voteOpts.presubmitReady;
@@ -6007,8 +6797,9 @@
       if (Number.isNaN(num) || num <= 0) return;
       targetNums.add(num);
       if (cr !== null && cr !== undefined) {
-        if (Number(cr) >= 2) state.sessionApprovedCls.add(num);
-        else state.sessionApprovedCls.delete(num);
+        const sessKey = makeSessionApprovalKey(state.viewer, num);
+        if (Number(cr) >= 2) state.sessionApprovedCls.add(sessKey);
+        else state.sessionApprovedCls.delete(sessKey);
       }
       if (prOpt !== null && prOpt !== undefined) {
         delete state.presubmitTargetsByCl[num];
@@ -6023,8 +6814,8 @@
     state.stacks.forEach(st => (st.commits || []).forEach(visit));
   }
 
-  function markClsApprovedOptimistically(cls) {
-    markClsVotedOptimistically(cls, { codeReview: 2 });
+  function markClsApprovedOptimistically(cls, extraOpts = {}) {
+    markClsVotedOptimistically(cls, { codeReview: 2, ...extraOpts });
   }
 
   function formatVoteLabelsText(codeReview, autosubmit, presubmitReady) {
@@ -6176,9 +6967,8 @@
     state.queueClearedCount += cls.length;
     state.explicitRadarSelection = false;
     state.gates.hideMine = true;
-    const hideMinePill = document.getElementById("gateHideMine");
-    if (hideMinePill) hideMinePill.classList.add("active");
     markClsVotedOptimistically(cls, voteOpts);
+    syncGateControls();
     state.selectedStackId = nextTarget ? nextTarget.stackId : null;
     state.selectedClNumber = nextTarget ? nextTarget.clNumber : null;
     state.justEnteredClNumber = nextTarget ? nextTarget.clNumber : null;
@@ -6228,8 +7018,7 @@
         return;
       }
       state.gates.hideMine = true;
-      const hideMinePill = document.getElementById("gateHideMine");
-      if (hideMinePill) hideMinePill.classList.add("active");
+      syncGateControls();
       setVoteButtonsBusy(true, activeBtn, `Voting ${escapeHtml(labelsText.short)} on ${escapeHtml(targetDesc)}…`);
       document.getElementById("drawerStatus").textContent = `Posting ${labelsText.full} on ${targetDesc} (notify: OWNER)…`;
 
@@ -6364,9 +7153,12 @@
       const fixHtml = f.suggested_fix
         ? `<div style="margin-top:6px;padding:5px 8px;background:#18191d;border:1px solid var(--g-border);border-radius:4px;font-family:var(--g-mono);font-size:11px;color:#b7e3c4;">Suggested fix: ${escapeHtml(f.suggested_fix)}</div>`
         : "";
+      const locHtml = (f.file && f.file !== "/COMMIT_MSG")
+        ? renderCodeSearchFileLinkHtml(clNum, f.file, loc, f.line || 1)
+        : escapeHtml(loc);
       return `<div class="swarm-finding" style="margin:6px 12px 10px 12px;">
         <div class="swarm-finding-head">
-          <span>★ Swarm Finding · <code>${escapeHtml(loc)}</code> [${escapeHtml(cat)} · ${escapeHtml(sev)}]</span>
+          <span>★ Swarm Finding · <code>${locHtml}</code> [${escapeHtml(cat)} · ${escapeHtml(sev)}]</span>
           <button class="nudge-btn" onclick="postSwarmFindingsToGerrit(${clNum}, this)">Post to Gerrit (notify: OWNER)</button>
         </div>
         <div style="color:var(--g-text);font-size:12px;">${escapeHtml(f.message || "")}</div>
@@ -6748,15 +7540,49 @@
     return out;
   }
 
-  function renderCardParticipantsSummaryHtml(c) {
+  const REVIEWER_ICON_SVG = `<svg class="rev-eye-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>`;
+
+  function getNeededApprovalBadgeHtml(c) {
+    if (!c) return "";
+    const reqCount = Number(c.required_cr2_count || (c.is_agent_cl ? 2 : 1));
+    const doneCount = Array.isArray(c.human_cr2)
+      ? c.human_cr2.length
+      : Number(c.human_cr2_count || 0);
+    const remaining = Math.max(0, reqCount - doneCount);
+    if (remaining >= 2) {
+      return `<span class="slot slot-needed" title="Agent-authored/uploaded CL requires 2 human Code-Review +2 approvals">Needs two +2s</span>`;
+    }
+    if (remaining === 1) {
+      return `<span class="slot slot-needed" title="Needs 1 more human Code-Review +2 approval">Needs +2</span>`;
+    }
+    return "";
+  }
+
+  function renderCardStatusRowItemsHtml(c) {
     const revs = getFallbackReviewersForCl(c).filter(p => !p.is_bot && !p.is_owner);
     const humanCcs = (c.ccs_detail || []).filter(p => !p.is_bot);
     const hasAs = Boolean(c.autosubmit_enabled);
     const hasPr = Boolean(c.presubmit_ready_enabled);
-    if (revs.length === 0 && humanCcs.length === 0 && !hasAs && !hasPr) return "";
+    const neededBadgeHtml = getNeededApprovalBadgeHtml(c);
+    const revShortSet = new Set(revs.map(p => String(p.short || "").toLowerCase()));
+    const viewerShort = String(state.viewer || "").split("@")[0].toLowerCase();
+    const extraDonePills = (c.approval_slots || [])
+      .filter(s => s.state === "done")
+      .filter(s => {
+        const txt = String(s.text || "").toLowerCase();
+        if (txt.includes("you (+2") && revShortSet.has(viewerShort)) return false;
+        for (const sh of revShortSet) {
+          if (sh && txt.includes(sh)) return false;
+        }
+        return true;
+      })
+      .map(s => `<span class="slot slot-done">${escapeHtml(s.text)}</span>`);
+
     const statusPills = [];
+    if (neededBadgeHtml) statusPills.push(neededBadgeHtml);
+    statusPills.push(...extraDonePills);
     if (hasAs) {
-      statusPills.push(`<span class="card-rev-pill cr-autosubmit" title="Autosubmit +1 enabled (${escapeHtml((c.autosubmit_voters || []).join(', ') || 'active')})">⚡ AS +1</span>`);
+      statusPills.push(`<span class="card-rev-pill cr-autosubmit" title="Autosubmit +1 enabled (${escapeHtml((c.autosubmit_voters || []).join(', ') || 'active')})">⇪ AS +1</span>`);
     }
     if (hasPr) {
       statusPills.push(`<span class="card-rev-pill" style="background:rgba(130,177,255,0.16);border-color:rgba(130,177,255,0.45);color:#d7e7ff;" title="Presubmit-Ready +1 active (${escapeHtml((c.presubmit_ready_voters || []).join(', ') || 'queued')})">▶ PR +1</span>`);
@@ -6765,15 +7591,15 @@
       const v = Number(p.cr_vote || 0);
       const cls = v >= 2 ? "cr-pos2" : (v === 1 ? "cr-pos1" : (v < 0 ? "cr-neg" : ""));
       const vStr = v > 0 ? `+${v}` : (v < 0 ? String(v) : "•");
-      const bolt = p.in_attention_set ? "⚡" : "";
-      const tip = `${p.full_name || p.name} <${p.email}> · Reviewer (CR ${v > 0 ? "+" + v : v})`;
-      return `<span class="card-rev-pill ${cls}" title="${escapeHtml(tip)}">${bolt}${escapeHtml(p.short)} <strong>${escapeHtml(vStr)}</strong></span>`;
+      const attNote = p.in_attention_set ? " · Active turn in Attention Set" : "";
+      const tip = `${p.full_name || p.name} <${p.email}> · Reviewer (CR ${v > 0 ? "+" + v : v})${attNote}`;
+      return `<span class="card-rev-pill ${cls}" title="${escapeHtml(tip)}">${REVIEWER_ICON_SVG}<span>${escapeHtml(p.short)}</span> <strong>${escapeHtml(vStr)}</strong></span>`;
     });
     const ccPills = humanCcs.map(p => {
       const tip = `${p.full_name || p.name} <${p.email}> · CC`;
       return `<span class="card-rev-pill is-cc" title="${escapeHtml(tip)}">CC: ${escapeHtml(p.short)}</span>`;
     });
-    return `<div class="card-participants-strip">${statusPills.concat(revPills, ccPills).join("")}</div>`;
+    return statusPills.concat(revPills, ccPills).join("");
   }
 
   function renderVoteBadgesForParticipantHtml(p) {
@@ -6794,14 +7620,14 @@
 
   function renderParticipantChipHtml(clNum, p) {
     const acctKey = p.email || (p.account_id != null ? String(p.account_id) : p.short);
-    const icon = p.is_bot ? "🤖" : "👤";
-    const bolt = p.in_attention_set ? `<span class="att-bolt" title="In Gerrit Attention Set">⚡</span>` : "";
+    const iconHtml = p.is_bot ? "🤖" : (p.state === "REVIEWER" ? REVIEWER_ICON_SVG : "👤");
     const ownerTag = p.is_owner ? `<span class="participant-owner-tag">(owner)</span>` : "";
     const disp = (!p.is_bot && p.name && p.name.toLowerCase() !== p.short.toLowerCase())
       ? `${p.name} (${p.short})`
       : (p.name || p.short);
     const voteSummary = (p.votes || []).map(v => `${v.label}: ${v.formatted}`).join(", ") || "No votes yet";
-    const tip = `${p.full_name || p.name}${p.email ? " <" + p.email + ">" : ""} · ${p.state} · ${voteSummary}`;
+    const attNote = p.in_attention_set ? " · In Attention Set" : "";
+    const tip = `${p.full_name || p.name}${p.email ? " <" + p.email + ">" : ""} · ${p.state} · ${voteSummary}${attNote}`;
     const nextState = p.state === "CC" ? "REVIEWER" : "CC";
     const moveTitle = p.state === "CC" ? "Move CC → Reviewer (notify: OWNER)" : "Move Reviewer → CC (notify: OWNER)";
     const sentMeta = p.email ? state.sentChatDms[`${clNum}:${p.email.toLowerCase()}`] : null;
@@ -6819,7 +7645,7 @@
       : "";
     const roleCls = `${p.is_viewer ? "is-viewer" : ""} ${p.is_bot ? "is-bot" : ""}`;
     return `<span class="participant-chip ${roleCls}" title="${escapeHtml(tip)}">
-      ${bolt}<span>${icon} ${escapeHtml(disp)}</span>${ownerTag}
+      <span style="display:inline-flex;align-items:center;gap:4px;">${iconHtml}<span>${escapeHtml(disp)}</span></span>${ownerTag}
       ${renderVoteBadgesForParticipantHtml(p)}
       ${chatBtn}${moveBtn}${removeBtn}
     </span>`;
@@ -7487,6 +8313,7 @@
         );
       }
       state.activeReviewerComposer = null;
+      invalidateClientQueueCache();
       if (data.change) {
         applyUpdatedSingleClToState(data.change);
       } else {
@@ -7523,6 +8350,7 @@
       if (!resp.ok || data.error || data.status !== "ok") {
         throw new Error(data.error || "Failed to remove reviewer");
       }
+      invalidateClientQueueCache();
       if (data.change) {
         applyUpdatedSingleClToState(data.change);
       } else {

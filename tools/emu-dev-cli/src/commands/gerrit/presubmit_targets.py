@@ -242,17 +242,17 @@ def extract_presubmit_status_from_change(
     )
 
     if pr_enabled:
-        status, label = ("running", "⏳ Presubmit Running") if msg_meta["has_active_run"] else ("queued", "⏳ Presubmit Queued")
+        status, label = ("running", "⏳ PV Running") if msg_meta["has_active_run"] else ("queued", "⏳ PV Queued")
     elif msg_meta["has_active_run"] and pv_score == 0:
-        status, label = "running", "⏳ Presubmit Running"
+        status, label = "running", "⏳ PV Running"
     elif pv_score >= 2:
-        status, label = "passed", f"✓ Presubmit +{pv_score}"
+        status, label = "passed", f"✓ PV +{pv_score}"
     elif pv_score == 1:
-        status, label = "warning", "⚠ Presubmit +1"
+        status, label = "warning", "⚠ PV +1"
     elif pv_score < 0:
-        status, label = "failed", f"✗ Presubmit {pv_score}"
+        status, label = "failed", f"✗ PV {pv_score}"
     else:
-        status, label = "not_started", "⏸ Presubmit 0"
+        status, label = "not_started", "⏸ PV 0"
 
     return {
         "presubmit_status": status,

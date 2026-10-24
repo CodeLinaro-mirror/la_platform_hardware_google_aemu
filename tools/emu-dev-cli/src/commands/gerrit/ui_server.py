@@ -74,8 +74,15 @@ SILENT_ATTENTION_HOURS = 24.0
 LOW_RISK_MAX_LINES = 60
 HIGH_RISK_MIN_LINES = 250
 DIFF_FETCH_WORKERS = 6
+DIFF_BUNDLE_SUBTASK_WORKERS = 4
 DEFAULT_MAX_DIFF_LINES_PER_FILE = 500
 SESSION_PRESUBMIT_LAG_SEC = 25.0
+FAST_QUEUE_LIMIT = 10
+FULL_QUEUE_LIMIT = 100
+RAW_QUEUE_CACHE_TTL_SEC = 45.0
+RAW_QUEUE_STALE_MAX_SEC = 300.0
+PREWARM_COOLDOWN_SEC = 45.0
+DIFF_BUNDLE_CACHE_MAX_ENTRIES = 128
 
 DEFAULT_EMULATOR_GERRIT_QUERY = (
     "status:open ("
@@ -152,6 +159,133 @@ _LABEL_SHORT_NAMES: dict[str, str] = {
     "API-Review": "API",
     "Owners-Override": "OO",
 }
+
+CODE_SEARCH_BASE_HOST = "https://source.corp.google.com/h"
+DEFAULT_CODE_SEARCH_GOB_HOST = "googleplex-android"
+GERRIT_MAGIC_FILES: frozenset[str] = frozenset({
+    "/COMMIT_MSG",
+    "/MERGE_LIST",
+    "/PATCHSET_LEVEL",
+})
+
+
+def _extract_gob_host_name(gerrit_host: str) -> str:
+    """Extracts the short Git-on-Borg host name (e.g. `googleplex-android`) from a Gerrit host."""
+    raw = (gerrit_host or "").strip().lower()
+    if "://" in raw:
+        raw = urllib.parse.urlparse(raw).netloc or raw
+    subdomain = raw.split(".", 1)[0] if raw else ""
+    if subdomain.endswith("-review"):
+        subdomain = subdomain[: -len("-review")]
+    return subdomain or DEFAULT_CODE_SEARCH_GOB_HOST
+
+
+def _resolve_googleplex_android_superproject(
+    clean_project: str, clean_branch: str
+) -> tuple[str, str, str] | None:
+    """Maps an Android GoB `(project, branch)` pair to `(superproject_repo, ref, mount_path)`."""
+    if clean_project == "platform/hardware/generic/goldfish":
+        return ("platform/superproject/emu-main-next", "emu-main-next", "hardware/generic/goldfish")
+
+    if clean_project == "platform/external/qemu":
+        if clean_branch.startswith("emu-main-next"):
+            return ("platform/superproject/emu-main-next", "emu-main-next", "third_party/qemu")
+        if clean_branch == "main":
+            return ("platform/superproject/main", "main", "external/qemu")
+        return ("platform/superproject/emu-main-dev", "emu-main-dev", "external/qemu")
+
+    if clean_project == "platform/hardware/google/aemu":
+        if clean_branch == "emu-main-dev":
+            return ("platform/superproject/emu-main-dev", "emu-main-dev", "hardware/google/aemu")
+        if clean_branch == "main":
+            return ("platform/superproject/main", "main", "hardware/google/aemu")
+        return ("platform/superproject/emu-main-next", "emu-main-next", "hardware/google/aemu")
+
+    if clean_project == "platform/hardware/google/gfxstream":
+        if clean_branch == "main":
+            return ("platform/superproject/main", "main", "hardware/google/gfxstream")
+        if clean_branch == "emu-main-dev":
+            return ("platform/superproject/emu-main-dev", "emu-main-dev", "hardware/google/gfxstream")
+        return ("platform/superproject/emu-main-next", "emu-main-next", "hardware/google/gfxstream")
+
+    if clean_project == "platform/build/bazel":
+        if clean_branch == "studio-main":
+            return ("platform/superproject/base", "studio-main", "build/bazel")
+        if clean_branch == "main":
+            return ("platform/superproject/main", "main", "build/bazel")
+        return ("platform/superproject/emu-main-next", "emu-main-next", "build/bazel")
+
+    if not clean_project.startswith("platform/"):
+        return None
+
+    subpath = clean_project[len("platform/") :]
+    branch_superprojects: dict[str, tuple[str, str]] = {
+        "emu-main-next": ("platform/superproject/emu-main-next", "emu-main-next"),
+        "emu-main-dev": ("platform/superproject/emu-main-dev", "emu-main-dev"),
+        "studio-main": ("platform/superproject/base", "studio-main"),
+        "main": ("platform/superproject/main", "main"),
+    }
+    sp_entry = branch_superprojects.get(clean_branch)
+    if sp_entry is None:
+        return None
+    return (sp_entry[0], sp_entry[1], subpath)
+
+
+def resolve_code_search_base_url(
+    project: str, branch: str, gerrit_host: str = DEFAULT_GERRIT_HOST
+) -> str:
+    """Resolves the Code Search base prefix URL for a Gerrit `(project, branch)` pair."""
+    clean_project = (project or "").strip().strip("/")
+    if not clean_project:
+        return ""
+    clean_branch = (branch or "").strip()
+    if clean_branch.startswith("refs/heads/"):
+        clean_branch = clean_branch[len("refs/heads/") :]
+    clean_branch = clean_branch or "main"
+    gob_host = _extract_gob_host_name(gerrit_host)
+
+    if gob_host == DEFAULT_CODE_SEARCH_GOB_HOST:
+        sp = _resolve_googleplex_android_superproject(clean_project, clean_branch)
+        if sp is not None:
+            sp_repo, sp_ref, mount_path = sp
+            return f"{CODE_SEARCH_BASE_HOST}/{gob_host}/{sp_repo}/+/{sp_ref}:{mount_path}"
+
+    encoded_branch = urllib.parse.quote(clean_branch, safe="/._-")
+    return f"{CODE_SEARCH_BASE_HOST}/{gob_host}/{clean_project}/+/{encoded_branch}:"
+
+
+def build_code_search_file_url(
+    project: str,
+    branch: str,
+    file_path: str,
+    line: int | None = None,
+    gerrit_host: str = DEFAULT_GERRIT_HOST,
+) -> str:
+    """Builds a full `source.corp.google.com` Code Search URL for `file_path` (with optional line)."""
+    raw_path = (file_path or "").strip()
+    if not raw_path or raw_path in GERRIT_MAGIC_FILES:
+        return ""
+    rel_path = raw_path.lstrip("/")
+    if not rel_path or rel_path == "dev/null":
+        return ""
+    base_url = resolve_code_search_base_url(project, branch, gerrit_host=gerrit_host)
+    if not base_url:
+        return ""
+    encoded_path = "/".join(urllib.parse.quote(seg, safe="") for seg in rel_path.split("/") if seg)
+    if not encoded_path:
+        return ""
+    url = f"{base_url}{encoded_path}" if base_url.endswith(":") else f"{base_url}/{encoded_path}"
+    if line is not None and int(line) > 0:
+        url = f"{url};l={int(line)}"
+    return url
+
+
+def format_repo_display_path(project: str) -> str:
+    """Formats a Gerrit project name into its concise repo path (e.g. `hardware/generic/goldfish`)."""
+    clean = (project or "").strip().strip("/")
+    if clean.startswith("platform/"):
+        return clean[len("platform/") :]
+    return clean
 
 
 def extract_bug_ids_from_change(change: dict[str, Any]) -> list[str]:
@@ -833,6 +967,25 @@ def classify_risk_and_load(change: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_approval_slots(
+    human_cr2: list[dict[str, Any]],
+    required_cr2_count: int,
+    viewer: str,
+) -> list[dict[str, str]]:
+    """Builds compact approval slot descriptors with a single needed-votes badge."""
+    slots: list[dict[str, str]] = []
+    for voter in human_cr2[:required_cr2_count]:
+        tag = "You (+2 ✓)" if voter["email"] == viewer else f"✓ {voter['short']} +2"
+        slots.append({"state": "done", "text": tag})
+
+    remaining_slots = max(0, required_cr2_count - len(human_cr2))
+    if remaining_slots >= 2:
+        slots.append({"state": "needed", "text": "Needs two +2s"})
+    elif remaining_slots == 1:
+        slots.append({"state": "needed", "text": "Needs +2"})
+    return slots
+
+
 def enrich_change_for_ui(
     change: dict[str, Any],
     viewer_email: str,
@@ -877,21 +1030,7 @@ def enrich_change_for_ui(
     presubmit_info = extract_presubmit_status_from_change(
         change, pv_score, vote_meta["presubmit_ready_enabled"], cur_ps
     )
-    slots: list[dict[str, str]] = []
-    for voter in human_cr2[:required_cr2_count]:
-        tag = "You (+2 ✓)" if voter["email"] == viewer else f"✓ {voter['short']} +2"
-        slots.append({"state": "done", "text": tag})
-
-    remaining_slots = max(0, required_cr2_count - len(human_cr2))
-    if remaining_slots > 0:
-        if not approved_by_viewer and owner_email != viewer:
-            slots.append({"state": "needed", "text": f"→ Slot {len(slots) + 1}: Needs Your +2"})
-            remaining_slots -= 1
-        while remaining_slots > 0:
-            slot_num = len(slots) + 1
-            ord_str = "1st" if slot_num == 1 else ("2nd" if slot_num == 2 else f"{slot_num}th")
-            slots.append({"state": "needed", "text": f"→ Needs {ord_str} Human +2"})
-            remaining_slots -= 1
+    slots = build_approval_slots(human_cr2, required_cr2_count, viewer)
 
     created_dt = parse_gerrit_timestamp(change.get("created"))
     updated_dt = parse_gerrit_timestamp(change.get("updated"))
@@ -901,6 +1040,14 @@ def enrich_change_for_ui(
     updated_iso = updated_dt.isoformat() if updated_dt else str(change.get("updated") or "")
     updated_display = format_relative_age(hours_idle) if updated_dt else ""
     mergeable = change.get("mergeable", True) is not False
+    has_negative_cr = any(int(p.get("cr_vote", 0) or 0) < 0 for p in reviewers_detail)
+    is_submittable = (
+        len(human_cr2) >= required_cr2_count
+        and presubmit_vetted
+        and presubmit_info["presubmit_status"] not in ("running", "queued", "failed")
+        and mergeable
+        and not has_negative_cr
+    )
 
     if not mergeable or hours_in_flight >= CLIFF_THRESHOLD_HOURS:
         cliff_zone = "cliff"
@@ -987,6 +1134,7 @@ def enrich_change_for_ui(
         "human_cr2": human_cr2,
         "human_cr1": human_cr1,
         "approved_by_viewer": approved_by_viewer,
+        "is_submittable": is_submittable,
         "viewer_cr_vote": vote_meta["viewer_cr_vote"],
         "viewer_autosubmit": vote_meta["viewer_autosubmit"],
         "autosubmit_enabled": vote_meta["autosubmit_enabled"],
@@ -1028,6 +1176,8 @@ def enrich_change_for_ui(
         "chat_ping": chat_ping,
         "swarm_status": read_cl_swarm_status(num, current_revision=cur_rev, now_dt=now),
         "url": f"https://googleplex-android-review.git.corp.google.com/c/{project}/+/{num}",
+        "code_search_base_url": resolve_code_search_base_url(project, change.get("branch", "")),
+        "repo_label": format_repo_display_path(project),
     }
 
 
@@ -1063,7 +1213,7 @@ def group_changes_into_stacks(enriched_changes: list[dict[str, Any]]) -> list[di
             visited.add(item["number"])
         stacks.append({
             "stack_id": f"topic:{topic}",
-            "title": f"STACK · topic:{topic} ({len(ordered)} Commits · {ordered[0]['project_short']})",
+            "title": f"STACK · topic:{topic}",
             "is_stack": True,
             "commits": ordered,
         })
@@ -1094,7 +1244,7 @@ def group_changes_into_stacks(enriched_changes: list[dict[str, Any]]) -> list[di
         stacks.append({
             "stack_id": f"chain:{chain[0]['number']}",
             "title": (
-                f"STACK · Relation Chain ({len(chain)} Commits · {chain[0]['project_short']})"
+                "STACK · Relation Chain"
                 if len(chain) > 1
                 else f"ag/{chain[0]['number']} · {chain[0]['project_short']}"
             ),
@@ -1557,10 +1707,47 @@ class GerritUIService:
         self._session_votes: dict[int, dict[str, int]] = {}
         self._session_presubmit_voted_at: dict[int, float] = {}
         self._presubmit_targets_cache: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
+        self._raw_queue_cache: dict[str, tuple[float, list[dict[str, Any]], bool]] = {}
+        self._known_revisions_by_cl: dict[str, tuple[str, int]] = {}
+        self._diff_revision_cache: dict[tuple[str, str], dict[str, Any]] = {}
+        self._full_diff_bundle_cache: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
+        self._last_prewarm_by_viewer: dict[str, float] = {}
+        self._prewarm_in_progress = False
         self._bug_cache_path = (
             Path.home() / ".cache" / "emu-dev-cli" / "gerrit-ui" / "bug_metadata_cache.json"
         )
         self._bug_cache: dict[str, dict[str, str]] = self._load_bug_cache()
+
+    def _invalidate_cl_caches(self, cl_ids: list[str] | None = None) -> None:
+        """Clears cached raw queue queries and optional full diff bundle entries after a mutation."""
+        target_ids = {str(cid).strip() for cid in (cl_ids or []) if str(cid).strip()}
+        with self._session_lock:
+            self._raw_queue_cache.clear()
+            if not target_ids:
+                return
+            stale_keys = [k for k in self._full_diff_bundle_cache if k[0] in target_ids]
+            for key in stale_keys:
+                self._full_diff_bundle_cache.pop(key, None)
+
+    def _record_known_revisions(self, raw_changes: list[dict[str, Any]]) -> None:
+        """Records `(current_revision, patch_set)` per CL number to accelerate diff bundle fetches."""
+        updates: dict[str, tuple[str, int]] = {}
+        for ch in raw_changes:
+            num = ch.get("_number")
+            if not num:
+                continue
+            cur_rev = str(ch.get("current_revision") or "")
+            rev_obj = ((ch.get("revisions") or {}).get(cur_rev) or {}) if cur_rev else {}
+            cur_ps = int(ch.get("current_revision_number", 0) or rev_obj.get("_number", 1) or 1)
+            updates[str(num)] = (cur_rev, max(1, cur_ps))
+        if updates:
+            with self._session_lock:
+                self._known_revisions_by_cl.update(updates)
+
+    def _get_known_revision(self, cl_id: str) -> tuple[str, int]:
+        """Returns `(current_revision, patch_set)` if previously seen in a queue response."""
+        with self._session_lock:
+            return self._known_revisions_by_cl.get(cl_id, ("", 0))
 
     def _load_bug_cache(self) -> dict[str, dict[str, str]]:
         """Loads cached Buganizer priority/severity metadata from disk if available."""
@@ -1688,13 +1875,108 @@ class GerritUIService:
             pass
         return "joshuaduong@google.com"
 
+    def _lookup_cached_raw_queue(
+        self, q_str: str, *, fast: bool
+    ) -> tuple[list[dict[str, Any]], bool] | None:
+        """Returns `(raw_changes_copy, is_stale)` if `q_str` has a usable full cache entry."""
+        with self._session_lock:
+            entry = self._raw_queue_cache.get(q_str)
+        if entry is None:
+            return None
+        cached_at, cached_list, cached_is_full = entry
+        if not cached_is_full:
+            return None
+        age = time.monotonic() - cached_at
+        max_age = RAW_QUEUE_STALE_MAX_SEC if fast else RAW_QUEUE_CACHE_TTL_SEC
+        if age >= max_age:
+            return None
+        return list(cached_list), age >= RAW_QUEUE_CACHE_TTL_SEC
+
+    def _fetch_or_load_raw_queue_changes(
+        self,
+        q_str: str,
+        *,
+        limit: int,
+        fast: bool,
+        use_cache: bool,
+    ) -> tuple[list[dict[str, Any]], bool, bool, bool]:
+        """Fetches or loads raw Gerrit changes, returning `(changes, is_partial, from_cache, is_stale)`."""
+        if use_cache:
+            cached = self._lookup_cached_raw_queue(q_str, fast=fast)
+            if cached is not None:
+                return cached[0], False, True, cached[1]
+
+        req_limit = min(limit, FAST_QUEUE_LIMIT) if fast else limit
+        encoded_q = urllib.parse.quote(q_str, safe=":+()")
+        endpoint = (
+            f"/a/changes/?q={encoded_q}&n={req_limit}"
+            "&o=CURRENT_REVISION&o=CURRENT_COMMIT&o=CURRENT_FILES"
+            "&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=MESSAGES"
+        )
+        fetched = self.client._request_json(endpoint)
+        raw_list = fetched if isinstance(fetched, list) else []
+        self._record_known_revisions(raw_list)
+        is_partial_list = bool(
+            fast
+            and (
+                (raw_list and raw_list[-1].get("_more_changes"))
+                or len(raw_list) >= req_limit
+            )
+        )
+        is_full_result = not is_partial_list
+        with self._session_lock:
+            if is_full_result or q_str not in self._raw_queue_cache:
+                self._raw_queue_cache[q_str] = (time.monotonic(), list(raw_list), is_full_result)
+        return raw_list, is_partial_list, False, False
+
+    def _resolve_queue_bug_lookup(
+        self, raw_changes: list[dict[str, Any]], *, fast: bool
+    ) -> tuple[dict[str, dict[str, str]], bool]:
+        """Returns `(bug_lookup, has_uncached_bugs)`, skipping blocking `issues` CLI when `fast=True`."""
+        all_bug_ids: list[str] = []
+        for ch in raw_changes:
+            all_bug_ids.extend(extract_bug_ids_from_change(ch))
+        if not all_bug_ids:
+            return {}, False
+        has_uncached = any(
+            str(b).strip() not in self._bug_cache
+            for b in all_bug_ids
+            if str(b).strip().isdigit()
+        )
+        if fast:
+            return dict(self._bug_cache), has_uncached
+        return self.fetch_bug_metadata_batch(all_bug_ids), False
+
+    def _collect_cached_primary_diffs(
+        self, enriched: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Returns a cached diff bundle for the primary queue CL if already warm in memory."""
+        if not enriched:
+            return []
+        cand = next(
+            (c for c in enriched if c.get("presubmit_vetted") and not c.get("approved_by_viewer")),
+            enriched[0],
+        )
+        cl_id = str(cand.get("number") or "")
+        cur_rev = str(cand.get("current_revision") or "")
+        if not cl_id or not cur_rev:
+            return []
+        with self._session_lock:
+            entry = self._full_diff_bundle_cache.get((cl_id, cur_rev))
+        if entry is None or (time.monotonic() - entry[0]) >= RAW_QUEUE_STALE_MAX_SEC:
+            return []
+        return [entry[1]]
+
     def fetch_queue(
         self,
         viewer_email: str | None = None,
         query: str | None = None,
         scope: str = "reviewer",
         author: str | None = None,
-        limit: int = 100,
+        limit: int = FULL_QUEUE_LIMIT,
+        *,
+        fast: bool = False,
+        use_cache: bool = False,
     ) -> dict[str, Any]:
         """Fetches open CLs matching the viewer's review queue (or custom `query`) and enriches them."""
         viewer = (viewer_email or self.default_viewer).strip().lower()
@@ -1704,24 +1986,14 @@ class GerritUIService:
         q_str = explicit_query or build_viewer_gerrit_query(
             viewer, scope=norm_scope, author=norm_author
         )
-        encoded_q = urllib.parse.quote(q_str, safe=":+()")
-        endpoint = (
-            f"/a/changes/?q={encoded_q}&n={limit}"
-            "&o=CURRENT_REVISION&o=CURRENT_COMMIT&o=CURRENT_FILES"
-            "&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=MESSAGES&o=SUBMIT_REQUIREMENTS"
+        raw_changes, is_partial_list, from_cache, is_stale = self._fetch_or_load_raw_queue_changes(
+            q_str, limit=limit, fast=fast, use_cache=use_cache
         )
-        raw_changes = self.client._request_json(endpoint)
-        if not isinstance(raw_changes, list):
-            raw_changes = []
 
         if not explicit_query and norm_scope == "reviewer" and viewer:
             raw_changes = [ch for ch in raw_changes if is_explicit_reviewer(ch, viewer)]
 
-        all_bug_ids: list[str] = []
-        for ch in raw_changes:
-            all_bug_ids.extend(extract_bug_ids_from_change(ch))
-        bug_lookup = self.fetch_bug_metadata_batch(all_bug_ids) if all_bug_ids else {}
-
+        bug_lookup, has_uncached_bugs = self._resolve_queue_bug_lookup(raw_changes, fast=fast)
         now_dt = datetime.now(timezone.utc)
         enriched = [
             enrich_change_for_ui(ch, viewer, now_dt=now_dt, bug_lookup=bug_lookup)
@@ -1751,7 +2023,7 @@ class GerritUIService:
                 if c["cliff_zone"] == "cliff" and not c["approved_by_viewer"]
             ],
         }
-        return {
+        payload: dict[str, Any] = {
             "ui_version": get_gerrit_ui_template_version(),
             "viewer": viewer,
             "auth_email": self.auth_email,
@@ -1760,10 +2032,57 @@ class GerritUIService:
             "roster": list(TEAM_ROSTER_EMAILS),
             "query": q_str,
             "total_fetched": len(enriched),
+            "is_partial": bool(is_partial_list or has_uncached_bugs),
+            "from_cache": from_cache,
+            "stale": is_stale,
             "changes": enriched,
             "stacks": stacks,
             "cliff_radar": cliff_summary,
         }
+        prefetched_diffs = self._collect_cached_primary_diffs(enriched)
+        if prefetched_diffs:
+            payload["prefetched_diffs"] = prefetched_diffs
+        return payload
+
+    def _run_background_prewarm(self, viewer: str) -> None:
+        """Warms `team`, `owner`, and `reviewer` queues and their primary diff bundles."""
+        try:
+            for sc in ("team", "owner", "reviewer"):
+                q_payload = self.fetch_queue(
+                    viewer_email=viewer, scope=sc, fast=False, use_cache=True
+                )
+                changes = q_payload.get("changes") or []
+                if not changes:
+                    continue
+                cand = next(
+                    (c for c in changes if c.get("presubmit_vetted") and not c.get("approved_by_viewer")),
+                    changes[0],
+                )
+                if cand.get("number"):
+                    self.fetch_commit_diff_bundle(cand["number"])
+        except Exception:
+            pass
+        finally:
+            with self._session_lock:
+                self._prewarm_in_progress = False
+
+    def schedule_background_prewarm(self, viewer_email: str | None = None) -> bool:
+        """Schedules a cooldown-guarded background thread to warm sibling scopes and top diffs."""
+        viewer = (viewer_email or self.default_viewer).strip().lower()
+        if not viewer:
+            return False
+        now_mono = time.monotonic()
+        with self._session_lock:
+            if self._prewarm_in_progress:
+                return False
+            if (now_mono - self._last_prewarm_by_viewer.get(viewer, 0.0)) < PREWARM_COOLDOWN_SEC:
+                return False
+            self._prewarm_in_progress = True
+            self._last_prewarm_by_viewer[viewer] = now_mono
+        threading.Thread(
+            target=self._run_background_prewarm, args=(viewer,), daemon=True
+        ).start()
+        return True
 
     @staticmethod
     def _sync_viewer_participant_vote(
@@ -1920,37 +2239,96 @@ class GerritUIService:
                 pr_fresh = (now_mono - pr_times.get(cl_num, 0.0)) <= SESSION_PRESUBMIT_LAG_SEC
                 self._apply_single_session_vote(item, viewer, short, merged_votes, pr_is_fresh=pr_fresh)
 
+    def _resolve_is_pure_rebase(self, cl_id: str, known_ps: int) -> bool:
+        """Checks whether the current patchset is a pure rebase, skipping `get_change_detail` when known."""
+        if known_ps == 1:
+            return False
+        try:
+            cur_ps = known_ps
+            if cur_ps <= 0:
+                detail = self.client.get_change_detail(cl_id, include_files=False)
+                cur_ps = int(detail.get("current_revision_number", 1) or 1)
+            if cur_ps <= 1:
+                return False
+            interdiff = self.client._request_json(
+                f"/a/changes/{cl_id}/revisions/current/files?base={cur_ps - 1}"
+            )
+            if not isinstance(interdiff, dict):
+                return False
+            non_msg = [k for k in interdiff.keys() if k != "/COMMIT_MSG"]
+            return len(non_msg) == 0
+        except Exception:
+            return False
+
+    def _load_or_fetch_revision_diff_data(
+        self, cl_id: str, known_rev: str, known_ps: int
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+        """Fetches or reuses decoded patch + pure-rebase metadata concurrently with threads and Q&A."""
+        cached_rev_data: dict[str, Any] | None = None
+        if known_rev:
+            with self._session_lock:
+                cached_rev_data = self._diff_revision_cache.get((cl_id, known_rev))
+
+        with ThreadPoolExecutor(max_workers=DIFF_BUNDLE_SUBTASK_WORKERS) as pool:
+            threads_fut = pool.submit(
+                lambda: [t.to_dict() for t in self.client.get_comment_threads(cl_id, include_resolved=False)]
+            )
+            qa_fut = pool.submit(discover_transcript_code_questions, cl_numbers=[cl_id])
+            if cached_rev_data is not None:
+                return cached_rev_data, threads_fut.result(), qa_fut.result()
+
+            patch_fut = pool.submit(self.client.get_revision_patch, cl_id, "current")
+            rebase_fut = pool.submit(self._resolve_is_pure_rebase, cl_id, known_ps)
+            decoded_patch = decode_gerrit_patch(patch_fut.result())
+            rev_data = {
+                "commit_message": extract_commit_message_from_patch(decoded_patch),
+                "is_pure_rebase": rebase_fut.result(),
+                "files": parse_unified_diff_files(decoded_patch),
+            }
+            return rev_data, threads_fut.result(), qa_fut.result()
+
+    def _store_diff_bundle_caches(
+        self,
+        cl_id: str,
+        known_rev: str,
+        rev_data: dict[str, Any],
+        full_bundle: dict[str, Any],
+    ) -> None:
+        """Stores revision-immutable diff data and TTL-bounded full diff bundle when `known_rev` is known."""
+        if not known_rev:
+            return
+        cache_key = (cl_id, known_rev)
+        with self._session_lock:
+            if len(self._diff_revision_cache) >= DIFF_BUNDLE_CACHE_MAX_ENTRIES:
+                self._diff_revision_cache.pop(next(iter(self._diff_revision_cache)), None)
+            if len(self._full_diff_bundle_cache) >= DIFF_BUNDLE_CACHE_MAX_ENTRIES:
+                self._full_diff_bundle_cache.pop(next(iter(self._full_diff_bundle_cache)), None)
+            self._diff_revision_cache[cache_key] = rev_data
+            self._full_diff_bundle_cache[cache_key] = (time.monotonic(), full_bundle)
+
     def fetch_commit_diff_bundle(self, cl_number: str | int) -> dict[str, Any]:
         """Fetches decoded unified diff files, pure-rebase status, and comment threads for one CL."""
         cl_id = str(cl_number).strip()
-        decoded_patch = decode_gerrit_patch(self.client.get_revision_patch(cl_id, "current"))
+        known_rev, known_ps = self._get_known_revision(cl_id)
+        if known_rev:
+            with self._session_lock:
+                cached = self._full_diff_bundle_cache.get((cl_id, known_rev))
+            if cached is not None and (time.monotonic() - cached[0]) < RAW_QUEUE_CACHE_TTL_SEC:
+                return dict(cached[1])
 
-        files = parse_unified_diff_files(decoded_patch)
-        commit_message = extract_commit_message_from_patch(decoded_patch)
-        threads = [t.to_dict() for t in self.client.get_comment_threads(cl_id, include_resolved=False)]
-
-        is_pure_rebase = False
-        try:
-            detail = self.client.get_change_detail(cl_id, include_files=False)
-            cur_ps = int(detail.get("current_revision_number", 1) or 1)
-            if cur_ps > 1:
-                interdiff = self.client._request_json(
-                    f"/a/changes/{cl_id}/revisions/current/files?base={cur_ps - 1}"
-                )
-                if isinstance(interdiff, dict):
-                    non_msg = [k for k in interdiff.keys() if k != "/COMMIT_MSG"]
-                    is_pure_rebase = len(non_msg) == 0
-        except Exception:
-            is_pure_rebase = False
-
-        return {
+        rev_data, threads, code_questions = self._load_or_fetch_revision_diff_data(
+            cl_id, known_rev, known_ps
+        )
+        bundle = {
             "number": int(cl_id) if cl_id.isdigit() else cl_id,
-            "commit_message": commit_message,
-            "is_pure_rebase": is_pure_rebase,
-            "files": files,
+            "commit_message": rev_data["commit_message"],
+            "is_pure_rebase": rev_data["is_pure_rebase"],
+            "files": rev_data["files"],
             "unresolved_threads": threads,
-            "code_questions": discover_transcript_code_questions(cl_numbers=[cl_id]),
+            "code_questions": code_questions,
         }
+        self._store_diff_bundle_caches(cl_id, known_rev, rev_data, bundle)
+        return bundle
 
     def get_code_questions(
         self,
@@ -2052,11 +2430,13 @@ class GerritUIService:
         cr_label = labels.get("Code-Review")
         has_pr = "Presubmit-Ready" in labels
         now_mono = time.monotonic()
+        mutated_cl_ids: list[str] = []
         with self._session_lock:
             for r in results:
                 raw_cl_num = str(r.get("cl") or "").strip()
                 if not (r.get("ok") and raw_cl_num.isdigit()):
                     continue
+                mutated_cl_ids.append(raw_cl_num)
                 cl_num = int(raw_cl_num)
                 self._session_votes[cl_num] = {**self._session_votes.get(cl_num, {}), **labels}
                 if has_pr:
@@ -2070,6 +2450,8 @@ class GerritUIService:
                     self._session_approved_cls.add(cl_num)
                 else:
                     self._session_approved_cls.discard(cl_num)
+        if mutated_cl_ids:
+            self._invalidate_cl_caches(mutated_cl_ids)
 
     def cast_batch_vote(
         self,
@@ -2140,7 +2522,7 @@ class GerritUIService:
         endpoint = (
             f"/a/changes/{encoded_id}/detail"
             "?o=CURRENT_REVISION&o=ALL_REVISIONS&o=CURRENT_COMMIT&o=CURRENT_FILES"
-            "&o=MESSAGES&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=SUBMIT_REQUIREMENTS"
+            "&o=MESSAGES&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS"
         )
         detail = self.client._request_json(endpoint)
         if not isinstance(detail, dict):
@@ -2276,6 +2658,7 @@ class GerritUIService:
         norm_state, resolved_acct, resp = self._execute_reviewer_mutation(
             cl_id, norm_action, raw_acct, state
         )
+        self._invalidate_cl_caches([cl_id])
         updated_change: dict[str, Any] | None = None
         try:
             updated_change = self.fetch_single_enriched_change(cl_id, viewer_email=viewer_email)
@@ -2433,6 +2816,8 @@ class GerritUIService:
         payload = json.loads(payload_path.read_text(encoding="utf-8"))
         payload["notify"] = "OWNER"
         post_res = self._post_single_vote(gob_curl, cl_id, json.dumps(payload), code_review=0)
+        if post_res["ok"]:
+            self._invalidate_cl_caches([cl_id])
         return {
             "status": "ok" if post_res["ok"] else "error",
             "cl": cl_id,
@@ -2530,6 +2915,7 @@ class GerritUIService:
             if not post_res.get("ok"):
                 raise RuntimeError(post_res.get("error") or str(exc)) from exc
 
+        self._invalidate_cl_caches([cl_id])
         author = (self.auth_email or self.default_viewer or "you").split("@")[0]
         return {
             "status": "ok",
@@ -2598,6 +2984,7 @@ class GerritUIService:
         except Exception:
             dispatched = False
 
+        self._invalidate_cl_caches([cl_id])
         return {
             "status": "ok",
             "cl": cl_id,
@@ -2837,6 +3224,11 @@ def _run_sidecar_agentapi(args: list[str], project_id: str | None = None) -> dic
     return json.loads(out) if out else {}
 
 
+def _is_truthy_query_flag(qs: dict[str, list[str]], key: str) -> bool:
+    """Returns `True` if query string parameter `key` is `"1"`, `"true"`, or `"yes"`."""
+    return (qs.get(key) or [""])[0].strip().lower() in ("1", "true", "yes")
+
+
 def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTTPRequestHandler]:
     """Creates the HTTP request handler bound to `service`."""
     sidecar_ui_token = os.environ.get("ANTIGRAVITY_SIDECAR_UI_TOKEN", "")
@@ -2899,15 +3291,25 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                     return
                 if parsed.path == "/api/gerrit/queue":
                     viewer = (qs.get("viewer") or [""])[0]
+                    if _is_truthy_query_flag(qs, "prewarm_only"):
+                        scheduled = service.schedule_background_prewarm(viewer or None)
+                        self._send_json({"status": "ok", "prewarm_scheduled": scheduled})
+                        return
                     query = (qs.get("query") or [""])[0]
                     scope = (qs.get("scope") or ["reviewer"])[0]
                     author = (qs.get("author") or [""])[0]
+                    fast_flag = _is_truthy_query_flag(qs, "fast")
+                    refresh_flag = _is_truthy_query_flag(qs, "refresh")
                     data = service.fetch_queue(
                         viewer_email=viewer or None,
                         query=query or None,
                         scope=scope,
                         author=author or None,
+                        fast=fast_flag,
+                        use_cache=not refresh_flag,
                     )
+                    if _is_truthy_query_flag(qs, "prewarm") or not fast_flag:
+                        service.schedule_background_prewarm(data.get("viewer") or viewer or None)
                     self._send_json(data)
                     return
                 if parsed.path == "/api/gerrit/diffs":

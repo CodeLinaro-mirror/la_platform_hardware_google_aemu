@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import base64
 from datetime import timedelta
+import gzip
+import http.client
 import io
 import json
 from pathlib import Path
@@ -483,6 +485,60 @@ class GerritApiTest(unittest.TestCase):
             data={"notify": "OWNER"},
         )
         self.assertEqual(resp, {})
+        self.assertIn("--compressed", mock_run.call_args[0][0])
+
+    @mock.patch("http.client.HTTPSConnection")
+    def test_keepalive_pooling_gzip_decompression_and_reconnect_retry(
+        self, mock_https_cls: mock.MagicMock
+    ) -> None:
+        raw_payload = ")]}'\n" + json.dumps({"subject": "测试_🚀_é", "_number": 43250001}, ensure_ascii=False)
+        gz_bytes = gzip.compress(raw_payload.encode("utf-8"))
+
+        ok_resp_1 = mock.MagicMock(status=200, reason="OK")
+        ok_resp_1.getheader.side_effect = lambda k, default="": "gzip" if k.lower() == "content-encoding" else default
+        ok_resp_1.read.return_value = gz_bytes
+
+        ok_resp_2 = mock.MagicMock(status=200, reason="OK")
+        ok_resp_2.getheader.return_value = ""
+        ok_resp_2.read.return_value = b")]}'\n{\"ok\": true}"
+
+        conn1 = mock.MagicMock()
+        conn1.getresponse.side_effect = [
+            ok_resp_1,
+            http.client.RemoteDisconnected("Remote end closed connection"),
+        ]
+        conn2 = mock.MagicMock()
+        conn2.getresponse.return_value = ok_resp_2
+        mock_https_cls.side_effect = [conn1, conn2]
+
+        client = GerritClient(token="fake-token")
+        first = client._request_json("/a/changes/43250001")
+        self.assertEqual(first["subject"], "测试_🚀_é")
+        sent_headers = conn1.request.call_args_list[0][1]["headers"]
+        self.assertEqual(sent_headers.get("Accept-Encoding"), "gzip")
+        self.assertEqual(sent_headers.get("Connection"), "keep-alive")
+
+        # Second call hits RemoteDisconnected on conn1 and transparently retries once on conn2
+        second = client._request_json("/a/changes/43250001")
+        self.assertEqual(second, {"ok": True})
+        self.assertEqual(mock_https_cls.call_count, 2)
+        conn1.close.assert_called_once()
+
+    @mock.patch("shutil.which", side_effect=lambda cmd: "/usr/bin/gob-curl" if cmd == "gob-curl" else None)
+    @mock.patch("subprocess.run")
+    @mock.patch("lib.gerrit_api.OAuthTokenManager.acquire_token", return_value=None)
+    def test_negative_oauth_token_caching_skips_repeat_token_fetch(
+        self,
+        mock_acquire_token: mock.MagicMock,
+        mock_run: mock.MagicMock,
+        _mock_which: mock.MagicMock,
+    ) -> None:
+        mock_run.return_value = mock.MagicMock(returncode=0, stdout=")]}'\n[]", stderr="")
+        client = GerritClient(token=None)
+        self.assertEqual(client._request_json("/a/changes/?q=status:open"), [])
+        self.assertEqual(client._request_json("/a/changes/?q=status:open"), [])
+        self.assertTrue(client._urllib_auth_failed)
+        self.assertEqual(mock_acquire_token.call_count, 1)
 
 
 if __name__ == "__main__":

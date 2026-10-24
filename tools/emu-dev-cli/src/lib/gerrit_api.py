@@ -25,6 +25,9 @@ import base64
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import timedelta
+import gzip
+import http.client
+import io
 import json
 import logging
 import os
@@ -32,6 +35,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import threading
 import time
 from typing import Any, Callable
 import urllib.error
@@ -44,11 +48,16 @@ from lib.workspace import WorkspacePathResolver
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_URLOPEN = urllib.request.urlopen
+
 DEFAULT_GERRIT_HOST = "https://googleplex-android-review.git.corp.google.com"
 GERRIT_OAUTH_SCOPE = "https://www.googleapis.com/auth/gerritcodereview"
 GERRIT_HTTP_TIMEOUT_SEC = 20.0
 GERRIT_CLI_TIMEOUT_SEC = 25.0
 _AUTH_FALLBACK_HTTP_CODES = (400, 401, 403)
+HTTPS_DEFAULT_PORT = 443
+HTTP_OK_MIN = 200
+HTTP_OK_MAX = 299
 BASE64_QUANTUM_LEN = 4
 OCTAL_ESCAPE_DIGITS = "01234567"
 OCTAL_ESCAPE_LEN = 3
@@ -276,6 +285,24 @@ def parse_cl_identifier(
     )
 
 
+MAX_IDLE_KEEPALIVE_CONNS = 8
+
+
+def _decode_http_body(raw_bytes: bytes, content_encoding: Any) -> str:
+    """Decompresses gzip HTTP response bytes if needed and decodes as UTF-8."""
+    if isinstance(content_encoding, str) and "gzip" in content_encoding.lower() and raw_bytes:
+        raw_bytes = gzip.decompress(raw_bytes)
+    return raw_bytes.decode("utf-8", errors="replace")
+
+
+def _discard_keepalive_conn(conn: http.client.HTTPSConnection) -> None:
+    """Closes a broken or evicted Keep-Alive `HTTPSConnection` safely."""
+    try:
+        conn.close()
+    except OSError:
+        pass
+
+
 class GerritClient:
     """Authenticated client for querying and updating Gerrit code review changes."""
 
@@ -290,15 +317,91 @@ class GerritClient:
         )
         self._explicit_token = token
         self._urllib_auth_failed = False
+        self._conn_lock = threading.Lock()
+        self._idle_conns: dict[str, list[http.client.HTTPSConnection]] = {}
+        self._ssl_context = get_ssl_context()
         self._oauth = OAuthTokenManager(
             scopes=[GERRIT_OAUTH_SCOPE],
             env_vars=["GERRIT_TOKEN", "OAUTH2_TOKEN", "ANDROID_BUILD_TOKEN"],
         )
 
+    def close(self) -> None:
+        """Closes all pooled idle Keep-Alive HTTPS connections."""
+        with self._conn_lock:
+            pooled = [c for bucket in self._idle_conns.values() for c in bucket]
+            self._idle_conns.clear()
+        for conn in pooled:
+            _discard_keepalive_conn(conn)
+
     def _get_token(self) -> str | None:
         if self._urllib_auth_failed and not self._explicit_token:
             return None
         return self._oauth.acquire_token(user_token=self._explicit_token)
+
+    def _checkout_keepalive_conn(self, netloc: str) -> http.client.HTTPSConnection:
+        """Checks out an idle Keep-Alive `HTTPSConnection` for `netloc` or opens a new one."""
+        with self._conn_lock:
+            pool = self._idle_conns.get(netloc)
+            if pool:
+                return pool.pop()
+        host, _, port_str = netloc.partition(":")
+        port = int(port_str) if port_str.isdigit() else HTTPS_DEFAULT_PORT
+        return http.client.HTTPSConnection(
+            host,
+            port=port,
+            context=self._ssl_context,
+            timeout=GERRIT_HTTP_TIMEOUT_SEC,
+        )
+
+    def _return_keepalive_conn(
+        self, netloc: str, conn: http.client.HTTPSConnection
+    ) -> None:
+        """Returns a healthy Keep-Alive `HTTPSConnection` to the bounded pool or closes it."""
+        with self._conn_lock:
+            pool = self._idle_conns.setdefault(netloc, [])
+            if len(pool) < MAX_IDLE_KEEPALIVE_CONNS:
+                pool.append(conn)
+                return
+        _discard_keepalive_conn(conn)
+
+    def _execute_keepalive_request(
+        self,
+        url: str,
+        method: str,
+        headers: dict[str, str],
+        body_bytes: bytes | None,
+    ) -> str:
+        """Sends an HTTPS request over a pooled Keep-Alive socket with 1 reconnect retry."""
+        parsed = urllib.parse.urlsplit(url)
+        target = parsed.path or "/"
+        if parsed.query:
+            target = f"{target}?{parsed.query}"
+        req_headers = {**headers, "Connection": "keep-alive"}
+        for attempt in (0, 1):
+            conn = self._checkout_keepalive_conn(parsed.netloc)
+            try:
+                conn.request(method, target, body=body_bytes, headers=req_headers)
+                resp = conn.getresponse()
+                raw_bytes = resp.read()
+            except (http.client.HTTPException, ConnectionError, OSError):
+                _discard_keepalive_conn(conn)
+                if attempt == 0:
+                    continue
+                raise
+            self._return_keepalive_conn(parsed.netloc, conn)
+            if HTTP_OK_MIN <= resp.status <= HTTP_OK_MAX:
+                return _decode_http_body(raw_bytes, resp.getheader("Content-Encoding", ""))
+            raise urllib.error.HTTPError(
+                url=url,
+                code=resp.status,
+                msg=resp.reason or "HTTP error",
+                hdrs=resp.msg,
+                fp=io.BytesIO(raw_bytes),
+            )
+        raise RuntimeError(
+            f"Gerrit API {method} '{parsed.path}' failed after exhausting Keep-Alive "
+            f"reconnect retries on '{self.host}'. Verify network connectivity and retry."
+        )
 
     def _handle_urllib_http_error(
         self,
@@ -328,26 +431,33 @@ class GerritClient:
         body_bytes: bytes | None,
         transport_errors: list[str],
     ) -> str | None:
-        """Attempts an OAuth-authenticated HTTPS request via `urllib`, returning None on 400/401/403."""
+        """Attempts an OAuth-authenticated HTTPS request via Keep-Alive or `urllib`, returning None on 400/401/403."""
         if self._urllib_auth_failed:
             transport_errors.append("urllib skipped after prior auth failure")
             return None
         token = self._get_token()
         if not token:
+            if not self._explicit_token:
+                self._urllib_auth_failed = True
             transport_errors.append("no OAuth token available")
             return None
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/json",
+            "Accept-Encoding": "gzip",
         }
         if body_bytes is not None:
             headers["Content-Type"] = "application/json; charset=UTF-8"
-        req = urllib.request.Request(url, data=body_bytes, headers=headers, method=method)
         try:
+            if urllib.request.urlopen is _DEFAULT_URLOPEN:
+                return self._execute_keepalive_request(url, method, headers, body_bytes)
+            req = urllib.request.Request(url, data=body_bytes, headers=headers, method=method)
             with urllib.request.urlopen(
-                req, context=get_ssl_context(), timeout=GERRIT_HTTP_TIMEOUT_SEC
+                req, context=self._ssl_context, timeout=GERRIT_HTTP_TIMEOUT_SEC
             ) as resp:
-                return resp.read().decode("utf-8", errors="replace")
+                hdrs = getattr(resp, "headers", None)
+                enc = hdrs.get("Content-Encoding", "") if hasattr(hdrs, "get") else ""
+                return _decode_http_body(resp.read(), enc)
         except urllib.error.HTTPError as http_err:
             self._handle_urllib_http_error(http_err, method, path, transport_errors)
         except Exception as exc:
@@ -397,7 +507,7 @@ class GerritClient:
         allow_empty = method.upper() != "GET"
         gob_curl = shutil.which("gob-curl")
         if gob_curl:
-            cmd = [gob_curl, "-s", "-f", "-S", "-X", method]
+            cmd = [gob_curl, "-s", "-f", "-S", "--compressed", "-X", method]
             if data is not None:
                 cmd.extend(["-H", "Content-Type: application/json", "-d", json.dumps(data)])
             out = self._run_cli_request(

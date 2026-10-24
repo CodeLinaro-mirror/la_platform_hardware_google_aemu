@@ -17,24 +17,36 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from http.server import ThreadingHTTPServer
 import json
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import tempfile
+import threading
 import unittest
 from unittest.mock import patch
+import urllib.request
 
 from commands.gerrit.ui_server import (
     GerritUIService,
+    build_code_search_file_url,
     build_viewer_gerrit_query,
     classify_commit_type,
     classify_risk_and_load,
     enrich_change_for_ui,
     extract_bug_ids_from_change,
+    format_repo_display_path,
     group_changes_into_stacks,
     is_agent_authored_or_uploaded,
     is_agent_or_bot_email,
     is_explicit_reviewer,
+    make_gerrit_ui_handler,
     parse_issues_search_output,
     parse_unified_diff_files,
     render_static_gerrit_ui_html,
+    resolve_code_search_base_url,
 )
 
 
@@ -119,10 +131,21 @@ class GerritUIServerTest(unittest.TestCase):
         self.assertEqual(as_erwin["approval_slots"][0]["state"], "done")
         self.assertEqual(as_erwin["approval_slots"][1]["state"], "needed")
 
-        # Viewing as Joshua (has not given +2 yet)
+        # Viewing as Joshua (has not given +2 yet; 1 of 2 human +2s already given)
         as_joshua = enrich_change_for_ui(sample_change, "joshuaduong@google.com", now_dt=now)
         self.assertFalse(as_joshua["approved_by_viewer"])
-        self.assertIn("Needs Your +2", as_joshua["approval_slots"][1]["text"])
+        self.assertEqual(as_joshua["approval_slots"][1]["text"], "Needs +2")
+
+        # Agent CL with 0 human +2s collapses to a single "Needs two +2s" slot
+        zero_vote_agent_cl = dict(sample_change)
+        zero_vote_agent_cl["labels"] = {
+            "Code-Review": {
+                "all": [{"email": "droid@android-ci-ibot.iam.gserviceaccount.com", "value": 1}]
+            },
+            "Presubmit-Verified": sample_change["labels"]["Presubmit-Verified"],
+        }
+        as_zero = enrich_change_for_ui(zero_vote_agent_cl, "joshuaduong@google.com", now_dt=now)
+        self.assertEqual(as_zero["approval_slots"], [{"state": "needed", "text": "Needs two +2s"}])
 
     def test_risk_classification_tiers(self) -> None:
         high_cl = {
@@ -870,8 +893,9 @@ class GerritUIServerTest(unittest.TestCase):
         self.assertIn("setAuthorFilter(", html)
         self.assertIn("var(--ln-old-col, 52px) var(--ln-new-col, 68px)", html)
         self.assertIn("font-variant-numeric: tabular-nums;", html)
-        self.assertIn("✓ Presubmit Verified (+1/+2)", html)
-        self.assertIn("✓ Agent Verified (0 unresolved)", html)
+        self.assertIn("✓ PV +1/+2", html)
+        self.assertIn("✓ Hide +2 by Me", html)
+        self.assertIn("Agent Verified (0 unresolved)", html)
         self.assertNotIn("Presubmit Vetted", html)
         self.assertNotIn("Agent Vetted", html)
 
@@ -1647,6 +1671,669 @@ class GerritUIServerTest(unittest.TestCase):
         self.assertIn("function togglePresubmitTargets(", html)
         self.assertIn("function fetchPresubmitTargetsForCl(", html)
         self.assertIn("/api/gerrit/presubmit-targets", html)
+
+    def test_progressive_fast_queue_stage1_and_cross_viewer_team_cache(self) -> None:
+        with patch.object(GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"):
+            service = GerritUIService(default_viewer="joshuaduong@google.com")
+        service._bug_cache = {}
+
+        sample_change = {
+            "_number": 43260001,
+            "project": "platform/hardware/google/aemu",
+            "subject": "feat(ui): Progressive Gerrit load 测试_🚀_é",
+            "created": "2026-10-23 20:00:00.000000000",
+            "updated": "2026-10-23 22:00:00.000000000",
+            "insertions": 18,
+            "deletions": 4,
+            "unresolved_comment_count": 0,
+            "mergeable": True,
+            "current_revision": "rev_abc123",
+            "current_revision_number": 1,
+            "owner": {"name": "Joshua Duong", "email": "joshuaduong@google.com"},
+            "revisions": {
+                "rev_abc123": {
+                    "_number": 1,
+                    "commit": {
+                        "message": "feat(ui): Progressive Gerrit load 测试_🚀_é\n\nBug: 499001122\n",
+                        "parents": [{"commit": "parent_000"}],
+                    },
+                    "files": {"tools/ui_测试_🚀_é.py": {"lines_inserted": 18, "lines_deleted": 4}},
+                }
+            },
+            "labels": {
+                "Code-Review": {
+                    "all": [{"email": "jansene@google.com", "name": "Erwin", "value": 2}]
+                },
+                "Presubmit-Verified": {"all": [{"email": "treehugger@google.com", "value": 2}]},
+            },
+            "reviewers": {"REVIEWER": [{"email": "jansene@google.com", "name": "Erwin"}]},
+            "messages": [],
+        }
+
+        requested_endpoints: list[str] = []
+
+        def fake_request_json(endpoint: str, **_kwargs):
+            requested_endpoints.append(endpoint)
+            return [sample_change]
+
+        with (
+            patch.object(service.client, "_request_json", side_effect=fake_request_json),
+            patch.object(
+                service,
+                "fetch_bug_metadata_batch",
+                return_value={
+                    "499001122": {
+                        "id": "499001122",
+                        "url": "https://b.corp.google.com/issues/499001122",
+                        "priority": "P1",
+                        "severity": "S1",
+                        "status": "ASSIGNED",
+                        "title": "Latency spike",
+                    }
+                },
+            ) as mock_bug_batch,
+        ):
+            stage1 = service.fetch_queue(
+                viewer_email="joshuaduong@google.com",
+                scope="team",
+                fast=True,
+                use_cache=True,
+            )
+            self.assertEqual(len(requested_endpoints), 1)
+            self.assertIn("n=10", requested_endpoints[0])
+            self.assertNotIn("SUBMIT_REQUIREMENTS", requested_endpoints[0])
+            self.assertEqual(mock_bug_batch.call_count, 0)
+            self.assertTrue(stage1["is_partial"])
+            self.assertFalse(stage1["from_cache"])
+
+            # Stage 2 reuses the already-complete (<25 CLs) raw Gerrit cache and only resolves uncached bugs!
+            stage2 = service.fetch_queue(
+                viewer_email="joshuaduong@google.com",
+                scope="team",
+                fast=False,
+                use_cache=True,
+            )
+            self.assertEqual(len(requested_endpoints), 1)
+            self.assertEqual(mock_bug_batch.call_count, 1)
+            self.assertFalse(stage2["is_partial"])
+            self.assertTrue(stage2["from_cache"])
+            self.assertEqual(stage2["changes"][0]["bugs"][0]["priority"], "P1")
+            self.assertFalse(stage2["changes"][0]["approved_by_viewer"])
+
+            # Switching viewer on `team` scope reuses `_raw_queue_cache` with zero Gerrit calls
+            switched = service.fetch_queue(
+                viewer_email="jansene@google.com",
+                scope="team",
+                fast=True,
+                use_cache=True,
+            )
+            self.assertEqual(len(requested_endpoints), 1)
+            self.assertTrue(switched["from_cache"])
+            self.assertTrue(switched["changes"][0]["approved_by_viewer"])
+
+            # Even when Gerrit sets `_more_changes: True` at FULL_QUEUE_LIMIT, Stage 2 marks cache full
+            service._raw_queue_cache.clear()
+            sample_with_more = {**sample_change, "_more_changes": True}
+            with patch.object(service.client, "_request_json", return_value=[sample_with_more]) as mock_more:
+                full_100 = service.fetch_queue(
+                    viewer_email="joshuaduong@google.com",
+                    scope="team",
+                    fast=False,
+                    use_cache=True,
+                )
+                self.assertFalse(full_100["is_partial"])
+                cached_hit = service.fetch_queue(
+                    viewer_email="rkir@google.com",
+                    scope="team",
+                    fast=True,
+                    use_cache=True,
+                )
+                self.assertTrue(cached_hit["from_cache"])
+                self.assertEqual(mock_more.call_count, 1)
+
+    def test_parallel_diff_bundle_skips_change_detail_on_known_ps1_and_caches(self) -> None:
+        with patch.object(GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"):
+            service = GerritUIService(default_viewer="joshuaduong@google.com")
+        service._record_known_revisions(
+            [{"_number": 43260002, "current_revision": "rev_ps1", "current_revision_number": 1}]
+        )
+        raw_patch = (
+            "From rev_ps1 Mon Sep 17 00:00:00 2001\n"
+            "Subject: [PATCH] fix: Unicode path 测试_🚀_é\n\n"
+            "Body text.\n"
+            "---\n"
+            "diff --git a/src/测试_🚀_é.cc b/src/测试_🚀_é.cc\n"
+            "--- a/src/测试_🚀_é.cc\n"
+            "+++ b/src/测试_🚀_é.cc\n"
+            "@@ -1,1 +1,2 @@\n"
+            " int x = 1;\n"
+            "+int y = 2; // 测试_🚀_é\n"
+        )
+        with (
+            patch.object(service.client, "get_revision_patch", return_value=raw_patch) as mock_patch,
+            patch.object(service.client, "get_comment_threads", return_value=[]) as mock_threads,
+            patch.object(service.client, "get_change_detail") as mock_detail,
+            patch("commands.gerrit.ui_server.discover_transcript_code_questions", return_value=[]),
+        ):
+            b1 = service.fetch_commit_diff_bundle(43260002)
+            self.assertEqual(b1["files"][0]["file"], "src/测试_🚀_é.cc")
+            self.assertFalse(b1["is_pure_rebase"])
+            mock_detail.assert_not_called()
+            self.assertEqual(mock_patch.call_count, 1)
+            self.assertEqual(mock_threads.call_count, 1)
+
+            # Second call within TTL hits `_full_diff_bundle_cache` with 0 Gerrit RPCs
+            b2 = service.fetch_commit_diff_bundle(43260002)
+            self.assertEqual(b2["files"][0]["file"], "src/测试_🚀_é.cc")
+            self.assertEqual(mock_patch.call_count, 1)
+            self.assertEqual(mock_threads.call_count, 1)
+
+            # Invalidating CL clears full diff bundle cache
+            service._invalidate_cl_caches(["43260002"])
+            self.assertEqual(service._full_diff_bundle_cache, {})
+
+    def test_http_queue_fast_and_prewarm_flags_and_inline_js_syntax(self) -> None:
+        with patch.object(GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"):
+            service = GerritUIService(default_viewer="joshuaduong@google.com")
+
+        calls: list[tuple[bool, bool]] = []
+
+        def fake_fetch_queue(**kwargs):
+            calls.append((bool(kwargs.get("fast")), bool(kwargs.get("use_cache"))))
+            return {
+                "ui_version": "test",
+                "viewer": kwargs.get("viewer_email") or "joshuaduong@google.com",
+                "scope": kwargs.get("scope") or "reviewer",
+                "is_partial": bool(kwargs.get("fast")),
+                "changes": [],
+                "stacks": [],
+            }
+
+        with (
+            patch.object(service, "fetch_queue", side_effect=fake_fetch_queue),
+            patch.object(service, "schedule_background_prewarm", return_value=True) as mock_prewarm,
+        ):
+            handler_cls = make_gerrit_ui_handler(service)
+            httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+            port = httpd.server_address[1]
+            srv_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+            srv_thread.start()
+            try:
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/api/gerrit/queue?scope=reviewer&fast=1", timeout=5
+                ) as resp1:
+                    d1 = json.loads(resp1.read().decode("utf-8"))
+                self.assertTrue(d1["is_partial"])
+                self.assertEqual(calls[-1], (True, True))
+                self.assertEqual(mock_prewarm.call_count, 0)
+
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/api/gerrit/queue?scope=reviewer&prewarm=1", timeout=5
+                ) as resp2:
+                    d2 = json.loads(resp2.read().decode("utf-8"))
+                self.assertFalse(d2["is_partial"])
+                self.assertEqual(calls[-1], (False, True))
+                self.assertEqual(mock_prewarm.call_count, 1)
+
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/api/gerrit/queue?scope=reviewer&fast=1&refresh=1",
+                    timeout=5,
+                ) as resp3:
+                    json.loads(resp3.read().decode("utf-8"))
+                self.assertEqual(calls[-1], (True, False))
+
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/api/gerrit/queue?prewarm_only=1&viewer=joshuaduong@google.com",
+                    timeout=5,
+                ) as resp4:
+                    d4 = json.loads(resp4.read().decode("utf-8"))
+                self.assertTrue(d4["prewarm_scheduled"])
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+
+        html = render_static_gerrit_ui_html()
+        self.assertIn("function reprojectQueuePayloadForViewer(", html)
+        self.assertIn("function hydrateFullQueueInBackground(", html)
+        self.assertIn("sidebar-hydrating-pill", html)
+        node_bin = shutil.which("node")
+        if node_bin:
+            scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, flags=re.S)
+            self.assertTrue(scripts)
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_js = Path(tmp_dir) / "inline_测试_🚀_é.js"
+                tmp_js.write_text("\n".join(scripts), encoding="utf-8")
+                proc = subprocess.run(
+                    [node_bin, "--check", str(tmp_js)],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=False,
+                )
+                self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+
+    def test_code_search_file_url_mapping_and_diff_header_links(self) -> None:
+        self.assertEqual(
+            build_code_search_file_url(
+                "platform/hardware/generic/goldfish",
+                "emu-main-next",
+                "emulator/libs/file/file.cc",
+            ),
+            "https://source.corp.google.com/h/googleplex-android/"
+            "platform/superproject/emu-main-next/+/emu-main-next:"
+            "hardware/generic/goldfish/emulator/libs/file/file.cc",
+        )
+        self.assertEqual(
+            build_code_search_file_url(
+                "platform/hardware/google/aemu",
+                "studio-main",
+                "tools/emu-dev-cli/src/commands/gerrit/ui_server.py",
+                line=88,
+            ),
+            "https://source.corp.google.com/h/googleplex-android/"
+            "platform/superproject/emu-main-next/+/emu-main-next:"
+            "hardware/google/aemu/tools/emu-dev-cli/src/commands/gerrit/ui_server.py;l=88",
+        )
+        self.assertEqual(
+            build_code_search_file_url(
+                "platform/external/qemu",
+                "emu-main-next-v11.0",
+                "hw/virtio/virtio-pci.c",
+            ),
+            "https://source.corp.google.com/h/googleplex-android/"
+            "platform/superproject/emu-main-next/+/emu-main-next:"
+            "third_party/qemu/hw/virtio/virtio-pci.c",
+        )
+        self.assertEqual(
+            build_code_search_file_url(
+                "platform/external/qemu",
+                "emu-main-dev",
+                "android/android-emu/android/main-common.c",
+            ),
+            "https://source.corp.google.com/h/googleplex-android/"
+            "platform/superproject/emu-main-dev/+/emu-main-dev:"
+            "external/qemu/android/android-emu/android/main-common.c",
+        )
+        self.assertEqual(
+            build_code_search_file_url(
+                "platform/hardware/google/gfxstream",
+                "emu-main-dev",
+                "host/FrameBuffer.cpp",
+            ),
+            "https://source.corp.google.com/h/googleplex-android/"
+            "platform/superproject/emu-main-dev/+/emu-main-dev:"
+            "hardware/google/gfxstream/host/FrameBuffer.cpp",
+        )
+        self.assertEqual(
+            build_code_search_file_url(
+                "platform/build/bazel",
+                "emu-main-next",
+                "rules/cc.bzl",
+            ),
+            "https://source.corp.google.com/h/googleplex-android/"
+            "platform/superproject/emu-main-next/+/emu-main-next:"
+            "build/bazel/rules/cc.bzl",
+        )
+        self.assertEqual(
+            build_code_search_file_url(
+                "device/generic/goldfish",
+                "udc-kiwi-dev",
+                "vendor_common.mk",
+            ),
+            "https://source.corp.google.com/h/googleplex-android/"
+            "device/generic/goldfish/+/udc-kiwi-dev:vendor_common.mk",
+        )
+        # Non-ASCII Unicode file path encoding
+        self.assertEqual(
+            build_code_search_file_url(
+                "platform/hardware/generic/goldfish",
+                "refs/heads/emu-main-next",
+                "emulator/测试_🚀_é.cc",
+                line=15,
+            ),
+            "https://source.corp.google.com/h/googleplex-android/"
+            "platform/superproject/emu-main-next/+/emu-main-next:"
+            "hardware/generic/goldfish/emulator/%E6%B5%8B%E8%AF%95_%F0%9F%9A%80_%C3%A9.cc;l=15",
+        )
+        # Magic Gerrit pseudo-files return empty string
+        self.assertEqual(
+            build_code_search_file_url(
+                "platform/hardware/google/aemu", "studio-main", "/COMMIT_MSG"
+            ),
+            "",
+        )
+        self.assertEqual(
+            build_code_search_file_url(
+                "platform/hardware/google/aemu", "studio-main", "dev/null"
+            ),
+            "",
+        )
+
+        enriched = enrich_change_for_ui(
+            {
+                "_number": 43270001,
+                "project": "platform/hardware/generic/goldfish",
+                "branch": "emu-main-next",
+                "subject": "feat: Add Code Search file links",
+                "owner": {"email": "joshuaduong@google.com", "name": "Joshua"},
+            },
+            viewer_email="joshuaduong@google.com",
+        )
+        self.assertEqual(
+            enriched["code_search_base_url"],
+            resolve_code_search_base_url("platform/hardware/generic/goldfish", "emu-main-next"),
+        )
+
+        html = render_static_gerrit_ui_html()
+        self.assertIn("function resolveCodeSearchBaseUrl(", html)
+        self.assertIn("function buildCodeSearchFileUrl(", html)
+        self.assertIn("function renderCodeSearchFileLinkHtml(", html)
+        self.assertIn('class="file-cs-link"', html)
+
+    def test_simplified_side_panel_cards_and_repo_label(self) -> None:
+        self.assertEqual(
+            format_repo_display_path("platform/hardware/generic/goldfish"),
+            "hardware/generic/goldfish",
+        )
+        self.assertEqual(
+            format_repo_display_path("platform/hardware/google/aemu"),
+            "hardware/google/aemu",
+        )
+        self.assertEqual(
+            format_repo_display_path("platform/external/qemu"),
+            "external/qemu",
+        )
+        self.assertEqual(
+            format_repo_display_path("trusty/external/qemu-meson"),
+            "trusty/external/qemu-meson",
+        )
+
+        enriched = enrich_change_for_ui(
+            {
+                "_number": 43280001,
+                "project": "platform/hardware/generic/goldfish",
+                "branch": "emu-main-next",
+                "topic": "topic-测试_🚀_é",
+                "subject": "feat: Simplify side panel card 测试_🚀_é",
+                "owner": {"email": "joshuaduong@google.com", "name": "Joshua"},
+                "current_revision": "sha_a",
+            },
+            viewer_email="joshuaduong@google.com",
+        )
+        self.assertEqual(enriched["repo_label"], "hardware/generic/goldfish")
+
+        enriched_2 = enrich_change_for_ui(
+            {
+                "_number": 43280002,
+                "project": "platform/hardware/generic/goldfish",
+                "branch": "emu-main-next",
+                "topic": "topic-测试_🚀_é",
+                "subject": "feat: Follow-up commit",
+                "owner": {"email": "joshuaduong@google.com", "name": "Joshua"},
+                "current_revision": "sha_b",
+            },
+            viewer_email="joshuaduong@google.com",
+        )
+        stacks = group_changes_into_stacks([enriched, enriched_2])
+        self.assertEqual(stacks[0]["title"], "STACK · topic:topic-测试_🚀_é")
+        self.assertNotIn("Commits", stacks[0]["title"])
+
+        html = render_static_gerrit_ui_html()
+        self.assertIn("function formatRepoDisplayPath(", html)
+        self.assertIn("function formatStackHeaderTitle(", html)
+        self.assertIn('class="repo-badge"', html)
+        self.assertNotIn("in flight</span>", html)
+        self.assertNotIn("(1x +2 req)", html)
+        self.assertNotIn("[Agent CL: 2x +2 req]", html)
+        card_fn_match = re.search(
+            r"function renderClCardHtml\(c, stackId\)\s*\{(.*?)\n  \}",
+            html,
+            flags=re.S,
+        )
+        self.assertIsNotNone(card_fn_match)
+        card_fn_body = card_fn_match.group(1) if card_fn_match else ""
+        self.assertNotIn("stack_total", card_fn_body)
+        top_row_match = re.search(
+            r'<div class="cl-row-top">(.*?)</div>',
+            card_fn_body,
+            flags=re.S,
+        )
+        self.assertIsNotNone(top_row_match)
+        top_row_inner = (top_row_match.group(1) if top_row_match else "").strip()
+        self.assertEqual(
+            top_row_inner,
+            '<span class="cl-subj" title="${escapeHtml(c.subject)}">${escapeHtml(c.subject)}</span>',
+        )
+
+    def test_compact_card_pv_badge_red_needed_slots_reviewer_icon_and_submittable_hue(
+        self,
+    ) -> None:
+        from commands.gerrit.presubmit_targets import (
+            extract_presubmit_status_from_change,
+        )
+
+        submittable_cl = enrich_change_for_ui(
+            {
+                "_number": 43129761,
+                "project": "platform/external/qemu",
+                "branch": "emu-main-dev",
+                "subject": "ets: Update SnapshotVersionTest 测试_🚀_é",
+                "owner": {"email": "bohu@google.com", "name": "Bo Hu"},
+                "current_revision": "rev1",
+                "current_revision_number": 1,
+                "revisions": {"rev1": {"_number": 1, "files": {"ets/test.py": {}}}},
+                "mergeable": True,
+                "unresolved_comment_count": 3,
+                "reviewers": {
+                    "REVIEWER": [{"email": "kmagic@google.com", "name": "K Magic"}]
+                },
+                "labels": {
+                    "Code-Review": {
+                        "all": [{"email": "kmagic@google.com", "name": "K Magic", "value": 2}]
+                    },
+                    "Presubmit-Verified": {
+                        "all": [{"email": "treehugger@google.com", "value": 2}]
+                    },
+                },
+            },
+            viewer_email="joshuaduong@google.com",
+        )
+        self.assertTrue(submittable_cl["is_submittable"])
+        self.assertEqual(submittable_cl["presubmit_label"], "✓ PV +2")
+        self.assertEqual(
+            submittable_cl["approval_slots"],
+            [{"state": "done", "text": "✓ kmagic +2"}],
+        )
+
+        needs_two_cl = enrich_change_for_ui(
+            {
+                "_number": 43290001,
+                "project": "platform/hardware/generic/goldfish",
+                "branch": "emu-main-next",
+                "subject": "feat: Agent change needing two approvals 测试_🚀_é",
+                "owner": {
+                    "email": "groupagent-android-emulator@google.com",
+                    "name": "Goldie",
+                },
+                "current_revision": "rev1",
+                "current_revision_number": 1,
+                "revisions": {
+                    "rev1": {
+                        "_number": 1,
+                        "files": {"emulator/main.cc": {}},
+                    }
+                },
+                "labels": {
+                    "Code-Review": {"all": []},
+                    "Presubmit-Verified": {
+                        "all": [{"email": "treehugger@google.com", "value": 2}]
+                    },
+                },
+            },
+            viewer_email="jansene@google.com",
+        )
+        self.assertFalse(needs_two_cl["is_submittable"])
+        self.assertEqual(
+            needs_two_cl["approval_slots"],
+            [{"state": "needed", "text": "Needs two +2s"}],
+        )
+
+        st_warn = extract_presubmit_status_from_change(
+            {"_number": 101, "project": "p/a", "messages": []},
+            pv_score=1,
+            pr_enabled=False,
+            cur_ps=1,
+        )
+        st_fail = extract_presubmit_status_from_change(
+            {"_number": 101, "project": "p/a", "messages": []},
+            pv_score=-1,
+            pr_enabled=False,
+            cur_ps=1,
+        )
+        st_idle = extract_presubmit_status_from_change(
+            {"_number": 101, "project": "p/a", "messages": []},
+            pv_score=0,
+            pr_enabled=False,
+            cur_ps=1,
+        )
+        st_queued = extract_presubmit_status_from_change(
+            {"_number": 101, "project": "p/a", "messages": []},
+            pv_score=0,
+            pr_enabled=True,
+            cur_ps=1,
+        )
+        self.assertEqual(st_warn["presubmit_label"], "⚠ PV +1")
+        self.assertEqual(st_fail["presubmit_label"], "✗ PV -1")
+        self.assertEqual(st_idle["presubmit_label"], "⏸ PV 0")
+        self.assertEqual(st_queued["presubmit_label"], "⏳ PV Queued")
+
+        html = render_static_gerrit_ui_html()
+        self.assertIn("cl-card-submittable", html)
+        self.assertIn("function isClSubmittable(", html)
+        self.assertIn('<span class="author-badge-prefix">Author:</span>', html)
+        self.assertIn("REVIEWER_ICON_SVG", html)
+        self.assertIn('class="rev-eye-icon"', html)
+        self.assertIn("Needs two +2s", html)
+        self.assertNotIn("Needs 2nd Human +2", html)
+        self.assertNotIn("Needs Your +2", html)
+        self.assertIn("rgba(223, 91, 83, 0.2)", html)
+
+        card_fn_match = re.search(
+            r"function renderClCardHtml\(c, stackId\)\s*\{(.*?)\n  \}",
+            html,
+            flags=re.S,
+        )
+        self.assertIsNotNone(card_fn_match)
+        card_fn_body = card_fn_match.group(1) if card_fn_match else ""
+        self.assertNotIn("human_involvement", card_fn_body)
+        self.assertNotIn("slot-silent", card_fn_body)
+
+        status_fn_match = re.search(
+            r"function renderCardStatusRowItemsHtml\(c\)\s*\{(.*?)\n  \}",
+            html,
+            flags=re.S,
+        )
+        self.assertIsNotNone(status_fn_match)
+        status_fn_body = status_fn_match.group(1) if status_fn_match else ""
+        self.assertNotIn("⚡", status_fn_body)
+
+    def test_author_and_commit_type_presets_collapsed_by_default(self) -> None:
+        html = render_static_gerrit_ui_html()
+        self.assertIn('id="queueSearchBar" class="queue-search-bar collapsed"', html)
+        self.assertIn('id="authorPresetsToggleBtn"', html)
+        self.assertIn('id="authorPresetsBody" class="author-presets-body"', html)
+        self.assertIn(".queue-search-bar.collapsed .author-presets-body", html)
+        self.assertIn("authorPresetsCollapsed: true", html)
+        self.assertIn("function toggleAuthorPresets(", html)
+
+        self.assertIn(
+            'id="queueTypeToolbar" class="queue-type-toolbar collapsed"', html
+        )
+        self.assertIn('id="typePresetsToggleBtn"', html)
+        self.assertIn('id="typeFiltersBar" class="type-filters"', html)
+        self.assertIn(".queue-type-toolbar.collapsed .type-filters", html)
+        self.assertIn("typePresetsCollapsed: true", html)
+        self.assertIn("function toggleTypePresets(", html)
+        self.assertIn("function syncPresetCollapseControls(", html)
+
+        group_row_match = re.search(
+            r'<div class="queue-group-row">(.*?)</div>\s*<div id="typeFiltersBar"',
+            html,
+            flags=re.S,
+        )
+        self.assertIsNotNone(group_row_match)
+        group_row_inner = group_row_match.group(1) if group_row_match else ""
+        self.assertIn('id="queueSortSelect"', group_row_inner)
+        self.assertIn('id="grpType"', group_row_inner)
+        self.assertIn('id="grpStack"', group_row_inner)
+        self.assertIn('id="typePresetsToggleBtn"', group_row_inner)
+        self.assertNotIn("COMMIT TYPE &amp; SORT:", group_row_inner)
+
+    def test_filter_section_below_sort_collapsed_by_default_and_gates_synced(
+        self,
+    ) -> None:
+        html = render_static_gerrit_ui_html()
+
+        topbar_match = re.search(
+            r'<div class="topbar">(.*?)<div id="globalLoadingBar"',
+            html,
+            flags=re.S,
+        )
+        self.assertIsNotNone(topbar_match)
+        topbar_html = topbar_match.group(1) if topbar_match else ""
+        self.assertNotIn('id="gatePresubmit"', topbar_html)
+        self.assertNotIn('id="gateAgent"', topbar_html)
+        self.assertNotIn('id="gateHideMine"', topbar_html)
+
+        sort_idx = html.index('id="queueTypeToolbar"')
+        filter_idx = html.index('id="queueFilterToolbar"')
+        list_idx = html.index('id="queueList"')
+        self.assertLess(sort_idx, filter_idx)
+        self.assertLess(filter_idx, list_idx)
+
+        self.assertIn(
+            'id="queueFilterToolbar" class="queue-filter-toolbar collapsed"', html
+        )
+        self.assertIn(".queue-filter-toolbar.collapsed .filter-extra-body", html)
+        self.assertIn("filterPresetsCollapsed: true", html)
+        self.assertIn("function syncGateControls(", html)
+        self.assertIn("function toggleFilterPresets(", html)
+        self.assertIn("function makeSessionApprovalKey(", html)
+        self.assertIn("savedNonOwnerGates", html)
+
+        filter_row_match = re.search(
+            r'<div class="queue-filter-row">(.*?)</div>\s*<div id="filterExtraBody"',
+            html,
+            flags=re.S,
+        )
+        self.assertIsNotNone(filter_row_match)
+        filter_row_inner = filter_row_match.group(1) if filter_row_match else ""
+        self.assertIn('id="gatePresubmit"', filter_row_inner)
+        self.assertIn("✓ PV +1/+2", filter_row_inner)
+        self.assertIn('id="gateHideMine"', filter_row_inner)
+        self.assertIn("✓ Hide +2 by Me", filter_row_inner)
+        self.assertIn('id="gateHideSubmittable"', filter_row_inner)
+        self.assertIn("✓ Hide Submittable", filter_row_inner)
+        self.assertIn('id="hiddenSubmittableCount"', filter_row_inner)
+        self.assertIn('id="filterPresetsToggleBtn"', filter_row_inner)
+        self.assertNotIn('id="gateAgent"', filter_row_inner)
+        self.assertIn("hideSubmittable: true", html)
+        self.assertIn(
+            "if (state.gates.hideSubmittable && isClSubmittable(cl)) return false;",
+            html,
+        )
+
+        extra_body_match = re.search(
+            r'<div id="filterExtraBody" class="filter-extra-body">(.*?)</div>\s*</div>\s*<div id="queueList"',
+            html,
+            flags=re.S,
+        )
+        self.assertIsNotNone(extra_body_match)
+        extra_body_inner = extra_body_match.group(1) if extra_body_match else ""
+        self.assertIn('id="gateAgent"', extra_body_inner)
+        self.assertIn('class="gate-pill"', extra_body_inner)
+        self.assertNotIn('class="gate-pill active"', extra_body_inner)
 
 
 if __name__ == "__main__":
