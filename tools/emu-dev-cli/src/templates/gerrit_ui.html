@@ -1870,6 +1870,161 @@
     box-shadow: inset 3px 0 0 rgba(104, 157, 246, 0.85);
     background: rgba(104, 157, 246, 0.06);
   }
+  .qa-turn-item + .qa-turn-item {
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px dashed #313b4f;
+  }
+  .qa-turn-question-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .qa-turn-inflight-btns {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+  .qa-danger-btn {
+    border-color: #6b3438 !important;
+    color: #f6a6ab !important;
+    background: rgba(122, 42, 48, 0.22) !important;
+  }
+  .qa-danger-btn:hover {
+    background: rgba(160, 52, 60, 0.36) !important;
+  }
+  .qa-inline-editor {
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: #151923;
+    border: 1px solid #3c4a66;
+    border-radius: 5px;
+  }
+  .qa-inline-textarea {
+    width: 100%;
+    min-height: 58px;
+    box-sizing: border-box;
+    resize: vertical;
+    background: #10131b;
+    color: var(--g-text);
+    border: 1px solid #39455e;
+    border-radius: 4px;
+    padding: 7px 9px;
+    font-family: var(--g-font);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .qa-inline-textarea:focus {
+    outline: none;
+    border-color: var(--g-accent);
+  }
+  .qa-inline-editor-actions {
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .qa-locked-notice {
+    font-size: 11px;
+    color: #9fb3d9;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  @keyframes qaFlashPulse {
+    0% { box-shadow: 0 0 0 2px rgba(109, 213, 140, 0.95), 0 0 18px rgba(109, 213, 140, 0.45); }
+    100% { box-shadow: 0 0 0 0 rgba(109, 213, 140, 0), 0 0 0 rgba(109, 213, 140, 0); }
+  }
+  .diff-inline-comment.qa-flash-target {
+    animation: qaFlashPulse 1.8s ease-out;
+  }
+  .agent-reply-bubble-stack {
+    position: fixed;
+    right: 20px;
+    bottom: 48px;
+    z-index: 96;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    max-width: min(430px, calc(100vw - 40px));
+    pointer-events: none;
+  }
+  @keyframes replyBubbleSlideIn {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .agent-reply-bubble {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    background: rgba(24, 33, 29, 0.96);
+    border: 1px solid #356348;
+    border-left: 3px solid var(--g-green);
+    color: #e6f4ea;
+    padding: 8px 11px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 500;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+    cursor: pointer;
+    animation: replyBubbleSlideIn 0.16s ease-out;
+    transition: background 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
+  }
+  .agent-reply-bubble:hover {
+    background: rgba(30, 44, 38, 0.99);
+    border-color: #4ca36d;
+    transform: translateY(-1px);
+  }
+  .agent-reply-bubble-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--g-green);
+    box-shadow: 0 0 8px rgba(109, 213, 140, 0.75);
+    flex-shrink: 0;
+  }
+  .agent-reply-bubble-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .agent-reply-bubble-loc {
+    font-family: var(--g-mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #a8f0c0;
+    background: rgba(16, 24, 20, 0.65);
+    padding: 1px 5px;
+    border-radius: 4px;
+    border: 1px solid rgba(76, 163, 109, 0.35);
+  }
+  .agent-reply-bubble-cl {
+    font-size: 10.5px;
+    color: #9ab8a5;
+    flex-shrink: 0;
+  }
+  .agent-reply-bubble-close {
+    background: transparent;
+    border: none;
+    color: #9ab8a5;
+    font-size: 13px;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 4px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .agent-reply-bubble-close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+  }
 
   .swarm-finding {
     margin: 6px 14px 8px 88px;
@@ -1901,8 +2056,9 @@
   }
   .toast {
     position: fixed;
-    bottom: 20px;
-    right: 24px;
+    bottom: 48px;
+    left: 50%;
+    transform: translateX(-50%);
     background: #25272d;
     border: 1px solid #454954;
     color: var(--g-text);
@@ -1911,7 +2067,7 @@
     font-weight: 600;
     display: none;
     box-shadow: 0 6px 18px rgba(0,0,0,0.4);
-    z-index: 100;
+    z-index: 110;
   }
 
   .viewer-select:disabled,
@@ -2995,6 +3151,7 @@
   </div>
 </div>
 
+<div id="agentReplyBubbleStack" class="agent-reply-bubble-stack" aria-live="polite"></div>
 <div id="toast" class="toast"></div>
 
 <script>
@@ -3086,6 +3243,12 @@
     inFlightDiffPromises: {},
     lastKnownPatchSetByCl: {},
     lastRenderedDiffSignature: "",
+    editingQaItemById: {},
+    openFollowupByItemId: {},
+    qaActionInFlightById: new Set(),
+    replyNotifications: [],
+    nextReplyNotifId: 1,
+    cachedSidecarProjectId: null,
   };
 
   const QUEUE_CLIENT_CACHE_TTL_MS = 45000;
@@ -4876,6 +5039,267 @@
     }
   }
 
+  const MAX_REPLY_NOTIFICATION_BUBBLES = 8;
+  const QA_FLASH_DURATION_MS = 1850;
+  const CODE_QUESTION_POLL_INTERVAL_MS = 1800;
+
+  function normalizeQuestionTurns(item) {
+    if (item && Array.isArray(item.turns) && item.turns.length > 0) {
+      return item.turns.map((t, idx) => {
+        const reply = String(t.reply || "").trim();
+        return {
+          turn_index: idx,
+          question: String(t.question || "").trim(),
+          reply,
+          status: reply ? "answered" : (t.status || "thinking"),
+        };
+      });
+    }
+    const fallbackReply = String((item && item.reply) || "").trim();
+    return [{
+      turn_index: 0,
+      question: String((item && item.message) || "").trim(),
+      reply: fallbackReply,
+      status: fallbackReply ? "answered" : ((item && item.reply_status) || "thinking"),
+    }];
+  }
+
+  function isQuestionThreadPending(item) {
+    if (!item || item.kind !== "agent_question") return false;
+    if (item.sending) return true;
+    const turns = normalizeQuestionTurns(item);
+    const last = turns[turns.length - 1];
+    return !Boolean(last && String(last.reply || "").trim());
+  }
+
+  function formatFunctionLineLabel(functionName, filePath, lineNum) {
+    const ln = Math.max(1, Number(lineNum || 1));
+    const fn = String(functionName || "").trim();
+    if (fn) return `${fn}:${ln}`;
+    if (!filePath || filePath === "/COMMIT_MSG") return `COMMIT_MSG:${ln}`;
+    const parts = String(filePath).split("/");
+    const base = parts[parts.length - 1] || filePath;
+    return `${base}:${ln}`;
+  }
+
+  function renderAgentReplyBubbleStack() {
+    const stackEl = document.getElementById("agentReplyBubbleStack");
+    if (!stackEl) return;
+    const list = state.replyNotifications || [];
+    if (list.length === 0) {
+      stackEl.innerHTML = "";
+      return;
+    }
+    stackEl.innerHTML = list.map(notif => {
+      const safeId = escapeHtml(notif.id);
+      const shortFile = notif.filePath === "/COMMIT_MSG"
+        ? "COMMIT_MSG"
+        : String(notif.filePath || "").split("/").slice(-2).join("/");
+      return `<div class="agent-reply-bubble" data-notif-id="${safeId}" onclick="navigateToAgentReplyBubble('${safeId}')" title="Click to jump to ${escapeHtml(notif.filePath || "")}:L${notif.startLine} on ag/${notif.clNum}">
+        <span class="agent-reply-bubble-icon">✨</span>
+        <div class="agent-reply-bubble-text">
+          <div class="agent-reply-bubble-title">Agent responded at <code>${escapeHtml(notif.locLabel)}</code></div>
+          <div class="agent-reply-bubble-sub">ag/${notif.clNum} · ${escapeHtml(shortFile)}</div>
+        </div>
+        <button class="agent-reply-bubble-close" onclick="event.stopPropagation(); dismissAgentReplyBubble('${safeId}')" title="Dismiss notification">✕</button>
+      </div>`;
+    }).join("");
+  }
+
+  function pushAgentReplyNotification(info) {
+    if (!info || !info.clNum) return;
+    const locLabel = formatFunctionLineLabel(info.functionName, info.filePath, info.startLine);
+    const existingIdx = state.replyNotifications.findIndex(
+      n => String(n.itemId) === String(info.itemId) && Number(n.clNum) === Number(info.clNum)
+    );
+    if (existingIdx >= 0) {
+      state.replyNotifications.splice(existingIdx, 1);
+    }
+    state.replyNotifications.push({
+      id: `reply-b-${state.nextReplyNotifId++}`,
+      clNum: Number(info.clNum),
+      itemId: String(info.itemId || ""),
+      conversationId: String(info.conversationId || ""),
+      filePath: String(info.filePath || ""),
+      startLine: Math.max(1, Number(info.startLine || 1)),
+      functionName: String(info.functionName || ""),
+      locLabel,
+    });
+    while (state.replyNotifications.length > MAX_REPLY_NOTIFICATION_BUBBLES) {
+      state.replyNotifications.shift();
+    }
+    renderAgentReplyBubbleStack();
+  }
+
+  function dismissAgentReplyBubble(notifId) {
+    state.replyNotifications = (state.replyNotifications || []).filter(
+      n => String(n.id) !== String(notifId)
+    );
+    renderAgentReplyBubbleStack();
+  }
+
+  async function navigateToAgentReplyBubble(notifId) {
+    const notif = (state.replyNotifications || []).find(n => String(n.id) === String(notifId));
+    dismissAgentReplyBubble(notifId);
+    if (!notif) return;
+
+    const activeNums = getActiveCommitsForDiff().map(c => Number(c.number));
+    if (!activeNums.includes(Number(notif.clNum))) {
+      selectCl(Number(notif.clNum), true);
+      await ensureActiveDiffsLoaded({ preserveScroll: true });
+    }
+
+    const list = state.inlineCommentsByCl[notif.clNum] || [];
+    const item = list.find(
+      it =>
+        String(it.id) === String(notif.itemId) ||
+        (notif.conversationId && String(it.conversation_id || "") === String(notif.conversationId))
+    );
+    if (item) {
+      item.collapsed = false;
+      insertOrReplaceInlineItemInDom(notif.clNum, item, { forceRender: true });
+    }
+
+    const cardEl = document.getElementById(`inlineItem-${item ? item.id : notif.itemId}`);
+    if (!cardEl) return;
+    cardEl.classList.remove("collapsed");
+    const collapseBtn = cardEl.querySelector(".inline-collapse-btn");
+    if (collapseBtn) collapseBtn.textContent = "Hide ▴";
+    cardEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    cardEl.classList.remove("qa-flash-target");
+    void cardEl.offsetWidth;
+    cardEl.classList.add("qa-flash-target");
+    setTimeout(() => cardEl.classList.remove("qa-flash-target"), QA_FLASH_DURATION_MS);
+  }
+
+  function buildIncomingTurnsFromQuestionPayload(q, fallbackQuestion, fallbackReply, fallbackStatus) {
+    if (Array.isArray(q.turns) && q.turns.length > 0) {
+      return q.turns.map((t, idx) => {
+        const rep = String(t.reply || "").trim();
+        return {
+          turn_index: idx,
+          question: String(t.question || "").trim(),
+          reply: rep,
+          status: rep ? "answered" : (t.status || "thinking"),
+        };
+      });
+    }
+    return [{
+      turn_index: 0,
+      question: fallbackQuestion,
+      reply: fallbackReply,
+      status: fallbackStatus,
+    }];
+  }
+
+  function findMatchingInlineQuestionItem(list, q, qFile, qStart, qEnd, qInitialMsg) {
+    return list.find(item => {
+      if (item.kind !== "agent_question") return false;
+      if (item.conversation_id && q.conversation_id && String(item.conversation_id) === String(q.conversation_id)) {
+        return true;
+      }
+      if (q.thread_id && String(item.id) === String(q.thread_id)) return true;
+      if (String(item.id) === String(q.id)) return true;
+      if (item.conversation_id && q.conversation_id) return false;
+      return (
+        (item.file_path || "") === qFile &&
+        Number(item.start_line || item.line || 1) === qStart &&
+        Number(item.end_line || item.line || 1) === qEnd &&
+        String(item.initial_question || item.message || "").trim() === qInitialMsg
+      );
+    });
+  }
+
+  function mergeSingleQuestionIntoClList(num, list, q, opts) {
+    const qFile = q.file_path || "/COMMIT_MSG";
+    const qStart = Number(q.start_line || q.line || 1);
+    const qEnd = Number(q.end_line || q.line || qStart);
+    const qMsg = String(q.question || "").trim();
+    const qInitial = String(q.initial_question || (q.turns && q.turns[0] && q.turns[0].question) || qMsg).trim();
+    const qReply = String(q.reply || "").trim();
+    const qStatus = q.status || (qReply ? "answered" : "thinking");
+    const incomingTurns = buildIncomingTurnsFromQuestionPayload(q, qMsg, qReply, qStatus);
+    const existing = findMatchingInlineQuestionItem(list, q, qFile, qStart, qEnd, qInitial);
+
+    if (!existing) {
+      const latest = incomingTurns[incomingTurns.length - 1];
+      const newItem = {
+        id: q.thread_id || q.id || `inline-${state.nextInlineItemId++}`,
+        conversation_id: q.conversation_id || "",
+        kind: "agent_question",
+        author_name: (state.viewer || "you").split("@")[0],
+        file_path: qFile,
+        line: qEnd,
+        start_line: qStart,
+        end_line: qEnd,
+        side: q.side || "REVISION",
+        function_name: q.function_name || "",
+        initial_question: qInitial,
+        message: latest.question,
+        reply: latest.reply,
+        reply_status: latest.status,
+        turns: incomingTurns,
+        code_snippet: q.code_snippet || "",
+        sending: false,
+        dispatched: true,
+        collapsed: false,
+      };
+      list.push(newItem);
+      if (!opts.silentDom) insertOrReplaceInlineItemInDom(num, newItem);
+      return true;
+    }
+
+    const prevTurns = normalizeQuestionTurns(existing);
+    const prevAnswered = prevTurns.filter(t => Boolean(String(t.reply || "").trim())).length;
+    const mergedTurns = incomingTurns.slice();
+    if (prevTurns.length > mergedTurns.length && !String(prevTurns[prevTurns.length - 1].reply || "").trim()) {
+      mergedTurns.push(...prevTurns.slice(mergedTurns.length));
+    }
+    const latestTurn = mergedTurns[mergedTurns.length - 1];
+    const nextAnswered = mergedTurns.filter(t => Boolean(String(t.reply || "").trim())).length;
+    const prevJson = JSON.stringify(prevTurns);
+    const nextJson = JSON.stringify(mergedTurns);
+    const didChange = prevJson !== nextJson || Boolean(existing.sending) || (q.function_name && !existing.function_name);
+    if (!didChange) return false;
+
+    if (q.conversation_id) existing.conversation_id = q.conversation_id;
+    if (q.function_name) existing.function_name = q.function_name;
+    existing.turns = mergedTurns;
+    existing.initial_question = existing.initial_question || mergedTurns[0].question;
+    existing.message = latestTurn.question;
+    existing.reply = latestTurn.reply;
+    existing.reply_status = latestTurn.status;
+    existing.sending = false;
+    existing.dispatched = true;
+
+    const newlyAnswered = nextAnswered > prevAnswered && Boolean(latestTurn.reply);
+    if (newlyAnswered) {
+      delete state.editingQaItemById[existing.id];
+    }
+    if (!opts.silentDom) {
+      insertOrReplaceInlineItemInDom(num, existing, { forceRender: newlyAnswered });
+    }
+    if (newlyAnswered && !opts.suppressNotifications) {
+      const fnName = existing.function_name || resolveEnclosingSymbolForDiffLine(
+        num,
+        existing.file_path || qFile,
+        existing.start_idx,
+        existing.start_line || qStart,
+        existing.side || "REVISION"
+      );
+      existing.function_name = fnName;
+      pushAgentReplyNotification({
+        clNum: num,
+        itemId: existing.id,
+        conversationId: existing.conversation_id || "",
+        filePath: existing.file_path || qFile,
+        startLine: existing.start_line || qStart,
+        functionName: fnName,
+      });
+    }
+    return true;
+  }
+
   function mergeTranscriptCodeQuestions(questions, opts = {}) {
     if (!Array.isArray(questions) || questions.length === 0) return false;
     let changed = false;
@@ -4885,79 +5309,32 @@
       if (!state.inlineCommentsByCl[num]) {
         state.inlineCommentsByCl[num] = [];
       }
-      const list = state.inlineCommentsByCl[num];
-      const qFile = q.file_path || "/COMMIT_MSG";
-      const qStart = Number(q.start_line || q.line || 1);
-      const qEnd = Number(q.end_line || q.line || qStart);
-      const qMsg = String(q.question || "").trim();
-      const qReply = String(q.reply || "").trim();
-      const qStatus = q.status || (qReply ? "answered" : "thinking");
-
-      const existing = list.find(item =>
-        item.kind === "agent_question" &&
-        (String(item.id) === String(q.id) ||
-          ((item.file_path || "") === qFile &&
-            Number(item.start_line || item.line || 1) === qStart &&
-            Number(item.end_line || item.line || 1) === qEnd &&
-            String(item.message || "").trim() === qMsg))
-      );
-
-      if (existing) {
-        const hadReply = Boolean(existing.reply);
-        if (qReply && existing.reply !== qReply) {
-          existing.reply = qReply;
-          existing.reply_status = "answered";
-          existing.sending = false;
-          existing.dispatched = true;
-          changed = true;
-          if (!opts.silentDom) {
-            insertOrReplaceInlineItemInDom(num, existing);
-            if (!hadReply) {
-              showToast(`✨ Jetski Agent replied on ${qFile}:L${qStart}!`);
-            }
-          }
-        } else if (existing.sending && qStatus) {
-          existing.sending = false;
-          existing.dispatched = true;
-          existing.reply_status = qStatus;
-          if (!opts.silentDom) {
-            insertOrReplaceInlineItemInDom(num, existing);
-          }
-        }
-      } else {
-        const newItem = {
-          id: q.id || `inline-${state.nextInlineItemId++}`,
-          kind: "agent_question",
-          author_name: (state.viewer || "you").split("@")[0],
-          file_path: qFile,
-          line: qEnd,
-          start_line: qStart,
-          end_line: qEnd,
-          side: q.side || "REVISION",
-          message: qMsg,
-          reply: qReply,
-          reply_status: qStatus,
-          code_snippet: q.code_snippet || "",
-          sending: false,
-          dispatched: true,
-          collapsed: false,
-        };
-        list.push(newItem);
+      if (mergeSingleQuestionIntoClList(num, state.inlineCommentsByCl[num], q, opts)) {
         changed = true;
-        if (!opts.silentDom) {
-          insertOrReplaceInlineItemInDom(num, newItem);
-        }
       }
     });
     return changed;
+  }
+
+  function collectClNumbersForQuestionPolling() {
+    const nums = new Set();
+    getActiveCommitsForDiff().forEach(c => {
+      if (c && c.number) nums.add(Number(c.number));
+    });
+    Object.keys(state.inlineCommentsByCl || {}).forEach(clKey => {
+      const list = state.inlineCommentsByCl[clKey] || [];
+      if (list.some(it => isQuestionThreadPending(it))) {
+        nums.add(Number(clKey));
+      }
+    });
+    return Array.from(nums).filter(n => !Number.isNaN(n) && n > 0);
   }
 
   async function pollTranscriptCodeQuestions() {
     if (window.__GERRIT_UI_BOOTSTRAP__ && window.__GERRIT_UI_BOOTSTRAP__.changes) {
       return;
     }
-    const commits = getActiveCommitsForDiff();
-    const clNums = commits.map(c => c.number).filter(Boolean);
+    const clNums = collectClNumbersForQuestionPolling();
     if (clNums.length === 0) return;
     const convId = (window.sidecar && window.sidecar.conversationId) || "";
     try {
@@ -4966,7 +5343,7 @@
       if (!resp.ok) return;
       const data = await resp.json();
       if (Array.isArray(data.questions)) {
-        mergeTranscriptCodeQuestions(data.questions, { silentDom: false });
+        mergeTranscriptCodeQuestions(data.questions, { silentDom: false, suppressNotifications: false });
       }
     } catch (_err) {
       // Ignore transient poll errors
@@ -4976,7 +5353,7 @@
   function hasPendingCodeQuestions() {
     for (const clKey of Object.keys(state.inlineCommentsByCl || {})) {
       const list = state.inlineCommentsByCl[clKey] || [];
-      if (list.some(it => it.kind === "agent_question" && !it.reply)) {
+      if (list.some(it => isQuestionThreadPending(it))) {
         return true;
       }
     }
@@ -4989,7 +5366,7 @@
       if (hasPendingCodeQuestions()) {
         pollTranscriptCodeQuestions();
       }
-    }, 2200);
+    }, CODE_QUESTION_POLL_INTERVAL_MS);
   }
 
   function getInlineCommentsForFile(clNum, filePath) {
@@ -5017,7 +5394,7 @@
       });
     }
     if (bundle && Array.isArray(bundle.code_questions)) {
-      mergeTranscriptCodeQuestions(bundle.code_questions, { silentDom: true });
+      mergeTranscriptCodeQuestions(bundle.code_questions, { silentDom: true, suppressNotifications: true });
     }
     const localList = state.inlineCommentsByCl[num] || [];
     localList.forEach(c => {
@@ -5104,46 +5481,105 @@
     return blocks.join("");
   }
 
-  function renderAgentQuestionCardHtml(num, c, itemId, rangeStr, collapsedCls, toggleLabel, singleLinePreview) {
-    const hasReply = Boolean(c.reply && String(c.reply).trim());
-    const replyPreview = hasReply
-      ? ` · ✨ ${String(c.reply).replace(/[#*`_>~]/g, "").replace(/\s+/g, " ").trim()}`
-      : "";
-    const statusText = hasReply
-      ? "✓ Agent Replied"
-      : (c.sending ? "Sending…" : "⏳ Agent Thinking…");
-    const replyHtml = hasReply
-      ? `<div class="diff-inline-agent-reply">
-          <div class="diff-inline-agent-reply-head">
-            <span>✨ Jetski Agent Reply</span>
+  function renderQuestionTurnItemHtml(num, c, itemId, rangeStr, turn, idx, isLastTurn, isPending) {
+    const safeId = escapeHtml(itemId);
+    const turnLabel = idx === 0 ? "Question" : `Follow-up #${idx}`;
+    const hasTurnReply = Boolean(turn.reply && String(turn.reply).trim());
+
+    if (!isLastTurn || !isPending) {
+      return `<div class="qa-turn-item">
+        <div class="diff-inline-comment-body"><strong>${turnLabel}:</strong> ${renderInlineMarkdownHtml(turn.question || "", false)}</div>
+        ${hasTurnReply ? `<div class="diff-inline-agent-reply">
+          <div class="diff-inline-agent-reply-head"><span>✨ Jetski Agent Reply</span></div>
+          <div class="diff-inline-agent-reply-body">${renderAgentReplyMarkdownHtml(turn.reply)}</div>
+        </div>` : ""}
+      </div>`;
+    }
+
+    const isEditing = state.editingQaItemById[itemId] !== undefined;
+    const actionBusy = state.qaActionInFlightById.has(itemId);
+    const questionBlockHtml = isEditing
+      ? `<div class="qa-inline-editor">
+          <div style="font-size:11px;font-weight:700;color:var(--g-text);">✎ Modify in-flight ${turnLabel.toLowerCase()} (cancels current run &amp; resends):</div>
+          <textarea id="qaModifyInput-${safeId}" class="qa-inline-textarea" oninput="state.editingQaItemById['${safeId}'] = this.value" onkeydown="onQaInlineTextareaKeydown(event, ${num}, '${safeId}', 'modify')">${escapeHtml(state.editingQaItemById[itemId])}</textarea>
+          <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;">
+            <button class="commit-msg-btn" ${actionBusy ? "disabled" : ""} onclick="cancelModifyInflightQuestion(${num}, '${safeId}')">Cancel</button>
+            <button class="btn btn-swarm" style="padding:3px 10px;font-size:11px;" ${actionBusy ? "disabled" : ""} onclick="saveModifiedInflightQuestion(${num}, '${safeId}')">${actionBusy ? "Updating…" : "Save &amp; Resend"}</button>
           </div>
-          <div class="diff-inline-agent-reply-body">${renderAgentReplyMarkdownHtml(c.reply)}</div>
         </div>`
-      : `<div class="diff-inline-agent-reply pending">
-          <span class="btn-spinner"></span>
-          <span>Waiting for Jetski Agent reply on <code>${escapeHtml(c.file_path || "")}:${escapeHtml(rangeStr)}</code>…</span>
+      : `<div class="qa-turn-question-row">
+          <div class="diff-inline-comment-body" style="padding-bottom:2px;"><strong>${turnLabel}:</strong> ${renderInlineMarkdownHtml(turn.question || "", false)}</div>
+          <div class="qa-turn-inflight-btns">
+            <button class="commit-msg-btn" ${actionBusy ? "disabled" : ""} onclick="startModifyInflightQuestion(${num}, '${safeId}')" title="Edit and resend this in-flight question">✎ Modify</button>
+            <button class="commit-msg-btn qa-danger-btn" ${actionBusy ? "disabled" : ""} onclick="deleteInflightCodeQuestion(${num}, '${safeId}')" title="Cancel and delete this in-flight question">🗑 Delete</button>
+          </div>
         </div>`;
 
-    return `<div id="inlineItem-${escapeHtml(itemId)}" class="diff-inline-comment agent-question ${collapsedCls}" data-inline-id="${escapeHtml(itemId)}" data-cl="${num}">
-      <div class="diff-inline-comment-head" onclick="toggleInlineItemCollapse(${num}, '${escapeHtml(itemId)}')" title="Click to expand or collapse agent question &amp; reply">
+    return `<div class="qa-turn-item">
+      ${questionBlockHtml}
+      <div class="diff-inline-agent-reply pending">
+        <span class="btn-spinner"></span>
+        <span>${actionBusy ? "Updating in-flight question…" : `Waiting for Jetski Agent reply on <code>${escapeHtml(c.file_path || "")}:${escapeHtml(rangeStr)}</code>…`}</span>
+      </div>
+    </div>`;
+  }
+
+  function renderAgentQuestionCardHtml(num, c, itemId, rangeStr, collapsedCls, toggleLabel, singleLinePreview) {
+    const safeId = escapeHtml(itemId);
+    const turns = normalizeQuestionTurns(c);
+    const latestTurn = turns[turns.length - 1];
+    const isPending = isQuestionThreadPending(c);
+    const hasReply = !isPending && Boolean(latestTurn && latestTurn.reply);
+    const replyPreview = hasReply
+      ? ` · ✨ ${String(latestTurn.reply).replace(/[#*`_>~]/g, "").replace(/\s+/g, " ").trim()}`
+      : "";
+    const statusText = hasReply
+      ? (turns.length > 1 ? `✓ Replied (${turns.length} turns)` : "✓ Agent Replied")
+      : (c.sending ? "Sending…" : "⏳ Agent Thinking…");
+    const fnBadge = c.function_name
+      ? ` · <code>${escapeHtml(c.function_name)}</code>`
+      : "";
+    const turnsHtml = turns.map((turn, idx) =>
+      renderQuestionTurnItemHtml(num, c, itemId, rangeStr, turn, idx, idx === turns.length - 1, isPending)
+    ).join("");
+
+    const followupDraft = state.openFollowupByItemId[itemId];
+    const followupEditorHtml = (!isPending && followupDraft !== undefined)
+      ? `<div class="qa-inline-editor">
+          <div style="font-size:11px;font-weight:700;color:var(--g-text);">🤖 Ask follow-up in this conversation:</div>
+          <textarea id="qaFollowupInput-${safeId}" class="qa-inline-textarea" placeholder="Ask a follow-up question about ${escapeHtml(c.file_path || "")}:${escapeHtml(rangeStr)}…" oninput="state.openFollowupByItemId['${safeId}'] = this.value" onkeydown="onQaInlineTextareaKeydown(event, ${num}, '${safeId}', 'followup')">${escapeHtml(followupDraft)}</textarea>
+          <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;">
+            <button class="commit-msg-btn" onclick="cancelInlineFollowupComposer(${num}, '${safeId}')">Cancel</button>
+            <button class="btn btn-swarm" style="padding:3px 10px;font-size:11px;" onclick="submitInlineFollowupQuestion(${num}, '${safeId}')">🤖 Send Follow-up</button>
+          </div>
+        </div>`
+      : "";
+
+    const lockedNoticeHtml = isPending
+      ? `<div class="qa-locked-notice">🔒 Follow-up questions in this thread are blocked until the agent responds (use <strong>Modify</strong> or <strong>Delete</strong> above to change your pending question).</div>`
+      : "";
+
+    return `<div id="inlineItem-${safeId}" class="diff-inline-comment agent-question ${collapsedCls}" data-inline-id="${safeId}" data-cl="${num}">
+      <div class="diff-inline-comment-head" onclick="toggleInlineItemCollapse(${num}, '${safeId}')" title="Click to expand or collapse agent conversation">
         <div class="diff-inline-head-left">
-          <span class="diff-inline-head-title">🤖 Asked Agent · <code>${escapeHtml(rangeStr)}</code></span>
+          <span class="diff-inline-head-title">🤖 Asked Agent · <code>${escapeHtml(rangeStr)}</code>${fnBadge}</span>
           <span class="diff-inline-preview">— "${escapeHtml(singleLinePreview)}"${escapeHtml(replyPreview)}</span>
         </div>
         <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
           <span class="diff-inline-status-pill ${hasReply ? "sent" : ""}">${escapeHtml(statusText)}</span>
-          <button class="commit-msg-btn inline-collapse-btn" onclick="event.stopPropagation(); toggleInlineItemCollapse(${num}, '${escapeHtml(itemId)}')">${toggleLabel}</button>
+          <button class="commit-msg-btn inline-collapse-btn" onclick="event.stopPropagation(); toggleInlineItemCollapse(${num}, '${safeId}')">${toggleLabel}</button>
         </div>
       </div>
       <div class="diff-inline-comment-body-wrap">
-        <div class="diff-inline-comment-body"><strong>Question:</strong> ${renderInlineMarkdownHtml(c.message || "", false)}</div>
-        ${replyHtml}
+        ${turnsHtml}
+        ${followupEditorHtml}
+        ${lockedNoticeHtml}
         <div class="diff-inline-actions">
           <span style="font-size:11px;color:var(--g-muted);">Anchored to <code>${escapeHtml(c.file_path || "")}:${escapeHtml(rangeStr)}</code></span>
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-            <button class="commit-msg-btn" onclick="reopenInlineBlockInComposer(${num}, '${escapeHtml(itemId)}', 'ask')">🤖 Ask Follow-up</button>
-            <button class="commit-msg-btn" onclick="reopenInlineBlockInComposer(${num}, '${escapeHtml(itemId)}', 'comment')">💬 Comment on Block</button>
-            <button class="commit-msg-btn" onclick="copyInlineAgentPrompt(${num}, '${escapeHtml(itemId)}')">Copy Prompt</button>
+            ${!isPending && followupDraft === undefined ? `<button class="commit-msg-btn" onclick="openInlineFollowupComposer(${num}, '${safeId}')">🤖 Ask Follow-up</button>` : ""}
+            <button class="commit-msg-btn" onclick="reopenInlineBlockInComposer(${num}, '${safeId}', 'comment')">💬 Comment on Block</button>
+            <button class="commit-msg-btn" onclick="copyInlineAgentPrompt(${num}, '${safeId}')">Copy Prompt</button>
           </div>
         </div>
       </div>
@@ -6010,18 +6446,32 @@
     });
   }
 
-  function insertOrReplaceInlineItemInDom(clNum, item) {
+  function insertOrReplaceInlineItemInDom(clNum, item, opts = {}) {
     if (!item) return;
     const num = Number(clNum);
     if (!item.id) {
       item.id = `inline-${state.nextInlineItemId++}`;
     }
-    const cardHtml = renderInlineCommentCardHtml(num, item);
     const existingEl = document.getElementById(`inlineItem-${item.id}`);
     if (existingEl) {
-      existingEl.outerHTML = cardHtml;
+      const hasOpenEditor = (
+        state.editingQaItemById[item.id] !== undefined ||
+        state.openFollowupByItemId[item.id] !== undefined
+      );
+      if (hasOpenEditor && !opts.forceRender) {
+        return;
+      }
+      existingEl.outerHTML = renderInlineCommentCardHtml(num, item);
+      if (opts.focusTextareaId) {
+        const ta = document.getElementById(opts.focusTextareaId);
+        if (ta) {
+          ta.focus();
+          ta.selectionStart = ta.selectionEnd = ta.value.length;
+        }
+      }
       return;
     }
+    const cardHtml = renderInlineCommentCardHtml(num, item);
 
     const tables = Array.from(document.querySelectorAll(".code-table"));
     const tableEl = tables.find(
@@ -6062,20 +6512,55 @@
     insertAfterEl.insertAdjacentHTML("afterend", cardHtml);
   }
 
+  function removeInlineQuestionCardFromDom(clNum, itemId) {
+    const num = Number(clNum);
+    const idStr = String(itemId || "");
+    const existingList = state.inlineCommentsByCl[num] || [];
+    const removedItem = existingList.find(it => String(it.id) === idStr);
+    state.inlineCommentsByCl[num] = existingList.filter(it => String(it.id) !== idStr);
+    delete state.editingQaItemById[idStr];
+    delete state.openFollowupByItemId[idStr];
+    state.replyNotifications = (state.replyNotifications || []).filter(n => String(n.itemId) !== idStr);
+    renderAgentReplyBubbleStack();
+
+    const cardEl = document.getElementById(`inlineItem-${idStr}`);
+    if (cardEl) cardEl.remove();
+    if (!removedItem) return;
+
+    const tableEl = Array.from(document.querySelectorAll(".code-table")).find(
+      t =>
+        Number(t.getAttribute("data-cl")) === num &&
+        (t.getAttribute("data-file") || "") === (removedItem.file_path || "")
+    );
+    if (!tableEl) return;
+    const remainingQuestions = (state.inlineCommentsByCl[num] || []).filter(
+      it => it.kind === "agent_question" && (it.file_path || "") === (removedItem.file_path || "")
+    );
+    tableEl.querySelectorAll(".code-line.code-line-has-question").forEach(lineEl => {
+      const idx = Number(lineEl.getAttribute("data-idx"));
+      const ln = Number(lineEl.getAttribute("data-new-ln") || lineEl.getAttribute("data-old-ln") || 0);
+      const stillCovered = remainingQuestions.some(q => {
+        if (q.start_idx != null && q.end_idx != null) {
+          return idx >= Number(q.start_idx) && idx <= Number(q.end_idx);
+        }
+        return ln > 0 && ln >= Number(q.start_line || q.line || 1) && ln <= Number(q.end_line || q.line || 1);
+      });
+      if (!stillCovered) lineEl.classList.remove("code-line-has-question");
+    });
+  }
+
   function saveSelectionDraftAsCollapsedItem(prevSel) {
     if (!prevSel || prevSel.savedInlineId) return;
-    const askInput = document.getElementById("codeBlockAskInput");
-    const commentInput = document.getElementById("codeBlockCommentInput");
-    if (askInput) prevSel.askDraft = askInput.value;
-    if (commentInput) prevSel.commentDraft = commentInput.value;
+    const inputEl = document.getElementById("codeBlockCommentInput") || document.getElementById("codeBlockAskInput");
+    if (inputEl) {
+      prevSel.draft = inputEl.value;
+      prevSel.commentDraft = inputEl.value;
+      prevSel.askDraft = inputEl.value;
+    }
 
-    const askText = (prevSel.askDraft || "").trim();
-    const commentText = (prevSel.commentDraft || "").trim();
-    const activeMode = prevSel.mode === "ask"
-      ? (askText ? "ask" : (commentText ? "comment" : "ask"))
-      : (commentText ? "comment" : (askText ? "ask" : "comment"));
-    const draftMsg = activeMode === "ask" ? askText : commentText;
+    const draftMsg = (prevSel.draft || prevSel.commentDraft || prevSel.askDraft || "").trim();
     if (!draftMsg) return;
+    const activeMode = prevSel.mode === "ask" ? "ask" : "comment";
 
     if (!state.inlineCommentsByCl[prevSel.clNum]) {
       state.inlineCommentsByCl[prevSel.clNum] = [];
@@ -6209,9 +6694,7 @@
       : `L${sel.startLine}–L${sel.endLine}`;
     const lineCountLabel = sel.lineCount === 1 ? "1 line" : `${sel.lineCount} lines`;
     const sideBadge = sel.side === "PARENT" ? " · Base/Parent" : "";
-    const isComment = sel.mode !== "ask";
-    const commentDraft = escapeHtml(sel.commentDraft || "");
-    const askDraft = escapeHtml(sel.askDraft || "");
+    const sharedDraft = escapeHtml(sel.draft ?? sel.commentDraft ?? sel.askDraft ?? "");
     const unresolvedChecked = sel.unresolved !== false ? "checked" : "";
     const targetLabel = isCommitMsg ? "Commit Message (/COMMIT_MSG)" : sel.filePath;
 
@@ -6231,36 +6714,6 @@
           <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Can this code block be simplified or made more readable?')">Suggest simplification</button>
         </div>`;
 
-    const bodyHtml = isComment
-      ? `<div class="composer-body">
-          <textarea id="codeBlockCommentInput" class="composer-textarea" placeholder="Write an inline Gerrit review comment for ${escapeHtml(targetLabel)} (${rangeLabel}) — Markdown supported…" oninput="onCodeComposerInput('comment', this.value)" onkeydown="onCodeComposerKeydown(event, 'comment')">${commentDraft}</textarea>
-          <div class="composer-footer">
-            <label class="composer-checkbox-label">
-              <input id="codeBlockUnresolvedChk" type="checkbox" ${unresolvedChecked} onchange="if(state.codeSelection) state.codeSelection.unresolved = this.checked;" />
-              <span>Mark as Unresolved</span>
-            </label>
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <button class="btn" onclick="setCodeSelectionMode('ask')">🤖 Switch to Ask Agent</button>
-              <button id="btnSubmitCodeComment" class="btn btn-approve" onclick="submitSelectedCodeComment(this)">💬 Post Comment to Gerrit (notify: OWNER)</button>
-            </div>
-          </div>
-        </div>`
-      : `<div class="composer-body">
-          ${quickChipsHtml}
-          <textarea id="codeBlockAskInput" class="composer-textarea" placeholder="Ask the Jetski agent a question about ${escapeHtml(targetLabel)} (${rangeLabel})…" oninput="onCodeComposerInput('ask', this.value)" onkeydown="onCodeComposerKeydown(event, 'ask')">${askDraft}</textarea>
-          ${sel.sentPrompt ? `<div class="composer-sent-banner">
-            <span>✓ Sent question &amp; ${isCommitMsg ? "commit message" : "code block"} (<code>${escapeHtml(rangeLabel)}</code>) to Jetski Agent!</span>
-            <button class="commit-msg-btn" onclick="copyLastSentCodePrompt()">Copy Prompt</button>
-          </div>` : ""}
-          <div class="composer-footer">
-            <span style="font-size:11px;color:var(--g-muted);">Includes <code>ag/${sel.clNum}</code>, <code>${escapeHtml(sel.filePath)}:${escapeHtml(rangeLabel)}</code>, and the ${lineCountLabel} snippet</span>
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <button class="btn" onclick="setCodeSelectionMode('comment')">💬 Switch to Gerrit Comment</button>
-              <button id="btnSubmitCodeAsk" class="btn btn-swarm" onclick="submitSelectedCodeQuestion(this)">🤖 Ask Agent About Selection</button>
-            </div>
-          </div>
-        </div>`;
-
     return `<div class="composer-header">
       <div class="composer-loc-badge">
         <span>${isCommitMsg ? "Selected Commit Message" : "Selected Block"} · <strong>ag/${sel.clNum}</strong></span>
@@ -6269,15 +6722,24 @@
         <span class="composer-loc-range">${escapeHtml(rangeLabel)}${escapeHtml(sideBadge)} (${lineCountLabel})</span>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <div class="composer-mode-switch">
-          <button class="composer-mode-tab ${isComment ? "active" : ""}" onclick="setCodeSelectionMode('comment')">💬 Make a Comment</button>
-          <button class="composer-mode-tab ${!isComment ? "active" : ""}" onclick="setCodeSelectionMode('ask')">🤖 Ask Agent Question</button>
-        </div>
         <button class="commit-msg-btn" onclick="copySelectedCodeSnippet()">${isCommitMsg ? "Copy Text" : "Copy Code"}</button>
         <button class="commit-msg-btn" onclick="clearCodeSelection()" title="Clear highlight (Esc)">✕ Close</button>
       </div>
     </div>
-    ${bodyHtml}`;
+    <div class="composer-body">
+      ${quickChipsHtml}
+      <textarea id="codeBlockCommentInput" class="composer-textarea" placeholder="Write a Gerrit review comment or ask the Jetski agent about ${escapeHtml(targetLabel)} (${rangeLabel}) — Markdown supported…" oninput="onCodeComposerInput('unified', this.value)" onkeydown="onCodeComposerKeydown(event, state.codeSelection ? state.codeSelection.mode : 'comment')">${sharedDraft}</textarea>
+      <div class="composer-footer">
+        <label class="composer-checkbox-label">
+          <input id="codeBlockUnresolvedChk" type="checkbox" ${unresolvedChecked} onchange="if(state.codeSelection) state.codeSelection.unresolved = this.checked;" />
+          <span>Mark as Unresolved</span>
+        </label>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <button id="btnSubmitCodeAsk" class="btn btn-swarm" onclick="submitSelectedCodeQuestion(this)">🤖 Ask Agent</button>
+          <button id="btnSubmitCodeComment" class="btn btn-approve" onclick="submitSelectedCodeComment(this)">💬 Post Comment to Gerrit (notify: OWNER)</button>
+        </div>
+      </div>
+    </div>`;
   }
 
   function extractSelectedBlockMetadata(tableEl, selectedEls) {
@@ -6321,8 +6783,8 @@
       composerEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
     if (focusInput) {
-      const inputId = state.codeSelection.mode === "ask" ? "codeBlockAskInput" : "codeBlockCommentInput";
-      document.getElementById(inputId)?.focus();
+      const inputEl = document.getElementById("codeBlockCommentInput") || document.getElementById("codeBlockAskInput");
+      inputEl?.focus();
     }
   }
 
@@ -6352,14 +6814,17 @@
 
     const resolvedMode = opts.mode || (prevSel && prevSel.mode) || "comment";
     const initialDraft = typeof opts.initialDraft === "string" ? opts.initialDraft : null;
+    const prevSharedDraft = isSameBlock ? (prevSel.draft || prevSel.commentDraft || prevSel.askDraft || "") : "";
+    const resolvedDraft = initialDraft !== null ? initialDraft : prevSharedDraft;
     state.codeSelection = {
       ...meta,
       anchorIdx: opts.anchorIdx != null ? Number(opts.anchorIdx) : minIdx,
       startIdx: minIdx,
       endIdx: maxIdx,
       mode: resolvedMode,
-      commentDraft: initialDraft !== null && resolvedMode !== "ask" ? initialDraft : (isSameBlock ? (prevSel.commentDraft || "") : ""),
-      askDraft: initialDraft !== null && resolvedMode === "ask" ? initialDraft : (isSameBlock ? (prevSel.askDraft || "") : ""),
+      draft: resolvedDraft,
+      commentDraft: resolvedDraft,
+      askDraft: resolvedDraft,
       unresolved: isSameBlock && prevSel.unresolved !== undefined ? prevSel.unresolved : true,
       sentPrompt: "",
       savedInlineId: null,
@@ -6398,23 +6863,21 @@
 
   function setCodeSelectionMode(mode) {
     if (!state.codeSelection) return;
-    state.codeSelection.mode = mode === "ask" ? "ask" : "comment";
-    const composerEl = document.getElementById("codeSelectionComposer");
-    if (composerEl) {
-      composerEl.innerHTML = buildCodeSelectionComposerInnerHtml(state.codeSelection);
-      const inputId = state.codeSelection.mode === "ask" ? "codeBlockAskInput" : "codeBlockCommentInput";
-      const inputEl = document.getElementById(inputId);
-      if (inputEl) inputEl.focus();
+    const inputEl = document.getElementById("codeBlockCommentInput") || document.getElementById("codeBlockAskInput");
+    if (inputEl) {
+      state.codeSelection.draft = inputEl.value;
+      state.codeSelection.commentDraft = inputEl.value;
+      state.codeSelection.askDraft = inputEl.value;
     }
+    state.codeSelection.mode = mode === "ask" ? "ask" : "comment";
+    if (inputEl) inputEl.focus();
   }
 
-  function onCodeComposerInput(mode, val) {
+  function onCodeComposerInput(_mode, val) {
     if (!state.codeSelection) return;
-    if (mode === "ask") {
-      state.codeSelection.askDraft = val;
-    } else {
-      state.codeSelection.commentDraft = val;
-    }
+    state.codeSelection.draft = val;
+    state.codeSelection.commentDraft = val;
+    state.codeSelection.askDraft = val;
   }
 
   function onCodeComposerKeydown(event, mode) {
@@ -6436,8 +6899,10 @@
   function applyQuickCodeQuestion(promptText) {
     if (!state.codeSelection) return;
     state.codeSelection.mode = "ask";
+    state.codeSelection.draft = promptText;
+    state.codeSelection.commentDraft = promptText;
     state.codeSelection.askDraft = promptText;
-    const inputEl = document.getElementById("codeBlockAskInput");
+    const inputEl = document.getElementById("codeBlockCommentInput") || document.getElementById("codeBlockAskInput");
     if (inputEl) {
       inputEl.value = promptText;
       inputEl.focus();
@@ -6459,8 +6924,8 @@
   async function submitSelectedCodeComment(btnEl) {
     const sel = state.codeSelection;
     if (!sel) return;
-    const inputEl = document.getElementById("codeBlockCommentInput");
-    const message = (inputEl ? inputEl.value : sel.commentDraft || "").trim();
+    const inputEl = document.getElementById("codeBlockCommentInput") || document.getElementById("codeBlockAskInput");
+    const message = (inputEl ? inputEl.value : (sel.draft || sel.commentDraft || sel.askDraft || "")).trim();
     if (!message) {
       showToast("Please enter a comment message before posting.");
       if (inputEl) inputEl.focus();
@@ -6532,47 +6997,148 @@
     }
   }
 
-  async function dispatchCodeQuestionWithFallback(sel, rangeLabel, formattedPrompt, question) {
-    let sentViaSidecar = false;
-    if (window.sidecar && window.sidecar.agent) {
-      sentViaSidecar = await dispatchAgentPrompt(
-        sel.clNum,
-        `Code Question (${sel.filePath}:${rangeLabel})`,
-        formattedPrompt
-      );
+  const NON_FUNCTION_KEYWORDS = new Set([
+    "if", "else", "for", "while", "switch", "case", "catch", "return",
+    "sizeof", "alignof", "decltype", "static_assert", "new", "delete",
+  ]);
+
+  function extractSymbolFromCodeLine(rawLine) {
+    let text = String(rawLine || "");
+    if (!text) return "";
+    const hunkMatch = text.match(/^@@[^@]+@@\s*(.+)$/);
+    if (hunkMatch) text = hunkMatch[1];
+    const trimmed = text.trim();
+    if (!trimmed || trimmed.startsWith("//") || trimmed.startsWith("#") || trimmed.startsWith("/*") || trimmed.startsWith("*")) {
+      return "";
     }
-    let serverDispatched = false;
-    if (!sentViaSidecar) {
-      const resp = await sidecarFetch("/api/gerrit/ask-code", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cl: sel.clNum,
-          file_path: sel.filePath,
-          start_line: sel.startLine,
-          end_line: sel.endLine,
-          side: sel.side,
-          code_snippet: sel.codeSnippet,
-          question,
-          conversationId: (window.sidecar && window.sidecar.conversationId) || "",
-        }),
-      });
-      const data = await resp.json();
-      serverDispatched = Boolean(data && data.dispatched);
+    const pyMatch = trimmed.match(/^(?:async\s+)?(?:def|class)\s+([^\s(:]+)\s*[:(]/);
+    if (pyMatch) return pyMatch[1];
+    const goMatch = trimmed.match(/^func\s+(?:\([^)]*\)\s*)?([^\s([<]+)/);
+    if (goMatch) return goMatch[1];
+    const rustMatch = trimmed.match(/^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?(?:fn|struct|impl)\s+([^\s(<{]+)/);
+    if (rustMatch) return rustMatch[1];
+    const jsFnMatch = trimmed.match(/^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*([^\s(<]+)\s*\(/);
+    if (jsFnMatch) return jsFnMatch[1];
+    const cppMatch = trimmed.match(
+      /^(?:[\w:<>*&~\[\],\s]+?\s+)?([~A-Za-z_\u0080-\uffff\ud800-\udfff][\w\u0080-\uffff\ud800-\udfff:]*)\s*\([^;]*$/
+    );
+    if (cppMatch) {
+      const cand = cppMatch[1];
+      const base = cand.includes("::") ? cand.split("::").pop() : cand;
+      if (base && !NON_FUNCTION_KEYWORDS.has(base)) return cand;
     }
-    const dispatched = Boolean(sentViaSidecar || serverDispatched);
+    return "";
+  }
+
+  function resolveEnclosingSymbolForDiffLine(clNum, filePath, lineIdx, targetLine, side) {
+    if (!filePath || filePath === "/COMMIT_MSG") return "";
+    const bundle = state.diffsByCl[Number(clNum)];
+    const files = (bundle && bundle.files) || [];
+    const fileEntry = files.find(f => (f.file || "") === filePath);
+    if (!fileEntry || !Array.isArray(fileEntry.lines) || fileEntry.lines.length === 0) {
+      return "";
+    }
+    const lines = fileEntry.lines;
+    const isParent = String(side || "").toUpperCase() === "PARENT";
+    let startScanIdx = -1;
+    if (lineIdx != null && !Number.isNaN(Number(lineIdx))) {
+      startScanIdx = Math.min(lines.length - 1, Math.max(0, Number(lineIdx)));
+    } else {
+      const tgt = Number(targetLine || 1);
+      for (let i = 0; i < lines.length; i++) {
+        const rawVal = isParent
+          ? (lines[i].old || lines[i].old_ln)
+          : (lines[i].new || lines[i].new_ln);
+        const n = Number(rawVal || 0);
+        if (!Number.isNaN(n) && n >= tgt) {
+          startScanIdx = i;
+          break;
+        }
+      }
+      if (startScanIdx < 0) startScanIdx = lines.length - 1;
+    }
+    for (let idx = startScanIdx; idx >= 0; idx--) {
+      const entry = lines[idx];
+      const ltype = entry.type || "";
+      const rawText = String(entry.text || "");
+      if (ltype === "hunk") {
+        return extractSymbolFromCodeLine(rawText);
+      }
+      if ((ltype === "del" && !isParent) || (ltype === "add" && isParent)) {
+        continue;
+      }
+      const codeBody = /^[+\- ]/.test(rawText) ? rawText.slice(1) : rawText;
+      if (codeBody.length - codeBody.trimStart().length > 8) {
+        continue;
+      }
+      const sym = extractSymbolFromCodeLine(codeBody);
+      if (sym) return sym;
+    }
+    return "";
+  }
+
+  async function resolveSidecarProjectId() {
+    if (state.cachedSidecarProjectId !== null) {
+      return state.cachedSidecarProjectId || "";
+    }
+    const parentConv = (window.sidecar && window.sidecar.conversationId) || "";
+    if (!parentConv || !window.sidecar || !window.sidecar.agent || !window.sidecar.agent.getConversationMetadata) {
+      state.cachedSidecarProjectId = "";
+      return "";
+    }
+    try {
+      const meta = await window.sidecar.agent.getConversationMetadata(parentConv);
+      const pid = String((meta && (meta.projectId || meta.project_id || (meta.metadata && meta.metadata.projectId))) || "").trim();
+      state.cachedSidecarProjectId = pid;
+      return pid;
+    } catch (_err) {
+      state.cachedSidecarProjectId = "";
+      return "";
+    }
+  }
+
+  async function dispatchIsolatedCodeQuestion(sel, questionItem, formattedPrompt, question) {
+    const projectId = await resolveSidecarProjectId();
+    const resp = await sidecarFetch("/api/gerrit/ask-code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cl: sel.clNum,
+        file_path: sel.filePath,
+        start_line: sel.startLine,
+        end_line: sel.endLine,
+        side: sel.side,
+        code_snippet: sel.codeSnippet,
+        question,
+        spawnNew: true,
+        threadId: questionItem.id,
+        function_name: questionItem.function_name || "",
+        projectId,
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      throw new Error((data && data.error) || `HTTP ${resp.status}`);
+    }
+    const dispatched = Boolean(data && data.dispatched);
     if (!dispatched) {
       navigator.clipboard?.writeText(formattedPrompt);
     }
-    return dispatched;
+    return {
+      dispatched,
+      conversationId: String((data && data.conversation_id) || ""),
+      turns: Array.isArray(data && data.turns) ? data.turns : null,
+    };
   }
 
-  async function submitSelectedCodeQuestion(btnEl) {
+  async function submitSelectedCodeQuestion(_btnEl) {
     const sel = state.codeSelection;
     if (!sel) return;
-    const inputEl = document.getElementById("codeBlockAskInput");
-    const question = (inputEl ? inputEl.value : sel.askDraft || "").trim()
+    const inputEl = document.getElementById("codeBlockCommentInput") || document.getElementById("codeBlockAskInput");
+    const question = (inputEl ? inputEl.value : (sel.draft || sel.askDraft || sel.commentDraft || "")).trim()
       || "Please explain this highlighted code block and check for any potential bugs or edge cases.";
+    sel.draft = question;
+    sel.commentDraft = question;
     sel.askDraft = question;
 
     const rangeLabel = sel.startLine === sel.endLine ? `L${sel.startLine}` : `L${sel.startLine}-${sel.endLine}`;
@@ -6581,10 +7147,18 @@
       `Regarding Gerrit CL \`ag/${sel.clNum}\` in \`${sel.filePath}\` (${rangeLabel}${sideNote}):\n\n` +
       `\`\`\`\n${sel.codeSnippet}\n\`\`\`\n\n` +
       `**Question:** ${question}`;
+    const functionName = resolveEnclosingSymbolForDiffLine(
+      sel.clNum,
+      sel.filePath,
+      sel.startIdx,
+      sel.startLine,
+      sel.side
+    );
 
     if (!state.inlineCommentsByCl[sel.clNum]) state.inlineCommentsByCl[sel.clNum] = [];
     const questionItem = {
       id: `inline-${state.nextInlineItemId++}`,
+      conversation_id: "",
       kind: "agent_question",
       author_name: (state.viewer || "you").split("@")[0],
       file_path: sel.filePath,
@@ -6594,7 +7168,12 @@
       start_idx: sel.startIdx,
       end_idx: sel.endIdx,
       side: sel.side,
+      function_name: functionName,
+      initial_question: question,
       message: question,
+      reply: "",
+      reply_status: "thinking",
+      turns: [{ turn_index: 0, question, reply: "", status: "thinking" }],
       prompt: formattedPrompt,
       code_snippet: sel.codeSnippet,
       sending: true,
@@ -6606,25 +7185,266 @@
     state.inlineCommentsByCl[sel.clNum].push(questionItem);
 
     clearCodeSelection();
-    insertOrReplaceInlineItemInDom(sel.clNum, questionItem);
+    insertOrReplaceInlineItemInDom(sel.clNum, questionItem, { forceRender: true });
 
     try {
-      const dispatched = await dispatchCodeQuestionWithFallback(sel, rangeLabel, formattedPrompt, question);
+      const res = await dispatchIsolatedCodeQuestion(sel, questionItem, formattedPrompt, question);
       questionItem.sending = false;
-      questionItem.dispatched = dispatched;
-      insertOrReplaceInlineItemInDom(sel.clNum, questionItem);
+      questionItem.dispatched = res.dispatched;
+      if (res.conversationId) questionItem.conversation_id = res.conversationId;
+      if (res.turns) questionItem.turns = res.turns;
+      insertOrReplaceInlineItemInDom(sel.clNum, questionItem, { forceRender: true });
       ensureCodeQuestionPollingTimer();
+      const locLabel = formatFunctionLineLabel(functionName, sel.filePath, sel.startLine);
       document.getElementById("drawerStatus").textContent =
-        `Sent question about ${sel.filePath}:${rangeLabel} on ag/${sel.clNum} to Jetski Agent`;
+        `Started isolated agent Q&A at ${locLabel} on ag/${sel.clNum}`;
       showToast(
-        dispatched
-          ? `🤖 Sent code question (${sel.filePath}:${rangeLabel}) to Jetski Agent!`
-          : `🤖 Prepared code question (${sel.filePath}:${rangeLabel}) and copied to clipboard!`
+        res.dispatched
+          ? `🤖 Started background agent Q&A at ${locLabel}!`
+          : `🤖 Prepared code question (${locLabel}) and copied to clipboard!`
       );
     } catch (err) {
       questionItem.sending = false;
-      insertOrReplaceInlineItemInDom(sel.clNum, questionItem);
+      insertOrReplaceInlineItemInDom(sel.clNum, questionItem, { forceRender: true });
       showToast("Could not send question to agent: " + err);
+    }
+  }
+
+  function onQaInlineTextareaKeydown(event, clNum, itemId, mode) {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      if (mode === "modify") saveModifiedInflightQuestion(clNum, itemId);
+      else submitInlineFollowupQuestion(clNum, itemId);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (mode === "modify") cancelModifyInflightQuestion(clNum, itemId);
+      else cancelInlineFollowupComposer(clNum, itemId);
+    }
+  }
+
+  function startModifyInflightQuestion(clNum, itemId) {
+    const item = findInlineItemById(clNum, itemId);
+    if (!item || !isQuestionThreadPending(item)) return;
+    const turns = normalizeQuestionTurns(item);
+    const latest = turns[turns.length - 1];
+    state.editingQaItemById[item.id] = latest ? latest.question : (item.message || "");
+    insertOrReplaceInlineItemInDom(clNum, item, {
+      forceRender: true,
+      focusTextareaId: `qaModifyInput-${item.id}`,
+    });
+  }
+
+  function cancelModifyInflightQuestion(clNum, itemId) {
+    const item = findInlineItemById(clNum, itemId);
+    delete state.editingQaItemById[itemId];
+    if (item) {
+      insertOrReplaceInlineItemInDom(clNum, item, { forceRender: true });
+    }
+  }
+
+  async function saveModifiedInflightQuestion(clNum, itemId) {
+    const num = Number(clNum);
+    const item = findInlineItemById(num, itemId);
+    if (!item || state.qaActionInFlightById.has(item.id)) return;
+    const ta = document.getElementById(`qaModifyInput-${item.id}`);
+    const newQuestion = String((ta ? ta.value : state.editingQaItemById[item.id]) || "").trim();
+    if (!newQuestion) {
+      showToast("Enter a non-empty question or click Delete to cancel it.");
+      return;
+    }
+
+    state.qaActionInFlightById.add(item.id);
+    insertOrReplaceInlineItemInDom(num, item, { forceRender: true });
+    try {
+      const projectId = await resolveSidecarProjectId();
+      const resp = await sidecarFetch("/api/gerrit/code-question-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "modify",
+          cl: num,
+          conversationId: item.conversation_id || "",
+          threadId: item.id,
+          question: newQuestion,
+          file_path: item.file_path || "",
+          start_line: item.start_line || item.line || 1,
+          end_line: item.end_line || item.line || 1,
+          side: item.side || "REVISION",
+          code_snippet: item.code_snippet || "",
+          function_name: item.function_name || "",
+          projectId,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error((data && data.error) || `HTTP ${resp.status}`);
+
+      delete state.editingQaItemById[item.id];
+      state.qaActionInFlightById.delete(item.id);
+      if (data.conversation_id) item.conversation_id = data.conversation_id;
+      if (Array.isArray(data.turns) && data.turns.length > 0) {
+        item.turns = data.turns;
+        item.initial_question = data.turns[0].question;
+      } else {
+        const turns = normalizeQuestionTurns(item);
+        turns[turns.length - 1] = { turn_index: turns.length - 1, question: newQuestion, reply: "", status: "thinking" };
+        item.turns = turns;
+      }
+      item.message = newQuestion;
+      item.reply = "";
+      item.reply_status = "thinking";
+      item.sending = false;
+      insertOrReplaceInlineItemInDom(num, item, { forceRender: true });
+      ensureCodeQuestionPollingTimer();
+      showToast("✎ Updated and resent question to Jetski Agent!");
+    } catch (err) {
+      state.qaActionInFlightById.delete(item.id);
+      insertOrReplaceInlineItemInDom(num, item, { forceRender: true });
+      showToast("Could not modify question: " + err);
+    }
+  }
+
+  async function deleteInflightCodeQuestion(clNum, itemId) {
+    const num = Number(clNum);
+    const item = findInlineItemById(num, itemId);
+    if (!item || state.qaActionInFlightById.has(item.id)) return;
+
+    state.qaActionInFlightById.add(item.id);
+    insertOrReplaceInlineItemInDom(num, item, { forceRender: true });
+    try {
+      const resp = await sidecarFetch("/api/gerrit/code-question-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete",
+          cl: num,
+          conversationId: item.conversation_id || "",
+          threadId: item.id,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error((data && data.error) || `HTTP ${resp.status}`);
+
+      state.qaActionInFlightById.delete(item.id);
+      delete state.editingQaItemById[item.id];
+      if (data.thread_deleted || !Array.isArray(data.turns) || data.turns.length === 0) {
+        removeInlineQuestionCardFromDom(num, item.id);
+        showToast("🗑 Cancelled and deleted in-flight question.");
+        return;
+      }
+
+      item.turns = data.turns;
+      const prevTurn = data.turns[data.turns.length - 1];
+      item.message = prevTurn.question;
+      item.reply = prevTurn.reply;
+      item.reply_status = "answered";
+      item.sending = false;
+      insertOrReplaceInlineItemInDom(num, item, { forceRender: true });
+      showToast("🗑 Cancelled and deleted pending follow-up question.");
+    } catch (err) {
+      state.qaActionInFlightById.delete(item.id);
+      insertOrReplaceInlineItemInDom(num, item, { forceRender: true });
+      showToast("Could not delete question: " + err);
+    }
+  }
+
+  function openInlineFollowupComposer(clNum, itemId) {
+    const item = findInlineItemById(clNum, itemId);
+    if (!item) return;
+    if (isQuestionThreadPending(item)) {
+      showToast("Wait for the agent's reply before submitting another question in this conversation.");
+      return;
+    }
+    state.openFollowupByItemId[item.id] = "";
+    insertOrReplaceInlineItemInDom(clNum, item, {
+      forceRender: true,
+      focusTextareaId: `qaFollowupInput-${item.id}`,
+    });
+  }
+
+  function cancelInlineFollowupComposer(clNum, itemId) {
+    const item = findInlineItemById(clNum, itemId);
+    delete state.openFollowupByItemId[itemId];
+    if (item) {
+      insertOrReplaceInlineItemInDom(clNum, item, { forceRender: true });
+    }
+  }
+
+  async function submitInlineFollowupQuestion(clNum, itemId) {
+    const num = Number(clNum);
+    const item = findInlineItemById(num, itemId);
+    if (!item) return;
+    if (isQuestionThreadPending(item)) {
+      showToast("Wait for the agent's reply before submitting another question in this conversation.");
+      return;
+    }
+    const ta = document.getElementById(`qaFollowupInput-${item.id}`);
+    const followupText = String((ta ? ta.value : state.openFollowupByItemId[item.id]) || "").trim();
+    if (!followupText) {
+      showToast("Enter a follow-up question first.");
+      return;
+    }
+
+    delete state.openFollowupByItemId[item.id];
+    const turns = normalizeQuestionTurns(item);
+    turns.push({
+      turn_index: turns.length,
+      question: followupText,
+      reply: "",
+      status: "thinking",
+    });
+    item.turns = turns;
+    item.message = followupText;
+    item.reply = "";
+    item.reply_status = "thinking";
+    item.sending = true;
+    insertOrReplaceInlineItemInDom(num, item, { forceRender: true });
+
+    try {
+      const projectId = await resolveSidecarProjectId();
+      const hasExistingConv = Boolean(item.conversation_id);
+      const resp = await sidecarFetch("/api/gerrit/ask-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cl: num,
+          file_path: item.file_path || "",
+          start_line: item.start_line || item.line || 1,
+          end_line: item.end_line || item.line || 1,
+          side: item.side || "REVISION",
+          code_snippet: item.code_snippet || "",
+          question: followupText,
+          conversationId: item.conversation_id || "",
+          spawnNew: !hasExistingConv,
+          threadId: item.id,
+          function_name: item.function_name || "",
+          projectId,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error((data && data.error) || `HTTP ${resp.status}`);
+
+      item.sending = false;
+      item.dispatched = Boolean(data && data.dispatched);
+      if (data.conversation_id) item.conversation_id = data.conversation_id;
+      if (Array.isArray(data.turns) && data.turns.length > 0) item.turns = data.turns;
+      insertOrReplaceInlineItemInDom(num, item, { forceRender: true });
+      ensureCodeQuestionPollingTimer();
+      showToast("🤖 Sent follow-up question in thread!");
+    } catch (err) {
+      item.turns = turns.slice(0, -1);
+      const prev = item.turns[item.turns.length - 1];
+      item.message = prev ? prev.question : "";
+      item.reply = prev ? prev.reply : "";
+      item.reply_status = "answered";
+      item.sending = false;
+      state.openFollowupByItemId[item.id] = followupText;
+      insertOrReplaceInlineItemInDom(num, item, {
+        forceRender: true,
+        focusTextareaId: `qaFollowupInput-${item.id}`,
+      });
+      showToast("Could not send follow-up: " + err);
     }
   }
 

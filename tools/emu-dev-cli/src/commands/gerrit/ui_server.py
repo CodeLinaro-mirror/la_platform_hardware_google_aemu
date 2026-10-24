@@ -1405,6 +1405,125 @@ _CODE_QUESTION_PROMPT_RE = re.compile(
     re.DOTALL,
 )
 
+_CODE_FOLLOWUP_PROMPT_RE = re.compile(
+    r"Follow-up on Gerrit CL `ag/(?P<cl>\d+)` in `(?P<file_path>[^`]+)` "
+    r"\(L(?P<start_line>\d+)(?:[-–](?:L)?(?P<end_line>\d+))?(?P<side_note>[^)]*)\):\s*"
+    r"\*\*Question:\*\*\s*(?P<question>.*?)(?:</SYSTEM_MESSAGE>|</USER_REQUEST>|\Z)",
+    re.DOTALL,
+)
+
+_IDENT_START_CLASS = r"[A-Za-z_\u0080-\U0010ffff]"
+_IDENT_CONT_CLASS = r"[\w\u0080-\U0010ffff]"
+_HUNK_CONTEXT_RE = re.compile(r"^@@[^@]+@@\s*(.+?)\s*$")
+_PY_DEF_OR_CLASS_RE = re.compile(
+    rf"^\s*(?:async\s+def|def|class)\s+({_IDENT_START_CLASS}{_IDENT_CONT_CLASS}*)"
+)
+_GO_FUNC_RE = re.compile(
+    rf"^\s*func\s+(?:\([^)]*\)\s*)?({_IDENT_START_CLASS}{_IDENT_CONT_CLASS}*)\s*[\[(]"
+)
+_RUST_FN_RE = re.compile(
+    rf"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+|unsafe\s+|const\s+|extern\s+(?:\"[^\"]*\"\s+)?)*"
+    rf"fn\s+({_IDENT_START_CLASS}{_IDENT_CONT_CLASS}*)"
+)
+_JS_FUNC_RE = re.compile(
+    rf"^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*"
+    rf"([A-Za-z_$\u0080-\U0010ffff][\w$\u0080-\U0010ffff]*)\s*[(<]"
+)
+_JS_ARROW_RE = re.compile(
+    rf"^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$\u0080-\U0010ffff][\w$\u0080-\U0010ffff]*)\s*="
+    rf"\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$\u0080-\U0010ffff][\w$\u0080-\U0010ffff]*)\s*=>"
+)
+_C_STYLE_FUNC_RE = re.compile(
+    rf"(?:^|[\s*&>:])(~?{_IDENT_START_CLASS}{_IDENT_CONT_CLASS}*"
+    rf"(?:::[~A-Za-z_\u0080-\U0010ffff]{_IDENT_CONT_CLASS}*)*)\s*\("
+)
+_NON_FUNCTION_KEYWORDS: frozenset[str] = frozenset({
+    "if",
+    "else",
+    "for",
+    "while",
+    "switch",
+    "catch",
+    "return",
+    "sizeof",
+    "alignof",
+    "decltype",
+    "static_assert",
+    "typeof",
+    "new",
+    "delete",
+    "throw",
+    "case",
+    "LOCK",
+    "GUARDED_BY",
+})
+
+MAX_RECENT_BRAIN_DIRS = 15
+LS_CONNECT_RPC_TIMEOUT_SEC = 10
+
+
+def extract_symbol_from_code_line(raw_line: str) -> str:
+    """Extracts a function, method, or class identifier from a declaration or diff hunk line."""
+    line = (raw_line or "").strip()
+    if not line or line.startswith(("//", "#", "/*", "*")):
+        return ""
+    for pattern in (_PY_DEF_OR_CLASS_RE, _GO_FUNC_RE, _RUST_FN_RE, _JS_FUNC_RE, _JS_ARROW_RE):
+        m = pattern.match(line)
+        if m:
+            return m.group(1)
+    if "=" in line.split("(", 1)[0] or line.endswith(";"):
+        return ""
+    m_c = _C_STYLE_FUNC_RE.search(line)
+    if not m_c:
+        return ""
+    cand = m_c.group(1).lstrip(":")
+    short_tail = cand.rsplit("::", 1)[-1]
+    if cand in _NON_FUNCTION_KEYWORDS or short_tail in _NON_FUNCTION_KEYWORDS:
+        return ""
+    return cand
+
+
+def extract_enclosing_function_from_diff_lines(
+    diff_lines: list[dict[str, Any]],
+    target_line: int,
+    side: str = "REVISION",
+) -> str:
+    """Finds the nearest enclosing function/method/class name at or above `target_line` in `diff_lines`."""
+    if not diff_lines:
+        return ""
+    ln_key = "old" if str(side).upper() == "PARENT" else "new"
+    alt_key = f"{ln_key}_ln"
+    hit_idx = -1
+    for idx, entry in enumerate(diff_lines):
+        raw_val = entry.get(ln_key)
+        if raw_val in (None, ""):
+            raw_val = entry.get(alt_key)
+        raw_num = str(raw_val if raw_val is not None else "").strip()
+        if raw_num.isdigit() and int(raw_num) == int(target_line):
+            hit_idx = idx
+            break
+    if hit_idx < 0:
+        return ""
+
+    for idx in range(hit_idx, -1, -1):
+        entry = diff_lines[idx]
+        ltype = entry.get("type")
+        text = str(entry.get("text") or "")
+        if ltype == "hunk":
+            m_hunk = _HUNK_CONTEXT_RE.match(text)
+            return extract_symbol_from_code_line(m_hunk.group(1)) if m_hunk else ""
+        if ltype == "del" and ln_key == "new":
+            continue
+        if ltype == "add" and ln_key == "old":
+            continue
+        code_body = text[1:] if text.startswith(("+", "-", " ")) else text
+        if code_body != code_body.lstrip() and len(code_body) - len(code_body.lstrip()) > 8:
+            continue
+        sym = extract_symbol_from_code_line(code_body)
+        if sym:
+            return sym
+    return ""
+
 
 def build_code_question_prompt(
     cl_number: str | int,
@@ -1435,34 +1554,103 @@ def build_code_question_prompt(
     )
 
 
+def build_code_followup_prompt(
+    cl_number: str | int,
+    file_path: str,
+    start_line: int,
+    end_line: int,
+    question: str,
+    *,
+    side: str = "REVISION",
+) -> str:
+    """Builds a structured follow-up prompt within an existing inline code Q&A conversation."""
+    cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+    cleaned_file = (file_path or "").strip() or "/COMMIT_MSG"
+    s_ln = max(1, int(start_line or 1))
+    e_ln = max(s_ln, int(end_line or s_ln))
+    range_label = f"L{s_ln}" if s_ln == e_ln else f"L{s_ln}-L{e_ln}"
+    side_note = " (PARENT / base)" if str(side).upper() == "PARENT" else ""
+    cleaned_question = (question or "").strip()
+    return (
+        f"Follow-up on Gerrit CL `ag/{cl_id}` in `{cleaned_file}` ({range_label}{side_note}):\n\n"
+        f"**Question:** {cleaned_question}"
+    )
+
+
+def _collect_planner_reply_until_next_prompt(
+    steps: list[dict[str, Any]], start_idx: int
+) -> tuple[str, int]:
+    """Collects `PLANNER_RESPONSE` text after `start_idx` up to the next user/question step."""
+    reply_parts: list[str] = []
+    last_step_index = int(steps[start_idx].get("step_index", start_idx) or start_idx)
+    for next_step in steps[start_idx + 1 :]:
+        next_type = str(next_step.get("type") or "")
+        next_content = str(next_step.get("content") or "")
+        if next_type == "USER_INPUT":
+            break
+        if next_type == "SYSTEM_MESSAGE" and (
+            "Regarding Gerrit CL `ag/" in next_content
+            or "Follow-up on Gerrit CL `ag/" in next_content
+        ):
+            break
+        step_idx = int(next_step.get("step_index", last_step_index) or last_step_index)
+        last_step_index = max(last_step_index, step_idx)
+        if next_type == "PLANNER_RESPONSE" and next_content.strip():
+            reply_parts.append(next_content.strip())
+    return "\n\n".join(reply_parts).strip(), last_step_index
+
+
+def _extract_followup_question_text(step: dict[str, Any]) -> str:
+    """Extracts follow-up question text from a `USER_INPUT` or follow-up `SYSTEM_MESSAGE` step."""
+    step_type = str(step.get("type") or "")
+    content = str(step.get("content") or "")
+    m_followup = _CODE_FOLLOWUP_PROMPT_RE.search(content)
+    if m_followup:
+        return (m_followup.group("question") or "").strip()
+    if step_type != "USER_INPUT":
+        return ""
+    cleaned = re.sub(r"</?USER_REQUEST>", "", content).strip()
+    if not cleaned or "Regarding Gerrit CL `ag/" in cleaned:
+        return ""
+    return cleaned
+
+
 def parse_code_questions_from_transcript_lines(
     lines: list[str],
     conv_id: str = "",
     filter_cls: set[str] | None = None,
+    ignored_steps: set[int] | None = None,
 ) -> list[dict[str, Any]]:
-    """Extracts inline code block questions and their corresponding Jetski agent replies from JSONL transcript lines."""
+    """Extracts inline code block Q&A threads (including multi-turn follow-ups) from JSONL transcript lines."""
     steps: list[dict[str, Any]] = []
     for raw_line in lines:
-        raw_line = raw_line.strip()
-        if not raw_line:
+        stripped = raw_line.strip()
+        if not stripped:
             continue
         try:
-            obj = json.loads(raw_line)
+            obj = json.loads(stripped)
             if isinstance(obj, dict):
                 steps.append(obj)
         except Exception:
             continue
 
     results: list[dict[str, Any]] = []
-    n_steps = len(steps)
-    for idx, step in enumerate(steps):
-        step_type = str(step.get("type") or "")
-        if step_type not in ("SYSTEM_MESSAGE", "USER_INPUT"):
+    root_prompt_indices = [
+        idx
+        for idx, step in enumerate(steps)
+        if str(step.get("type") or "") in ("SYSTEM_MESSAGE", "USER_INPUT")
+        and "Regarding Gerrit CL `ag/" in str(step.get("content") or "")
+        and _CODE_QUESTION_PROMPT_RE.search(str(step.get("content") or ""))
+    ]
+    is_dedicated_qa_conv = len(root_prompt_indices) == 1
+    skip_steps = ignored_steps or set()
+
+    for pos, idx in enumerate(root_prompt_indices):
+        step = steps[idx]
+        step_index = int(step.get("step_index", idx) or idx)
+        if step_index in skip_steps:
             continue
-        content = str(step.get("content") or "")
-        if "Regarding Gerrit CL `ag/" not in content:
-            continue
-        m = _CODE_QUESTION_PROMPT_RE.search(content)
+        m = _CODE_QUESTION_PROMPT_RE.search(str(step.get("content") or ""))
         if not m:
             continue
         cl_str = m.group("cl").strip()
@@ -1474,25 +1662,48 @@ def parse_code_questions_from_transcript_lines(
         side_note = m.group("side_note") or ""
         side = "PARENT" if "PARENT" in side_note.upper() else "REVISION"
         snippet = m.group("snippet") or ""
-        question = (m.group("question") or "").strip()
-        step_index = int(step.get("step_index", idx) or idx)
+        first_q = (m.group("question") or "").strip()
 
-        reply_parts: list[str] = []
-        for next_step in steps[idx + 1 :]:
-            next_type = str(next_step.get("type") or "")
-            next_content = str(next_step.get("content") or "")
-            if next_type == "USER_INPUT":
-                break
-            if next_type == "SYSTEM_MESSAGE" and "Regarding Gerrit CL `ag/" in next_content:
-                break
-            if next_type == "PLANNER_RESPONSE" and next_content.strip():
-                reply_parts.append(next_content.strip())
+        reply_text, end_step_idx = _collect_planner_reply_until_next_prompt(steps, idx)
+        turns: list[dict[str, Any]] = [
+            {
+                "turn_index": 0,
+                "step_index": step_index,
+                "end_step_index": end_step_idx,
+                "question": first_q,
+                "reply": reply_text,
+                "status": "answered" if reply_text else "thinking",
+            }
+        ]
 
-        reply_text = "\n\n".join(reply_parts).strip()
+        next_root_idx = root_prompt_indices[pos + 1] if pos + 1 < len(root_prompt_indices) else len(steps)
+        if is_dedicated_qa_conv:
+            for sub_idx in range(idx + 1, next_root_idx):
+                sub_step = steps[sub_idx]
+                sub_step_num = int(sub_step.get("step_index", sub_idx) or sub_idx)
+                if sub_step_num in skip_steps:
+                    continue
+                followup_q = _extract_followup_question_text(sub_step)
+                if not followup_q:
+                    continue
+                f_reply, f_end_step = _collect_planner_reply_until_next_prompt(steps, sub_idx)
+                turns.append(
+                    {
+                        "turn_index": len(turns),
+                        "step_index": sub_step_num,
+                        "end_step_index": f_end_step,
+                        "question": followup_q,
+                        "reply": f_reply,
+                        "status": "answered" if f_reply else "thinking",
+                    }
+                )
+
+        latest = turns[-1]
         short_conv = (conv_id or "local")[:8]
         results.append(
             {
                 "id": f"tx-q-{short_conv}-{step_index}",
+                "conversation_id": conv_id,
                 "step_index": step_index,
                 "cl": int(cl_str) if cl_str.isdigit() else cl_str,
                 "file_path": file_path,
@@ -1501,9 +1712,11 @@ def parse_code_questions_from_transcript_lines(
                 "end_line": e_ln,
                 "side": side,
                 "code_snippet": snippet,
-                "question": question,
-                "reply": reply_text,
-                "status": "answered" if reply_text else "thinking",
+                "initial_question": first_q,
+                "question": latest["question"],
+                "reply": latest["reply"],
+                "status": latest["status"],
+                "turns": turns,
                 "created_at": str(step.get("created_at") or ""),
             }
         )
@@ -1511,21 +1724,38 @@ def parse_code_questions_from_transcript_lines(
 
 
 def _resolve_candidate_conversation_dirs(
-    root: Path, conversation_id: str | None = None
+    root: Path,
+    conversation_id: str | None = None,
+    extra_conversation_ids: set[str] | None = None,
+    excluded_conversation_ids: set[str] | None = None,
 ) -> list[Path]:
-    """Resolves active and recently updated Jetski conversation directories."""
+    """Resolves tracked, active, and recently updated Jetski conversation directories."""
+    excluded = excluded_conversation_ids or set()
     candidate_dirs: list[Path] = []
-    explicit_conv = str(
-        conversation_id
-        or os.environ.get("ANTIGRAVITY_SIDECAR_CONVERSATION_ID")
-        or os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
-        or ""
-    ).strip()
-    if explicit_conv and (root / explicit_conv).is_dir():
-        candidate_dirs.append(root / explicit_conv)
+    seen: set[Path] = set()
+
+    def _add_conv_id(cid: str) -> None:
+        cleaned = (cid or "").strip()
+        if not cleaned or cleaned in excluded:
+            return
+        d = root / cleaned
+        if d.is_dir() and d not in seen:
+            seen.add(d)
+            candidate_dirs.append(d)
+
+    for cid in sorted(extra_conversation_ids or set()):
+        _add_conv_id(cid)
+    _add_conv_id(
+        str(
+            conversation_id
+            or os.environ.get("ANTIGRAVITY_SIDECAR_CONVERSATION_ID")
+            or os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
+            or ""
+        )
+    )
 
     try:
-        subdirs = [d for d in root.iterdir() if d.is_dir() and d not in candidate_dirs]
+        subdirs = [d for d in root.iterdir() if d.is_dir() and d.name not in excluded and d not in seen]
         subdirs.sort(
             key=lambda d: (
                 (d / ".system_generated" / "logs" / "transcript_full.jsonl").stat().st_mtime
@@ -1534,7 +1764,7 @@ def _resolve_candidate_conversation_dirs(
             ),
             reverse=True,
         )
-        candidate_dirs.extend(subdirs[:5])
+        candidate_dirs.extend(subdirs[:MAX_RECENT_BRAIN_DIRS])
     except OSError:
         pass
     return candidate_dirs
@@ -1544,6 +1774,10 @@ def discover_transcript_code_questions(
     conversation_id: str | None = None,
     cl_numbers: list[str | int] | None = None,
     brain_root: Path | None = None,
+    *,
+    extra_conversation_ids: set[str] | None = None,
+    excluded_conversation_ids: set[str] | None = None,
+    ignored_steps_by_conv: dict[str, set[int]] | None = None,
 ) -> list[dict[str, Any]]:
     """Finds inline code questions and agent replies from Jetski conversation transcripts."""
     filter_cls = (
@@ -1555,8 +1789,14 @@ def discover_transcript_code_questions(
     if not root.is_dir():
         return []
 
-    by_key: dict[tuple[str, str, int, int, str], dict[str, Any]] = {}
-    for conv_dir in _resolve_candidate_conversation_dirs(root, conversation_id):
+    by_key: dict[str, dict[str, Any]] = {}
+    conv_dirs = _resolve_candidate_conversation_dirs(
+        root,
+        conversation_id=conversation_id,
+        extra_conversation_ids=extra_conversation_ids,
+        excluded_conversation_ids=excluded_conversation_ids,
+    )
+    for conv_dir in conv_dirs:
         logs_dir = conv_dir / ".system_generated" / "logs"
         tx_file = logs_dir / "transcript_full.jsonl"
         if not tx_file.is_file():
@@ -1571,18 +1811,20 @@ def discover_transcript_code_questions(
                 raw_text.splitlines(),
                 conv_id=conv_dir.name,
                 filter_cls=filter_cls,
+                ignored_steps=(ignored_steps_by_conv or {}).get(conv_dir.name),
             )
             for item in items:
-                key = (
-                    str(item["cl"]),
-                    str(item["file_path"]),
-                    int(item["start_line"]),
-                    int(item["end_line"]),
-                    str(item["question"]).strip(),
+                dedupe_key = (
+                    f"conv:{conv_dir.name}:{item['step_index']}"
+                    if len(items) == 1
+                    else (
+                        f"{item['cl']}:{item['file_path']}:{item['start_line']}:"
+                        f"{item['end_line']}:{str(item.get('initial_question') or item['question']).strip()}"
+                    )
                 )
-                prev = by_key.get(key)
+                prev = by_key.get(dedupe_key)
                 if prev is None or (item.get("reply") and not prev.get("reply")):
-                    by_key[key] = item
+                    by_key[dedupe_key] = item
         except OSError:
             continue
 
@@ -1713,6 +1955,13 @@ class GerritUIService:
         self._full_diff_bundle_cache: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
         self._last_prewarm_by_viewer: dict[str, float] = {}
         self._prewarm_in_progress = False
+        self._qa_lock = threading.Lock()
+        self._qa_threads: dict[str, dict[str, Any]] = {}
+        self._tracked_qa_conv_ids: set[str] = set()
+        self._deleted_qa_conv_ids: set[str] = set()
+        self._ignored_steps_by_conv: dict[str, set[int]] = {}
+        self._cached_project_id: str = ""
+        self._next_qa_seq: int = 1
         self._bug_cache_path = (
             Path.home() / ".cache" / "emu-dev-cli" / "gerrit-ui" / "bug_metadata_cache.json"
         )
@@ -2273,9 +2522,13 @@ class GerritUIService:
             threads_fut = pool.submit(
                 lambda: [t.to_dict() for t in self.client.get_comment_threads(cl_id, include_resolved=False)]
             )
-            qa_fut = pool.submit(discover_transcript_code_questions, cl_numbers=[cl_id])
+            qa_fut = pool.submit(self.get_code_questions, [cl_id])
             if cached_rev_data is not None:
-                return cached_rev_data, threads_fut.result(), qa_fut.result()
+                return (
+                    cached_rev_data,
+                    threads_fut.result(),
+                    self._enrich_questions_with_diff_symbols(qa_fut.result(), cached_rev_data["files"]),
+                )
 
             patch_fut = pool.submit(self.client.get_revision_patch, cl_id, "current")
             rebase_fut = pool.submit(self._resolve_is_pure_rebase, cl_id, known_ps)
@@ -2285,7 +2538,11 @@ class GerritUIService:
                 "is_pure_rebase": rebase_fut.result(),
                 "files": parse_unified_diff_files(decoded_patch),
             }
-            return rev_data, threads_fut.result(), qa_fut.result()
+            return (
+                rev_data,
+                threads_fut.result(),
+                self._enrich_questions_with_diff_symbols(qa_fut.result(), rev_data["files"]),
+            )
 
     def _store_diff_bundle_caches(
         self,
@@ -2330,6 +2587,117 @@ class GerritUIService:
         self._store_diff_bundle_caches(cl_id, known_rev, rev_data, bundle)
         return bundle
 
+    def _enrich_questions_with_diff_symbols(
+        self,
+        questions: list[dict[str, Any]],
+        diff_files: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Populates `function_name` on inline Q&A items from parsed `diff_files` when missing."""
+        if not questions or not diff_files:
+            return questions
+        lines_by_file = {
+            str(f.get("file") or ""): (f.get("lines") or [])
+            for f in diff_files
+            if isinstance(f, dict)
+        }
+        for q in questions:
+            if q.get("function_name"):
+                continue
+            fpath = str(q.get("file_path") or "")
+            file_lines = lines_by_file.get(fpath) or []
+            if file_lines:
+                sym = extract_enclosing_function_from_diff_lines(
+                    file_lines,
+                    int(q.get("start_line") or q.get("line") or 1),
+                    str(q.get("side") or "REVISION"),
+                )
+                if sym:
+                    q["function_name"] = sym
+        return questions
+
+    def _merge_tracked_qa_state(
+        self,
+        transcript_items: list[dict[str, Any]],
+        filter_cls: set[str] | None,
+    ) -> list[dict[str, Any]]:
+        """Merges in-memory `self._qa_threads` metadata and pending turns with transcript items."""
+        with self._qa_lock:
+            threads_snapshot = [
+                dict(t, turns=[dict(turn) for turn in (t.get("turns") or [])])
+                for t in self._qa_threads.values()
+                if not t.get("deleted")
+            ]
+
+        by_conv = {
+            str(it.get("conversation_id") or ""): it
+            for it in transcript_items
+            if it.get("conversation_id")
+        }
+        merged: list[dict[str, Any]] = []
+        handled_convs: set[str] = set()
+
+        for th in threads_snapshot:
+            cl_str = str(th.get("cl") or "")
+            if filter_cls and cl_str not in filter_cls:
+                continue
+            cid = str(th.get("conversation_id") or "")
+            tx_item = by_conv.get(cid) if cid else None
+            if tx_item is not None:
+                handled_convs.add(cid)
+                combined = dict(tx_item)
+                combined["thread_id"] = th["thread_id"]
+                if th.get("function_name"):
+                    combined["function_name"] = th["function_name"]
+                tx_turns = list(tx_item.get("turns") or [])
+                mem_turns = list(th.get("turns") or [])
+                if len(mem_turns) > len(tx_turns):
+                    tx_turns.extend(mem_turns[len(tx_turns) :])
+                if tx_turns:
+                    combined["turns"] = tx_turns
+                    combined["question"] = tx_turns[-1]["question"]
+                    combined["reply"] = tx_turns[-1]["reply"]
+                    combined["status"] = tx_turns[-1]["status"]
+                self._sync_cached_turns_from_transcript(th["thread_id"], tx_turns)
+                merged.append(combined)
+                continue
+            turns = list(th.get("turns") or [])
+            latest = turns[-1] if turns else {"question": "", "reply": "", "status": "thinking"}
+            merged.append({
+                "id": th["thread_id"],
+                "thread_id": th["thread_id"],
+                "conversation_id": cid,
+                "cl": int(cl_str) if cl_str.isdigit() else cl_str,
+                "file_path": th.get("file_path") or "/COMMIT_MSG",
+                "line": th.get("end_line") or 1,
+                "start_line": th.get("start_line") or 1,
+                "end_line": th.get("end_line") or 1,
+                "side": th.get("side") or "REVISION",
+                "function_name": th.get("function_name") or "",
+                "code_snippet": th.get("code_snippet") or "",
+                "question": latest["question"],
+                "reply": latest["reply"],
+                "status": latest["status"],
+                "turns": turns,
+            })
+
+        for it in transcript_items:
+            cid = str(it.get("conversation_id") or "")
+            if cid and cid in handled_convs:
+                continue
+            merged.append(it)
+        return merged
+
+    def _sync_cached_turns_from_transcript(
+        self, thread_id: str, tx_turns: list[dict[str, Any]]
+    ) -> None:
+        """Updates cached `turns` on `thread_id` once transcript replies land on disk."""
+        if not tx_turns:
+            return
+        with self._qa_lock:
+            entry = self._qa_threads.get(thread_id)
+            if entry and not entry.get("deleted"):
+                entry["turns"] = [dict(t) for t in tx_turns]
+
     def get_code_questions(
         self,
         cl_numbers: list[str | int],
@@ -2337,10 +2705,23 @@ class GerritUIService:
     ) -> list[dict[str, Any]]:
         """Returns inline code questions and their Jetski agent replies for `cl_numbers`."""
         cleaned = [str(x).strip() for x in cl_numbers if str(x).strip()]
-        return discover_transcript_code_questions(
+        filter_cls = (
+            {parse_cl_identifier(x, allow_head=False) for x in cleaned}
+            if cleaned
+            else None
+        )
+        with self._qa_lock:
+            tracked = set(self._tracked_qa_conv_ids)
+            deleted = set(self._deleted_qa_conv_ids)
+            ignored = {k: set(v) for k, v in self._ignored_steps_by_conv.items()}
+        tx_items = discover_transcript_code_questions(
             conversation_id=conversation_id,
             cl_numbers=cleaned or None,
+            extra_conversation_ids=tracked,
+            excluded_conversation_ids=deleted,
+            ignored_steps_by_conv=ignored,
         )
+        return self._merge_tracked_qa_state(tx_items, filter_cls)
 
     def fetch_multi_commit_diffs(self, cl_numbers: list[str | int]) -> list[dict[str, Any]]:
         """Fetches diff bundles concurrently for a list of CLs in a stack or queue."""
@@ -2931,6 +3312,161 @@ class GerritUIService:
             "notify": "OWNER",
         }
 
+    def _resolve_sidecar_project_id(self, explicit_project_id: str | None) -> str | None:
+        """Resolves `projectId` from `explicit_project_id` or parent sidecar conversation metadata."""
+        if explicit_project_id and explicit_project_id.strip():
+            return explicit_project_id.strip()
+        if self._cached_project_id:
+            return self._cached_project_id
+        parent_conv = (
+            os.environ.get("ANTIGRAVITY_SIDECAR_CONVERSATION_ID")
+            or os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
+            or ""
+        ).strip()
+        if not parent_conv:
+            return None
+        try:
+            meta_res = _run_sidecar_agentapi(["get-conversation-metadata", parent_conv])
+            pid = _extract_agentapi_project_id(meta_res)
+            if pid:
+                self._cached_project_id = pid
+                return pid
+        except Exception:
+            pass
+        return None
+
+    def _find_qa_thread_entry(
+        self, thread_id: str | None, conv_id: str | None
+    ) -> dict[str, Any] | None:
+        """Finds an active in-memory Q&A thread by `thread_id` or `conversation_id`."""
+        with self._qa_lock:
+            if thread_id and thread_id in self._qa_threads:
+                entry = self._qa_threads[thread_id]
+                if not entry.get("deleted"):
+                    return entry
+            if conv_id:
+                for entry in self._qa_threads.values():
+                    if not entry.get("deleted") and entry.get("conversation_id") == conv_id:
+                        return entry
+        return None
+
+    def _is_conversation_turn_inflight(self, conv_id: str) -> bool:
+        """Returns `True` if `conv_id` already has an unanswered code question in flight."""
+        if not conv_id:
+            return False
+        with self._qa_lock:
+            deleted = set(self._deleted_qa_conv_ids)
+            ignored = {k: set(v) for k, v in self._ignored_steps_by_conv.items()}
+        if conv_id in deleted:
+            return False
+        tx_items = discover_transcript_code_questions(
+            conversation_id=conv_id,
+            extra_conversation_ids={conv_id},
+            excluded_conversation_ids=deleted,
+            ignored_steps_by_conv=ignored,
+        )
+        matched_tx = next((it for it in tx_items if it.get("conversation_id") == conv_id), None)
+        entry = self._find_qa_thread_entry(None, conv_id)
+        if matched_tx is not None:
+            tx_turns = list(matched_tx.get("turns") or [])
+            mem_turns = list((entry.get("turns") or []) if entry else [])
+            if len(mem_turns) > len(tx_turns):
+                return not bool(str(mem_turns[-1].get("reply") or "").strip())
+            if entry is not None and tx_turns:
+                self._sync_cached_turns_from_transcript(entry["thread_id"], tx_turns)
+            return matched_tx.get("status") == "thinking"
+        if not entry:
+            return False
+        turns = entry.get("turns") or []
+        return bool(turns and not str(turns[-1].get("reply") or "").strip())
+
+    def _dispatch_code_qa_prompt(
+        self,
+        *,
+        target_conv_id: str,
+        title: str,
+        prompt: str,
+        project_id: str | None,
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """Dispatches `prompt` to `target_conv_id` or starts an isolated background conversation."""
+        try:
+            if target_conv_id:
+                res = _run_sidecar_agentapi(
+                    ["send-message", target_conv_id, prompt],
+                    project_id=project_id,
+                )
+                return True, target_conv_id, res
+            resolved_pid = self._resolve_sidecar_project_id(project_id)
+            res = _run_sidecar_agentapi(
+                ["new-conversation", "--title", title, prompt],
+                project_id=resolved_pid,
+            )
+            spawned_id = _extract_agentapi_conversation_id(res)
+            return True, spawned_id, res
+        except Exception:
+            return False, target_conv_id, {}
+
+    def _upsert_qa_thread_turn(
+        self,
+        *,
+        thread_id: str | None,
+        conv_id: str,
+        cl_id: str,
+        file_path: str,
+        start_line: int,
+        end_line: int,
+        side: str,
+        function_name: str,
+        code_snippet: str,
+        question: str,
+        is_followup: bool,
+    ) -> dict[str, Any]:
+        """Records a newly submitted root or follow-up turn in `self._qa_threads`."""
+        with self._qa_lock:
+            resolved_tid = thread_id or (f"qa-{conv_id[:12]}" if conv_id else "")
+            if not resolved_tid:
+                resolved_tid = f"qa-local-{self._next_qa_seq}"
+                self._next_qa_seq += 1
+            existing = self._qa_threads.get(resolved_tid)
+            if existing is None and conv_id:
+                for cand in self._qa_threads.values():
+                    if not cand.get("deleted") and cand.get("conversation_id") == conv_id:
+                        existing = cand
+                        resolved_tid = cand["thread_id"]
+                        break
+            if conv_id:
+                self._tracked_qa_conv_ids.add(conv_id)
+                self._deleted_qa_conv_ids.discard(conv_id)
+
+            new_turn = {
+                "turn_index": len(existing["turns"]) if (existing and is_followup) else 0,
+                "question": question,
+                "reply": "",
+                "status": "thinking",
+            }
+            if existing and is_followup:
+                existing["conversation_id"] = conv_id or existing.get("conversation_id", "")
+                if function_name:
+                    existing["function_name"] = function_name
+                existing["turns"].append(new_turn)
+                return dict(existing, turns=[dict(t) for t in existing["turns"]])
+
+            entry = {
+                "thread_id": resolved_tid,
+                "conversation_id": conv_id,
+                "cl": cl_id,
+                "file_path": file_path,
+                "start_line": start_line,
+                "end_line": end_line,
+                "side": side,
+                "function_name": function_name,
+                "code_snippet": code_snippet,
+                "deleted": False,
+                "turns": [new_turn],
+            }
+            self._qa_threads[resolved_tid] = entry
+            return dict(entry, turns=[dict(new_turn)])
+
     def ask_agent_about_code(
         self,
         cl_number: str | int,
@@ -2943,59 +3479,232 @@ class GerritUIService:
         side: str = "REVISION",
         conversation_id: str | None = None,
         project_id: str | None = None,
+        spawn_new: bool = False,
+        thread_id: str | None = None,
+        function_name: str = "",
     ) -> dict[str, Any]:
-        """Formats and dispatches a question about a highlighted code block to the Jetski agent."""
+        """Spawns an isolated per-highlight Q&A conversation or sends a follow-up when answered."""
         cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
         cleaned_file = (file_path or "").strip() or "/COMMIT_MSG"
         s_ln = max(1, int(start_line or 1))
         e_ln = max(s_ln, int(end_line or s_ln))
-        prompt = build_code_question_prompt(
-            cl_number=cl_id,
+        cleaned_q = (
+            (question or "").strip()
+            or "Please explain this code block and check for any bugs or edge cases."
+        )
+        target_conv = "" if spawn_new else str(conversation_id or "").strip()
+        if target_conv and self._is_conversation_turn_inflight(target_conv):
+            raise ValueError(
+                f"Cannot submit another question in conversation '{target_conv}' on ag/{cl_id} "
+                "while the previous question is still being processed by the agent. "
+                "Wait for the agent's reply, or modify/delete the in-flight question."
+            )
+
+        existing_entry = self._find_qa_thread_entry(thread_id, target_conv) if target_conv else None
+        is_followup = bool(target_conv and existing_entry and existing_entry.get("turns"))
+        prompt = (
+            build_code_followup_prompt(
+                cl_number=cl_id,
+                file_path=cleaned_file,
+                start_line=s_ln,
+                end_line=e_ln,
+                question=cleaned_q,
+                side=side,
+            )
+            if is_followup
+            else build_code_question_prompt(
+                cl_number=cl_id,
+                file_path=cleaned_file,
+                start_line=s_ln,
+                end_line=e_ln,
+                code_snippet=code_snippet,
+                question=cleaned_q,
+                side=side,
+            )
+        )
+        short_name = Path(cleaned_file).name or cleaned_file
+        loc_tag = f"{function_name}:L{s_ln}" if function_name else f"{short_name}:L{s_ln}"
+        title = f"Q&A ag/{cl_id} ({loc_tag})"
+
+        dispatched, resolved_conv, agent_res = self._dispatch_code_qa_prompt(
+            target_conv_id=target_conv,
+            title=title,
+            prompt=prompt,
+            project_id=project_id,
+        )
+        thread_state = self._upsert_qa_thread_turn(
+            thread_id=thread_id,
+            conv_id=resolved_conv,
+            cl_id=cl_id,
             file_path=cleaned_file,
             start_line=s_ln,
             end_line=e_ln,
-            code_snippet=code_snippet,
-            question=question,
             side=side,
+            function_name=function_name,
+            code_snippet=code_snippet,
+            question=cleaned_q,
+            is_followup=is_followup,
         )
-        conv_id = str(
-            conversation_id
-            or os.environ.get("ANTIGRAVITY_SIDECAR_CONVERSATION_ID")
-            or os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
-            or ""
-        ).strip()
-        dispatched = False
-        agent_res: dict[str, Any] = {}
-        try:
-            if conv_id:
-                agent_res = _run_sidecar_agentapi(
-                    ["send-message", conv_id, prompt],
-                    project_id=project_id,
-                )
-                dispatched = True
-            else:
-                short_name = Path(cleaned_file).name or cleaned_file
-                title = f"Question on ag/{cl_id} ({short_name}:L{s_ln})"
-                agent_res = _run_sidecar_agentapi(
-                    ["new-conversation", "--title", title, prompt],
-                    project_id=project_id,
-                )
-                dispatched = True
-        except Exception:
-            dispatched = False
-
         self._invalidate_cl_caches([cl_id])
         return {
             "status": "ok",
             "cl": cl_id,
+            "thread_id": thread_state["thread_id"],
             "file_path": cleaned_file,
             "start_line": s_ln,
             "end_line": e_ln,
+            "function_name": thread_state.get("function_name", ""),
             "dispatched": dispatched,
-            "conversation_id": conv_id,
+            "conversation_id": resolved_conv,
             "prompt": prompt,
+            "turns": thread_state["turns"],
             "agent_response": agent_res,
         }
+
+    def _cancel_or_rewind_inflight_turn(
+        self,
+        conv_id: str,
+        turns: list[dict[str, Any]],
+        delete_entire_conv: bool,
+    ) -> None:
+        """Cancels an in-flight LS invocation and deletes or rewinds its latest turn step."""
+        if not conv_id:
+            return
+        _call_local_language_server_rpc(
+            "CancelCascadeInvocation",
+            {"cascadeId": conv_id, "killBackgroundTasks": True},
+        )
+        if delete_entire_conv:
+            _call_local_language_server_rpc(
+                "DeleteCascadeTrajectory",
+                {"cascadeId": conv_id},
+            )
+            with self._qa_lock:
+                self._deleted_qa_conv_ids.add(conv_id)
+                self._tracked_qa_conv_ids.discard(conv_id)
+            return
+
+        prev_turn = turns[-2] if len(turns) >= 2 else None
+        prev_end_step = prev_turn.get("end_step_index") if prev_turn else None
+        latest_step = turns[-1].get("step_index") if turns else None
+        if prev_end_step is not None:
+            _call_local_language_server_rpc(
+                "RevertToCascadeStep",
+                {
+                    "cascadeId": conv_id,
+                    "stepIndex": int(prev_end_step),
+                    "conversationOnly": True,
+                },
+            )
+        if latest_step is not None:
+            with self._qa_lock:
+                self._ignored_steps_by_conv.setdefault(conv_id, set()).add(int(latest_step))
+
+    def modify_or_delete_code_question(
+        self,
+        *,
+        action: str,
+        cl_number: str | int,
+        conversation_id: str | None = None,
+        thread_id: str | None = None,
+        question: str = "",
+        file_path: str = "",
+        start_line: int = 1,
+        end_line: int = 1,
+        code_snippet: str = "",
+        side: str = "REVISION",
+        function_name: str = "",
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Modifies or deletes the latest in-flight question in an inline Q&A conversation."""
+        norm_action = (action or "").strip().lower()
+        if norm_action not in ("modify", "delete"):
+            raise ValueError(
+                f"Invalid code-question action '{action}': expected 'modify' or 'delete'. "
+                "Pass action='modify' or action='delete'."
+            )
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        conv_id = str(conversation_id or "").strip()
+        entry = self._find_qa_thread_entry(thread_id, conv_id)
+        if not conv_id and entry:
+            conv_id = str(entry.get("conversation_id") or "")
+
+        live_questions = self.get_code_questions([cl_id], conversation_id=conv_id or None)
+        matched_live = next(
+            (
+                q
+                for q in live_questions
+                if (conv_id and q.get("conversation_id") == conv_id)
+                or (thread_id and q.get("thread_id") == thread_id)
+            ),
+            None,
+        )
+        turns = list(
+            (matched_live.get("turns") if matched_live else None)
+            or (entry.get("turns") if entry else None)
+            or []
+        )
+        is_root_turn = len(turns) <= 1
+
+        if norm_action == "delete":
+            self._cancel_or_rewind_inflight_turn(conv_id, turns, delete_entire_conv=is_root_turn)
+            remaining = turns[:-1] if len(turns) > 1 else []
+            with self._qa_lock:
+                if entry is not None:
+                    if is_root_turn:
+                        entry["deleted"] = True
+                        entry["turns"] = []
+                    else:
+                        entry["turns"] = [dict(t) for t in remaining]
+            self._invalidate_cl_caches([cl_id])
+            return {
+                "status": "ok",
+                "action": "delete",
+                "cl": cl_id,
+                "thread_id": entry["thread_id"] if entry else (thread_id or ""),
+                "conversation_id": "" if is_root_turn else conv_id,
+                "thread_deleted": is_root_turn,
+                "turns": remaining,
+            }
+
+        cleaned_q = (question or "").strip()
+        if not cleaned_q:
+            raise ValueError(
+                f"Cannot modify code question on ag/{cl_id} with an empty question string. "
+                "Enter a non-empty question or delete the in-flight question instead."
+            )
+        self._cancel_or_rewind_inflight_turn(conv_id, turns, delete_entire_conv=is_root_turn)
+        resolved_file = (
+            (file_path or "").strip()
+            or (entry.get("file_path") if entry else "")
+            or "/COMMIT_MSG"
+        )
+        s_ln = max(1, int(start_line or (entry.get("start_line") if entry else 1) or 1))
+        e_ln = max(s_ln, int(end_line or (entry.get("end_line") if entry else s_ln) or s_ln))
+        resolved_snippet = code_snippet or (entry.get("code_snippet") if entry else "") or ""
+        resolved_side = side or (entry.get("side") if entry else "REVISION") or "REVISION"
+        resolved_fn = function_name or (entry.get("function_name") if entry else "") or ""
+
+        if not is_root_turn and entry is not None:
+            with self._qa_lock:
+                entry["turns"] = [dict(t) for t in turns[:-1]]
+
+        ask_res = self.ask_agent_about_code(
+            cl_number=cl_id,
+            file_path=resolved_file,
+            start_line=s_ln,
+            end_line=e_ln,
+            code_snippet=resolved_snippet,
+            question=cleaned_q,
+            side=resolved_side,
+            conversation_id=None if is_root_turn else conv_id,
+            project_id=project_id,
+            spawn_new=is_root_turn,
+            thread_id=entry["thread_id"] if entry else thread_id,
+            function_name=resolved_fn,
+        )
+        ask_res["action"] = "modify"
+        return ask_res
 
 
 def _candidate_gerrit_ui_template_paths() -> list[Path]:
@@ -3194,6 +3903,66 @@ def render_static_gerrit_ui_html(initial_payload: dict[str, Any] | None = None) 
     html = html.replace('"__GERRIT_UI_VERSION__"', json.dumps(get_gerrit_ui_template_version()))
     bootstrap_json = json.dumps(initial_payload or {}, ensure_ascii=False).replace("</", "<\\/")
     return html.replace("__GERRIT_UI_BOOTSTRAP_JSON__", bootstrap_json)
+
+
+def _extract_agentapi_conversation_id(payload: dict[str, Any]) -> str:
+    """Extracts `conversationId` from `agentapi new-conversation` JSON output."""
+    if not isinstance(payload, dict):
+        return ""
+    direct = payload.get("conversationId") or payload.get("conversation_id")
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+    resp = payload.get("response")
+    if not isinstance(resp, dict):
+        return ""
+    new_conv = resp.get("newConversation") or resp.get("new_conversation") or {}
+    if isinstance(new_conv, dict):
+        cid = new_conv.get("conversationId") or new_conv.get("conversation_id")
+        if isinstance(cid, str) and cid.strip():
+            return cid.strip()
+    return ""
+
+
+def _extract_agentapi_project_id(payload: dict[str, Any]) -> str:
+    """Extracts `projectId` from `agentapi get-conversation-metadata` JSON output."""
+    if not isinstance(payload, dict):
+        return ""
+    resp = payload.get("response")
+    if not isinstance(resp, dict):
+        return ""
+    meta_evt = resp.get("conversationMetadata") or resp.get("conversation_metadata") or {}
+    meta = meta_evt.get("metadata") if isinstance(meta_evt, dict) else {}
+    if isinstance(meta, dict):
+        pid = meta.get("projectId") or meta.get("project_id")
+        if isinstance(pid, str) and pid.strip():
+            return pid.strip()
+    return ""
+
+
+def _call_local_language_server_rpc(method_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Invokes a Connect JSON RPC on the local Jetski Language Server when `ANTIGRAVITY_LS_ADDRESS` is set."""
+    addr = (os.environ.get("ANTIGRAVITY_LS_ADDRESS") or "").strip()
+    if not addr:
+        return {"skipped": True}
+    csrf = (os.environ.get("ANTIGRAVITY_CSRF_TOKEN") or "").strip()
+    base_url = addr if addr.startswith(("http://", "https://")) else f"http://{addr}"
+    url = f"{base_url.rstrip('/')}/exa.language_server_pb.LanguageServerService/{method_name}"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Connect-Protocol-Version": "1",
+            "x-codeium-csrf-token": csrf,
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=LS_CONNECT_RPC_TIMEOUT_SEC) as resp:
+            raw = resp.read().decode("utf-8", errors="replace").strip()
+            return json.loads(raw) if raw else {}
+    except Exception as exc:
+        return {"error": str(exc)}
 
 
 def _run_sidecar_agentapi(args: list[str], project_id: str | None = None) -> dict[str, Any]:
@@ -3502,6 +4271,26 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                         question=str(body.get("question") or ""),
                         side=str(body.get("side") or "REVISION"),
                         conversation_id=str(body.get("conversationId") or "").strip() or None,
+                        project_id=str(body.get("projectId") or "").strip() or None,
+                        spawn_new=bool(body.get("spawnNew", False)),
+                        thread_id=str(body.get("threadId") or "").strip() or None,
+                        function_name=str(body.get("function_name") or body.get("functionName") or "").strip(),
+                    )
+                    self._send_json(res)
+                    return
+                if parsed.path == "/api/gerrit/code-question-action":
+                    res = service.modify_or_delete_code_question(
+                        action=str(body.get("action") or ""),
+                        cl_number=body.get("cl", ""),
+                        conversation_id=str(body.get("conversationId") or "").strip() or None,
+                        thread_id=str(body.get("threadId") or "").strip() or None,
+                        question=str(body.get("question") or ""),
+                        file_path=str(body.get("file_path") or body.get("file") or ""),
+                        start_line=int(body.get("start_line") or body.get("line") or 1),
+                        end_line=int(body.get("end_line") or body.get("line") or 1),
+                        code_snippet=str(body.get("code_snippet") or body.get("code") or ""),
+                        side=str(body.get("side") or "REVISION"),
+                        function_name=str(body.get("function_name") or body.get("functionName") or "").strip(),
                         project_id=str(body.get("projectId") or "").strip() or None,
                     )
                     self._send_json(res)

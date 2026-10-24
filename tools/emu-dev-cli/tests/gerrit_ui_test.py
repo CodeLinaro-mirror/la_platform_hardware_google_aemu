@@ -19,6 +19,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -35,6 +36,7 @@ from commands.gerrit.ui_server import (
     build_viewer_gerrit_query,
     classify_commit_type,
     classify_risk_and_load,
+    discover_transcript_code_questions,
     enrich_change_for_ui,
     extract_bug_ids_from_change,
     format_repo_display_path,
@@ -2334,6 +2336,338 @@ class GerritUIServerTest(unittest.TestCase):
         self.assertIn('id="gateAgent"', extra_body_inner)
         self.assertIn('class="gate-pill"', extra_body_inner)
         self.assertNotIn('class="gate-pill active"', extra_body_inner)
+
+    def test_extract_enclosing_function_from_diff_lines_with_unicode(self) -> None:
+        from commands.gerrit.ui_server import (
+            extract_enclosing_function_from_diff_lines,
+            extract_symbol_from_code_line,
+        )
+
+        self.assertEqual(
+            extract_symbol_from_code_line("  async def handle_测试_🚀_é(req, ctx):"),
+            "handle_测试_🚀_é",
+        )
+        self.assertEqual(
+            extract_symbol_from_code_line(
+                "absl::StatusOr<int> SocketManager::ConnectPeer(std::string_view host) {"
+            ),
+            "SocketManager::ConnectPeer",
+        )
+        self.assertEqual(
+            extract_symbol_from_code_line("func (s *Server) ServeHTTP(w ResponseWriter, r *Request) {"),
+            "ServeHTTP",
+        )
+        self.assertEqual(extract_symbol_from_code_line("  if (status.ok()) {"), "")
+
+        diff_lines = [
+            {"type": "hunk", "old_ln": None, "new_ln": None, "text": "@@ -10,4 +40,7 @@ void OuterHunkFn() {"},
+            {"type": "ctx", "old_ln": 10, "new_ln": 40, "text": "  int x = 1;"},
+            {"type": "add", "old_ln": None, "new_ln": 41, "text": "void RenderFrame_测试_🚀_é(int width) {"},
+            {"type": "add", "old_ln": None, "new_ln": 42, "text": "  if (width <= 0) return;"},
+            {"type": "add", "old_ln": None, "new_ln": 43, "text": "  Draw(width);"},
+        ]
+        self.assertEqual(
+            extract_enclosing_function_from_diff_lines(diff_lines, 40, "REVISION"),
+            "OuterHunkFn",
+        )
+        self.assertEqual(
+            extract_enclosing_function_from_diff_lines(diff_lines, 43, "REVISION"),
+            "RenderFrame_测试_🚀_é",
+        )
+
+    def test_concurrent_code_questions_spawn_isolated_conversations_and_block_inflight(
+        self,
+    ) -> None:
+        with patch.object(
+            GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"
+        ):
+            service = GerritUIService(default_viewer="joshuaduong@google.com")
+        spawned_counter = [0]
+        agentapi_calls: list[tuple[list[str], str | None]] = []
+
+        def fake_agentapi(args: list[str], project_id: str | None = None) -> dict[str, str]:
+            agentapi_calls.append((list(args), project_id))
+            if args[0] == "get-conversation-metadata":
+                return {"conversationId": args[1], "projectId": "proj-gerrit-ui"}
+            if args[0] == "new-conversation":
+                spawned_counter[0] += 1
+                return {"conversationId": f"conv-qa-{spawned_counter[0]}"}
+            return {"conversationId": args[1]}
+
+        with tempfile.TemporaryDirectory() as tmp_brain:
+            brain_root = Path(tmp_brain)
+            orig_discover = discover_transcript_code_questions
+
+            def scoped_discover(*d_args, **d_kwargs):
+                d_kwargs.setdefault("brain_root", brain_root)
+                return orig_discover(*d_args, **d_kwargs)
+
+            with (
+                patch.dict(os.environ, {"ANTIGRAVITY_SIDECAR_CONVERSATION_ID": "main-chat-conv"}),
+                patch("commands.gerrit.ui_server._run_sidecar_agentapi", side_effect=fake_agentapi),
+                patch(
+                    "commands.gerrit.ui_server.discover_transcript_code_questions",
+                    side_effect=scoped_discover,
+                ),
+            ):
+                q1 = service.ask_agent_about_code(
+                    cl_number=43256612,
+                    file_path="emulator/net/socket_测试_🚀_é.cc",
+                    start_line=42,
+                    end_line=45,
+                    code_snippet="+  return sock.Connect();",
+                    question="Is Connect() non-blocking here?",
+                    spawn_new=True,
+                    thread_id="inline-1",
+                    function_name="SocketManager::Connect",
+                )
+                q2 = service.ask_agent_about_code(
+                    cl_number=43256612,
+                    file_path="emulator/net/socket_测试_🚀_é.cc",
+                    start_line=120,
+                    end_line=125,
+                    code_snippet="+  sock.Close();",
+                    question="Could Close() race with the reader thread?",
+                    spawn_new=True,
+                    thread_id="inline-2",
+                    function_name="SocketManager::Shutdown",
+                )
+                self.assertEqual(q1["conversation_id"], "conv-qa-1")
+                self.assertEqual(q2["conversation_id"], "conv-qa-2")
+                self.assertNotEqual(q1["conversation_id"], "main-chat-conv")
+
+                # Submitting another question in conv-qa-1 while Turn 1 is thinking MUST fail.
+                with self.assertRaisesRegex(ValueError, "still being processed"):
+                    service.ask_agent_about_code(
+                        cl_number=43256612,
+                        file_path="emulator/net/socket_测试_🚀_é.cc",
+                        start_line=42,
+                        end_line=45,
+                        code_snippet="+  return sock.Connect();",
+                        question="Early impatient follow-up?",
+                        conversation_id="conv-qa-1",
+                        spawn_new=False,
+                        thread_id="inline-1",
+                    )
+
+                # Write answered transcript for conv-qa-1 while conv-qa-2 stays pending.
+                conv1_logs = brain_root / "conv-qa-1" / ".system_generated" / "logs"
+                conv1_logs.mkdir(parents=True, exist_ok=True)
+                (conv1_logs / "transcript_full.jsonl").write_text(
+                    "\n".join([
+                        json.dumps({
+                            "step_index": 0,
+                            "type": "USER_INPUT",
+                            "content": q1["prompt"],
+                        }),
+                        json.dumps({
+                            "step_index": 2,
+                            "type": "PLANNER_RESPONSE",
+                            "content": "Yes, `Connect()` uses non-blocking `O_NONBLOCK`.",
+                        }),
+                    ]) + "\n",
+                    encoding="utf-8",
+                )
+
+                polled = service.get_code_questions([43256612], conversation_id="main-chat-conv")
+                by_tid = {item["thread_id"]: item for item in polled}
+                self.assertEqual(by_tid["inline-1"]["status"], "answered")
+                self.assertIn("O_NONBLOCK", by_tid["inline-1"]["reply"])
+                self.assertEqual(by_tid["inline-1"]["function_name"], "SocketManager::Connect")
+                self.assertEqual(by_tid["inline-2"]["status"], "thinking")
+
+                # Now that conv-qa-1 is answered, a follow-up in conv-qa-1 succeeds and locks it again.
+                q1_followup = service.ask_agent_about_code(
+                    cl_number=43256612,
+                    file_path="emulator/net/socket_测试_🚀_é.cc",
+                    start_line=42,
+                    end_line=45,
+                    code_snippet="+  return sock.Connect();",
+                    question="What happens on EINPROGRESS?",
+                    conversation_id="conv-qa-1",
+                    spawn_new=False,
+                    thread_id="inline-1",
+                )
+                self.assertEqual(q1_followup["conversation_id"], "conv-qa-1")
+                self.assertEqual(len(q1_followup["turns"]), 2)
+                self.assertEqual(q1_followup["turns"][1]["status"], "thinking")
+                with self.assertRaisesRegex(ValueError, "still being processed"):
+                    service.ask_agent_about_code(
+                        cl_number=43256612,
+                        file_path="emulator/net/socket_测试_🚀_é.cc",
+                        start_line=42,
+                        end_line=45,
+                        code_snippet="+  return sock.Connect();",
+                        question="Third question while second is still thinking?",
+                        conversation_id="conv-qa-1",
+                        spawn_new=False,
+                        thread_id="inline-1",
+                    )
+
+    def test_modify_and_delete_inflight_code_question_root_and_followup(self) -> None:
+        with patch.object(
+            GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"
+        ):
+            service = GerritUIService(default_viewer="joshuaduong@google.com")
+        spawned_counter = [0]
+        ls_calls: list[tuple[str, dict[str, object]]] = []
+
+        def fake_agentapi(args: list[str], project_id: str | None = None) -> dict[str, str]:
+            if args[0] == "new-conversation":
+                spawned_counter[0] += 1
+                return {"conversationId": f"conv-mod-{spawned_counter[0]}"}
+            return {"conversationId": args[1]}
+
+        def fake_ls_rpc(method: str, payload: dict[str, object]) -> tuple[bool, dict[str, object]]:
+            ls_calls.append((method, dict(payload)))
+            return True, {}
+
+        with tempfile.TemporaryDirectory() as tmp_brain:
+            brain_root = Path(tmp_brain)
+            orig_discover = discover_transcript_code_questions
+
+            def scoped_discover(*d_args, **d_kwargs):
+                d_kwargs.setdefault("brain_root", brain_root)
+                return orig_discover(*d_args, **d_kwargs)
+
+            with (
+                patch("commands.gerrit.ui_server._run_sidecar_agentapi", side_effect=fake_agentapi),
+                patch("commands.gerrit.ui_server._call_local_language_server_rpc", side_effect=fake_ls_rpc),
+                patch(
+                    "commands.gerrit.ui_server.discover_transcript_code_questions",
+                    side_effect=scoped_discover,
+                ),
+            ):
+                # 1. Start root question, then Modify it while in-flight.
+                initial = service.ask_agent_about_code(
+                    cl_number=43256612,
+                    file_path="emulator/io/file_测试_🚀_é.cc",
+                    start_line=15,
+                    end_line=19,
+                    code_snippet="+  OpenUtf8Path(path);",
+                    question="Original typo question?",
+                    spawn_new=True,
+                    thread_id="inline-root-1",
+                    function_name="OpenUtf8Path",
+                )
+                self.assertEqual(initial["conversation_id"], "conv-mod-1")
+
+                modified = service.modify_or_delete_code_question(
+                    action="modify",
+                    cl_number=43256612,
+                    conversation_id="conv-mod-1",
+                    thread_id="inline-root-1",
+                    question="Updated UTF-8 question 测试_🚀_é?",
+                )
+                self.assertEqual(modified["action"], "modify")
+                self.assertEqual(modified["conversation_id"], "conv-mod-2")
+                self.assertEqual(modified["turns"][0]["question"], "Updated UTF-8 question 测试_🚀_é?")
+                self.assertIn(("CancelCascadeInvocation", {"cascadeId": "conv-mod-1", "killBackgroundTasks": True}), ls_calls)
+                self.assertIn(("DeleteCascadeTrajectory", {"cascadeId": "conv-mod-1"}), ls_calls)
+
+                # 2. Delete the modified 1-turn root question via HTTP handler.
+                handler_cls = make_gerrit_ui_handler(service)
+                httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+                port = httpd.server_address[1]
+                srv_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+                srv_thread.start()
+                try:
+                    req = urllib.request.Request(
+                        f"http://127.0.0.1:{port}/api/gerrit/code-question-action",
+                        data=json.dumps({
+                            "action": "delete",
+                            "cl": 43256612,
+                            "conversationId": "conv-mod-2",
+                            "threadId": "inline-root-1",
+                        }).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        del_data = json.loads(resp.read().decode("utf-8"))
+                    self.assertTrue(del_data["thread_deleted"])
+                    self.assertEqual(service.get_code_questions([43256612]), [])
+                finally:
+                    httpd.shutdown()
+                    httpd.server_close()
+
+                # 3. Multi-turn conversation: Turn 1 answered, Turn 2 in-flight -> Delete Turn 2 rewinds to Turn 1.
+                t1 = service.ask_agent_about_code(
+                    cl_number=43256612,
+                    file_path="emulator/io/file_测试_🚀_é.cc",
+                    start_line=30,
+                    end_line=34,
+                    code_snippet="+  Flush();",
+                    question="Does Flush() fsync?",
+                    spawn_new=True,
+                    thread_id="inline-multi",
+                    function_name="FlushBuffer",
+                )
+                conv3 = t1["conversation_id"]
+                conv3_logs = brain_root / conv3 / ".system_generated" / "logs"
+                conv3_logs.mkdir(parents=True, exist_ok=True)
+                (conv3_logs / "transcript_full.jsonl").write_text(
+                    "\n".join([
+                        json.dumps({"step_index": 0, "type": "USER_INPUT", "content": t1["prompt"]}),
+                        json.dumps({"step_index": 3, "type": "PLANNER_RESPONSE", "content": "No, it flushes userspace buffers only."}),
+                    ]) + "\n",
+                    encoding="utf-8",
+                )
+                service.get_code_questions([43256612])
+                t2 = service.ask_agent_about_code(
+                    cl_number=43256612,
+                    file_path="emulator/io/file_测试_🚀_é.cc",
+                    start_line=30,
+                    end_line=34,
+                    code_snippet="+  Flush();",
+                    question="Should we call fsync here?",
+                    conversation_id=conv3,
+                    spawn_new=False,
+                    thread_id="inline-multi",
+                )
+                # Simulate Turn 2 written to transcript before user clicks Delete on Turn 2
+                (conv3_logs / "transcript_full.jsonl").write_text(
+                    "\n".join([
+                        json.dumps({"step_index": 0, "type": "USER_INPUT", "content": t1["prompt"]}),
+                        json.dumps({"step_index": 3, "type": "PLANNER_RESPONSE", "content": "No, it flushes userspace buffers only."}),
+                        json.dumps({"step_index": 4, "type": "USER_INPUT", "content": t2["prompt"]}),
+                    ]) + "\n",
+                    encoding="utf-8",
+                )
+                ls_calls.clear()
+                del_followup = service.modify_or_delete_code_question(
+                    action="delete",
+                    cl_number=43256612,
+                    conversation_id=conv3,
+                    thread_id="inline-multi",
+                )
+                self.assertFalse(del_followup["thread_deleted"])
+                self.assertEqual(len(del_followup["turns"]), 1)
+                self.assertEqual(del_followup["turns"][0]["reply"], "No, it flushes userspace buffers only.")
+                self.assertIn(
+                    ("RevertToCascadeStep", {"cascadeId": conv3, "stepIndex": 3, "conversationOnly": True}),
+                    ls_calls,
+                )
+
+    def test_concurrent_qa_ui_controls_and_reply_notification_bubble_stack(self) -> None:
+        html = render_static_gerrit_ui_html()
+        self.assertIn('id="agentReplyBubbleStack"', html)
+        self.assertIn("Agent responded at <code>", html)
+        self.assertIn("function pushAgentReplyNotification(", html)
+        self.assertIn("function navigateToAgentReplyBubble(", html)
+        self.assertIn("function dismissAgentReplyBubble(", html)
+        self.assertIn("function startModifyInflightQuestion(", html)
+        self.assertIn("function saveModifiedInflightQuestion(", html)
+        self.assertIn("function deleteInflightCodeQuestion(", html)
+        self.assertIn("function submitInlineFollowupQuestion(", html)
+        self.assertIn("function isQuestionThreadPending(", html)
+        self.assertIn("spawnNew: true", html)
+        self.assertIn(
+            '<button id="btnSubmitCodeAsk" class="btn btn-swarm" onclick="submitSelectedCodeQuestion(this)">🤖 Ask Agent</button>',
+            html,
+        )
+        self.assertNotIn("Switch to Ask Agent", html)
+        self.assertNotIn("Switch to Gerrit Comment", html)
 
 
 if __name__ == "__main__":
