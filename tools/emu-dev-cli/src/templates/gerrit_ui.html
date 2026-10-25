@@ -56,41 +56,107 @@
   .dot-red   { background: var(--g-red); }
   .dot-blue  { background: var(--g-accent); }
 
-  .topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 18px;
-    background: var(--g-panel);
+  .queue-viewer-toolbar {
+    padding: 6px 10px;
     border-bottom: 1px solid var(--g-border);
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-  .brand {
+    background: #16181d;
     display: flex;
     align-items: center;
-    gap: 10px;
-    font-weight: 700;
-    font-size: 15px;
+    gap: 6px;
+    min-width: 0;
   }
-  .brand-badge {
-    background: #2b2e36;
-    color: #e4e6eb;
-    border: 1px solid #3f444e;
-    padding: 3px 8px;
-    border-radius: 5px;
-    font-size: 11px;
+  .viewer-row-label {
+    font-size: 10.5px;
     font-weight: 700;
+    color: var(--g-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .viewer-select {
-    background: var(--g-panel-alt);
+    background: #22252c;
     color: var(--g-text);
     border: 1px solid var(--g-border);
-    border-radius: 6px;
-    padding: 4px 8px;
-    font-size: 12px;
+    border-radius: 5px;
+    padding: 4px 6px;
+    font-size: 11.5px;
     font-weight: 600;
     cursor: pointer;
+    min-width: 0;
+    flex: 1 1 0;
+    text-overflow: ellipsis;
+  }
+  .viewer-select.scope-select {
+    flex: 0 1 142px;
+  }
+  .viewer-select:focus {
+    border-color: var(--g-accent);
+    outline: none;
+  }
+  .btn-refresh-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 6px;
+    background: #2563eb;
+    border: 1px solid #60a5fa;
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    box-shadow: 0 1px 4px rgba(37, 99, 235, 0.35);
+    transition: background 0.14s ease, border-color 0.14s ease, transform 0.12s ease, opacity 0.14s ease;
+  }
+  .btn-refresh-icon:hover:not(:disabled) {
+    background: #3b82f6;
+    border-color: #93c5fd;
+  }
+  .btn-refresh-icon:active:not(:disabled) {
+    transform: scale(0.95);
+  }
+  .btn-refresh-icon:disabled {
+    opacity: 0.72;
+    cursor: wait;
+  }
+  .refresh-icon-svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+  .btn-refresh-icon.is-refreshing .refresh-icon-svg {
+    animation: gerritSpin 0.68s linear infinite;
+  }
+  .btn-sidebar-toggle {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 6px;
+    background: #232730;
+    border: 1px solid var(--g-border);
+    color: var(--g-btn-inactive-text);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+  }
+  .btn-sidebar-toggle:hover {
+    background: #2f3542;
+    border-color: #556075;
+    color: #ffffff;
+  }
+  .btn-expand-sidebar {
+    background: #222733;
+    border-color: #46536b;
+    color: #dbe8ff;
+    padding: 6px 9px;
+  }
+  .btn-expand-sidebar:hover:not(:disabled) {
+    background: #2b3344;
+    border-color: var(--g-accent);
+    color: #ffffff;
   }
   .gate-pill {
     display: inline-flex;
@@ -152,31 +218,6 @@
     flex-wrap: wrap;
     padding-top: 2px;
   }
-  .view-toggle {
-    display: inline-flex;
-    background: #181a1e;
-    border: 1px solid var(--g-border);
-    border-radius: 6px;
-    overflow: hidden;
-  }
-  .view-toggle button {
-    background: transparent;
-    color: var(--g-btn-inactive-text);
-    border: none;
-    padding: 6px 12px;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .view-toggle button:hover {
-    color: var(--g-text);
-    background: #24272e;
-  }
-  .view-toggle button.active {
-    background: #323742;
-    color: #ffffff;
-  }
-
   .cliff-radar {
     margin: 6px 18px 2px;
     background: var(--g-panel);
@@ -313,15 +354,65 @@
     cursor: wait;
   }
 
+  body.is-resizing-panels,
+  body.is-resizing-panels * {
+    cursor: col-resize !important;
+    user-select: none !important;
+  }
   .workspace {
+    --queue-pane-width: 475px;
     display: grid;
-    grid-template-columns: 475px 1fr;
-    gap: 12px;
+    grid-template-columns: minmax(240px, var(--queue-pane-width)) 12px minmax(320px, 1fr);
+    gap: 0;
     padding: 4px 18px 12px;
     flex: 1;
     min-height: 0;
   }
-  @media (max-width: 960px) {
+  .workspace.sidebar-collapsed {
+    grid-template-columns: 14px minmax(0, 1fr);
+    padding-left: 8px;
+  }
+  .workspace.sidebar-collapsed > .queue-pane {
+    display: none;
+  }
+  .workspace-splitter {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: col-resize;
+    user-select: none;
+    touch-action: none;
+    outline: none;
+    z-index: 5;
+  }
+  .workspace-splitter-grip {
+    width: 4px;
+    height: 44px;
+    border-radius: 999px;
+    background: #323640;
+    border: 1px solid #414755;
+    transition: background 0.14s ease, border-color 0.14s ease, height 0.14s ease, box-shadow 0.14s ease;
+    pointer-events: none;
+  }
+  .workspace-splitter:hover .workspace-splitter-grip,
+  .workspace-splitter:focus-visible .workspace-splitter-grip,
+  .workspace-splitter.is-dragging .workspace-splitter-grip {
+    height: 68px;
+    background: var(--g-accent);
+    border-color: #b4d2ff;
+    box-shadow: 0 0 8px rgba(130, 177, 255, 0.45);
+  }
+  .workspace.sidebar-collapsed .workspace-splitter {
+    cursor: e-resize;
+  }
+  .workspace.sidebar-collapsed .workspace-splitter-grip {
+    width: 5px;
+    height: 56px;
+    background: #3a4150;
+    border-color: #546078;
+  }
+  @media (max-width: 620px) {
     body {
       height: auto;
       overflow-y: auto;
@@ -329,10 +420,16 @@
     .cliff-track {
       grid-template-columns: 1fr;
     }
-    .workspace {
+    .workspace,
+    .workspace.sidebar-collapsed {
       grid-template-columns: 1fr;
+      gap: 10px;
       height: auto;
       min-height: calc(100vh - 120px);
+      padding-left: 18px;
+    }
+    .workspace-splitter {
+      display: none;
     }
     .queue-pane {
       max-height: 42vh;
@@ -2076,26 +2173,17 @@
     opacity: 0.56;
     cursor: wait;
   }
-  .topbar-loading-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 3px 9px;
-    border-radius: 999px;
-    background: rgba(130, 177, 255, 0.14);
-    border: 1px solid rgba(130, 177, 255, 0.38);
-    color: #cde0ff;
-    font-size: 11.5px;
-    font-weight: 600;
-    white-space: nowrap;
-  }
   .global-loading-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
     height: 2px;
     width: 100%;
     background: transparent;
     overflow: hidden;
-    position: relative;
-    flex-shrink: 0;
+    z-index: 1300;
+    pointer-events: none;
   }
   .global-loading-bar.active {
     background: rgba(130, 177, 255, 0.14);
@@ -2900,36 +2988,312 @@
     background: rgba(130, 177, 255, 0.07);
     border: 1px dashed rgba(130, 177, 255, 0.26);
   }
+  .harness-dropdown-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+  .btn-harness-menu {
+    background: #272534;
+    border-color: #4b4363;
+    color: #e6dcf8;
+    font-weight: 600;
+  }
+  .btn-harness-menu:hover:not(:disabled) {
+    background: #312d42;
+    border-color: #635884;
+  }
+  .btn-harness-menu.is-open {
+    background: #312d42;
+    border-color: #7c6ca8;
+  }
+  .btn-harness-menu.has-ready {
+    border-color: rgba(192, 132, 252, 0.55);
+    color: #f3e8ff;
+  }
+  .btn-harness-menu.is-thinking {
+    color: #fde68a;
+    background: rgba(245, 158, 11, 0.16);
+    border-color: rgba(251, 191, 36, 0.45);
+  }
+  .btn-harness-menu.is-swarming {
+    color: #ede6fa;
+    background: #322d3e;
+    border-color: #6b5b8c;
+  }
+  .harness-menu-caret {
+    font-size: 11px;
+    opacity: 0.85;
+    transition: transform 0.14s ease;
+  }
+  .btn-harness-menu.is-open .harness-menu-caret {
+    transform: rotate(180deg);
+  }
+  .harness-dropdown-menu {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 344px;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 20px);
+    overflow-y: auto;
+    background: #1f222a;
+    border: 1px solid #414858;
+    border-radius: 8px;
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.62);
+    padding: 5px;
+    z-index: 1200;
+    display: none;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .harness-dropdown-menu.open {
+    display: flex;
+  }
+  .harness-menu-item {
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 7px 9px;
+    color: var(--g-text);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-family: var(--g-font);
+    transition: background 0.12s ease, border-color 0.12s ease;
+  }
+  .harness-menu-item:hover:not(:disabled) {
+    background: rgba(130, 177, 255, 0.12);
+    border-color: rgba(130, 177, 255, 0.25);
+  }
+  .harness-menu-item:disabled {
+    opacity: 0.62;
+    cursor: not-allowed;
+  }
+  .harness-menu-item.is-active {
+    background: rgba(147, 51, 234, 0.16);
+    border-color: rgba(192, 132, 252, 0.36);
+  }
+  .harness-menu-item.is-thinking {
+    background: rgba(245, 158, 11, 0.14);
+    border-color: rgba(251, 191, 36, 0.38);
+  }
+  .harness-menu-item.is-swarming {
+    background: rgba(139, 92, 246, 0.16);
+    border-color: rgba(167, 139, 250, 0.38);
+  }
+  .harness-menu-item-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .harness-menu-item-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #f1f5f9;
+  }
+  .harness-menu-item-sub {
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--g-muted);
+  }
+  .harness-menu-kbd {
+    font-family: var(--g-mono);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    color: #cbd5e1;
+    flex-shrink: 0;
+  }
+  .ai-intangibles-panel {
+    margin: 8px 0 12px 0;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(30, 41, 59, 0.92), rgba(15, 23, 42, 0.95));
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-left: 3px solid #a855f7;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ai-intangibles-panel.collapsed .ai-intangibles-body {
+    display: none;
+  }
+  .ai-intangibles-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .ai-intangibles-head-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .ai-intangibles-title {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #f3e8ff;
+  }
+  .ai-scope-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.08);
+    color: #f8fafc;
+  }
+  .ai-scope-badge.tone-good {
+    color: #bbf7d0;
+    background: rgba(22, 101, 52, 0.35);
+    border-color: rgba(74, 222, 128, 0.4);
+  }
+  .ai-scope-badge.tone-warn {
+    color: #fde68a;
+    background: rgba(146, 64, 14, 0.35);
+    border-color: rgba(251, 191, 36, 0.42);
+  }
+  .ai-scope-badge.tone-focus {
+    color: #bfdbfe;
+    background: rgba(30, 64, 175, 0.35);
+    border-color: rgba(96, 165, 250, 0.42);
+  }
+  .ai-intangibles-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ai-intangibles-btn {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 5px;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    background: rgba(30, 41, 59, 0.8);
+    color: var(--g-text);
+    cursor: pointer;
+  }
+  .ai-intangibles-btn:hover {
+    background: rgba(59, 130, 246, 0.24);
+    border-color: rgba(147, 197, 253, 0.5);
+  }
+  .ai-intangibles-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ai-bottom-line {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #f1f5f9;
+    padding: 7px 10px;
+    border-radius: 6px;
+    background: rgba(168, 85, 247, 0.12);
+    border: 1px solid rgba(192, 132, 252, 0.26);
+    line-height: 1.45;
+  }
+  .ai-intangibles-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 10px;
+  }
+  .ai-intangibles-box {
+    padding: 9px 11px;
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    font-size: 12px;
+    line-height: 1.5;
+    color: #e2e8f0;
+  }
+  .ai-intangibles-box-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #93c5fd;
+    margin-bottom: 4px;
+  }
+  .ai-tradeoff-list {
+    margin: 6px 0 0 16px;
+    padding: 0;
+    color: #cbd5e1;
+    font-size: 11.5px;
+  }
+  .ai-tradeoff-list li {
+    margin-bottom: 3px;
+  }
+  .ai-alt-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #d8b4fe;
+    margin-bottom: 2px;
+  }
+  .ai-alt-list {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .ai-alt-card {
+    padding: 8px 11px;
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.72);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .ai-alt-card.tone-warn {
+    border-left: 3px solid #f59e0b;
+  }
+  .ai-alt-card.tone-focus {
+    border-left: 3px solid #3b82f6;
+  }
+  .ai-alt-card.tone-muted {
+    border-left: 3px solid #64748b;
+  }
+  .ai-alt-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+  .ai-alt-verdict {
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #f8fafc;
+  }
+  .ai-alt-tradeoff {
+    margin-top: 4px;
+    color: #cbd5e1;
+    font-size: 11.5px;
+  }
+  .ai-alt-list > .code-selection-composer,
+  .ai-alt-list > .diff-inline-comment {
+    margin: 2px 0 6px 12px;
+  }
 </style>
 </head>
 <body>
 
-<div class="topbar">
-  <div class="brand">
-    <span class="brand-badge">AEMU GERRIT</span>
-    <span>Fast Multi-Commit &amp; Agent Queue</span>
-    <span style="color:var(--g-muted);font-weight:500;font-size:12px;">Viewing as:</span>
-    <select id="viewerSelect" class="viewer-select" onchange="onViewerChange()"></select>
-    <select id="scopeSelect" class="viewer-select" onchange="onScopeChange()">
-      <option value="reviewer" selected>Assigned to Me (Reviewer)</option>
-      <option value="owner">Authored by Me</option>
-      <option value="team">All Team Repos</option>
-    </select>
-    <span id="topbarLoadingPill" class="topbar-loading-pill" style="display:none;">
-      <span class="btn-spinner"></span>
-      <span id="topbarLoadingText">Loading…</span>
-    </span>
-  </div>
-
-  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-    <div class="view-toggle">
-      <button id="modeSplit" onclick="setViewMode('split')">Split Queue (j/k)</button>
-      <button id="modeStack" class="active" onclick="setViewMode('stack')">Continuous Stack Scroll</button>
-      <button id="modeSquash" onclick="setViewMode('squash')">Squashed Stack Diff</button>
-    </div>
-    <button id="btnRefreshQueue" class="btn" onclick="manualRefreshQueue()">↻ Refresh</button>
-  </div>
-</div>
 <div id="globalLoadingBar" class="global-loading-bar"></div>
 
 <div id="cliffRadar" class="cliff-radar collapsed">
@@ -2966,8 +3330,45 @@
   </div>
 </div>
 
-<div class="workspace">
+<div id="workspaceContainer" class="workspace">
   <div class="queue-pane">
+    <div id="queueViewerToolbar" class="queue-viewer-toolbar">
+      <span class="viewer-row-label">Viewing as:</span>
+      <select id="viewerSelect" class="viewer-select" onchange="onViewerChange()" title="Active reviewer / viewer identity"></select>
+      <select id="scopeSelect" class="viewer-select scope-select" onchange="onScopeChange()" title="Queue scope">
+        <option value="reviewer" selected>Assigned to Me</option>
+        <option value="owner">Authored by Me</option>
+        <option value="team">All Team Repos</option>
+      </select>
+      <button
+        id="btnRefreshQueue"
+        type="button"
+        class="btn-refresh-icon"
+        onclick="manualRefreshQueue()"
+        title="Refresh Gerrit queue"
+        aria-label="Refresh Gerrit queue"
+      >
+        <svg class="refresh-icon-svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M13.5 8a5.5 5.5 0 1 1-1.35-3.61"/>
+          <polyline points="13.5 2 13.5 5.2 10.3 5.2"/>
+        </svg>
+      </button>
+      <button
+        id="btnCollapseSidebar"
+        type="button"
+        class="btn-sidebar-toggle"
+        onclick="toggleSidebarCollapsed(true)"
+        title="Collapse side panel ([)"
+        aria-label="Collapse side panel"
+        aria-expanded="true"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="2.5" width="12" height="11" rx="2"/>
+          <line x1="6.5" y1="2.5" x2="6.5" y2="13.5"/>
+          <polyline points="5 6.5 3.5 8 5 9.5"/>
+        </svg>
+      </button>
+    </div>
     <div id="queueSearchBar" class="queue-search-bar collapsed">
       <div class="queue-search-row">
         <div class="queue-search-input-wrap">
@@ -3112,10 +3513,38 @@
     </div>
   </div>
 
+  <div
+    id="workspaceSplitter"
+    class="workspace-splitter"
+    role="separator"
+    aria-orientation="vertical"
+    aria-label="Resize side panel and code diff viewer"
+    tabindex="0"
+    title="Drag to resize panels · Double-click to reset width"
+  >
+    <div class="workspace-splitter-grip" aria-hidden="true"></div>
+  </div>
+
   <div class="diff-pane">
     <div id="voteStampBanner" class="vote-stamp-banner"></div>
     <div class="harness-bar">
       <div class="vote-group">
+        <button
+          id="btnExpandSidebar"
+          type="button"
+          class="btn btn-expand-sidebar"
+          style="display:none;"
+          onclick="toggleSidebarCollapsed(false)"
+          title="Expand side panel ([)"
+          aria-label="Expand side panel"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="2.5" width="12" height="11" rx="2"/>
+            <line x1="6.5" y1="2.5" x2="6.5" y2="13.5"/>
+            <polyline points="8.5 6.5 10 8 8.5 9.5"/>
+          </svg>
+          <span id="expandSidebarLabel">Queue</span>
+        </button>
         <button id="btnVotePlus1" class="btn btn-vote-cr1" onclick="voteCurrentClPlus1(this)" title="Vote Code-Review +1 on selected CL (Shortcut: 1)">+1</button>
         <button id="btnVoteCurrent" class="btn btn-approve" onclick="voteCurrentCl(this)" title="Vote Code-Review +2 on selected CL (Shortcut: a or 2)">✓ Vote +2</button>
         <button id="btnVotePlus2Auto" class="btn btn-approve-auto" onclick="voteCurrentClPlus2Auto(this)" title="Vote Code-Review +2 and Autosubmit +1 on selected CL (Shortcut: Shift+A)">⚡ +2 &amp; Autosubmit</button>
@@ -3124,9 +3553,62 @@
         <button id="btnVoteStack" class="btn btn-approve-stack" onclick="voteActiveStack(this)" title="Vote Code-Review +2 across all commits in active stack">✓✓ Stack +2</button>
       </div>
       <div class="harness-group">
-        <span style="font-size:11px;color:var(--g-muted);font-weight:700;">HARNESS ACTIONS:</span>
-        <button id="btnRunSwarm" class="btn btn-swarm" onclick="triggerHarness('review-swarm', this)">★ Run Review Swarm (8 Specialists)</button>
-        <button id="btnAutoFix" class="btn btn-fix" onclick="triggerHarness('address-review', this)">→ Auto-Address Comments</button>
+        <div id="harnessDropdownWrap" class="harness-dropdown-wrap" onclick="event.stopPropagation()">
+          <button
+            id="btnHarnessMenuToggle"
+            type="button"
+            class="btn btn-harness-menu"
+            onclick="toggleHarnessMenu(event)"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            title="Open Harness Actions for the selected CL"
+          >
+            <span id="harnessMenuLabel">⚡ Harness Actions</span>
+            <span class="harness-menu-caret">▾</span>
+          </button>
+          <div id="harnessDropdownMenu" class="harness-dropdown-menu" role="menu" aria-hidden="true">
+            <button
+              id="btnAiAnalysis"
+              type="button"
+              role="menuitem"
+              class="harness-menu-item"
+              onclick="onHarnessMenuAction('problem-alternatives', this)"
+              title="Analyze the underlying problem, chosen solution, tradeoffs, and alternative solutions for this CL"
+            >
+              <div class="harness-menu-item-top">
+                <span id="btnAiAnalysisLabel" class="harness-menu-item-title">🧠 Analyze Problem &amp; Alternatives</span>
+              </div>
+              <div id="btnAiAnalysisSub" class="harness-menu-item-sub">Underlying problem, chosen solution, tradeoffs &amp; alternatives</div>
+            </button>
+            <button
+              id="btnRunSwarm"
+              type="button"
+              role="menuitem"
+              class="harness-menu-item"
+              onclick="onHarnessMenuAction('review-swarm', this)"
+              title="Launch the 8-specialist parallel Review Swarm workflow (Shortcut: s)"
+            >
+              <div class="harness-menu-item-top">
+                <span id="btnRunSwarmLabel" class="harness-menu-item-title">★ Run Review Swarm (8 Specialists)</span>
+                <kbd class="harness-menu-kbd">s</kbd>
+              </div>
+              <div id="btnRunSwarmSub" class="harness-menu-item-sub">8-agent parallel audit for library reuse, error messages, complexity &amp; tests</div>
+            </button>
+            <button
+              id="btnAutoFix"
+              type="button"
+              role="menuitem"
+              class="harness-menu-item"
+              onclick="onHarnessMenuAction('address-review', this)"
+              title="Launch single-agent CLI workflow to address unresolved review comments"
+            >
+              <div class="harness-menu-item-top">
+                <span id="btnAutoFixLabel" class="harness-menu-item-title">→ Auto-Address Comments</span>
+              </div>
+              <div id="btnAutoFixSub" class="harness-menu-item-sub">Single-agent CLI workflow to fix unresolved review threads, test &amp; upload</div>
+            </button>
+          </div>
+        </div>
         <span id="activeSwarmsPill" class="active-swarms-pill" style="display:none;" onclick="jumpToActiveSwarmCl()"></span>
       </div>
     </div>
@@ -3137,7 +3619,7 @@
       <div style="display:flex;align-items:center;gap:8px;">
         <span id="drawerDot" class="dot dot-green"></span>
         <strong>Harness &amp; Gerrit Bridge:</strong>
-        <span id="drawerStatus" style="color:var(--g-muted);">Ready · Shortcuts: j/k (next/prev), 1 (+1), a/2 (+2), A (+2 &amp; Autosubmit), u (Autosubmit +1), p (Presubmit-Ready +1), s (Swarm)</span>
+        <span id="drawerStatus" style="color:var(--g-muted);">Ready · Shortcuts: [ (sidebar), j/k (next/prev), 1 (+1), a/2 (+2), A (+2 &amp; Autosubmit), u (Autosubmit +1), p (Presubmit-Ready +1), s (Swarm)</span>
       </div>
       <a id="openGerritLink" href="#" target="_blank" style="color:var(--g-accent);font-weight:600;text-decoration:none;">Open in Gerrit ↗</a>
     </div>
@@ -3214,7 +3696,6 @@
     authorFilter: "all",
     searchQuery: "",
     includeUngatedMatches: false,
-    viewMode: "stack",
     selectedStackId: null,
     selectedClNumber: null,
     votingInFlight: false,
@@ -3249,7 +3730,205 @@
     replyNotifications: [],
     nextReplyNotifId: 1,
     cachedSidecarProjectId: null,
+    aiAnalysisByCl: {},
+    inFlightAiAnalysisFetchByCl: {},
+    inFlightAiAnalysisStartByCl: {},
+    aiAnalysisReqSeqByCl: {},
+    hiddenAiAnalysisCls: new Set(),
+    collapsedAiAnalysisCls: new Set(),
+    harnessMenuOpen: false,
+    autoFixLaunchingCl: null,
+    sidebarWidth: 475,
+    sidebarCollapsed: false,
+    visibleCommitCount: 0,
   };
+
+  const DEFAULT_SIDEBAR_WIDTH = 475;
+  const MIN_SIDEBAR_WIDTH = 240;
+  const MIN_DIFF_PANE_WIDTH = 320;
+  const SNAP_COLLAPSE_SIDEBAR_WIDTH = 135;
+  const SIDEBAR_WIDTH_STORAGE_KEY = "gerrit_ui_sidebar_width_px";
+  const SIDEBAR_COLLAPSED_STORAGE_KEY = "gerrit_ui_sidebar_collapsed";
+
+  function clampSidebarWidth(rawPx) {
+    const wsEl = document.getElementById("workspaceContainer");
+    const wsWidth = wsEl ? wsEl.clientWidth : (window.innerWidth || 1200);
+    const padAllowance = 36 + 12;
+    const maxAllowed = Math.max(
+      MIN_SIDEBAR_WIDTH,
+      Math.floor(wsWidth - padAllowance - MIN_DIFF_PANE_WIDTH)
+    );
+    const num = Number(rawPx);
+    const desired = Number.isFinite(num) && num > 0 ? num : DEFAULT_SIDEBAR_WIDTH;
+    return Math.round(Math.min(maxAllowed, Math.max(MIN_SIDEBAR_WIDTH, desired)));
+  }
+
+  function saveSidebarLayoutPrefs() {
+    try {
+      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(Math.round(state.sidebarWidth)));
+      window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, state.sidebarCollapsed ? "1" : "0");
+    } catch (_e) {}
+  }
+
+  function loadSidebarLayoutPrefs() {
+    try {
+      const savedW = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
+      if (Number.isFinite(savedW) && savedW >= MIN_SIDEBAR_WIDTH) {
+        state.sidebarWidth = savedW;
+      }
+      const savedCol = window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY);
+      if (savedCol === "1" || savedCol === "true") {
+        state.sidebarCollapsed = true;
+      }
+    } catch (_e) {}
+    syncSidebarLayoutDom();
+  }
+
+  function syncSidebarLayoutDom() {
+    const wsEl = document.getElementById("workspaceContainer");
+    const collapseBtn = document.getElementById("btnCollapseSidebar");
+    const expandBtn = document.getElementById("btnExpandSidebar");
+    const expandLbl = document.getElementById("expandSidebarLabel");
+    const splitterEl = document.getElementById("workspaceSplitter");
+    const clamped = clampSidebarWidth(state.sidebarWidth);
+    if (wsEl) {
+      wsEl.style.setProperty("--queue-pane-width", `${clamped}px`);
+      wsEl.classList.toggle("sidebar-collapsed", Boolean(state.sidebarCollapsed));
+    }
+    if (collapseBtn) {
+      collapseBtn.setAttribute("aria-expanded", state.sidebarCollapsed ? "false" : "true");
+    }
+    if (expandBtn) {
+      expandBtn.style.display = state.sidebarCollapsed ? "inline-flex" : "none";
+    }
+    if (expandLbl) {
+      expandLbl.textContent = state.visibleCommitCount > 0
+        ? `Queue (${state.visibleCommitCount})`
+        : "Queue";
+    }
+    if (splitterEl) {
+      splitterEl.setAttribute("aria-valuenow", String(state.sidebarCollapsed ? 0 : clamped));
+      splitterEl.setAttribute("aria-valuemin", String(MIN_SIDEBAR_WIDTH));
+      splitterEl.title = state.sidebarCollapsed
+        ? "Click or drag right to expand side panel ([)"
+        : "Drag to resize panels · Double-click to reset width";
+    }
+    if (state.harnessMenuOpen) {
+      positionHarnessDropdownMenu();
+    }
+  }
+
+  function toggleSidebarCollapsed(forceCollapsed) {
+    state.sidebarCollapsed =
+      typeof forceCollapsed === "boolean" ? forceCollapsed : !state.sidebarCollapsed;
+    syncSidebarLayoutDom();
+    saveSidebarLayoutPrefs();
+  }
+
+  function setSidebarWidth(nextWidthPx, opts = {}) {
+    state.sidebarWidth = clampSidebarWidth(nextWidthPx);
+    if (state.sidebarCollapsed && opts.uncollapse !== false) {
+      state.sidebarCollapsed = false;
+    }
+    syncSidebarLayoutDom();
+    if (!opts.skipSave) {
+      saveSidebarLayoutPrefs();
+    }
+  }
+
+  function applySplitterDragClientX(wsEl, startClientX, clientX, wasCollapsed, preDragWidth) {
+    const wsRect = wsEl.getBoundingClientRect();
+    const padLeft = parseFloat(getComputedStyle(wsEl).paddingLeft || "18") || 18;
+    const rawWidth = clientX - wsRect.left - padLeft;
+    if (wasCollapsed) {
+      if (clientX - startClientX > 10 || rawWidth >= MIN_SIDEBAR_WIDTH * 0.5) {
+        state.sidebarCollapsed = false;
+        state.sidebarWidth = clampSidebarWidth(rawWidth);
+        syncSidebarLayoutDom();
+      }
+      return;
+    }
+    state.sidebarCollapsed = rawWidth < SNAP_COLLAPSE_SIDEBAR_WIDTH;
+    state.sidebarWidth = state.sidebarCollapsed ? preDragWidth : clampSidebarWidth(rawWidth);
+    syncSidebarLayoutDom();
+  }
+
+  function onWorkspaceSplitterKeydown(e) {
+    if (e.key === "ArrowLeft" && !state.sidebarCollapsed) {
+      e.preventDefault();
+      setSidebarWidth(state.sidebarWidth - 24);
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      if (state.sidebarCollapsed) {
+        toggleSidebarCollapsed(false);
+      } else {
+        setSidebarWidth(state.sidebarWidth + 24);
+      }
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggleSidebarCollapsed();
+    }
+  }
+
+  function startWorkspaceSplitterDrag(splitterEl, wsEl, startClientX) {
+    const wasCollapsed = Boolean(state.sidebarCollapsed);
+    const preDragWidth = clampSidebarWidth(state.sidebarWidth);
+    let didMove = false;
+    splitterEl.classList.add("is-dragging");
+    document.body.classList.add("is-resizing-panels");
+
+    const onMouseMove = (ev) => {
+      ev.preventDefault();
+      if (Math.abs(ev.clientX - startClientX) > 3) didMove = true;
+      applySplitterDragClientX(wsEl, startClientX, ev.clientX, wasCollapsed, preDragWidth);
+    };
+    const onTouchMove = (ev) => {
+      if (!ev.touches || !ev.touches.length) return;
+      const cx = ev.touches[0].clientX;
+      if (Math.abs(cx - startClientX) > 3) didMove = true;
+      applySplitterDragClientX(wsEl, startClientX, cx, wasCollapsed, preDragWidth);
+    };
+    const stopDrag = () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", stopDrag);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", stopDrag);
+      window.removeEventListener("touchcancel", stopDrag);
+      splitterEl.classList.remove("is-dragging");
+      document.body.classList.remove("is-resizing-panels");
+      if (wasCollapsed && !didMove) {
+        toggleSidebarCollapsed(false);
+      } else {
+        saveSidebarLayoutPrefs();
+      }
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", stopDrag);
+    window.addEventListener("touchmove", onTouchMove, { passive: true });
+    window.addEventListener("touchend", stopDrag);
+    window.addEventListener("touchcancel", stopDrag);
+  }
+
+  function initWorkspaceSplitter() {
+    const splitterEl = document.getElementById("workspaceSplitter");
+    const wsEl = document.getElementById("workspaceContainer");
+    if (!splitterEl || !wsEl) return;
+
+    splitterEl.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      startWorkspaceSplitterDrag(splitterEl, wsEl, e.clientX);
+    });
+    splitterEl.addEventListener("touchstart", (e) => {
+      if (!e.touches || !e.touches.length) return;
+      startWorkspaceSplitterDrag(splitterEl, wsEl, e.touches[0].clientX);
+    }, { passive: true });
+    splitterEl.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      state.sidebarCollapsed ? toggleSidebarCollapsed(false) : setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
+    });
+    splitterEl.addEventListener("keydown", onWorkspaceSplitterKeydown);
+  }
 
   const QUEUE_CLIENT_CACHE_TTL_MS = 45000;
   const QUEUE_CLIENT_STALE_MAX_MS = 300000;
@@ -3409,6 +4088,9 @@
   }
 
   function setQueueControlsDisabled(disabled) {
+    if (disabled) {
+      closeHarnessMenu();
+    }
     const controlIds = [
       "viewerSelect",
       "scopeSelect",
@@ -3422,6 +4104,8 @@
       "btnVoteAutosubmit",
       "btnPresubmitReady",
       "btnVoteStack",
+      "btnHarnessMenuToggle",
+      "btnAiAnalysis",
       "btnRunSwarm",
       "btnAutoFix",
     ];
@@ -3433,13 +4117,11 @@
 
   function setQueueLoadingState(isLoading, titleText, subText) {
     state.queueLoading = Boolean(isLoading);
-    const pill = document.getElementById("topbarLoadingPill");
-    const pillText = document.getElementById("topbarLoadingText");
+    const refreshBtn = document.getElementById("btnRefreshQueue");
     const qOverlay = document.getElementById("queuePaneOverlay");
     const dOverlay = document.getElementById("diffPaneOverlay");
     const radar = document.getElementById("cliffRadar");
-    if (pill) pill.style.display = isLoading ? "inline-flex" : "none";
-    if (pillText && titleText) pillText.textContent = titleText;
+    if (refreshBtn) refreshBtn.classList.toggle("is-refreshing", isLoading);
     if (qOverlay) {
       qOverlay.classList.toggle("active", isLoading);
       qOverlay.setAttribute("aria-hidden", isLoading ? "false" : "true");
@@ -3500,7 +4182,7 @@
     const btn = document.getElementById("btnRefreshQueue");
     if (btn) {
       btn.disabled = true;
-      btn.innerHTML = `<span class="btn-spinner"></span> Refreshing…`;
+      btn.classList.add("is-refreshing");
     }
     try {
       invalidateClientQueueCache();
@@ -3513,7 +4195,7 @@
     } finally {
       if (btn) {
         btn.disabled = false;
-        btn.textContent = "↻ Refresh";
+        btn.classList.remove("is-refreshing");
       }
     }
   }
@@ -3668,6 +4350,7 @@
       const nextPs = Number(c.patch_set || 1);
       if (cNum && state.lastKnownPatchSetByCl[cNum] && state.lastKnownPatchSetByCl[cNum] !== nextPs) {
         delete state.diffsByCl[cNum];
+        delete state.aiAnalysisByCl[cNum];
       }
       if (cNum) {
         state.lastKnownPatchSetByCl[cNum] = nextPs;
@@ -3695,6 +4378,7 @@
     });
     ensureSwarmPollingTimer();
     ensureCodeQuestionPollingTimer();
+    ensureAiAnalysisPollingTimer();
   }
 
   function renderViewerDropdown() {
@@ -3848,14 +4532,6 @@
   function toggleFilterPresets() {
     state.filterPresetsCollapsed = !state.filterPresetsCollapsed;
     syncPresetCollapseControls();
-  }
-
-  function setViewMode(mode) {
-    state.viewMode = mode;
-    document.getElementById("modeSplit").classList.toggle("active", mode === "split");
-    document.getElementById("modeStack").classList.toggle("active", mode === "stack");
-    document.getElementById("modeSquash").classList.toggle("active", mode === "squash");
-    ensureActiveDiffsLoaded();
   }
 
   function toggleAuthorPresets() {
@@ -4375,6 +5051,8 @@
     const summary = getFilteredStacksSummary();
     const visibleStacks = summary.visibleStacks;
     const orderedVisible = getOrderedVisibleCommits(visibleStacks);
+    state.visibleCommitCount = orderedVisible.length;
+    syncSidebarLayoutDom();
     if (!isSelectedVisibleInStacks(visibleStacks) && !state.explicitRadarSelection) {
       if (orderedVisible.length > 0) {
         state.selectedStackId = orderedVisible[0].stack.stack_id;
@@ -4559,8 +5237,7 @@
   }
 
   function renderClCardHtml(c, stackId) {
-    const isSelected = (state.groupMode === "stack" && state.viewMode === "stack" && stackId === state.selectedStackId) ||
-                       (c.number === state.selectedClNumber);
+    const isSelected = Number(c.number) === Number(state.selectedClNumber);
     const ownerShort = getClPrimaryAuthorShort(c);
     const isBotOwner = isClBotOwner(c);
     const ownerTooltip = `${c.owner_name || ownerShort} <${c.owner_email || ownerShort + "@google.com"}> · Click to filter by this author`;
@@ -4799,6 +5476,7 @@
   }
 
   function selectStackAndCl(stackId, clNum, opts = {}) {
+    closeHarnessMenu();
     if (!opts.keepRadarFlag) {
       state.explicitRadarSelection = false;
     }
@@ -4838,23 +5516,33 @@
   function getActiveCommitsForDiff() {
     const visibleStacks = getVisibleStacks();
     const vst = visibleStacks.find(s => s.stack_id === state.selectedStackId);
-    if (vst) {
-      const chosen = vst.commits.find(c => c.number === state.selectedClNumber);
-      if (state.viewMode === "split") {
-        return chosen ? [chosen] : vst.commits.slice(0, 1);
-      }
-      if (chosen && state.groupMode === "type" && state.viewMode !== "squash" && vst.commits[0].number !== chosen.number) {
-        return [chosen, ...vst.commits.filter(c => c.number !== chosen.number)];
-      }
-      return vst.commits;
+    if (vst && vst.commits.length > 0) {
+      const chosen = vst.commits.find(c => Number(c.number) === Number(state.selectedClNumber));
+      return [chosen || vst.commits[0]];
     }
     const st = state.stacks.find(s => s.stack_id === state.selectedStackId);
-    if (!st) {
-      const single = state.changes.find(c => c.number === state.selectedClNumber);
-      return single ? [single] : [];
+    if (st && st.commits.length > 0) {
+      const chosen = st.commits.find(c => Number(c.number) === Number(state.selectedClNumber));
+      if (chosen) return [chosen];
     }
-    const chosen = st.commits.find(c => c.number === state.selectedClNumber);
-    return chosen ? [chosen] : [];
+    const single = state.changes.find(c => Number(c.number) === Number(state.selectedClNumber));
+    return single ? [single] : [];
+  }
+
+  function getSelectedStackCommits() {
+    if (state.groupMode === "stack") {
+      const vst = getVisibleStacks().find(s => s.stack_id === state.selectedStackId);
+      if (vst && vst.commits.length > 0) return vst.commits;
+    }
+    const st = state.stacks.find(s => s.commits && s.commits.some(c => Number(c.number) === Number(state.selectedClNumber)));
+    if (st && st.commits.length > 1) {
+      const visibleNums = new Set(
+        getVisibleStacks().flatMap(vs => (vs.commits || []).map(vc => Number(vc.number)))
+      );
+      const filtered = st.commits.filter(c => visibleNums.has(Number(c.number)));
+      return filtered.length > 0 ? filtered : st.commits;
+    }
+    return getActiveCommitsForDiff();
   }
 
   async function prefetchDiffsForNumbers(clNums, opts = {}) {
@@ -4927,6 +5615,7 @@
   }
 
   function syncActiveActionButtons(commits, isDiffLoading) {
+    syncAiAnalysisButton(commits);
     const btnCr1 = document.getElementById("btnVotePlus1");
     const btnCurrent = document.getElementById("btnVoteCurrent");
     const btnCr2Auto = document.getElementById("btnVotePlus2Auto");
@@ -4945,16 +5634,23 @@
       if (btnCr2Auto) btnCr2Auto.textContent = "⚡ +2 & Autosubmit";
       if (btnAuto) btnAuto.textContent = "Autosubmit +1";
       if (btnPr) btnPr.textContent = "▶ Presubmit-Ready +1";
-      if (btnStack) btnStack.textContent = "✓✓ Stack Clear";
+      if (btnStack) {
+        btnStack.style.display = "none";
+        btnStack.textContent = "✓✓ Stack Clear";
+      }
       return;
     }
     const primary = commits.find(c => c.number === state.selectedClNumber) || commits[0];
+    const stackCommits = getSelectedStackCommits();
+    if (btnStack) {
+      btnStack.style.display = stackCommits.length > 1 ? "" : "none";
+    }
     if (isDiffLoading) {
       setToolbarVoteButtonsDisabled(true);
       if (btnCurrent) {
         btnCurrent.innerHTML = `<span class="btn-spinner"></span> Loading ag/${primary.number}…`;
       }
-      if (btnStack) {
+      if (btnStack && stackCommits.length > 1) {
         btnStack.innerHTML = `<span class="btn-spinner"></span> Loading Stack…`;
       }
       return;
@@ -4983,8 +5679,8 @@
       btnPr.textContent = formatToolbarPresubmitButtonText(primary);
       btnPr.classList.toggle("is-active-vote", myPr);
     }
-    if (btnStack) {
-      btnStack.textContent = `✓✓ Stack +2 (${commits.length})`;
+    if (btnStack && stackCommits.length > 1) {
+      btnStack.textContent = `✓✓ Stack +2 (${stackCommits.length})`;
     }
   }
 
@@ -5028,13 +5724,19 @@
         }
       });
       ensurePresubmitTargetsPollingTimer();
+      fetchCachedAiAnalysisForCommits(commits);
     }
     pollTranscriptCodeQuestions();
     ensureCodeQuestionPollingTimer();
+    ensureAiAnalysisPollingTimer();
     if (!opts.preserveScroll) {
-      const nextIdx = commits.findIndex(c => c.number !== primary.number);
-      if (nextIdx >= 0) {
-        prefetchDiffsForNumbers([commits[nextIdx].number]);
+      const ordered = getOrderedVisibleCommits(getVisibleStacks());
+      const curIdx = ordered.findIndex(item => Number(item.commit.number) === pNum);
+      if (curIdx >= 0 && ordered.length > 1) {
+        const nextItem = ordered[(curIdx + 1) % ordered.length];
+        if (nextItem && Number(nextItem.commit.number) !== pNum) {
+          prefetchDiffsForNumbers([nextItem.commit.number]);
+        }
       }
     }
   }
@@ -5042,6 +5744,658 @@
   const MAX_REPLY_NOTIFICATION_BUBBLES = 8;
   const QA_FLASH_DURATION_MS = 1850;
   const CODE_QUESTION_POLL_INTERVAL_MS = 1800;
+  const AI_ANALYSIS_POLL_INTERVAL_MS = 2200;
+
+  function syncHarnessMenuButton(commits) {
+    const toggleBtn = document.getElementById("btnHarnessMenuToggle");
+    const labelEl = document.getElementById("harnessMenuLabel");
+    if (!toggleBtn || !labelEl) return;
+    const list = Array.isArray(commits) ? commits : getActiveCommitsForDiff();
+    if (state.queueLoading || list.length === 0) {
+      toggleBtn.disabled = true;
+      toggleBtn.classList.remove("is-thinking", "is-swarming", "has-ready", "is-open");
+      labelEl.textContent = "⚡ Harness Actions";
+      if (state.harnessMenuOpen) closeHarnessMenu();
+      return;
+    }
+    toggleBtn.disabled = false;
+    toggleBtn.classList.toggle("is-open", Boolean(state.harnessMenuOpen));
+    const primary = list.find(c => Number(c.number) === Number(state.selectedClNumber)) || list[0];
+    const pNum = Number(primary.number);
+    const aiEntry = state.aiAnalysisByCl[pNum];
+    const aiStatus = aiEntry ? aiEntry.analysis_status : "not_analyzed";
+    const aiVisible = aiStatus === "ready" && !state.hiddenAiAnalysisCls.has(pNum);
+    const selSwarm = state.swarmByCl[pNum];
+    const swarmRunning = Boolean(selSwarm && selSwarm.state === "running");
+
+    toggleBtn.classList.toggle("is-thinking", aiStatus === "thinking");
+    toggleBtn.classList.toggle("is-swarming", aiStatus !== "thinking" && swarmRunning);
+    toggleBtn.classList.toggle("has-ready", aiStatus !== "thinking" && !swarmRunning && aiVisible);
+
+    if (aiStatus === "thinking") {
+      labelEl.innerHTML = `<span class="btn-spinner"></span> Analyzing Problem…`;
+      toggleBtn.title = `Analyzing problem & alternatives on ag/${pNum} — open menu or panel to cancel`;
+      return;
+    }
+    if (swarmRunning) {
+      const done = Number(selSwarm.completed_specialists || 0);
+      const total = Number(selSwarm.total_specialists || 8);
+      const sec = getSwarmElapsedSec(selSwarm);
+      labelEl.innerHTML = `<span class="swarm-spinner"></span> Swarm · ${done}/${total} (${sec}s)`;
+      toggleBtn.title = `8-Specialist Review Swarm running on ag/${pNum}`;
+      return;
+    }
+    if (state.autoFixLaunchingCl && Number(state.autoFixLaunchingCl) === pNum) {
+      labelEl.innerHTML = `<span class="btn-spinner"></span> Launching Fix…`;
+      toggleBtn.title = `Launching Auto-Address Comments on ag/${pNum}`;
+      return;
+    }
+    labelEl.textContent = "⚡ Harness Actions";
+    toggleBtn.title = `Open Harness Actions for ag/${pNum}`;
+  }
+
+  function positionHarnessDropdownMenu() {
+    if (!state.harnessMenuOpen) return;
+    const toggleBtn = document.getElementById("btnHarnessMenuToggle");
+    const menuEl = document.getElementById("harnessDropdownMenu");
+    if (!toggleBtn || !menuEl) return;
+
+    const vw = window.innerWidth || document.documentElement.clientWidth || 1024;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 768;
+    const btnRect = toggleBtn.getBoundingClientRect();
+    const diffPane = toggleBtn.closest(".diff-pane");
+    const paneLeft = diffPane ? diffPane.getBoundingClientRect().left : 8;
+
+    const menuW = menuEl.offsetWidth || Math.min(344, vw - 16);
+    const menuH = menuEl.offsetHeight || 190;
+
+    // Right-align when there is room inside diff-pane; left-align when toolbar wraps to the left edge.
+    const minPaneLeft = Math.max(8, paneLeft + 8);
+    let left = (btnRect.right - menuW >= minPaneLeft)
+      ? (btnRect.right - menuW)
+      : btnRect.left;
+    left = Math.max(8, Math.min(left, vw - menuW - 8));
+
+    let top = btnRect.bottom + 6;
+    if (top + menuH > vh - 8 && btnRect.top - menuH - 6 >= 8) {
+      top = btnRect.top - menuH - 6;
+    } else {
+      top = Math.max(8, Math.min(top, vh - menuH - 8));
+    }
+
+    menuEl.style.left = `${Math.round(left)}px`;
+    menuEl.style.top = `${Math.round(top)}px`;
+  }
+
+  function toggleHarnessMenu(event) {
+    if (event) event.stopPropagation();
+    const toggleBtn = document.getElementById("btnHarnessMenuToggle");
+    if (toggleBtn && toggleBtn.disabled) return;
+    if (state.harnessMenuOpen) {
+      closeHarnessMenu();
+      return;
+    }
+    state.harnessMenuOpen = true;
+    const commits = getActiveCommitsForDiff();
+    syncAiAnalysisButton(commits);
+    syncSwarmIndicatorsOnly();
+    const menuEl = document.getElementById("harnessDropdownMenu");
+    if (menuEl) {
+      menuEl.classList.add("open");
+      menuEl.setAttribute("aria-hidden", "false");
+    }
+    if (toggleBtn) {
+      toggleBtn.classList.add("is-open");
+      toggleBtn.setAttribute("aria-expanded", "true");
+    }
+    positionHarnessDropdownMenu();
+  }
+
+  function closeHarnessMenu() {
+    if (!state.harnessMenuOpen) return;
+    state.harnessMenuOpen = false;
+    const menuEl = document.getElementById("harnessDropdownMenu");
+    if (menuEl) {
+      menuEl.classList.remove("open");
+      menuEl.setAttribute("aria-hidden", "true");
+    }
+    const toggleBtn = document.getElementById("btnHarnessMenuToggle");
+    if (toggleBtn) {
+      toggleBtn.classList.remove("is-open");
+      toggleBtn.setAttribute("aria-expanded", "false");
+    }
+  }
+
+  function onHarnessMenuAction(action, btnEl) {
+    closeHarnessMenu();
+    if (action === "problem-alternatives") {
+      onAiAnalysisButtonClick();
+      return;
+    }
+    triggerHarness(action, btnEl);
+  }
+
+  function syncAiAnalysisButton(commits) {
+    const btn = document.getElementById("btnAiAnalysis");
+    const labelEl = document.getElementById("btnAiAnalysisLabel");
+    const subEl = document.getElementById("btnAiAnalysisSub");
+    const list = Array.isArray(commits) ? commits : getActiveCommitsForDiff();
+    syncHarnessMenuButton(list);
+    if (!btn) return;
+    if (state.queueLoading || list.length === 0) {
+      btn.disabled = true;
+      btn.classList.remove("is-thinking", "is-active");
+      if (labelEl) labelEl.textContent = "🧠 Analyze Problem & Alternatives";
+      if (subEl) subEl.textContent = "Underlying problem, chosen solution, tradeoffs & alternatives";
+      return;
+    }
+    btn.disabled = false;
+    const primary = list.find(c => Number(c.number) === Number(state.selectedClNumber)) || list[0];
+    const pNum = Number(primary.number);
+    const entry = state.aiAnalysisByCl[pNum];
+    const status = entry ? entry.analysis_status : "not_analyzed";
+    const isHidden = state.hiddenAiAnalysisCls.has(pNum);
+
+    btn.classList.toggle("is-thinking", status === "thinking");
+    btn.classList.toggle("is-active", status === "ready" && !isHidden);
+    if (status === "thinking") {
+      if (labelEl) {
+        labelEl.innerHTML = `<span class="btn-spinner"></span> Cancel Problem &amp; Alternatives Analysis`;
+      }
+      if (subEl) {
+        subEl.textContent = `Analyzing ag/${pNum} — click to cancel`;
+      }
+      btn.title = `Cancel in-flight Problem & Alternatives analysis on ag/${pNum}`;
+      return;
+    }
+    if (status === "ready") {
+      if (labelEl) {
+        labelEl.textContent = isHidden
+          ? "🧠 Show Problem & Alternatives"
+          : "✓ Hide Problem & Alternatives";
+      }
+      if (subEl) {
+        subEl.textContent = isHidden
+          ? `Cached for ag/${pNum} — click to display`
+          : `Shown on ag/${pNum} — click to hide (use ↻ Re-run in panel to refresh)`;
+      }
+      btn.title = isHidden
+        ? `Show cached Problem & Alternatives analysis for ag/${pNum}`
+        : `Hide Problem & Alternatives panel for ag/${pNum}`;
+      return;
+    }
+    if (labelEl) labelEl.textContent = "🧠 Analyze Problem & Alternatives";
+    if (subEl) subEl.textContent = "Underlying problem, chosen solution, tradeoffs & alternatives";
+    btn.title = `Analyze the underlying problem, chosen solution, tradeoffs, and alternative solutions for ag/${pNum}`;
+  }
+
+  function onAiAnalysisButtonClick() {
+    const commits = getActiveCommitsForDiff();
+    if (commits.length === 0) return;
+    const primary = commits.find(c => Number(c.number) === Number(state.selectedClNumber)) || commits[0];
+    const pNum = Number(primary.number);
+    const existing = state.aiAnalysisByCl[pNum];
+    const status = existing ? existing.analysis_status : "not_analyzed";
+
+    if (status === "thinking") {
+      cancelClAiAnalysis(pNum);
+      return;
+    }
+    if (status === "ready" && existing.analysis) {
+      if (state.hiddenAiAnalysisCls.has(pNum)) {
+        state.hiddenAiAnalysisCls.delete(pNum);
+        state.collapsedAiAnalysisCls.delete(pNum);
+      } else {
+        state.hiddenAiAnalysisCls.add(pNum);
+      }
+      syncAiAnalysisButton(commits);
+      renderDiffPane({ preserveScroll: true });
+      return;
+    }
+    analyzeClIntangibles(pNum, status === "error");
+  }
+
+  async function fetchCachedAiAnalysisForCommits(commits) {
+    const isBootstrap = Boolean(window.__GERRIT_UI_BOOTSTRAP__ && window.__GERRIT_UI_BOOTSTRAP__.changes);
+    if (isBootstrap) return;
+    const list = Array.isArray(commits) ? commits : [];
+    for (const c of list) {
+      const cNum = Number(c.number);
+      if (!cNum || state.aiAnalysisByCl[cNum] || state.inFlightAiAnalysisFetchByCl[cNum]) {
+        continue;
+      }
+      fetchAiAnalysisStatusForCl(cNum, Number(c.patch_set || 0), { silentIfNotAnalyzed: true });
+    }
+  }
+
+  async function fetchAiAnalysisStatusForCl(clNum, patchSet = 0, opts = {}) {
+    const num = Number(clNum);
+    if (!num || state.inFlightAiAnalysisFetchByCl[num] || state.inFlightAiAnalysisStartByCl[num]) {
+      return null;
+    }
+    const reqSeq = state.aiAnalysisReqSeqByCl[num] || 0;
+    const cObj = state.changes.find(x => Number(x.number) === num);
+    const ps = patchSet || Number((cObj && cObj.patch_set) || 0);
+    const prev = state.aiAnalysisByCl[num];
+    const wasThinking = Boolean(prev && prev.analysis_status === "thinking");
+    state.inFlightAiAnalysisFetchByCl[num] = true;
+    try {
+      const psParam = ps > 0 ? `&ps=${encodeURIComponent(String(ps))}` : "";
+      const resp = await sidecarFetch(`/api/gerrit/ai-analysis?cl=${encodeURIComponent(String(num))}${psParam}`);
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      if (!data || data.error || (state.aiAnalysisReqSeqByCl[num] || 0) !== reqSeq) return null;
+      state.aiAnalysisByCl[num] = data;
+      syncAiAnalysisButton(getActiveCommitsForDiff());
+      if (opts.silentIfNotAnalyzed && data.analysis_status === "not_analyzed") {
+        return data;
+      }
+      handleAiAnalysisStateTransition(num, wasThinking, data);
+      return data;
+    } catch (_err) {
+      return null;
+    } finally {
+      delete state.inFlightAiAnalysisFetchByCl[num];
+    }
+  }
+
+  function handleAiAnalysisStateTransition(clNum, wasThinking, data) {
+    const activeNums = getActiveCommitsForDiff().map(c => Number(c.number));
+    const isVisible = activeNums.includes(Number(clNum));
+    const composerBusy = Boolean(
+      state.codeSelection || state.activeReviewerComposer || state.activeChatComposer
+    );
+    if (wasThinking && data.analysis_status === "ready") {
+      const drawerEl = document.getElementById("drawerStatus");
+      if (drawerEl) {
+        drawerEl.textContent = `✓ Problem & Alternatives ready for ag/${clNum}`;
+      }
+      if (isVisible && !composerBusy) {
+        renderDiffPane({ preserveScroll: true });
+        showToast(`✓ Problem & Alternatives ready for ag/${clNum}!`);
+      } else {
+        pushAiAnalysisReadyNotification(clNum, data);
+      }
+      return;
+    }
+    if (isVisible && !composerBusy && !state.hiddenAiAnalysisCls.has(Number(clNum))) {
+      renderDiffPane({ preserveScroll: true });
+    }
+  }
+
+  function pushAiAnalysisReadyNotification(clNum, data) {
+    const analysis = (data && data.analysis) || {};
+    const scopeLabel = String(analysis.scope_label || "Intangibles ready");
+    const notifKey = `ai-analysis-${clNum}`;
+    state.replyNotifications = (state.replyNotifications || []).filter(
+      n => String(n.itemId) !== notifKey
+    );
+    state.replyNotifications.push({
+      id: `reply-b-${state.nextReplyNotifId++}`,
+      kind: "ai_analysis_ready",
+      clNum: Number(clNum),
+      itemId: notifKey,
+      locLabel: scopeLabel,
+    });
+    while (state.replyNotifications.length > MAX_REPLY_NOTIFICATION_BUBBLES) {
+      state.replyNotifications.shift();
+    }
+    renderAgentReplyBubbleStack();
+  }
+
+  async function analyzeClIntangibles(clNum, force = false) {
+    const num = Number(clNum);
+    if (!num) return;
+    const reqSeq = (state.aiAnalysisReqSeqByCl[num] = (state.aiAnalysisReqSeqByCl[num] || 0) + 1);
+    state.inFlightAiAnalysisStartByCl[num] = true;
+    const cObj = state.changes.find(x => Number(x.number) === num);
+    const ps = Number((cObj && cObj.patch_set) || 1);
+    state.hiddenAiAnalysisCls.delete(num);
+    state.collapsedAiAnalysisCls.delete(num);
+    state.aiAnalysisByCl[num] = {
+      cl: String(num),
+      patch_set: ps,
+      analysis_status: "thinking",
+      analysis: null,
+      error: "",
+    };
+    syncAiAnalysisButton(getActiveCommitsForDiff());
+    renderDiffPane({ preserveScroll: true });
+
+    const drawerEl = document.getElementById("drawerStatus");
+    if (drawerEl) {
+      drawerEl.textContent = `Analyzing Problem & Alternatives on ag/${num}…`;
+    }
+    try {
+      const projectId = await resolveSidecarProjectId();
+      const resp = await sidecarFetch("/api/gerrit/ai-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "analyze",
+          cl: num,
+          ps,
+          project: (cObj && cObj.project) || "",
+          subject: (cObj && cObj.subject) || "",
+          projectId,
+          force: Boolean(force),
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        throw new Error((data && data.error) || `HTTP ${resp.status}`);
+      }
+      if ((state.aiAnalysisReqSeqByCl[num] || 0) !== reqSeq) return;
+      state.aiAnalysisByCl[num] = data;
+      syncAiAnalysisButton(getActiveCommitsForDiff());
+      renderDiffPane({ preserveScroll: true });
+      ensureAiAnalysisPollingTimer();
+    } catch (err) {
+      if ((state.aiAnalysisReqSeqByCl[num] || 0) !== reqSeq) return;
+      state.aiAnalysisByCl[num] = {
+        cl: String(num),
+        patch_set: ps,
+        analysis_status: "error",
+        analysis: null,
+        error: String(err),
+      };
+      syncAiAnalysisButton(getActiveCommitsForDiff());
+      renderDiffPane({ preserveScroll: true });
+      showToast(`Problem & Alternatives analysis failed on ag/${num}: ${err}`);
+    } finally {
+      if ((state.aiAnalysisReqSeqByCl[num] || 0) === reqSeq) {
+        delete state.inFlightAiAnalysisStartByCl[num];
+      }
+    }
+  }
+
+  async function cancelClAiAnalysis(clNum) {
+    const num = Number(clNum);
+    if (!num) return;
+    state.aiAnalysisReqSeqByCl[num] = (state.aiAnalysisReqSeqByCl[num] || 0) + 1;
+    delete state.inFlightAiAnalysisStartByCl[num];
+    const cObj = state.changes.find(x => Number(x.number) === num);
+    const ps = Number((cObj && cObj.patch_set) || 1);
+    state.aiAnalysisByCl[num] = {
+      cl: String(num),
+      patch_set: ps,
+      analysis_status: "not_analyzed",
+      analysis: null,
+      error: "",
+    };
+    syncAiAnalysisButton(getActiveCommitsForDiff());
+    renderDiffPane({ preserveScroll: true });
+    try {
+      await sidecarFetch("/api/gerrit/ai-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel", cl: num, ps }),
+      });
+      showToast(`Cancelled Problem & Alternatives analysis on ag/${num}.`);
+    } catch (_err) {
+      // Best-effort cancellation
+    }
+  }
+
+  function hideAiAnalysisForCl(clNum) {
+    const num = Number(clNum);
+    state.hiddenAiAnalysisCls.add(num);
+    syncAiAnalysisButton(getActiveCommitsForDiff());
+    renderDiffPane({ preserveScroll: true });
+  }
+
+  function toggleAiAnalysisCollapse(clNum) {
+    const num = Number(clNum);
+    const panelEl = document.getElementById(`aiAnalysisPanel-${num}`);
+    if (state.collapsedAiAnalysisCls.has(num)) {
+      state.collapsedAiAnalysisCls.delete(num);
+      if (panelEl) {
+        panelEl.classList.remove("collapsed");
+        const btn = panelEl.querySelector(".ai-collapse-btn");
+        if (btn) btn.textContent = "Collapse ▴";
+      }
+      return;
+    }
+    state.collapsedAiAnalysisCls.add(num);
+    if (panelEl) {
+      panelEl.classList.add("collapsed");
+      const btn = panelEl.querySelector(".ai-collapse-btn");
+      if (btn) btn.textContent = "Expand ▾";
+    }
+  }
+
+  function getThinkingAiAnalysisClNumbers() {
+    return Object.keys(state.aiAnalysisByCl || {})
+      .map(k => Number(k))
+      .filter(num => {
+        const entry = state.aiAnalysisByCl[num];
+        return Boolean(num && entry && entry.analysis_status === "thinking");
+      });
+  }
+
+  function ensureAiAnalysisPollingTimer() {
+    if (window._aiAnalysisPollInterval) return;
+    if (getThinkingAiAnalysisClNumbers().length === 0) return;
+    window._aiAnalysisPollInterval = setInterval(() => {
+      const thinkingNums = getThinkingAiAnalysisClNumbers();
+      if (thinkingNums.length === 0) {
+        clearInterval(window._aiAnalysisPollInterval);
+        window._aiAnalysisPollInterval = null;
+        return;
+      }
+      thinkingNums.forEach(num => {
+        fetchAiAnalysisStatusForCl(num);
+      });
+    }, AI_ANALYSIS_POLL_INTERVAL_MS);
+  }
+
+  function renderAiAnalysisStatusBannerHtml(num, patchSet, status, errorMsg) {
+    if (status === "thinking") {
+      return `<div id="aiAnalysisPanel-${num}" class="ai-intangibles-panel" data-ai-cl="${num}">
+        <div class="ai-intangibles-head">
+          <div class="ai-intangibles-head-left">
+            <span class="btn-spinner"></span>
+            <span class="ai-intangibles-title">Problem &amp; Alternatives · Analyzing ag/${num} (PS${patchSet})…</span>
+            <span style="font-size:11.5px;color:var(--g-muted);">Evaluating underlying problem, chosen approach, tradeoffs &amp; codebase alternatives</span>
+          </div>
+          <div class="ai-intangibles-actions">
+            <button type="button" class="ai-intangibles-btn" onclick="cancelClAiAnalysis(${num})">✕ Cancel</button>
+          </div>
+        </div>
+      </div>`;
+    }
+    return `<div id="aiAnalysisPanel-${num}" class="ai-intangibles-panel" data-ai-cl="${num}">
+      <div class="ai-intangibles-head">
+        <div class="ai-intangibles-head-left">
+          <span class="ai-intangibles-title" style="color:#fca5a5;">⚠ Problem &amp; Alternatives Unavailable (ag/${num})</span>
+          <span style="font-size:11.5px;color:var(--g-muted);">${escapeHtml(errorMsg || "Unknown error")}</span>
+        </div>
+        <div class="ai-intangibles-actions">
+          <button type="button" class="ai-intangibles-btn" onclick="analyzeClIntangibles(${num}, true)">↻ Retry</button>
+          <button type="button" class="ai-intangibles-btn" onclick="hideAiAnalysisForCl(${num})">✕</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function renderAiAlternativeCardHtml(num, alt) {
+    const rawAltId = String(alt.id || "alt-1");
+    const altId = escapeHtml(rawAltId);
+    const vTone = escapeHtml(alt.verdict_tone || "focus");
+    const attachedItemsHtml = getInlineItemsForAiAlternative(num, rawAltId)
+      .map(it => renderInlineCommentCardHtml(num, it))
+      .join("");
+    return `<div id="aiAltCard-${num}-${altId}" class="ai-alt-card tone-${vTone}" data-cl="${num}" data-alt-id="${altId}">
+      <div class="ai-alt-head">
+        <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
+          <span class="ai-alt-verdict">${escapeHtml(alt.verdict_icon || "⚖️")} ${escapeHtml(alt.verdict_label || "Alternative")}</span>
+          <strong style="color:#f1f5f9;">${escapeHtml(alt.title || "")}</strong>
+        </div>
+        <div class="ai-intangibles-actions">
+          <button type="button" class="ai-intangibles-btn" onclick="openAiAlternativeInComposer(${num}, '${altId}', 'ask')" title="Ask Agent to check how feasible this alternative is in the repo">💬 Explore with Agent</button>
+          <button type="button" class="ai-intangibles-btn" onclick="openAiAlternativeInComposer(${num}, '${altId}', 'comment')" title="Draft a Gerrit question to the author about this alternative">✍️ Ask Author</button>
+        </div>
+      </div>
+      <div style="color:#e2e8f0;">${renderInlineMarkdownHtml(alt.how_it_works || "")}</div>
+      ${alt.tradeoff ? `<div class="ai-alt-tradeoff"><strong>Tradeoff:</strong> ${renderInlineMarkdownHtml(alt.tradeoff)}</div>` : ""}
+    </div>${attachedItemsHtml}`;
+  }
+
+  function renderCommitAiAnalysisPanelHtml(c) {
+    if (!c) return "";
+    const num = Number(c.number);
+    if (state.hiddenAiAnalysisCls.has(num)) return "";
+    const entry = state.aiAnalysisByCl[num];
+    const status = entry ? entry.analysis_status : "not_analyzed";
+    if (status === "not_analyzed") return "";
+    if (status === "thinking" || status === "error") {
+      return renderAiAnalysisStatusBannerHtml(num, c.patch_set, status, entry && entry.error);
+    }
+
+    const analysis = entry.analysis;
+    if (!analysis) return "";
+    const isCollapsed = state.collapsedAiAnalysisCls.has(num);
+    const scopeTone = escapeHtml(analysis.scope_tone || "focus");
+    const bottomLineHtml = analysis.bottom_line
+      ? `<div class="ai-bottom-line">${renderInlineMarkdownHtml(analysis.bottom_line)}</div>`
+      : "";
+    const tradeoffs = Array.isArray(analysis.key_tradeoffs) ? analysis.key_tradeoffs : [];
+    const tradeoffsHtml = tradeoffs.length > 0
+      ? `<ul class="ai-tradeoff-list">${tradeoffs.map(t => `<li>${renderInlineMarkdownHtml(t)}</li>`).join("")}</ul>`
+      : "";
+    const alts = Array.isArray(analysis.alternatives) ? analysis.alternatives : [];
+    const altsHtml = alts.length > 0
+      ? `<div>
+          <div class="ai-alt-section-title">Alternative Solutions (${alts.length})</div>
+          <div class="ai-alt-list">${alts.map(alt => renderAiAlternativeCardHtml(num, alt)).join("")}</div>
+        </div>`
+      : "";
+
+    return `<div id="aiAnalysisPanel-${num}" class="ai-intangibles-panel${isCollapsed ? " collapsed" : ""}" data-ai-cl="${num}">
+      <div class="ai-intangibles-head">
+        <div class="ai-intangibles-head-left">
+          <span class="ai-intangibles-title">🧠 Problem &amp; Alternatives · ag/${num}</span>
+          <span class="ai-scope-badge tone-${scopeTone}">${escapeHtml(analysis.scope_icon || "🧭")} ${escapeHtml(analysis.scope_label || "Design Assessment")}</span>
+        </div>
+        <div class="ai-intangibles-actions">
+          <button type="button" class="ai-intangibles-btn" onclick="analyzeClIntangibles(${num}, true)" title="Re-run Problem &amp; Alternatives analysis on ag/${num}">↻ Re-run</button>
+          <button type="button" class="ai-intangibles-btn ai-collapse-btn" onclick="toggleAiAnalysisCollapse(${num})">${isCollapsed ? "Expand ▾" : "Collapse ▴"}</button>
+          <button type="button" class="ai-intangibles-btn" onclick="hideAiAnalysisForCl(${num})" title="Hide Problem &amp; Alternatives panel">✕</button>
+        </div>
+      </div>
+      <div class="ai-intangibles-body">
+        ${bottomLineHtml}
+        <div class="ai-intangibles-grid">
+          <div class="ai-intangibles-box">
+            <div class="ai-intangibles-box-label">Underlying Problem</div>
+            <div>${renderInlineMarkdownHtml(analysis.underlying_problem || "")}</div>
+          </div>
+          <div class="ai-intangibles-box">
+            <div class="ai-intangibles-box-label">Chosen Solution &amp; Tradeoffs</div>
+            <div>${renderInlineMarkdownHtml(analysis.chosen_solution || "")}</div>
+            ${tradeoffsHtml}
+          </div>
+        </div>
+        ${altsHtml}
+      </div>
+    </div>`;
+  }
+
+  function getInlineItemsForAiAlternative(clNum, altId) {
+    const num = Number(clNum);
+    const wantedAlt = String(altId || "");
+    if (!wantedAlt) return [];
+    const bundle = state.diffsByCl[num];
+    if (bundle && Array.isArray(bundle.code_questions)) {
+      mergeTranscriptCodeQuestions(bundle.code_questions, { silentDom: true, suppressNotifications: true });
+    }
+    const localList = state.inlineCommentsByCl[num] || [];
+    localList.forEach(c => {
+      if (!c.id) {
+        c.id = `inline-${state.nextInlineItemId++}`;
+      }
+    });
+    return localList.filter(c => String(c.alt_id || "") === wantedAlt);
+  }
+
+  function openAiAlternativeInComposer(clNum, altId, mode, overrideDraft = null) {
+    const num = Number(clNum);
+    const entry = state.aiAnalysisByCl[num];
+    const alts = (entry && entry.analysis && Array.isArray(entry.analysis.alternatives))
+      ? entry.analysis.alternatives
+      : [];
+    const alt = alts.find(a => String(a.id) === String(altId));
+    if (!alt) return;
+
+    if (state.hiddenAiAnalysisCls.has(num) || state.collapsedAiAnalysisCls.has(num)) {
+      state.hiddenAiAnalysisCls.delete(num);
+      state.collapsedAiAnalysisCls.delete(num);
+      syncAiAnalysisButton(getActiveCommitsForDiff());
+      renderDiffPane({ preserveScroll: true });
+    }
+
+    const altCardEl = document.getElementById(`aiAltCard-${num}-${alt.id}`);
+    if (!altCardEl) return;
+
+    document.querySelectorAll(".code-line.code-line-selected").forEach(
+      el => el.classList.remove("code-line-selected")
+    );
+
+    const prevSel = state.codeSelection;
+    const isSameAlt = Boolean(
+      prevSel && Number(prevSel.clNum) === num && String(prevSel.altId || "") === String(alt.id)
+    );
+    if (!isSameAlt) {
+      if (prevSel) saveSelectionDraftAsCollapsedItem(prevSel);
+      collapseAllInlinePopups();
+    }
+
+    const resolvedMode = mode === "ask" ? "ask" : "comment";
+    const defaultDraft = resolvedMode === "ask"
+      ? String(alt.ask_prompt || "")
+      : String(alt.review_comment_draft || "");
+    const resolvedDraft = typeof overrideDraft === "string" && overrideDraft
+      ? overrideDraft
+      : defaultDraft;
+    const altTitle = String(alt.title || alt.id);
+    const snippetParts = [
+      `[AI Analysis Alternative ${alt.id}: ${altTitle}]`,
+      alt.how_it_works ? `How it works: ${alt.how_it_works}` : "",
+      alt.tradeoff ? `Tradeoff: ${alt.tradeoff}` : "",
+    ].filter(Boolean);
+
+    state.codeSelection = {
+      clNum: num,
+      filePath: "/COMMIT_MSG",
+      side: "REVISION",
+      startLine: 1,
+      endLine: 1,
+      lineCount: 1,
+      anchorIdx: null,
+      startIdx: null,
+      endIdx: null,
+      altId: String(alt.id),
+      altTitle,
+      codeSnippet: snippetParts.join("\n"),
+      mode: resolvedMode,
+      draft: resolvedDraft,
+      commentDraft: resolvedDraft,
+      askDraft: resolvedDraft,
+      unresolved: isSameAlt && prevSel.unresolved !== undefined ? prevSel.unresolved : true,
+      sentPrompt: "",
+      savedInlineId: null,
+    };
+
+    let insertAfterEl = altCardEl;
+    while (
+      insertAfterEl.nextElementSibling &&
+      insertAfterEl.nextElementSibling.classList &&
+      insertAfterEl.nextElementSibling.classList.contains("diff-inline-comment")
+    ) {
+      insertAfterEl = insertAfterEl.nextElementSibling;
+    }
+    mountCodeSelectionComposer(insertAfterEl, true);
+  }
 
   function normalizeQuestionTurns(item) {
     if (item && Array.isArray(item.turns) && item.turns.length > 0) {
@@ -5092,6 +6446,16 @@
     }
     stackEl.innerHTML = list.map(notif => {
       const safeId = escapeHtml(notif.id);
+      if (notif.kind === "ai_analysis_ready") {
+        return `<div class="agent-reply-bubble" data-notif-id="${safeId}" onclick="navigateToAgentReplyBubble('${safeId}')" title="Click to view Problem &amp; Alternatives on ag/${notif.clNum}">
+          <span class="agent-reply-bubble-icon">🧠</span>
+          <div class="agent-reply-bubble-text">
+            <div class="agent-reply-bubble-title">Problem &amp; Alternatives ready (<code>${escapeHtml(notif.locLabel)}</code>)</div>
+            <div class="agent-reply-bubble-sub">ag/${notif.clNum} · Click to view analysis</div>
+          </div>
+          <button class="agent-reply-bubble-close" onclick="event.stopPropagation(); dismissAgentReplyBubble('${safeId}')" title="Dismiss notification">✕</button>
+        </div>`;
+      }
       const shortFile = notif.filePath === "/COMMIT_MSG"
         ? "COMMIT_MSG"
         : String(notif.filePath || "").split("/").slice(-2).join("/");
@@ -5143,6 +6507,25 @@
     dismissAgentReplyBubble(notifId);
     if (!notif) return;
 
+    if (notif.kind === "ai_analysis_ready") {
+      const clNum = Number(notif.clNum);
+      state.hiddenAiAnalysisCls.delete(clNum);
+      state.collapsedAiAnalysisCls.delete(clNum);
+      const activeNums = getActiveCommitsForDiff().map(c => Number(c.number));
+      if (!activeNums.includes(clNum)) {
+        selectCl(clNum, true);
+        await ensureActiveDiffsLoaded({ preserveScroll: true });
+      } else {
+        syncAiAnalysisButton(getActiveCommitsForDiff());
+        renderDiffPane({ preserveScroll: true });
+      }
+      const panelEl = document.getElementById(`aiAnalysisPanel-${clNum}`);
+      if (panelEl) {
+        panelEl.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      return;
+    }
+
     const activeNums = getActiveCommitsForDiff().map(c => Number(c.number));
     if (!activeNums.includes(Number(notif.clNum))) {
       selectCl(Number(notif.clNum), true);
@@ -5155,6 +6538,15 @@
         String(it.id) === String(notif.itemId) ||
         (notif.conversationId && String(it.conversation_id || "") === String(notif.conversationId))
     );
+    if (item && item.alt_id) {
+      const nCl = Number(notif.clNum);
+      if (state.hiddenAiAnalysisCls.has(nCl) || state.collapsedAiAnalysisCls.has(nCl)) {
+        state.hiddenAiAnalysisCls.delete(nCl);
+        state.collapsedAiAnalysisCls.delete(nCl);
+        syncAiAnalysisButton(getActiveCommitsForDiff());
+        renderDiffPane({ preserveScroll: true });
+      }
+    }
     if (item) {
       item.collapsed = false;
       insertOrReplaceInlineItemInDom(notif.clNum, item, { forceRender: true });
@@ -5223,6 +6615,7 @@
 
     if (!existing) {
       const latest = incomingTurns[incomingTurns.length - 1];
+      const altMatch = String(q.code_snippet || "").match(/^\[(?:AI Analysis|Problem & Alternatives) Alternative (alt-\d+):\s*([^\]]*)\]/);
       const newItem = {
         id: q.thread_id || q.id || `inline-${state.nextInlineItemId++}`,
         conversation_id: q.conversation_id || "",
@@ -5233,7 +6626,9 @@
         start_line: qStart,
         end_line: qEnd,
         side: q.side || "REVISION",
-        function_name: q.function_name || "",
+        alt_id: altMatch ? altMatch[1] : "",
+        alt_title: altMatch ? altMatch[2].trim() : "",
+        function_name: q.function_name || (altMatch ? altMatch[2].trim() : ""),
         initial_question: qInitial,
         message: latest.question,
         reply: latest.reply,
@@ -5398,6 +6793,7 @@
     }
     const localList = state.inlineCommentsByCl[num] || [];
     localList.forEach(c => {
+      if (c.alt_id) return;
       if ((c.file_path || "") === filePath) {
         if (!c.id) {
           c.id = `inline-${state.nextInlineItemId++}`;
@@ -5519,7 +6915,7 @@
       ${questionBlockHtml}
       <div class="diff-inline-agent-reply pending">
         <span class="btn-spinner"></span>
-        <span>${actionBusy ? "Updating in-flight question…" : `Waiting for Jetski Agent reply on <code>${escapeHtml(c.file_path || "")}:${escapeHtml(rangeStr)}</code>…`}</span>
+        <span>${actionBusy ? "Updating in-flight question…" : `Waiting for Jetski Agent reply on <code>${escapeHtml(c.alt_id ? rangeStr : `${c.file_path || ""}:${rangeStr}`)}</code>…`}</span>
       </div>
     </div>`;
   }
@@ -5536,9 +6932,13 @@
     const statusText = hasReply
       ? (turns.length > 1 ? `✓ Replied (${turns.length} turns)` : "✓ Agent Replied")
       : (c.sending ? "Sending…" : "⏳ Agent Thinking…");
-    const fnBadge = c.function_name
+    const fnBadge = (c.function_name && c.function_name !== rangeStr)
       ? ` · <code>${escapeHtml(c.function_name)}</code>`
       : "";
+    const anchorTargetLabel = c.alt_id
+      ? `AI Alternative · ${rangeStr}`
+      : `${c.file_path || ""}:${rangeStr}`;
+    const commentActionLabel = c.alt_id ? "✍️ Ask Author" : "💬 Comment on Block";
     const turnsHtml = turns.map((turn, idx) =>
       renderQuestionTurnItemHtml(num, c, itemId, rangeStr, turn, idx, idx === turns.length - 1, isPending)
     ).join("");
@@ -5547,7 +6947,7 @@
     const followupEditorHtml = (!isPending && followupDraft !== undefined)
       ? `<div class="qa-inline-editor">
           <div style="font-size:11px;font-weight:700;color:var(--g-text);">🤖 Ask follow-up in this conversation:</div>
-          <textarea id="qaFollowupInput-${safeId}" class="qa-inline-textarea" placeholder="Ask a follow-up question about ${escapeHtml(c.file_path || "")}:${escapeHtml(rangeStr)}…" oninput="state.openFollowupByItemId['${safeId}'] = this.value" onkeydown="onQaInlineTextareaKeydown(event, ${num}, '${safeId}', 'followup')">${escapeHtml(followupDraft)}</textarea>
+          <textarea id="qaFollowupInput-${safeId}" class="qa-inline-textarea" placeholder="Ask a follow-up question about ${escapeHtml(anchorTargetLabel)}…" oninput="state.openFollowupByItemId['${safeId}'] = this.value" onkeydown="onQaInlineTextareaKeydown(event, ${num}, '${safeId}', 'followup')">${escapeHtml(followupDraft)}</textarea>
           <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;">
             <button class="commit-msg-btn" onclick="cancelInlineFollowupComposer(${num}, '${safeId}')">Cancel</button>
             <button class="btn btn-swarm" style="padding:3px 10px;font-size:11px;" onclick="submitInlineFollowupQuestion(${num}, '${safeId}')">🤖 Send Follow-up</button>
@@ -5575,10 +6975,10 @@
         ${followupEditorHtml}
         ${lockedNoticeHtml}
         <div class="diff-inline-actions">
-          <span style="font-size:11px;color:var(--g-muted);">Anchored to <code>${escapeHtml(c.file_path || "")}:${escapeHtml(rangeStr)}</code></span>
+          <span style="font-size:11px;color:var(--g-muted);">Anchored to <code>${escapeHtml(anchorTargetLabel)}</code></span>
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
             ${!isPending && followupDraft === undefined ? `<button class="commit-msg-btn" onclick="openInlineFollowupComposer(${num}, '${safeId}')">🤖 Ask Follow-up</button>` : ""}
-            <button class="commit-msg-btn" onclick="reopenInlineBlockInComposer(${num}, '${safeId}', 'comment')">💬 Comment on Block</button>
+            <button class="commit-msg-btn" onclick="reopenInlineBlockInComposer(${num}, '${safeId}', 'comment')">${commentActionLabel}</button>
             <button class="commit-msg-btn" onclick="copyInlineAgentPrompt(${num}, '${safeId}')">Copy Prompt</button>
           </div>
         </div>
@@ -5616,9 +7016,11 @@
     const num = Number(clNum);
     const itemId = c.id || `inline-${state.nextInlineItemId++}`;
     const kind = c.kind || "comment";
-    const rangeStr = (c.start_line && c.end_line && Number(c.end_line) > Number(c.start_line))
-      ? `L${c.start_line}–L${c.end_line}`
-      : `L${c.line || 1}`;
+    const rangeStr = c.alt_id
+      ? (c.alt_title || c.alt_id)
+      : ((c.start_line && c.end_line && Number(c.end_line) > Number(c.start_line))
+        ? `L${c.start_line}–L${c.end_line}`
+        : `L${c.line || 1}`);
     const isCollapsed = Boolean(c.collapsed);
     const collapsedCls = isCollapsed ? "collapsed" : "";
     const toggleLabel = isCollapsed ? "Show ▾" : "Hide ▴";
@@ -6264,9 +7666,14 @@
       const bugStr = (c.bugs || []).map(x => `${x.id}:${x.priority || ""}`).join(",");
       const revStr = (c.reviewers_detail || []).map(p => `${p.email}:${p.cr_vote}:${(p.votes || []).length}`).join(",");
       const ccCnt = (c.ccs_detail || []).length;
-      return `${c.number}@${c.patch_set}|${hasFiles ? 1 : 0}|${threadCnt}|${c.viewer_cr_vote}|${c.viewer_autosubmit ? 1 : 0}|${c.viewer_presubmit_ready ? 1 : 0}|${c.presubmit_status}|${bugStr}|${revStr}|${ccCnt}`;
+      let aiPart = "";
+      const aiEntry = state.aiAnalysisByCl[c.number];
+      if (aiEntry && aiEntry.analysis_status !== "not_analyzed" && !state.hiddenAiAnalysisCls.has(Number(c.number))) {
+        aiPart = `|ai:${aiEntry.analysis_status}`;
+      }
+      return `${c.number}@${c.patch_set}|${hasFiles ? 1 : 0}|${threadCnt}|${c.viewer_cr_vote}|${c.viewer_autosubmit ? 1 : 0}|${c.viewer_presubmit_ready ? 1 : 0}|${c.presubmit_status}|${bugStr}|${revStr}|${ccCnt}${aiPart}`;
     });
-    return `${state.viewer}|${state.viewMode}|${parts.join(";;")}`;
+    return `${state.viewer}|single|${parts.join(";;")}`;
   }
 
   function renderDiffPane(opts = {}) {
@@ -6302,71 +7709,11 @@
         </div>`;
         return;
       }
-      container.innerHTML = `<div style="padding:24px;color:var(--g-muted);">Select a CL or stack on the left to inspect its diffs.</div>`;
+      container.innerHTML = `<div style="padding:24px;color:var(--g-muted);">Select a CL on the left to inspect its diff.</div>`;
       return;
     }
 
-    if (state.viewMode === "squash" && commits.length > 1) {
-      const missingStackNums = commits.filter(c => !state.diffsByCl[c.number]).map(c => `ag/${c.number}`);
-      if (missingStackNums.length > 0) {
-        container.innerHTML = renderDiffLoadingPlaceholderHtml(
-          `Loading squashed stack diff across ${commits.length} commits…`,
-          `Downloading missing patchset diffs (${missingStackNums.join(", ")})`
-        );
-        return;
-      }
-      const byFile = new Map();
-      commits.forEach(c => {
-        const bundle = state.diffsByCl[c.number];
-        ((bundle && bundle.files) || []).forEach(f => {
-          const taggedLines = (f.lines || []).map(ln => Object.assign({}, ln, { clNum: c.number }));
-          const prev = byFile.get(f.file);
-          if (!prev) {
-            byFile.set(f.file, {
-              file: f.file,
-              additions: f.additions,
-              deletions: f.deletions,
-              truncated: Boolean(f.truncated),
-              lines: taggedLines,
-            });
-          } else {
-            prev.additions += f.additions;
-            prev.deletions += f.deletions;
-            prev.truncated = prev.truncated || Boolean(f.truncated);
-            prev.lines.push({ type: "hunk", old: "", new: "", text: `── Commit ag/${c.number}: ${c.subject} ──` });
-            prev.lines.push(...taggedLines);
-          }
-        });
-      });
-      const squashedFiles = Array.from(byFile.values());
-      const primaryCl = commits[0] ? commits[0].number : state.selectedClNumber;
-      const filesHtml = squashedFiles.length > 0
-        ? squashedFiles.map(f => renderFileDiffBlock(f, primaryCl)).join("")
-        : `<div style="padding:12px;color:var(--g-muted);">No file diffs in this stack.</div>`;
-      const squashReviewersHtml = commits.map(c => renderCommitReviewersPanelHtml(c, true)).join("");
-      const squashCommitMsgsHtml = commits.map(c => renderCommitMessagePanelHtml(c, state.diffsByCl[c.number])).join("");
-      const squashSwarmHtml = commits.map(c => `<div id="swarmPanel-${c.number}">${renderCommitSwarmPanelHtml(c.number)}</div>`).join("");
-      container.innerHTML = `<div class="commit-section">
-        <div class="commit-sec-header">
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <strong style="color:var(--g-accent);">Squashed Stack View · ${commits.length} Commits</strong>
-            <span>${commits.map(c => `<a class="ag-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer">ag/${c.number}</a>`).join(" → ")}</span>
-          </div>
-          <div style="font-size:11.5px;color:var(--g-muted);">${squashedFiles.length} touched files</div>
-        </div>
-        ${squashReviewersHtml}
-        ${squashCommitMsgsHtml}
-        ${squashSwarmHtml}
-        ${filesHtml}
-      </div>`;
-      if (prevDiffScroll !== null) {
-        container.scrollTop = prevDiffScroll;
-      }
-      syncSwarmIndicatorsOnly();
-      return;
-    }
-
-    container.innerHTML = commits.map((c, idx) => {
+    container.innerHTML = commits.map((c) => {
       const bundle = state.diffsByCl[c.number];
       const dotClass = c.risk.tier === "low" ? "dot-green" : (c.risk.tier === "medium" ? "dot-amber" : "dot-red");
       const rebaseBadge = bundle && bundle.is_pure_rebase
@@ -6398,11 +7745,12 @@
       const typeObj = getCommitTypeObj(c);
       const typeBadgeHtml = `<span class="type-badge type-${escapeHtml(typeObj.id)}">${escapeHtml(typeObj.short)}</span>`;
       const bugBadgesHtml = renderBugBadgesHtml(c);
+      const aiAnalysisPanelHtml = renderCommitAiAnalysisPanelHtml(c);
 
       return `<div class="commit-section">
         <div class="commit-sec-header">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <strong style="color:var(--g-accent);">Commit ${idx + 1} of ${commits.length} · <a class="ag-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer">ag/${c.number} ↗</a></strong>
+            <strong style="color:var(--g-accent);"><a class="ag-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer">ag/${c.number} ↗</a></strong>
             ${bugBadgesHtml}
             <strong>${escapeHtml(c.subject)}</strong>
             ${typeBadgeHtml}
@@ -6415,6 +7763,7 @@
         ${renderCommitMessagePanelHtml(c, bundle)}
         <div id="swarmPanel-${c.number}">${renderCommitSwarmPanelHtml(c.number)}</div>
         ${threadsHtml}
+        ${aiAnalysisPanelHtml}
         ${filesHtml}
       </div>`;
     }).join("");
@@ -6472,6 +7821,22 @@
       return;
     }
     const cardHtml = renderInlineCommentCardHtml(num, item);
+
+    if (item.alt_id) {
+      const altCardEl = document.getElementById(`aiAltCard-${num}-${item.alt_id}`);
+      if (altCardEl) {
+        let insertAfterAltEl = altCardEl;
+        while (
+          insertAfterAltEl.nextElementSibling &&
+          insertAfterAltEl.nextElementSibling.classList &&
+          insertAfterAltEl.nextElementSibling.classList.contains("diff-inline-comment")
+        ) {
+          insertAfterAltEl = insertAfterAltEl.nextElementSibling;
+        }
+        insertAfterAltEl.insertAdjacentHTML("afterend", cardHtml);
+      }
+      return;
+    }
 
     const tables = Array.from(document.querySelectorAll(".code-table"));
     const tableEl = tables.find(
@@ -6577,6 +7942,8 @@
       start_idx: prevSel.startIdx,
       end_idx: prevSel.endIdx,
       side: prevSel.side,
+      alt_id: prevSel.altId || "",
+      alt_title: prevSel.altTitle || "",
       unresolved: prevSel.unresolved !== false,
       message: draftMsg,
       code_snippet: prevSel.codeSnippet,
@@ -6636,6 +8003,21 @@
     const num = Number(clNum);
     const item = findInlineItemById(num, itemId);
     if (!item) return;
+
+    const draftText = consumeDraft ? (item.message || "") : "";
+    if (consumeDraft && item.kind === "draft") {
+      state.inlineCommentsByCl[num] = (state.inlineCommentsByCl[num] || []).filter(
+        x => String(x.id) !== String(itemId)
+      );
+      const draftEl = document.getElementById(`inlineItem-${itemId}`);
+      if (draftEl) draftEl.remove();
+    }
+
+    if (item.alt_id) {
+      openAiAlternativeInComposer(num, item.alt_id, mode, draftText || null);
+      return;
+    }
+
     const tables = Array.from(document.querySelectorAll(".code-table"));
     const tableEl = tables.find(
       t =>
@@ -6653,15 +8035,6 @@
         startIdx = Number(matchedLine.getAttribute("data-idx") || 0);
         endIdx = startIdx;
       }
-    }
-
-    const draftText = consumeDraft ? (item.message || "") : "";
-    if (consumeDraft && item.kind === "draft") {
-      state.inlineCommentsByCl[num] = (state.inlineCommentsByCl[num] || []).filter(
-        x => String(x.id) !== String(itemId)
-      );
-      const draftEl = document.getElementById(`inlineItem-${itemId}`);
-      if (draftEl) draftEl.remove();
     }
 
     selectCodeBlockRange(tableEl, startIdx, endIdx, {
@@ -6688,47 +8061,68 @@
 
   function buildCodeSelectionComposerInnerHtml(sel) {
     if (!sel) return "";
-    const isCommitMsg = sel.filePath === "/COMMIT_MSG";
-    const rangeLabel = sel.startLine === sel.endLine
-      ? `L${sel.startLine}`
-      : `L${sel.startLine}–L${sel.endLine}`;
+    const isAltCard = Boolean(sel.altId);
+    const isCommitMsg = !isAltCard && sel.filePath === "/COMMIT_MSG";
+    const rangeLabel = isAltCard
+      ? String(sel.altTitle || sel.altId)
+      : (sel.startLine === sel.endLine
+        ? `L${sel.startLine}`
+        : `L${sel.startLine}–L${sel.endLine}`);
     const lineCountLabel = sel.lineCount === 1 ? "1 line" : `${sel.lineCount} lines`;
     const sideBadge = sel.side === "PARENT" ? " · Base/Parent" : "";
     const sharedDraft = escapeHtml(sel.draft ?? sel.commentDraft ?? sel.askDraft ?? "");
     const unresolvedChecked = sel.unresolved !== false ? "checked" : "";
-    const targetLabel = isCommitMsg ? "Commit Message (/COMMIT_MSG)" : sel.filePath;
+    const targetLabel = isAltCard
+      ? `Alternative (${sel.altTitle || sel.altId})`
+      : (isCommitMsg ? "Commit Message (/COMMIT_MSG)" : sel.filePath);
 
-    const quickChipsHtml = isCommitMsg
+    const quickChipsHtml = isAltCard
       ? `<div class="composer-quick-chips">
           <span style="font-size:11px;color:var(--g-muted);font-weight:600;">Quick prompts:</span>
-          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Check whether this commit message follows Semantic Commit formatting, line length limits, and required Bug:/Test:/Change-Id: footers.')">Validate Semantic Commit format</button>
-          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Does this commit message accurately and completely describe the code changes in the CL?')">Does message match diff?</button>
-          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Suggest a clearer, more concise commit message for this CL.')">Suggest clearer rewrite</button>
-          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Explain the background and motivation described in this commit message.')">Explain context</button>
+          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Check the actual codebase to see how much code/plumbing this alternative would require compared to the CL.')">Compare LOC &amp; complexity</button>
+          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Inspect existing callers and interfaces in the repo to verify if this alternative fits cleanly without breaking invariants.')">Check callers &amp; interfaces</button>
+          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('What subtle edge cases, regressions, or performance pitfalls could this alternative introduce?')">Check edge cases</button>
+          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Draft a short, constructive Gerrit review question asking the author whether they considered this alternative.')">Draft question for author</button>
         </div>`
-      : `<div class="composer-quick-chips">
-          <span style="font-size:11px;color:var(--g-muted);font-weight:600;">Quick prompts:</span>
-          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Explain what this highlighted code block does and how it fits into the CL.')">Explain this block</button>
-          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Check this highlighted code block for bugs, race conditions, lifetime issues, or edge cases.')">Check for bugs / edge cases</button>
-          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Is there an existing helper in //emulator/libs/* or a cleaner pattern we should reuse here?')">Check library reuse</button>
-          <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Can this code block be simplified or made more readable?')">Suggest simplification</button>
+      : (isCommitMsg
+        ? `<div class="composer-quick-chips">
+            <span style="font-size:11px;color:var(--g-muted);font-weight:600;">Quick prompts:</span>
+            <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Check whether this commit message follows Semantic Commit formatting, line length limits, and required Bug:/Test:/Change-Id: footers.')">Validate Semantic Commit format</button>
+            <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Does this commit message accurately and completely describe the code changes in the CL?')">Does message match diff?</button>
+            <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Suggest a clearer, more concise commit message for this CL.')">Suggest clearer rewrite</button>
+            <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Explain the background and motivation described in this commit message.')">Explain context</button>
+          </div>`
+        : `<div class="composer-quick-chips">
+            <span style="font-size:11px;color:var(--g-muted);font-weight:600;">Quick prompts:</span>
+            <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Explain what this highlighted code block does and how it fits into the CL.')">Explain this block</button>
+            <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Check this highlighted code block for bugs, race conditions, lifetime issues, or edge cases.')">Check for bugs / edge cases</button>
+            <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Is there an existing helper in //emulator/libs/* or a cleaner pattern we should reuse here?')">Check library reuse</button>
+            <button class="composer-quick-chip" onclick="applyQuickCodeQuestion('Can this code block be simplified or made more readable?')">Suggest simplification</button>
+          </div>`);
+
+    const headerLocHtml = isAltCard
+      ? `<div class="composer-loc-badge">
+          <span>Alternative Solution · <strong>ag/${sel.clNum}</strong></span>
+          <span>·</span>
+          <code>${escapeHtml(sel.altTitle || sel.altId)}</code>
+        </div>`
+      : `<div class="composer-loc-badge">
+          <span>${isCommitMsg ? "Selected Commit Message" : "Selected Block"} · <strong>ag/${sel.clNum}</strong></span>
+          <span>·</span>
+          <code>${isCommitMsg ? escapeHtml(sel.filePath) : renderCodeSearchFileLinkHtml(sel.clNum, sel.filePath, sel.filePath, sel.startLine)}</code>
+          <span class="composer-loc-range">${escapeHtml(rangeLabel)}${escapeHtml(sideBadge)} (${lineCountLabel})</span>
         </div>`;
 
     return `<div class="composer-header">
-      <div class="composer-loc-badge">
-        <span>${isCommitMsg ? "Selected Commit Message" : "Selected Block"} · <strong>ag/${sel.clNum}</strong></span>
-        <span>·</span>
-        <code>${isCommitMsg ? escapeHtml(sel.filePath) : renderCodeSearchFileLinkHtml(sel.clNum, sel.filePath, sel.filePath, sel.startLine)}</code>
-        <span class="composer-loc-range">${escapeHtml(rangeLabel)}${escapeHtml(sideBadge)} (${lineCountLabel})</span>
-      </div>
+      ${headerLocHtml}
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <button class="commit-msg-btn" onclick="copySelectedCodeSnippet()">${isCommitMsg ? "Copy Text" : "Copy Code"}</button>
-        <button class="commit-msg-btn" onclick="clearCodeSelection()" title="Clear highlight (Esc)">✕ Close</button>
+        <button class="commit-msg-btn" onclick="copySelectedCodeSnippet()">${(isCommitMsg || isAltCard) ? "Copy Text" : "Copy Code"}</button>
+        <button class="commit-msg-btn" onclick="clearCodeSelection()" title="Close composer (Esc)">✕ Close</button>
       </div>
     </div>
     <div class="composer-body">
       ${quickChipsHtml}
-      <textarea id="codeBlockCommentInput" class="composer-textarea" placeholder="Write a Gerrit review comment or ask the Jetski agent about ${escapeHtml(targetLabel)} (${rangeLabel}) — Markdown supported…" oninput="onCodeComposerInput('unified', this.value)" onkeydown="onCodeComposerKeydown(event, state.codeSelection ? state.codeSelection.mode : 'comment')">${sharedDraft}</textarea>
+      <textarea id="codeBlockCommentInput" class="composer-textarea" placeholder="Write a Gerrit review comment or ask the Jetski agent about ${escapeHtml(targetLabel)}${isAltCard ? "" : ` (${rangeLabel})`} — Markdown supported…" oninput="onCodeComposerInput('unified', this.value)" onkeydown="onCodeComposerKeydown(event, state.codeSelection ? state.codeSelection.mode : 'comment')">${sharedDraft}</textarea>
       <div class="composer-footer">
         <label class="composer-checkbox-label">
           <input id="codeBlockUnresolvedChk" type="checkbox" ${unresolvedChecked} onchange="if(state.codeSelection) state.codeSelection.unresolved = this.checked;" />
@@ -6972,6 +8366,8 @@
         start_idx: sel.startIdx,
         end_idx: sel.endIdx,
         side: sel.side,
+        alt_id: sel.altId || "",
+        alt_title: sel.altTitle || "",
         unresolved,
         message,
         collapsed: false,
@@ -7147,13 +8543,15 @@
       `Regarding Gerrit CL \`ag/${sel.clNum}\` in \`${sel.filePath}\` (${rangeLabel}${sideNote}):\n\n` +
       `\`\`\`\n${sel.codeSnippet}\n\`\`\`\n\n` +
       `**Question:** ${question}`;
-    const functionName = resolveEnclosingSymbolForDiffLine(
-      sel.clNum,
-      sel.filePath,
-      sel.startIdx,
-      sel.startLine,
-      sel.side
-    );
+    const functionName = sel.altId
+      ? String(sel.altTitle || sel.altId)
+      : resolveEnclosingSymbolForDiffLine(
+          sel.clNum,
+          sel.filePath,
+          sel.startIdx,
+          sel.startLine,
+          sel.side
+        );
 
     if (!state.inlineCommentsByCl[sel.clNum]) state.inlineCommentsByCl[sel.clNum] = [];
     const questionItem = {
@@ -7168,6 +8566,8 @@
       start_idx: sel.startIdx,
       end_idx: sel.endIdx,
       side: sel.side,
+      alt_id: sel.altId || "",
+      alt_title: sel.altTitle || "",
       function_name: functionName,
       initial_question: question,
       message: question,
@@ -7843,7 +9243,7 @@
       document.getElementById("drawerStatus").textContent = `Posting ${labelsText.full} on ${targetDesc} (notify: OWNER)…`;
 
       const nextTarget = resolveNextTargetAfterVote(cls);
-      const prefetchNums = nextTarget ? (state.viewMode === "split" ? [nextTarget.clNumber] : nextTarget.stackCommits) : [];
+      const prefetchNums = nextTarget ? [nextTarget.clNumber] : [];
       const prefetchPromise = prefetchDiffsForNumbers(prefetchNums);
       const resp = await sidecarFetch("/api/gerrit/vote", {
         method: "POST",
@@ -7915,7 +9315,7 @@
   }
 
   function voteActiveStack(btnEl) {
-    const commits = getActiveCommitsForDiff();
+    const commits = getSelectedStackCommits();
     castVotes(commits.map(c => c.number), btnEl || document.getElementById("btnVoteStack"), { codeReview: 2 });
   }
 
@@ -8069,6 +9469,7 @@
     });
 
     const btnSwarm = document.getElementById("btnRunSwarm");
+    const swarmLabelEl = document.getElementById("btnRunSwarmLabel");
     const selCl = state.selectedClNumber;
     const selSwarm = selCl ? state.swarmByCl[selCl] : null;
     if (btnSwarm && !state.queueLoading) {
@@ -8078,15 +9479,26 @@
         const sec = getSwarmElapsedSec(selSwarm);
         btnSwarm.disabled = true;
         btnSwarm.classList.add("is-swarming");
-        btnSwarm.innerHTML = `<span class="swarm-spinner"></span> Swarm Running on ag/${selCl} · ${done}/${total} (${sec}s)`;
+        const runningHtml = `<span class="swarm-spinner"></span> Swarm Running on ag/${selCl} · ${done}/${total} (${sec}s)`;
+        if (swarmLabelEl) {
+          swarmLabelEl.innerHTML = runningHtml;
+        } else {
+          btnSwarm.innerHTML = runningHtml;
+        }
       } else {
         btnSwarm.disabled = !selCl;
         btnSwarm.classList.remove("is-swarming");
-        btnSwarm.textContent = (selSwarm && selSwarm.state === "completed")
+        const idleText = (selSwarm && selSwarm.state === "completed")
           ? `↻ Re-Run Review Swarm on ag/${selCl}`
           : "★ Run Review Swarm (8 Specialists)";
+        if (swarmLabelEl) {
+          swarmLabelEl.textContent = idleText;
+        } else {
+          btnSwarm.textContent = idleText;
+        }
       }
     }
+    syncHarnessMenuButton();
 
     const runningCls = getActiveRunningSwarmClNumbers();
     const pillEl = document.getElementById("activeSwarmsPill");
@@ -8283,11 +9695,24 @@
       initOptimisticSwarmRun(clNum);
     }
 
-    const origBtnText = btnEl ? btnEl.textContent : "";
+    const autoFixLabelEl = (btnEl && btnEl.id === "btnAutoFix")
+      ? document.getElementById("btnAutoFixLabel")
+      : null;
+    const origBtnText = autoFixLabelEl
+      ? autoFixLabelEl.textContent
+      : (btnEl ? btnEl.textContent : "");
+    if (action !== "review-swarm") {
+      state.autoFixLaunchingCl = clNum;
+      syncHarnessMenuButton();
+    }
     if (btnEl && action !== "review-swarm") {
       btnEl.disabled = true;
       btnEl.classList.add("is-running-action");
-      btnEl.innerHTML = `<span class="btn-spinner"></span> Launching Agent…`;
+      if (autoFixLabelEl) {
+        autoFixLabelEl.innerHTML = `<span class="btn-spinner"></span> Launching Agent…`;
+      } else {
+        btnEl.innerHTML = `<span class="btn-spinner"></span> Launching Agent…`;
+      }
     }
 
     document.getElementById("drawerStatus").textContent =
@@ -8326,11 +9751,19 @@
     } finally {
       const cur = state.swarmByCl[clNum];
       if (cur) cur.optimisticPending = false;
+      if (action !== "review-swarm") {
+        state.autoFixLaunchingCl = null;
+      }
       if (btnEl && action !== "review-swarm") {
         btnEl.classList.remove("is-running-action");
         btnEl.disabled = btnEl.id === "btnAutoFix" ? !state.selectedClNumber : false;
-        btnEl.textContent = origBtnText;
+        if (autoFixLabelEl) {
+          autoFixLabelEl.textContent = origBtnText;
+        } else {
+          btnEl.textContent = origBtnText;
+        }
       }
+      syncHarnessMenuButton();
     }
   }
 
@@ -9466,6 +10899,10 @@
   }
 
   document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.harnessMenuOpen) {
+      closeHarnessMenu();
+      return;
+    }
     if (e.key === "Escape" && state.activeChatComposer && !state.activeChatComposer.submitting) {
       closeChatDmComposer();
       return;
@@ -9479,7 +10916,15 @@
       return;
     }
     if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA") return;
+    if (e.key === "[" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      toggleSidebarCollapsed();
+      return;
+    }
     if (e.key === "/") {
+      if (state.sidebarCollapsed) {
+        toggleSidebarCollapsed(false);
+      }
       const inp = document.getElementById("queueSearchInput");
       if (inp) {
         e.preventDefault();
@@ -9518,11 +10963,29 @@
   });
 
   document.addEventListener("click", () => {
+    if (state.harnessMenuOpen) {
+      closeHarnessMenu();
+    }
     if (state.activeReviewerComposer && !state.activeReviewerComposer.submitting) {
       closeReviewerComposer();
     }
   });
 
+  window.addEventListener("resize", () => {
+    syncSidebarLayoutDom();
+    if (state.harnessMenuOpen) {
+      positionHarnessDropdownMenu();
+    }
+  });
+
+  window.addEventListener("scroll", () => {
+    if (state.harnessMenuOpen) {
+      positionHarnessDropdownMenu();
+    }
+  }, true);
+
+  loadSidebarLayoutPrefs();
+  initWorkspaceSplitter();
   initDiffCodeSelectionListeners();
   initApp();
 </script>

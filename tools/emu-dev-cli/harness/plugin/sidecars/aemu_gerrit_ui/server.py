@@ -100,15 +100,18 @@ def main() -> None:
     _bootstrap_emu_dev_cli_path()
     import importlib
     import threading
+    import commands.gerrit.ai_analysis as ai_analysis_mod
     import commands.gerrit.ui_server as ui_mod
     import lib.gerrit_api as gerrit_api_mod
 
-    def _current_bundle_mtime() -> tuple[float, float]:
+    def _current_bundle_mtime() -> tuple[float, float, float]:
         ui_f = getattr(ui_mod, "__file__", None)
         api_f = getattr(gerrit_api_mod, "__file__", None)
+        ana_f = getattr(ai_analysis_mod, "__file__", None)
         return (
             Path(ui_f).stat().st_mtime if ui_f else 0.0,
             Path(api_f).stat().st_mtime if api_f else 0.0,
+            Path(ana_f).stat().st_mtime if ana_f else 0.0,
         )
 
     viewer = os.environ.get("AEMU_GERRIT_VIEWER", "")
@@ -126,6 +129,7 @@ def main() -> None:
                 with reload_lock:
                     if _current_bundle_mtime() != state["mtime"]:
                         importlib.reload(gerrit_api_mod)
+                        importlib.reload(ai_analysis_mod)
                         pt_mod = sys.modules.get("commands.gerrit.presubmit_targets")
                         if pt_mod is not None:
                             importlib.reload(pt_mod)
