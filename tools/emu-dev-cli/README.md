@@ -383,6 +383,26 @@ emu-dev-cli sbom diff /tmp/old.spdx.json /tmp/new.spdx.json
 
 ---
 
+### 12. Upload Screen Recordings to Screencast (`screencast`)
+
+Uploads local `.mp4`, `.webm`, or `.mov` videos to `screencast.googleplex.com`
+across gLinux, gMac, and gWindows (using `gosso` corporate SSO priming):
+
+```bash
+# Upload a local recording and print its shareable Screencast URL
+emu-dev-cli screencast /tmp/e2e_recording.mp4
+
+# Specify custom title and description (and optional JSON output)
+emu-dev-cli screencast /tmp/e2e_recording.mp4 \
+  --title "Playwright E2E Demo" \
+  --description "Headless API 35 emulator run"
+
+# Validate video file and inspect local corporate auth transports without uploading
+emu-dev-cli screencast /tmp/e2e_recording.mp4 --dry-run
+```
+
+---
+
 ## 🤖 Agent Autonomous Remediation & Policy Protocol
 
 When an AI pair programmer or autonomous agent is tasked with fixing Clang-Tidy

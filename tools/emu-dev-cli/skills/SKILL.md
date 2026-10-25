@@ -430,6 +430,12 @@ emu-dev-cli sbom audit
 emu-dev-cli sbom diff /tmp/old.spdx.json /tmp/new.spdx.json
 ```
 
+### 12.7 Screencast Upload (`screencast`)
+Uploads `.mp4`, `.webm`, or `.mov` videos to `screencast.googleplex.com` (gLinux/gMac/gWindows via `gosso`):
+```bash
+emu-dev-cli screencast /tmp/demo.mp4 [--title "Title" --description "Notes" --dry-run]
+```
+
 ### 13. Common Natural Language Requests & Agent Action Mapping
 | User Request | Target Command |
 | :--- | :--- |
@@ -456,6 +462,7 @@ emu-dev-cli sbom diff /tmp/old.spdx.json /tmp/new.spdx.json
 | _"Review a commit for duplication / modularity / control-flow / constants / unicode"_ | `emu-dev-cli workflow review-{duplication,modularity,control-flow,constants,unicode} init -- --commit HEAD` |
 | _"List untriaged production qemu-next crashes from the last 7 days"_ | `emu-dev-cli crash list-crashes --unassigned-only --days 7` |
 | _"Associate Buganizer issue b/567125517 with crash signature virtio_gpu_rutabaga_load-e709a6ba in go/crash"_ | `emu-dev-cli crash link-bug "virtio_gpu_rutabaga_load-e709a6ba" b/567125517` |
+| _"Upload a screen recording to Screencast"_ | `emu-dev-cli screencast /tmp/demo.mp4 --title "Title"` |
 
 ---
 ## 🤖 Agent Autonomous Flakiness Remediation Protocol
