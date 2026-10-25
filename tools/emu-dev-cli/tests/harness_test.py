@@ -520,6 +520,18 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         )
         self.assertEqual(deny_multi["decision"], HookDecision.DENY.value)
 
+    def _write_valid_doc_commit_msg(self) -> Path:
+        msg_file = self.base_path / "valid_msg.txt"
+        msg_file.write_text(
+            "docs(grpc): Update gRPC agent playbook\n\n"
+            "Document reactor invariants and concurrency tests.\n\n"
+            "Bug: 485291270\n"
+            "Test: emu-dev-cli docs lint\n"
+            "Change-Id: I1234567890abcdef1234567890abcdef12345678\n",
+            encoding="utf-8",
+        )
+        return msg_file
+
     def test_goldfish_doc_drift_guardrails_on_edit_and_commit(self) -> None:
         ledger_store = SessionLedgerStore(base_dir=self.base_path / "harness")
         goldfish = self.base_path / "hardware" / "generic" / "goldfish"
@@ -594,15 +606,7 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
             "# gRPC Playbook\n\nBroken link to [missing](deleted_header.h).\n",
             encoding="utf-8",
         )
-        msg_file = self.base_path / "valid_msg.txt"
-        msg_file.write_text(
-            "docs(grpc): Update gRPC agent playbook\n\n"
-            "Document reactor invariants and concurrency tests.\n\n"
-            "Bug: 485291270\n"
-            "Test: emu-dev-cli docs lint\n"
-            "Change-Id: I1234567890abcdef1234567890abcdef12345678\n",
-            encoding="utf-8",
-        )
+        msg_file = self._write_valid_doc_commit_msg()
         commit_cmd = f'git -C "{goldfish}" commit -F "{msg_file}"'
         verdict_blocked = evaluate_git_commit_command(commit_cmd)
         self.assertIsNotNone(verdict_blocked)
@@ -620,6 +624,55 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         verdict_ok = evaluate_git_commit_command(commit_cmd)
         self.assertIsNotNone(verdict_ok)
         self.assertTrue(verdict_ok[0], msg=verdict_ok[1])  # type: ignore[index]
+
+    def test_goldfish_doc_drift_ignores_non_goldfish_emulator_subdir(self) -> None:
+        ledger_store = SessionLedgerStore(base_dir=self.base_path / "harness")
+        vendor_google = self.base_path / "studio-main" / "tools" / "vendor" / "google"
+        (vendor_google / "emulator" / "ui").mkdir(parents=True, exist_ok=True)
+        (vendor_google / "optional-plugins" / "lightbuild").mkdir(
+            parents=True, exist_ok=True
+        )
+        (vendor_google / "optional-plugins" / "lightbuild" / "AGENTS.md").write_text(
+            "# Studio Plugin\n\nUses `//tools/adt/idea/missing_pkg:target`.\n",
+            encoding="utf-8",
+        )
+        msg_file = self._write_valid_doc_commit_msg()
+        vendor_commit_cmd = f'cd "{vendor_google}" && git commit -F "{msg_file}"'
+        verdict_vendor = evaluate_git_commit_command(vendor_commit_cmd)
+        self.assertIsNotNone(verdict_vendor)
+        self.assertTrue(verdict_vendor[0], msg=verdict_vendor[1])  # type: ignore[index]
+
+        allow_vendor_edit = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": "conv-doc-drift",
+                "toolCall": {
+                    "name": "write_file",
+                    "args": {
+                        "Path": str(vendor_google / "emulator" / "AGENTS.md"),
+                        "Content": "# Studio Emulator UI\n\nUses `//tools/missing:pkg`.\n",
+                    },
+                },
+            },
+            store=ledger_store,
+        )
+        self.assertEqual(allow_vendor_edit["decision"], HookDecision.ALLOW.value)
+
+    def test_goldfish_doc_drift_detects_standalone_non_ascii_clone(self) -> None:
+        standalone_gf = self.base_path / "qemu_next_测试_🚀_é"
+        (standalone_gf / "emulator").mkdir(parents=True, exist_ok=True)
+        (standalone_gf / "MODULE.bazel").write_text("# goldfish\n", encoding="utf-8")
+        (standalone_gf / "emulator" / "BUILD.bazel").write_text("", encoding="utf-8")
+        (standalone_gf / "emulator" / "AGENTS.md").write_text(
+            "# Standalone Playbook\n\nBroken link to [missing](gone.h).\n",
+            encoding="utf-8",
+        )
+        msg_file = self._write_valid_doc_commit_msg()
+        standalone_cmd = f'git -C "{standalone_gf}" commit -F "{msg_file}"'
+        verdict_standalone = evaluate_git_commit_command(standalone_cmd)
+        self.assertIsNotNone(verdict_standalone)
+        self.assertFalse(verdict_standalone[0])  # type: ignore[index]
+        self.assertIn("gone.h", verdict_standalone[1])  # type: ignore[index]
 
 
 if __name__ == "__main__":

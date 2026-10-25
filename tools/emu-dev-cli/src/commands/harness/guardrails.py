@@ -40,7 +40,10 @@ except ImportError:
     yaml = None
 
 from commands import docs
-from commands.harness.code_guardrails import evaluate_file_edit_payload
+from commands.harness.code_guardrails import (
+    evaluate_file_edit_payload,
+    find_goldfish_repo_root,
+)
 from commands.harness.concurrency_test_check import build_concurrency_test_warning
 from commands.harness.constants import (
     AVD_FLAG_PATTERN,
@@ -164,15 +167,9 @@ def _evaluate_goldfish_doc_drift_for_commit(
     if not target_dir.is_dir():
         return None
 
-    norm_dir = target_dir.resolve().as_posix()
-    if "goldfish" not in norm_dir and not (target_dir / "emulator").is_dir():
+    goldfish_root = find_goldfish_repo_root(target_dir)
+    if goldfish_root is None:
         return None
-
-    goldfish_root = target_dir.resolve()
-    for anc in [goldfish_root] + list(goldfish_root.parents):
-        if anc.name == "goldfish" or (anc / "emulator").is_dir():
-            goldfish_root = anc
-            break
 
     scan_root = goldfish_root
     if (

@@ -73,8 +73,29 @@ def _extract_file_path_and_content(payload: Dict[str, Any]) -> Tuple[str, str]:
     return path_str, content_str
 
 
+def is_goldfish_root_dir(candidate: Path) -> bool:
+    """Returns True if `candidate` is the root of a `goldfish` repository."""
+    if candidate.name == "goldfish":
+        return True
+    return (
+        (candidate / "MODULE.bazel").is_file()
+        and (candidate / "emulator" / "BUILD.bazel").is_file()
+    )
+
+
+def find_goldfish_repo_root(start_dir: Path) -> Optional[Path]:
+    """Walks up from `start_dir` to find an enclosing `goldfish` repository root."""
+    resolved = start_dir.resolve()
+    for anc in (resolved, *resolved.parents):
+        if is_goldfish_root_dir(anc):
+            return anc
+    return None
+
+
 def _is_goldfish_path(norm_path: str) -> bool:
     """Returns True if the normalized path belongs to the goldfish (emu-main-next) repo."""
+    if "/tools/emulator/" in norm_path or "/tools/vendor/" in norm_path:
+        return False
     return (
         "/goldfish/" in norm_path
         or norm_path.startswith("emulator/")
@@ -172,16 +193,15 @@ def _extract_goldfish_rel_dir(norm_path: str) -> str:
 def _locate_goldfish_roots_on_disk(fpath: Path) -> Tuple[Path, Path]:
     """Resolves (repo_root, workspace_root) for an existing path inside goldfish."""
     curr = fpath.parent.resolve()
-    for anc in [curr] + list(curr.parents):
-        if anc.name == "goldfish" or (anc / "emulator").is_dir():
-            repo_root = anc
-            if (
-                repo_root.parent.name == "generic"
-                and repo_root.parent.parent.name == "hardware"
-            ):
-                return repo_root, repo_root.parent.parent.parent
-            return repo_root, repo_root
-    return curr, curr
+    repo_root = find_goldfish_repo_root(curr)
+    if repo_root is None:
+        return curr, curr
+    if (
+        repo_root.parent.name == "generic"
+        and repo_root.parent.parent.name == "hardware"
+    ):
+        return repo_root, repo_root.parent.parent.parent
+    return repo_root, repo_root
 
 
 def evaluate_goldfish_doc_drift(
