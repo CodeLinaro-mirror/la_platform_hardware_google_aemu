@@ -806,15 +806,73 @@
     pointer-events: none;
   }
   .stack-header {
-    padding: 7px 10px;
+    padding: 6px 10px;
     background: #222429;
     border-bottom: 1px solid var(--g-border);
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 8px;
     font-size: 11.5px;
     font-weight: 700;
     color: #d8dde6;
+  }
+  .stack-header-left {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+  }
+  .group-check-wrap,
+  .cl-card-check-wrap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .cl-card-check-wrap {
+    margin-right: 7px;
+    padding: 1px;
+  }
+  .group-select-checkbox,
+  .cl-select-checkbox {
+    width: 13.5px;
+    height: 13.5px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--g-accent);
+  }
+  .queue-batch-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: #1d2026;
+    border: 1px solid var(--g-border-subtle);
+    font-size: 11px;
+    color: var(--g-muted);
+    flex-shrink: 0;
+  }
+  .queue-batch-strip.has-checked {
+    background: rgba(96, 165, 250, 0.1);
+    border-color: rgba(130, 177, 255, 0.36);
+    color: #dbeafe;
+  }
+  .queue-batch-left {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-weight: 600;
+  }
+  .queue-checked-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    color: #bfdbfe;
   }
   .cl-card {
     padding: 6px 10px;
@@ -840,6 +898,16 @@
   .cl-card.cl-card-submittable.selected {
     background: linear-gradient(90deg, rgba(46, 160, 88, 0.24) 0%, rgba(46, 160, 88, 0.11) 100%), #2e323b;
     border-left: 3px solid var(--g-accent);
+  }
+  .cl-card.is-checked,
+  .cl-card.cl-card-submittable.is-checked {
+    background: rgba(59, 130, 246, 0.11);
+    border-left: 3px solid var(--g-accent);
+    box-shadow: inset 0 0 0 1px rgba(130, 177, 255, 0.26);
+  }
+  .cl-card.is-checked:hover,
+  .cl-card.cl-card-submittable.is-checked:hover {
+    background: rgba(59, 130, 246, 0.16);
   }
   .cl-card.cl-card-exiting {
     background: rgba(78, 173, 107, 0.18);
@@ -960,21 +1028,271 @@
     color: var(--g-muted);
   }
 
-  .harness-bar {
-    padding: 10px 14px;
-    background: var(--g-panel-alt);
-    border-bottom: 1px solid var(--g-border);
-    display: flex;
-    justify-content: space-between;
+  .harness-group {
+    display: inline-flex;
     align-items: center;
-    gap: 10px;
+    gap: 6px;
     flex-wrap: wrap;
   }
-  .vote-group, .harness-group {
+  .gerrit-vote-row {
+    padding-top: 5px;
+    margin-top: 2px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .participants-label.is-batch-title {
+    color: #93c5fd;
+  }
+  .gerrit-vote-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+  }
+  .batch-vote-header-strip {
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 6px;
     flex-wrap: wrap;
+  }
+  .gerrit-vote-controls-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .staged-vote-note-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+  }
+  .vote-target-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 5px;
+    font-size: 11.5px;
+    font-weight: 700;
+    font-family: var(--g-mono);
+    background: #222630;
+    border: 1px solid #383e4d;
+    color: #cbd5e1;
+    white-space: nowrap;
+  }
+  .vote-target-pill.is-batch {
+    font-family: var(--g-font);
+    background: rgba(59, 130, 246, 0.18);
+    border-color: rgba(130, 177, 255, 0.52);
+    color: #dbeafe;
+  }
+  .vote-target-clear {
+    background: transparent;
+    border: none;
+    color: #93c5fd;
+    cursor: pointer;
+    padding: 0 2px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .vote-target-clear:hover {
+    color: #ffffff;
+  }
+  .staged-label-group {
+    display: inline-flex;
+    align-items: center;
+    background: #1f2229;
+    border: 1px solid var(--g-border);
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .staged-label-title {
+    padding: 0 6px 0 5px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    color: var(--g-muted);
+    user-select: none;
+  }
+  .stage-cr-btn {
+    border: 1px solid transparent;
+    background: transparent;
+    color: #b8c0ce;
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 3px 7px;
+    border-radius: 4px;
+    cursor: pointer;
+    min-width: 28px;
+    line-height: 1.25;
+    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  }
+  .stage-cr-btn:hover:not(:disabled) {
+    background: #2c313d;
+    color: #f1f5f9;
+  }
+  .stage-cr-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .stage-cr-btn.is-current {
+    background: rgba(148, 163, 184, 0.14);
+    border-color: rgba(148, 163, 184, 0.38);
+    color: #e2e8f0;
+  }
+  .stage-cr-btn.cr-pos1.is-current {
+    background: rgba(59, 130, 246, 0.18);
+    border-color: rgba(96, 165, 250, 0.45);
+    color: #bfdbfe;
+  }
+  .stage-cr-btn.cr-pos2.is-current {
+    background: rgba(46, 160, 88, 0.2);
+    border-color: rgba(78, 173, 107, 0.5);
+    color: #bbf7d0;
+  }
+  .stage-cr-btn.cr-neg.is-current {
+    background: rgba(223, 91, 83, 0.2);
+    border-color: rgba(223, 91, 83, 0.5);
+    color: #fecaca;
+  }
+  .stage-cr-btn.is-staged {
+    background: #334155;
+    border-color: #94a3b8;
+    color: #ffffff;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18);
+  }
+  .stage-cr-btn.cr-pos1.is-staged {
+    background: #1d4ed8;
+    border-color: #60a5fa;
+    color: #ffffff;
+  }
+  .stage-cr-btn.cr-pos2.is-staged {
+    background: #236b43;
+    border-color: #56c278;
+    color: #ffffff;
+  }
+  .stage-cr-btn.cr-neg.is-staged {
+    background: #991b1b;
+    border-color: #f87171;
+    color: #ffffff;
+  }
+  .staged-check-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 9px;
+    border-radius: 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    background: #22252d;
+    border: 1px solid var(--g-border);
+    color: #cbd5e1;
+    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  }
+  .staged-check-pill:hover {
+    background: #2b2f3a;
+  }
+  .staged-check-pill.is-disabled {
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  .staged-check-pill input[type="checkbox"] {
+    width: 13px;
+    height: 13px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--g-accent);
+  }
+  .staged-check-pill.is-current {
+    background: rgba(59, 130, 246, 0.14);
+    border-color: rgba(96, 165, 250, 0.42);
+    color: #dbeafe;
+  }
+  .staged-check-pill.is-staged {
+    background: rgba(37, 99, 235, 0.28);
+    border-color: #60a5fa;
+    color: #ffffff;
+    box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.24);
+  }
+  .staged-check-pill.is-staged-clear {
+    background: rgba(217, 119, 6, 0.18);
+    border-color: rgba(251, 191, 36, 0.52);
+    color: #fde68a;
+  }
+  .btn-vote-note-toggle {
+    padding: 4px 8px;
+    font-size: 11.5px;
+    background: #22252d;
+  }
+  .btn-vote-note-toggle.has-note {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: rgba(96, 165, 250, 0.52);
+    color: #dbeafe;
+  }
+  .staged-vote-note-input {
+    flex: 1 1 260px;
+    max-width: 520px;
+    padding: 5px 9px;
+    border-radius: 5px;
+    border: 1px solid #454d5e;
+    background: #14161b;
+    color: var(--g-text);
+    font-size: 11.5px;
+    font-family: var(--g-font);
+    outline: none;
+  }
+  .staged-vote-note-input:focus {
+    border-color: var(--g-accent);
+  }
+  @keyframes submitVoteReadyPulse {
+    0%, 100% {
+      box-shadow: 0 0 0 2px rgba(94, 224, 139, 0.36), 0 4px 14px rgba(36, 119, 68, 0.48);
+    }
+    50% {
+      box-shadow: 0 0 0 3.5px rgba(134, 239, 172, 0.62), 0 6px 18px rgba(46, 160, 88, 0.65);
+    }
+  }
+  .btn-reset-staged {
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--g-muted);
+    background: transparent;
+  }
+  .batch-participant-actions {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .btn-batch-participant {
+    padding: 4px 10px;
+    font-size: 11.5px;
+    background: rgba(59, 130, 246, 0.16);
+    border-color: rgba(130, 177, 255, 0.45);
+    color: #dbeafe;
+  }
+  .btn-batch-participant:hover:not(:disabled) {
+    background: rgba(59, 130, 246, 0.28);
+    border-color: rgba(147, 197, 253, 0.72);
+    color: #ffffff;
+  }
+  .batch-reviewer-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 1250;
+    min-width: 310px;
+    background: #1f222a;
+    border: 1px solid #454d5e;
+    border-radius: 7px;
+    padding: 8px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.58);
   }
   .btn {
     display: inline-flex;
@@ -988,11 +1306,167 @@
     border: 1px solid var(--g-border);
     background: #262930;
     color: var(--g-text);
-    transition: transform 0.14s ease, background 0.16s ease, opacity 0.16s ease;
+    transition: transform 0.14s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
   }
   .btn:hover:not(:disabled) { background: #2f333c; }
   .btn:active:not(:disabled) { transform: scale(0.98); }
   .btn:disabled { cursor: wait; opacity: 0.72; }
+  .btn.btn-submit-votes {
+    padding: 5px 13px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+  .btn.btn-submit-votes:disabled {
+    background: #23262e;
+    border-color: #343946;
+    color: #7c8596;
+    cursor: not-allowed;
+    opacity: 0.72;
+    box-shadow: none;
+    animation: none;
+  }
+  .btn.btn-submit-votes:not(:disabled) {
+    background: linear-gradient(180deg, #329b5b 0%, #247744 100%);
+    border-color: #5ee08b;
+    color: #ffffff;
+    box-shadow: 0 0 0 2px rgba(94, 224, 139, 0.36), 0 4px 14px rgba(36, 119, 68, 0.48);
+    animation: submitVoteReadyPulse 1.9s ease-in-out infinite;
+  }
+  .btn.btn-submit-votes:hover:not(:disabled) {
+    background: linear-gradient(180deg, #3bad67 0%, #2b8a50 100%);
+    border-color: #86efac;
+    color: #ffffff;
+    box-shadow: 0 0 0 3px rgba(134, 239, 172, 0.5), 0 6px 16px rgba(36, 119, 68, 0.58);
+  }
+  .btn.btn-submit-cl {
+    padding: 5px 12px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+  .btn.btn-submit-cl:not(:disabled) {
+    background: linear-gradient(180deg, #2ea058 0%, #237a43 100%);
+    border-color: #57d182;
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(46, 160, 88, 0.35);
+  }
+  .btn.btn-submit-cl:hover:not(:disabled) {
+    background: linear-gradient(180deg, #37b264 0%, #2a8d4e 100%);
+    border-color: #86efac;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(46, 160, 88, 0.45);
+  }
+  .btn.btn-submit-cl:disabled:not(.is-submitting) {
+    background: #22252b;
+    border-color: #323640;
+    color: #6e7686;
+    cursor: not-allowed;
+    opacity: 0.68;
+    box-shadow: none;
+  }
+  .btn.btn-submit-cl.is-submitting:disabled {
+    background: #235c3a;
+    border-color: #469e68;
+    color: #e2f5ea;
+    cursor: wait;
+    opacity: 0.9;
+  }
+  .commit-section.batch-mode-section {
+    background: linear-gradient(180deg, rgba(59, 130, 246, 0.14) 0%, rgba(59, 130, 246, 0.10) 100%), #16181f;
+    border: 1px solid rgba(130, 177, 255, 0.42);
+    box-shadow: inset 0 0 0 1px rgba(130, 177, 255, 0.26), 0 8px 24px rgba(0, 0, 0, 0.28);
+    overflow: visible;
+  }
+  .batch-mode-banner {
+    padding: 9px 14px;
+    background: rgba(96, 165, 250, 0.12);
+    border-bottom: 1px solid rgba(130, 177, 255, 0.34);
+    border-radius: 5px 5px 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    color: #dbeafe;
+  }
+  .batch-mode-banner-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .batch-mode-sub {
+    font-size: 11.5px;
+    color: #bfdbfe;
+  }
+  .btn.btn-exit-batch {
+    padding: 4px 10px;
+    font-size: 11.5px;
+    background: rgba(30, 41, 59, 0.72);
+    border-color: rgba(130, 177, 255, 0.42);
+    color: #dbeafe;
+  }
+  .btn.btn-exit-batch:hover:not(:disabled) {
+    background: rgba(51, 65, 85, 0.9);
+    border-color: rgba(147, 197, 253, 0.7);
+    color: #ffffff;
+  }
+  .cl-participants-panel.is-batch-mode {
+    background: rgba(59, 130, 246, 0.11);
+    border-bottom: none;
+    border-radius: 0 0 5px 5px;
+    padding: 12px 14px;
+    gap: 10px;
+  }
+  .cl-participants-panel.is-batch-mode .participants-row {
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: rgba(59, 130, 246, 0.10);
+    border: 1px solid rgba(130, 177, 255, 0.28);
+    box-shadow: inset 0 0 0 1px rgba(130, 177, 255, 0.14);
+  }
+  .cl-participants-panel.is-batch-mode .participants-label {
+    color: #bfdbfe;
+    min-width: 96px;
+  }
+  .batch-selected-cl-list {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    flex: 1;
+  }
+  .batch-selected-cl-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 360px;
+    padding: 3px 8px;
+    border-radius: 5px;
+    background: rgba(30, 58, 138, 0.34);
+    border: 1px solid rgba(130, 177, 255, 0.42);
+    color: #e2e8f0;
+    font-size: 11px;
+  }
+  .batch-selected-cl-subj {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #dbeafe;
+  }
+  .batch-selected-cl-remove {
+    background: transparent;
+    border: none;
+    color: #93c5fd;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 0 2px;
+  }
+  .batch-selected-cl-remove:hover {
+    color: #ffffff;
+  }
   .btn-vote-cr1 { background: #213244; border-color: #38597a; color: #cde2ff; }
   .btn-vote-cr1:hover:not(:disabled) { background: #293f56; }
   .btn-approve { background: #2b6342; border-color: #3a7d56; color: #f4f7f5; }
@@ -1144,7 +1618,8 @@
     .diff-scroll.diff-enter-prev,
     .vote-stamp-banner.active,
     .cl-card.cl-card-entering,
-    .cl-card.cl-card-swarming {
+    .cl-card.cl-card-swarming,
+    .btn.btn-submit-votes:not(:disabled) {
       animation: none !important;
     }
     .cl-card { transition: none !important; }
@@ -1313,13 +1788,13 @@
   .commit-section {
     border: 1px solid var(--g-border);
     border-radius: 6px;
-    overflow: hidden;
     background: #16171a;
     flex-shrink: 0;
   }
   .commit-sec-header {
     padding: 8px 12px;
     background: #202227;
+    border-radius: 5px 5px 0 0;
     border-bottom: 1px solid var(--g-border);
     display: flex;
     justify-content: space-between;
@@ -3527,90 +4002,47 @@
 
   <div class="diff-pane">
     <div id="voteStampBanner" class="vote-stamp-banner"></div>
-    <div class="harness-bar">
-      <div class="vote-group">
-        <button
-          id="btnExpandSidebar"
-          type="button"
-          class="btn btn-expand-sidebar"
-          style="display:none;"
-          onclick="toggleSidebarCollapsed(false)"
-          title="Expand side panel ([)"
-          aria-label="Expand side panel"
-        >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="2" y="2.5" width="12" height="11" rx="2"/>
-            <line x1="6.5" y1="2.5" x2="6.5" y2="13.5"/>
-            <polyline points="8.5 6.5 10 8 8.5 9.5"/>
-          </svg>
-          <span id="expandSidebarLabel">Queue</span>
-        </button>
-        <button id="btnVotePlus1" class="btn btn-vote-cr1" onclick="voteCurrentClPlus1(this)" title="Vote Code-Review +1 on selected CL (Shortcut: 1)">+1</button>
-        <button id="btnVoteCurrent" class="btn btn-approve" onclick="voteCurrentCl(this)" title="Vote Code-Review +2 on selected CL (Shortcut: a or 2)">✓ Vote +2</button>
-        <button id="btnVotePlus2Auto" class="btn btn-approve-auto" onclick="voteCurrentClPlus2Auto(this)" title="Vote Code-Review +2 and Autosubmit +1 on selected CL (Shortcut: Shift+A)">⚡ +2 &amp; Autosubmit</button>
-        <button id="btnVoteAutosubmit" class="btn btn-autosubmit" onclick="toggleCurrentClAutosubmit(this)" title="Set or clear Autosubmit +1 on selected CL (Shortcut: u)">Autosubmit +1</button>
-        <button id="btnPresubmitReady" class="btn btn-presubmit" onclick="toggleCurrentClPresubmitReady(this)" title="Trigger or clear Presubmit-Ready +1 on selected CL (Shortcut: p)">▶ Presubmit-Ready +1</button>
-        <button id="btnVoteStack" class="btn btn-approve-stack" onclick="voteActiveStack(this)" title="Vote Code-Review +2 across all commits in active stack">✓✓ Stack +2</button>
-      </div>
-      <div class="harness-group">
-        <div id="harnessDropdownWrap" class="harness-dropdown-wrap" onclick="event.stopPropagation()">
-          <button
-            id="btnHarnessMenuToggle"
-            type="button"
-            class="btn btn-harness-menu"
-            onclick="toggleHarnessMenu(event)"
-            aria-haspopup="menu"
-            aria-expanded="false"
-            title="Open Harness Actions for the selected CL"
-          >
-            <span id="harnessMenuLabel">⚡ Harness Actions</span>
-            <span class="harness-menu-caret">▾</span>
-          </button>
-          <div id="harnessDropdownMenu" class="harness-dropdown-menu" role="menu" aria-hidden="true">
-            <button
-              id="btnAiAnalysis"
-              type="button"
-              role="menuitem"
-              class="harness-menu-item"
-              onclick="onHarnessMenuAction('problem-alternatives', this)"
-              title="Analyze the underlying problem, chosen solution, tradeoffs, and alternative solutions for this CL"
-            >
-              <div class="harness-menu-item-top">
-                <span id="btnAiAnalysisLabel" class="harness-menu-item-title">🧠 Analyze Problem &amp; Alternatives</span>
-              </div>
-              <div id="btnAiAnalysisSub" class="harness-menu-item-sub">Underlying problem, chosen solution, tradeoffs &amp; alternatives</div>
-            </button>
-            <button
-              id="btnRunSwarm"
-              type="button"
-              role="menuitem"
-              class="harness-menu-item"
-              onclick="onHarnessMenuAction('review-swarm', this)"
-              title="Launch the 8-specialist parallel Review Swarm workflow (Shortcut: s)"
-            >
-              <div class="harness-menu-item-top">
-                <span id="btnRunSwarmLabel" class="harness-menu-item-title">★ Run Review Swarm (8 Specialists)</span>
-                <kbd class="harness-menu-kbd">s</kbd>
-              </div>
-              <div id="btnRunSwarmSub" class="harness-menu-item-sub">8-agent parallel audit for library reuse, error messages, complexity &amp; tests</div>
-            </button>
-            <button
-              id="btnAutoFix"
-              type="button"
-              role="menuitem"
-              class="harness-menu-item"
-              onclick="onHarnessMenuAction('address-review', this)"
-              title="Launch single-agent CLI workflow to address unresolved review comments"
-            >
-              <div class="harness-menu-item-top">
-                <span id="btnAutoFixLabel" class="harness-menu-item-title">→ Auto-Address Comments</span>
-              </div>
-              <div id="btnAutoFixSub" class="harness-menu-item-sub">Single-agent CLI workflow to fix unresolved review threads, test &amp; upload</div>
-            </button>
-          </div>
+    <div id="harnessDropdownMenu" class="harness-dropdown-menu" role="menu" aria-hidden="true" onclick="event.stopPropagation()">
+      <button
+        id="btnAiAnalysis"
+        type="button"
+        role="menuitem"
+        class="harness-menu-item"
+        onclick="onHarnessMenuAction('problem-alternatives', this)"
+        title="Analyze the underlying problem, chosen solution, tradeoffs, and alternative solutions for this CL"
+      >
+        <div class="harness-menu-item-top">
+          <span id="btnAiAnalysisLabel" class="harness-menu-item-title">🧠 Analyze Problem &amp; Alternatives</span>
         </div>
-        <span id="activeSwarmsPill" class="active-swarms-pill" style="display:none;" onclick="jumpToActiveSwarmCl()"></span>
-      </div>
+        <div id="btnAiAnalysisSub" class="harness-menu-item-sub">Underlying problem, chosen solution, tradeoffs &amp; alternatives</div>
+      </button>
+      <button
+        id="btnRunSwarm"
+        type="button"
+        role="menuitem"
+        class="harness-menu-item"
+        onclick="onHarnessMenuAction('review-swarm', this)"
+        title="Launch the 8-specialist parallel Review Swarm workflow (Shortcut: s)"
+      >
+        <div class="harness-menu-item-top">
+          <span id="btnRunSwarmLabel" class="harness-menu-item-title">★ Run Review Swarm (8 Specialists)</span>
+          <kbd class="harness-menu-kbd">s</kbd>
+        </div>
+        <div id="btnRunSwarmSub" class="harness-menu-item-sub">8-agent parallel audit for library reuse, error messages, complexity &amp; tests</div>
+      </button>
+      <button
+        id="btnAutoFix"
+        type="button"
+        role="menuitem"
+        class="harness-menu-item"
+        onclick="onHarnessMenuAction('address-review', this)"
+        title="Launch single-agent CLI workflow to address unresolved review comments"
+      >
+        <div class="harness-menu-item-top">
+          <span id="btnAutoFixLabel" class="harness-menu-item-title">→ Auto-Address Comments</span>
+        </div>
+        <div id="btnAutoFixSub" class="harness-menu-item-sub">Single-agent CLI workflow to fix unresolved review threads, test &amp; upload</div>
+      </button>
     </div>
 
     <div id="diffScroll" class="diff-scroll"></div>
@@ -3619,7 +4051,7 @@
       <div style="display:flex;align-items:center;gap:8px;">
         <span id="drawerDot" class="dot dot-green"></span>
         <strong>Harness &amp; Gerrit Bridge:</strong>
-        <span id="drawerStatus" style="color:var(--g-muted);">Ready · Shortcuts: [ (sidebar), j/k (next/prev), 1 (+1), a/2 (+2), A (+2 &amp; Autosubmit), u (Autosubmit +1), p (Presubmit-Ready +1), s (Swarm)</span>
+        <span id="drawerStatus" style="color:var(--g-muted);">Ready · Shortcuts: [ (sidebar), j/k (next/prev), x (select CL), 1/2/0 (stage CR), p (stage PR+1), u (stage AS+1), Enter (send vote), s (Swarm)</span>
       </div>
       <a id="openGerritLink" href="#" target="_blank" style="color:var(--g-accent);font-weight:600;text-decoration:none;">Open in Gerrit ↗</a>
     </div>
@@ -3699,6 +4131,7 @@
     selectedStackId: null,
     selectedClNumber: null,
     votingInFlight: false,
+    submittingInFlight: false,
     queueLoading: false,
     queueFetchSeq: 0,
     diffLoadingCount: 0,
@@ -3741,6 +4174,17 @@
     sidebarWidth: 475,
     sidebarCollapsed: false,
     visibleCommitCount: 0,
+    checkedClNumbers: new Set(),
+    lastCheckedClNumber: null,
+    stagedVote: {
+      contextKey: "",
+      cr: null,
+      pr: null,
+      as: null,
+      comment: "",
+      noteOpen: false,
+    },
+    batchReviewerComposer: null,
   };
 
   const DEFAULT_SIDEBAR_WIDTH = 475;
@@ -4071,18 +4515,19 @@
 
   function syncGlobalLoadingBar() {
     const bar = document.getElementById("globalLoadingBar");
-    const isBusy = Boolean(state.queueLoading || state.diffLoadingCount > 0 || state.votingInFlight);
+    const isActionBusy = Boolean(state.votingInFlight || state.submittingInFlight);
+    const isBusy = Boolean(state.queueLoading || state.diffLoadingCount > 0 || isActionBusy);
     if (bar) {
       bar.classList.toggle("active", isBusy);
     }
-    if (!state.queueLoading && !state.votingInFlight && state.diffLoadingCount > 0) {
+    if (!state.queueLoading && !isActionBusy && state.diffLoadingCount > 0) {
       const drawerDot = document.getElementById("drawerDot");
       const drawerStatus = document.getElementById("drawerStatus");
       if (drawerDot) drawerDot.className = "dot dot-blue-pulse";
       if (drawerStatus && state.diffLoadingLabel) {
         drawerStatus.textContent = state.diffLoadingLabel;
       }
-    } else if (!state.queueLoading && !state.votingInFlight && state.diffLoadingCount === 0) {
+    } else if (!state.queueLoading && !isActionBusy && state.diffLoadingCount === 0) {
       syncSwarmIndicatorsOnly();
     }
   }
@@ -4113,6 +4558,14 @@
       const el = document.getElementById(id);
       if (el) el.disabled = disabled;
     });
+    if (disabled) {
+      ["btnSubmitCl", "btnBatchSubmitCls"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = true;
+      });
+    } else if (typeof syncSubmitClButtonsDom === "function") {
+      syncSubmitClButtonsDom(getActiveCommitsForDiff());
+    }
   }
 
   function setQueueLoadingState(isLoading, titleText, subText) {
@@ -4324,14 +4777,21 @@
     }
   }
 
-  function applyQueuePayload(data, opts = {}) {
+  function maybeReloadOnUiVersionChange(serverUiVersion) {
     if (
-      data.ui_version &&
+      serverUiVersion &&
       window.__GERRIT_UI_VERSION__ &&
       !window.__GERRIT_UI_VERSION__.startsWith("__") &&
-      data.ui_version !== window.__GERRIT_UI_VERSION__
+      serverUiVersion !== window.__GERRIT_UI_VERSION__
     ) {
       window.location.reload();
+      return true;
+    }
+    return false;
+  }
+
+  function applyQueuePayload(data, opts = {}) {
+    if (maybeReloadOnUiVersionChange(data && data.ui_version)) {
       return;
     }
     state.viewer = data.viewer || state.viewer;
@@ -4340,6 +4800,12 @@
     state.roster = data.roster || ["jansene@google.com", "joshuaduong@google.com", "rkir@google.com", "whollins@google.com"];
     state.changes = data.changes || [];
     state.stacks = data.stacks || [];
+    if (!state.sidebarHydrating && state.checkedClNumbers && state.checkedClNumbers.size > 0) {
+      const validNums = new Set(state.changes.map(c => Number(c.number)));
+      Array.from(state.checkedClNumbers).forEach(num => {
+        if (!validNums.has(Number(num))) state.checkedClNumbers.delete(num);
+      });
+    }
     const activeVoter = String(state.authEmail || state.viewer || "").toLowerCase();
     const viewerSessionNums = getSessionApprovedNumsForViewer(state.viewer);
     if (viewerSessionNums.length > 0 && (!activeVoter || String(state.viewer || "").toLowerCase() === activeVoter)) {
@@ -4395,6 +4861,7 @@
     state.viewer = newViewer;
     state.selectedClNumber = null;
     state.selectedStackId = null;
+    clearCheckedCls({ silent: true });
     if (window.__GERRIT_UI_BOOTSTRAP__ && Array.isArray(window.__GERRIT_UI_BOOTSTRAP__.changes)) {
       state.changes.forEach(c => {
         c.approved_by_viewer = (c.human_cr2 || []).some(v => v.email === newViewer);
@@ -4415,6 +4882,7 @@
     state.scope = newScope;
     state.selectedClNumber = null;
     state.selectedStackId = null;
+    clearCheckedCls({ silent: true });
     if (newScope === "owner" && prevScope !== "owner") {
       state.savedNonOwnerGates = { ...state.gates };
       state.gates.presubmit = false;
@@ -5218,6 +5686,7 @@
 
   function isClSubmittable(c) {
     if (!c) return false;
+    if (c.gerrit_submittable === false) return false;
     const reqCount = Number(c.required_cr2_count || (c.is_agent_cl ? 2 : 1));
     const doneCount = Array.isArray(c.human_cr2)
       ? c.human_cr2.length
@@ -5236,8 +5705,450 @@
     return true;
   }
 
+  function describeClSubmitBlocker(c) {
+    if (!c) return "CL unavailable";
+    if (c.mergeable === false) return "merge conflict";
+    const revs = Array.isArray(c.reviewers_detail) ? c.reviewers_detail : [];
+    if (revs.some(p => Number(p.cr_vote || 0) < 0)) {
+      return "negative Code-Review vote";
+    }
+    const reqCount = Number(c.required_cr2_count || (c.is_agent_cl ? 2 : 1));
+    const doneCount = Array.isArray(c.human_cr2)
+      ? c.human_cr2.length
+      : Number(c.human_cr2_count || 0);
+    if (doneCount < reqCount) {
+      const need = reqCount - doneCount;
+      return need === 1 ? "needs Code-Review +2" : `needs ${need} Code-Review +2s`;
+    }
+    const pv = getClPresubmitDisplay(c);
+    const pvScore = Number(c.presubmit_score || 0);
+    const pvOk = Boolean(c.presubmit_vetted || pvScore >= 1) &&
+      pv.status !== "running" &&
+      pv.status !== "queued" &&
+      pv.status !== "failed";
+    if (!pvOk) {
+      if (pv.status === "failed") return "presubmit failed";
+      if (pv.status === "running") return "presubmit running";
+      if (pv.status === "queued") return "presubmit queued";
+      return "presubmit not verified";
+    }
+    if (c.gerrit_submittable === false) {
+      return "missing Gerrit submit requirement";
+    }
+    return "not submittable";
+  }
+
+  function collectGitAncestorsInOpenQueue(clObj) {
+    if (!clObj) return [];
+    const byRev = new Map();
+    (state.changes || []).forEach(x => {
+      if (x && x.current_revision) byRev.set(x.current_revision, x);
+    });
+    const chain = [];
+    const seen = new Set();
+    let cur = clObj;
+    while (cur && !seen.has(Number(cur.number))) {
+      seen.add(Number(cur.number));
+      chain.unshift(cur);
+      const parentSha = String(cur.parent_revision || "");
+      cur = parentSha ? (byRev.get(parentSha) || null) : null;
+    }
+    if (chain.length > 1) return chain;
+    const st = (state.stacks || []).find(
+      s => s && String(s.stack_id || "").startsWith("chain:") &&
+        Array.isArray(s.commits) &&
+        s.commits.some(x => Number(x.number) === Number(clObj.number))
+    );
+    if (st && st.commits.length > 1) {
+      const idx = st.commits.findIndex(x => Number(x.number) === Number(clObj.number));
+      if (idx > 0) {
+        return st.commits.slice(0, idx + 1).map(
+          sc => state.changes.find(ch => Number(ch.number) === Number(sc.number)) || sc
+        );
+      }
+    }
+    return [clObj];
+  }
+
+  function collectRequiredPeersForSubmitCl(clObj) {
+    if (!clObj) return { requiredCls: [], topicName: "", topicPeers: [], chainPeers: [] };
+    const topicName = String(clObj.topic || "").trim();
+    const topicPeers = topicName
+      ? (state.changes || []).filter(x => String(x.topic || "").trim() === topicName)
+      : [];
+    const seedList = topicPeers.length >= 2 ? topicPeers : [clObj];
+    const byNum = new Map();
+    seedList.forEach(peer => {
+      collectGitAncestorsInOpenQueue(peer).forEach(anc => {
+        if (anc && Number(anc.number) > 0 && !byNum.has(Number(anc.number))) {
+          byNum.set(Number(anc.number), anc);
+        }
+      });
+    });
+    const chainPeers = collectGitAncestorsInOpenQueue(clObj);
+    return {
+      requiredCls: Array.from(byNum.values()),
+      topicName,
+      topicPeers,
+      chainPeers,
+    };
+  }
+
+  function computeCommitSubmitTarget(c) {
+    if (!c) {
+      return {
+        canSubmit: false,
+        label: "⇪ Submit CL",
+        title: "Select a CL to submit",
+        postCls: [],
+        mergedNums: [],
+        shortDesc: "CL",
+      };
+    }
+    const { requiredCls, topicName, topicPeers, chainPeers } = collectRequiredPeersForSubmitCl(c);
+    const readyCount = requiredCls.filter(x => isClSubmittable(x)).length;
+    const firstBlocked = requiredCls.find(x => !isClSubmittable(x)) || null;
+    const canSubmit = requiredCls.length > 0 && !firstBlocked;
+    const mergedNums = requiredCls.map(x => Number(x.number));
+
+    if (topicPeers.length >= 2) {
+      const count = requiredCls.length;
+      const label = `⇪ Submit Topic (${count})`;
+      const title = canSubmit
+        ? `Submit whole topic '${topicName}' (${count} CLs) in Gerrit (notify: OWNER)`
+        : `Topic '${topicName}' is not submittable yet (${readyCount}/${count} ready — ag/${firstBlocked.number}: ${describeClSubmitBlocker(firstBlocked)})`;
+      return {
+        canSubmit,
+        label,
+        title,
+        postCls: [Number(c.number)],
+        mergedNums,
+        shortDesc: `topic '${topicName}' (${count} CLs)`,
+      };
+    }
+
+    if (chainPeers.length > 1) {
+      const count = chainPeers.length;
+      const st = (state.stacks || []).find(
+        s => Array.isArray(s.commits) && s.commits.some(x => Number(x.number) === Number(c.number))
+      );
+      const isStackTip = Boolean(
+        st && st.commits.length > 1 && Number(st.commits[st.commits.length - 1].number) === Number(c.number)
+      );
+      const label = isStackTip ? `⇪ Submit Stack (${count})` : `⇪ Submit Chain (${count})`;
+      const title = canSubmit
+        ? `Submit ${count}-commit stack up to ag/${c.number} in Gerrit (notify: OWNER)`
+        : `Stack is not submittable yet (${readyCount}/${count} ready — ag/${firstBlocked.number}: ${describeClSubmitBlocker(firstBlocked)})`;
+      return {
+        canSubmit,
+        label,
+        title,
+        postCls: [Number(c.number)],
+        mergedNums,
+        shortDesc: `${count}-commit stack (up to ag/${c.number})`,
+      };
+    }
+
+    const label = "⇪ Submit CL";
+    const title = canSubmit
+      ? `Submit ag/${c.number} in Gerrit (notify: OWNER)`
+      : `Cannot submit ag/${c.number} yet: ${describeClSubmitBlocker(c)}`;
+    return {
+      canSubmit,
+      label,
+      title,
+      postCls: [Number(c.number)],
+      mergedNums: [Number(c.number)],
+      shortDesc: `ag/${c.number}`,
+    };
+  }
+
+  function computeBatchSubmitTarget(checkedNums) {
+    const cleanChecked = (checkedNums || []).map(Number).filter(n => n > 0);
+    const checkedCls = cleanChecked
+      .map(num => state.changes.find(x => Number(x.number) === num))
+      .filter(Boolean);
+    if (checkedCls.length === 0) {
+      return {
+        canSubmit: false,
+        label: "⇪ Submit CLs",
+        title: "Check at least one submittable CL to submit",
+        postCls: [],
+        mergedNums: [],
+        shortDesc: "CLs",
+      };
+    }
+    const reqByNum = new Map();
+    const postList = [];
+    const seenTopics = new Set();
+    checkedCls.forEach(c => {
+      const info = collectRequiredPeersForSubmitCl(c);
+      info.requiredCls.forEach(rc => {
+        if (!reqByNum.has(Number(rc.number))) {
+          reqByNum.set(Number(rc.number), rc);
+        }
+      });
+      if (info.topicPeers.length >= 2 && info.topicName) {
+        if (!seenTopics.has(info.topicName)) {
+          seenTopics.add(info.topicName);
+          postList.push(Number(c.number));
+        }
+      } else {
+        postList.push(Number(c.number));
+      }
+    });
+    const requiredCls = Array.from(reqByNum.values());
+    const readyCount = requiredCls.filter(x => isClSubmittable(x)).length;
+    const firstBlocked = requiredCls.find(x => !isClSubmittable(x)) || null;
+    const canSubmit = requiredCls.length > 0 && !firstBlocked;
+    const totalCount = requiredCls.length;
+
+    const distinctTopics = new Set(
+      requiredCls.map(x => String(x.topic || "").trim()).filter(Boolean)
+    );
+    const isSingleTopic = (
+      distinctTopics.size === 1 &&
+      totalCount >= 2 &&
+      requiredCls.every(x => String(x.topic || "").trim() !== "")
+    );
+    const singleTopicName = isSingleTopic ? Array.from(distinctTopics)[0] : "";
+    const label = isSingleTopic
+      ? `⇪ Submit Topic (${totalCount})`
+      : (totalCount === 1 ? "⇪ Submit CL" : `⇪ Submit ${totalCount} CLs`);
+    const shortDesc = isSingleTopic
+      ? `topic '${singleTopicName}' (${totalCount} CLs)`
+      : (totalCount === 1 ? `ag/${requiredCls[0].number}` : `${totalCount} CLs`);
+    const title = canSubmit
+      ? `Submit ${shortDesc} in Gerrit (notify: OWNER)`
+      : `Cannot submit ${shortDesc} yet (${readyCount}/${totalCount} ready — ag/${firstBlocked.number}: ${describeClSubmitBlocker(firstBlocked)})`;
+    return {
+      canSubmit,
+      label,
+      title,
+      postCls: Array.from(new Set(postList)),
+      mergedNums: requiredCls.map(x => Number(x.number)),
+      shortDesc,
+    };
+  }
+
+  function renderCommitSubmitButtonHtml(c) {
+    const t = computeCommitSubmitTarget(c);
+    const disAttr = (!t.canSubmit || state.submittingInFlight || state.queueLoading) ? "disabled" : "";
+    return `<button
+      id="btnSubmitCl"
+      type="button"
+      class="btn btn-submit-cl"
+      ${disAttr}
+      aria-disabled="${disAttr ? "true" : "false"}"
+      onclick="event.stopPropagation(); submitActiveClOrTopic(this)"
+      title="${escapeHtml(t.title)}"
+    >${escapeHtml(t.label)}</button>`;
+  }
+
+  function renderBatchSubmitButtonHtml(checkedNums) {
+    const t = computeBatchSubmitTarget(checkedNums);
+    const disAttr = (!t.canSubmit || state.submittingInFlight || state.queueLoading) ? "disabled" : "";
+    return `<button
+      id="btnBatchSubmitCls"
+      type="button"
+      class="btn btn-submit-cl"
+      ${disAttr}
+      aria-disabled="${disAttr ? "true" : "false"}"
+      onclick="event.stopPropagation(); submitBatchCheckedCls(this)"
+      title="${escapeHtml(t.title)}"
+    >${escapeHtml(t.label)}</button>`;
+  }
+
+  function syncSubmitClButtonsDom(commits) {
+    if (state.submittingInFlight) return;
+    (state.changes || []).forEach(c => {
+      const cardEl = document.querySelector(`.cl-card[data-cl-num="${c.number}"]`);
+      if (cardEl) {
+        cardEl.classList.toggle("cl-card-submittable", isClSubmittable(c));
+      }
+    });
+    const btnSingle = document.getElementById("btnSubmitCl");
+    if (btnSingle) {
+      const activeList = Array.isArray(commits) ? commits : getActiveCommitsForDiff();
+      const primary = activeList.find(c => Number(c.number) === Number(state.selectedClNumber)) || activeList[0] || null;
+      const t = computeCommitSubmitTarget(primary);
+      const shouldDisable = Boolean(!t.canSubmit || state.queueLoading || state.votingInFlight);
+      btnSingle.disabled = shouldDisable;
+      btnSingle.classList.remove("is-submitting");
+      btnSingle.setAttribute("aria-disabled", shouldDisable ? "true" : "false");
+      btnSingle.textContent = t.label;
+      btnSingle.title = t.title;
+    }
+    const btnBatch = document.getElementById("btnBatchSubmitCls");
+    if (btnBatch) {
+      const checkedNums = getOrderedCheckedClNumbers();
+      const t = computeBatchSubmitTarget(checkedNums);
+      const shouldDisable = Boolean(!t.canSubmit || state.queueLoading || state.votingInFlight);
+      btnBatch.disabled = shouldDisable;
+      btnBatch.classList.remove("is-submitting");
+      btnBatch.setAttribute("aria-disabled", shouldDisable ? "true" : "false");
+      btnBatch.textContent = t.label;
+      btnBatch.title = t.title;
+    }
+  }
+
+  function removeMergedClsFromLocalState(mergedNums, nextTarget) {
+    const mergedSet = new Set((mergedNums || []).map(Number).filter(n => n > 0));
+    state.changes = (state.changes || []).filter(c => !mergedSet.has(Number(c.number)));
+    state.stacks = (state.stacks || [])
+      .map(st => {
+        const remaining = (st.commits || []).filter(c => !mergedSet.has(Number(c.number)));
+        return { ...st, commits: remaining, is_stack: remaining.length > 1 };
+      })
+      .filter(st => st.commits.length > 0);
+    mergedSet.forEach(num => {
+      state.checkedClNumbers.delete(num);
+      delete state.diffsByCl[num];
+      delete state.presubmitTargetsByCl[num];
+    });
+    if (mergedSet.has(Number(state.lastCheckedClNumber))) {
+      state.lastCheckedClNumber = null;
+    }
+    invalidateClientQueueCache();
+    if (mergedSet.has(Number(state.selectedClNumber)) || !state.changes.some(c => Number(c.number) === Number(state.selectedClNumber))) {
+      state.selectedStackId = nextTarget ? nextTarget.stackId : null;
+      state.selectedClNumber = nextTarget ? nextTarget.clNumber : null;
+      state.justEnteredClNumber = nextTarget ? nextTarget.clNumber : null;
+    }
+  }
+
+  function resetSubmitInFlightDom(triggerBtn) {
+    state.submittingInFlight = false;
+    syncGlobalLoadingBar();
+    if (triggerBtn) triggerBtn.classList.remove("is-submitting");
+    syncSubmitClButtonsDom(getActiveCommitsForDiff());
+  }
+
+  function showSubmitStampBanner(shortDesc, nextTarget) {
+    const banner = document.getElementById("voteStampBanner");
+    if (!banner) return;
+    const nextLabel = nextTarget ? `→ Next: ag/${nextTarget.clNumber}` : "→ Queue Cleared! 🎉";
+    banner.textContent = `✓ Submitted ${shortDesc} ${nextLabel}`;
+    banner.classList.remove("active");
+    void banner.offsetWidth;
+    banner.classList.add("active");
+    clearTimeout(window._stampBannerTimer);
+    window._stampBannerTimer = setTimeout(() => banner.classList.remove("active"), 1500);
+  }
+
+  function finalizeSubmittedQueueTransition(allMerged, nextTarget, activeWasMerged, shortDesc) {
+    state.queueClearedCount += allMerged.length;
+    removeMergedClsFromLocalState(allMerged, nextTarget);
+    state.submittingInFlight = false;
+    syncGlobalLoadingBar();
+    renderAll({ preserveScroll: !activeWasMerged });
+    if (activeWasMerged && nextTarget) {
+      const diffEl = document.getElementById("diffScroll");
+      if (diffEl) diffEl.scrollTop = 0;
+      triggerDiffEnterAnimation("diff-enter-next");
+      scrollSelectedCardIntoView();
+      setTimeout(() => { state.justEnteredClNumber = null; }, 600);
+    }
+    const drawerEl = document.getElementById("drawerStatus");
+    if (drawerEl) {
+      drawerEl.textContent = nextTarget
+        ? `Submitted ${shortDesc} · Now reviewing ag/${nextTarget.clNumber}`
+        : `Submitted ${shortDesc} · Queue cleared!`;
+    }
+  }
+
+  async function executeGerritSubmit(submitTarget, triggerBtn) {
+    if (!submitTarget || !submitTarget.canSubmit || !submitTarget.postCls.length) {
+      if (submitTarget && submitTarget.title) showToast(submitTarget.title);
+      return;
+    }
+    if (state.submittingInFlight || state.votingInFlight) return;
+
+    state.submittingInFlight = true;
+    syncGlobalLoadingBar();
+    if (triggerBtn) {
+      triggerBtn.disabled = true;
+      triggerBtn.classList.add("is-submitting");
+      triggerBtn.setAttribute("aria-disabled", "true");
+      triggerBtn.innerHTML = `<span class="btn-spinner"></span> Submitting…`;
+    }
+    const drawerEl = document.getElementById("drawerStatus");
+    if (drawerEl) {
+      drawerEl.textContent = `Submitting ${submitTarget.shortDesc} to Gerrit (notify: OWNER)…`;
+    }
+
+    try {
+      const resp = await sidecarFetch("/api/gerrit/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cls: submitTarget.postCls }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.error || data.status !== "ok") {
+        resetSubmitInFlightDom(triggerBtn);
+        if (data && data.cloudtop_cmd) {
+          navigator.clipboard?.writeText(data.cloudtop_cmd);
+        }
+        showToast(
+          ((data && data.error) || "Submit failed") +
+          (data && data.cloudtop_cmd ? " (Cloudtop command copied to clipboard!)" : "")
+        );
+        return;
+      }
+
+      const allMerged = Array.from(
+        new Set([
+          ...submitTarget.mergedNums,
+          ...((data.submitted_cls || []).map(Number)),
+        ].filter(n => n > 0))
+      );
+      const activeWasMerged = allMerged.includes(Number(state.selectedClNumber));
+      const nextTarget = resolveNextTargetAfterVote(allMerged);
+      const prefetchPromise = prefetchDiffsForNumbers(nextTarget ? [nextTarget.clNumber] : []);
+
+      showSubmitStampBanner(submitTarget.shortDesc, nextTarget);
+      animateExitingApprovedCards(allMerged, activeWasMerged);
+      await Promise.all([sleepMs(210), prefetchPromise]);
+
+      finalizeSubmittedQueueTransition(allMerged, nextTarget, activeWasMerged, submitTarget.shortDesc);
+      showToast(`Submitted ${submitTarget.shortDesc} (notify: OWNER)!`);
+      scheduleSilentPostVoteRefresh();
+    } catch (err) {
+      resetSubmitInFlightDom(triggerBtn);
+      showToast("Submit request failed: " + err);
+    }
+  }
+
+  function submitActiveClOrTopic(btnEl) {
+    const commits = getActiveCommitsForDiff();
+    const primary = commits.find(c => Number(c.number) === Number(state.selectedClNumber)) || commits[0] || null;
+    const target = computeCommitSubmitTarget(primary);
+    executeGerritSubmit(target, btnEl || document.getElementById("btnSubmitCl"));
+  }
+
+  function submitBatchCheckedCls(btnEl) {
+    const checkedNums = getOrderedCheckedClNumbers();
+    const target = computeBatchSubmitTarget(checkedNums);
+    executeGerritSubmit(target, btnEl || document.getElementById("btnBatchSubmitCls"));
+  }
+
+  function onClCardBodyClick(stackId, clNum, event) {
+    if (state.checkedClNumbers.size > 0) {
+      toggleClCheckbox(clNum, event);
+      return;
+    }
+    selectStackAndCl(stackId, clNum);
+  }
+
+  function inspectSingleClFromBatch(clNum) {
+    clearCheckedCls({ silent: true });
+    selectCl(Number(clNum), false);
+  }
+
   function renderClCardHtml(c, stackId) {
-    const isSelected = Number(c.number) === Number(state.selectedClNumber);
+    const num = Number(c.number);
+    const isChecked = state.checkedClNumbers.has(num);
+    const isSelected = state.checkedClNumbers.size === 0 && num === Number(state.selectedClNumber);
     const ownerShort = getClPrimaryAuthorShort(c);
     const isBotOwner = isClBotOwner(c);
     const ownerTooltip = `${c.owner_name || ownerShort} <${c.owner_email || ownerShort + "@google.com"}> · Click to filter by this author`;
@@ -5258,10 +6169,14 @@
     const swarmObj = state.swarmByCl[c.number];
     const swarmingCls = swarmObj && swarmObj.state === "running" ? "cl-card-swarming" : "";
     const submittableCls = isClSubmittable(c) ? "cl-card-submittable" : "";
+    const checkedCls = isChecked ? "is-checked" : "";
     const swarmSlotHtml = renderClSwarmBadgeHtml(c.number);
     const statusRowItemsHtml = renderCardStatusRowItemsHtml(c);
-    return `<div class="cl-card ${isSelected ? "selected" : ""} ${submittableCls} ${enteringCls} ${swarmingCls}" data-cl-num="${c.number}" onclick="selectStackAndCl('${escapeHtml(stackId)}', ${c.number})">
+    return `<div class="cl-card ${isSelected ? "selected" : ""} ${checkedCls} ${submittableCls} ${enteringCls} ${swarmingCls}" data-cl-num="${c.number}" onclick="onClCardBodyClick('${escapeHtml(stackId)}', ${c.number}, event)">
       <div class="cl-row-top">
+        <label class="cl-card-check-wrap" onclick="event.stopPropagation()" title="Select ag/${c.number} for batch actions (Shift+click for range)">
+          <input type="checkbox" class="cl-select-checkbox" data-cl-num="${c.number}" ${isChecked ? "checked" : ""} onclick="toggleClCheckbox(${c.number}, event)" aria-label="Select ag/${c.number}" />
+        </label>
         <span class="cl-subj" title="${escapeHtml(c.subject)}">${escapeHtml(c.subject)}</span>
       </div>
       <div class="cl-meta">
@@ -5278,31 +6193,138 @@
     </div>`;
   }
 
-  function batchApproveVisibleCommits(btnEl) {
-    const ordered = getOrderedVisibleCommits(getVisibleStacks());
-    const nums = ordered.map(item => item.commit.number);
-    if (!nums.length) {
-      showToast("No visible CLs to approve.");
-      return;
-    }
-    castVotes(nums, btnEl);
+  function renderGroupCheckboxHtml(nums, labelTitle) {
+    const cleanNums = (nums || []).map(Number).filter(n => n > 0);
+    const csv = cleanNums.join(",");
+    const checkedCnt = cleanNums.filter(n => state.checkedClNumbers.has(n)).length;
+    const allChecked = cleanNums.length > 0 && checkedCnt === cleanNums.length;
+    const tip = labelTitle || "Select or deselect all commits in this group";
+    return `<label class="group-check-wrap" onclick="event.stopPropagation()" title="${escapeHtml(tip)}">
+      <input type="checkbox" class="group-select-checkbox" data-group-cls="${csv}" ${allChecked ? "checked" : ""} onclick="toggleGroupCheckbox([${csv}], event)" aria-label="${escapeHtml(tip)}" />
+    </label>`;
   }
 
-  function batchApproveTypeGroup(typeId, btnEl) {
-    const visibleStacks = getVisibleStacks();
-    const nums = [];
-    visibleStacks.forEach(st => {
-      st.commits.forEach(c => {
-        if (getCommitTypeId(c) === typeId) {
-          nums.push(c.number);
+  function renderQueueBatchSelectStripHtml(allVisibleNums) {
+    const cleanNums = (allVisibleNums || []).map(Number).filter(n => n > 0);
+    if (cleanNums.length === 0) return "";
+    const totalChecked = state.checkedClNumbers.size;
+    const stripCls = totalChecked > 0 ? "queue-batch-strip has-checked" : "queue-batch-strip";
+    const rightHtml = totalChecked > 0
+      ? `<span id="queueBatchSelectMeta" class="queue-checked-pill"><span>${totalChecked} selected</span><button type="button" class="nudge-btn" onclick="event.stopPropagation(); clearCheckedCls()">Clear ✕</button></span>`
+      : `<span id="queueBatchSelectMeta" style="color:var(--g-subtle);">Check commits for batch actions</span>`;
+    return `<div id="queueBatchStrip" class="${stripCls}">
+      <span class="queue-batch-left">
+        ${renderGroupCheckboxHtml(cleanNums, `Select all ${cleanNums.length} visible commits`)}
+        <span>Select All (${cleanNums.length})</span>
+      </span>
+      ${rightHtml}
+    </div>`;
+  }
+
+  function toggleClCheckbox(clNum, event) {
+    if (event) event.stopPropagation();
+    const num = Number(clNum);
+    if (!num) return;
+    const hasExplicitTarget = Boolean(event && event.target && typeof event.target.checked === "boolean");
+    const shouldCheck = hasExplicitTarget ? Boolean(event.target.checked) : !state.checkedClNumbers.has(num);
+
+    if (event && event.shiftKey && state.lastCheckedClNumber && state.lastCheckedClNumber !== num) {
+      const orderedNums = getOrderedVisibleCommits(getVisibleStacks()).map(x => Number(x.commit.number));
+      const idxA = orderedNums.indexOf(Number(state.lastCheckedClNumber));
+      const idxB = orderedNums.indexOf(num);
+      if (idxA >= 0 && idxB >= 0) {
+        const lo = Math.min(idxA, idxB);
+        const hi = Math.max(idxA, idxB);
+        for (let i = lo; i <= hi; i++) {
+          if (shouldCheck) state.checkedClNumbers.add(orderedNums[i]);
+          else state.checkedClNumbers.delete(orderedNums[i]);
         }
-      });
+        state.lastCheckedClNumber = num;
+        syncQueueSelectionDom();
+        return;
+      }
+    }
+
+    if (shouldCheck) state.checkedClNumbers.add(num);
+    else state.checkedClNumbers.delete(num);
+    state.lastCheckedClNumber = num;
+    syncQueueSelectionDom();
+  }
+
+  function toggleGroupCheckbox(groupNums, event) {
+    if (event) event.stopPropagation();
+    const cleanNums = (groupNums || []).map(Number).filter(n => n > 0);
+    if (!cleanNums.length) return;
+    const allAlreadyChecked = cleanNums.every(n => state.checkedClNumbers.has(n));
+    const shouldCheck = !allAlreadyChecked;
+    cleanNums.forEach(n => {
+      if (shouldCheck) state.checkedClNumbers.add(n);
+      else state.checkedClNumbers.delete(n);
     });
-    if (!nums.length) {
-      showToast("No verified CLs in this commit type group.");
+    state.lastCheckedClNumber = cleanNums[cleanNums.length - 1];
+    syncQueueSelectionDom();
+  }
+
+  function clearCheckedCls(opts = {}) {
+    state.checkedClNumbers.clear();
+    state.lastCheckedClNumber = null;
+    closeBatchReviewerComposer();
+    if (!opts.silent) {
+      syncQueueSelectionDom();
+    }
+  }
+
+  function syncGroupCheckboxIndeterminateDom() {
+    document.querySelectorAll(".group-select-checkbox").forEach(box => {
+      const csv = box.getAttribute("data-group-cls") || "";
+      const nums = csv.split(",").map(Number).filter(n => n > 0);
+      const checkedCnt = nums.filter(n => state.checkedClNumbers.has(n)).length;
+      box.checked = nums.length > 0 && checkedCnt === nums.length;
+      box.indeterminate = checkedCnt > 0 && checkedCnt < nums.length;
+    });
+  }
+
+  function syncQueueSelectionDom() {
+    const totalChecked = state.checkedClNumbers.size;
+    document.querySelectorAll(".cl-select-checkbox").forEach(box => {
+      const num = Number(box.getAttribute("data-cl-num") || 0);
+      const isChecked = state.checkedClNumbers.has(num);
+      box.checked = isChecked;
+      const card = box.closest(".cl-card");
+      if (card) {
+        card.classList.toggle("is-checked", isChecked);
+        card.classList.toggle("selected", totalChecked === 0 && num === Number(state.selectedClNumber));
+      }
+    });
+    syncGroupCheckboxIndeterminateDom();
+    const stripEl = document.getElementById("queueBatchStrip");
+    const metaEl = document.getElementById("queueBatchSelectMeta");
+    if (stripEl) {
+      stripEl.classList.toggle("has-checked", totalChecked > 0);
+    }
+    if (metaEl) {
+      if (totalChecked > 0) {
+        metaEl.className = "queue-checked-pill";
+        metaEl.removeAttribute("style");
+        metaEl.innerHTML = `<span>${totalChecked} selected</span><button type="button" class="nudge-btn" onclick="event.stopPropagation(); clearCheckedCls()">Clear ✕</button>`;
+      } else {
+        metaEl.className = "";
+        metaEl.style.color = "var(--g-subtle)";
+        metaEl.textContent = "Check commits for batch actions";
+      }
+    }
+    if (totalChecked === 0 && state.batchReviewerComposer) {
+      closeBatchReviewerComposer();
+    }
+    const wasInBatchDom = Boolean(document.getElementById("batchModeSection"));
+    if (totalChecked > 0 || wasInBatchDom) {
+      renderDiffPane({ preserveScroll: totalChecked > 0 && wasInBatchDom });
+      if (totalChecked === 0) {
+        ensureActiveDiffsLoaded({ preserveScroll: false });
+      }
       return;
     }
-    castVotes(nums, btnEl);
+    syncActiveActionButtons(getActiveCommitsForDiff(), false);
   }
 
   function renderQueueFilterBannerHtml(summary) {
@@ -5394,24 +6416,26 @@
       return;
     }
 
+    const allVisibleNums = getOrderedVisibleCommits(visibleStacks).map(item => Number(item.commit.number));
+    const batchStripHtml = renderQueueBatchSelectStripHtml(allVisibleNums);
+
     if (state.groupMode === "type" && (state.sortBy === "updated_desc" || state.sortBy === "updated_asc")) {
       const orderedItems = getOrderedVisibleCommits(visibleStacks);
+      const groupNums = orderedItems.map(item => Number(item.commit.number));
       const sortHeadline = state.sortBy === "updated_asc"
         ? "🕰️ Sorted by Last Updated · Oldest First"
         : "🕒 Sorted by Last Updated · Newest First";
       const cardsHtml = orderedItems.map(
-        item => renderClCardHtml(item.commit, item.stack.stack_id, item.stack.commits.length)
+        item => renderClCardHtml(item.commit, item.stack.stack_id)
       ).join("");
-      container.innerHTML = `${bannerHtml}<div class="stack-box type-group-box">
+      container.innerHTML = `${bannerHtml}${batchStripHtml}<div class="stack-box type-group-box">
         <div class="stack-header">
-          <span>${sortHeadline}</span>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span style="color:#cbd5e1;">${orderedItems.length} Commit${orderedItems.length === 1 ? "" : "s"}</span>
-            <button class="nudge-btn" onclick="event.stopPropagation(); batchApproveVisibleCommits(this)">✓ +2 All (${orderedItems.length})</button>
-          </div>
+          <span class="stack-header-left">${renderGroupCheckboxHtml(groupNums, `Select all ${groupNums.length} sorted commits`)}<span>${sortHeadline}</span></span>
+          <span style="color:#cbd5e1;">${orderedItems.length} Commit${orderedItems.length === 1 ? "" : "s"}</span>
         </div>
         ${cardsHtml}
       </div>${hydratingHtml}`;
+      syncGroupCheckboxIndeterminateDom();
       return;
     }
 
@@ -5422,39 +6446,42 @@
         st.commits.forEach(c => {
           const tid = getCommitTypeId(c);
           if (!grouped.has(tid)) grouped.set(tid, []);
-          grouped.get(tid).push({ commit: c, stackId: st.stack_id, stackLen: st.commits.length });
+          grouped.get(tid).push({ commit: c, stackId: st.stack_id });
         });
       });
 
-      const sectionsHtml = bannerHtml ? [bannerHtml] : [];
+      const sectionsHtml = [];
+      if (bannerHtml) sectionsHtml.push(bannerHtml);
+      if (batchStripHtml) sectionsHtml.push(batchStripHtml);
       COMMIT_TYPE_ORDER.forEach(t => {
         const items = grouped.get(t.id) || [];
         if (items.length === 0) return;
-        const cardsHtml = items.map(item => renderClCardHtml(item.commit, item.stackId, item.stackLen)).join("");
+        const groupNums = items.map(item => Number(item.commit.number));
+        const cardsHtml = items.map(item => renderClCardHtml(item.commit, item.stackId)).join("");
         sectionsHtml.push(`<div class="stack-box type-group-box" data-type-group="${escapeHtml(t.id)}">
           <div class="stack-header">
-            <span>${escapeHtml(t.label)}</span>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span style="color:#cbd5e1;">${items.length} Commit${items.length === 1 ? "" : "s"}</span>
-              <button class="nudge-btn" onclick="event.stopPropagation(); batchApproveTypeGroup('${escapeHtml(t.id)}', this)">✓ +2 All (${items.length})</button>
-            </div>
+            <span class="stack-header-left">${renderGroupCheckboxHtml(groupNums, `Select all ${items.length} commits in ${t.label}`)}<span>${escapeHtml(t.label)}</span></span>
+            <span style="color:#cbd5e1;">${items.length} Commit${items.length === 1 ? "" : "s"}</span>
           </div>
           ${cardsHtml}
         </div>`);
       });
       if (hydratingHtml) sectionsHtml.push(hydratingHtml);
       container.innerHTML = sectionsHtml.join("");
+      syncGroupCheckboxIndeterminateDom();
       return;
     }
 
     const sortedStacks = sortStacksIfNeeded(visibleStacks);
     const stackBoxesHtml = sortedStacks.map(st => {
-      const cardsHtml = st.commits.map(c => renderClCardHtml(c, st.stack_id, st.commits.length)).join("");
+      const stackNums = st.commits.map(c => Number(c.number));
+      const cardsHtml = st.commits.map(c => renderClCardHtml(c, st.stack_id)).join("");
 
       if (st.is_stack) {
+        const stackTitle = formatStackHeaderTitle(st);
         return `<div class="stack-box">
           <div class="stack-header">
-            <span>${escapeHtml(formatStackHeaderTitle(st))}</span>
+            <span class="stack-header-left">${renderGroupCheckboxHtml(stackNums, `Select all ${st.commits.length} commits in ${stackTitle}`)}<span>${escapeHtml(stackTitle)}</span></span>
             <span style="color:#96d9ab;">${st.commits.length} Commit${st.commits.length === 1 ? "" : "s"}</span>
           </div>
           ${cardsHtml}
@@ -5462,7 +6489,8 @@
       }
       return `<div class="stack-box">${cardsHtml}</div>`;
     }).join("");
-    container.innerHTML = `${bannerHtml}${stackBoxesHtml}${hydratingHtml}`;
+    container.innerHTML = `${bannerHtml}${batchStripHtml}${stackBoxesHtml}${hydratingHtml}`;
+    syncGroupCheckboxIndeterminateDom();
   }
 
   function selectCl(clNum, fromRadar = true, animDir = "next") {
@@ -5562,6 +6590,9 @@
           try {
             const resp = await sidecarFetch(`/api/gerrit/diffs?cls=${toRequest.join(",")}`);
             const data = await resp.json();
+            if (maybeReloadOnUiVersionChange(data && data.ui_version)) {
+              return;
+            }
             (data.diffs || []).forEach(d => {
               state.diffsByCl[d.number] = d;
               if (Array.isArray(d.code_questions)) {
@@ -5595,93 +6626,384 @@
     }
   }
 
-  function setToolbarVoteButtonsDisabled(disabled) {
-    ["btnVotePlus1", "btnVoteCurrent", "btnVotePlus2Auto", "btnVoteAutosubmit", "btnPresubmitReady", "btnVoteStack"].forEach(id => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      el.disabled = disabled;
-      if (disabled) el.classList.remove("is-active-vote");
+  const CR_STAGE_BUTTON_IDS = [
+    { val: -2, id: "stageCrNeg2" },
+    { val: -1, id: "stageCrNeg1" },
+    { val: 0, id: "stageCrZero" },
+    { val: 1, id: "stageCrPlus1" },
+    { val: 2, id: "stageCrPlus2" },
+  ];
+
+  function getOrderedCheckedClNumbers() {
+    if (!state.checkedClNumbers || state.checkedClNumbers.size === 0) return [];
+    const orderedVisible = getOrderedVisibleCommits(getVisibleStacks()).map(x => Number(x.commit.number));
+    const seen = new Set();
+    const result = [];
+    orderedVisible.forEach(num => {
+      if (state.checkedClNumbers.has(num) && !seen.has(num)) {
+        seen.add(num);
+        result.push(num);
+      }
     });
+    state.checkedClNumbers.forEach(rawNum => {
+      const n = Number(rawNum);
+      if (n > 0 && !seen.has(n)) {
+        seen.add(n);
+        result.push(n);
+      }
+    });
+    return result;
   }
 
-  function formatToolbarPresubmitButtonText(primary) {
-    if (primary.viewer_presubmit_ready) return "⏳ Presubmit-Ready +1 ✓";
-    const pv = getClPresubmitDisplay(primary);
-    if (pv.status === "running") return "↻ Re-trigger Presubmit";
-    if (pv.status === "passed" || pv.status === "failed" || pv.status === "warning") {
-      return "↻ Re-run Presubmit +1";
+  function resolveVoteTargets(commitsOverride = null) {
+    const checkedNums = getOrderedCheckedClNumbers();
+    if (checkedNums.length > 0) {
+      const firstCl = state.changes.find(c => Number(c.number) === checkedNums[0]) || null;
+      return { isBatch: true, clNums: checkedNums, primaryCl: firstCl };
     }
-    return "▶ Presubmit-Ready +1";
+    const commits = Array.isArray(commitsOverride) ? commitsOverride : getActiveCommitsForDiff();
+    const primary = commits.find(c => Number(c.number) === Number(state.selectedClNumber)) || commits[0] || null;
+    return {
+      isBatch: false,
+      clNums: primary ? [Number(primary.number)] : [],
+      primaryCl: primary,
+    };
+  }
+
+  function getEffectiveCurrentViewerPr(c) {
+    if (!c || !c.viewer_presubmit_ready) return 0;
+    const pv = getClPresubmitDisplay(c);
+    return (pv.status === "queued" || pv.status === "running") ? 1 : 0;
+  }
+
+  function ensureStagedVoteContextSynced(commitsOverride = null) {
+    const { isBatch, primaryCl } = resolveVoteTargets(commitsOverride);
+    const nextKey = isBatch ? "batch" : (primaryCl ? `single:${primaryCl.number}` : "empty");
+    if (state.stagedVote.contextKey !== nextKey) {
+      state.stagedVote = {
+        contextKey: nextKey,
+        cr: null,
+        pr: null,
+        as: null,
+        comment: "",
+        noteOpen: false,
+      };
+      const noteInp = document.getElementById("stagedVoteCommentInput");
+      if (noteInp) noteInp.value = "";
+    }
+  }
+
+  function clearStagedVoteFieldsAfterSend() {
+    state.stagedVote.cr = null;
+    state.stagedVote.pr = null;
+    state.stagedVote.as = null;
+    state.stagedVote.comment = "";
+    state.stagedVote.noteOpen = false;
+    const noteInp = document.getElementById("stagedVoteCommentInput");
+    if (noteInp) noteInp.value = "";
+  }
+
+  function resetStagedVote() {
+    if (state.votingInFlight) return;
+    clearStagedVoteFieldsAfterSend();
+    syncActiveActionButtons(getActiveCommitsForDiff(), false);
+  }
+
+  function toggleStagedCr(val) {
+    if (state.votingInFlight) return;
+    ensureStagedVoteContextSynced();
+    const { isBatch, primaryCl } = resolveVoteTargets();
+    if (!isBatch && !primaryCl) return;
+    const targetVal = Number(val);
+    if (isBatch) {
+      state.stagedVote.cr = state.stagedVote.cr === targetVal ? null : targetVal;
+    } else {
+      const curCr = Number(primaryCl.viewer_cr_vote || (primaryCl.approved_by_viewer ? 2 : 0));
+      if (state.stagedVote.cr === targetVal || targetVal === curCr) {
+        state.stagedVote.cr = null;
+      } else {
+        state.stagedVote.cr = targetVal;
+      }
+    }
+    syncActiveActionButtons(getActiveCommitsForDiff(), false);
+  }
+
+  function toggleStagedPr(explicitChecked = null) {
+    if (state.votingInFlight) return;
+    ensureStagedVoteContextSynced();
+    const { isBatch, primaryCl } = resolveVoteTargets();
+    if (!isBatch && !primaryCl) return;
+    if (isBatch) {
+      const nextOn = typeof explicitChecked === "boolean" ? explicitChecked : (state.stagedVote.pr !== 1);
+      state.stagedVote.pr = nextOn ? 1 : null;
+    } else {
+      const curPr = getEffectiveCurrentViewerPr(primaryCl);
+      const effectiveBefore = state.stagedVote.pr !== null ? state.stagedVote.pr : curPr;
+      const nextVal = typeof explicitChecked === "boolean" ? (explicitChecked ? 1 : 0) : (effectiveBefore >= 1 ? 0 : 1);
+      state.stagedVote.pr = nextVal === curPr ? null : nextVal;
+    }
+    syncActiveActionButtons(getActiveCommitsForDiff(), false);
+  }
+
+  function toggleStagedAs(explicitChecked = null) {
+    if (state.votingInFlight) return;
+    ensureStagedVoteContextSynced();
+    const { isBatch, primaryCl } = resolveVoteTargets();
+    if (!isBatch && !primaryCl) return;
+    if (isBatch) {
+      const nextOn = typeof explicitChecked === "boolean" ? explicitChecked : (state.stagedVote.as !== 1);
+      state.stagedVote.as = nextOn ? 1 : null;
+    } else {
+      const curAs = primaryCl.viewer_autosubmit ? 1 : 0;
+      const effectiveBefore = state.stagedVote.as !== null ? state.stagedVote.as : curAs;
+      const nextVal = typeof explicitChecked === "boolean" ? (explicitChecked ? 1 : 0) : (effectiveBefore >= 1 ? 0 : 1);
+      state.stagedVote.as = nextVal === curAs ? null : nextVal;
+    }
+    syncActiveActionButtons(getActiveCommitsForDiff(), false);
+  }
+
+  function toggleStagedVoteNote() {
+    if (state.votingInFlight) return;
+    ensureStagedVoteContextSynced();
+    state.stagedVote.noteOpen = !state.stagedVote.noteOpen;
+    syncActiveActionButtons(getActiveCommitsForDiff(), false);
+    if (state.stagedVote.noteOpen) {
+      const inp = document.getElementById("stagedVoteCommentInput");
+      if (inp) inp.focus();
+    }
+  }
+
+  function onStagedVoteCommentInput(val) {
+    ensureStagedVoteContextSynced();
+    state.stagedVote.comment = String(val || "");
+    syncActiveActionButtons(getActiveCommitsForDiff(), false);
+  }
+
+  function onStagedVoteCommentKeydown(event) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      state.stagedVote.noteOpen = false;
+      event.target.blur();
+      syncActiveActionButtons(getActiveCommitsForDiff(), false);
+      return;
+    }
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      submitStagedVotes();
+    }
+  }
+
+  function computeStagedVotePayload(commitsOverride = null) {
+    ensureStagedVoteContextSynced(commitsOverride);
+    const { isBatch, clNums, primaryCl } = resolveVoteTargets(commitsOverride);
+    const sv = state.stagedVote;
+    const labelsSummary = [];
+    let codeReview = null;
+    let presubmitReady = null;
+    let autosubmit = null;
+
+    if (sv.cr !== null && sv.cr !== undefined) {
+      codeReview = Number(sv.cr);
+      labelsSummary.push(`CR ${codeReview > 0 ? "+" + codeReview : codeReview}`);
+    }
+    if (sv.pr !== null && sv.pr !== undefined) {
+      presubmitReady = Number(sv.pr);
+      labelsSummary.push(`PR ${presubmitReady > 0 ? "+" + presubmitReady : presubmitReady}`);
+    }
+    if (sv.as !== null && sv.as !== undefined) {
+      autosubmit = Number(sv.as);
+      labelsSummary.push(`AS ${autosubmit > 0 ? "+" + autosubmit : autosubmit}`);
+    }
+    const message = String(sv.comment || "").trim();
+    const hasAnyChange = (
+      codeReview !== null ||
+      presubmitReady !== null ||
+      autosubmit !== null ||
+      Boolean(message)
+    );
+    return {
+      isBatch,
+      clNums,
+      primaryCl,
+      codeReview,
+      presubmitReady,
+      autosubmit,
+      message,
+      labelsSummary,
+      hasAnyChange: hasAnyChange && clNums.length > 0,
+    };
+  }
+
+  function setToolbarVoteButtonsDisabled(disabled) {
+    CR_STAGE_BUTTON_IDS.forEach(({ id }) => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = disabled;
+    });
+    const prCheck = document.getElementById("stagePrCheckbox");
+    const asCheck = document.getElementById("stageAsCheckbox");
+    const prPill = document.getElementById("stagePrPill");
+    const asPill = document.getElementById("stageAsPill");
+    const noteBtn = document.getElementById("btnToggleVoteNote");
+    const noteInp = document.getElementById("stagedVoteCommentInput");
+    const submitBtn = document.getElementById("btnSubmitVotes");
+    if (prCheck) prCheck.disabled = disabled;
+    if (asCheck) asCheck.disabled = disabled;
+    if (prPill) prPill.classList.toggle("is-disabled", disabled);
+    if (asPill) asPill.classList.toggle("is-disabled", disabled);
+    if (noteBtn) noteBtn.disabled = disabled;
+    if (noteInp) noteInp.disabled = disabled;
+    if (submitBtn && disabled) submitBtn.disabled = true;
+  }
+
+  function syncBinaryStagePillDom({ checkId, pillId, labelId, stagedVal, curVal, isBatch, labelBase }) {
+    const checkEl = document.getElementById(checkId);
+    const pillEl = document.getElementById(pillId);
+    const labelEl = document.getElementById(labelId);
+    const effective = stagedVal !== null ? stagedVal : (isBatch ? 0 : curVal);
+    if (checkEl) checkEl.checked = effective >= 1;
+    if (pillEl) {
+      pillEl.classList.toggle("is-staged", stagedVal !== null && stagedVal >= 1);
+      pillEl.classList.toggle("is-staged-clear", stagedVal === 0);
+      pillEl.classList.toggle("is-current", !isBatch && stagedVal === null && curVal >= 1);
+    }
+    if (labelEl) {
+      labelEl.textContent = stagedVal === 0 ? `${labelBase} 0` : `${labelBase} +1`;
+    }
+  }
+
+  function syncStagedVoteControlsDom(payload) {
+    const { isBatch, clNums, primaryCl } = payload;
+    const sv = state.stagedVote;
+    const curCr = (!isBatch && primaryCl)
+      ? Number(primaryCl.viewer_cr_vote || (primaryCl.approved_by_viewer ? 2 : 0))
+      : null;
+
+    CR_STAGE_BUTTON_IDS.forEach(({ val, id }) => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      const isStaged = sv.cr === val;
+      const isCurrent = !isBatch && sv.cr === null && curCr === val;
+      btn.classList.toggle("is-staged", isStaged);
+      btn.classList.toggle("is-current", isCurrent);
+      btn.setAttribute("aria-pressed", String(isStaged || isCurrent));
+    });
+
+    syncBinaryStagePillDom({
+      checkId: "stagePrCheckbox",
+      pillId: "stagePrPill",
+      labelId: "stagePrLabel",
+      stagedVal: sv.pr,
+      curVal: (!isBatch && primaryCl) ? getEffectiveCurrentViewerPr(primaryCl) : 0,
+      isBatch,
+      labelBase: "Presubmit-Ready",
+    });
+    syncBinaryStagePillDom({
+      checkId: "stageAsCheckbox",
+      pillId: "stageAsPill",
+      labelId: "stageAsLabel",
+      stagedVal: sv.as,
+      curVal: (!isBatch && primaryCl && primaryCl.viewer_autosubmit) ? 1 : 0,
+      isBatch,
+      labelBase: "Autosubmit",
+    });
+
+    const noteBtn = document.getElementById("btnToggleVoteNote");
+    const noteRow = document.getElementById("stagedVoteNoteRow");
+    const noteInp = document.getElementById("stagedVoteCommentInput");
+    const showNote = Boolean(sv.noteOpen || (sv.comment || "").trim());
+    if (noteBtn) noteBtn.classList.toggle("has-note", Boolean((sv.comment || "").trim()));
+    if (noteRow) noteRow.style.display = showNote ? "flex" : "none";
+    if (noteInp && noteInp.value !== (sv.comment || "")) noteInp.value = sv.comment || "";
+
+    const resetBtn = document.getElementById("btnResetStagedVotes");
+    if (resetBtn) resetBtn.style.display = payload.hasAnyChange ? "" : "none";
+
+    const submitBtn = document.getElementById("btnSubmitVotes");
+    if (submitBtn) {
+      submitBtn.disabled = !payload.hasAnyChange;
+      submitBtn.classList.toggle("is-ready", Boolean(payload.hasAnyChange));
+      const summaryPart = payload.labelsSummary.length > 0 ? payload.labelsSummary.join(", ") : "Comment";
+      submitBtn.textContent = payload.hasAnyChange
+        ? (isBatch ? `➤ Submit to ${clNums.length} CL${clNums.length === 1 ? "" : "s"} (${summaryPart})` : `➤ Submit (${summaryPart})`)
+        : (isBatch ? `Select Vote (${clNums.length} CL${clNums.length === 1 ? "" : "s"})` : "Submit Vote");
+    }
   }
 
   function syncActiveActionButtons(commits, isDiffLoading) {
     syncAiAnalysisButton(commits);
-    const btnCr1 = document.getElementById("btnVotePlus1");
-    const btnCurrent = document.getElementById("btnVoteCurrent");
-    const btnCr2Auto = document.getElementById("btnVotePlus2Auto");
-    const btnAuto = document.getElementById("btnVoteAutosubmit");
-    const btnPr = document.getElementById("btnPresubmitReady");
-    const btnStack = document.getElementById("btnVoteStack");
+    syncSubmitClButtonsDom(commits);
     const btnAutoFix = document.getElementById("btnAutoFix");
     if (btnAutoFix && !btnAutoFix.classList.contains("is-running-action")) {
       btnAutoFix.disabled = Boolean(state.queueLoading || commits.length === 0);
     }
-    if (state.votingInFlight || state.queueLoading) return;
-    if (commits.length === 0) {
+    if (state.votingInFlight || state.submittingInFlight || state.queueLoading) return;
+
+    const payload = computeStagedVotePayload(commits);
+    const { isBatch, clNums, primaryCl } = payload;
+    const voteRowTitle = document.getElementById("voteRowTitle");
+    const batchHeaderStrip = document.getElementById("batchVoteHeaderStrip");
+    const targetBadge = document.getElementById("voteTargetBadge");
+    const batchActionsEl = document.getElementById("batchParticipantActions");
+    const submitBtn = document.getElementById("btnSubmitVotes");
+    const resetBtn = document.getElementById("btnResetStagedVotes");
+
+    if (voteRowTitle) {
+      voteRowTitle.textContent = isBatch ? `Batch (${clNums.length})` : "Your Vote";
+      voteRowTitle.classList.toggle("is-batch-title", isBatch);
+    }
+    if (batchHeaderStrip) batchHeaderStrip.style.display = isBatch ? "flex" : "none";
+    if (batchActionsEl) batchActionsEl.style.display = isBatch ? "inline-flex" : "none";
+
+    if (clNums.length === 0) {
       setToolbarVoteButtonsDisabled(true);
-      if (btnCr1) btnCr1.textContent = "+1";
-      if (btnCurrent) btnCurrent.textContent = "✓ Queue Clear";
-      if (btnCr2Auto) btnCr2Auto.textContent = "⚡ +2 & Autosubmit";
-      if (btnAuto) btnAuto.textContent = "Autosubmit +1";
-      if (btnPr) btnPr.textContent = "▶ Presubmit-Ready +1";
-      if (btnStack) {
-        btnStack.style.display = "none";
-        btnStack.textContent = "✓✓ Stack Clear";
+      if (targetBadge) {
+        targetBadge.className = "vote-target-pill";
+        targetBadge.textContent = "Queue Clear";
+      }
+      if (submitBtn) submitBtn.textContent = "Submit Vote";
+      if (resetBtn) resetBtn.style.display = "none";
+      return;
+    }
+
+    if (targetBadge) {
+      if (isBatch) {
+        targetBadge.className = "vote-target-pill is-batch";
+        targetBadge.innerHTML = `<span>☑ Applying to ${clNums.length} Checked CL${clNums.length === 1 ? "" : "s"}</span><button type="button" class="vote-target-clear" onclick="event.stopPropagation(); clearCheckedCls()" title="Clear checked CLs">✕</button>`;
+      } else {
+        targetBadge.className = "vote-target-pill";
+        targetBadge.textContent = `ag/${primaryCl.number}`;
+      }
+    }
+
+    if (!isBatch && isDiffLoading) {
+      setToolbarVoteButtonsDisabled(true);
+      if (submitBtn) {
+        submitBtn.innerHTML = `<span class="btn-spinner"></span> Loading ag/${primaryCl.number}…`;
       }
       return;
     }
-    const primary = commits.find(c => c.number === state.selectedClNumber) || commits[0];
-    const stackCommits = getSelectedStackCommits();
-    if (btnStack) {
-      btnStack.style.display = stackCommits.length > 1 ? "" : "none";
-    }
-    if (isDiffLoading) {
-      setToolbarVoteButtonsDisabled(true);
-      if (btnCurrent) {
-        btnCurrent.innerHTML = `<span class="btn-spinner"></span> Loading ag/${primary.number}…`;
-      }
-      if (btnStack && stackCommits.length > 1) {
-        btnStack.innerHTML = `<span class="btn-spinner"></span> Loading Stack…`;
-      }
-      return;
-    }
+
     setToolbarVoteButtonsDisabled(false);
-    const myCr = Number(primary.viewer_cr_vote || (primary.approved_by_viewer ? 2 : 0));
-    const myAs = Boolean(primary.viewer_autosubmit);
-    const myPr = Boolean(primary.viewer_presubmit_ready);
-    if (btnCr1) {
-      btnCr1.textContent = myCr === 1 ? `✓ +1 (ag/${primary.number})` : `+1`;
-      btnCr1.classList.toggle("is-active-vote", myCr === 1);
+    syncStagedVoteControlsDom(payload);
+  }
+
+  function submitStagedVotes(btnEl) {
+    if (state.votingInFlight || state.submittingInFlight) return;
+    const payload = computeStagedVotePayload();
+    if (!payload.hasAnyChange) {
+      showToast("Check at least one vote label (CR, PR +1, AS +1) or enter a review comment first.");
+      return;
     }
-    if (btnCurrent) {
-      btnCurrent.textContent = myCr >= 2 ? `✓ Voted +2 on ag/${primary.number}` : `✓ Vote +2 on ag/${primary.number}`;
-      btnCurrent.classList.toggle("is-active-vote", myCr >= 2);
-    }
-    if (btnCr2Auto) {
-      btnCr2Auto.textContent = (myCr >= 2 && myAs) ? `⚡ +2 & AS ✓` : `⚡ +2 & Autosubmit`;
-      btnCr2Auto.classList.toggle("is-active-vote", myCr >= 2 && myAs);
-    }
-    if (btnAuto) {
-      btnAuto.textContent = myAs ? `✓ Autosubmit +1` : (primary.autosubmit_enabled ? `Autosubmit +1 (On)` : `Autosubmit +1`);
-      btnAuto.classList.toggle("is-active-vote", myAs);
-    }
-    if (btnPr) {
-      btnPr.textContent = formatToolbarPresubmitButtonText(primary);
-      btnPr.classList.toggle("is-active-vote", myPr);
-    }
-    if (btnStack && stackCommits.length > 1) {
-      btnStack.textContent = `✓✓ Stack +2 (${stackCommits.length})`;
-    }
+    castVotes(
+      payload.clNums,
+      btnEl || document.getElementById("btnSubmitVotes"),
+      {
+        codeReview: payload.codeReview,
+        presubmitReady: payload.presubmitReady,
+        autosubmit: payload.autosubmit,
+        message: payload.message,
+      }
+    );
   }
 
   async function ensureActiveDiffsLoaded(opts = {}) {
@@ -7656,6 +8978,17 @@
   }
 
   function computeDiffRenderSignature(commits) {
+    const checkedNums = getOrderedCheckedClNumbers();
+    if (checkedNums.length > 0) {
+      const checkedParts = checkedNums.map(num => {
+        const c = state.changes.find(x => Number(x.number) === Number(num));
+        if (!c) return String(num);
+        const revStr = (c.reviewers_detail || []).map(p => `${p.email}:${p.cr_vote}`).join(",");
+        const ccCnt = (c.ccs_detail || []).length;
+        return `${c.number}@${c.patch_set}|${c.viewer_cr_vote}|${c.viewer_autosubmit ? 1 : 0}|${c.viewer_presubmit_ready ? 1 : 0}|${c.presubmit_status}|${isClSubmittable(c) ? 1 : 0}|${revStr}|${ccCnt}`;
+      });
+      return `${state.viewer}|batch|${checkedParts.join(";;")}`;
+    }
     if (!commits || commits.length === 0) {
       return `empty:${state.queueClearedCount}`;
     }
@@ -7666,14 +8999,56 @@
       const bugStr = (c.bugs || []).map(x => `${x.id}:${x.priority || ""}`).join(",");
       const revStr = (c.reviewers_detail || []).map(p => `${p.email}:${p.cr_vote}:${(p.votes || []).length}`).join(",");
       const ccCnt = (c.ccs_detail || []).length;
+      const subTarget = computeCommitSubmitTarget(c);
       let aiPart = "";
       const aiEntry = state.aiAnalysisByCl[c.number];
       if (aiEntry && aiEntry.analysis_status !== "not_analyzed" && !state.hiddenAiAnalysisCls.has(Number(c.number))) {
         aiPart = `|ai:${aiEntry.analysis_status}`;
       }
-      return `${c.number}@${c.patch_set}|${hasFiles ? 1 : 0}|${threadCnt}|${c.viewer_cr_vote}|${c.viewer_autosubmit ? 1 : 0}|${c.viewer_presubmit_ready ? 1 : 0}|${c.presubmit_status}|${bugStr}|${revStr}|${ccCnt}${aiPart}`;
+      return `${c.number}@${c.patch_set}|${hasFiles ? 1 : 0}|${threadCnt}|${c.viewer_cr_vote}|${c.viewer_autosubmit ? 1 : 0}|${c.viewer_presubmit_ready ? 1 : 0}|${c.presubmit_status}|${subTarget.canSubmit ? 1 : 0}:${subTarget.label}|${bugStr}|${revStr}|${ccCnt}${aiPart}`;
     });
     return `${state.viewer}|single|${parts.join(";;")}`;
+  }
+
+  function renderExpandSidebarButtonHtml() {
+    const disp = state.sidebarCollapsed ? "inline-flex" : "none";
+    const lbl = state.visibleCommitCount > 0 ? `Queue (${state.visibleCommitCount})` : "Queue";
+    return `<button
+      id="btnExpandSidebar"
+      type="button"
+      class="btn btn-expand-sidebar"
+      style="display:${disp};"
+      onclick="toggleSidebarCollapsed(false)"
+      title="Expand side panel ([)"
+      aria-label="Expand side panel"
+    >
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="2" y="2.5" width="12" height="11" rx="2"/>
+        <line x1="6.5" y1="2.5" x2="6.5" y2="13.5"/>
+        <polyline points="8.5 6.5 10 8 8.5 9.5"/>
+      </svg>
+      <span id="expandSidebarLabel">${escapeHtml(lbl)}</span>
+    </button>`;
+  }
+
+  function renderCommitHarnessActionsHtml(c) {
+    return `<div class="harness-group">
+      <span id="activeSwarmsPill" class="active-swarms-pill" style="display:none;" onclick="jumpToActiveSwarmCl()"></span>
+      <div id="harnessDropdownWrap" class="harness-dropdown-wrap" onclick="event.stopPropagation()">
+        <button
+          id="btnHarnessMenuToggle"
+          type="button"
+          class="btn btn-harness-menu"
+          onclick="toggleHarnessMenu(event)"
+          aria-haspopup="menu"
+          aria-expanded="false"
+          title="Open Harness Actions for ag/${c.number}"
+        >
+          <span id="harnessMenuLabel">⚡ Harness Actions</span>
+          <span class="harness-menu-caret">▾</span>
+        </button>
+      </div>
+    </div>`;
   }
 
   function renderDiffPane(opts = {}) {
@@ -7686,6 +9061,9 @@
       (state.codeSelection ||
         state.activeReviewerComposer ||
         state.activeChatComposer ||
+        state.batchReviewerComposer ||
+        state.stagedVote.noteOpen ||
+        computeStagedVotePayload(commits).hasAnyChange ||
         nextSig === state.lastRenderedDiffSignature)
     ) {
       syncSwarmIndicatorsOnly();
@@ -7694,9 +9072,22 @@
     const prevDiffScroll = opts.preserveScroll ? container.scrollTop : null;
     state.lastRenderedDiffSignature = nextSig;
 
+    const checkedNums = getOrderedCheckedClNumbers();
+    if (checkedNums.length > 0) {
+      container.innerHTML = renderBatchModePanelHtml(checkedNums);
+      if (prevDiffScroll !== null) {
+        container.scrollTop = prevDiffScroll;
+      }
+      syncSidebarLayoutDom();
+      syncActiveActionButtons(commits, false);
+      renderBatchReviewerPopoverDom();
+      return;
+    }
+
     if (commits.length === 0) {
+      const expandHeaderHtml = `<div>${renderExpandSidebarButtonHtml()}</div>`;
       if (state.queueClearedCount > 0) {
-        container.innerHTML = `<div class="inbox-zero-card">
+        container.innerHTML = `${expandHeaderHtml}<div class="inbox-zero-card">
           <div style="font-size:32px;margin-bottom:8px;">🎉</div>
           <div style="font-size:16px;font-weight:700;color:#96d9ab;margin-bottom:6px;">Queue Cleared — All Verified Commits Reviewed!</div>
           <div style="color:var(--g-muted);font-size:12.5px;margin-bottom:16px;">
@@ -7707,9 +9098,13 @@
             <button class="btn" onclick="toggleGate('hideMine')">View Approved CLs</button>
           </div>
         </div>`;
+        syncSidebarLayoutDom();
+        syncActiveActionButtons(commits, false);
         return;
       }
-      container.innerHTML = `<div style="padding:24px;color:var(--g-muted);">Select a CL on the left to inspect its diff.</div>`;
+      container.innerHTML = `${expandHeaderHtml}<div style="padding:24px;color:var(--g-muted);">Select a CL on the left to inspect its diff.</div>`;
+      syncSidebarLayoutDom();
+      syncActiveActionButtons(commits, false);
       return;
     }
 
@@ -7750,6 +9145,7 @@
       return `<div class="commit-section">
         <div class="commit-sec-header">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            ${renderExpandSidebarButtonHtml()}
             <strong style="color:var(--g-accent);"><a class="ag-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer">ag/${c.number} ↗</a></strong>
             ${bugBadgesHtml}
             <strong>${escapeHtml(c.subject)}</strong>
@@ -7757,7 +9153,11 @@
             <span class="badge risk-${c.risk.tier}"><span class="dot ${dotClass}"></span> ${escapeHtml(c.risk.label)}</span>
             ${rebaseBadge}
           </div>
-          <div style="font-size:11.5px;color:var(--g-muted);">${escapeHtml(c.project_short)} · PS${c.patch_set}</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span style="font-size:11.5px;color:var(--g-muted);">${escapeHtml(c.project_short)} · PS${c.patch_set}</span>
+            ${renderCommitSubmitButtonHtml(c)}
+            ${renderCommitHarnessActionsHtml(c)}
+          </div>
         </div>
         ${renderCommitReviewersPanelHtml(c, false)}
         ${renderCommitMessagePanelHtml(c, bundle)}
@@ -7770,6 +9170,9 @@
     if (prevDiffScroll !== null) {
       container.scrollTop = prevDiffScroll;
     }
+    syncSidebarLayoutDom();
+    syncActiveActionButtons(commits, false);
+    renderBatchReviewerPopoverDom();
     syncSwarmIndicatorsOnly();
   }
 
@@ -8904,6 +10307,9 @@
     }));
     if (!flatVisible.length) return null;
     const curIdx = flatVisible.findIndex(item => item.clNumber === Number(state.selectedClNumber));
+    if (curIdx >= 0 && !votedSet.has(flatVisible[curIdx].clNumber)) {
+      return flatVisible[curIdx];
+    }
     const startIdx = curIdx >= 0 ? curIdx : 0;
     for (let offset = 1; offset <= flatVisible.length; offset++) {
       const cand = flatVisible[(startIdx + offset) % flatVisible.length];
@@ -8988,6 +10394,7 @@
       }
       c.human_cr2_count = Array.isArray(c.human_cr2) ? c.human_cr2.length : 0;
       c.approval_slots = recomputeApprovalSlotsForViewer(c, viewerEmail);
+      c.gerrit_submittable = null;
       c.is_submittable = isClSubmittable(c);
     }
     if (autosubmit !== null && autosubmit !== undefined) {
@@ -9085,18 +10492,19 @@
   }
 
   function setVoteButtonsBusy(busy, activeBtn, labelHtml) {
-    const ids = ["btnVotePlus1", "btnVoteCurrent", "btnVotePlus2Auto", "btnVoteAutosubmit", "btnPresubmitReady", "btnVoteStack"];
-    ids.forEach(id => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      el.disabled = busy;
-      if (!busy) {
-        el.classList.remove("is-voting", "is-voted");
-      }
-    });
+    setToolbarVoteButtonsDisabled(busy);
+    const resetBtn = document.getElementById("btnResetStagedVotes");
+    if (resetBtn) resetBtn.disabled = busy;
+    const submitBtn = document.getElementById("btnSubmitVotes");
+    if (!busy && submitBtn) {
+      submitBtn.classList.remove("is-voting", "is-voted");
+    }
     if (busy && activeBtn) {
+      activeBtn.disabled = true;
       activeBtn.classList.add("is-voting");
       activeBtn.innerHTML = `<span class="btn-spinner"></span> ${labelHtml}`;
+    } else if (!busy && activeBtn) {
+      activeBtn.classList.remove("is-voting", "is-voted");
     }
   }
 
@@ -9148,25 +10556,31 @@
       handleVoteHttpFailure(cls, data);
       return;
     }
+    clearStagedVoteFieldsAfterSend();
     markClsVotedOptimistically(cls, voteOpts);
-    if (voteOpts.presubmitReady && Number(voteOpts.presubmitReady) >= 1 && cls.length === 1) {
-      state.expandedPresubmitCls.add(Number(cls[0]));
+    if (voteOpts.presubmitReady && Number(voteOpts.presubmitReady) >= 1 && cls.includes(Number(state.selectedClNumber))) {
+      state.expandedPresubmitCls.add(Number(state.selectedClNumber));
     }
     state.votingInFlight = false;
     syncGlobalLoadingBar();
     setVoteButtonsBusy(false);
     cls.forEach(num => rerenderReviewersPanelDom(num));
-    syncActiveActionButtons(getActiveCommitsForDiff(), false);
+    if (state.checkedClNumbers.size > 0) {
+      renderDiffPane({ preserveScroll: true });
+    } else {
+      syncActiveActionButtons(getActiveCommitsForDiff(), false);
+    }
     document.getElementById("drawerStatus").textContent = `Voted ${labelsText.full} on ${targetDesc} (notify: OWNER)`;
     showToast(`Voted ${labelsText.full} on ${cls.map(x => "ag/" + x).join(", ")} (notify: OWNER)!`);
-    if (voteOpts.presubmitReady && Number(voteOpts.presubmitReady) >= 1 && cls.length === 1) {
-      setTimeout(() => fetchPresubmitTargetsForCl(cls[0], { forceRefresh: true }), 2200);
+    if (voteOpts.presubmitReady && Number(voteOpts.presubmitReady) >= 1 && cls.includes(Number(state.selectedClNumber))) {
+      const activeNum = Number(state.selectedClNumber);
+      setTimeout(() => fetchPresubmitTargetsForCl(activeNum, { forceRefresh: true }), 2200);
       ensurePresubmitTargetsPollingTimer();
     }
     scheduleSilentPostVoteRefresh();
   }
 
-  function animateExitingApprovedCards(cls) {
+  function animateExitingApprovedCards(cls, activeClWasVoted) {
     cls.forEach(num => {
       const cardEl = document.querySelector(`.cl-card[data-cl-num="${num}"]`);
       if (!cardEl) return;
@@ -9176,6 +10590,7 @@
         boxEl.classList.add("stack-box-exiting");
       }
     });
+    if (!activeClWasVoted) return;
     const diffEl = document.getElementById("diffScroll");
     if (diffEl) {
       diffEl.classList.remove("diff-enter-next", "diff-enter-prev");
@@ -9183,19 +10598,21 @@
     }
   }
 
-  function finalizeApprovedQueueTransition(cls, nextTarget, voteOpts) {
+  function finalizeApprovedQueueTransition(cls, nextTarget, voteOpts, activeClWasVoted) {
     state.queueClearedCount += cls.length;
     state.explicitRadarSelection = false;
     state.gates.hideMine = true;
+    cls.forEach(num => state.checkedClNumbers.delete(Number(num)));
+    clearStagedVoteFieldsAfterSend();
     markClsVotedOptimistically(cls, voteOpts);
     syncGateControls();
     state.selectedStackId = nextTarget ? nextTarget.stackId : null;
     state.selectedClNumber = nextTarget ? nextTarget.clNumber : null;
-    state.justEnteredClNumber = nextTarget ? nextTarget.clNumber : null;
+    state.justEnteredClNumber = (activeClWasVoted && nextTarget) ? nextTarget.clNumber : null;
     state.votingInFlight = false;
     syncGlobalLoadingBar();
     setVoteButtonsBusy(false);
-    renderAll();
+    renderAll({ preserveScroll: !activeClWasVoted });
     cls.forEach(num => {
       const staleCard = document.querySelector(`.cl-card[data-cl-num="${num}"]`);
       if (staleCard && state.gates.hideMine) {
@@ -9204,11 +10621,13 @@
         if (boxEl && boxEl.querySelectorAll(".cl-card").length === 0) boxEl.remove();
       }
     });
-    const diffEl = document.getElementById("diffScroll");
-    if (diffEl) diffEl.scrollTop = 0;
-    triggerDiffEnterAnimation("diff-enter-next");
-    scrollSelectedCardIntoView();
-    setTimeout(() => { state.justEnteredClNumber = null; }, 600);
+    if (activeClWasVoted) {
+      const diffEl = document.getElementById("diffScroll");
+      if (diffEl) diffEl.scrollTop = 0;
+      triggerDiffEnterAnimation("diff-enter-next");
+      scrollSelectedCardIntoView();
+      setTimeout(() => { state.justEnteredClNumber = null; }, 600);
+    }
   }
 
   async function castVotes(rawCls, triggerBtn, voteOpts = {}) {
@@ -9217,6 +10636,7 @@
     const cr = voteOpts.codeReview === undefined ? 2 : voteOpts.codeReview;
     const asOpt = voteOpts.autosubmit;
     const prOpt = voteOpts.presubmitReady;
+    const msg = String(voteOpts.message || "").trim();
     const labelsText = formatVoteLabelsText(cr, asOpt, prOpt);
     const reqBody = { cls, code_review: cr };
     if (asOpt !== undefined && asOpt !== null && asOpt !== false) {
@@ -9225,10 +10645,14 @@
     if (prOpt !== undefined && prOpt !== null && prOpt !== false) {
       reqBody.presubmit_ready = prOpt === true ? 1 : Number(prOpt);
     }
+    if (msg) {
+      reqBody.message = msg;
+    }
     const targetDesc = cls.length === 1 ? `ag/${cls[0]}` : `${cls.length} CLs`;
-    const activeBtn = triggerBtn || document.getElementById("btnVoteCurrent");
+    const activeBtn = triggerBtn || document.getElementById("btnSubmitVotes");
     const shouldAdvanceQueue = cr !== null && Number(cr) >= 2 && state.scope !== "owner";
-    const normOpts = { codeReview: cr, autosubmit: asOpt, presubmitReady: prOpt };
+    const activeClWasVoted = cls.includes(Number(state.selectedClNumber));
+    const normOpts = { codeReview: cr, autosubmit: asOpt, presubmitReady: prOpt, message: msg };
 
     state.votingInFlight = true;
     syncGlobalLoadingBar();
@@ -9239,7 +10663,7 @@
       }
       state.gates.hideMine = true;
       syncGateControls();
-      setVoteButtonsBusy(true, activeBtn, `Voting ${escapeHtml(labelsText.short)} on ${escapeHtml(targetDesc)}…`);
+      setVoteButtonsBusy(true, activeBtn, `Sending ${escapeHtml(labelsText.short)} to ${escapeHtml(targetDesc)}…`);
       document.getElementById("drawerStatus").textContent = `Posting ${labelsText.full} on ${targetDesc} (notify: OWNER)…`;
 
       const nextTarget = resolveNextTargetAfterVote(cls);
@@ -9261,9 +10685,9 @@
         activeBtn.textContent = `✓ ${labelsText.short} Sent!`;
       }
       showVoteStampBanner(cls, nextTarget, labelsText.short);
-      animateExitingApprovedCards(cls);
+      animateExitingApprovedCards(cls, activeClWasVoted);
       await Promise.all([sleepMs(210), prefetchPromise]);
-      finalizeApprovedQueueTransition(cls, nextTarget, normOpts);
+      finalizeApprovedQueueTransition(cls, nextTarget, normOpts, activeClWasVoted);
       document.getElementById("drawerStatus").textContent = nextTarget
         ? `Voted ${labelsText.short} on ${targetDesc} · Now reviewing ag/${nextTarget.clNumber}`
         : `Voted ${labelsText.short} on ${targetDesc} · Queue cleared!`;
@@ -9276,47 +10700,6 @@
       await ensureActiveDiffsLoaded({ preserveScroll: true });
       showToast("Vote request failed: " + err);
     }
-  }
-
-  function voteCurrentClPlus1(btnEl) {
-    if (state.selectedClNumber) {
-      castVotes([state.selectedClNumber], btnEl || document.getElementById("btnVotePlus1"), { codeReview: 1 });
-    }
-  }
-
-  function voteCurrentCl(btnEl) {
-    if (state.selectedClNumber) {
-      castVotes([state.selectedClNumber], btnEl || document.getElementById("btnVoteCurrent"), { codeReview: 2 });
-    }
-  }
-
-  function voteCurrentClPlus2Auto(btnEl) {
-    if (state.selectedClNumber) {
-      castVotes([state.selectedClNumber], btnEl || document.getElementById("btnVotePlus2Auto"), { codeReview: 2, autosubmit: 1 });
-    }
-  }
-
-  function toggleCurrentClAutosubmit(btnEl) {
-    if (!state.selectedClNumber) return;
-    const clObj = state.changes.find(c => Number(c.number) === Number(state.selectedClNumber));
-    const nextAs = clObj && clObj.viewer_autosubmit ? 0 : 1;
-    castVotes([state.selectedClNumber], btnEl || document.getElementById("btnVoteAutosubmit"), { codeReview: null, autosubmit: nextAs });
-  }
-
-  function toggleCurrentClPresubmitReady(btnEl) {
-    if (!state.selectedClNumber) return;
-    const clObj = state.changes.find(c => Number(c.number) === Number(state.selectedClNumber));
-    const nextPr = clObj && clObj.viewer_presubmit_ready ? 0 : 1;
-    castVotes(
-      [state.selectedClNumber],
-      btnEl || document.getElementById("btnPresubmitReady"),
-      { codeReview: null, presubmitReady: nextPr }
-    );
-  }
-
-  function voteActiveStack(btnEl) {
-    const commits = getSelectedStackCommits();
-    castVotes(commits.map(c => c.number), btnEl || document.getElementById("btnVoteStack"), { codeReview: 2 });
   }
 
   function getSwarmElapsedSec(swarmObj) {
@@ -9904,7 +11287,7 @@
     </span>`;
   }
 
-  function renderSuggestMenuInnerHtml(clNum, targetState, comp) {
+  function renderReviewerSuggestMenuHtml(comp, buildOnSelectJs) {
     if (comp.loading && (!comp.suggestions || comp.suggestions.length === 0)) {
       return `<div style="padding:6px 8px;color:var(--g-muted);font-size:11px;"><span class="btn-spinner"></span> Searching Gerrit accounts…</div>`;
     }
@@ -9916,11 +11299,19 @@
       const activeCls = idx === comp.activeIdx ? "active" : "";
       const icon = s.is_group ? "👥" : "👤";
       const rightTxt = s.email && s.email !== s.name ? s.email : "";
-      return `<div class="reviewer-suggest-item ${activeCls}" onmousedown="event.preventDefault(); submitReviewerAdd(${clNum}, '${targetState}', '${escapeHtml(s.value)}')">
+      const onSelectJs = buildOnSelectJs(escapeHtml(s.value));
+      return `<div class="reviewer-suggest-item ${activeCls}" onmousedown="event.preventDefault(); ${onSelectJs}">
         <span>${icon} <strong>${escapeHtml(s.name || s.short)}</strong></span>
         <span style="color:var(--g-muted);font-size:10.5px;">${escapeHtml(rightTxt)}</span>
       </div>`;
     }).join("");
+  }
+
+  function renderSuggestMenuInnerHtml(clNum, targetState, comp) {
+    return renderReviewerSuggestMenuHtml(
+      comp,
+      escapedVal => `submitReviewerAdd(${clNum}, '${targetState}', '${escapedVal}')`
+    );
   }
 
   function renderReviewerComposerHtml(clNum, targetState) {
@@ -9949,36 +11340,6 @@
       <button class="nudge-btn" ${comp.submitting ? "disabled" : ""} onclick="closeReviewerComposer()" title="Cancel (Esc)">✕</button>
       <div id="reviewerSuggestMenu-${clNum}-${targetState}" class="reviewer-suggest-menu">
         ${renderSuggestMenuInnerHtml(clNum, targetState, comp)}
-      </div>
-    </div>`;
-  }
-
-  function renderCommitQuickVoteRowHtml(c) {
-    const myCr = Number(c.viewer_cr_vote || (c.approved_by_viewer ? 2 : 0));
-    const myAs = Boolean(c.viewer_autosubmit);
-    const nextAs = myAs ? 0 : 1;
-    const asLabel = myAs ? "✓ Autosubmit +1" : "Autosubmit +1";
-    const asTitle = myAs
-      ? "Click to clear your Autosubmit +1 vote (set 0, notify: OWNER)"
-      : "Vote Autosubmit +1 without changing Code-Review (notify: OWNER)";
-    const myPr = Boolean(c.viewer_presubmit_ready);
-    const nextPr = myPr ? 0 : 1;
-    const prLabel = myPr ? "⏳ Presubmit-Ready +1 ✓" : "▶ Presubmit-Ready +1";
-    const prTitle = myPr
-      ? "Click to clear your Presubmit-Ready +1 vote (set 0, notify: OWNER)"
-      : `Vote Presubmit-Ready +1 to trigger TreeHugger presubmit on ag/${c.number} (notify: OWNER)`;
-    const clearCrBtn = myCr !== 0
-      ? `<button class="quick-vote-chip" title="Clear your Code-Review vote to 0 (notify: OWNER)" onclick="castVotes([${c.number}], this, { codeReview: 0 })">Clear CR (0)</button>`
-      : "";
-    return `<div class="participants-row">
-      <span class="participants-label">Your Vote</span>
-      <div class="participants-chips">
-        <button class="quick-vote-chip ${myCr === 1 ? "active-cr1" : ""}" title="Vote Code-Review +1 on ag/${c.number} (notify: OWNER)" onclick="castVotes([${c.number}], this, { codeReview: 1 })">${myCr === 1 ? "✓ " : ""}CR +1</button>
-        <button class="quick-vote-chip ${myCr >= 2 ? "active-cr2" : ""}" title="Vote Code-Review +2 on ag/${c.number} (notify: OWNER)" onclick="castVotes([${c.number}], this, { codeReview: 2 })">${myCr >= 2 ? "✓ " : ""}CR +2</button>
-        <button class="quick-vote-chip ${(myCr >= 2 && myAs) ? "active-cr2" : ""}" title="Vote Code-Review +2 and Autosubmit +1 on ag/${c.number} (notify: OWNER)" onclick="castVotes([${c.number}], this, { codeReview: 2, autosubmit: 1 })">⚡ +2 &amp; Autosubmit +1</button>
-        <button class="quick-vote-chip ${myAs ? "active-as" : ""}" title="${escapeHtml(asTitle)}" onclick="castVotes([${c.number}], this, { codeReview: null, autosubmit: ${nextAs} })">${escapeHtml(asLabel)}</button>
-        <button class="quick-vote-chip ${myPr ? "active-pr" : ""}" title="${escapeHtml(prTitle)}" onclick="castVotes([${c.number}], this, { codeReview: null, presubmitReady: ${nextPr} })">${escapeHtml(prLabel)}</button>
-        ${clearCrBtn}
       </div>
     </div>`;
   }
@@ -10077,7 +11438,7 @@
     const targets = (entry.data && entry.data.targets) || [];
     if (targets.length === 0) {
       const triggerBtn = !c.viewer_presubmit_ready
-        ? `<button class="nudge-btn" onclick="event.stopPropagation(); castVotes([${num}], this, { codeReview: null, presubmitReady: 1 })">▶ Trigger Presubmit-Ready +1</button>`
+        ? `<button class="nudge-btn" onclick="event.stopPropagation(); toggleStagedPr(true)">☑ Stage PR +1</button>`
         : `<span style="color:#f0cf95;font-weight:600;">⏳ Waiting for TreeHugger workplan to allocate targets…</span>`;
       return `<div style="padding:12px;font-size:11.5px;color:var(--g-muted);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
         <span>No TreeHugger build/test targets recorded yet for <strong>ag/${num}</strong> (PS${ps}).</span>
@@ -10160,9 +11521,6 @@
     const summaryHtml = summaryText
       ? `<span style="font-size:11px;color:var(--g-muted);">${escapeHtml(summaryText)}</span>`
       : "";
-    const quickRunBtnHtml = c.viewer_presubmit_ready
-      ? `<button type="button" class="add-participant-btn" title="Clear Presubmit-Ready +1 (notify: OWNER)" onclick="event.stopPropagation(); castVotes([${num}], this, { codeReview: null, presubmitReady: 0 })">✕ Clear PR+1</button>`
-      : `<button type="button" class="add-participant-btn" title="Vote Presubmit-Ready +1 to run TreeHugger presubmit on ag/${num} (notify: OWNER)" onclick="event.stopPropagation(); castVotes([${num}], this, { codeReview: null, presubmitReady: 1 })">${pv.status === "not_started" ? "▶ Run Presubmit" : "↻ Re-run"}</button>`;
     const wpLinkHtml = pv.workplanUrl
       ? `<a class="ag-link" style="font-size:11px;" href="${escapeHtml(pv.workplanUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Workplan ${escapeHtml(pv.workplanId)} ↗</a>`
       : "";
@@ -10175,7 +11533,6 @@
         <button type="button" class="badge pv-badge ${pv.badgeCls}" onclick="event.stopPropagation(); togglePresubmitTargets(${num})" title="${escapeHtml(pv.tooltip)}">${pv.spinnerHtml}${escapeHtml(pv.label)}</button>
         ${summaryHtml}
         <button type="button" class="add-participant-btn" onclick="event.stopPropagation(); togglePresubmitTargets(${num})">${escapeHtml(toggleLabel)}</button>
-        ${quickRunBtnHtml}
         ${wpLinkHtml}
         ${checksLinkHtml}
       </div>
@@ -10320,6 +11677,98 @@
     }, PRESUBMIT_POLL_INTERVAL_MS);
   }
 
+  function renderInViewerStagedVoteRowHtml(opts = {}) {
+    const inBatchPanel = Boolean(opts && opts.inBatchPanel);
+    const batchStripHtml = inBatchPanel
+      ? ""
+      : `<div id="batchVoteHeaderStrip" class="batch-vote-header-strip" style="display:none;"></div>`;
+    return `<div class="participants-row gerrit-vote-row">
+      <span id="voteRowTitle" class="participants-label">${inBatchPanel ? "Batch Vote" : "Your Vote"}</span>
+      <div id="stagedVoteBar" class="gerrit-vote-panel" onclick="event.stopPropagation()">
+        ${batchStripHtml}
+        <div class="gerrit-vote-controls-row">
+          <div class="staged-label-group" role="group" aria-label="Code-Review vote">
+            <span class="staged-label-title" title="Code-Review label">Code-Review</span>
+            <button id="stageCrNeg2" type="button" class="stage-cr-btn cr-neg" data-cr="-2" onclick="toggleStagedCr(-2)" title="Stage Code-Review -2">-2</button>
+            <button id="stageCrNeg1" type="button" class="stage-cr-btn cr-neg" data-cr="-1" onclick="toggleStagedCr(-1)" title="Stage Code-Review -1">-1</button>
+            <button id="stageCrZero" type="button" class="stage-cr-btn cr-zero" data-cr="0" onclick="toggleStagedCr(0)" title="Stage Code-Review 0 (Shortcut: 0)">0</button>
+            <button id="stageCrPlus1" type="button" class="stage-cr-btn cr-pos1" data-cr="1" onclick="toggleStagedCr(1)" title="Stage Code-Review +1 (Shortcut: 1)">+1</button>
+            <button id="stageCrPlus2" type="button" class="stage-cr-btn cr-pos2" data-cr="2" onclick="toggleStagedCr(2)" title="Stage Code-Review +2 (Shortcut: 2 or a)">+2</button>
+          </div>
+          <label id="stagePrPill" class="staged-check-pill" title="Check to stage Presubmit-Ready +1 (Shortcut: p)">
+            <input id="stagePrCheckbox" type="checkbox" onclick="event.stopPropagation(); toggleStagedPr(this.checked)" />
+            <span id="stagePrLabel">Presubmit-Ready +1</span>
+          </label>
+          <label id="stageAsPill" class="staged-check-pill" title="Check to stage Autosubmit +1 (Shortcut: u)">
+            <input id="stageAsCheckbox" type="checkbox" onclick="event.stopPropagation(); toggleStagedAs(this.checked)" />
+            <span id="stageAsLabel">Autosubmit +1</span>
+          </label>
+          <button id="btnToggleVoteNote" type="button" class="btn btn-vote-note-toggle" onclick="toggleStagedVoteNote()" title="Attach an optional top-level review comment with your vote">💬 Comment</button>
+          <button id="btnSubmitVotes" type="button" class="btn btn-submit-votes" onclick="submitStagedVotes(this)" disabled title="Submit all staged votes in a single Gerrit request (Shortcut: Enter)">Submit Vote</button>
+          <button id="btnResetStagedVotes" type="button" class="btn btn-reset-staged" style="display:none;" onclick="resetStagedVote()" title="Discard unsent vote selections">Reset</button>
+        </div>
+        <div id="stagedVoteNoteRow" class="staged-vote-note-row" style="display:none;">
+          <input
+            id="stagedVoteCommentInput"
+            type="text"
+            class="staged-vote-note-input"
+            placeholder="Optional top-level review comment (Enter to submit)…"
+            oninput="onStagedVoteCommentInput(this.value)"
+            onkeydown="onStagedVoteCommentKeydown(event)"
+          />
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function renderBatchModePanelHtml(checkedNums) {
+    const count = checkedNums.length;
+    const chipsHtml = checkedNums.map(num => {
+      const c = state.changes.find(x => Number(x.number) === Number(num));
+      const subj = c ? c.subject : `CL ${num}`;
+      const url = c && c.url ? c.url : `https://googleplex-android-review.git.corp.google.com/c/${num}`;
+      return `<span class="batch-selected-cl-chip" title="${escapeHtml(`ag/${num} — ${subj}`)}">
+        <a class="ag-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">ag/${num} ↗</a>
+        <span class="batch-selected-cl-subj">${escapeHtml(subj)}</span>
+        <button type="button" class="nudge-btn" style="padding:1px 5px;font-size:10px;" onclick="event.stopPropagation(); inspectSingleClFromBatch(${num})" title="Exit batch mode and open diff for ag/${num}">Diff</button>
+        <button type="button" class="batch-selected-cl-remove" onclick="toggleClCheckbox(${num}, event)" title="Uncheck ag/${num}" aria-label="Uncheck ag/${num}">×</button>
+      </span>`;
+    }).join("");
+
+    return `<div id="batchModeSection" class="commit-section batch-mode-section">
+      <div id="batchVoteHeaderStrip" class="batch-mode-banner">
+        <div class="batch-mode-banner-left">
+          ${renderExpandSidebarButtonHtml()}
+          <span id="voteTargetBadge" class="vote-target-pill is-batch">
+            <span>☑ Applying to ${count} Checked CL${count === 1 ? "" : "s"}</span>
+          </span>
+          <span class="batch-mode-sub">Batch voting mode active — code diff hidden so actions clearly apply to all checked commits</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          ${renderBatchSubmitButtonHtml(checkedNums)}
+          <button id="btnExitBatchMode" type="button" class="btn btn-exit-batch" onclick="clearCheckedCls()" title="Uncheck all commits and return to code diff viewer (Esc)">✕ Exit Batch Mode</button>
+        </div>
+      </div>
+      <div class="cl-participants-panel is-batch-mode">
+        <div class="participants-row">
+          <span class="participants-label">Checked (${count})</span>
+          <div class="batch-selected-cl-list">${chipsHtml}</div>
+        </div>
+        <div class="participants-row">
+          <span class="participants-label">Reviewers / CC</span>
+          <div class="participants-chips">
+            <div id="batchParticipantActions" class="batch-participant-actions" onclick="event.stopPropagation()">
+              <button id="btnBatchAddReviewer" type="button" class="btn btn-batch-participant" onclick="openBatchReviewerComposer('REVIEWER')" title="Add a Reviewer across all ${count} checked CLs (notify: OWNER)">+ Add Reviewer (${count})</button>
+              <button id="btnBatchAddCc" type="button" class="btn btn-batch-participant" onclick="openBatchReviewerComposer('CC')" title="Add a CC across all ${count} checked CLs (notify: OWNER)">+ Add CC (${count})</button>
+              <div id="batchReviewerPopover" class="batch-reviewer-popover" style="display:none;"></div>
+            </div>
+          </div>
+        </div>
+        ${renderInViewerStagedVoteRowHtml({ inBatchPanel: true })}
+      </div>
+    </div>`;
+  }
+
   function renderCommitReviewersPanelHtml(c, includeClPrefix) {
     if (!c) return "";
     const allRevs = getFallbackReviewersForCl(c);
@@ -10348,7 +11797,6 @@
       : "";
 
     return `<div id="reviewersPanel-${c.number}" class="cl-participants-panel" data-has-prefix="${includeClPrefix ? "1" : "0"}">
-      ${renderCommitQuickVoteRowHtml(c)}
       <div id="presubmitRowSlot-${c.number}">${renderCommitPresubmitRowHtml(c)}</div>
       <div id="presubmitDrawerSlot-${c.number}">${renderPresubmitTargetsDrawerHtml(c)}</div>
       <div class="participants-row">
@@ -10368,6 +11816,7 @@
         </div>
       </div>
       ${renderSentChatDmDmOrEmptyHtml(c)}
+      ${renderInViewerStagedVoteRowHtml()}
     </div>`;
   }
 
@@ -10405,6 +11854,8 @@
     if (panelEl && clObj) {
       const hasPrefix = panelEl.getAttribute("data-has-prefix") === "1";
       panelEl.outerHTML = renderCommitReviewersPanelHtml(clObj, hasPrefix);
+      syncActiveActionButtons(getActiveCommitsForDiff(), false);
+      renderBatchReviewerPopoverDom();
     }
     const summary = getFilteredStacksSummary();
     renderQueueList(summary.visibleStacks, summary);
@@ -10617,6 +12068,228 @@
         btnEl.textContent = "×";
       }
       showToast("Could not remove reviewer: " + err.message);
+    }
+  }
+
+  function renderBatchSuggestMenuInnerHtml(comp) {
+    return renderReviewerSuggestMenuHtml(
+      comp,
+      escapedVal => `submitBatchReviewerAdd('${escapedVal}')`
+    );
+  }
+
+  function renderBatchReviewerPopoverDom() {
+    const popEl = document.getElementById("batchReviewerPopover");
+    if (!popEl) return;
+    const comp = state.batchReviewerComposer;
+    const checkedNums = getOrderedCheckedClNumbers();
+    if (!comp || checkedNums.length === 0) {
+      popEl.style.display = "none";
+      popEl.innerHTML = "";
+      return;
+    }
+    const isCc = comp.targetState === "CC";
+    const roleTitle = isCc ? "Add CC" : "Add Reviewer";
+    const ph = isCc ? "CC LDAP, name, or email…" : "Reviewer LDAP, name, or email…";
+    const btnHtml = comp.submitting
+      ? `<span class="btn-spinner"></span> Adding…`
+      : `${roleTitle} (${checkedNums.length})`;
+    popEl.style.display = "block";
+    popEl.innerHTML = `<div style="display:flex;flex-direction:column;gap:6px;" onclick="event.stopPropagation()">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--g-muted);">
+        <span><strong style="color:#e2e8f0;">${roleTitle}</strong> across <strong>${checkedNums.length}</strong> checked CL${checkedNums.length === 1 ? "" : "s"} · notify: OWNER</span>
+        <button type="button" class="nudge-btn" ${comp.submitting ? "disabled" : ""} onclick="closeBatchReviewerComposer()" title="Cancel (Esc)">✕</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:5px;">
+        <input
+          id="batchReviewerInput"
+          class="reviewer-add-input"
+          style="flex:1;width:auto;"
+          type="text"
+          value="${escapeHtml(comp.query || "")}"
+          placeholder="${ph}"
+          ${comp.submitting ? "disabled" : ""}
+          oninput="onBatchReviewerInputChanged(this.value)"
+          onkeydown="onBatchReviewerInputKeydown(event)"
+        />
+        <button type="button" class="nudge-btn" ${comp.submitting ? "disabled" : ""} onclick="submitBatchReviewerAdd(null)">${btnHtml}</button>
+      </div>
+      <div id="batchReviewerSuggestMenu" style="max-height:190px;overflow-y:auto;background:#181b22;border:1px solid #353c4b;border-radius:5px;padding:3px;">
+        ${renderBatchSuggestMenuInnerHtml(comp)}
+      </div>
+    </div>`;
+  }
+
+  async function fetchBatchReviewerSuggestions(queryStr) {
+    const comp = state.batchReviewerComposer;
+    const checkedNums = getOrderedCheckedClNumbers();
+    if (!comp || checkedNums.length === 0) return;
+    const reqSeq = (comp.reqSeq || 0) + 1;
+    comp.reqSeq = reqSeq;
+    comp.loading = true;
+    try {
+      const resp = await sidecarFetch(
+        `/api/gerrit/suggest-reviewers?cl=${encodeURIComponent(checkedNums[0])}&q=${encodeURIComponent(queryStr || "")}`
+      );
+      const data = await resp.json();
+      const cur = state.batchReviewerComposer;
+      if (!cur || cur.reqSeq !== reqSeq) return;
+      cur.loading = false;
+      cur.suggestions = data.suggestions || [];
+      cur.activeIdx = 0;
+      const menuEl = document.getElementById("batchReviewerSuggestMenu");
+      if (menuEl) menuEl.innerHTML = renderBatchSuggestMenuInnerHtml(cur);
+    } catch (_err) {
+      if (state.batchReviewerComposer && state.batchReviewerComposer.reqSeq === reqSeq) {
+        state.batchReviewerComposer.loading = false;
+      }
+    }
+  }
+
+  function openBatchReviewerComposer(targetState) {
+    const checkedNums = getOrderedCheckedClNumbers();
+    if (checkedNums.length === 0) return;
+    const cur = state.batchReviewerComposer;
+    if (cur && cur.submitting) return;
+    if (cur && cur.targetState === targetState) {
+      closeBatchReviewerComposer();
+      return;
+    }
+    const initialRoster = (state.roster || []).map(em => ({
+      value: em,
+      email: em,
+      name: em.split("@")[0],
+      short: em.split("@")[0],
+      is_group: false,
+    }));
+    state.batchReviewerComposer = {
+      targetState: targetState === "CC" ? "CC" : "REVIEWER",
+      query: "",
+      suggestions: initialRoster,
+      activeIdx: 0,
+      loading: false,
+      submitting: false,
+      reqSeq: 0,
+    };
+    renderBatchReviewerPopoverDom();
+    const inp = document.getElementById("batchReviewerInput");
+    if (inp) inp.focus();
+    fetchBatchReviewerSuggestions("");
+  }
+
+  function closeBatchReviewerComposer() {
+    if (state.batchReviewerComposer && state.batchReviewerComposer.submitting) return;
+    state.batchReviewerComposer = null;
+    const popEl = document.getElementById("batchReviewerPopover");
+    if (popEl) {
+      popEl.style.display = "none";
+      popEl.innerHTML = "";
+    }
+  }
+
+  function onBatchReviewerInputChanged(val) {
+    const comp = state.batchReviewerComposer;
+    if (!comp) return;
+    comp.query = val;
+    clearTimeout(window._batchRevSuggestTimer);
+    window._batchRevSuggestTimer = setTimeout(() => {
+      fetchBatchReviewerSuggestions(val);
+    }, 140);
+  }
+
+  function onBatchReviewerInputKeydown(event) {
+    const comp = state.batchReviewerComposer;
+    if (!comp) return;
+    const items = comp.suggestions || [];
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeBatchReviewerComposer();
+      return;
+    }
+    if (event.key === "ArrowDown" && items.length > 0) {
+      event.preventDefault();
+      comp.activeIdx = (comp.activeIdx + 1) % items.length;
+      const menuEl = document.getElementById("batchReviewerSuggestMenu");
+      if (menuEl) menuEl.innerHTML = renderBatchSuggestMenuInnerHtml(comp);
+      return;
+    }
+    if (event.key === "ArrowUp" && items.length > 0) {
+      event.preventDefault();
+      comp.activeIdx = (comp.activeIdx - 1 + items.length) % items.length;
+      const menuEl = document.getElementById("batchReviewerSuggestMenu");
+      if (menuEl) menuEl.innerHTML = renderBatchSuggestMenuInnerHtml(comp);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const typed = (comp.query || "").trim();
+      const picked = items[comp.activeIdx];
+      const matchesTyped = picked && (
+        !typed ||
+        (picked.email || picked.value || "").toLowerCase().includes(typed.toLowerCase()) ||
+        (picked.name || "").toLowerCase().includes(typed.toLowerCase())
+      );
+      submitBatchReviewerAdd(matchesTyped ? picked.value : typed);
+    }
+  }
+
+  async function submitBatchReviewerAdd(explicitValue) {
+    const comp = state.batchReviewerComposer;
+    const checkedNums = getOrderedCheckedClNumbers();
+    if (!comp || comp.submitting || checkedNums.length === 0) return;
+    const rawVal = String(explicitValue != null ? explicitValue : (comp.query || "")).trim();
+    if (!rawVal) {
+      showToast("Enter a name, LDAP, or email to add.");
+      return;
+    }
+    const targetState = comp.targetState;
+    const roleLabel = targetState === "CC" ? "CC" : "reviewer";
+    comp.submitting = true;
+    renderBatchReviewerPopoverDom();
+    try {
+      const resp = await sidecarFetch("/api/gerrit/reviewer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cls: checkedNums,
+          action: "add",
+          account: rawVal,
+          state: targetState,
+          viewer: state.viewer,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.error || data.status !== "ok") {
+        throw new Error(
+          data.error ||
+          `HTTP ${resp.status} while batch-adding ${roleLabel} '${rawVal}' across ${checkedNums.length} CLs (check LDAP/email and gcert)`
+        );
+      }
+      state.batchReviewerComposer = null;
+      renderBatchReviewerPopoverDom();
+      invalidateClientQueueCache();
+      if (Array.isArray(data.changes) && data.changes.length > 0) {
+        data.changes.forEach(updated => applyUpdatedSingleClToState(updated));
+      } else if (data.change) {
+        applyUpdatedSingleClToState(data.change);
+      } else {
+        await fetchQueueData(state.viewer, state.scope, { preserveDiffCache: true, preserveScroll: true, silent: true });
+      }
+      if (state.selectedClNumber) {
+        rerenderReviewersPanelDom(state.selectedClNumber);
+      } else {
+        const summary = getFilteredStacksSummary();
+        renderQueueList(summary.visibleStacks, summary);
+        renderCliffRadar();
+      }
+      syncQueueSelectionDom();
+      showToast(`Added ${data.reviewer || rawVal} as ${targetState} on ${checkedNums.length} CL${checkedNums.length === 1 ? "" : "s"} (notify: OWNER)!`);
+    } catch (err) {
+      if (state.batchReviewerComposer) {
+        state.batchReviewerComposer.submitting = false;
+        renderBatchReviewerPopoverDom();
+      }
+      showToast(`Batch ${roleLabel} failed: ${err.message}`);
     }
   }
 
@@ -10903,6 +12576,10 @@
       closeHarnessMenu();
       return;
     }
+    if (e.key === "Escape" && state.batchReviewerComposer && !state.batchReviewerComposer.submitting) {
+      closeBatchReviewerComposer();
+      return;
+    }
     if (e.key === "Escape" && state.activeChatComposer && !state.activeChatComposer.submitting) {
       closeChatDmComposer();
       return;
@@ -10933,6 +12610,10 @@
       }
       return;
     }
+    if (e.key === "Escape" && state.checkedClNumbers.size > 0) {
+      clearCheckedCls();
+      return;
+    }
     if (e.key === "Escape" && hasActiveAuthorOrSearchFilter()) {
       clearQueueSearchAndAuthor();
       return;
@@ -10947,16 +12628,28 @@
     } else if (e.key === "k") {
       const prev = flatVisible[(idx - 1 + flatVisible.length) % flatVisible.length];
       selectCl(prev.number, false, "prev");
+    } else if (e.key === "x") {
+      if (state.selectedClNumber) {
+        toggleClCheckbox(state.selectedClNumber);
+      }
+    } else if (e.key === "0") {
+      toggleStagedCr(0);
     } else if (e.key === "1") {
-      voteCurrentClPlus1();
+      toggleStagedCr(1);
     } else if (e.key === "a" || e.key === "2") {
-      voteCurrentCl();
+      toggleStagedCr(2);
     } else if (e.key === "A") {
-      voteCurrentClPlus2Auto();
+      ensureStagedVoteContextSynced();
+      state.stagedVote.cr = 2;
+      state.stagedVote.as = 1;
+      syncActiveActionButtons(getActiveCommitsForDiff(), false);
     } else if (e.key === "u") {
-      toggleCurrentClAutosubmit();
+      toggleStagedAs();
     } else if (e.key === "p") {
-      toggleCurrentClPresubmitReady();
+      toggleStagedPr();
+    } else if (e.key === "Enter" && computeStagedVotePayload().hasAnyChange) {
+      e.preventDefault();
+      submitStagedVotes();
     } else if (e.key === "s") {
       triggerHarness("review-swarm");
     }
@@ -10965,6 +12658,9 @@
   document.addEventListener("click", () => {
     if (state.harnessMenuOpen) {
       closeHarnessMenu();
+    }
+    if (state.batchReviewerComposer && !state.batchReviewerComposer.submitting) {
+      closeBatchReviewerComposer();
     }
     if (state.activeReviewerComposer && !state.activeReviewerComposer.submitting) {
       closeReviewerComposer();

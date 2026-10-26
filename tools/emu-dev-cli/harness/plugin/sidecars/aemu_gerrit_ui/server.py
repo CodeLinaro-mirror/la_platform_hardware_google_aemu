@@ -104,14 +104,16 @@ def main() -> None:
     import commands.gerrit.ui_server as ui_mod
     import lib.gerrit_api as gerrit_api_mod
 
-    def _current_bundle_mtime() -> tuple[float, float, float]:
+    def _current_bundle_mtime() -> tuple[float, float, float, float]:
         ui_f = getattr(ui_mod, "__file__", None)
         api_f = getattr(gerrit_api_mod, "__file__", None)
         ana_f = getattr(ai_analysis_mod, "__file__", None)
+        tpl_f = ui_mod.get_gerrit_ui_template_path()
         return (
             Path(ui_f).stat().st_mtime if ui_f else 0.0,
             Path(api_f).stat().st_mtime if api_f else 0.0,
             Path(ana_f).stat().st_mtime if ana_f else 0.0,
+            tpl_f.stat().st_mtime if tpl_f.is_file() else 0.0,
         )
 
     viewer = os.environ.get("AEMU_GERRIT_VIEWER", "")

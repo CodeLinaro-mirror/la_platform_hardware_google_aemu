@@ -990,6 +990,31 @@ def build_approval_slots(
     return slots
 
 
+def _compute_is_submittable(
+    *,
+    human_cr2_count: int,
+    required_cr2_count: int,
+    presubmit_vetted: bool,
+    presubmit_status: str | None,
+    mergeable: bool,
+    has_negative_cr: bool,
+    gerrit_submittable: bool | None,
+) -> bool:
+    """Computes effective UI submittability combining Gerrit's `submittable` flag and human CR+2 gates."""
+    heuristic = (
+        human_cr2_count >= required_cr2_count
+        and presubmit_vetted
+        and presubmit_status not in ("running", "queued", "failed")
+        and mergeable
+        and not has_negative_cr
+    )
+    return (
+        bool(gerrit_submittable and heuristic)
+        if isinstance(gerrit_submittable, bool)
+        else heuristic
+    )
+
+
 def enrich_change_for_ui(
     change: dict[str, Any],
     viewer_email: str,
@@ -1045,12 +1070,16 @@ def enrich_change_for_ui(
     updated_display = format_relative_age(hours_idle) if updated_dt else ""
     mergeable = change.get("mergeable", True) is not False
     has_negative_cr = any(int(p.get("cr_vote", 0) or 0) < 0 for p in reviewers_detail)
-    is_submittable = (
-        len(human_cr2) >= required_cr2_count
-        and presubmit_vetted
-        and presubmit_info["presubmit_status"] not in ("running", "queued", "failed")
-        and mergeable
-        and not has_negative_cr
+    raw_gerrit_submittable = change.get("submittable")
+    gerrit_submittable = raw_gerrit_submittable if isinstance(raw_gerrit_submittable, bool) else None
+    is_submittable = _compute_is_submittable(
+        human_cr2_count=len(human_cr2),
+        required_cr2_count=required_cr2_count,
+        presubmit_vetted=presubmit_vetted,
+        presubmit_status=presubmit_info["presubmit_status"],
+        mergeable=mergeable,
+        has_negative_cr=has_negative_cr,
+        gerrit_submittable=gerrit_submittable,
     )
 
     if not mergeable or hours_in_flight >= CLIFF_THRESHOLD_HOURS:
@@ -1139,6 +1168,7 @@ def enrich_change_for_ui(
         "human_cr1": human_cr1,
         "approved_by_viewer": approved_by_viewer,
         "is_submittable": is_submittable,
+        "gerrit_submittable": gerrit_submittable,
         "viewer_cr_vote": vote_meta["viewer_cr_vote"],
         "viewer_autosubmit": vote_meta["viewer_autosubmit"],
         "autosubmit_enabled": vote_meta["autosubmit_enabled"],
@@ -2171,7 +2201,7 @@ class GerritUIService:
         endpoint = (
             f"/a/changes/?q={encoded_q}&n={req_limit}"
             "&o=CURRENT_REVISION&o=CURRENT_COMMIT&o=CURRENT_FILES"
-            "&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=MESSAGES"
+            "&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=MESSAGES&o=SUBMITTABLE"
         )
         fetched = self.client._request_json(endpoint)
         raw_list = fetched if isinstance(fetched, list) else []
@@ -2389,10 +2419,27 @@ class GerritUIService:
         target["votes"] = votes
 
     @staticmethod
+    def _recompute_item_submittable(item: dict[str, Any]) -> None:
+        """Recomputes `item['is_submittable']` after overlaying in-memory session votes."""
+        req_count = int(item.get("required_cr2_count") or (2 if item.get("is_agent_cl") else 1))
+        has_neg = any(int(p.get("cr_vote", 0) or 0) < 0 for p in (item.get("reviewers_detail") or []))
+        g_sub = item.get("gerrit_submittable")
+        item["is_submittable"] = _compute_is_submittable(
+            human_cr2_count=len(item.get("human_cr2") or []),
+            required_cr2_count=req_count,
+            presubmit_vetted=bool(item.get("presubmit_vetted")),
+            presubmit_status=item.get("presubmit_status"),
+            mergeable=item.get("mergeable") is not False,
+            has_negative_cr=has_neg,
+            gerrit_submittable=g_sub if isinstance(g_sub, bool) else None,
+        )
+
+    @staticmethod
     def _sync_viewer_cr_approval(
         item: dict[str, Any], viewer: str, short: str, cr_val: int
     ) -> None:
         """Synchronizes `approved_by_viewer`, `human_cr2`, and `approval_slots` for `cr_val`."""
+        item["gerrit_submittable"] = None
         if cr_val >= 2 and not item.get("approved_by_viewer"):
             item["approved_by_viewer"] = True
             cr2_list = item.setdefault("human_cr2", [])
@@ -2406,6 +2453,7 @@ class GerritUIService:
             if slot is not None:
                 slot["state"] = "done"
                 slot["text"] = "You (+2 ✓)"
+            GerritUIService._recompute_item_submittable(item)
             return
         if cr_val < 2 and item.get("approved_by_viewer"):
             item["approved_by_viewer"] = False
@@ -2414,6 +2462,7 @@ class GerritUIService:
             ]
             item["human_cr2"] = cr2_list
             item["human_cr2_count"] = len(cr2_list)
+        GerritUIService._recompute_item_submittable(item)
 
     def _apply_session_presubmit_ready_vote(
         self,
@@ -2793,6 +2842,8 @@ class GerritUIService:
         code_review: int | None,
         autosubmit: bool | int | None,
         presubmit_ready: bool | int | None,
+        *,
+        allow_empty: bool = False,
     ) -> dict[str, int]:
         """Constructs Gerrit `labels` dict for `Code-Review`, `Autosubmit`, and `Presubmit-Ready`."""
         labels: dict[str, int] = {}
@@ -2808,7 +2859,7 @@ class GerritUIService:
                 labels["Presubmit-Ready"] = 1
         elif presubmit_ready is not None:
             labels["Presubmit-Ready"] = int(presubmit_ready)
-        if not labels:
+        if not labels and not allow_empty:
             raise ValueError(
                 "Cannot cast Gerrit vote: no label values specified "
                 "(provide code_review, autosubmit, or presubmit_ready)."
@@ -2860,11 +2911,19 @@ class GerritUIService:
                 "Cannot cast Gerrit vote: `gob-curl` is not installed on PATH. "
                 "Run `gcert` on a gLinux / Cloudtop machine with `gob-curl` installed."
             )
-        labels = self._build_vote_labels(code_review, autosubmit, presubmit_ready)
+        clean_msg = message.strip()
+        labels = self._build_vote_labels(
+            code_review,
+            autosubmit,
+            presubmit_ready,
+            allow_empty=bool(clean_msg),
+        )
         cr_hint = int(labels.get("Code-Review", 0))
-        payload: dict[str, Any] = {"labels": labels, "notify": "OWNER"}
-        if message.strip():
-            payload["message"] = message.strip()
+        payload: dict[str, Any] = {"notify": "OWNER"}
+        if labels:
+            payload["labels"] = labels
+        if clean_msg:
+            payload["message"] = clean_msg
 
         cleaned_cls = [parse_cl_identifier(str(raw_cl), allow_head=False) for raw_cl in cl_numbers]
         payload_json = json.dumps(payload)
@@ -2877,7 +2936,10 @@ class GerritUIService:
                 )
             )
 
-        self._record_session_vote_results(results, labels)
+        if labels:
+            self._record_session_vote_results(results, labels)
+        elif cleaned_cls:
+            self._invalidate_cl_caches(cleaned_cls)
         all_ok = all(r["ok"] for r in results)
         cloudtop_cmd = " && ".join(
             f"gob-curl -s -X POST -H 'Content-Type: application/json' -d '{payload_json}' "
@@ -2893,6 +2955,143 @@ class GerritUIService:
         }
         if not all_ok:
             first_err = next((r["error"] for r in results if not r["ok"] and r.get("error")), "Gerrit vote failed")
+            out["error"] = first_err
+        return out
+
+    def _post_single_submit(
+        self, gob_curl: str, cl_id: str, payload_json: str
+    ) -> dict[str, Any]:
+        """Submits one CL (or its whole topic when `submitWholeTopic` is active) with `notify: OWNER`."""
+        url = f"{self.client.api_host}/a/changes/{cl_id}/submit"
+        try:
+            res = subprocess.run(
+                [
+                    gob_curl,
+                    "-s",
+                    "-S",
+                    "-X",
+                    "POST",
+                    "-H",
+                    "Content-Type: application/json",
+                    "-d",
+                    payload_json,
+                    url,
+                ],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=GERRIT_CLI_TIMEOUT_SEC,
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "cl": cl_id,
+                "ok": False,
+                "status": "TIMEOUT",
+                "error": (
+                    f"Timed out after {GERRIT_CLI_TIMEOUT_SEC}s while submitting ag/{cl_id} via `gob-curl`. "
+                    f"Check Gerrit whether ag/{cl_id} already merged and verify network/`gcert` before retrying."
+                ),
+            }
+        except OSError as exc:
+            return {
+                "cl": cl_id,
+                "ok": False,
+                "status": "ERROR",
+                "error": (
+                    f"Failed to execute `{gob_curl}` while submitting ag/{cl_id}: {exc}. "
+                    "Verify `gob-curl` installation and permissions on PATH."
+                ),
+            }
+        combined_out = f"{(res.stdout or '').strip()} {(res.stderr or '').strip()}".strip()
+        if "change is merged" in combined_out.lower():
+            return {"cl": cl_id, "ok": True, "status": "MERGED", "error": ""}
+        if res.returncode == 0:
+            raw_body = strip_xssi_prefix(res.stdout or "").strip()
+            if raw_body:
+                try:
+                    parsed_body = json.loads(raw_body)
+                    if isinstance(parsed_body, dict) and str(parsed_body.get("status") or "").upper() in {
+                        "MERGED",
+                        "SUBMITTED",
+                    }:
+                        return {
+                            "cl": cl_id,
+                            "ok": True,
+                            "status": str(parsed_body["status"]),
+                            "error": "",
+                        }
+                except ValueError:
+                    pass
+        detail = combined_out or f"gob-curl exited with status {res.returncode}"
+        err_msg = (
+            f"Failed to submit ag/{cl_id}: {detail}. "
+            f"Verify submit requirements, mergeability, and `gcert` credentials, or open ag/{cl_id} in Gerrit."
+        )
+        if self.auth_email and is_agent_or_bot_email(self.auth_email):
+            err_msg = (
+                f"Backend is authenticated as role account '{self.auth_email}' "
+                f"and cannot submit ag/{cl_id} directly ({detail}). "
+                "Open in Gerrit or run the copied Cloudtop command to submit."
+            )
+        return {"cl": cl_id, "ok": False, "status": "ERROR", "error": err_msg}
+
+    def submit_changes(self, cl_numbers: list[str | int]) -> dict[str, Any]:
+        """Submits one or more submittable CLs/topics via `gob-curl` with mandatory `notify: OWNER`."""
+        if not cl_numbers:
+            raise ValueError(
+                "Cannot submit Gerrit change: no CL numbers specified (provide `cl` or non-empty `cls`)."
+            )
+        gob_curl = shutil.which("gob-curl")
+        if not gob_curl:
+            raise RuntimeError(
+                "Cannot submit Gerrit change: `gob-curl` is not installed on PATH. "
+                "Run `gcert` on a gLinux / Cloudtop machine with `gob-curl` installed."
+            )
+        cleaned_cls: list[str] = []
+        seen: set[str] = set()
+        for raw_cl in cl_numbers:
+            cid = parse_cl_identifier(str(raw_cl), allow_head=False)
+            if cid not in seen:
+                seen.add(cid)
+                cleaned_cls.append(cid)
+
+        payload_json = json.dumps({"notify": "OWNER"})
+        results: list[dict[str, Any]] = []
+        for cid in cleaned_cls:
+            step = self._post_single_submit(gob_curl, cid, payload_json)
+            results.append(step)
+            if not step["ok"]:
+                break
+
+        merged_ids = [r["cl"] for r in results if r["ok"]]
+        if merged_ids:
+            with self._session_lock:
+                self._raw_queue_cache.clear()
+                for cid in merged_ids:
+                    if cid.isdigit():
+                        self._session_approved_cls.discard(int(cid))
+                        self._session_votes.pop(int(cid), None)
+            self._invalidate_cl_caches(merged_ids)
+
+        all_ok = len(results) == len(cleaned_cls) and all(r["ok"] for r in results)
+        cloudtop_cmd = " && ".join(
+            f"gob-curl -s -X POST -H 'Content-Type: application/json' -d '{payload_json}' "
+            f"'{self.client.api_host}/a/changes/{cid}/submit' >/dev/null"
+            for cid in cleaned_cls
+        )
+        out: dict[str, Any] = {
+            "status": "ok" if all_ok else "error",
+            "auth_email": self.auth_email,
+            "submitted_cls": merged_ids,
+            "cloudtop_cmd": cloudtop_cmd,
+            "results": results,
+        }
+        if not all_ok:
+            first_err = next(
+                (r["error"] for r in results if not r["ok"] and r.get("error")),
+                "Gerrit submit failed (verify all submit requirements and mergeability).",
+            )
             out["error"] = first_err
         return out
 
@@ -2914,7 +3113,7 @@ class GerritUIService:
         endpoint = (
             f"/a/changes/{encoded_id}/detail"
             "?o=CURRENT_REVISION&o=ALL_REVISIONS&o=CURRENT_COMMIT&o=CURRENT_FILES"
-            "&o=MESSAGES&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS"
+            "&o=MESSAGES&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=SUBMITTABLE"
         )
         detail = self.client._request_json(endpoint)
         if not isinstance(detail, dict):
@@ -3066,6 +3265,115 @@ class GerritUIService:
             "response": resp,
             "change": updated_change,
         }
+
+    def _modify_single_reviewer_for_batch(
+        self,
+        cl_id: str,
+        norm_action: str,
+        raw_acct: str,
+        state: str,
+        viewer_email: str | None,
+    ) -> dict[str, Any]:
+        """Executes a reviewer/CC mutation on one CL and returns structured status."""
+        try:
+            res = self.modify_reviewer(
+                cl_id,
+                norm_action,
+                raw_acct,
+                state=state,
+                viewer_email=viewer_email,
+            )
+            return {
+                "cl": cl_id,
+                "ok": True,
+                "reviewer": res["reviewer"],
+                "state": res["state"],
+                "response": res["response"],
+                "change": res["change"],
+                "error": "",
+            }
+        except Exception as exc:
+            return {
+                "cl": cl_id,
+                "ok": False,
+                "reviewer": raw_acct,
+                "state": (state or "REVIEWER").strip().upper(),
+                "error": str(exc),
+            }
+
+    def modify_reviewers_batch(
+        self,
+        cl_numbers: list[str | int],
+        action: str,
+        account: str | int,
+        *,
+        state: str = "REVIEWER",
+        viewer_email: str | None = None,
+    ) -> dict[str, Any]:
+        """Batch adds, moves (`REVIEWER` <-> `CC`), or removes a reviewer/CC across multiple CLs with `notify: OWNER`."""
+        if not cl_numbers:
+            raise ValueError(
+                "Cannot modify reviewers in batch: no target CL numbers provided "
+                "(pass non-empty 'cls' or 'cl')."
+            )
+        norm_action = (action or "add").strip().lower()
+        if norm_action not in {"add", "remove"}:
+            raise ValueError(
+                f"Cannot modify reviewers in batch: unsupported action '{norm_action}' "
+                "(expected 'add' or 'remove')."
+            )
+        raw_acct = str(account or "").strip()
+        if not raw_acct:
+            raise ValueError(
+                "Cannot modify reviewers in batch: reviewer or CC account is empty "
+                "(provide a non-empty 'account' or 'reviewer' email, LDAP, or group name)."
+            )
+        cleaned_cls: list[str] = []
+        for raw_cl in cl_numbers:
+            cid = parse_cl_identifier(str(raw_cl), allow_head=False)
+            if cid not in cleaned_cls:
+                cleaned_cls.append(cid)
+        workers = max(1, min(DIFF_FETCH_WORKERS, len(cleaned_cls)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = list(
+                pool.map(
+                    lambda cid: self._modify_single_reviewer_for_batch(
+                        cid, norm_action, raw_acct, state, viewer_email
+                    ),
+                    cleaned_cls,
+                )
+            )
+        all_ok = all(r["ok"] for r in results)
+        resolved_reviewer = next(
+            (r["reviewer"] for r in results if r["ok"] and r.get("reviewer")),
+            raw_acct,
+        )
+        norm_state = next(
+            (r["state"] for r in results if r.get("state")),
+            (state or "REVIEWER").strip().upper(),
+        )
+        updated_changes = [
+            r["change"] for r in results if r["ok"] and isinstance(r.get("change"), dict)
+        ]
+        out: dict[str, Any] = {
+            "status": "ok" if all_ok else "partial_error",
+            "cls": cleaned_cls,
+            "action": norm_action,
+            "reviewer": resolved_reviewer,
+            "state": norm_state,
+            "notify": "OWNER",
+            "results": results,
+            "changes": updated_changes,
+        }
+        if len(updated_changes) == 1 and len(cleaned_cls) == 1:
+            out["change"] = updated_changes[0]
+        if not all_ok:
+            first_err = next(
+                (r["error"] for r in results if not r["ok"] and r.get("error")),
+                f"Batch reviewer {norm_action} failed on one or more CLs.",
+            )
+            out["error"] = first_err
+        return out
 
     def _resolve_chat_sender_email(self) -> str:
         """Returns the authenticated human `@google.com` email running the UI server."""
@@ -4396,12 +4704,19 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                     raw_cls = (qs.get("cls") or [""])[0]
                     cl_list = [x.strip() for x in raw_cls.split(",") if x.strip()]
                     diffs = service.fetch_multi_commit_diffs(cl_list)
-                    self._send_json({"diffs": diffs})
+                    self._send_json(
+                        {"diffs": diffs, "ui_version": get_gerrit_ui_template_version()}
+                    )
                     return
                 if parsed.path == "/api/gerrit/swarm-status":
                     raw_cls = (qs.get("cls") or [""])[0]
                     cl_list = [x.strip() for x in raw_cls.split(",") if x.strip()]
-                    self._send_json({"statuses": service.get_swarm_statuses(cl_list)})
+                    self._send_json(
+                        {
+                            "statuses": service.get_swarm_statuses(cl_list),
+                            "ui_version": get_gerrit_ui_template_version(),
+                        }
+                    )
                     return
                 if parsed.path == "/api/gerrit/code-questions":
                     raw_cls = (qs.get("cls") or [""])[0]
@@ -4510,7 +4825,11 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                 if parsed.path == "/api/gerrit/vote":
                     if "code_review" in body:
                         cr_arg = int(body["code_review"]) if body["code_review"] is not None else None
-                    elif "autosubmit" in body or "presubmit_ready" in body:
+                    elif (
+                        "autosubmit" in body
+                        or "presubmit_ready" in body
+                        or str(body.get("message") or "").strip()
+                    ):
                         cr_arg = None
                     else:
                         cr_arg = 2
@@ -4531,6 +4850,14 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                     )
                     self._send_json(res)
                     return
+                if parsed.path == "/api/gerrit/submit":
+                    raw_cls = body.get("cls")
+                    if not isinstance(raw_cls, list):
+                        single_cl = body.get("cl")
+                        raw_cls = [single_cl] if single_cl is not None and str(single_cl).strip() else []
+                    res = service.submit_changes(cl_numbers=raw_cls)
+                    self._send_json(res, status=200 if res.get("status") == "ok" else 409)
+                    return
                 if parsed.path == "/api/gerrit/assign-reviewer":
                     res = service.assign_second_human_reviewer(
                         cl_number=body.get("cl", ""),
@@ -4539,13 +4866,23 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                     self._send_json(res)
                     return
                 if parsed.path == "/api/gerrit/reviewer":
-                    res = service.modify_reviewer(
-                        cl_number=body.get("cl", ""),
-                        action=str(body.get("action") or "add"),
-                        account=body.get("account") or body.get("reviewer") or "",
-                        state=str(body.get("state") or "REVIEWER"),
-                        viewer_email=str(body.get("viewer") or "").strip() or None,
-                    )
+                    batch_cls = body.get("cls")
+                    if isinstance(batch_cls, list) and len(batch_cls) > 0:
+                        res = service.modify_reviewers_batch(
+                            cl_numbers=batch_cls,
+                            action=str(body.get("action") or "add"),
+                            account=body.get("account") or body.get("reviewer") or "",
+                            state=str(body.get("state") or "REVIEWER"),
+                            viewer_email=str(body.get("viewer") or "").strip() or None,
+                        )
+                    else:
+                        res = service.modify_reviewer(
+                            cl_number=body.get("cl", ""),
+                            action=str(body.get("action") or "add"),
+                            account=body.get("account") or body.get("reviewer") or "",
+                            state=str(body.get("state") or "REVIEWER"),
+                            viewer_email=str(body.get("viewer") or "").strip() or None,
+                        )
                     self._send_json(res)
                     return
                 if parsed.path == "/api/gerrit/chat-dm":

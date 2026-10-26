@@ -28,6 +28,7 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
+import urllib.error
 import urllib.request
 
 from commands.gerrit.ai_analysis import (
@@ -1112,13 +1113,15 @@ class GerritUIServerTest(unittest.TestCase):
             self.assertFalse(q4["changes"][0]["viewer_autosubmit"])
 
         html = render_static_gerrit_ui_html()
-        self.assertIn('id="btnVotePlus1"', html)
-        self.assertIn('id="btnVotePlus2Auto"', html)
-        self.assertIn('id="btnVoteAutosubmit"', html)
-        self.assertIn("function renderCommitQuickVoteRowHtml(", html)
-        self.assertIn("function voteCurrentClPlus1(", html)
-        self.assertIn("function voteCurrentClPlus2Auto(", html)
-        self.assertIn("function toggleCurrentClAutosubmit(", html)
+        self.assertIn('id="stagedVoteBar"', html)
+        self.assertIn('id="stageCrPlus1"', html)
+        self.assertIn('id="stageCrPlus2"', html)
+        self.assertIn('id="stageAsCheckbox"', html)
+        self.assertIn('id="btnSubmitVotes"', html)
+        self.assertNotIn("function renderCommitQuickVoteRowHtml(", html)
+        self.assertIn("function toggleStagedCr(", html)
+        self.assertIn("function toggleStagedAs(", html)
+        self.assertIn("function submitStagedVotes(", html)
         self.assertNotIn("+2 All Low Load", html)
         self.assertNotIn('id="btnBatchLow"', html)
         self.assertNotIn("setRiskFilter(", html)
@@ -1678,9 +1681,10 @@ class GerritUIServerTest(unittest.TestCase):
 
         html = render_static_gerrit_ui_html()
         self.assertIn('id="queueSortSelect"', html)
-        self.assertIn('id="btnPresubmitReady"', html)
+        self.assertIn('id="stagePrCheckbox"', html)
+        self.assertIn('id="stagePrPill"', html)
         self.assertIn("function setSortMode(", html)
-        self.assertIn("function toggleCurrentClPresubmitReady(", html)
+        self.assertIn("function toggleStagedPr(", html)
         self.assertIn("function togglePresubmitTargets(", html)
         self.assertIn("function fetchPresubmitTargetsForCl(", html)
         self.assertIn("/api/gerrit/presubmit-targets", html)
@@ -2114,9 +2118,11 @@ class GerritUIServerTest(unittest.TestCase):
         )
         self.assertIsNotNone(top_row_match)
         top_row_inner = (top_row_match.group(1) if top_row_match else "").strip()
-        self.assertEqual(
-            top_row_inner,
+        self.assertIn('class="cl-card-check-wrap"', top_row_inner)
+        self.assertIn('class="cl-select-checkbox"', top_row_inner)
+        self.assertIn(
             '<span class="cl-subj" title="${escapeHtml(c.subject)}">${escapeHtml(c.subject)}</span>',
+            top_row_inner,
         )
 
     def test_compact_card_pv_badge_red_needed_slots_reviewer_icon_and_submittable_hue(
@@ -3087,6 +3093,330 @@ class GerritUIServerTest(unittest.TestCase):
         diff_pane_idx = html.index('<div class="diff-pane">')
         self.assertGreater(splitter_idx, queue_pane_idx)
         self.assertLess(splitter_idx, diff_pane_idx)
+
+    def test_staged_multi_label_and_message_only_vote_endpoint(self) -> None:
+        from unittest.mock import MagicMock
+
+        with patch.object(
+            GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"
+        ):
+            service = GerritUIService(default_viewer="joshuaduong@google.com")
+
+        posted_votes: list[tuple[str, dict[str, object]]] = []
+
+        def fake_gob_curl(cmd: list[str], **_kwargs: object) -> MagicMock:
+            payload = json.loads(cmd[cmd.index("-d") + 1])
+            posted_votes.append((cmd[-1], payload))
+            return MagicMock(returncode=0, stdout=")]}'\n{}", stderr="")
+
+        with (
+            patch("shutil.which", return_value="/usr/bin/gob-curl"),
+            patch("subprocess.run", side_effect=fake_gob_curl),
+        ):
+            httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_gerrit_ui_handler(service))
+            port = httpd.server_address[1]
+            t = threading.Thread(target=httpd.serve_forever, daemon=True)
+            t.start()
+            try:
+                req_vote = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/api/gerrit/vote",
+                    data=json.dumps(
+                        {
+                            "cls": [43280001, 43280002],
+                            "code_review": 1,
+                            "presubmit_ready": 1,
+                            "autosubmit": 1,
+                            "message": "Staged batch vote 测试_🚀_é",
+                        }
+                    ).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_vote, timeout=5) as resp:
+                    vote_data = json.loads(resp.read().decode("utf-8"))
+                self.assertEqual(vote_data["status"], "ok")
+                voted_cls = sorted(int(r["cl"]) for r in vote_data["results"] if r["ok"])
+                self.assertEqual(voted_cls, [43280001, 43280002])
+                self.assertEqual(len(posted_votes), 2)
+                for _url, payload in posted_votes:
+                    self.assertEqual(
+                        payload,
+                        {
+                            "labels": {
+                                "Code-Review": 1,
+                                "Autosubmit": 1,
+                                "Presubmit-Ready": 1,
+                            },
+                            "message": "Staged batch vote 测试_🚀_é",
+                            "notify": "OWNER",
+                        },
+                    )
+
+                posted_votes.clear()
+                req_msg = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/api/gerrit/vote",
+                    data=json.dumps(
+                        {
+                            "cls": [43280001],
+                            "code_review": None,
+                            "message": "Top-level review note 测试_🚀_é",
+                        }
+                    ).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_msg, timeout=5) as resp:
+                    msg_data = json.loads(resp.read().decode("utf-8"))
+                self.assertEqual(msg_data["status"], "ok")
+                self.assertEqual(len(posted_votes), 1)
+                self.assertEqual(
+                    posted_votes[0][1],
+                    {"message": "Top-level review note 测试_🚀_é", "notify": "OWNER"},
+                )
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+
+    def test_batch_reviewer_endpoint_enforces_notify_owner(self) -> None:
+        with patch.object(
+            GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"
+        ):
+            service = GerritUIService(default_viewer="joshuaduong@google.com")
+
+        recorded_requests: list[tuple[str, str, dict | None]] = []
+
+        def fake_request_json(
+            endpoint: str, method: str = "GET", data: dict | None = None, **_kwargs: object
+        ) -> object:
+            recorded_requests.append((method, endpoint, data))
+            if method == "POST" and endpoint.endswith("/reviewers"):
+                return {"reviewers": [{"email": "jansene@google.com", "name": "Erwin Jansen"}]}
+            if method == "GET" and endpoint.startswith("/a/changes/"):
+                cl_str = endpoint.split("/")[3].split("?")[0]
+                cl_num = int(cl_str)
+                return {
+                    "_number": cl_num,
+                    "project": "platform/hardware/generic/goldfish",
+                    "branch": "emu-main-next",
+                    "subject": f"feat: Batch target {cl_num} 测试_🚀_é",
+                    "owner": {"email": "joshuaduong@google.com", "name": "Joshua Duong"},
+                    "current_revision": "rev1",
+                    "revisions": {"rev1": {"_number": 1, "files": {"a.cc": {}}}},
+                    "reviewers": {
+                        "REVIEWER": [{"email": "jansene@google.com", "name": "Erwin Jansen"}]
+                    },
+                    "labels": {},
+                }
+            return []
+
+        with patch.object(service.client, "_request_json", side_effect=fake_request_json):
+            httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_gerrit_ui_handler(service))
+            port = httpd.server_address[1]
+            t = threading.Thread(target=httpd.serve_forever, daemon=True)
+            t.start()
+            try:
+                req_rev = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/api/gerrit/reviewer",
+                    data=json.dumps(
+                        {
+                            "cls": [43280001, 43280002],
+                            "action": "add",
+                            "account": "jansene",
+                            "state": "REVIEWER",
+                            "viewer": "joshuaduong@google.com",
+                        }
+                    ).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_rev, timeout=5) as resp:
+                    rev_data = json.loads(resp.read().decode("utf-8"))
+                self.assertEqual(rev_data["status"], "ok")
+                self.assertEqual(sorted(rev_data["cls"]), ["43280001", "43280002"])
+                self.assertEqual(len(rev_data["changes"]), 2)
+                rev_posts = [r for r in recorded_requests if r[0] == "POST" and r[1].endswith("/reviewers")]
+                self.assertEqual(len(rev_posts), 2)
+                for _method, _path, payload in rev_posts:
+                    self.assertEqual(
+                        payload,
+                        {
+                            "reviewer": "jansene@google.com",
+                            "state": "REVIEWER",
+                            "notify": "OWNER",
+                        },
+                    )
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+
+    def test_batch_selection_staged_vote_and_submit_template_contracts(self) -> None:
+        html = render_static_gerrit_ui_html()
+        self.assertNotIn('<div class="harness-bar">', html)
+        self.assertNotIn("function renderCommitQuickVoteRowHtml", html)
+        for expected in (
+            'class="cl-select-checkbox"',
+            'class="group-select-checkbox"',
+            'id="queueBatchStrip"',
+            "function renderInViewerStagedVoteRowHtml(",
+            "function renderBatchModePanelHtml(",
+            "${renderInViewerStagedVoteRowHtml()}",
+            ".btn.btn-submit-votes:not(:disabled)",
+            "submitVoteReadyPulse",
+            'id="batchModeSection"',
+            'class="cl-participants-panel is-batch-mode"',
+            'id="btnExitBatchMode"',
+            'id="stagedVoteBar"',
+            'id="batchVoteHeaderStrip"',
+            'id="stageCrNeg2"',
+            'id="stageCrNeg1"',
+            'id="stageCrZero"',
+            'id="stageCrPlus1"',
+            'id="stageCrPlus2"',
+            'id="stagePrCheckbox"',
+            'id="stageAsCheckbox"',
+            'id="stagedVoteCommentInput"',
+            'id="btnSubmitVotes"',
+            'id="btnResetStagedVotes"',
+            'id="batchParticipantActions"',
+            'id="btnBatchAddReviewer"',
+            'id="btnBatchAddCc"',
+            "Presubmit-Ready +1",
+            "Autosubmit +1",
+            "Submit Vote",
+            "function toggleClCheckbox(",
+            "function toggleGroupCheckbox(",
+            "function syncGroupCheckboxIndeterminateDom(",
+            "function computeStagedVotePayload(",
+            "function submitStagedVotes(",
+            "function openBatchReviewerComposer(",
+            "function submitBatchReviewerAdd(",
+            'id="btnSubmitCl"',
+            'id="btnBatchSubmitCls"',
+            ".btn.btn-submit-cl:not(:disabled)",
+            ".btn.btn-submit-cl:disabled:not(.is-submitting)",
+            "function computeCommitSubmitTarget(",
+            "function computeBatchSubmitTarget(",
+            "function executeGerritSubmit(",
+            "/api/gerrit/submit",
+        ):
+            self.assertIn(expected, html)
+
+    def test_submit_cl_and_topic_endpoint_enforces_notify_owner_and_submittable(self) -> None:
+        now = datetime(2026, 10, 26, 18, 0, 0, tzinfo=timezone.utc)
+        base_change = {
+            "_number": 43290001,
+            "change_id": "I9999999999abcdef1234567890abcdef12345678",
+            "project": "platform/hardware/google/aemu",
+            "branch": "studio-main",
+            "topic": "topic_测试_🚀_é",
+            "subject": "feat(ui): Add Submit CL/Topic button 测试_🚀_é",
+            "created": "2026-10-26 15:00:00.000000000",
+            "updated": "2026-10-26 17:00:00.000000000",
+            "insertions": 20,
+            "deletions": 2,
+            "mergeable": True,
+            "submittable": True,
+            "current_revision": "rev_sub_1",
+            "current_revision_number": 1,
+            "owner": {"email": "joshuaduong@google.com", "name": "Joshua Duong"},
+            "revisions": {
+                "rev_sub_1": {
+                    "_number": 1,
+                    "files": {"tools/emu-dev-cli/src/templates/gerrit_ui.html": {}},
+                    "commit": {"parents": [{"commit": "rev_base"}]},
+                }
+            },
+            "labels": {
+                "Code-Review": {
+                    "all": [{"email": "jansene@google.com", "name": "Erwin Jansen", "value": 2}]
+                },
+                "Presubmit-Verified": {
+                    "all": [{"email": "treehugger@system.gserviceaccount.com", "value": 2}]
+                },
+            },
+        }
+        enriched_ready = enrich_change_for_ui(base_change, "joshuaduong@google.com", now_dt=now)
+        self.assertTrue(enriched_ready["is_submittable"])
+        self.assertTrue(enriched_ready["gerrit_submittable"])
+
+        # Authoritative Gerrit submittable=False blocks is_submittable even when CR+2 & PV+2 exist
+        blocked_by_gerrit = dict(base_change, submittable=False)
+        enriched_blocked = enrich_change_for_ui(
+            blocked_by_gerrit, "joshuaduong@google.com", now_dt=now
+        )
+        self.assertFalse(enriched_blocked["is_submittable"])
+        self.assertFalse(enriched_blocked["gerrit_submittable"])
+
+        with patch.object(
+            GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"
+        ):
+            service = GerritUIService(default_viewer="joshuaduong@google.com")
+
+        gob_calls: list[list[str]] = []
+
+        def fake_gob_curl(cmd: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
+            gob_calls.append(list(cmd))
+            url = cmd[-1]
+            if "/43290001/submit" in url:
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout=")]}'\n" + json.dumps({"status": "MERGED"}), stderr=""
+                )
+            if "/43290002/submit" in url:
+                # Sibling CL in same topic already merged atomically by submitWholeTopic
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="change is merged\n", stderr=""
+                )
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="Cannot submit change 43299999: Needs Code-Review\n", stderr=""
+            )
+
+        with (
+            patch("shutil.which", return_value="/usr/bin/gob-curl"),
+            patch("subprocess.run", side_effect=fake_gob_curl),
+        ):
+            handler = make_gerrit_ui_handler(service)
+            httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            port = httpd.server_address[1]
+            t = threading.Thread(target=httpd.serve_forever, daemon=True)
+            t.start()
+            try:
+                # 1) Submit topic CLs -> 200 OK, notify=OWNER verified on every gob-curl call
+                req_ok = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/api/gerrit/submit",
+                    data=json.dumps({"cls": [43290001, 43290002]}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_ok, timeout=5) as resp:
+                    ok_data = json.loads(resp.read().decode("utf-8"))
+                self.assertEqual(ok_data["status"], "ok")
+                self.assertEqual(sorted(ok_data["submitted_cls"]), ["43290001", "43290002"])
+                self.assertEqual(len(gob_calls), 2)
+                for call_args in gob_calls:
+                    self.assertIn("-d", call_args)
+                    d_idx = call_args.index("-d")
+                    self.assertEqual(
+                        json.loads(call_args[d_idx + 1]),
+                        {"notify": "OWNER"},
+                    )
+
+                # 2) Non-submittable CL -> HTTP 409 with error & fallback cloudtop_cmd
+                req_fail = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/api/gerrit/submit",
+                    data=json.dumps({"cls": [43299999]}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    urllib.request.urlopen(req_fail, timeout=5)
+                self.assertEqual(ctx.exception.code, 409)
+                err_body = json.loads(ctx.exception.read().decode("utf-8"))
+                self.assertEqual(err_body["status"], "error")
+                self.assertIn("Needs Code-Review", err_body["error"])
+                self.assertIn('"notify": "OWNER"', err_body["cloudtop_cmd"])
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
 
 
 if __name__ == "__main__":
