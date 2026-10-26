@@ -3418,6 +3418,426 @@ class GerritUIServerTest(unittest.TestCase):
                 httpd.shutdown()
                 httpd.server_close()
 
+    def test_reply_inline_comment_service_and_http_endpoint(self) -> None:
+        with patch.object(
+            GerritUIService, "_detect_auth_email", return_value="jansene@google.com"
+        ):
+            service = GerritUIService(default_viewer="jansene@google.com")
+
+        captured_calls: list[tuple[str, str, dict]] = []
+
+        def fake_request_json(endpoint: str, method: str = "GET", data: dict | None = None):
+            captured_calls.append((endpoint, method, data or {}))
+            if endpoint.endswith("/revisions/current/review"):
+                return {
+                    "comments": {
+                        "emulator/net/socket_测试_🚀_é.cc": [
+                            {"id": "new_comment_99", "patch_set": 2}
+                        ]
+                    }
+                }
+            return {
+                "comments": {
+                    "emulator/net/socket_测试_🚀_é.cc": [
+                        {"id": "reply_comment_100", "patch_set": 2}
+                    ]
+                }
+            }
+
+        service.client._request_json = fake_request_json  # type: ignore[method-assign]
+        service._full_diff_bundle_cache[("43152171", "rev_sha")] = (999999999.0, {"number": 43152171})
+
+        created = service.post_inline_comment(
+            cl_number=43152171,
+            file_path="emulator/net/socket_测试_🚀_é.cc",
+            line=48,
+            message="Initial comment 测试_🚀_é",
+            unresolved=True,
+        )
+        self.assertEqual(created["comment_id"], "new_comment_99")
+        self.assertEqual(created["patch_set"], 2)
+        self.assertEqual(created["notify"], "OWNER")
+
+        service._full_diff_bundle_cache[("43152171", "rev_sha")] = (999999999.0, {"number": 43152171})
+        reply_res = service.reply_inline_comment(
+            cl_number="ag/43152171",
+            comment_id="new_comment_99",
+            file_path="emulator/net/socket_测试_🚀_é.cc",
+            line=48,
+            patch_set=2,
+            side="REVISION",
+            unresolved=False,
+            message="Fixed socket leak 测试_🚀_é in PS2.",
+        )
+        self.assertEqual(reply_res["status"], "ok")
+        self.assertEqual(reply_res["notify"], "OWNER")
+        self.assertEqual(reply_res["in_reply_to"], "new_comment_99")
+        self.assertEqual(reply_res["comment_id"], "reply_comment_100")
+        self.assertEqual(reply_res["patch_set"], 2)
+        self.assertFalse(reply_res["unresolved"])
+        self.assertEqual(reply_res["author_name"], "jansene")
+        self.assertNotIn(("43152171", "rev_sha"), service._full_diff_bundle_cache)
+
+        ep, method, sent_body = captured_calls[-1]
+        self.assertEqual(ep, "/a/changes/43152171/revisions/2/review")
+        self.assertEqual(method, "POST")
+        self.assertEqual(sent_body["notify"], "OWNER")
+        reply_items = sent_body["comments"]["emulator/net/socket_测试_🚀_é.cc"]
+        self.assertEqual(len(reply_items), 1)
+        self.assertEqual(reply_items[0]["in_reply_to"], "new_comment_99")
+        self.assertEqual(reply_items[0]["line"], 48)
+        self.assertFalse(reply_items[0]["unresolved"])
+        self.assertEqual(reply_items[0]["message"], "Fixed socket leak 测试_🚀_é in PS2.")
+
+        with self.assertRaisesRegex(ValueError, "comment_id is empty"):
+            service.reply_inline_comment(
+                cl_number=43152171,
+                comment_id="   ",
+                file_path="emulator/net/socket.cc",
+                message="Non-empty",
+            )
+        with self.assertRaisesRegex(ValueError, "reply message is empty"):
+            service.reply_inline_comment(
+                cl_number=43152171,
+                comment_id="c_123",
+                file_path="emulator/net/socket.cc",
+                message="   ",
+            )
+
+        # Verify gob-curl fallback preserves target patchset revision and notify: OWNER.
+        def failing_request_json(*_args, **_kwargs):
+            raise RuntimeError("SSO transport unavailable")
+
+        service.client._request_json = failing_request_json  # type: ignore[method-assign]
+        fake_proc = subprocess.CompletedProcess(
+            args=["/usr/bin/gob-curl"],
+            returncode=0,
+            stdout=")]}'\n" + json.dumps({"comments": {"a.cc": [{"id": "gob_reply_7", "patch_set": 3}]}}),
+            stderr="",
+        )
+        with (
+            patch("commands.gerrit.ui_server.shutil.which", return_value="/usr/bin/gob-curl"),
+            patch("commands.gerrit.ui_server.subprocess.run", return_value=fake_proc) as mock_run,
+        ):
+            gob_res = service.reply_inline_comment(
+                cl_number=43152171,
+                comment_id="c_ps3",
+                file_path="a.cc",
+                line=12,
+                patch_set=3,
+                unresolved=True,
+                message="Keeping unresolved via gob-curl 测试_🚀_é",
+            )
+        self.assertEqual(gob_res["comment_id"], "gob_reply_7")
+        self.assertTrue(gob_res["unresolved"])
+        gob_cmd = mock_run.call_args[0][0]
+        self.assertTrue(gob_cmd[-1].endswith("/a/changes/43152171/revisions/3/review"))
+        gob_payload = json.loads(gob_cmd[gob_cmd.index("-d") + 1])
+        self.assertEqual(gob_payload["notify"], "OWNER")
+        self.assertTrue(gob_payload["comments"]["a.cc"][0]["unresolved"])
+
+        # Exercise HTTP POST /api/gerrit/reply (200 OK and 400 validation).
+        service.client._request_json = fake_request_json  # type: ignore[method-assign]
+        server = ThreadingHTTPServer(("127.0.0.1", 0), make_gerrit_ui_handler(service))
+        port = server.server_address[1]
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        try:
+            ok_req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/gerrit/reply",
+                data=json.dumps(
+                    {
+                        "cl": 43152171,
+                        "comment_id": "new_comment_99",
+                        "file_path": "emulator/net/socket_测试_🚀_é.cc",
+                        "line": 48,
+                        "patch_set": 2,
+                        "unresolved": True,
+                        "message": "HTTP reply check 测试_🚀_é",
+                    }
+                ).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(ok_req, timeout=5) as resp:
+                self.assertEqual(resp.status, 200)
+                http_data = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(http_data["status"], "ok")
+            self.assertEqual(http_data["notify"], "OWNER")
+            self.assertEqual(http_data["in_reply_to"], "new_comment_99")
+            self.assertTrue(http_data["unresolved"])
+
+            bad_req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/gerrit/reply",
+                data=json.dumps({"cl": 43152171, "comment_id": "", "message": "hi"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(bad_req, timeout=5)
+            self.assertEqual(ctx.exception.code, 400)
+            ctx.exception.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_toolbar_next_prev_buttons_and_inline_reply_ui(self) -> None:
+        html = render_static_gerrit_ui_html()
+        self.assertNotIn('<div class="harness-bar">', html)
+        nav_group_idx = html.index('class="cl-nav-group"')
+        prev_btn_idx = html.index('id="btnNavPrev"')
+        next_btn_idx = html.index('id="btnNavNext"')
+        self.assertGreater(prev_btn_idx, nav_group_idx)
+        self.assertGreater(next_btn_idx, prev_btn_idx)
+
+        nav_call_idx = html.index("${renderCommitNavButtonsHtml()}")
+        submit_call_idx = html.index("${renderCommitSubmitButtonHtml(c)}")
+        harness_call_idx = html.index("${renderCommitHarnessActionsHtml(c)}")
+        self.assertLess(nav_call_idx, submit_call_idx)
+        self.assertLess(submit_call_idx, harness_call_idx)
+
+        self.assertIn("← Prev (k)", html)
+        self.assertIn("Next (j) →", html)
+        self.assertIn("onclick=\"event.stopPropagation(); navigateVisibleCl('prev')\"", html)
+        self.assertIn("onclick=\"event.stopPropagation(); navigateVisibleCl('next')\"", html)
+        self.assertIn("function canNavigateVisibleCls(", html)
+        self.assertIn("function renderCommitNavButtonsHtml(", html)
+        self.assertIn("function navigateVisibleCl(", html)
+        self.assertIn("function syncToolbarNavButtons(", html)
+        self.assertIn("Object.keys(state.openReplyByItemId || {}).length > 0", html)
+        self.assertIn("inline-reply-btn", html)
+        self.assertIn("💬 Reply", html)
+        self.assertIn("function openInlineReplyComposer(", html)
+        self.assertIn("function submitInlineCommentReply(", html)
+        self.assertIn('"/api/gerrit/reply"', html)
+        self.assertIn('for="commentReplyInput-${safeId}"', html)
+        self.assertIn('for="commentReplyResolved-${safeId}"', html)
+
+        node_bin = shutil.which("node")
+        if not node_bin:
+            return
+        script_blocks = re.findall(r"<script[^>]*>(.*?)</script>", html, flags=re.S)
+        main_js = script_blocks[-1]
+        # Strip final startup calls so we can exercise UI functions deterministically in Node VM.
+        main_js_body = re.sub(
+            r"loadSidebarLayoutPrefs\(\);\s*initWorkspaceSplitter\(\);\s*initDiffCodeSelectionListeners\(\);\s*initApp\(\);\s*$",
+            "",
+            main_js.strip(),
+        )
+        harness_js = (
+            main_js_body
+            + r"""
+const _els = {};
+function _makeEl(id) {
+  return {
+    id,
+    disabled: false,
+    checked: false,
+    value: "",
+    textContent: "",
+    innerHTML: "",
+    outerHTML: "",
+    style: { setProperty() {}, removeProperty() {} },
+    focused: false,
+    classList: {
+      _set: new Set(),
+      add(...c) { c.forEach(x => this._set.add(x)); },
+      remove(...c) { c.forEach(x => this._set.delete(x)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (this._set.has(c)) { this._set.delete(c); return false; }
+          this._set.add(c); return true;
+        }
+        if (force) this._set.add(c); else this._set.delete(c);
+        return Boolean(force);
+      },
+      contains(c) { return this._set.has(c); },
+    },
+    focus() { this.focused = true; },
+    getAttribute() { return ""; },
+    setAttribute() {},
+    querySelector() { return null; },
+  };
+}
+globalThis.document.getElementById = (id) => {
+  if (!_els[id]) _els[id] = _makeEl(id);
+  return _els[id];
+};
+globalThis.document.querySelector = () => null;
+globalThis.document.querySelectorAll = () => [];
+
+const fetchCalls = [];
+globalThis.fetch = async (url, opts = {}) => {
+  fetchCalls.push({ url, opts });
+  return {
+    ok: true,
+    status: 200,
+    async json() {
+      return {
+        status: "ok",
+        notify: "OWNER",
+        in_reply_to: "leaf_ps2",
+        comment_id: "reply_ps2_new",
+        patch_set: 2,
+        unresolved: false,
+        author_name: "jansene",
+      };
+    },
+  };
+};
+
+// 1. Verify Next/Prev navigation renders in commit-sec-header and moves across visible CLs without casting any vote.
+const c1 = { number: 101, patch_set: 1, project_short: "aemu", url: "https://example.com/c/101", risk: { tier: "low", label: "Low Risk" }, subject: "feat: One", owner_email: "dev@google.com", presubmit_vetted: true, approved_by_viewer: false, unresolved_comment_count: 1 };
+const c2 = { number: 102, patch_set: 1, project_short: "aemu", url: "https://example.com/c/102", risk: { tier: "low", label: "Low Risk" }, subject: "feat: Two", owner_email: "dev@google.com", presubmit_vetted: true, approved_by_viewer: false, unresolved_comment_count: 0 };
+const c3 = { number: 103, patch_set: 1, project_short: "aemu", url: "https://example.com/c/103", risk: { tier: "low", label: "Low Risk" }, subject: "feat: Three", owner_email: "dev@google.com", presubmit_vetted: true, approved_by_viewer: false, unresolved_comment_count: 0 };
+state.changes = [c1, c2, c3];
+state.stacks = [{ stack_id: "s1", is_stack: true, commits: [c1, c2, c3] }];
+state.gates = { presubmit: false, agent: false, hideMine: false, hideSubmittable: false };
+state.groupMode = "stack";
+state.selectedStackId = "s1";
+state.selectedClNumber = 101;
+
+renderDiffPane();
+const headerHtml = _els["diffScroll"].innerHTML;
+const renderedPrevIdx = headerHtml.indexOf('id="btnNavPrev"');
+const renderedNextIdx = headerHtml.indexOf('id="btnNavNext"');
+const renderedSubmitIdx = headerHtml.indexOf('id="btnSubmitCl"');
+const renderedHarnessIdx = headerHtml.indexOf('id="btnHarnessMenuToggle"');
+if (renderedPrevIdx < 0 || renderedNextIdx <= renderedPrevIdx || renderedSubmitIdx <= renderedNextIdx || renderedHarnessIdx <= renderedSubmitIdx) {
+  throw new Error("Expected Prev -> Next -> Submit CL -> Harness Actions in rendered commit-sec-header");
+}
+
+const selectedMoves = [];
+selectStackAndCl = (stackId, clNum, opts = {}) => {
+  state.selectedStackId = stackId;
+  state.selectedClNumber = clNum;
+  selectedMoves.push({ stackId, clNum, animDir: opts.animDir });
+};
+
+syncToolbarNavButtons();
+if (_els["btnNavPrev"].disabled || _els["btnNavNext"].disabled) {
+  throw new Error("Expected Next/Prev buttons enabled when 3 CLs are visible");
+}
+navigateVisibleCl("next");
+navigateVisibleCl("next");
+navigateVisibleCl("prev");
+if (JSON.stringify(selectedMoves.map(m => [m.clNum, m.animDir])) !== JSON.stringify([[102, "next"], [103, "next"], [102, "prev"]])) {
+  throw new Error("Unexpected navigation sequence: " + JSON.stringify(selectedMoves));
+}
+if (fetchCalls.length !== 0) {
+  throw new Error("Navigation must never invoke vote or network endpoints");
+}
+
+// Single visible CL disables Next/Prev when already selected.
+state.stacks = [{ stack_id: "s_only", is_stack: false, commits: [c1] }];
+state.selectedClNumber = 101;
+syncToolbarNavButtons();
+if (!_els["btnNavPrev"].disabled || !_els["btnNavNext"].disabled) {
+  throw new Error("Expected Next/Prev disabled when only 1 visible CL is selected");
+}
+
+// 2. Verify inline comment card Reply composer, resolved toggle, and submit flow.
+state.diffsByCl[101] = {
+  number: 101,
+  files: [],
+  unresolved_threads: [
+    {
+      root_id: "root_ps1",
+      leaf_id: "leaf_ps2",
+      file_path: "emulator/net/http_测试_🚀_é.cc",
+      line: 77,
+      start_line: 75,
+      end_line: 77,
+      patch_set: 2,
+      unresolved: true,
+      author_name: "Goldie",
+      latest_message: "Please reuse goldfish::http::WebServer here.",
+      messages: [
+        { comment_id: "root_ps1", author_name: "Goldie", patch_set: 1, message: "Initial finding", unresolved: true },
+        { comment_id: "leaf_ps2", author_name: "Goldie", patch_set: 2, message: "Please reuse goldfish::http::WebServer here.", unresolved: true },
+      ],
+    },
+  ],
+};
+state.collapsedInlineIds.add("srv-thread-101-0");
+const items = getInlineCommentsForFile(101, "emulator/net/http_测试_🚀_é.cc");
+if (items.length !== 1 || items[0].comment_id !== "leaf_ps2") {
+  throw new Error("Expected server thread item with leaf_id");
+}
+const initialCardHtml = renderInlineCommentCardHtml(101, items[0]);
+if (!initialCardHtml.includes("💬 Reply") || !initialCardHtml.includes("2 msgs")) {
+  throw new Error("Expected Reply button and message count in rendered card");
+}
+_els["inlineItem-srv-thread-101-0"] = _makeEl("inlineItem-srv-thread-101-0");
+openInlineReplyComposer(101, "srv-thread-101-0");
+if (state.collapsedInlineIds.has("srv-thread-101-0")) {
+  throw new Error("Opening reply composer must auto-expand collapsed thread");
+}
+if (!_els["inlineItem-srv-thread-101-0"].outerHTML.includes("commentReplyInput-srv-thread-101-0")) {
+  throw new Error("Expected inline reply textarea in re-rendered card HTML");
+}
+
+// Toggle Resolved ON and submit Unicode reply.
+onInlineReplyResolvedChange(101, "srv-thread-101-0", true);
+if (_els["commentReplyPill-srv-thread-101-0"].textContent !== "Marks Resolved") {
+  throw new Error("Expected Marks Resolved pill text");
+}
+if (_els["btnSubmitInlineReply-srv-thread-101-0"].textContent !== "✓ Send Reply & Resolve") {
+  throw new Error("Expected Send Reply & Resolve button text");
+}
+document.getElementById("commentReplyResolved-srv-thread-101-0").checked = true;
+document.getElementById("commentReplyInput-srv-thread-101-0").value = "Switched to WebServer 测试_🚀_é, thanks!";
+
+(async () => {
+  await submitInlineCommentReply(101, "srv-thread-101-0");
+  if (fetchCalls.length !== 1 || !fetchCalls[0].url.startsWith("/api/gerrit/reply")) {
+    throw new Error("Expected 1 POST to /api/gerrit/reply, got: " + JSON.stringify(fetchCalls));
+  }
+  const body = JSON.parse(fetchCalls[0].opts.body);
+  if (body.comment_id !== "leaf_ps2" || body.unresolved !== false || !body.message.includes("测试_🚀_é")) {
+    throw new Error("Unexpected reply payload: " + JSON.stringify(body));
+  }
+  if (c1.unresolved_comment_count !== 0) {
+    throw new Error("Expected unresolved_comment_count decremented to 0, got " + c1.unresolved_comment_count);
+  }
+  const updatedHtml = _els["inlineItem-srv-thread-101-0"].outerHTML;
+  if (!updatedHtml.includes("(Resolved · 3 msgs)") || !updatedHtml.includes("Switched to WebServer 测试_🚀_é")) {
+    throw new Error("Expected updated card HTML with Resolved + 3 msgs: " + updatedHtml);
+  }
+  console.log("NODE_HARNESS_OK");
+})().catch(err => { console.error(err); process.exit(1); });
+"""
+        )
+        vm_wrapper = (
+            "const vm = require('node:vm');\n"
+            "const fs = require('node:fs');\n"
+            "const code = fs.readFileSync(process.argv[2], 'utf8');\n"
+            "const sandbox = {\n"
+            "  console, setTimeout, clearTimeout, setInterval: () => 1, clearInterval,\n"
+            "  URLSearchParams, encodeURIComponent, decodeURIComponent, JSON, Math, Number, String, Boolean, Array, Object, Set, Map, RegExp, Error, Promise,\n"
+            "  navigator: { clipboard: { writeText: async () => {} } },\n"
+            "  window: { location: { search: '' }, localStorage: { getItem: () => null, setItem: () => {} }, addEventListener: () => {} },\n"
+            "  document: { addEventListener: () => {}, getElementById: () => null, querySelector: () => null, querySelectorAll: () => [] },\n"
+            "};\n"
+            "sandbox.globalThis = sandbox;\n"
+            "sandbox.window.document = sandbox.document;\n"
+            "vm.runInNewContext(code, sandbox);\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            js_path = Path(tmp_dir) / "ui_harness.js"
+            runner_path = Path(tmp_dir) / "run_vm.js"
+            js_path.write_text(harness_js, encoding="utf-8")
+            runner_path.write_text(vm_wrapper, encoding="utf-8")
+            proc = subprocess.run(
+                [node_bin, str(runner_path), str(js_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+            self.assertEqual(proc.returncode, 0, msg=f"Node UI harness failed:\n{proc.stderr}\n{proc.stdout}")
+            self.assertIn("NODE_HARNESS_OK", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

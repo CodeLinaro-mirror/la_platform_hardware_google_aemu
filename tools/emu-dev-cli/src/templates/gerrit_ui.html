@@ -1477,6 +1477,10 @@
   .btn-autosubmit:hover:not(:disabled) { background: #3a3327; }
   .btn-approve-stack { background: #223027; border-color: #365942; color: #a3e4b7; }
   .btn-approve-stack:hover:not(:disabled) { background: #293b30; }
+  .cl-nav-group { display: inline-flex; align-items: center; gap: 6px; }
+  .btn.btn-nav-cl { padding: 5px 10px; background: #222632; border-color: #3d465c; color: #dbe7ff; }
+  .btn.btn-nav-cl:hover:not(:disabled) { background: #2b3140; border-color: #52607d; color: #ffffff; }
+  .btn.btn-nav-cl:disabled { cursor: not-allowed; opacity: 0.46; }
   .btn.is-active-vote {
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35), 0 0 0 1px rgba(130, 177, 255, 0.28);
   }
@@ -2506,6 +2510,44 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
+  }
+  .inline-thread-msg + .inline-thread-msg {
+    margin-top: 8px;
+    padding-top: 7px;
+    border-top: 1px dashed #32394a;
+  }
+  .inline-thread-msg-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #cbd5e1;
+    margin-bottom: 3px;
+  }
+  .inline-reply-editor {
+    margin-top: 8px;
+    padding: 8px 10px;
+    background: #171a22;
+    border: 1px solid #3c4659;
+    border-left: 3px solid var(--g-accent);
+    border-radius: 5px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .inline-reply-label {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #d7e3fc;
+  }
+  .inline-reply-error {
+    font-size: 11.5px;
+    color: #f6a6ab;
+    background: rgba(122, 42, 48, 0.22);
+    border: 1px solid #6b3438;
+    border-radius: 4px;
+    padding: 5px 8px;
   }
   @keyframes qaFlashPulse {
     0% { box-shadow: 0 0 0 2px rgba(109, 213, 140, 0.95), 0 0 18px rgba(109, 213, 140, 0.45); }
@@ -4159,6 +4201,7 @@
     lastRenderedDiffSignature: "",
     editingQaItemById: {},
     openFollowupByItemId: {},
+    openReplyByItemId: {},
     qaActionInFlightById: new Set(),
     replyNotifications: [],
     nextReplyNotifId: 1,
@@ -4549,6 +4592,8 @@
       "btnVoteAutosubmit",
       "btnPresubmitReady",
       "btnVoteStack",
+      "btnNavPrev",
+      "btnNavNext",
       "btnHarnessMenuToggle",
       "btnAiAnalysis",
       "btnRunSwarm",
@@ -4563,8 +4608,11 @@
         const el = document.getElementById(id);
         if (el) el.disabled = true;
       });
-    } else if (typeof syncSubmitClButtonsDom === "function") {
-      syncSubmitClButtonsDom(getActiveCommitsForDiff());
+    } else {
+      syncToolbarNavButtons();
+      if (typeof syncSubmitClButtonsDom === "function") {
+        syncSubmitClButtonsDom(getActiveCommitsForDiff());
+      }
     }
   }
 
@@ -6503,6 +6551,45 @@
     }
   }
 
+  function canNavigateVisibleCls() {
+    if (state.queueLoading) return false;
+    const orderedItems = getOrderedVisibleCommits(getVisibleStacks());
+    if (orderedItems.length > 1) return true;
+    return (
+      orderedItems.length === 1 &&
+      Number(orderedItems[0].commit.number) !== Number(state.selectedClNumber)
+    );
+  }
+
+  function syncToolbarNavButtons() {
+    const prevBtn = document.getElementById("btnNavPrev");
+    const nextBtn = document.getElementById("btnNavNext");
+    if (!prevBtn && !nextBtn) return;
+    const canNavigate = canNavigateVisibleCls();
+    if (prevBtn) prevBtn.disabled = !canNavigate;
+    if (nextBtn) nextBtn.disabled = !canNavigate;
+  }
+
+  function navigateVisibleCl(direction = "next") {
+    if (state.queueLoading) return;
+    const orderedItems = getOrderedVisibleCommits(getVisibleStacks());
+    const flatVisible = orderedItems.map(item => item.commit);
+    if (!flatVisible.length) return;
+    const isPrev = direction === "prev";
+    const idx = flatVisible.findIndex(c => Number(c.number) === Number(state.selectedClNumber));
+    let targetIdx = 0;
+    if (idx >= 0) {
+      targetIdx = isPrev
+        ? (idx - 1 + flatVisible.length) % flatVisible.length
+        : (idx + 1) % flatVisible.length;
+    } else if (isPrev) {
+      targetIdx = flatVisible.length - 1;
+    }
+    const target = flatVisible[targetIdx];
+    if (!target) return;
+    selectCl(target.number, false, isPrev ? "prev" : "next");
+  }
+
   function selectStackAndCl(stackId, clNum, opts = {}) {
     closeHarnessMenu();
     if (!opts.keepRadarFlag) {
@@ -6930,6 +7017,7 @@
   }
 
   function syncActiveActionButtons(commits, isDiffLoading) {
+    syncToolbarNavButtons();
     syncAiAnalysisButton(commits);
     syncSubmitClButtonsDom(commits);
     const btnAutoFix = document.getElementById("btnAutoFix");
@@ -8086,6 +8174,32 @@
     }, CODE_QUESTION_POLL_INTERVAL_MS);
   }
 
+  function buildServerThreadInlineItem(num, t, tIdx) {
+    const itemId = t._ui_item_id || `srv-thread-${num}-${tIdx}`;
+    t._ui_item_id = itemId;
+    const msgs = Array.isArray(t.messages) ? t.messages : [];
+    const latestObj = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+    return {
+      id: itemId,
+      kind: "comment",
+      comment_id: String(t.leaf_id || (latestObj && latestObj.comment_id) || t.root_id || ""),
+      root_id: String(t.root_id || ""),
+      patch_set: Number(t.patch_set || (latestObj && latestObj.patch_set) || 0) || null,
+      author_name: (latestObj && latestObj.author_name) || t.author_name || "reviewer",
+      root_author_name: t.author_name || "reviewer",
+      file_path: t.file_path,
+      line: Number(t.line || 1),
+      start_line: Number(t.start_line || t.line || 1),
+      end_line: Number(t.end_line || t.line || 1),
+      side: t.side || "REVISION",
+      unresolved: t.unresolved !== false,
+      message: t.latest_message || (latestObj && latestObj.message) || "",
+      messages: msgs,
+      collapsed: state.collapsedInlineIds.has(itemId),
+      raw_thread: t,
+    };
+  }
+
   function getInlineCommentsForFile(clNum, filePath) {
     const num = Number(clNum);
     const list = [];
@@ -8093,20 +8207,7 @@
     if (bundle && Array.isArray(bundle.unresolved_threads)) {
       bundle.unresolved_threads.forEach((t, tIdx) => {
         if ((t.file_path || "") === filePath) {
-          const itemId = `srv-thread-${num}-${tIdx}`;
-          list.push({
-            id: itemId,
-            kind: "comment",
-            author_name: t.author_name || "reviewer",
-            file_path: t.file_path,
-            line: Number(t.line || 1),
-            start_line: Number(t.start_line || t.line || 1),
-            end_line: Number(t.end_line || t.line || 1),
-            side: t.side || "REVISION",
-            unresolved: true,
-            message: t.latest_message || "",
-            collapsed: state.collapsedInlineIds.has(itemId),
-          });
+          list.push(buildServerThreadInlineItem(num, t, tIdx));
         }
       });
     }
@@ -8334,9 +8435,82 @@
     </div>`;
   }
 
+  function renderInlineCommentMessagesHtml(c) {
+    const msgs = Array.isArray(c.messages) ? c.messages : [];
+    if (msgs.length <= 1) {
+      const singleMsg = c.message || (msgs[0] && msgs[0].message) || "";
+      return `<div class="diff-inline-comment-body">${renderInlineMarkdownHtml(singleMsg, false)}</div>`;
+    }
+    return msgs.map(m => {
+      const author = escapeHtml(m.author_name || c.author_name || "reviewer");
+      const psBadge = m.patch_set
+        ? `<span class="diff-inline-status-pill">PS${escapeHtml(m.patch_set)}</span>`
+        : "";
+      return `<div class="inline-thread-msg">
+        <div class="inline-thread-msg-meta"><span>💬 ${author}</span>${psBadge}</div>
+        <div class="diff-inline-comment-body">${renderInlineMarkdownHtml(m.message || "", false)}</div>
+      </div>`;
+    }).join("");
+  }
+
+  function formatInlineReplyStatusPillText(wasResolved, nextResolved) {
+    if (nextResolved) {
+      return wasResolved ? "Stays Resolved" : "Marks Resolved";
+    }
+    return wasResolved ? "Reopens Unresolved" : "Keeps Unresolved";
+  }
+
+  function renderInlineReplyEditorHtml(num, c, safeId, rangeStr) {
+    const replyState = state.openReplyByItemId[c.id || safeId];
+    if (!replyState) return "";
+    const wasResolved = c.unresolved === false;
+    const isResolved = !replyState.unresolved;
+    const statusPillText = formatInlineReplyStatusPillText(wasResolved, isResolved);
+    const submitLabel = replyState.submitting
+      ? `<span class="btn-spinner"></span> Sending Reply…`
+      : (isResolved && !wasResolved ? "✓ Send Reply &amp; Resolve" : "💬 Send Reply");
+    const errHtml = replyState.error
+      ? `<div class="inline-reply-error">${escapeHtml(replyState.error)}</div>`
+      : "";
+    const targetAuthor = escapeHtml(c.root_author_name || c.author_name || "thread");
+    const targetLoc = `${escapeHtml(c.file_path || "")} ${escapeHtml(rangeStr)}`.trim();
+
+    return `<div class="inline-reply-editor" onclick="event.stopPropagation()">
+      <label class="inline-reply-label" for="commentReplyInput-${safeId}">Reply to ${targetAuthor} on <code>${escapeHtml(rangeStr)}</code> (notify: OWNER):</label>
+      <textarea
+        id="commentReplyInput-${safeId}"
+        class="qa-inline-textarea"
+        aria-label="Reply to inline comment on ${targetLoc}"
+        placeholder="Write a reply (Markdown supported · Ctrl+Enter to send · Esc to cancel)…"
+        ${replyState.submitting ? "disabled" : ""}
+        oninput="onInlineReplyDraftInput('${safeId}', this.value)"
+        onkeydown="onInlineReplyKeydown(event, ${num}, '${safeId}')"
+      >${escapeHtml(replyState.draft || "")}</textarea>
+      ${errHtml}
+      <div class="composer-footer">
+        <label class="composer-checkbox-label" for="commentReplyResolved-${safeId}">
+          <input
+            id="commentReplyResolved-${safeId}"
+            type="checkbox"
+            ${isResolved ? "checked" : ""}
+            ${replyState.submitting ? "disabled" : ""}
+            onchange="onInlineReplyResolvedChange(${num}, '${safeId}', this.checked)"
+          />
+          <span>Resolved</span>
+          <span id="commentReplyPill-${safeId}" class="diff-inline-status-pill ${isResolved ? "sent" : ""}">${statusPillText}</span>
+        </label>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <button type="button" class="commit-msg-btn" ${replyState.submitting ? "disabled" : ""} onclick="cancelInlineReplyComposer(${num}, '${safeId}')">Cancel</button>
+          <button id="btnSubmitInlineReply-${safeId}" type="button" class="btn btn-approve" style="padding:4px 10px;font-size:11.5px;" ${replyState.submitting ? "disabled" : ""} onclick="submitInlineCommentReply(${num}, '${safeId}')">${submitLabel}</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
   function renderInlineCommentCardHtml(clNum, c) {
     const num = Number(clNum);
     const itemId = c.id || `inline-${state.nextInlineItemId++}`;
+    const safeId = escapeHtml(itemId);
     const kind = c.kind || "comment";
     const rangeStr = c.alt_id
       ? (c.alt_title || c.alt_id)
@@ -8357,19 +8531,24 @@
 
     const statusLabel = c.unresolved === false ? "Resolved" : "Unresolved";
     const resolvedCls = c.unresolved === false ? "resolved" : "";
-    return `<div id="inlineItem-${escapeHtml(itemId)}" class="diff-inline-comment ${resolvedCls} ${collapsedCls}" data-inline-id="${escapeHtml(itemId)}" data-cl="${num}">
-      <div class="diff-inline-comment-head" onclick="toggleInlineItemCollapse(${num}, '${escapeHtml(itemId)}')" title="Click to expand or collapse inline comment">
+    const msgCount = Array.isArray(c.messages) ? c.messages.length : 0;
+    const countSuffix = msgCount > 1 ? ` · ${msgCount} msgs` : "";
+    const displayAuthor = c.root_author_name || c.author_name || "you";
+    return `<div id="inlineItem-${safeId}" class="diff-inline-comment ${resolvedCls} ${collapsedCls}" data-inline-id="${safeId}" data-cl="${num}">
+      <div class="diff-inline-comment-head" onclick="toggleInlineItemCollapse(${num}, '${safeId}')" title="Click to expand or collapse inline comment">
         <div class="diff-inline-head-left">
-          <span class="diff-inline-head-title">💬 ${escapeHtml(c.author_name || "you")} · <code>${escapeHtml(rangeStr)}</code> (${statusLabel})</span>
+          <span class="diff-inline-head-title">💬 ${escapeHtml(displayAuthor)} · <code>${escapeHtml(rangeStr)}</code> (${statusLabel}${countSuffix})</span>
           <span class="diff-inline-preview">— "${escapeHtml(singleLinePreview)}"</span>
         </div>
         <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
-          <button class="nudge-btn" onclick="event.stopPropagation(); triggerHarnessForCl(${num}, 'address-review')">→ Auto-Fix with Agent</button>
-          <button class="commit-msg-btn inline-collapse-btn" onclick="event.stopPropagation(); toggleInlineItemCollapse(${num}, '${escapeHtml(itemId)}')">${toggleLabel}</button>
+          <button type="button" class="commit-msg-btn inline-reply-btn" onclick="event.stopPropagation(); openInlineReplyComposer(${num}, '${safeId}')" title="Reply to this inline comment thread">💬 Reply</button>
+          <button type="button" class="nudge-btn" onclick="event.stopPropagation(); triggerHarnessForCl(${num}, 'address-review')">→ Auto-Fix with Agent</button>
+          <button type="button" class="commit-msg-btn inline-collapse-btn" onclick="event.stopPropagation(); toggleInlineItemCollapse(${num}, '${safeId}')">${toggleLabel}</button>
         </div>
       </div>
       <div class="diff-inline-comment-body-wrap">
-        <div class="diff-inline-comment-body">${renderInlineMarkdownHtml(c.message || "", false)}</div>
+        ${renderInlineCommentMessagesHtml(c)}
+        ${renderInlineReplyEditorHtml(num, c, safeId, rangeStr)}
       </div>
     </div>`;
   }
@@ -9031,6 +9210,28 @@
     </button>`;
   }
 
+  function renderCommitNavButtonsHtml() {
+    const disabledAttr = canNavigateVisibleCls() ? "" : " disabled";
+    return `<div class="cl-nav-group" role="group" aria-label="Navigate visible CLs">
+      <button
+        id="btnNavPrev"
+        type="button"
+        class="btn btn-nav-cl"${disabledAttr}
+        onclick="event.stopPropagation(); navigateVisibleCl('prev')"
+        title="Previous visible CL without voting (Shortcut: k)"
+        aria-label="Previous visible CL (Shortcut: k)"
+      >← Prev (k)</button>
+      <button
+        id="btnNavNext"
+        type="button"
+        class="btn btn-nav-cl"${disabledAttr}
+        onclick="event.stopPropagation(); navigateVisibleCl('next')"
+        title="Next visible CL without voting (Shortcut: j)"
+        aria-label="Next visible CL (Shortcut: j)"
+      >Next (j) →</button>
+    </div>`;
+  }
+
   function renderCommitHarnessActionsHtml(c) {
     return `<div class="harness-group">
       <span id="activeSwarmsPill" class="active-swarms-pill" style="display:none;" onclick="jumpToActiveSwarmCl()"></span>
@@ -9063,6 +9264,7 @@
         state.activeChatComposer ||
         state.batchReviewerComposer ||
         state.stagedVote.noteOpen ||
+        Object.keys(state.openReplyByItemId || {}).length > 0 ||
         computeStagedVotePayload(commits).hasAnyChange ||
         nextSig === state.lastRenderedDiffSignature)
     ) {
@@ -9127,8 +9329,16 @@
         filesHtml = bundle.files.map(f => renderFileDiffBlock(f, c.number)).join("");
       }
 
-      const threadsHtml = (bundle && Array.isArray(bundle.unresolved_threads) && bundle.unresolved_threads.length > 0)
-        ? bundle.unresolved_threads.map(t => `<div class="swarm-finding">
+      if (bundle && Array.isArray(bundle.unresolved_threads)) {
+        bundle.unresolved_threads.forEach((t, tIdx) => {
+          if (!t._ui_item_id) t._ui_item_id = `srv-thread-${c.number}-${tIdx}`;
+        });
+      }
+      const activeUnresolvedThreads = (bundle && Array.isArray(bundle.unresolved_threads))
+        ? bundle.unresolved_threads.filter(t => t.unresolved !== false)
+        : [];
+      const threadsHtml = activeUnresolvedThreads.length > 0
+        ? activeUnresolvedThreads.map(t => `<div class="swarm-finding" data-thread-ui-id="${escapeHtml(t._ui_item_id || "")}">
             <div class="swarm-finding-head">
               <span>Unresolved Comment · ${escapeHtml(t.author_name)} on ${renderCodeSearchFileLinkHtml(c, t.file_path, `${t.file_path}:${t.line}`, t.line)}</span>
               <button class="nudge-btn" onclick="triggerHarnessForCl(${c.number}, 'address-review', this)">→ Auto-Fix with Agent</button>
@@ -9155,6 +9365,7 @@
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <span style="font-size:11.5px;color:var(--g-muted);">${escapeHtml(c.project_short)} · PS${c.patch_set}</span>
+            ${renderCommitNavButtonsHtml()}
             ${renderCommitSubmitButtonHtml(c)}
             ${renderCommitHarnessActionsHtml(c)}
           </div>
@@ -9177,8 +9388,19 @@
   }
 
   function findInlineItemById(clNum, itemId) {
-    const list = state.inlineCommentsByCl[Number(clNum)] || [];
-    return list.find(item => String(item.id) === String(itemId)) || null;
+    const num = Number(clNum);
+    const idStr = String(itemId || "");
+    const list = state.inlineCommentsByCl[num] || [];
+    const localHit = list.find(item => String(item.id) === idStr);
+    if (localHit) return localHit;
+    const bundle = state.diffsByCl[num];
+    if (bundle && Array.isArray(bundle.unresolved_threads)) {
+      for (let tIdx = 0; tIdx < bundle.unresolved_threads.length; tIdx++) {
+        const srvItem = buildServerThreadInlineItem(num, bundle.unresolved_threads[tIdx], tIdx);
+        if (srvItem.id === idStr) return srvItem;
+      }
+    }
+    return null;
   }
 
   function collapseAllInlinePopups() {
@@ -9208,7 +9430,8 @@
     if (existingEl) {
       const hasOpenEditor = (
         state.editingQaItemById[item.id] !== undefined ||
-        state.openFollowupByItemId[item.id] !== undefined
+        state.openFollowupByItemId[item.id] !== undefined ||
+        state.openReplyByItemId[item.id] !== undefined
       );
       if (hasOpenEditor && !opts.forceRender) {
         return;
@@ -9758,10 +9981,16 @@
       if (!state.inlineCommentsByCl[sel.clNum]) {
         state.inlineCommentsByCl[sel.clNum] = [];
       }
+      const authorName = data.author_name || (state.viewer || "you").split("@")[0];
+      const postedCommentId = String(data.comment_id || "");
+      const postedPatchSet = Number(data.patch_set || 0) || null;
       const commentItem = {
         id: `inline-${state.nextInlineItemId++}`,
         kind: "comment",
-        author_name: data.author_name || (state.viewer || "you").split("@")[0],
+        comment_id: postedCommentId,
+        patch_set: postedPatchSet,
+        author_name: authorName,
+        root_author_name: authorName,
         file_path: sel.filePath,
         line: sel.endLine,
         start_line: sel.startLine,
@@ -9773,6 +10002,15 @@
         alt_title: sel.altTitle || "",
         unresolved,
         message,
+        messages: [
+          {
+            comment_id: postedCommentId,
+            author_name: authorName,
+            patch_set: postedPatchSet,
+            message,
+            unresolved,
+          },
+        ],
         collapsed: false,
       };
       sel.savedInlineId = commentItem.id;
@@ -9793,6 +10031,248 @@
         btnEl.textContent = "💬 Post Comment to Gerrit (notify: OWNER)";
       }
       showToast("Comment post failed: " + err);
+    }
+  }
+
+  function openInlineReplyComposer(clNum, itemId) {
+    const num = Number(clNum);
+    const idStr = String(itemId || "");
+    const item = findInlineItemById(num, idStr);
+    if (!item) return;
+    if (idStr.startsWith("srv-thread-")) {
+      state.collapsedInlineIds.delete(idStr);
+    }
+    item.collapsed = false;
+    if (!state.openReplyByItemId[idStr]) {
+      state.openReplyByItemId[idStr] = {
+        draft: "",
+        unresolved: item.unresolved !== false,
+        submitting: false,
+        error: "",
+      };
+    }
+    insertOrReplaceInlineItemInDom(num, item, {
+      forceRender: true,
+      focusTextareaId: `commentReplyInput-${idStr}`,
+    });
+  }
+
+  function cancelInlineReplyComposer(clNum, itemId) {
+    const num = Number(clNum);
+    const idStr = String(itemId || "");
+    const replyState = state.openReplyByItemId[idStr];
+    if (replyState && replyState.submitting) return;
+    delete state.openReplyByItemId[idStr];
+    const item = findInlineItemById(num, idStr);
+    if (item) {
+      insertOrReplaceInlineItemInDom(num, item, { forceRender: true });
+      const cardEl = document.getElementById(`inlineItem-${idStr}`);
+      const replyBtn = cardEl ? cardEl.querySelector(".inline-reply-btn") : null;
+      if (replyBtn) replyBtn.focus();
+    }
+  }
+
+  function onInlineReplyDraftInput(itemId, val) {
+    const idStr = String(itemId || "");
+    if (state.openReplyByItemId[idStr]) {
+      state.openReplyByItemId[idStr].draft = val;
+      if (state.openReplyByItemId[idStr].error) {
+        state.openReplyByItemId[idStr].error = "";
+      }
+    }
+  }
+
+  function onInlineReplyResolvedChange(clNum, itemId, isChecked) {
+    const num = Number(clNum);
+    const idStr = String(itemId || "");
+    const replyState = state.openReplyByItemId[idStr];
+    if (!replyState) return;
+    replyState.unresolved = !isChecked;
+    const item = findInlineItemById(num, idStr);
+    const wasResolved = Boolean(item && item.unresolved === false);
+    const pillEl = document.getElementById(`commentReplyPill-${idStr}`);
+    if (pillEl) {
+      pillEl.textContent = formatInlineReplyStatusPillText(wasResolved, Boolean(isChecked));
+      pillEl.classList.toggle("sent", Boolean(isChecked));
+    }
+    const submitBtn = document.getElementById(`btnSubmitInlineReply-${idStr}`);
+    if (submitBtn && !replyState.submitting) {
+      submitBtn.textContent = (isChecked && !wasResolved)
+        ? "✓ Send Reply & Resolve"
+        : "💬 Send Reply";
+    }
+  }
+
+  function onInlineReplyKeydown(event, clNum, itemId) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      cancelInlineReplyComposer(clNum, itemId);
+      return;
+    }
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      submitInlineCommentReply(clNum, itemId);
+    }
+  }
+
+  function closeOpenInlineReplyComposers() {
+    let closedAny = false;
+    Object.keys(state.openReplyByItemId || {}).forEach(idStr => {
+      const entry = state.openReplyByItemId[idStr];
+      if (entry && entry.submitting) return;
+      const cardEl = document.getElementById(`inlineItem-${idStr}`);
+      const clNum = Number((cardEl && cardEl.getAttribute("data-cl")) || state.selectedClNumber || 0);
+      delete state.openReplyByItemId[idStr];
+      closedAny = true;
+      if (clNum) {
+        const item = findInlineItemById(clNum, idStr);
+        if (item) insertOrReplaceInlineItemInDom(clNum, item, { forceRender: true });
+      }
+    });
+    return closedAny;
+  }
+
+  function applySubmittedReplyToThreadItem(num, item, data, replyText, nowUnresolved) {
+    const wasUnresolved = item.unresolved !== false;
+    const replyAuthor = data.author_name || (state.viewer || "you").split("@")[0];
+    const newCommentId = String(data.comment_id || "");
+    const resolvedPs = Number(data.patch_set || item.patch_set || 0) || null;
+    const newMsgObj = {
+      comment_id: newCommentId,
+      author_name: replyAuthor,
+      patch_set: resolvedPs,
+      message: replyText,
+      unresolved: nowUnresolved,
+    };
+
+    if (item.raw_thread) {
+      const rt = item.raw_thread;
+      if (!Array.isArray(rt.messages) || rt.messages.length === 0) {
+        rt.messages = [
+          {
+            comment_id: String(rt.leaf_id || rt.root_id || ""),
+            author_name: rt.author_name || "reviewer",
+            patch_set: Number(rt.patch_set || 0) || null,
+            message: rt.latest_message || item.message || "",
+            unresolved: wasUnresolved,
+          },
+        ];
+      }
+      rt.messages.push(newMsgObj);
+      rt.latest_message = replyText;
+      rt.unresolved = nowUnresolved;
+      if (newCommentId) rt.leaf_id = newCommentId;
+      if (resolvedPs) rt.patch_set = resolvedPs;
+      if (wasUnresolved && !nowUnresolved) {
+        document.querySelectorAll(`.swarm-finding[data-thread-ui-id="${item.id}"]`).forEach(el => el.remove());
+      }
+    } else {
+      if (!Array.isArray(item.messages) || item.messages.length === 0) {
+        item.messages = [
+          {
+            comment_id: String(item.comment_id || ""),
+            author_name: item.root_author_name || item.author_name || "you",
+            patch_set: item.patch_set || null,
+            message: item.message || "",
+            unresolved: wasUnresolved,
+          },
+        ];
+      }
+      item.messages.push(newMsgObj);
+      item.message = replyText;
+      item.author_name = replyAuthor;
+      item.unresolved = nowUnresolved;
+      if (newCommentId) item.comment_id = newCommentId;
+      if (resolvedPs) item.patch_set = resolvedPs;
+    }
+
+    const changeObj = findChangeByNumber(num);
+    if (changeObj && wasUnresolved !== nowUnresolved) {
+      changeObj.unresolved_comment_count = Math.max(
+        0,
+        Number(changeObj.unresolved_comment_count || 0) + (nowUnresolved ? 1 : -1)
+      );
+    }
+  }
+
+  async function submitInlineCommentReply(clNum, itemId) {
+    const num = Number(clNum);
+    const idStr = String(itemId || "");
+    const item = findInlineItemById(num, idStr);
+    const replyState = state.openReplyByItemId[idStr];
+    if (!item || !replyState || replyState.submitting) return;
+
+    const ta = document.getElementById(`commentReplyInput-${idStr}`);
+    const replyText = String((ta ? ta.value : replyState.draft) || "").trim();
+    if (!replyText) {
+      showToast("Please enter a reply message before sending.");
+      if (ta) ta.focus();
+      return;
+    }
+    const targetCommentId = String(item.comment_id || "").trim();
+    if (!targetCommentId) {
+      replyState.error = "Gerrit comment ID is not yet synced for this card. Refresh the queue and retry.";
+      insertOrReplaceInlineItemInDom(num, item, {
+        forceRender: true,
+        focusTextareaId: `commentReplyInput-${idStr}`,
+      });
+      showToast("Refresh the queue to load Gerrit comment ID before replying.");
+      return;
+    }
+
+    const chkEl = document.getElementById(`commentReplyResolved-${idStr}`);
+    if (chkEl) {
+      replyState.unresolved = !chkEl.checked;
+    }
+    replyState.draft = replyText;
+    replyState.submitting = true;
+    replyState.error = "";
+    insertOrReplaceInlineItemInDom(num, item, { forceRender: true });
+
+    try {
+      const resp = await sidecarFetch("/api/gerrit/reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cl: num,
+          comment_id: targetCommentId,
+          file_path: item.file_path || "",
+          line: item.line || 1,
+          patch_set: item.patch_set || null,
+          side: item.side || "REVISION",
+          unresolved: Boolean(replyState.unresolved),
+          message: replyText,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || data.error || data.status !== "ok") {
+        throw new Error(data.error || "Failed to post inline reply to Gerrit");
+      }
+
+      const nowUnresolved = Boolean(data.unresolved);
+      applySubmittedReplyToThreadItem(num, item, data, replyText, nowUnresolved);
+      delete state.openReplyByItemId[idStr];
+      invalidateClientQueueCache();
+
+      const refreshedItem = findInlineItemById(num, idStr) || item;
+      insertOrReplaceInlineItemInDom(num, refreshedItem, { forceRender: true });
+      const stateWord = nowUnresolved ? "Unresolved" : "Resolved";
+      const locLabel = `${item.file_path || "/COMMIT_MSG"}:L${item.line || 1}`;
+      document.getElementById("drawerStatus").textContent =
+        `Posted reply on ag/${num} (${locLabel}, ${stateWord}, notify: OWNER)`;
+      showToast(`✓ Sent reply on ${locLabel} (${stateWord}, notify: OWNER)!`);
+    } catch (err) {
+      if (state.openReplyByItemId[idStr]) {
+        state.openReplyByItemId[idStr].submitting = false;
+        state.openReplyByItemId[idStr].error = err.message || String(err);
+      }
+      insertOrReplaceInlineItemInDom(num, item, {
+        forceRender: true,
+        focusTextareaId: `commentReplyInput-${idStr}`,
+      });
+      showToast("Reply failed: " + (err.message || err));
     }
   }
 
@@ -12592,6 +13072,9 @@
       clearCodeSelection();
       return;
     }
+    if (e.key === "Escape" && closeOpenInlineReplyComposers()) {
+      return;
+    }
     if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "TEXTAREA") return;
     if (e.key === "[" && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
@@ -12621,13 +13104,10 @@
     const orderedItems = getOrderedVisibleCommits(getVisibleStacks());
     const flatVisible = orderedItems.map(item => item.commit);
     if (!flatVisible.length) return;
-    const idx = flatVisible.findIndex(c => c.number === state.selectedClNumber);
     if (e.key === "j") {
-      const next = flatVisible[(idx + 1) % flatVisible.length];
-      selectCl(next.number, false, "next");
+      navigateVisibleCl("next");
     } else if (e.key === "k") {
-      const prev = flatVisible[(idx - 1 + flatVisible.length) % flatVisible.length];
-      selectCl(prev.number, false, "prev");
+      navigateVisibleCl("prev");
     } else if (e.key === "x") {
       if (state.selectedClNumber) {
         toggleClCheckbox(state.selectedClNumber);

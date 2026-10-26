@@ -2797,9 +2797,10 @@ class GerritUIService:
         cl_id: str,
         payload_json: str,
         code_review: int,
+        revision_segment: str = "current",
     ) -> dict[str, Any]:
         """Posts a single `gob-curl` review payload with `notify: OWNER` for one CL."""
-        url = f"{self.client.api_host}/a/changes/{cl_id}/revisions/current/review"
+        url = f"{self.client.api_host}/a/changes/{cl_id}/revisions/{revision_segment}/review"
         res = subprocess.run(
             [
                 gob_curl,
@@ -2831,10 +2832,17 @@ class GerritUIService:
                 f"(restricted to Code-Review +1). Open ag/{cl_id} in Gerrit or run the copied "
                 "Cloudtop command to cast your personal +2."
             )
+        parsed_resp: Any = None
+        if res.returncode == 0 and (res.stdout or "").strip():
+            try:
+                parsed_resp = json.loads(strip_xssi_prefix(res.stdout))
+            except ValueError:
+                parsed_resp = None
         return {
             "cl": cl_id,
             "ok": res.returncode == 0,
             "error": err_msg,
+            "response": parsed_resp,
         }
 
     @staticmethod
@@ -3560,6 +3568,55 @@ class GerritUIService:
             "stderr": (res.stderr or "").strip(),
         }
 
+    @staticmethod
+    def _extract_posted_comment_meta(
+        review_resp: Any, file_path: str
+    ) -> tuple[str, int | None]:
+        """Extracts `(comment_id, patch_set)` from Gerrit `ReviewResult` JSON when present."""
+        comments_map = review_resp.get("comments") if isinstance(review_resp, dict) else None
+        if not isinstance(comments_map, dict):
+            return "", None
+        entries = comments_map.get(file_path)
+        if not isinstance(entries, list) or not entries:
+            entries = next((v for v in comments_map.values() if isinstance(v, list) and v), None)
+        first = (
+            entries[0]
+            if isinstance(entries, list) and entries and isinstance(entries[0], dict)
+            else None
+        )
+        if not first:
+            return "", None
+        comment_id = str(first.get("id") or "").strip()
+        raw_ps = first.get("patch_set")
+        patch_set = int(raw_ps) if str(raw_ps or "").isdigit() else None
+        return comment_id, patch_set
+
+    def _post_review_payload(
+        self, cl_id: str, revision_segment: str, payload: dict[str, Any]
+    ) -> Any:
+        """Posts `payload` to `/a/changes/{cl_id}/revisions/{revision_segment}/review` with `gob-curl` fallback."""
+        endpoint = f"/a/changes/{cl_id}/revisions/{revision_segment}/review"
+        try:
+            return self.client._request_json(endpoint, method="POST", data=payload)
+        except Exception as exc:
+            gob_curl = shutil.which("gob-curl")
+            if not gob_curl:
+                raise
+            post_res = self._post_single_vote(
+                gob_curl,
+                cl_id,
+                json.dumps(payload),
+                code_review=0,
+                revision_segment=revision_segment,
+            )
+            if not post_res.get("ok"):
+                err_detail = str(post_res.get("error") or exc).strip()
+                raise RuntimeError(
+                    f"Failed to post review comment on ag/{cl_id} (revision '{revision_segment}'): "
+                    f"{err_detail}. Verify `gcert` SSO credentials and CL access, then retry."
+                ) from exc
+            return post_res.get("response")
+
     def post_inline_comment(
         self,
         cl_number: str | int,
@@ -3577,7 +3634,10 @@ class GerritUIService:
         cleaned_file = (file_path or "").strip() or "/COMMIT_MSG"
         cleaned_msg = (message or "").strip()
         if not cleaned_msg:
-            raise ValueError("Comment message cannot be empty.")
+            raise ValueError(
+                f"Cannot post inline comment on ag/{cl_id} ({cleaned_file}): "
+                "comment message is empty. Enter a non-empty comment message and retry."
+            )
 
         target_line = max(1, int(end_line or line or 1))
         s_ln = max(1, int(start_line or target_line))
@@ -3604,26 +3664,87 @@ class GerritUIService:
                 cleaned_file: [comment_entry],
             },
         }
-        endpoint = f"/a/changes/{cl_id}/revisions/current/review"
-        try:
-            self.client._request_json(endpoint, method="POST", data=payload)
-        except Exception as exc:
-            gob_curl = shutil.which("gob-curl")
-            if not gob_curl:
-                raise
-            post_res = self._post_single_vote(gob_curl, cl_id, json.dumps(payload), code_review=0)
-            if not post_res.get("ok"):
-                raise RuntimeError(post_res.get("error") or str(exc)) from exc
+        review_resp = self._post_review_payload(cl_id, "current", payload)
+        posted_id, posted_ps = self._extract_posted_comment_meta(review_resp, cleaned_file)
 
         self._invalidate_cl_caches([cl_id])
         author = (self.auth_email or self.default_viewer or "you").split("@")[0]
         return {
             "status": "ok",
             "cl": cl_id,
+            "comment_id": posted_id,
+            "patch_set": posted_ps,
             "file_path": cleaned_file,
             "line": e_ln,
             "start_line": s_ln,
             "end_line": e_ln,
+            "side": side_norm,
+            "unresolved": bool(unresolved),
+            "message": cleaned_msg,
+            "author_name": author,
+            "notify": "OWNER",
+        }
+
+    def reply_inline_comment(
+        self,
+        cl_number: str | int,
+        comment_id: str,
+        file_path: str,
+        message: str,
+        *,
+        line: int | None = None,
+        patch_set: int | None = None,
+        side: str = "REVISION",
+        unresolved: bool = False,
+    ) -> dict[str, Any]:
+        """Posts an inline reply (`in_reply_to`) on `cl_number` with mandatory `notify: OWNER`."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        cleaned_comment_id = str(comment_id or "").strip()
+        if not cleaned_comment_id:
+            raise ValueError(
+                f"Cannot post inline reply on ag/{cl_id}: target Gerrit comment_id is empty. "
+                "Refresh the CL diff to load the Gerrit comment ID and retry."
+            )
+        cleaned_msg = str(message or "").strip()
+        if not cleaned_msg:
+            raise ValueError(
+                f"Cannot post inline reply to comment '{cleaned_comment_id}' on ag/{cl_id}: "
+                "reply message is empty. Enter a non-empty reply message and retry."
+            )
+
+        cleaned_file = (file_path or "").strip() or "/COMMIT_MSG"
+        side_norm = "PARENT" if str(side or "").strip().upper() == "PARENT" else "REVISION"
+        resolved_ps = int(patch_set) if patch_set is not None and int(patch_set) > 0 else None
+        revision_segment = str(resolved_ps) if resolved_ps is not None else "current"
+        target_line = int(line) if line is not None and int(line) > 0 else None
+
+        reply_entry: dict[str, Any] = {
+            "in_reply_to": cleaned_comment_id,
+            "message": cleaned_msg,
+            "unresolved": bool(unresolved),
+        }
+        if target_line is not None:
+            reply_entry["line"] = target_line
+
+        payload: dict[str, Any] = {
+            "notify": "OWNER",
+            "comments": {
+                cleaned_file: [reply_entry],
+            },
+        }
+        review_resp = self._post_review_payload(cl_id, revision_segment, payload)
+        posted_id, posted_ps = self._extract_posted_comment_meta(review_resp, cleaned_file)
+
+        self._invalidate_cl_caches([cl_id])
+        author = (self.auth_email or self.default_viewer or "you").split("@")[0]
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "in_reply_to": cleaned_comment_id,
+            "comment_id": posted_id,
+            "file_path": cleaned_file,
+            "line": target_line or 1,
+            "patch_set": posted_ps or resolved_ps,
             "side": side_norm,
             "unresolved": bool(unresolved),
             "message": cleaned_msg,
@@ -4921,6 +5042,35 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                         ),
                         side=str(body.get("side") or "REVISION"),
                         unresolved=bool(body.get("unresolved", True)),
+                    )
+                    self._send_json(res)
+                    return
+                if parsed.path == "/api/gerrit/reply":
+                    raw_line = body.get("line")
+                    raw_ps = (
+                        body.get("patch_set")
+                        if body.get("patch_set") is not None
+                        else body.get("ps")
+                    )
+                    res = service.reply_inline_comment(
+                        cl_number=body.get("cl", ""),
+                        comment_id=str(
+                            body.get("comment_id") or body.get("in_reply_to") or ""
+                        ),
+                        file_path=str(body.get("file_path") or body.get("file") or ""),
+                        message=str(body.get("message") or ""),
+                        line=(
+                            int(raw_line)
+                            if raw_line is not None and str(raw_line).isdigit()
+                            else None
+                        ),
+                        patch_set=(
+                            int(raw_ps)
+                            if raw_ps is not None and str(raw_ps).isdigit()
+                            else None
+                        ),
+                        side=str(body.get("side") or "REVISION"),
+                        unresolved=bool(body.get("unresolved", False)),
                     )
                     self._send_json(res)
                     return
