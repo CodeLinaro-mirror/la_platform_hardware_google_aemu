@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+import getpass
 import http.server
 import json
 import os
@@ -151,6 +152,7 @@ _BUG_ID_NUMBER_RE = re.compile(
 _INLINE_B_LINK_RE = re.compile(r"\bb/(\d{6,12})\b", re.IGNORECASE)
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 _SIMPLE_LDAP_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9._-]*$")
+NON_HUMAN_OS_USERS: frozenset[str] = frozenset({"root", "nobody", "daemon", "bin", "sys"})
 
 _LABEL_SHORT_NAMES: dict[str, str] = {
     "Code-Review": "CR",
@@ -1964,6 +1966,87 @@ def _parse_gchat_dm_output(stdout_str: str) -> tuple[str, str, str]:
     return space_name, message_name, chat_url
 
 
+def _normalize_viewer_email(raw_value: str | None) -> str:
+    """Normalizes a viewer username or email (e.g. `jansene` -> `jansene@google.com`)."""
+    cleaned = (raw_value or "").strip()
+    if "\\" in cleaned:
+        cleaned = cleaned.rsplit("\\", 1)[-1].strip()
+    cleaned = cleaned.lower()
+    if not cleaned:
+        return ""
+    if "@" not in cleaned:
+        if not _SIMPLE_LDAP_RE.match(cleaned):
+            return ""
+        return f"{cleaned}@google.com"
+    return cleaned
+
+
+def _detect_git_user_email() -> str:
+    """Returns `git config user.email` when it belongs to a human account."""
+    try:
+        res = subprocess.run(
+            ["git", "config", "user.email"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except Exception:
+        return ""
+    email = (res.stdout or "").strip().lower()
+    if email and not is_agent_or_bot_email(email):
+        return email
+    return ""
+
+
+def _detect_os_user_email() -> str:
+    """Resolves the logged-in OS user (`$USER`, `$USERNAME`, or `getpass.getuser()`) to `@google.com`."""
+    raw_user = (os.environ.get("USER") or "").strip() or (os.environ.get("USERNAME") or "").strip()
+    if not raw_user:
+        try:
+            raw_user = (getpass.getuser() or "").strip()
+        except Exception:
+            raw_user = ""
+    if not raw_user:
+        return ""
+    if "\\" in raw_user:
+        raw_user = raw_user.rsplit("\\", 1)[-1].strip()
+    short_user = raw_user.split("@", 1)[0].strip().lower()
+    if not short_user or short_user in NON_HUMAN_OS_USERS:
+        return ""
+    email = _normalize_viewer_email(raw_user)
+    if not email or is_agent_or_bot_email(email):
+        return ""
+    return email
+
+
+def _detect_capsule_owner_email() -> str:
+    """Resolves the human capsule owner's `@google.com` email when running on a `cpl-` host."""
+    try:
+        hostname_short = socket.gethostname().split(".")[0].strip()
+        if not hostname_short.startswith("cpl-"):
+            return ""
+        res = subprocess.run(
+            ["cpl", "list"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except Exception:
+        return ""
+    for line in (res.stdout or "").splitlines():
+        if hostname_short not in line:
+            continue
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        owner_cand = _normalize_viewer_email(parts[3])
+        if owner_cand and not is_agent_or_bot_email(owner_cand):
+            return owner_cand
+    return ""
+
+
 class GerritUIService:
     """Backend coordinator querying Gerrit, caching diffs, and executing review/harness actions."""
 
@@ -1976,7 +2059,7 @@ class GerritUIService:
         self.host = host.rstrip("/")
         self.client = GerritClient(host=self.host)
         self.auth_email = self._detect_auth_email()
-        self.default_viewer = default_viewer or self._detect_viewer_email()
+        self.default_viewer = _normalize_viewer_email(default_viewer) or self._detect_viewer_email()
         self.default_query = default_query
         self._session_lock = threading.Lock()
         self._session_approved_cls: set[int] = set()
@@ -2125,45 +2208,22 @@ class GerritUIService:
             return ""
 
     def _detect_viewer_email(self) -> str:
-        """Detects the logged-in engineer's email from env, Gerrit `/a/accounts/self`, git config, or capsule owner."""
-        env_viewer = os.environ.get("AEMU_GERRIT_VIEWER", "").strip().lower()
+        """Detects the logged-in engineer's email from env, Gerrit, git config, OS `$USER`, or capsule owner."""
+        env_viewer = _normalize_viewer_email(os.environ.get("AEMU_GERRIT_VIEWER"))
         if env_viewer and not is_agent_or_bot_email(env_viewer):
             return env_viewer
         if self.auth_email and not is_agent_or_bot_email(self.auth_email):
             return self.auth_email
-        try:
-            res = subprocess.run(
-                ["git", "config", "user.email"],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=5,
-            )
-            email = (res.stdout or "").strip().lower()
-            if email and not is_agent_or_bot_email(email):
-                return email
-        except Exception:
-            pass
-        try:
-            hostname_short = socket.gethostname().split(".")[0].strip()
-            if hostname_short.startswith("cpl-"):
-                res = subprocess.run(
-                    ["cpl", "list"],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    timeout=5,
-                )
-                for line in (res.stdout or "").splitlines():
-                    if hostname_short in line:
-                        parts = line.split()
-                        if len(parts) >= 4:
-                            owner_cand = f"{parts[3].strip().lower()}@google.com"
-                            if not is_agent_or_bot_email(owner_cand):
-                                return owner_cand
-        except Exception:
-            pass
-        return "joshuaduong@google.com"
+        git_email = _detect_git_user_email()
+        if git_email:
+            return git_email
+        os_user_email = _detect_os_user_email()
+        if os_user_email:
+            return os_user_email
+        capsule_owner_email = _detect_capsule_owner_email()
+        if capsule_owner_email:
+            return capsule_owner_email
+        return ""
 
     def _lookup_cached_raw_queue(
         self, q_str: str, *, fast: bool
@@ -2269,7 +2329,7 @@ class GerritUIService:
         use_cache: bool = False,
     ) -> dict[str, Any]:
         """Fetches open CLs matching the viewer's review queue (or custom `query`) and enriches them."""
-        viewer = (viewer_email or self.default_viewer).strip().lower()
+        viewer = _normalize_viewer_email(viewer_email) or self.default_viewer
         norm_scope = (scope or "reviewer").strip().lower()
         norm_author = (author or "").strip()
         explicit_query = (query or self.default_query).strip()
@@ -4789,7 +4849,14 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                     self.wfile.write(js)
                     return
                 if parsed.path in ("/", "/index.html"):
-                    html_bytes = render_static_gerrit_ui_html().encode("utf-8")
+                    req_viewer = _normalize_viewer_email((qs.get("viewer") or [""])[0])
+                    initial_state: dict[str, Any] = {
+                        "viewer": req_viewer or service.default_viewer,
+                        "roster": list(TEAM_ROSTER_EMAILS),
+                    }
+                    html_bytes = render_static_gerrit_ui_html(
+                        initial_payload=initial_state
+                    ).encode("utf-8")
                     self.send_response(200)
                     self.send_header("Content-Type", "text/html; charset=utf-8")
                     self.send_header("Referrer-Policy", "no-referrer")

@@ -4149,10 +4149,24 @@
     { id: "docs_build", label: "📦 Build, Deps & Docs", short: "Build / Docs" },
   ];
 
+  function normalizeViewerInput(rawVal) {
+    const cleaned = String(rawVal || "").trim().toLowerCase();
+    if (!cleaned) return "";
+    return cleaned.includes("@") ? cleaned : `${cleaned}@google.com`;
+  }
+
+  const _bootstrapPayload = (window.__GERRIT_UI_BOOTSTRAP__ && typeof window.__GERRIT_UI_BOOTSTRAP__ === "object")
+    ? window.__GERRIT_UI_BOOTSTRAP__
+    : {};
+  const _initialViewer = normalizeViewerInput(
+    _sidecarUrlParams.get("viewer") || _bootstrapPayload.viewer || ""
+  );
+  const _initialRoster = Array.isArray(_bootstrapPayload.roster) ? _bootstrapPayload.roster : [];
+
   const state = {
-    viewer: "joshuaduong@google.com",
+    viewer: _initialViewer,
     scope: "reviewer",
-    roster: [],
+    roster: _initialRoster,
     changes: [],
     stacks: [],
     diffsByCl: {},
@@ -4673,6 +4687,9 @@
       applyQueuePayload(window.__GERRIT_UI_BOOTSTRAP__);
       return;
     }
+    if (state.viewer || state.roster.length > 0) {
+      renderViewerDropdown();
+    }
     await fetchQueueData(state.viewer, state.scope, {
       loadingTitle: "Loading Gerrit Review Queue…",
       loadingSub: "Fetching open CLs, approval slots, and Buganizer metadata",
@@ -4897,8 +4914,12 @@
 
   function renderViewerDropdown() {
     const sel = document.getElementById("viewerSelect");
-    const emails = Array.from(new Set([state.viewer, ...state.roster]));
-    sel.innerHTML = emails
+    if (!sel) return;
+    const emails = Array.from(new Set([state.viewer, ...state.roster].filter(Boolean)));
+    const placeholder = !state.viewer
+      ? `<option value="" selected>Auto-detect viewer…</option>`
+      : "";
+    sel.innerHTML = placeholder + emails
       .map(em => `<option value="${escapeHtml(em)}" ${em === state.viewer ? "selected" : ""}>${escapeHtml(em)}</option>`)
       .join("");
   }

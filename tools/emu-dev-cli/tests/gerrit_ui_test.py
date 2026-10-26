@@ -281,6 +281,223 @@ class GerritUIServerTest(unittest.TestCase):
         self.assertIn("X-Sidecar-Token", html)
         self.assertIn("测试_🚀_é", html)
 
+    def test_detect_viewer_email_defaults_to_logged_in_os_user(self) -> None:
+        empty_git = subprocess.CompletedProcess(["git", "config", "user.email"], 1, stdout="", stderr="")
+
+        # 1) $USER resolves to <user>@google.com when AEMU_GERRIT_VIEWER, auth_email, and git config are unset
+        with (
+            patch.object(GerritUIService, "_detect_auth_email", return_value=""),
+            patch("commands.gerrit.ui_server.subprocess.run", return_value=empty_git),
+            patch.dict(os.environ, {"USER": "Jansene", "USERNAME": ""}, clear=True),
+        ):
+            svc_user = GerritUIService()
+            self.assertEqual(svc_user.default_viewer, "jansene@google.com")
+
+        # 2) $USERNAME (including Windows DOMAIN\user) resolves when $USER is unset
+        with (
+            patch.object(GerritUIService, "_detect_auth_email", return_value=""),
+            patch("commands.gerrit.ui_server.subprocess.run", return_value=empty_git),
+            patch.dict(os.environ, {"USERNAME": r"GOOGLE\Joshuaduong"}, clear=True),
+        ):
+            svc_win = GerritUIService()
+            self.assertEqual(svc_win.default_viewer, "joshuaduong@google.com")
+
+        # 3) getpass.getuser() fallback when neither USER nor USERNAME is in os.environ
+        with (
+            patch.object(GerritUIService, "_detect_auth_email", return_value=""),
+            patch("commands.gerrit.ui_server.subprocess.run", return_value=empty_git),
+            patch.dict(os.environ, {}, clear=True),
+            patch("commands.gerrit.ui_server.getpass.getuser", return_value="corakwue"),
+        ):
+            svc_getpass = GerritUIService()
+            self.assertEqual(svc_getpass.default_viewer, "corakwue@google.com")
+
+        # 4) Agent/bot $USER (e.g. groupagent-* / corpagent-*) is skipped in favor of cpl list owner
+        def fake_subprocess_cpl(cmd: list[str], **_kwargs) -> subprocess.CompletedProcess[str]:
+            if cmd[:2] == ["git", "config"]:
+                return empty_git
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                stdout=(
+                    "rshell_id/abc  cpl-test-box-123  CAPSULE_STATUS_CONNECTED  "
+                    "jansene  groupagent-android-emulator\n"
+                ),
+                stderr="",
+            )
+
+        with (
+            patch.object(GerritUIService, "_detect_auth_email", return_value="groupagent-android-emulator@google.com"),
+            patch("commands.gerrit.ui_server.subprocess.run", side_effect=fake_subprocess_cpl),
+            patch("commands.gerrit.ui_server.socket.gethostname", return_value="cpl-test-box-123.c.googlers.com"),
+            patch.dict(os.environ, {"USER": "groupagent-android-emulator"}, clear=True),
+        ):
+            svc_capsule = GerritUIService()
+            self.assertEqual(svc_capsule.default_viewer, "jansene@google.com")
+
+        # 5) System/non-LDAP OS user (e.g. root or non-ASCII 测试_🚀_é) does not fall back to joshuaduong@google.com
+        for non_ldap_user in ("root", "测试_🚀_é"):
+            with (
+                patch.object(GerritUIService, "_detect_auth_email", return_value=""),
+                patch("commands.gerrit.ui_server.subprocess.run", return_value=empty_git),
+                patch("commands.gerrit.ui_server.socket.gethostname", return_value="workstation.local"),
+                patch.dict(os.environ, {"USER": non_ldap_user}, clear=True),
+            ):
+                svc_none = GerritUIService()
+                self.assertEqual(svc_none.default_viewer, "")
+
+        # 6) Explicit AEMU_GERRIT_VIEWER takes precedence over $USER
+        with (
+            patch.object(GerritUIService, "_detect_auth_email", return_value=""),
+            patch("commands.gerrit.ui_server.subprocess.run", return_value=empty_git),
+            patch.dict(os.environ, {"AEMU_GERRIT_VIEWER": "rkir", "USER": "jansene"}, clear=True),
+        ):
+            svc_env = GerritUIService()
+            self.assertEqual(svc_env.default_viewer, "rkir@google.com")
+
+    def test_client_html_uses_server_provided_viewer_instead_of_hardcoded_default(self) -> None:
+        empty_html = render_static_gerrit_ui_html()
+        self.assertNotIn('viewer: "joshuaduong@google.com"', empty_html)
+
+        with (
+            patch.object(GerritUIService, "_detect_auth_email", return_value=""),
+            patch(
+                "commands.gerrit.ui_server.subprocess.run",
+                return_value=subprocess.CompletedProcess(["git"], 1, stdout="", stderr=""),
+            ),
+            patch.dict(os.environ, {"USER": "jansene"}, clear=True),
+        ):
+            service = GerritUIService()
+        self.assertEqual(service.default_viewer, "jansene@google.com")
+
+        observed_viewers: list[str | None] = []
+
+        def fake_fetch_queue(**kwargs):
+            observed_viewers.append(kwargs.get("viewer_email"))
+            resolved = kwargs.get("viewer_email") or service.default_viewer
+            return {
+                "ui_version": "test",
+                "viewer": resolved,
+                "scope": kwargs.get("scope") or "reviewer",
+                "roster": ["jansene@google.com", "joshuaduong@google.com"],
+                "is_partial": False,
+                "changes": [],
+                "stacks": [],
+            }
+
+        with (
+            patch.object(service, "fetch_queue", side_effect=fake_fetch_queue),
+            patch.object(service, "schedule_background_prewarm", return_value=False),
+        ):
+            handler_cls = make_gerrit_ui_handler(service)
+            httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+            port = httpd.server_address[1]
+            srv_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+            srv_thread.start()
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=5) as index_resp:
+                    served_html = index_resp.read().decode("utf-8")
+                self.assertIn('"viewer": "jansene@google.com"', served_html)
+
+                # Queue request without explicit viewer param resolves to service.default_viewer ($USER)
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/api/gerrit/queue?scope=reviewer&fast=1", timeout=5
+                ) as queue_resp:
+                    queue_payload = json.loads(queue_resp.read().decode("utf-8"))
+                self.assertEqual(queue_payload["viewer"], "jansene@google.com")
+                self.assertIsNone(observed_viewers[-1])
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+
+        node_bin = shutil.which("node")
+        if node_bin:
+            scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", empty_html, flags=re.S)
+            self.assertTrue(scripts)
+            harness_js = (
+                """
+const requestedUrls = [];
+const elements = {};
+function makeEl(id) {
+  return {
+    id, value: "", textContent: "", innerHTML: "", className: "", disabled: false,
+    clientWidth: 1200,
+    style: { setProperty() {}, display: "" },
+    classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+    setAttribute() {}, getAttribute() { return ""; }, addEventListener() {},
+    getBoundingClientRect() { return { left: 0, top: 0, width: 1200, height: 800 }; },
+    focus() {}, select() {},
+  };
+}
+global.window = {
+  location: { search: "", reload() {} },
+  localStorage: { getItem() { return null; }, setItem() {} },
+  parent: { postMessage() {} },
+  addEventListener() {}, removeEventListener() {},
+  innerWidth: 1280,
+};
+global.document = {
+  body: makeEl("body"),
+  getElementById(id) {
+    if (!elements[id]) elements[id] = makeEl(id);
+    return elements[id];
+  },
+  querySelectorAll() { return []; },
+  addEventListener() {},
+};
+global.getComputedStyle = () => ({ paddingLeft: "18" });
+global.URLSearchParams = URLSearchParams;
+global.fetch = async (url) => {
+  requestedUrls.push(String(url));
+  return {
+    ok: true,
+    async json() {
+      return {
+        viewer: "jansene@google.com",
+        scope: "reviewer",
+        roster: ["jansene@google.com", "joshuaduong@google.com"],
+        is_partial: false,
+        changes: [],
+        stacks: [],
+      };
+    },
+    async text() { return "{}"; },
+  };
+};
+"""
+                + "\n".join(scripts)
+                + """
+setImmediate(() => {
+  if (!requestedUrls.length || requestedUrls[0].includes("viewer=joshuaduong")) {
+    console.error("Unexpected initial fetch URLs:", requestedUrls);
+    process.exit(1);
+  }
+  if (state.viewer !== "jansene@google.com") {
+    console.error("Expected state.viewer to adopt server viewer, got:", state.viewer);
+    process.exit(1);
+  }
+  if (!elements.viewerSelect || !elements.viewerSelect.innerHTML.includes('value="jansene@google.com" selected')) {
+    console.error("Expected viewerSelect to select jansene@google.com, got:", elements.viewerSelect && elements.viewerSelect.innerHTML);
+    process.exit(1);
+  }
+  process.exit(0);
+});
+"""
+            )
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_js = Path(tmp_dir) / "viewer_init_check.js"
+                tmp_js.write_text(harness_js, encoding="utf-8")
+                proc = subprocess.run(
+                    [node_bin, str(tmp_js)],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=False,
+                    timeout=10,
+                )
+                self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+
     def test_sidecar_bootstrap_skips_incomplete_lib_without_template(self) -> None:
         import importlib.util
         from pathlib import Path
