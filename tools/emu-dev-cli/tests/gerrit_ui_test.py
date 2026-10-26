@@ -30,6 +30,14 @@ import unittest
 from unittest.mock import patch
 import urllib.request
 
+from commands.gerrit.ai_analysis import (
+    build_ai_analysis_prompt,
+    extract_bug_ids_from_text,
+    fetch_buganizer_context,
+    normalize_ai_analysis_payload,
+    parse_ai_analysis_from_conversation,
+    resolve_local_repo_root,
+)
 from commands.gerrit.ui_server import (
     GerritUIService,
     build_code_search_file_url,
@@ -903,7 +911,10 @@ class GerritUIServerTest(unittest.TestCase):
 
     def test_loading_transition_indicators(self) -> None:
         html = render_static_gerrit_ui_html()
-        self.assertIn('id="topbarLoadingPill"', html)
+        self.assertNotIn('<div class="topbar">', html)
+        self.assertIn('id="btnRefreshQueue"', html)
+        self.assertIn('class="btn-refresh-icon"', html)
+        self.assertIn('class="refresh-icon-svg"', html)
         self.assertIn('id="globalLoadingBar"', html)
         self.assertIn('id="queuePaneOverlay"', html)
         self.assertIn('id="diffPaneOverlay"', html)
@@ -2277,20 +2288,25 @@ class GerritUIServerTest(unittest.TestCase):
     ) -> None:
         html = render_static_gerrit_ui_html()
 
-        topbar_match = re.search(
-            r'<div class="topbar">(.*?)<div id="globalLoadingBar"',
+        self.assertNotIn('<div class="topbar">', html)
+        viewer_toolbar_match = re.search(
+            r'<div id="queueViewerToolbar"[^>]*>(.*?)</div>\s*<div id="queueSearchBar"',
             html,
             flags=re.S,
         )
-        self.assertIsNotNone(topbar_match)
-        topbar_html = topbar_match.group(1) if topbar_match else ""
-        self.assertNotIn('id="gatePresubmit"', topbar_html)
-        self.assertNotIn('id="gateAgent"', topbar_html)
-        self.assertNotIn('id="gateHideMine"', topbar_html)
+        self.assertIsNotNone(viewer_toolbar_match)
+        viewer_toolbar_html = viewer_toolbar_match.group(1) if viewer_toolbar_match else ""
+        self.assertNotIn('id="gatePresubmit"', viewer_toolbar_html)
+        self.assertNotIn('id="gateAgent"', viewer_toolbar_html)
+        self.assertNotIn('id="gateHideMine"', viewer_toolbar_html)
 
+        viewer_idx = html.index('id="queueViewerToolbar"')
+        search_idx = html.index('id="queueSearchBar"')
         sort_idx = html.index('id="queueTypeToolbar"')
         filter_idx = html.index('id="queueFilterToolbar"')
         list_idx = html.index('id="queueList"')
+        self.assertLess(viewer_idx, search_idx)
+        self.assertLess(search_idx, sort_idx)
         self.assertLess(sort_idx, filter_idx)
         self.assertLess(filter_idx, list_idx)
 
@@ -2668,6 +2684,409 @@ class GerritUIServerTest(unittest.TestCase):
         )
         self.assertNotIn("Switch to Ask Agent", html)
         self.assertNotIn("Switch to Gerrit Comment", html)
+
+    def test_ai_analysis_intangibles_prompt_bug_context_and_truncated_transcript(self) -> None:
+        sample_diff_files = [
+            {
+                "file": "emulator/io/file_测试_🚀_é.cc",
+                "additions": 3,
+                "deletions": 1,
+                "truncated": False,
+                "lines": [
+                    {"type": "hunk", "old": "", "new": "", "text": "@@ -10,4 +10,6 @@ bool OpenChannel() {"},
+                    {"type": "ctx", "old": "10", "new": "10", "text": "  if (path.empty()) return false;"},
+                    {"type": "del", "old": "11", "new": "", "text": "- return LegacyOpen(path);"},
+                    {"type": "add", "old": "", "new": "11", "text": "+ return OpenWithRetry(path, /*retries=*/3);"},
+                    {"type": "ctx", "old": "12", "new": "12", "text": "}"},
+                ],
+            }
+        ]
+        commit_msg = (
+            "fix(io): Retry transient OpenChannel EAGAIN on UTF-8 path 测试_🚀_é\n\n"
+            "Bug: 381234567\n"
+            "See also b/389999999 and Bug: 381234567\n"
+        )
+        self.assertEqual(extract_bug_ids_from_text(commit_msg), ["381234567", "389999999"])
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            fake_issues_bin = tmp_path / "fake_issues"
+            fake_issues_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            fake_issues_bin.chmod(0o755)
+
+            with patch(
+                "commands.gerrit.ai_analysis.subprocess.run",
+                return_value=subprocess.CompletedProcess(
+                    args=[],
+                    returncode=0,
+                    stdout="issue_id: 381234567\ntitle: Pipe open races PipeServer::Bind 测试_🚀_é\n",
+                    stderr="",
+                ),
+            ) as mock_issues:
+                bug_ctx = fetch_buganizer_context(["381234567"], issues_bin=str(fake_issues_bin))
+            self.assertIn("untrusted ticket data", bug_ctx)
+            self.assertIn("### Ticket b/381234567", bug_ctx)
+            self.assertIn("PipeServer::Bind 测试_🚀_é", bug_ctx)
+            mock_issues.assert_called_once()
+
+            fake_repo = tmp_path / "emu-main-next" / "hardware" / "generic" / "goldfish"
+            (fake_repo / ".git").mkdir(parents=True)
+            cfg_file = tmp_path / "emu-dev-cli.json"
+            cfg_file.write_text(
+                json.dumps(
+                    {
+                        "source_directories": {
+                            "citc_ignore": "/google/src/cloud/someone/ws/google3",
+                            "emu_next": str(tmp_path / "emu-main-next"),
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            resolved_repo = resolve_local_repo_root(
+                "platform/hardware/generic/goldfish", config_path=cfg_file
+            )
+            self.assertEqual(resolved_repo, fake_repo)
+
+            prompt = build_ai_analysis_prompt(
+                cl_id="43299999",
+                patch_set=2,
+                subject="fix(io): Retry transient OpenChannel EAGAIN on UTF-8 path 测试_🚀_é",
+                project="platform/hardware/generic/goldfish",
+                commit_message=commit_msg,
+                diff_files=sample_diff_files,
+                bug_context=bug_ctx,
+                config_path=cfg_file,
+            )
+            self.assertIn("[AEMU_INTANGIBLES_ANALYSIS v1 cl=ag/43299999 ps=2]", prompt)
+            self.assertIn(str(fake_repo), prompt)
+            self.assertIn("emulator/io/file_测试_🚀_é.cc", prompt)
+            self.assertIn("DO NOT REPEAT AUTOMATED CHECKS", prompt)
+            self.assertIn("Underlying Problem", prompt)
+            self.assertIn("Alternative Solutions", prompt)
+
+            raw_payload = {
+                "scope_assessment": "symptom_patch",
+                "bottom_line": "Masks startup race via blind retries instead of awaiting PipeServer::Bind readiness (`测试_🚀_é`).",
+                "underlying_problem": "Guest PipeConnection opens the host socket before PipeServer::Bind finishes listening.",
+                "chosen_solution": "Wraps LegacyOpen in a 3-attempt retry loop inside OpenChannel.",
+                "key_tradeoffs": [
+                    "Simple localized diff, but still flakes if host scheduling stalls beyond 3 retries.",
+                    "Adds latency on genuine non-transient open failures.",
+                ],
+                "alternatives": [
+                    {
+                        "verdict": "worth_asking",
+                        "title": "Await PipeServer::WaitUntilListening readiness barrier",
+                        "how_it_works": "Signal readiness from `PipeServer::Bind` before guest channel probing starts.",
+                        "tradeoff": "Eliminates the timing race deterministically with slightly more plumbing.",
+                        "ask_prompt": "Does PipeServer already expose a readiness latch we can await here?",
+                        "review_comment_draft": "Could we await `PipeServer` readiness instead of retrying 3 times?",
+                    },
+                    {
+                        "verdict": "worse_fit",
+                        "title": "Pre-create global static pipe socket at process init",
+                        "how_it_works": "Allocate the socket before main loop initialization.",
+                        "tradeoff": "Breaks per-test isolation and leaks fds across headless restarts.",
+                    },
+                ],
+            }
+            normalized = normalize_ai_analysis_payload(raw_payload)
+            self.assertEqual(normalized["scope_assessment"], "symptom_patch")
+            self.assertEqual(normalized["scope_label"], "Patches Symptom / Workaround")
+            self.assertEqual(normalized["scope_tone"], "warn")
+            self.assertEqual(len(normalized["key_tradeoffs"]), 2)
+            self.assertEqual(len(normalized["alternatives"]), 2)
+            self.assertEqual(normalized["alternatives"][0]["id"], "alt-1")
+            self.assertEqual(normalized["alternatives"][0]["verdict"], "worth_asking")
+            self.assertEqual(normalized["alternatives"][0]["verdict_label"], "Worth Asking Author")
+            self.assertEqual(normalized["alternatives"][1]["verdict"], "worse_fit")
+            self.assertTrue(normalized["alternatives"][1]["ask_prompt"])
+            self.assertTrue(normalized["alternatives"][1]["review_comment_draft"])
+
+            # Verify truncated_fields fallback from transcript.jsonl to transcript_full.jsonl
+            brain_root = tmp_path / "brain"
+            logs_dir = brain_root / "conv-trunc-1" / ".system_generated" / "logs"
+            logs_dir.mkdir(parents=True)
+            full_json_reply = "```json\n" + json.dumps(raw_payload, ensure_ascii=False) + "\n```"
+            (logs_dir / "transcript.jsonl").write_text(
+                "\n".join(
+                    [
+                        json.dumps({"step_index": 0, "type": "USER_INPUT", "content": prompt}),
+                        json.dumps(
+                            {
+                                "step_index": 2,
+                                "type": "PLANNER_RESPONSE",
+                                "content": "```json\n{\"scope_assessment\": \"symptom_patch\", \"bottom_line\": \"trunc...",
+                                "truncated_fields": ["content"],
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (logs_dir / "transcript_full.jsonl").write_text(
+                "\n".join(
+                    [
+                        json.dumps({"step_index": 0, "type": "USER_INPUT", "content": prompt}),
+                        json.dumps(
+                            {
+                                "step_index": 2,
+                                "type": "PLANNER_RESPONSE",
+                                "content": full_json_reply,
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            parsed = parse_ai_analysis_from_conversation("conv-trunc-1", brain_root=brain_root)
+            self.assertIsNotNone(parsed)
+            assert parsed is not None
+            self.assertIn("测试_🚀_é", parsed["bottom_line"])
+            self.assertEqual(parsed["scope_assessment"], "symptom_patch")
+            self.assertEqual(len(parsed["alternatives"]), 2)
+
+    def test_ai_analysis_explicit_analyze_http_cancel_and_qa_isolation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            brain_root = tmp_path / "brain"
+            cache_dir = tmp_path / "ai_analysis_cache"
+
+            with patch.object(
+                GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"
+            ):
+                service = GerritUIService(default_viewer="joshuaduong@google.com")
+            service._ai_analysis_cache_dir = cache_dir
+
+            fake_bundle = {
+                "number": 43288888,
+                "commit_message": "fix(gerrit): Tighten token check 测试_🚀_é",
+                "files": [
+                    {
+                        "file": "tools/server_测试_🚀_é.py",
+                        "additions": 2,
+                        "deletions": 1,
+                        "truncated": False,
+                        "lines": [
+                            {"type": "hunk", "old": "", "new": "", "text": "@@ -20,2 +20,3 @@ def check_token(tok):"},
+                            {"type": "del", "old": "20", "new": "", "text": "- return bool(tok)"},
+                            {"type": "add", "old": "", "new": "20", "text": "+ return hmac.compare_digest(tok or '', SECRET)"},
+                        ],
+                    }
+                ],
+                "unresolved_threads": [],
+                "is_pure_rebase": False,
+            }
+            spawn_calls: list[list[str]] = []
+            ls_calls: list[tuple[str, dict[str, object]]] = []
+
+            def fake_agentapi(args: list[str], project_id: str | None = None) -> dict[str, str]:
+                spawn_calls.append(list(args))
+                return {"conversationId": "conv-intangibles-1"}
+
+            def fake_ls_rpc(method: str, payload: dict[str, object]) -> dict[str, object]:
+                ls_calls.append((method, dict(payload)))
+                return {}
+
+            orig_discover = discover_transcript_code_questions
+
+            def scoped_discover(*d_args, **d_kwargs):
+                d_kwargs.setdefault("brain_root", brain_root)
+                return orig_discover(*d_args, **d_kwargs)
+
+            with (
+                patch.object(service, "fetch_commit_diff_bundle", return_value=fake_bundle),
+                patch("commands.gerrit.ui_server._run_sidecar_agentapi", side_effect=fake_agentapi),
+                patch("commands.gerrit.ui_server._call_local_language_server_rpc", side_effect=fake_ls_rpc),
+                patch("commands.gerrit.ui_server.discover_transcript_code_questions", side_effect=scoped_discover),
+                patch("commands.gerrit.ai_analysis.fetch_buganizer_context", return_value=""),
+            ):
+                # 1. Default GET never auto-triggers an agent run.
+                initial = service.get_ai_analysis(43288888, patchset=2, brain_root=brain_root)
+                self.assertEqual(initial["analysis_status"], "not_analyzed")
+                self.assertIsNone(initial["analysis"])
+                self.assertEqual(spawn_calls, [])
+
+                # 2. Exercise HTTP GET + POST /api/gerrit/ai-analysis on local server.
+                server = ThreadingHTTPServer(("127.0.0.1", 0), make_gerrit_ui_handler(service))
+                port = server.server_address[1]
+                server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+                server_thread.start()
+                try:
+                    with urllib.request.urlopen(
+                        f"http://127.0.0.1:{port}/api/gerrit/ai-analysis?cl=43288888&ps=2",
+                        timeout=5,
+                    ) as resp:
+                        http_initial = json.loads(resp.read().decode("utf-8"))
+                    self.assertEqual(http_initial["analysis_status"], "not_analyzed")
+
+                    post_req = urllib.request.Request(
+                        f"http://127.0.0.1:{port}/api/gerrit/ai-analysis",
+                        data=json.dumps(
+                            {
+                                "cl": 43288888,
+                                "action": "analyze",
+                                "ps": 2,
+                                "project": "platform/hardware/google/aemu",
+                                "subject": "fix(gerrit): Tighten token check 测试_🚀_é",
+                            }
+                        ).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(post_req, timeout=5) as resp:
+                        started = json.loads(resp.read().decode("utf-8"))
+                finally:
+                    server.shutdown()
+                    server.server_close()
+
+                self.assertEqual(started["analysis_status"], "thinking")
+                self.assertEqual(started["conversation_id"], "conv-intangibles-1")
+                self.assertEqual(len(spawn_calls), 1)
+
+                # Write analyzer transcript and verify get_code_questions() ignores it while get_ai_analysis() resolves it.
+                logs_dir = brain_root / "conv-intangibles-1" / ".system_generated" / "logs"
+                logs_dir.mkdir(parents=True)
+                (logs_dir / "transcript.jsonl").write_text(
+                    "\n".join(
+                        [
+                            json.dumps({"step_index": 0, "type": "USER_INPUT", "content": spawn_calls[0][-1]}),
+                            json.dumps(
+                                {
+                                    "step_index": 2,
+                                    "type": "PLANNER_RESPONSE",
+                                    "content": json.dumps(
+                                        {
+                                            "scope_assessment": "root_cause",
+                                            "bottom_line": "Replaces truthy check with constant-time HMAC comparison (`测试_🚀_é`).",
+                                            "underlying_problem": "`bool(tok)` accepted any non-empty string as valid sidecar auth.",
+                                            "chosen_solution": "Uses `hmac.compare_digest` against the server secret.",
+                                            "key_tradeoffs": ["Constant-time comparison with zero external dependencies."],
+                                            "alternatives": [
+                                                {
+                                                    "verdict": "viable_tradeoff",
+                                                    "title": "Per-request signed session cookie",
+                                                    "how_it_works": "Issue an HttpOnly cookie on initial iframe bootstrap.",
+                                                    "tradeoff": "Avoids header plumbing on XHRs, though iframe SameSite rules complicate localhost.",
+                                                }
+                                            ],
+                                        },
+                                        ensure_ascii=False,
+                                    ),
+                                }
+                            ),
+                        ]
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                self.assertEqual(service.get_code_questions([43288888]), [])
+
+                ready = service.get_ai_analysis(43288888, patchset=2, brain_root=brain_root)
+                self.assertEqual(ready["analysis_status"], "ready")
+                self.assertEqual(ready["analysis"]["scope_assessment"], "root_cause")
+                self.assertEqual(len(ready["analysis"]["alternatives"]), 1)
+                self.assertTrue((cache_dir / "cl_43288888_ps_2.json").is_file())
+
+                # 3. Cancel cleans up trajectory and resets state to not_analyzed.
+                cancelled = service.trigger_or_cancel_ai_analysis(
+                    43288888, action="cancel", patchset=2, brain_root=brain_root
+                )
+                self.assertEqual(cancelled["analysis_status"], "not_analyzed")
+                self.assertFalse((cache_dir / "cl_43288888_ps_2.json").exists())
+                self.assertIn(
+                    ("CancelCascadeInvocation", {"cascadeId": "conv-intangibles-1", "killBackgroundTasks": True}),
+                    ls_calls,
+                )
+                self.assertIn(("DeleteCascadeTrajectory", {"cascadeId": "conv-intangibles-1"}), ls_calls)
+
+    def test_harness_actions_dropdown_and_problem_alternatives_ui(self) -> None:
+        html = render_static_gerrit_ui_html()
+        self.assertIn('id="btnHarnessMenuToggle"', html)
+        self.assertIn('id="harnessDropdownMenu"', html)
+        self.assertIn('id="btnAiAnalysis"', html)
+        self.assertIn('id="btnRunSwarm"', html)
+        self.assertIn('id="btnAutoFix"', html)
+        self.assertIn("Analyze Problem &amp; Alternatives", html)
+        self.assertIn("Run Review Swarm (8 Specialists)", html)
+        self.assertIn("Auto-Address Comments", html)
+        self.assertIn("function positionHarnessDropdownMenu(", html)
+        self.assertIn("function toggleHarnessMenu(", html)
+        self.assertIn("function closeHarnessMenu(", html)
+        self.assertIn("function onHarnessMenuAction(", html)
+        self.assertIn("function syncHarnessMenuButton(", html)
+        self.assertIn("function onAiAnalysisButtonClick(", html)
+        self.assertIn("function analyzeClIntangibles(", html)
+        self.assertIn("function cancelClAiAnalysis(", html)
+        self.assertIn("function renderCommitAiAnalysisPanelHtml(", html)
+        self.assertIn("function getInlineItemsForAiAlternative(", html)
+        self.assertIn("function openAiAlternativeInComposer(", html)
+        self.assertIn("aiAltCard-${num}-${altId}", html)
+        self.assertIn("Alternative Solution ·", html)
+        self.assertNotIn("HARNESS ACTIONS:</span>", html)
+        self.assertNotIn("btnAiAssistToggle", html)
+        self.assertNotIn("btnAnalyzeThisCl", html)
+        self.assertNotIn("ai-inlay-card", html)
+        self.assertNotIn("reviewModeSelect", html)
+
+    def test_topbar_removed_viewer_controls_in_side_panel_and_single_commit_diff_only(
+        self,
+    ) -> None:
+        html = render_static_gerrit_ui_html()
+        self.assertNotIn('<div class="topbar">', html)
+        self.assertNotIn("view-toggle", html)
+        self.assertNotIn('id="modeSplit"', html)
+        self.assertNotIn('id="modeStack"', html)
+        self.assertNotIn('id="modeSquash"', html)
+        self.assertNotIn("function setViewMode(", html)
+        self.assertNotIn("Squashed Stack Diff", html)
+        self.assertNotIn("Continuous Stack Scroll", html)
+        refresh_btn_match = re.search(
+            r'<button[^>]*id="btnRefreshQueue"[^>]*>(.*?)</button>',
+            html,
+            flags=re.S,
+        )
+        self.assertIsNotNone(refresh_btn_match)
+        refresh_btn_inner = refresh_btn_match.group(1) if refresh_btn_match else ""
+        self.assertIn('class="refresh-icon-svg"', refresh_btn_inner)
+        self.assertEqual(re.sub(r"<svg.*?</svg>", "", refresh_btn_inner, flags=re.S).strip(), "")
+
+        queue_pane_idx = html.index('<div class="queue-pane">')
+        diff_pane_idx = html.index('<div class="diff-pane">')
+        viewer_toolbar_idx = html.index('id="queueViewerToolbar"')
+        viewer_select_idx = html.index('id="viewerSelect"')
+        scope_select_idx = html.index('id="scopeSelect"')
+        refresh_btn_idx = html.index('id="btnRefreshQueue"')
+        self.assertGreater(viewer_toolbar_idx, queue_pane_idx)
+        self.assertLess(viewer_toolbar_idx, diff_pane_idx)
+        self.assertGreater(viewer_select_idx, viewer_toolbar_idx)
+        self.assertGreater(scope_select_idx, viewer_select_idx)
+        self.assertGreater(refresh_btn_idx, scope_select_idx)
+        self.assertLess(refresh_btn_idx, diff_pane_idx)
+
+        self.assertIn("function getSelectedStackCommits(", html)
+        self.assertIn("return [chosen || vst.commits[0]];", html)
+
+    def test_collapsible_and_resizable_side_panel_splitter(self) -> None:
+        html = render_static_gerrit_ui_html()
+        self.assertIn('id="workspaceContainer" class="workspace"', html)
+        self.assertIn('id="workspaceSplitter"', html)
+        self.assertIn('class="workspace-splitter"', html)
+        self.assertIn('id="btnCollapseSidebar"', html)
+        self.assertIn('id="btnExpandSidebar"', html)
+        self.assertIn("function toggleSidebarCollapsed(", html)
+        self.assertIn("function setSidebarWidth(", html)
+        self.assertIn("function initWorkspaceSplitter(", html)
+        self.assertIn("--queue-pane-width", html)
+
+        queue_pane_idx = html.index('<div class="queue-pane">')
+        splitter_idx = html.index('id="workspaceSplitter"')
+        diff_pane_idx = html.index('<div class="diff-pane">')
+        self.assertGreater(splitter_idx, queue_pane_idx)
+        self.assertLess(splitter_idx, diff_pane_idx)
 
 
 if __name__ == "__main__":

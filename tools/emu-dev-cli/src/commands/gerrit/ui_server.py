@@ -44,6 +44,10 @@ from typing import Any
 import urllib.parse
 import webbrowser
 
+from commands.gerrit.ai_analysis import (
+    build_ai_analysis_prompt,
+    parse_ai_analysis_from_conversation,
+)
 from commands.gerrit.presubmit_targets import (
     ACTIVE_TARGETS_CACHE_TTL_SEC,
     COMPLETED_TARGETS_CACHE_TTL_SEC,
@@ -1959,9 +1963,16 @@ class GerritUIService:
         self._qa_threads: dict[str, dict[str, Any]] = {}
         self._tracked_qa_conv_ids: set[str] = set()
         self._deleted_qa_conv_ids: set[str] = set()
+        self._analyzer_conv_ids: set[str] = set()
         self._ignored_steps_by_conv: dict[str, set[int]] = {}
         self._cached_project_id: str = ""
         self._next_qa_seq: int = 1
+        self._ai_analysis_lock = threading.Lock()
+        self._ai_analysis_state: dict[tuple[str, int], dict[str, Any]] = {}
+        self._ai_analysis_gen: dict[tuple[str, int], int] = {}
+        self._ai_analysis_cache_dir = (
+            Path.home() / ".cache" / "emu-dev-cli" / "gerrit-ui" / "ai_analysis"
+        )
         self._bug_cache_path = (
             Path.home() / ".cache" / "emu-dev-cli" / "gerrit-ui" / "bug_metadata_cache.json"
         )
@@ -2712,7 +2723,7 @@ class GerritUIService:
         )
         with self._qa_lock:
             tracked = set(self._tracked_qa_conv_ids)
-            deleted = set(self._deleted_qa_conv_ids)
+            deleted = set(self._deleted_qa_conv_ids) | set(self._analyzer_conv_ids)
             ignored = {k: set(v) for k, v in self._ignored_steps_by_conv.items()}
         tx_items = discover_transcript_code_questions(
             conversation_id=conversation_id,
@@ -3706,6 +3717,306 @@ class GerritUIService:
         ask_res["action"] = "modify"
         return ask_res
 
+    def _ai_analysis_disk_path(self, cl_id: str, patchset: int) -> Path:
+        """Returns the disk cache path for Intangibles AI Analysis on `(cl_id, patchset)`."""
+        return self._ai_analysis_cache_dir / f"cl_{cl_id}_ps_{patchset}.json"
+
+    def _load_persisted_ai_analysis(self, cl_id: str, patchset: int) -> dict[str, Any] | None:
+        """Loads persisted Intangibles AI Analysis from disk if present."""
+        cache_file = self._ai_analysis_disk_path(cl_id, patchset)
+        if not cache_file.is_file():
+            return None
+        try:
+            raw = json.loads(cache_file.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        if not isinstance(raw, dict):
+            return None
+        conv_id = str(raw.get("conversation_id") or "").strip()
+        if conv_id:
+            with self._qa_lock:
+                self._analyzer_conv_ids.add(conv_id)
+        return raw
+
+    def _save_persisted_ai_analysis(
+        self, cl_id: str, patchset: int, entry: dict[str, Any]
+    ) -> None:
+        """Persists Intangibles AI Analysis state/results to disk."""
+        try:
+            cache_file = self._ai_analysis_disk_path(cl_id, patchset)
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            cache_file.write_text(
+                json.dumps(entry, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+
+    def _delete_persisted_ai_analysis(self, cl_id: str, patchset: int) -> None:
+        """Deletes persisted Intangibles AI Analysis state from disk when cancelled."""
+        try:
+            cache_file = self._ai_analysis_disk_path(cl_id, patchset)
+            if cache_file.is_file():
+                cache_file.unlink()
+        except OSError:
+            pass
+
+    def _resolve_analysis_patchset(self, cl_id: str, patchset: int | None) -> int:
+        """Resolves `patchset` from explicit value, known queue revisions, or Gerrit detail."""
+        if patchset and int(patchset) > 0:
+            return int(patchset)
+        _, known_ps = self._get_known_revision(cl_id)
+        if known_ps > 0:
+            return known_ps
+        resolved_ps, _ = self._resolve_change_patchset_and_project(cl_id, None, "")
+        return resolved_ps
+
+    def get_ai_analysis(
+        self,
+        cl_number: str | int,
+        *,
+        patchset: int | None = None,
+        brain_root: Path | None = None,
+    ) -> dict[str, Any]:
+        """Returns Intangibles AI Analysis for `(cl_number, patchset)` without auto-triggering."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False, strict=True)
+        resolved_ps = self._resolve_analysis_patchset(cl_id, patchset)
+        key = (cl_id, resolved_ps)
+
+        with self._ai_analysis_lock:
+            gen = self._ai_analysis_gen.get(key, 0)
+            entry = self._ai_analysis_state.get(key)
+        if entry is None:
+            loaded = self._load_persisted_ai_analysis(cl_id, resolved_ps)
+            if loaded is not None:
+                with self._ai_analysis_lock:
+                    if self._ai_analysis_gen.get(key, 0) == gen and key not in self._ai_analysis_state:
+                        self._ai_analysis_state[key] = loaded
+                    entry = self._ai_analysis_state.get(key)
+
+        if entry is None:
+            return {
+                "status": "ok",
+                "cl": cl_id,
+                "patch_set": resolved_ps,
+                "analysis_status": "not_analyzed",
+                "conversation_id": "",
+                "analysis": None,
+                "error": "",
+            }
+
+        status_val = str(entry.get("analysis_status") or "not_analyzed")
+        conv_id = str(entry.get("conversation_id") or "").strip()
+        if status_val == "thinking" and conv_id:
+            parsed = parse_ai_analysis_from_conversation(
+                conv_id,
+                brain_root=brain_root,
+            )
+            if parsed is not None:
+                ready_entry = {
+                    "analysis_status": "ready",
+                    "conversation_id": conv_id,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "analysis": parsed,
+                    "error": "",
+                }
+                committed = False
+                with self._ai_analysis_lock:
+                    cur = self._ai_analysis_state.get(key)
+                    if (
+                        self._ai_analysis_gen.get(key, 0) == gen
+                        and cur is not None
+                        and str(cur.get("conversation_id") or "").strip() == conv_id
+                    ):
+                        self._ai_analysis_state[key] = ready_entry
+                        entry = ready_entry
+                        committed = True
+                if committed:
+                    self._save_persisted_ai_analysis(cl_id, resolved_ps, ready_entry)
+
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "patch_set": resolved_ps,
+            "analysis_status": str(entry.get("analysis_status") or "not_analyzed"),
+            "conversation_id": conv_id,
+            "updated_at": str(entry.get("updated_at") or ""),
+            "analysis": entry.get("analysis"),
+            "error": str(entry.get("error") or ""),
+        }
+
+    def _cancel_ai_analysis(self, cl_id: str, patchset: int | None) -> dict[str, Any]:
+        """Cancels an in-flight or persisted Intangibles AI Analysis and cleans up its trajectory."""
+        resolved_ps = self._resolve_analysis_patchset(cl_id, patchset)
+        key = (cl_id, resolved_ps)
+        with self._ai_analysis_lock:
+            self._ai_analysis_gen[key] = self._ai_analysis_gen.get(key, 0) + 1
+            prev = self._ai_analysis_state.pop(key, None)
+        if prev is None:
+            prev = self._load_persisted_ai_analysis(cl_id, resolved_ps)
+        prev_conv = str((prev or {}).get("conversation_id") or "").strip()
+        self._cancel_or_rewind_inflight_turn(prev_conv, [], delete_entire_conv=True)
+        self._delete_persisted_ai_analysis(cl_id, resolved_ps)
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "patch_set": resolved_ps,
+            "analysis_status": "not_analyzed",
+            "conversation_id": "",
+            "analysis": None,
+            "error": "",
+        }
+
+    def _build_ai_analysis_prompt_for_cl(
+        self, cl_id: str, resolved_ps: int, resolved_proj: str, subject: str
+    ) -> str:
+        """Fetches diff bundle metadata and constructs the Intangibles prompt for `cl_id`."""
+        bundle = self.fetch_commit_diff_bundle(cl_id)
+        commit_msg = str(bundle.get("commit_message") or "")
+        first_lines = commit_msg.splitlines()
+        resolved_subj = (subject or "").strip() or (
+            first_lines[0].strip() if first_lines else f"ag/{cl_id}"
+        )
+        return build_ai_analysis_prompt(
+            cl_id=cl_id,
+            patch_set=resolved_ps,
+            subject=resolved_subj,
+            project=resolved_proj,
+            commit_message=commit_msg,
+            diff_files=bundle.get("files") or [],
+        )
+
+    def _commit_spawned_ai_analysis(
+        self,
+        cl_id: str,
+        resolved_ps: int,
+        gen: int,
+        dispatched: bool,
+        spawned_conv: str,
+        brain_root: Path | None,
+    ) -> dict[str, Any]:
+        """Commits spawned `agentapi` conversation state if `gen` is still current, else cancels it."""
+        key = (cl_id, resolved_ps)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        if not dispatched or not spawned_conv:
+            err_entry = {
+                "analysis_status": "error",
+                "conversation_id": "",
+                "updated_at": now_iso,
+                "analysis": None,
+                "error": (
+                    f"Failed to start Problem & Alternatives analysis for ag/{cl_id}: sidecar agentapi bridge "
+                    "is unavailable. Open Fast Gerrit UI inside Jetski Sidecar and retry."
+                ),
+            }
+            with self._ai_analysis_lock:
+                if self._ai_analysis_gen.get(key) == gen:
+                    self._ai_analysis_state[key] = err_entry
+            return {"status": "ok", "cl": cl_id, "patch_set": resolved_ps, **err_entry}
+
+        with self._qa_lock:
+            self._analyzer_conv_ids.add(spawned_conv)
+        thinking_entry = {
+            "analysis_status": "thinking",
+            "conversation_id": spawned_conv,
+            "updated_at": now_iso,
+            "analysis": None,
+            "error": "",
+        }
+        with self._ai_analysis_lock:
+            is_current = self._ai_analysis_gen.get(key) == gen
+            if is_current:
+                self._ai_analysis_state[key] = thinking_entry
+        if not is_current:
+            self._cancel_or_rewind_inflight_turn(spawned_conv, [], delete_entire_conv=True)
+            return self.get_ai_analysis(cl_id, patchset=resolved_ps, brain_root=brain_root)
+        self._save_persisted_ai_analysis(cl_id, resolved_ps, thinking_entry)
+        return {"status": "ok", "cl": cl_id, "patch_set": resolved_ps, **thinking_entry}
+
+    def _start_ai_analysis(
+        self,
+        cl_id: str,
+        *,
+        patchset: int | None,
+        project: str,
+        subject: str,
+        project_id: str | None,
+        force: bool,
+        brain_root: Path | None,
+    ) -> dict[str, Any]:
+        """Reserves an epoch and launches an isolated `agentapi` conversation for `cl_id`."""
+        resolved_ps, resolved_proj = self._resolve_change_patchset_and_project(
+            cl_id, patchset, project
+        )
+        key = (cl_id, resolved_ps)
+        if not force:
+            current = self.get_ai_analysis(cl_id, patchset=resolved_ps, brain_root=brain_root)
+            if current["analysis_status"] in ("ready", "thinking"):
+                return current
+
+        with self._ai_analysis_lock:
+            existing = self._ai_analysis_state.get(key)
+            if not force and existing and existing.get("analysis_status") in ("ready", "thinking"):
+                return {"status": "ok", "cl": cl_id, "patch_set": resolved_ps, **existing}
+            superseded_conv = (
+                str(existing.get("conversation_id") or "").strip()
+                if existing and existing.get("analysis_status") == "thinking"
+                else ""
+            )
+            gen = self._ai_analysis_gen.get(key, 0) + 1
+            self._ai_analysis_gen[key] = gen
+            self._ai_analysis_state[key] = {
+                "analysis_status": "thinking",
+                "conversation_id": "",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "analysis": None,
+                "error": "",
+            }
+
+        self._cancel_or_rewind_inflight_turn(superseded_conv, [], delete_entire_conv=True)
+        prompt = self._build_ai_analysis_prompt_for_cl(cl_id, resolved_ps, resolved_proj, subject)
+        dispatched, spawned_conv, _ = self._dispatch_code_qa_prompt(
+            target_conv_id="",
+            title=f"Problem & Alternatives · ag/{cl_id} (PS{resolved_ps})",
+            prompt=prompt,
+            project_id=project_id,
+        )
+        return self._commit_spawned_ai_analysis(
+            cl_id, resolved_ps, gen, dispatched, spawned_conv, brain_root
+        )
+
+    def trigger_or_cancel_ai_analysis(
+        self,
+        cl_number: str | int,
+        *,
+        action: str = "analyze",
+        patchset: int | None = None,
+        project: str = "",
+        subject: str = "",
+        project_id: str | None = None,
+        force: bool = False,
+        brain_root: Path | None = None,
+    ) -> dict[str, Any]:
+        """Explicitly starts or cancels a single-CL Intangibles AI Analysis."""
+        norm_action = (action or "analyze").strip().lower()
+        if norm_action not in ("analyze", "cancel"):
+            raise ValueError(
+                f"Invalid Problem & Alternatives action '{action}': expected 'analyze' or 'cancel'. "
+                "Use 'Analyze Problem & Alternatives' under Harness Actions in the toolbar."
+            )
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False, strict=True)
+        if norm_action == "cancel":
+            return self._cancel_ai_analysis(cl_id, patchset)
+        return self._start_ai_analysis(
+            cl_id,
+            patchset=patchset,
+            project=project,
+            subject=subject,
+            project_id=project_id,
+            force=force,
+            brain_root=brain_root,
+        )
+
 
 def _candidate_gerrit_ui_template_paths() -> list[Path]:
     """Builds ordered candidate paths for `templates/gerrit_ui.html`."""
@@ -4128,6 +4439,21 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                         )
                     )
                     return
+                if parsed.path == "/api/gerrit/ai-analysis":
+                    cl_num = (qs.get("cl") or [""])[0].strip()
+                    if not cl_num:
+                        self._send_json(
+                            {
+                                "error": "Missing required `cl` query parameter for `/api/gerrit/ai-analysis` "
+                                "(pass e.g. `?cl=43256612&ps=1`)."
+                            },
+                            status=400,
+                        )
+                        return
+                    raw_ps = (qs.get("ps") or [""])[0].strip()
+                    ps_val = int(raw_ps) if raw_ps.isdigit() else None
+                    self._send_json(service.get_ai_analysis(cl_num, patchset=ps_val))
+                    return
                 self._send_json({"error": f"Unknown endpoint '{parsed.path}'"}, status=404)
             except ValueError as exc:
                 self._send_json({"error": str(exc)}, status=400)
@@ -4292,6 +4618,20 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                         side=str(body.get("side") or "REVISION"),
                         function_name=str(body.get("function_name") or body.get("functionName") or "").strip(),
                         project_id=str(body.get("projectId") or "").strip() or None,
+                    )
+                    self._send_json(res)
+                    return
+                if parsed.path == "/api/gerrit/ai-analysis":
+                    raw_ps = body.get("ps")
+                    ps_val = int(raw_ps) if raw_ps is not None and str(raw_ps).isdigit() else None
+                    res = service.trigger_or_cancel_ai_analysis(
+                        cl_number=body.get("cl", ""),
+                        action=str(body.get("action") or "analyze"),
+                        patchset=ps_val,
+                        project=str(body.get("project") or ""),
+                        subject=str(body.get("subject") or ""),
+                        project_id=str(body.get("projectId") or "").strip() or None,
+                        force=bool(body.get("force", False)),
                     )
                     self._send_json(res)
                     return

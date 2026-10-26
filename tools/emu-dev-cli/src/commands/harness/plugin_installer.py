@@ -137,6 +137,7 @@ def _compute_sidecar_bundle_stamp(src_file: Path, cli_src_dir: Optional[Union[Pa
         src_root / "templates" / "gerrit_ui.html",
         src_root / "commands" / "gerrit" / "ui_server.py",
         src_root / "commands" / "gerrit" / "presubmit_targets.py",
+        src_root / "commands" / "gerrit" / "ai_analysis.py",
         src_file.parent / "sidecars" / "aemu_gerrit_ui" / "server.py",
         src_file.parent / "sidecars" / "aemu_harness_ui" / "server.py",
     ]
