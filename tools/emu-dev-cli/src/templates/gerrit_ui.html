@@ -315,22 +315,82 @@
     gap: 6px;
   }
   .radar-chip {
+    position: relative;
     display: inline-flex;
     align-items: center;
     gap: 6px;
     padding: 3px 8px;
     border-radius: 5px;
+    font-family: inherit;
     font-size: 11.5px;
     font-weight: 600;
+    line-height: 1.35;
+    text-align: left;
     background: var(--g-card);
     color: var(--g-text);
     border: 1px solid var(--g-border);
     cursor: pointer;
+    transition: background 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
+  }
+  .radar-chip:hover {
+    background: #2c303a;
+    border-color: #4b5568;
+  }
+  .radar-chip.selected {
+    background: #253042;
+    border-color: var(--g-accent);
+    box-shadow: 0 0 0 1px rgba(130, 177, 255, 0.32);
   }
   .radar-chip.danger {
     background: #2c2022;
     border-color: rgba(223, 91, 83, 0.4);
     color: #f4c2bf;
+  }
+  .radar-chip.danger:hover {
+    background: #362528;
+    border-color: rgba(223, 91, 83, 0.65);
+  }
+  .radar-chip.danger.selected {
+    background: #382428;
+    border-color: #ff8a84;
+    box-shadow: 0 0 0 1px rgba(255, 138, 132, 0.35);
+  }
+  .radar-chip:focus-visible,
+  .radar-chip-primary:focus-visible {
+    outline: 2px solid var(--g-accent);
+    outline-offset: 2px;
+  }
+  .radar-chip-primary {
+    background: none;
+    border: none;
+    border-radius: 3px;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .radar-chip-primary::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+  .radar-chip .nudge-btn {
+    position: relative;
+    z-index: 1;
+  }
+  .radar-ag-label {
+    color: var(--g-accent);
+    font-weight: 700;
+  }
+  .radar-chip:hover .radar-ag-label {
+    color: #a6c8ff;
+    text-decoration: underline;
   }
   .nudge-btn {
     display: inline-flex;
@@ -752,7 +812,7 @@
     text-decoration: none;
     white-space: nowrap;
   }
-  .bug-chip:hover {
+  a.bug-chip:hover {
     background: #2d323d;
     border-color: #525c70;
     text-decoration: underline;
@@ -1805,6 +1865,47 @@
     align-items: center;
     gap: 8px;
     flex-wrap: wrap;
+  }
+  .commit-cl-id {
+    font-family: var(--g-mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--g-accent);
+    background: rgba(130, 177, 255, 0.1);
+    border: 1px solid rgba(130, 177, 255, 0.28);
+    border-radius: 4px;
+    padding: 1px 6px;
+  }
+  .commit-sec-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .external-gerrit-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #d6e6ff;
+    background: #213247;
+    border: 1px solid #3f648e;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+  .external-gerrit-pill:hover {
+    background: #2a405b;
+    border-color: #6290c8;
+    color: #ffffff;
+    text-decoration: none;
+  }
+  .external-gerrit-pill:focus-visible {
+    outline: 2px solid var(--g-accent);
+    outline-offset: 2px;
   }
   .commit-msg-panel {
     background: #181a1e;
@@ -4910,6 +5011,7 @@
     state.selectedClNumber = null;
     state.selectedStackId = null;
     clearCheckedCls({ silent: true });
+    state.explicitRadarSelection = false;
     if (window.__GERRIT_UI_BOOTSTRAP__ && Array.isArray(window.__GERRIT_UI_BOOTSTRAP__.changes)) {
       state.changes.forEach(c => {
         c.approved_by_viewer = (c.human_cr2 || []).some(v => v.email === newViewer);
@@ -4931,6 +5033,7 @@
     state.selectedClNumber = null;
     state.selectedStackId = null;
     clearCheckedCls({ silent: true });
+    state.explicitRadarSelection = false;
     if (newScope === "owner" && prevScope !== "owner") {
       state.savedNonOwnerGates = { ...state.gates };
       state.gates.presubmit = false;
@@ -5185,9 +5288,10 @@
     return "bug-pri-low";
   }
 
-  function renderBugBadgesHtml(cl) {
+  function renderBugBadgesHtml(cl, opts = {}) {
     const bugs = getClBugs(cl);
     if (!bugs.length) return "";
+    const interactive = opts.interactive !== false;
     return bugs.map(b => {
       const bugId = String(b.id || "");
       const bugUrl = b.url || `https://b.corp.google.com/issues/${bugId}`;
@@ -5208,6 +5312,9 @@
       if (status) tooltipParts.push(`(${status})`);
       if (title) tooltipParts.push(`— ${title}`);
       const tooltip = tooltipParts.join(" ");
+      if (!interactive) {
+        return `<span class="bug-chip" title="${escapeHtml(tooltip)}">🐛 b/${escapeHtml(bugId)}${priTagHtml}</span>`;
+      }
       return `<a class="bug-chip" href="${escapeHtml(bugUrl)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(tooltip)}" onclick="event.stopPropagation()">🐛 b/${escapeHtml(bugId)} ↗${priTagHtml}</a>`;
     }).join(" ");
   }
@@ -5534,7 +5641,8 @@
 
   function isSelectedVisibleInStacks(visibleStacks) {
     if (!state.selectedClNumber) return false;
-    return visibleStacks.some(st => st.commits.some(c => c.number === state.selectedClNumber));
+    const targetNum = Number(state.selectedClNumber);
+    return visibleStacks.some(st => st.commits.some(c => Number(c.number) === targetNum));
   }
 
   function renderAll(opts = {}) {
@@ -5542,7 +5650,6 @@
     const submittableCls = state.changes.filter(isClSubmittable);
     document.getElementById("bottomHiddenCount").textContent = `${alreadyMine.length} CLs auto-hidden`;
 
-    renderCliffRadar();
     renderAuthorFilterControls();
     syncSearchClearButton();
     syncGateControls(alreadyMine.length, submittableCls.length);
@@ -5569,6 +5676,13 @@
     const orderedVisible = getOrderedVisibleCommits(visibleStacks);
     state.visibleCommitCount = orderedVisible.length;
     syncSidebarLayoutDom();
+    const selectedStillExists = Boolean(
+      state.selectedClNumber &&
+      state.changes.some(c => Number(c.number) === Number(state.selectedClNumber))
+    );
+    if (state.explicitRadarSelection && !selectedStillExists) {
+      state.explicitRadarSelection = false;
+    }
     if (!isSelectedVisibleInStacks(visibleStacks) && !state.explicitRadarSelection) {
       if (orderedVisible.length > 0) {
         state.selectedStackId = orderedVisible[0].stack.stack_id;
@@ -5578,6 +5692,7 @@
         state.selectedClNumber = null;
       }
     }
+    renderCliffRadar();
 
     const qContainer = document.getElementById("queueList");
     const prevQueueScroll = (opts.preserveScroll && qContainer) ? qContainer.scrollTop : null;
@@ -5617,6 +5732,8 @@
     const fresh = allFresh.slice(0, 5);
     const aging = allAging.slice(0, 5);
     const cliff = allCliff.slice(0, 5);
+    const isBatchActive = Boolean(state.checkedClNumbers && state.checkedClNumbers.size > 0);
+    const selectedNum = isBatchActive ? 0 : Number(state.selectedClNumber || 0);
 
     document.getElementById("freshCount").textContent = `${allFresh.length} CLs`;
     document.getElementById("agingCount").textContent = `${allAging.length} CLs`;
@@ -5629,32 +5746,37 @@
     if (agingSumEl) agingSumEl.textContent = String(allAging.length);
     if (cliffSumEl) cliffSumEl.textContent = String(allCliff.length);
 
-    document.getElementById("freshChips").innerHTML = fresh.map(c =>
-      `<div class="radar-chip" onclick="selectCl(${c.number})">
+    document.getElementById("freshChips").innerHTML = fresh.map(c => {
+      const isSelected = Number(c.number) === selectedNum;
+      return `<button type="button" class="radar-chip${isSelected ? " selected" : ""}" data-cl-num="${c.number}" aria-pressed="${isSelected ? "true" : "false"}" onclick="selectCl(${c.number})">
         <span class="dot dot-green"></span>
-        <span><a class="ag-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">ag/${c.number} ↗</a> ${renderBugBadgesHtml(c)} (${escapeHtml(c.flight_display)}) · ${escapeHtml(c.project_short)}</span>
-      </div>`
-    ).join("") || `<span style="color:var(--g-subtle);font-size:11px;">None</span>`;
+        <span><span class="radar-ag-label">ag/${c.number}</span> ${renderBugBadgesHtml(c, { interactive: false })} (${escapeHtml(c.flight_display)}) · ${escapeHtml(c.project_short)}</span>
+      </button>`;
+    }).join("") || `<span style="color:var(--g-subtle);font-size:11px;">None</span>`;
 
-    document.getElementById("agingChips").innerHTML = aging.map(c =>
-      `<div class="radar-chip" onclick="selectCl(${c.number})">
+    document.getElementById("agingChips").innerHTML = aging.map(c => {
+      const isSelected = Number(c.number) === selectedNum;
+      return `<button type="button" class="radar-chip${isSelected ? " selected" : ""}" data-cl-num="${c.number}" aria-pressed="${isSelected ? "true" : "false"}" onclick="selectCl(${c.number})">
         <span class="dot dot-amber"></span>
-        <span><a class="ag-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">ag/${c.number} ↗</a> ${renderBugBadgesHtml(c)} (${escapeHtml(c.flight_display)}) · Needs +2</span>
-      </div>`
-    ).join("") || `<span style="color:var(--g-subtle);font-size:11px;">None</span>`;
+        <span><span class="radar-ag-label">ag/${c.number}</span> ${renderBugBadgesHtml(c, { interactive: false })} (${escapeHtml(c.flight_display)}) · Needs +2</span>
+      </button>`;
+    }).join("") || `<span style="color:var(--g-subtle);font-size:11px;">None</span>`;
 
     document.getElementById("cliffChips").innerHTML = cliff.map(c => {
+      const isSelected = Number(c.number) === selectedNum;
       const conflictTag = !c.mergeable ? " · Merge Conflict!" : "";
       const waitTag = c.is_orphaned ? "Needs two +2s" : "Needs +2";
       const canDm = getDmEligibleParticipantsForCl(c).length > 0;
       const dmBtnHtml = canDm
-        ? `<button class="nudge-btn" title="Open 1:1 Google Chat DM composer for ag/${c.number}" onclick="event.stopPropagation(); openChatDmFromRadar(${c.number})">💬 DM Reviewer</button>`
+        ? `<button type="button" class="nudge-btn" title="Open 1:1 Google Chat DM composer for ag/${c.number}" onclick="event.stopPropagation(); openChatDmFromRadar(${c.number})">💬 DM Reviewer</button>`
         : "";
-      return `<div class="radar-chip danger" onclick="selectCl(${c.number})">
-        <span>▲ <a class="ag-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">ag/${c.number} ↗</a> ${renderBugBadgesHtml(c)} (${escapeHtml(c.flight_display)}${conflictTag})</span>
-        <span style="color:#e2b870;">${escapeHtml(waitTag)}</span>
+      return `<div class="radar-chip danger${isSelected ? " selected" : ""}" data-cl-num="${c.number}">
+        <button type="button" class="radar-chip-primary" aria-pressed="${isSelected ? "true" : "false"}" onclick="selectCl(${c.number})">
+          <span>▲ <span class="radar-ag-label">ag/${c.number}</span> ${renderBugBadgesHtml(c, { interactive: false })} (${escapeHtml(c.flight_display)}${conflictTag})</span>
+          <span style="color:#e2b870;">${escapeHtml(waitTag)}</span>
+        </button>
         ${dmBtnHtml}
-        <button class="nudge-btn" onclick="event.stopPropagation(); copyPingForCl(${c.number})">Copy Chat Ping</button>
+        <button type="button" class="nudge-btn" onclick="event.stopPropagation(); copyPingForCl(${c.number})">Copy Chat Ping</button>
       </div>`;
     }).join("") || `<span style="color:var(--g-subtle);font-size:11px;">0 CLs in Cliff Zone</span>`;
   }
@@ -6542,10 +6664,23 @@
   }
 
   function selectCl(clNum, fromRadar = true, animDir = "next") {
+    const targetNum = Number(clNum);
+    if (!targetNum) return;
+    if (fromRadar && state.checkedClNumbers && state.checkedClNumbers.size > 0) {
+      clearCheckedCls({ silent: true });
+    }
+    const matchedStack = state.stacks.find(
+      st => Array.isArray(st.commits) && st.commits.some(c => Number(c.number) === targetNum)
+    );
+    if (!matchedStack && state.changes.some(c => Number(c.number) === targetNum)) {
+      state.explicitRadarSelection = Boolean(fromRadar);
+      selectStackAndCl(null, targetNum, { keepRadarFlag: Boolean(fromRadar), animDir });
+      return;
+    }
     for (const st of state.stacks) {
-      if (st.commits.some(c => c.number === clNum)) {
+      if (st.commits.some(c => Number(c.number) === targetNum)) {
         state.explicitRadarSelection = Boolean(fromRadar);
-        selectStackAndCl(st.stack_id, clNum, { keepRadarFlag: Boolean(fromRadar), animDir });
+        selectStackAndCl(st.stack_id, targetNum, { keepRadarFlag: Boolean(fromRadar), animDir });
         return;
       }
     }
@@ -6629,18 +6764,25 @@
   }
 
   function getActiveCommitsForDiff() {
+    const targetNum = Number(state.selectedClNumber || 0);
+    if (state.explicitRadarSelection && targetNum) {
+      const radarChosen = state.changes.find(c => Number(c.number) === targetNum);
+      if (radarChosen) return [radarChosen];
+    }
     const visibleStacks = getVisibleStacks();
     const vst = visibleStacks.find(s => s.stack_id === state.selectedStackId);
     if (vst && vst.commits.length > 0) {
-      const chosen = vst.commits.find(c => Number(c.number) === Number(state.selectedClNumber));
-      return [chosen || vst.commits[0]];
+      const chosen = vst.commits.find(c => Number(c.number) === targetNum);
+      if (chosen || !targetNum) {
+        return [chosen || vst.commits[0]];
+      }
     }
     const st = state.stacks.find(s => s.stack_id === state.selectedStackId);
     if (st && st.commits.length > 0) {
-      const chosen = st.commits.find(c => Number(c.number) === Number(state.selectedClNumber));
+      const chosen = st.commits.find(c => Number(c.number) === targetNum);
       if (chosen) return [chosen];
     }
-    const single = state.changes.find(c => Number(c.number) === Number(state.selectedClNumber));
+    const single = state.changes.find(c => Number(c.number) === targetNum);
     return single ? [single] : [];
   }
 
@@ -9352,20 +9494,23 @@
       const bugBadgesHtml = renderBugBadgesHtml(c);
       const aiAnalysisPanelHtml = renderCommitAiAnalysisPanelHtml(c);
 
+      const gerritUrl = c.url || `https://googleplex-android-review.git.corp.google.com/c/${c.number}`;
+
       return `<div class="commit-section">
         <div class="commit-sec-header">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             ${renderExpandSidebarButtonHtml()}
-            <strong style="color:var(--g-accent);"><a class="ag-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer">ag/${c.number} ↗</a></strong>
+            <span class="commit-cl-id">ag/${c.number}</span>
             ${bugBadgesHtml}
             <strong>${escapeHtml(c.subject)}</strong>
             ${typeBadgeHtml}
             <span class="badge risk-${c.risk.tier}"><span class="dot ${dotClass}"></span> ${escapeHtml(c.risk.label)}</span>
             ${rebaseBadge}
           </div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div class="commit-sec-actions">
             <span style="font-size:11.5px;color:var(--g-muted);">${escapeHtml(c.project_short)} · PS${c.patch_set}</span>
             ${renderCommitNavButtonsHtml()}
+            <a class="external-gerrit-pill" href="${escapeHtml(gerritUrl)}" target="_blank" rel="noopener noreferrer" title="Open ag/${c.number} in external Gerrit in a new tab">Open in Gerrit ↗</a>
             ${renderCommitSubmitButtonHtml(c)}
             ${renderCommitHarnessActionsHtml(c)}
           </div>

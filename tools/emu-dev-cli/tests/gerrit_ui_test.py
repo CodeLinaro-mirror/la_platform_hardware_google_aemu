@@ -3038,6 +3038,315 @@ class GerritUIServerTest(unittest.TestCase):
         self.assertNotIn("ai-inlay-card", html)
         self.assertNotIn("reviewModeSelect", html)
 
+    def test_radar_in_app_navigation_and_details_external_gerrit_pill(self) -> None:
+        html = render_static_gerrit_ui_html()
+
+        # 1. Verify renderCliffRadar() contains zero external target="_blank" links on chips/bugs.
+        radar_fn_match = re.search(
+            r"function renderCliffRadar\(\)\s*\{(.*?)\n  \}",
+            html,
+            flags=re.S,
+        )
+        self.assertIsNotNone(radar_fn_match)
+        radar_fn_body = radar_fn_match.group(1) if radar_fn_match else ""
+        self.assertNotIn('target="_blank"', radar_fn_body)
+        self.assertNotIn('class="ag-link"', radar_fn_body)
+        self.assertIn("renderBugBadgesHtml(c, { interactive: false })", radar_fn_body)
+        self.assertIn('class="radar-ag-label">ag/${c.number}</span>', radar_fn_body)
+        self.assertIn('onclick="selectCl(${c.number})"', radar_fn_body)
+        # Only DM Reviewer and Copy Chat Ping buttons stop propagation inside radar chips.
+        stop_prop_lines = [
+            ln.strip()
+            for ln in radar_fn_body.splitlines()
+            if "stopPropagation" in ln
+        ]
+        self.assertEqual(len(stop_prop_lines), 2)
+        self.assertTrue(any("openChatDmFromRadar" in ln for ln in stop_prop_lines))
+        self.assertTrue(any("copyPingForCl" in ln for ln in stop_prop_lines))
+
+        # 2. Verify details screen header includes non-link CL badge + prominent external Gerrit pill.
+        self.assertIn('<span class="commit-cl-id">ag/${c.number}</span>', html)
+        self.assertIn('class="external-gerrit-pill"', html)
+        self.assertIn("Open in Gerrit ↗", html)
+
+        # 3. Execute inline UI script in Node V8 to verify in-app radar selection across gates/filters.
+        node_bin = shutil.which("node")
+        if not node_bin:
+            return
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, flags=re.S)
+        self.assertTrue(scripts)
+        ui_js = "\n".join(scripts)
+        for boot_call in (
+            "loadSidebarLayoutPrefs();",
+            "initWorkspaceSplitter();",
+            "initDiffCodeSelectionListeners();",
+            "initApp();",
+        ):
+            ui_js = ui_js.replace(boot_call, f"// {boot_call}")
+
+        harness_js = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+
+const elements = new Map();
+function makeEl(id = "") {
+  const classes = new Set();
+  const attrs = new Map();
+  return {
+    id,
+    innerHTML: "",
+    textContent: "",
+    value: "",
+    disabled: false,
+    scrollTop: 0,
+    offsetWidth: 800,
+    style: { setProperty() {}, removeProperty() {} },
+    dataset: {},
+    setAttribute(k, v) { attrs.set(String(k), String(v)); },
+    getAttribute(k) { return attrs.has(String(k)) ? attrs.get(String(k)) : null; },
+    removeAttribute(k) { attrs.delete(String(k)); },
+    contains() { return false; },
+    classList: {
+      add(...names) { names.forEach(n => classes.add(n)); },
+      remove(...names) { names.forEach(n => classes.delete(n)); },
+      toggle(name, force) {
+        if (force === undefined) {
+          if (classes.has(name)) { classes.delete(name); return false; }
+          classes.add(name); return true;
+        }
+        if (force) classes.add(name); else classes.delete(name);
+        return Boolean(force);
+      },
+      contains(name) { return classes.has(name); },
+    },
+    addEventListener() {},
+    removeEventListener() {},
+    getBoundingClientRect() { return { left: 0, top: 0, right: 100, bottom: 30, width: 100, height: 30 }; },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    focus() {},
+    select() {},
+    scrollIntoView() {},
+  };
+}
+function getEl(id) {
+  if (!elements.has(id)) elements.set(id, makeEl(id));
+  return elements.get(id);
+}
+
+let openedUrls = [];
+const sandbox = {
+  console,
+  setTimeout: () => 1,
+  clearTimeout: () => {},
+  setInterval: () => 1,
+  clearInterval: () => {},
+  requestAnimationFrame: (cb) => cb(),
+  URLSearchParams,
+  encodeURIComponent,
+  decodeURIComponent,
+  localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+  navigator: { clipboard: { writeText: async () => {} } },
+  fetch: async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ status: "ok", analysis_status: "not_analyzed", questions: [] }),
+  }),
+  document: {
+    getElementById: getEl,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener: () => {},
+    body: makeEl("body"),
+    documentElement: makeEl("html"),
+  },
+};
+sandbox.window = sandbox;
+sandbox.window.location = { search: "", href: "http://127.0.0.1:8765/" };
+sandbox.window.addEventListener = () => {};
+sandbox.window.open = (url) => { openedUrls.push(url); };
+
+const code = fs.readFileSync(process.argv[2], "utf8") + `
+globalThis.__testApi = {
+  state,
+  renderAll,
+  renderCliffRadar,
+  renderDiffPane,
+  selectCl,
+  getActiveCommitsForDiff,
+};
+`;
+vm.runInNewContext(code, sandbox, { filename: "gerrit_ui_inline.js" });
+
+const api = sandbox.__testApi;
+const mkCl = (overrides) => Object.assign({
+  number: 43280101,
+  project: "platform/hardware/google/aemu",
+  project_short: "aemu",
+  branch: "studio-main",
+  subject: "feat(gerrit): Fresh commit",
+  url: `https://googleplex-android-review.git.corp.google.com/c/platform/hardware/google/aemu/+/${overrides.number}`,
+  patch_set: 2,
+  owner_name: "Erwin Jansen",
+  owner_email: "jansene@google.com",
+  cliff_zone: "fresh",
+  flight_display: "2h",
+  flight_hours: 2,
+  mergeable: true,
+  is_orphaned: false,
+  approved_by_viewer: false,
+  submittable: false,
+  presubmit_vetted: true,
+  presubmit_status: "passed",
+  presubmit_badge_text: "PV +2",
+  agent_vetted: true,
+  risk: { tier: "low", label: "Low · +12/-3" },
+  insertions: 12,
+  deletions: 3,
+  approval_slots: [{ state: "needed", text: "Needs +2" }],
+  human_cr2: [],
+  agent_cr1: [],
+  reviewers: [{ email: "joshuaduong@google.com", name: "Joshua Duong" }],
+  bugs: [{ id: "485291270", priority: "P2", severity: "S2", status: "ASSIGNED", title: "Fast Gerrit" }],
+  commit_type: "feature",
+}, overrides);
+
+const clFresh = mkCl({ number: 43280101, cliff_zone: "fresh", subject: "feat(gerrit): Fresh radar CL" });
+const clAging = mkCl({ number: 43280202, cliff_zone: "aging", subject: "fix(gerrit): Aging radar CL", presubmit_vetted: false });
+// Same stack as clFresh, but gated out by presubmit_vetted=false AND merge conflict!
+const clCliffSiblingGated = mkCl({
+  number: 43280303,
+  cliff_zone: "cliff",
+  subject: "perf(gerrit): Cliff gated sibling 测试_🚀_é",
+  presubmit_vetted: false,
+  mergeable: false,
+});
+
+api.state.changes = [clFresh, clAging, clCliffSiblingGated];
+api.state.stacks = [
+  { stack_id: "stack-shared", commits: [clFresh, clCliffSiblingGated] },
+  { stack_id: "stack-aging", commits: [clAging] },
+];
+api.state.gates = { presubmit: true, agent: false, hideMine: true, hideSubmittable: true };
+for (const c of api.state.changes) {
+  api.state.diffsByCl[c.number] = {
+    number: c.number,
+    commit_message: `${c.subject}\n\nBug: 485291270`,
+    is_pure_rebase: false,
+    unresolved_threads: [
+      { author_name: "Erwin", file_path: "tools/ui_测试_🚀_é.py", line: 42, latest_message: `Review note for ${c.number}` },
+    ],
+    files: [
+      {
+        file: "tools/ui_测试_🚀_é.py",
+        additions: 1,
+        deletions: 0,
+        truncated: false,
+        lines: [{ type: "add", old: "", new: "42", text: `+ // change ${c.number}` }],
+      },
+    ],
+  };
+  api.state.aiAnalysisByCl = api.state.aiAnalysisByCl || {};
+  api.state.aiAnalysisByCl[c.number] = {
+    status: "ready",
+    patchset: 2,
+    analysis: {
+      scope_assessment: "root_cause",
+      bottom_line: `Analysis summary for ${c.number}`,
+      underlying_problem: "External jump broke triage flow.",
+      chosen_solution: "Select in-place inside Fast Gerrit.",
+      key_tradeoffs: [],
+      alternatives: [],
+    },
+  };
+}
+
+api.renderAll();
+api.renderDiffPane();
+
+const freshHtml = getEl("freshChips").innerHTML;
+const agingHtml = getEl("agingChips").innerHTML;
+const cliffHtml = getEl("cliffChips").innerHTML;
+
+// Radar chips contain zero external links or target="_blank" attributes.
+for (const radarHtml of [freshHtml, agingHtml, cliffHtml]) {
+  assert.equal(radarHtml.includes('target="_blank"'), false);
+  assert.equal(radarHtml.includes("<a "), false);
+  assert.equal(radarHtml.includes("↗"), false);
+  assert.equal(radarHtml.includes('<span class="bug-chip"'), true);
+}
+assert.equal(freshHtml.includes("selectCl(43280101)"), true);
+assert.equal(agingHtml.includes("selectCl(43280202)"), true);
+assert.equal(cliffHtml.includes("selectCl(43280303)"), true);
+
+// Selecting gated cliff sibling CL (43280303) must NOT fall back to visible sibling 43280101.
+api.selectCl(43280303);
+api.renderDiffPane();
+assert.equal(api.state.selectedClNumber, 43280303);
+assert.equal(api.state.explicitRadarSelection, true);
+assert.deepEqual(Array.from(api.getActiveCommitsForDiff(), c => c.number), [43280303]);
+assert.equal(openedUrls.length, 0);
+
+const diffCliffHtml = getEl("diffScroll").innerHTML;
+assert.equal(diffCliffHtml.includes('<span class="commit-cl-id">ag/43280303</span>'), true);
+assert.equal(diffCliffHtml.includes("perf(gerrit): Cliff gated sibling 测试_🚀_é"), true);
+assert.equal(diffCliffHtml.includes("Review note for 43280303"), true);
+assert.equal(diffCliffHtml.includes("Analysis summary for 43280303"), true);
+assert.equal(diffCliffHtml.includes("+ // change 43280303"), true);
+assert.equal(
+  diffCliffHtml.includes(
+    '<a class="external-gerrit-pill" href="https://googleplex-android-review.git.corp.google.com/c/platform/hardware/google/aemu/+/43280303" target="_blank" rel="noopener noreferrer"'
+  ),
+  true
+);
+assert.equal(diffCliffHtml.includes(">Open in Gerrit ↗</a>"), true);
+assert.equal(getEl("cliffChips").innerHTML.includes('class="radar-chip danger selected" data-cl-num="43280303"'), true);
+
+// Even when searchQuery filters out ALL visible stacks, selecting aging CL (43280202) displays it in-app.
+api.state.searchQuery = "unmatched-filter-query";
+api.selectCl(43280202);
+api.renderDiffPane();
+assert.equal(api.state.selectedClNumber, 43280202);
+assert.deepEqual(Array.from(api.getActiveCommitsForDiff(), c => c.number), [43280202]);
+const diffAgingHtml = getEl("diffScroll").innerHTML;
+assert.equal(diffAgingHtml.includes('<span class="commit-cl-id">ag/43280202</span>'), true);
+assert.equal(diffAgingHtml.includes("fix(gerrit): Aging radar CL"), true);
+assert.equal(
+  diffAgingHtml.includes(
+    'href="https://googleplex-android-review.git.corp.google.com/c/platform/hardware/google/aemu/+/43280202" target="_blank"'
+  ),
+  true
+);
+assert.equal(getEl("agingChips").innerHTML.includes('class="radar-chip selected" data-cl-num="43280202" aria-pressed="true"'), true);
+
+// Clicking a Radar chip while Batch Mode checkboxes are active exits Batch Mode and renders that CL's diff.
+api.state.searchQuery = "";
+api.state.checkedClNumbers.add(43280101);
+api.renderAll();
+api.renderDiffPane();
+assert.equal(getEl("diffScroll").innerHTML.includes('id="batchModeSection"'), true);
+api.selectCl(43280303);
+api.renderDiffPane();
+assert.equal(api.state.checkedClNumbers.size, 0);
+assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">ag/43280303</span>'), true);
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            ui_js_file = tmp_path / "ui_script_测试_🚀_é.js"
+            harness_file = tmp_path / "radar_harness_测试_🚀_é.js"
+            ui_js_file.write_text(ui_js, encoding="utf-8")
+            harness_file.write_text(harness_js, encoding="utf-8")
+            proc = subprocess.run(
+                [node_bin, str(harness_file), str(ui_js_file)],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
+            self.assertEqual(proc.returncode, 0, msg=f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
+
     def test_topbar_removed_viewer_controls_in_side_panel_and_single_commit_diff_only(
         self,
     ) -> None:
