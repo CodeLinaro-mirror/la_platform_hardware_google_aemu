@@ -173,6 +173,7 @@ class InstallerTest(unittest.TestCase):
 
             # Check that launcher wrapper destination exists
             self.assertTrue(dest_launcher.exists())
+            self.assertTrue((fake_release_dir / "version.json").is_file())
 
     def test_install_skill(self):
         """Verifies install_skill writes SKILL.md to the gemini skills directories."""

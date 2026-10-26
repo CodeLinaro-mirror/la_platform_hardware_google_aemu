@@ -123,11 +123,13 @@ emu-dev-cli cts run-cts-verifier --build-id 15900270 --module vibrations
   ```bash
   emu-dev-cli init
   ```
-- **Rebuild & update executable (`update`):** Rebuilds
-  `//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli` via Bazel from the configured local
-  `emu-main-next` source directory and re-installs the compiled release package:
+- **Rebuild & update executable (`update`):** Compares the installed `version.json` against the
+  configured local `emu-main-next` checkout, logs whether an update is needed, and rebuilds
+  `//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli` via Bazel when out of date or `--force`
+  (`-f`) is passed (`emu-dev-cli --version` prints the installed version):
   ```bash
-  emu-dev-cli update
+  emu-dev-cli update [--force]
+  emu-dev-cli --version
   ```
 ### 8. Codebase Wiki & Documentation Engine (`docs`)
 Provides a persistent **LLM Wiki** interface (`Query → Ingest → Lint`) across all `ARCHITECTURE.md`,
