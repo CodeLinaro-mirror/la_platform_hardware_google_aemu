@@ -4055,6 +4055,110 @@ document.getElementById("commentReplyInput-srv-thread-101-0").value = "Switched 
             self.assertEqual(proc.returncode, 0, msg=f"Node UI harness failed:\n{proc.stderr}\n{proc.stdout}")
             self.assertIn("NODE_HARNESS_OK", proc.stdout)
 
+    def test_update_available_button_dirty_warning_modal_and_http_endpoints(self) -> None:
+        html = render_static_gerrit_ui_html()
+        self.assertIn('id="btnUpdateAvailable"', html)
+        self.assertIn("⬇ Update Available", html)
+        self.assertIn(".btn-update-available", html)
+        self.assertIn("#2563eb", html)
+        self.assertIn('id="updateDirtyWarningModal"', html)
+        self.assertIn("Unstaged Changes Will Be Wiped Out", html)
+        self.assertIn("Wipe Changes &amp; Update", html)
+        self.assertIn("function onUpdateAvailableClick(", html)
+        self.assertIn("function openUpdateDirtyWarningModal(", html)
+        self.assertIn("function confirmWipeAndPerformSidecarUpdate(", html)
+
+        class FakeUpdater:
+            def __init__(self) -> None:
+                self.status_calls: list[bool] = []
+                self.update_calls: list[bool] = []
+
+            def get_update_status(self, *, force_fetch: bool = False, ui_version: str = "") -> dict[str, object]:
+                self.status_calls.append(force_fetch)
+                return {
+                    "configured": True,
+                    "update_available": True,
+                    "update_reason": "upstream_ahead",
+                    "behind_count": 2,
+                    "has_unstaged_changes": True,
+                    "dirty_files": [
+                        {"path": "tools/emu-dev-cli/src/templates/gerrit_ui_测试_🚀_é.html", "kind": "unstaged", "code": " M"}
+                    ],
+                    "ui_version": ui_version,
+                }
+
+            def perform_update(
+                self, *, force_discard_local: bool = False, ui_version_fn: object = None
+            ) -> dict[str, object]:
+                self.update_calls.append(force_discard_local)
+                if not force_discard_local:
+                    return {
+                        "status": "dirty_worktree",
+                        "requires_confirmation": True,
+                        "has_unstaged_changes": True,
+                        "dirty_files": [
+                            {"path": "tools/emu-dev-cli/src/templates/gerrit_ui_测试_🚀_é.html", "kind": "unstaged", "code": " M"}
+                        ],
+                        "error": "Unstaged local changes detected",
+                    }
+                return {
+                    "status": "ok",
+                    "updated_head_sha": "abc1234",
+                    "discarded_files": ["tools/emu-dev-cli/src/templates/gerrit_ui_测试_🚀_é.html"],
+                    "update_status": {"configured": True, "update_available": False},
+                }
+
+        fake_updater = FakeUpdater()
+        with patch.object(
+            GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"
+        ):
+            service = GerritUIService(
+                default_viewer="joshuaduong@google.com", sidecar_updater=fake_updater  # type: ignore[arg-type]
+            )
+
+        handler_cls = make_gerrit_ui_handler(service)
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+        port = httpd.server_address[1]
+        srv_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        srv_thread.start()
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/api/gerrit/update-status?force=1", timeout=5
+            ) as resp:
+                self.assertEqual(resp.status, 200)
+                st_payload = json.loads(resp.read().decode("utf-8"))
+            self.assertTrue(st_payload["update_available"])
+            self.assertEqual(fake_updater.status_calls, [True])
+
+            req_unconfirmed = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/gerrit/perform-update",
+                data=json.dumps({"force_discard_local": False}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(req_unconfirmed, timeout=5)
+            self.assertEqual(ctx.exception.code, 409)
+            err_payload = json.loads(ctx.exception.read().decode("utf-8"))
+            ctx.exception.close()
+            self.assertEqual(err_payload["status"], "dirty_worktree")
+            self.assertIn("测试_🚀_é", err_payload["dirty_files"][0]["path"])
+
+            req_confirmed = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/gerrit/perform-update",
+                data=json.dumps({"force_discard_local": True}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req_confirmed, timeout=5) as resp2:
+                self.assertEqual(resp2.status, 200)
+                ok_payload = json.loads(resp2.read().decode("utf-8"))
+            self.assertEqual(ok_payload["status"], "ok")
+            self.assertEqual(fake_updater.update_calls, [False, True])
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
 
 if __name__ == "__main__":
     unittest.main()
