@@ -265,6 +265,19 @@ class V2ServicesIntegrationTest(unittest.TestCase):
         self.assertGreaterEqual(len(cam_state.sensors), 1)
 
         # Audio
+        initial_audio = self.audio.GetAudioState(audio_pb.GetAudioStateRequest())
+        self.assertFalse(initial_audio.microphone_muted)
+        self.assertTrue(initial_audio.host_microphone_enabled)
+        muted_audio = self.audio.UpdateAudioState(
+            audio_pb.UpdateAudioStateRequest(
+                microphone_muted=True, host_microphone_enabled=False
+            )
+        )
+        self.assertTrue(muted_audio.microphone_muted)
+        self.assertFalse(muted_audio.host_microphone_enabled)
+        self.assertEqual(muted_audio.microphone_inputs[0].source_id, "host")
+        self.assertTrue(muted_audio.microphone_inputs[0].muted)
+
         speaker_stream = self.audio.StreamSpeakerAudio(
             audio_pb.StreamSpeakerAudioRequest(sample_rate_hz=48000, channel_count=2)
         )

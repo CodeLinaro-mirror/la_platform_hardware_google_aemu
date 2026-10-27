@@ -18,13 +18,34 @@ import {
   AudioChunk,
   AudioService,
   AudioServiceClientImpl,
+  AudioState,
   DeepPartial,
+  GetAudioStateRequest,
   InjectAudioClipResponse,
+  MicrophoneInput,
+  MicrophoneInput_Kind,
+  MicrophoneInputUpdate,
+  StreamAudioStateRequest,
   StreamSpeakerAudioRequest,
+  UpdateAudioStateRequest,
 } from '@android/emulator-services/audio_service';
 import { SampleFormat } from '@android/emulator-services/common';
 
-export { AudioChunk, InjectAudioClipResponse, SampleFormat };
+export {
+  AudioChunk,
+  AudioState,
+  InjectAudioClipResponse,
+  MicrophoneInput,
+  MicrophoneInput_Kind,
+  MicrophoneInputUpdate,
+  SampleFormat,
+  UpdateAudioStateRequest,
+};
+
+/**
+ * The fields of {@link AudioState} a caller is allowed to change.
+ */
+export type AudioStateUpdate = DeepPartial<UpdateAudioStateRequest>;
 
 /**
  * Headless API client for AudioService.
@@ -38,6 +59,35 @@ export class AudioClient {
 
   constructor(transport: GrpcWebTransport) {
     this.rpc = new AudioServiceClientImpl(transport);
+  }
+
+  public GetAudioState(
+    request: DeepPartial<GetAudioStateRequest> = {}
+  ): Promise<AudioState> {
+    return this.rpc.GetAudioState(GetAudioStateRequest.fromPartial(request));
+  }
+
+  public StreamAudioState(
+    request: DeepPartial<StreamAudioStateRequest> = {},
+    signal?: AbortSignal
+  ): AsyncIterable<AudioState> {
+    return this.rpc.StreamAudioState(StreamAudioStateRequest.fromPartial(request), signal);
+  }
+
+  /**
+   * Applies a partial update to virtual microphone mute or mixer channel state.
+   */
+  public UpdateAudioState(update: AudioStateUpdate): Promise<AudioState> {
+    return this.rpc.UpdateAudioState(UpdateAudioStateRequest.fromPartial(update));
+  }
+
+  /** Callback form of {@link AudioClient.StreamAudioState}. */
+  public subscribeAudioState(
+    onState: (state: AudioState) => void,
+    onError?: (err: unknown) => void,
+    request: DeepPartial<StreamAudioStateRequest> = {}
+  ): Unsubscribe {
+    return subscribe((signal) => this.StreamAudioState(request, signal), onState, onError);
   }
 
   public InjectAudioClip(clip: DeepPartial<AudioChunk>): Promise<InjectAudioClipResponse> {
