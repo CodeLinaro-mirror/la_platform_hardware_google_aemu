@@ -19,6 +19,7 @@ from commands.source_directory import (
 )
 from lib.bazel import BazelRunner
 from lib.output import print_result
+from lib.version import UNKNOWN_COMMIT, inspect_source_version, write_installed_version
 from lib.workspace import WorkspacePathResolver
 
 
@@ -195,6 +196,16 @@ def resolve_built_artifact(source_workspace, target, binary_name=None):
         )
 
     return None
+
+
+def _resolve_version_source_dir(source_dir: str | None) -> str | None:
+    """Resolves the source directory to inspect when recording `version.json`."""
+    if source_dir is not None:
+        return source_dir
+    module_dir = str(Path(__file__).resolve().parent)
+    if inspect_source_version(module_dir)["commit"] != UNKNOWN_COMMIT:
+        return module_dir
+    return get_source_directory("emu-main-next")
 
 
 def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
@@ -383,6 +394,10 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
             os.symlink(release_bin, dest_path)
         except OSError:
             _safe_copy2(release_bin, dest_path)
+
+    write_installed_version(
+        release_dir, source_dir=_resolve_version_source_dir(source_dir)
+    )
 
     if Path(release_dir).resolve() == _default_user_release_dir().resolve():
         refresh_installed_harness_plugin(
@@ -601,6 +616,9 @@ def install_launcher_with_sudo(built_bin, dest_path, source_dir=None):
 
     src_dir = resolve_source_directory(source_dir)
     copy_src_to_release_lib(src_dir, release_lib_dir)
+    write_installed_version(
+        release_dir, source_dir=_resolve_version_source_dir(source_dir)
+    )
 
     quoted_release_bin = shlex.quote(release_bin)
     quoted_dest = shlex.quote(str(dest_path))

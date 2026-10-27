@@ -46,11 +46,15 @@ and prompts for local source code repository paths on your workstation.
 
 ```bash
 emu-dev-cli update
+emu-dev-cli update --force
+emu-dev-cli --version
 ```
 
-`update` rebuilds `//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli` via
-Bazel from your local `emu-main-next` checkout and re-installs the compiled
-release package.
+`update` compares the installed `~/.android/emu-dev-cli/version.json` commit
+and working-tree state against your local `emu-main-next` checkout, skips
+rebuilding when already up to date (unless `--force` / `-f` is passed), and
+rebuilds `//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli` via Bazel when
+an update is needed.
 
 > [!NOTE] **Agent Integration:** Once initialized, `emu-dev-cli` skills are
 > automatically registered in `~/.gemini/skills/` and

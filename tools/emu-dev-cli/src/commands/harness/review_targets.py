@@ -15,12 +15,10 @@
 """Target discovery and unified diff parsing for the 8-Specialist Review Swarm."""
 
 from concurrent.futures import ThreadPoolExecutor
-import itertools
 import os
 from pathlib import Path
 import re
 import subprocess
-import threading
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from commands.harness.constants import MAX_REPO_SUBPROJECT_SCAN_DEPTH
@@ -33,6 +31,7 @@ from lib.gerrit_api import (
     parse_cl_identifier as _parse_gerrit_cl_identifier,
     unquote_git_diff_path,
 )
+from lib.path_utils import atomic_write_text, run_git_readonly
 
 COMMIT_MSG_FILE: str = "/COMMIT_MSG"
 GIT_SUBPROCESS_TIMEOUT_SEC: float = 30.0
@@ -50,23 +49,6 @@ BUG_ID_FOOTER_RE: re.Pattern[str] = re.compile(
 )
 
 
-_ATOMIC_WRITE_SEQ = itertools.count()
-
-
-def atomic_write_text(dest_path: Path, content: str) -> None:
-    """Atomically writes UTF-8 text via a PID/thread/sequence-scoped sibling temp file."""
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = dest_path.parent / (
-        f".{dest_path.name}.{os.getpid()}.{threading.get_ident()}.{next(_ATOMIC_WRITE_SEQ)}.tmp"
-    )
-    try:
-        tmp_path.write_text(content, encoding="utf-8")
-        tmp_path.replace(dest_path)
-    except BaseException:
-        tmp_path.unlink(missing_ok=True)
-        raise
-
-
 def sanitize_target_id(target_id: str) -> str:
     """Normalizes a target commit SHA or CL ID into a filesystem-safe directory slug."""
     cleaned = "".join(c for c in (target_id or "") if c.isalnum() or c in ("-", "_"))
@@ -75,17 +57,7 @@ def sanitize_target_id(target_id: str) -> str:
 
 def _run_git(args: List[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     """Executes a UTF-8 git subprocess isolated from stdin with a bounded timeout."""
-    return subprocess.run(
-        ["git", *args],
-        cwd=str(cwd),
-        stdin=subprocess.DEVNULL,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=GIT_SUBPROCESS_TIMEOUT_SEC,
-    )
+    return run_git_readonly(args, cwd, timeout=GIT_SUBPROCESS_TIMEOUT_SEC)
 
 
 _unquote_git_diff_path = unquote_git_diff_path

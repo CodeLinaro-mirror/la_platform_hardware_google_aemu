@@ -64,6 +64,8 @@ from commands import (
 )
 from install import installer
 from lib.logging_config import setup_logging
+from lib.output import ensure_utf8_stdio, print_result
+from lib.version import UNKNOWN_COMMIT, format_version_display, read_installed_version
 
 
 def detect_default_host():
@@ -78,9 +80,42 @@ def detect_default_host():
     return "linux-x64"
 
 
+def _handle_version_flag(args) -> None:
+    """Prints installed emu-dev-cli version metadata and exits."""
+    ensure_utf8_stdio()
+    release_dir = installer.get_release_package_directory(None)
+    installed = read_installed_version(release_dir)
+    if getattr(args, "json", False):
+        payload = {
+            "status": "success",
+            "action": "version",
+            "installed": installed is not None,
+            "release_directory": release_dir,
+        }
+        if installed:
+            payload.update(installed)
+            payload["summary"] = (
+                f"emu-dev-cli {installed.get('commit_short', UNKNOWN_COMMIT)}"
+            )
+        else:
+            payload["commit"] = UNKNOWN_COMMIT
+            payload["commit_short"] = UNKNOWN_COMMIT
+            payload["summary"] = "No installed version record found"
+        print_result(payload, json_mode=True)
+
+    print(format_version_display(installed))
+    sys.exit(0)
+
+
 def main():
+    ensure_utf8_stdio()
     parser = argparse.ArgumentParser(
         prog="emu-dev-cli", description="Android Emulator Developer Assistant CLI"
+    )
+    parser.add_argument(
+        "--version",
+        action="store_true",
+        help="Show installed emu-dev-cli version information and exit",
     )
     parser.add_argument(
         "--json",
@@ -131,6 +166,9 @@ def main():
         verbose=getattr(args, "verbose", False),
         log_file=getattr(args, "log_file", None),
     )
+
+    if getattr(args, "version", False):
+        _handle_version_flag(args)
 
     if not args.subcommand or not hasattr(args, "func"):
         parser.print_help()
