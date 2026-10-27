@@ -59,7 +59,7 @@ def handle_tidy_check(args: argparse.Namespace) -> None:
         logging.info(f"Building tidy report for {len(report_targets)} targets...")
         res = runner.build(
             report_targets,
-            flags=["--@goldfish_build//:clang_tidy_enabled=true", "--keep_going"],
+            flags=["--@aemu//tools/clang_tidy:clang_tidy_enabled=true", "--keep_going"],
             check=False,
             capture_output=True,
         )

@@ -82,7 +82,7 @@ class GitNativeRefactoringEngine:
                 # Re-fetch the diagnostic report dynamically so offsets are perfectly fresh after every single commit!
                 self.runner.build(
                     [report_target],
-                    flags=["--@goldfish_build//:clang_tidy_enabled=true"],
+                    flags=["--@aemu//tools/clang_tidy:clang_tidy_enabled=true"],
                     check=False,
                 )
                 yaml_file = _find_yaml_file(

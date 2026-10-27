@@ -88,7 +88,7 @@ class Level1RefactoringEngine:
         logger.info("[Phase 1] Building and analyzing diagnostics for %s...", report_target)
         self.runner.build(
             [report_target],
-            flags=["--@goldfish_build//:clang_tidy_enabled=true"],
+            flags=["--@aemu//tools/clang_tidy:clang_tidy_enabled=true"],
             check=False,
         )
 
