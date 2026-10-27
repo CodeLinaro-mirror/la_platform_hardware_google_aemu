@@ -104,17 +104,22 @@ def main() -> None:
     import commands.gerrit.ui_server as ui_mod
     import lib.gerrit_api as gerrit_api_mod
 
-    def _current_bundle_mtime() -> tuple[float, float, float, float]:
-        ui_f = getattr(ui_mod, "__file__", None)
-        api_f = getattr(gerrit_api_mod, "__file__", None)
-        ana_f = getattr(ai_analysis_mod, "__file__", None)
-        tpl_f = ui_mod.get_gerrit_ui_template_path()
-        return (
-            Path(ui_f).stat().st_mtime if ui_f else 0.0,
-            Path(api_f).stat().st_mtime if api_f else 0.0,
-            Path(ana_f).stat().st_mtime if ana_f else 0.0,
-            tpl_f.stat().st_mtime if tpl_f.is_file() else 0.0,
+    def _current_bundle_mtime() -> tuple[float, ...]:
+        pt_mod = sys.modules.get("commands.gerrit.presubmit_targets")
+        su_mod = sys.modules.get("commands.gerrit.sidecar_updater")
+        files = (
+            getattr(ui_mod, "__file__", None),
+            getattr(gerrit_api_mod, "__file__", None),
+            getattr(ai_analysis_mod, "__file__", None),
+            getattr(pt_mod, "__file__", None) if pt_mod is not None else None,
+            getattr(su_mod, "__file__", None) if su_mod is not None else None,
         )
+        tpl_f = ui_mod.get_gerrit_ui_template_path()
+        mtimes: list[float] = []
+        for f in files:
+            mtimes.append(Path(f).stat().st_mtime if f and Path(f).is_file() else 0.0)
+        mtimes.append(tpl_f.stat().st_mtime if tpl_f.is_file() else 0.0)
+        return tuple(mtimes)
 
     viewer = os.environ.get("AEMU_GERRIT_VIEWER", "")
     reload_lock = threading.Lock()
@@ -132,9 +137,13 @@ def main() -> None:
                     if _current_bundle_mtime() != state["mtime"]:
                         importlib.reload(gerrit_api_mod)
                         importlib.reload(ai_analysis_mod)
-                        pt_mod = sys.modules.get("commands.gerrit.presubmit_targets")
-                        if pt_mod is not None:
-                            importlib.reload(pt_mod)
+                        for submod_name in (
+                            "commands.gerrit.presubmit_targets",
+                            "commands.gerrit.sidecar_updater",
+                        ):
+                            submod = sys.modules.get(submod_name)
+                            if submod is not None:
+                                importlib.reload(submod)
                         importlib.reload(ui_mod)
                         state["mtime"] = _current_bundle_mtime()
                         state["handler_cls"] = ui_mod.make_gerrit_ui_handler(

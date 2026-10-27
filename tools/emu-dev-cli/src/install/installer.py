@@ -1021,8 +1021,13 @@ def run_install_cmd(args):
     skill_files = install_skill()
     harness_report = {}
     try:
-        from commands.harness.plugin_installer import install_harness_plugin
-        harness_report = install_harness_plugin(cli_command=str(final_installed) if final_installed else None)
+        release_pkg_dir = get_release_package_directory(final_installed or dest_path)
+        installed_lib = os.path.join(release_pkg_dir, "lib")
+        plugin_mod = _load_fresh_plugin_installer_module(release_pkg_dir)
+        harness_report = plugin_mod.install_harness_plugin(
+            cli_command=str(final_installed) if final_installed else None,
+            cli_src_dir=installed_lib if os.path.isdir(installed_lib) else None,
+        )
         if harness_report.get("installed") and harness_report.get("plugin_dir"):
             harness_report["restarted_sidecar_pids"] = restart_running_harness_sidecars(
                 Path(harness_report["plugin_dir"])

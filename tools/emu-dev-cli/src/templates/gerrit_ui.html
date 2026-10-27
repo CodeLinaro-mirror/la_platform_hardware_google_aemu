@@ -3908,6 +3908,203 @@
   .ai-alt-list > .diff-inline-comment {
     margin: 2px 0 6px 12px;
   }
+  .btn-update-available {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+    color: #ffffff;
+    border: 1px solid #60a5fa;
+    border-radius: 6px;
+    padding: 4px 11px;
+    font-size: 11.5px;
+    font-weight: 700;
+    font-family: var(--g-font);
+    cursor: pointer;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.45);
+    transition: background 0.14s ease, border-color 0.14s ease, transform 0.1s ease, box-shadow 0.14s ease;
+    pointer-events: auto;
+  }
+  .btn-update-available.visible {
+    display: inline-flex;
+  }
+  .btn-update-available:hover:not(:disabled) {
+    background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+    border-color: #93c5fd;
+    box-shadow: 0 3px 12px rgba(59, 130, 246, 0.62);
+  }
+  .btn-update-available:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+  .btn-update-available:disabled {
+    opacity: 0.78;
+    cursor: wait;
+  }
+  .update-dirty-dot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 5px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 800;
+    background: rgba(245, 158, 11, 0.28);
+    border: 1px solid rgba(252, 211, 77, 0.65);
+    color: #fef3c7;
+  }
+  .update-warning-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(9, 11, 16, 0.78);
+    backdrop-filter: blur(2px);
+    z-index: 1500;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .update-warning-modal-backdrop.open {
+    display: flex;
+  }
+  .update-warning-modal {
+    width: 520px;
+    max-width: calc(100vw - 24px);
+    background: #1b1e25;
+    border: 1px solid rgba(245, 158, 11, 0.55);
+    border-top: 3px solid #f59e0b;
+    border-radius: 10px;
+    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.68);
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    color: var(--g-text);
+  }
+  .update-warning-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .update-warning-icon {
+    font-size: 20px;
+    line-height: 1.1;
+    flex-shrink: 0;
+  }
+  .update-warning-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #fef3c7;
+  }
+  .update-warning-sub {
+    font-family: var(--g-mono);
+    font-size: 11px;
+    color: var(--g-muted);
+    margin-top: 2px;
+    word-break: break-all;
+  }
+  .update-warning-body {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: #e2e8f0;
+  }
+  .update-warning-body code {
+    font-family: var(--g-mono);
+    font-size: 11.5px;
+    background: rgba(255, 255, 255, 0.08);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: #bfdbfe;
+  }
+  .update-dirty-files-list {
+    max-height: 170px;
+    overflow-y: auto;
+    background: #121419;
+    border: 1px solid #323846;
+    border-radius: 6px;
+    padding: 7px 9px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-family: var(--g-mono);
+    font-size: 11.5px;
+  }
+  .update-dirty-file-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: #f8fafc;
+    word-break: break-all;
+  }
+  .update-dirty-file-tag {
+    flex-shrink: 0;
+    font-family: var(--g-font);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(223, 91, 83, 0.2);
+    border: 1px solid rgba(223, 91, 83, 0.45);
+    color: #fecaca;
+  }
+  .update-warning-hint {
+    font-size: 11.5px;
+    color: var(--g-muted);
+    background: rgba(245, 158, 11, 0.09);
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    border-radius: 6px;
+    padding: 7px 9px;
+  }
+  .update-warning-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding-top: 2px;
+  }
+  .btn-modal-cancel {
+    background: #272b35;
+    border: 1px solid #414858;
+    color: var(--g-text);
+    border-radius: 6px;
+    padding: 6px 13px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--g-font);
+    cursor: pointer;
+  }
+  .btn-modal-cancel:hover:not(:disabled) {
+    background: #323744;
+    border-color: #586175;
+  }
+  .btn-modal-danger-wipe {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(180deg, #dc2626 0%, #b91c1c 100%);
+    border: 1px solid #f87171;
+    color: #ffffff;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: var(--g-font);
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(220, 38, 38, 0.4);
+  }
+  .btn-modal-danger-wipe:hover:not(:disabled) {
+    background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%);
+    border-color: #fca5a5;
+  }
+  .btn-modal-cancel:disabled,
+  .btn-modal-danger-wipe:disabled {
+    opacity: 0.68;
+    cursor: wait;
+  }
 </style>
 </head>
 <body>
@@ -3929,6 +4126,13 @@
       <span class="cliff-subtitle" style="font-size:11.5px;color:var(--g-muted);">
         Highlights CLs approaching staleness, missing a 2nd human reviewer, or needing rebase
       </span>
+      <button
+        id="btnUpdateAvailable"
+        type="button"
+        class="btn-update-available"
+        onclick="event.stopPropagation(); onUpdateAvailableClick()"
+        title="New Gerrit UI / sidecar changes available in hardware/google/aemu"
+      ><span id="btnUpdateAvailableLabel">⬇ Update Available</span></button>
       <button id="cliffToggleBtn" class="nudge-btn" onclick="event.stopPropagation(); toggleCliffRadar()">Show Radar ▾</button>
     </div>
   </div>
@@ -4209,6 +4413,49 @@
 </div>
 
 <div id="agentReplyBubbleStack" class="agent-reply-bubble-stack" aria-live="polite"></div>
+<div
+  id="updateDirtyWarningModal"
+  class="update-warning-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="updateDirtyWarningTitle"
+  aria-hidden="true"
+  onclick="onUpdateWarningBackdropClick(event)"
+>
+  <div class="update-warning-modal" onclick="event.stopPropagation()">
+    <div class="update-warning-head">
+      <span class="update-warning-icon" aria-hidden="true">⚠️</span>
+      <div>
+        <div id="updateDirtyWarningTitle" class="update-warning-title">Unstaged Changes Will Be Wiped Out</div>
+        <div id="updateDirtyWarningRepo" class="update-warning-sub">hardware/google/aemu</div>
+      </div>
+    </div>
+    <div class="update-warning-body">
+      <div>
+        Your local <code>hardware/google/aemu</code> repository has unstaged or uncommitted changes.
+        Updating the Fast Gerrit sidecar will <strong>permanently wipe out</strong> these local changes:
+      </div>
+      <div id="updateDirtyFilesList" class="update-dirty-files-list"></div>
+      <div class="update-warning-hint">
+        To keep your local edits, click <strong>Cancel</strong> and commit or run <code>git stash</code> in <code>hardware/google/aemu</code> first.
+      </div>
+    </div>
+    <div class="update-warning-actions">
+      <button
+        id="btnCancelDirtyUpdate"
+        type="button"
+        class="btn-modal-cancel"
+        onclick="closeUpdateDirtyWarningModal()"
+      >Cancel</button>
+      <button
+        id="btnConfirmForceUpdate"
+        type="button"
+        class="btn-modal-danger-wipe"
+        onclick="confirmWipeAndPerformSidecarUpdate()"
+      >Wipe Changes &amp; Update</button>
+    </div>
+  </div>
+</div>
 <div id="toast" class="toast"></div>
 
 <script>
@@ -4343,6 +4590,10 @@
       noteOpen: false,
     },
     batchReviewerComposer: null,
+    sidecarUpdateStatus: null,
+    sidecarUpdateChecking: false,
+    sidecarUpdateInFlight: false,
+    updateWarningModalOpen: false,
   };
 
   const DEFAULT_SIDEBAR_WIDTH = 475;
@@ -4673,7 +4924,9 @@
 
   function syncGlobalLoadingBar() {
     const bar = document.getElementById("globalLoadingBar");
-    const isActionBusy = Boolean(state.votingInFlight || state.submittingInFlight);
+    const isActionBusy = Boolean(
+      state.votingInFlight || state.submittingInFlight || state.sidecarUpdateInFlight
+    );
     const isBusy = Boolean(state.queueLoading || state.diffLoadingCount > 0 || isActionBusy);
     if (bar) {
       bar.classList.toggle("active", isBusy);
@@ -4791,6 +5044,8 @@
     if (state.viewer || state.roster.length > 0) {
       renderViewerDropdown();
     }
+    checkSidecarUpdateStatus({ force: false });
+    ensureSidecarUpdatePollingTimer();
     await fetchQueueData(state.viewer, state.scope, {
       loadingTitle: "Loading Gerrit Review Queue…",
       loadingSub: "Fetching open CLs, approval slots, and Buganizer metadata",
@@ -4805,6 +5060,7 @@
     }
     try {
       invalidateClientQueueCache();
+      checkSidecarUpdateStatus({ force: true });
       await fetchQueueData(state.viewer, state.scope, {
         forceRefresh: true,
         preserveDiffCache: false,
@@ -13217,7 +13473,251 @@
     }
   }
 
+  const SIDECAR_UPDATE_POLL_INTERVAL_MS = 120000;
+  const SIDECAR_RESTART_POLL_ATTEMPTS = 10;
+  const SIDECAR_RESTART_POLL_DELAY_MS = 450;
+
+  function formatDirtyFileKindLabel(kind) {
+    if (kind === "staged") return "Staged";
+    if (kind === "untracked_conflict") return "Untracked (conflicts)";
+    return "Unstaged";
+  }
+
+  function buildUpdateButtonTooltip(st) {
+    if (!st || !st.update_available) return "Fast Gerrit sidecar is up to date.";
+    const lines = [];
+    const pending = Array.isArray(st.pending_commits) ? st.pending_commits : [];
+    if (pending.length > 0) {
+      lines.push(`New Gerrit change(s) in hardware/google/aemu (${st.upstream_ref || "studio-main"}):`);
+      pending.slice(0, 5).forEach(c => {
+        lines.push(`• ${c.sha} ${c.subject}`);
+      });
+      if (Number(st.behind_count || 0) > pending.length) {
+        lines.push(`…and ${Number(st.behind_count) - pending.length} more commit(s)`);
+      }
+    } else {
+      const files = Array.isArray(st.changed_gerrit_files) ? st.changed_gerrit_files : [];
+      lines.push(`Local hardware/google/aemu HEAD (${st.head_sha || "HEAD"}) has ${files.length || "new"} Gerrit file update(s) not yet installed in the sidecar.`);
+    }
+    if (st.has_unstaged_changes) {
+      const dirtyCnt = Array.isArray(st.dirty_files) ? st.dirty_files.length : 1;
+      lines.push(`⚠️ ${dirtyCnt} unstaged/local change(s) detected — clicking will warn before wiping.`);
+    } else {
+      lines.push("Click to pull & reinstall emu-dev-cli and the Gerrit sidecar.");
+    }
+    return lines.join("\n");
+  }
+
+  function syncUpdateAvailableButtonDom() {
+    const btn = document.getElementById("btnUpdateAvailable");
+    const lbl = document.getElementById("btnUpdateAvailableLabel");
+    if (!btn || !lbl) return;
+    const st = state.sidecarUpdateStatus;
+    const isAvail = Boolean((st && st.update_available) || state.sidecarUpdateInFlight);
+    btn.classList.toggle("visible", isAvail);
+    btn.disabled = Boolean(state.sidecarUpdateInFlight || state.sidecarUpdateChecking);
+    if (!isAvail) return;
+
+    if (state.sidecarUpdateInFlight) {
+      lbl.innerHTML = `<span class="btn-spinner"></span> Updating Sidecar…`;
+      btn.title = "Pulling hardware/google/aemu and reinstalling emu-dev-cli + Gerrit sidecar…";
+      return;
+    }
+    if (state.sidecarUpdateChecking) {
+      lbl.innerHTML = `<span class="btn-spinner"></span> Checking…`;
+      return;
+    }
+    const cnt = Number((st && st.behind_count) || 0);
+    const cntSuffix = cnt > 1 ? ` (${cnt})` : "";
+    const warnBadge = st && st.has_unstaged_changes
+      ? ` <span class="update-dirty-dot" title="Unstaged local changes detected">⚠</span>`
+      : "";
+    lbl.innerHTML = `⬇ Update Available${escapeHtml(cntSuffix)}${warnBadge}`;
+    btn.title = buildUpdateButtonTooltip(st);
+  }
+
+  async function checkSidecarUpdateStatus(opts = {}) {
+    try {
+      const qs = opts.force ? "?force=1" : "";
+      const resp = await sidecarFetch(`/api/gerrit/update-status${qs}`);
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      if (!data || data.error) return null;
+      state.sidecarUpdateStatus = data;
+      syncUpdateAvailableButtonDom();
+      return data;
+    } catch (_err) {
+      return null;
+    }
+  }
+
+  function ensureSidecarUpdatePollingTimer() {
+    if (window._sidecarUpdatePollTimer) return;
+    window._sidecarUpdatePollTimer = setInterval(() => {
+      if (!document.hidden && !state.sidecarUpdateInFlight) {
+        checkSidecarUpdateStatus({ force: false });
+      }
+    }, SIDECAR_UPDATE_POLL_INTERVAL_MS);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && !state.sidecarUpdateInFlight) {
+        checkSidecarUpdateStatus({ force: false });
+      }
+    });
+  }
+
+  function syncUpdateDirtyModalControls() {
+    const cancelBtn = document.getElementById("btnCancelDirtyUpdate");
+    const confirmBtn = document.getElementById("btnConfirmForceUpdate");
+    const busy = Boolean(state.sidecarUpdateInFlight);
+    if (cancelBtn) cancelBtn.disabled = busy;
+    if (confirmBtn) {
+      confirmBtn.disabled = busy;
+      confirmBtn.innerHTML = busy
+        ? `<span class="btn-spinner"></span> Wiping &amp; Updating…`
+        : "Wipe Changes &amp; Update";
+    }
+  }
+
+  function openUpdateDirtyWarningModal(dirtyFiles, repoPath) {
+    const modal = document.getElementById("updateDirtyWarningModal");
+    const repoEl = document.getElementById("updateDirtyWarningRepo");
+    const listEl = document.getElementById("updateDirtyFilesList");
+    if (!modal || !listEl) return;
+    state.updateWarningModalOpen = true;
+    if (repoEl) {
+      repoEl.textContent = repoPath || "hardware/google/aemu";
+    }
+    const items = Array.isArray(dirtyFiles) ? dirtyFiles : [];
+    listEl.innerHTML = items.map(item => {
+      const p = typeof item === "string" ? item : (item.path || "");
+      const kind = typeof item === "object" && item ? item.kind : "unstaged";
+      return `<div class="update-dirty-file-row">
+        <span>${escapeHtml(p)}</span>
+        <span class="update-dirty-file-tag">${escapeHtml(formatDirtyFileKindLabel(kind))}</span>
+      </div>`;
+    }).join("");
+    syncUpdateDirtyModalControls();
+    modal.classList.add("open");
+    modal.setAttribute("aria-hidden", "false");
+    const cancelBtn = document.getElementById("btnCancelDirtyUpdate");
+    if (cancelBtn) cancelBtn.focus();
+  }
+
+  function closeUpdateDirtyWarningModal() {
+    if (state.sidecarUpdateInFlight) return;
+    state.updateWarningModalOpen = false;
+    const modal = document.getElementById("updateDirtyWarningModal");
+    if (modal) {
+      modal.classList.remove("open");
+      modal.setAttribute("aria-hidden", "true");
+    }
+  }
+
+  function onUpdateWarningBackdropClick(event) {
+    if (event.target && event.target.id === "updateDirtyWarningModal") {
+      closeUpdateDirtyWarningModal();
+    }
+  }
+
+  async function waitForSidecarReadyAfterUpdate() {
+    for (let i = 0; i < SIDECAR_RESTART_POLL_ATTEMPTS; i++) {
+      await new Promise(resolve => setTimeout(resolve, SIDECAR_RESTART_POLL_DELAY_MS));
+      const st = await checkSidecarUpdateStatus({ force: false });
+      if (st && !st.update_available) {
+        return st;
+      }
+    }
+    return null;
+  }
+
+  async function executeSidecarUpdate(opts = {}) {
+    if (state.sidecarUpdateInFlight) return;
+    const forceDiscard = Boolean(opts.forceDiscardLocal);
+    state.sidecarUpdateInFlight = true;
+    syncUpdateAvailableButtonDom();
+    syncUpdateDirtyModalControls();
+    syncGlobalLoadingBar();
+    try {
+      const resp = await sidecarFetch("/api/gerrit/perform-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force_discard_local: forceDiscard }),
+      });
+      const data = await resp.json();
+      if (resp.status === 409 && data && data.status === "dirty_worktree") {
+        state.sidecarUpdateInFlight = false;
+        if (state.sidecarUpdateStatus) {
+          state.sidecarUpdateStatus.has_unstaged_changes = true;
+          state.sidecarUpdateStatus.dirty_files = data.dirty_files || [];
+        }
+        syncUpdateAvailableButtonDom();
+        syncUpdateDirtyModalControls();
+        syncGlobalLoadingBar();
+        openUpdateDirtyWarningModal(data.dirty_files || [], data.repo_path || "");
+        return;
+      }
+      if (!resp.ok || !data || data.status !== "ok") {
+        throw new Error((data && data.error) || `HTTP ${resp.status} while updating Fast Gerrit sidecar`);
+      }
+      state.sidecarUpdateStatus = data.update_status || { update_available: false };
+      state.sidecarUpdateInFlight = false;
+      closeUpdateDirtyWarningModal();
+      syncUpdateAvailableButtonDom();
+      syncGlobalLoadingBar();
+      const shaLabel = data.updated_head_sha ? ` (${data.updated_head_sha})` : "";
+      showToast(`Updated Fast Gerrit sidecar${shaLabel}! Reloading UI…`);
+      await waitForSidecarReadyAfterUpdate();
+      window.location.reload();
+    } catch (err) {
+      const recovered = await waitForSidecarReadyAfterUpdate();
+      if (recovered && !recovered.update_available) {
+        state.sidecarUpdateInFlight = false;
+        closeUpdateDirtyWarningModal();
+        showToast("Updated Fast Gerrit sidecar! Reloading UI…");
+        window.location.reload();
+        return;
+      }
+      state.sidecarUpdateInFlight = false;
+      syncUpdateAvailableButtonDom();
+      syncUpdateDirtyModalControls();
+      syncGlobalLoadingBar();
+      showToast("Update failed: " + (err.message || err));
+    }
+  }
+
+  async function onUpdateAvailableClick() {
+    if (state.sidecarUpdateInFlight || state.sidecarUpdateChecking) return;
+    state.sidecarUpdateChecking = true;
+    syncUpdateAvailableButtonDom();
+    const fresh = await checkSidecarUpdateStatus({ force: true });
+    state.sidecarUpdateChecking = false;
+    syncUpdateAvailableButtonDom();
+
+    const activeStatus = fresh || state.sidecarUpdateStatus;
+    if (activeStatus && !activeStatus.update_available) {
+      showToast("Fast Gerrit sidecar is already up to date!");
+      return;
+    }
+    const dirtyFiles = (activeStatus && Array.isArray(activeStatus.dirty_files))
+      ? activeStatus.dirty_files
+      : [];
+    if (dirtyFiles.length > 0 || (activeStatus && activeStatus.has_unstaged_changes)) {
+      openUpdateDirtyWarningModal(dirtyFiles, (activeStatus && activeStatus.repo_path) || "");
+      return;
+    }
+    await executeSidecarUpdate({ forceDiscardLocal: false });
+  }
+
+  async function confirmWipeAndPerformSidecarUpdate() {
+    await executeSidecarUpdate({ forceDiscardLocal: true });
+  }
+
   document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.updateWarningModalOpen && !state.sidecarUpdateInFlight) {
+      e.preventDefault();
+      closeUpdateDirtyWarningModal();
+      return;
+    }
     if (e.key === "Escape" && state.harnessMenuOpen) {
       closeHarnessMenu();
       return;

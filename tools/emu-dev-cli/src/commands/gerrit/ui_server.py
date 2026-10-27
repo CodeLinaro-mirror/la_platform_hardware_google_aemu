@@ -56,6 +56,7 @@ from commands.gerrit.presubmit_targets import (
     format_relative_age,
     query_presubmit_targets_via_stubby,
 )
+from commands.gerrit.sidecar_updater import GerritSidecarUpdater
 from commands.harness.review_swarm_status import (
     GERRIT_REVIEW_PAYLOAD_FILENAME,
     read_cl_swarm_status,
@@ -2055,9 +2056,11 @@ class GerritUIService:
         host: str = DEFAULT_GERRIT_HOST,
         default_viewer: str = "",
         default_query: str = "",
+        sidecar_updater: GerritSidecarUpdater | None = None,
     ) -> None:
         self.host = host.rstrip("/")
         self.client = GerritClient(host=self.host)
+        self.sidecar_updater = sidecar_updater or GerritSidecarUpdater()
         self.auth_email = self._detect_auth_email()
         self.default_viewer = _normalize_viewer_email(default_viewer) or self._detect_viewer_email()
         self.default_query = default_query
@@ -4506,6 +4509,20 @@ class GerritUIService:
             brain_root=brain_root,
         )
 
+    def get_sidecar_update_status(self, *, force_fetch: bool = False) -> dict[str, Any]:
+        """Returns whether newer Gerrit changes exist in `hardware/google/aemu` vs installed sidecar."""
+        return self.sidecar_updater.get_update_status(
+            force_fetch=force_fetch,
+            ui_version=get_gerrit_ui_template_version(),
+        )
+
+    def perform_sidecar_update(self, *, force_discard_local: bool = False) -> dict[str, Any]:
+        """Pulls latest `hardware/google/aemu` Gerrit changes and reinstalls CLI & sidecar."""
+        return self.sidecar_updater.perform_update(
+            force_discard_local=force_discard_local,
+            ui_version_fn=get_gerrit_ui_template_version,
+        )
+
 
 def _candidate_gerrit_ui_template_paths() -> list[Path]:
     """Builds ordered candidate paths for `templates/gerrit_ui.html`."""
@@ -4957,6 +4974,12 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                     ps_val = int(raw_ps) if raw_ps.isdigit() else None
                     self._send_json(service.get_ai_analysis(cl_num, patchset=ps_val))
                     return
+                if parsed.path == "/api/gerrit/update-status":
+                    force_flag = _is_truthy_query_flag(qs, "force") or _is_truthy_query_flag(
+                        qs, "refresh"
+                    )
+                    self._send_json(service.get_sidecar_update_status(force_fetch=force_flag))
+                    return
                 self._send_json({"error": f"Unknown endpoint '{parsed.path}'"}, status=404)
             except ValueError as exc:
                 self._send_json({"error": str(exc)}, status=400)
@@ -5188,6 +5211,12 @@ def make_gerrit_ui_handler(service: GerritUIService) -> type[http.server.BaseHTT
                         force=bool(body.get("force", False)),
                     )
                     self._send_json(res)
+                    return
+                if parsed.path == "/api/gerrit/perform-update":
+                    force_discard = bool(body.get("force_discard_local", False))
+                    res = service.perform_sidecar_update(force_discard_local=force_discard)
+                    http_status = 200 if res.get("status") == "ok" else 409
+                    self._send_json(res, status=http_status)
                     return
                 self._send_json({"error": f"Unknown POST endpoint '{parsed.path}'"}, status=404)
             except ValueError as exc:
