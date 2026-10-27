@@ -44,6 +44,7 @@ class LedgerEventKind(str, Enum):
     GUARDRAIL_BLOCKED = "guardrail_blocked"
     GUARDRAIL_ALLOWED = "guardrail_allowed"
     CODE_GUARDRAIL_BLOCKED = "code_guardrail_blocked"
+    CODE_ADVISORY_ISSUED = "code_advisory_issued"
     COMMAND_REWRITTEN = "command_rewritten"
     DIAGNOSTIC_INJECTED = "diagnostic_injected"
     CONCURRENCY_TEST_WARNING = "concurrency_test_warning"
@@ -238,4 +239,16 @@ RAW_FSTREAM_PATTERN: re.Pattern[str] = re.compile(
 )
 STATUSOR_HUNGARIAN_PATTERN: re.Pattern[str] = re.compile(
     r"\b(?:absl::StatusOr\s*<[^>]+>|auto)\s+([a-zA-Z0-9_]+_or|maybe_[a-zA-Z0-9_]+)\s*="
+)
+GRPC_RAW_REACTOR_INHERITANCE_PATTERN: re.Pattern[str] = re.compile(
+    r"\b(?:class|struct)\s+(?!ErrorServerReader\b)((?:\w+::)*\w+)(?:\s+final)?\s*:(?!:)[^{;]*?"
+    r"(?:::)?\bgrpc::(Server(?:Write|Read|Bidi)Reactor)\b",
+    re.DOTALL,
+)
+GRPC_MANUAL_STATUS_SWITCH_PATTERN: re.Pattern[str] = re.compile(
+    r"(?:\bswitch\s*\([^)]*\.(?:error_)?code\s*\(\s*\)\s*\)"
+    r"|\bswitch\s*\([^)]*\)\s*\{[^}]*\bcase\s+(?:::)?(?:absl|grpc)::StatusCode::"
+    r"|\bstatic_cast\s*<\s*(?:::)?(?:grpc|absl)::StatusCode\s*>\s*\([^)]*\.(?:error_)?code\s*\(\s*\)\s*\)"
+    r"|\bTo(?:Grpc|Absl)Status\s*\()",
+    re.DOTALL,
 )

@@ -12,22 +12,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Source-code guardrails for `write_file` and `edit_file` tool calls.
+"""Source-code guardrails and advisories for `write_file` and `edit_file` tool calls.
 
-Enforces Android Emulator C++ and Bazel invariants before edits hit disk:
+Blocking guardrails (PreToolUse `deny`) enforce Android Emulator C++ and Bazel
+invariants before edits hit disk:
   1. `cc_binary_with_manifest` enforcement in `goldfish` BUILD files (b/572839247).
   2. Cross-platform UTF-8 file I/O (`android::base::file` / `android/utils/file_io.h`)
      instead of raw `std::ifstream` / `std::ofstream`.
   3. TotW 181 `absl::StatusOr` variable naming (no `_or` Hungarian suffixes).
   4. `AGENTS.md` / `ARCHITECTURE.md` / `DESIGN.md` drift prevention in `goldfish`.
+
+Non-blocking advisories are appended to the PostToolUse result of an applied edit.
+They suggest a preferred pattern that code may knowingly deviate from:
+  a. `//emulator/libs/grpc_utils` reactors and status translation in
+     `emulator/plugin/grpc/`.
 """
 
 from pathlib import Path
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from commands import docs
 from commands.harness.constants import (
+    GRPC_MANUAL_STATUS_SWITCH_PATTERN,
+    GRPC_RAW_REACTOR_INHERITANCE_PATTERN,
     LINKSHARED_TRUE_PATTERN,
     RAW_CC_BINARY_BLOCK_PATTERN,
     RAW_FSTREAM_PATTERN,
@@ -37,6 +45,9 @@ from commands.harness.constants import (
 CPP_EXTENSIONS = {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp"}
 BAZEL_BUILD_FILENAMES = {"BUILD", "BUILD.bazel"}
 GOLDFISH_DOC_FILENAMES = {"AGENTS.md", "ARCHITECTURE.md", "DESIGN.md"}
+ADVISORY_HEADER = "[AEMU Harness Code Advisory]"
+# Longest code snippet quoted in an advisory before it is truncated.
+MAX_ADVISORY_SNIPPET_CHARS = 100
 
 
 def _extract_file_path_and_content(payload: Dict[str, Any]) -> Tuple[str, str]:
@@ -175,6 +186,62 @@ def evaluate_cpp_utf8_and_statusor(
         )
 
     return None
+
+
+def _is_goldfish_grpc_plugin_path(norm_path: str) -> bool:
+    """Returns True if `norm_path` is under `emulator/plugin/grpc/` in goldfish."""
+    if not _is_goldfish_path(norm_path):
+        return False
+    return (
+        norm_path.startswith("emulator/plugin/grpc/")
+        or "/emulator/plugin/grpc/" in norm_path
+    )
+
+
+def _quote_snippet(text: str) -> str:
+    """Collapses whitespace in `text` and truncates it for quoting in an advisory."""
+    snippet = " ".join(text.split())
+    if len(snippet) > MAX_ADVISORY_SNIPPET_CHARS:
+        snippet = snippet[: MAX_ADVISORY_SNIPPET_CHARS - 3] + "..."
+    return snippet
+
+
+def _more_suffix(count: int) -> str:
+    """Returns ` (+N more)` for `count` matches beyond the quoted one."""
+    return f" (+{count - 1} more)" if count > 1 else ""
+
+
+def grpc_utils_advisories(norm_path: str, content: str) -> List[str]:
+    """Returns non-blocking `//emulator/libs/grpc_utils` advice for an `emulator/plugin/grpc/` C++ edit."""
+    suffix = Path(norm_path).suffix.lower()
+    if suffix not in CPP_EXTENSIONS or not _is_goldfish_grpc_plugin_path(norm_path):
+        return []
+
+    advice: List[str] = []
+    reactors = list(GRPC_RAW_REACTOR_INHERITANCE_PATTERN.finditer(content))
+    if reactors:
+        first = reactors[0]
+        advice.append(
+            f"gRPC reactor: '{first.group(1)}' subclasses raw 'grpc::{first.group(2)}'"
+            f"{_more_suffix(len(reactors))}. Prefer a '//emulator/libs/grpc_utils' wrapper: "
+            "'StateStreamWriter', 'UniqueEventStreamWriter', 'GenericEventStreamWriter' or "
+            "'BaseEventStreamWriter' (':event-stream', "
+            "'android/emulation/control/grpc_event_stream_support.h') for server streams, or "
+            "'SimpleServerLambdaReader', 'SimpleServerLambdaWriter', 'SimpleServerReader', "
+            "'SimpleServerWriter', 'SimpleServerBidiStream' or 'ErrorServerWriter' (':async', "
+            "'android/emulation/control/simple_async_grpc.h'). See "
+            "'emulator/plugin/grpc/AGENTS.md'."
+        )
+    status_maps = list(GRPC_MANUAL_STATUS_SWITCH_PATTERN.finditer(content))
+    if status_maps:
+        advice.append(
+            f"gRPC status translation: '{_quote_snippet(status_maps[0].group(0))}'"
+            f"{_more_suffix(len(status_maps))} maps 'absl::Status' and 'grpc::Status' by hand. "
+            "Prefer 'android::emulation::control::AbslStatusToGrpcStatus' / "
+            "'GrpcStatusToAbslStatus' ('//emulator/libs/grpc_utils:absl_translate', "
+            "'android/emulation/control/absl_status_translate.h')."
+        )
+    return advice
 
 
 def _extract_goldfish_rel_dir(norm_path: str) -> str:
@@ -377,3 +444,29 @@ def evaluate_file_edit_payload(
         return doc_verdict
 
     return None
+
+
+# Non-blocking checks: each returns zero or more one-line suggestions for an edit.
+ADVISORY_CHECKERS = (grpc_utils_advisories,)
+
+
+def build_file_edit_advisory(payload: Dict[str, Any]) -> Optional[str]:
+    """Builds the non-blocking advisory block for a `write_file` / `edit_file` payload.
+
+    Returns None when no advisory applies. Each checker contributes at most one line per
+    pattern, so an edit that touches many legacy sites still yields one short note.
+    """
+    path_str, content = _extract_file_path_and_content(payload)
+    if not path_str or not content:
+        return None
+    norm_path = path_str.replace("\\", "/")
+    advice = [line for checker in ADVISORY_CHECKERS for line in checker(norm_path, content)]
+    if not advice:
+        return None
+    lines = [f"{ADVISORY_HEADER} Non-blocking: the edit was applied. Suggestions for '{norm_path}':"]
+    lines.extend(f"  * {line}" for line in advice)
+    lines.append(
+        "  Follow them, or keep the code as written if it has to differ, and say why in a "
+        "comment or the commit message."
+    )
+    return "\n".join(lines)
