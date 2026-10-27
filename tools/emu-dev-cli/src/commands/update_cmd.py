@@ -1,3 +1,4 @@
+import importlib.util
 import os
 import sys
 import shutil
@@ -6,9 +7,47 @@ import subprocess
 
 from commands.source_directory import get_source_directory, ensure_codesearch_urls_config
 from install.installer import install_launcher_wrapper, install_skill, detect_default_install_path, resolve_built_artifact
-from lib.output import print_result
+from lib.bazel import find_bazel_cmd
+from lib.output import print_result, print_status
 
 BAZEL_TARGET = "@aemu//tools/emu-dev-cli:emu-dev-cli"
+
+
+def _resolve_installer_hooks(source_dir):
+    """Loads (install_launcher_wrapper, install_skill) from source_dir so updates to installer.py take effect immediately."""
+    wrapper_fn = install_launcher_wrapper
+    skill_fn = install_skill
+    if hasattr(wrapper_fn, "_mock_name") or hasattr(skill_fn, "_mock_name"):
+        return wrapper_fn, skill_fn
+
+    source_src_dir = os.path.join(
+        source_dir, "hardware", "google", "aemu", "tools", "emu-dev-cli", "src"
+    )
+    source_installer = os.path.join(source_src_dir, "install", "installer.py")
+    if not os.path.isfile(source_installer):
+        return wrapper_fn, skill_fn
+
+    try:
+        if source_src_dir not in sys.path:
+            sys.path.insert(0, source_src_dir)
+        for pkg_name in ("commands", "install", "lib", "targets"):
+            pkg_mod = sys.modules.get(pkg_name)
+            pkg_dir = os.path.join(source_src_dir, pkg_name)
+            if pkg_mod is not None and hasattr(pkg_mod, "__path__") and os.path.isdir(pkg_dir):
+                if pkg_dir not in pkg_mod.__path__:
+                    pkg_mod.__path__.insert(0, pkg_dir)
+
+        spec = importlib.util.spec_from_file_location(
+            "_emu_dev_cli_source_installer", source_installer
+        )
+        if spec and spec.loader:
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            wrapper_fn = getattr(mod, "install_launcher_wrapper", wrapper_fn)
+            skill_fn = getattr(mod, "install_skill", skill_fn)
+    except Exception:
+        pass
+    return wrapper_fn, skill_fn
 
 
 def register_parser(subparsers):
@@ -23,46 +62,6 @@ def register_parser(subparsers):
         help="Destination executable path override"
     )
     update_parser.set_defaults(func=run_update_cmd)
-
-
-def find_bazel_cmd(source_dir):
-    system = platform.system().lower()
-    machine = platform.machine().lower()
-
-    if system == "linux":
-        platform_dirs = ["linux-x86_64"]
-        exe_names = ["bazel"]
-    elif system == "darwin":
-        if machine in ("arm64", "aarch64"):
-            platform_dirs = ["darwin-arm64", "darwin-x86_64", "mac-arm64", "mac-x86_64"]
-        else:
-            platform_dirs = ["darwin-x86_64", "mac-x86_64"]
-        exe_names = ["bazel"]
-    elif system == "windows":
-        platform_dirs = ["windows-x86_64", "windows"]
-        exe_names = ["bazel.exe", "bazel"]
-    else:
-        platform_dirs = ["linux-x86_64"]
-        exe_names = ["bazel"]
-
-    # 1. Check repository prebuilts/bazel/<platform>/bazel
-    for p_dir in platform_dirs:
-        for exe in exe_names:
-            candidate = os.path.join(source_dir, "prebuilts", "bazel", p_dir, exe)
-            if os.path.exists(candidate):
-                if system == "windows" or os.access(candidate, os.X_OK):
-                    return candidate
-
-    # 2. Check local repo tools/bazel wrapper script
-    tools_bazel = os.path.join(source_dir, "tools", "bazel")
-    if os.path.exists(tools_bazel) and os.access(tools_bazel, os.X_OK):
-        return tools_bazel
-
-    # 3. Check system PATH
-    system_bazel = shutil.which("bazel")
-    if system_bazel:
-        return system_bazel
-    return "bazel"
 
 
 def run_update_cmd(args):
@@ -91,11 +90,14 @@ def run_update_cmd(args):
     bazel_cmd = find_bazel_cmd(source_dir)
     advisor_target = "@goldfish//emulator/crashreport/tool/advisor:advisor"
     crashreport_target = "@goldfish//emulator/crashreport/tool:crashreport"
-    print(f"🔨 Building {BAZEL_TARGET}, {advisor_target}, and {crashreport_target} in {source_dir}...")
+    print_status(
+        f"🔨 Building {BAZEL_TARGET}, {advisor_target}, and {crashreport_target} in {source_dir}...",
+        json_mode=json_mode,
+    )
 
     cmd = [bazel_cmd, "build", BAZEL_TARGET, advisor_target, crashreport_target]
     try:
-        if verbose or not json_mode:
+        if verbose and not json_mode:
             res = subprocess.run(cmd, cwd=source_dir, check=False)
         else:
             res = subprocess.run(cmd, cwd=source_dir, capture_output=True, text=True, check=False)
@@ -134,9 +136,13 @@ def run_update_cmd(args):
         }, json_mode=json_mode, is_error=True)
         sys.exit(1)
 
-    print(f"📦 Re-installing compiled emu-dev-cli release package from {built_bin}...")
-    install_launcher_wrapper(built_bin, dest_path, source_dir=source_dir)
-    skill_files = install_skill(source_dir=source_dir)
+    print_status(
+        f"📦 Re-installing compiled emu-dev-cli release package from {built_bin}...",
+        json_mode=json_mode,
+    )
+    wrapper_fn, skill_fn = _resolve_installer_hooks(source_dir)
+    wrapper_fn(built_bin, dest_path, source_dir=source_dir)
+    skill_files = skill_fn(source_dir=source_dir)
     ensure_codesearch_urls_config()
 
     print_result({

@@ -35,9 +35,6 @@ if os.path.basename(_TESTS_DIR) == "tests" and os.path.basename(_EMU_DEV_CLI_DIR
 _SRC_DIR = os.path.join(_EMU_DEV_CLI_DIR, "src")
 _WORKFLOWS_DIR = os.path.join(_EMU_DEV_CLI_DIR, "workflows")
 
-for d in (_SRC_DIR, _EMU_DEV_CLI_DIR, _WORKFLOWS_DIR):
-    if d not in sys.path:
-        sys.path.insert(0, d)
 
 from workflows.ui.server import (
     clear_sessions,
@@ -93,15 +90,15 @@ class WorkflowUITest(unittest.TestCase):
         self.assertEqual(sessions, [])
 
     def test_scan_all_sessions_discovery_and_sorting(self):
-        self._create_mock_session(
+        s1_file = self._create_mock_session(
             workflow_name="wf-one",
             state_id="sess1",
             state="DONE",
             step=3,
             metadata={"bug-number": "123456"},
         )
-        time.sleep(0.05)
-        self._create_mock_session(
+        os.utime(s1_file, (1000.0, 1000.0))
+        s2_file = self._create_mock_session(
             workflow_name="wf-two",
             state_id="sess2",
             state="STUCK",
@@ -113,6 +110,7 @@ class WorkflowUITest(unittest.TestCase):
                 "_sub_workflow": {"name": "sub-wf", "state_id": "child1"},
             },
         )
+        os.utime(s2_file, (2000.0, 2000.0))
 
         sessions = scan_all_sessions(state_base_dir=self.state_dir)
         self.assertEqual(len(sessions), 2)
@@ -687,6 +685,7 @@ class WorkflowUITest(unittest.TestCase):
         )
 
         captured_cmds = []
+        spawned_event = threading.Event()
 
         class FakeProc:
             pid = 999999
@@ -705,6 +704,7 @@ class WorkflowUITest(unittest.TestCase):
 
         def fake_popen(cmd, **kwargs):
             captured_cmds.append(cmd)
+            spawned_event.set()
             return FakeProc()
 
         server_module.subprocess.Popen = fake_popen
@@ -720,7 +720,7 @@ class WorkflowUITest(unittest.TestCase):
             self.assertTrue(ok)
             self.assertEqual(returned_cid, conv_id)
             self.assertIn("Poked", msg)
-            time.sleep(0.05)
+            self.assertTrue(spawned_event.wait(timeout=2.0))
             self.assertEqual(len(captured_cmds), 1)
             cmd = captured_cmds[0]
             self.assertIn("--conversation", cmd)
@@ -860,6 +860,7 @@ class WorkflowUITest(unittest.TestCase):
 
             # Test poke_conversation on standalone conversation
             captured_cmds = []
+            poke_event = threading.Event()
 
             class FakeProc:
                 pid = 888888
@@ -875,7 +876,11 @@ class WorkflowUITest(unittest.TestCase):
             old_resolve = server_module.resolve_jetski_cli
             old_popen = server_module.subprocess.Popen
             server_module.resolve_jetski_cli = lambda: "/fake/jetski_cli"
-            server_module.subprocess.Popen = lambda cmd, **kw: (captured_cmds.append(cmd), FakeProc())[1]
+            server_module.subprocess.Popen = lambda cmd, **kw: (
+                captured_cmds.append(cmd),
+                poke_event.set(),
+                FakeProc(),
+            )[2]
             try:
                 ok, msg = poke_conversation(
                     conversation_id=cid_waiting,
@@ -883,7 +888,7 @@ class WorkflowUITest(unittest.TestCase):
                     state_base_dir=self.state_dir,
                 )
                 self.assertTrue(ok)
-                time.sleep(0.05)
+                self.assertTrue(poke_event.wait(timeout=2.0))
                 self.assertEqual(len(captured_cmds), 1)
                 self.assertIn(cid_waiting, captured_cmds[0])
                 self.assertIn("Yes, please update the plist file.", captured_cmds[0])

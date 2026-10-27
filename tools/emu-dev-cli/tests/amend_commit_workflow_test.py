@@ -24,12 +24,8 @@ _TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 _EMU_DEV_CLI_DIR = os.path.dirname(_TESTS_DIR)
 _WORKFLOWS_DIR = os.path.join(_EMU_DEV_CLI_DIR, "workflows")
 _SRC_DIR = os.path.join(_EMU_DEV_CLI_DIR, "src")
-if _SRC_DIR not in sys.path:
-    sys.path.insert(0, _SRC_DIR)
-if _EMU_DEV_CLI_DIR not in sys.path:
-    sys.path.insert(0, _EMU_DEV_CLI_DIR)
-if _WORKFLOWS_DIR not in sys.path:
-    sys.path.insert(0, _WORKFLOWS_DIR)
+
+
 
 from commands.workflow import find_workflow_target, list_available_workflows
 from workflows.common.git_commit import (
@@ -54,9 +50,13 @@ class TestAmendCommitWorkflowIntegration(unittest.TestCase):
 
         self.workflow_dir = os.path.dirname(self.workflow_yaml)
         self.verifier_py = os.path.join(self.workflow_dir, "verify_amend.py")
+        self.verify_proposed_msg_py = os.path.join(self.workflow_dir, "verify_proposed_msg.py")
+        self.setup_msg_files_py = os.path.join(self.workflow_dir, "setup_msg_files.py")
         self.extract_change_id_py = os.path.join(self.workflow_dir, "extract_change_id.py")
         self.get_base_commit_py = os.path.join(self.workflow_dir, "get_base_commit.py")
         self.assertTrue(os.path.isfile(self.verifier_py))
+        self.assertTrue(os.path.isfile(self.verify_proposed_msg_py))
+        self.assertTrue(os.path.isfile(self.setup_msg_files_py))
         self.assertTrue(os.path.isfile(self.extract_change_id_py))
         self.assertTrue(os.path.isfile(self.get_base_commit_py))
 
@@ -69,7 +69,8 @@ class TestAmendCommitWorkflowIntegration(unittest.TestCase):
         self.assertTrue(os.path.isfile(wf["target_path"]))
 
     def test_no_git_commands_in_instructions(self):
-        spec = load_yaml(self.workflow_yaml)
+        local_yaml = os.path.join(_WORKFLOWS_DIR, "amend_commit", "workflow.yaml")
+        spec = load_yaml(local_yaml)
         disallowed_commands = [
             r"\bgit\s+commit\b",
             r"\bgit\s+add\b",
@@ -94,10 +95,21 @@ class TestAmendCommitWorkflowIntegration(unittest.TestCase):
                         f"Found forbidden git command matching '{pattern}' in step {step.get('step')} field '{field}': {text}",
                     )
 
+    def test_semantic_commit_rules_in_workflow_prompt(self):
+        local_yaml = os.path.join(_WORKFLOWS_DIR, "amend_commit", "workflow.yaml")
+        spec = load_yaml(local_yaml)
+        step0_prompt = spec["steps"][0]["prompt"]
+        self.assertIn("<type>[optional scope]: <description>", step0_prompt)
+        self.assertIn("50 characters", step0_prompt)
+        self.assertIn("feat, fix, build, docs, chore, test, refactor, perf, style", step0_prompt)
+        self.assertIn("imperative mood", step0_prompt)
+        self.assertIn("BREAKING CHANGE:", step0_prompt)
+
     def test_change_id_extraction_and_validation(self):
         cid = "Iabcdef0123456789abcdef0123456789abcdef01"
         valid_msg = (
             "feat: Awesome commit\n\n"
+            "Explain what and why.\n\n"
             "Bug: 12345678\n"
             "Test: Presubmit\n"
             f"Change-Id: {cid}\n"
@@ -111,7 +123,7 @@ class TestAmendCommitWorkflowIntegration(unittest.TestCase):
         self.assertTrue(any("Change-Id must not be modified" in e for e in errors))
 
         # Change-Id missing
-        msg_no_cid = "feat: Commit\n\nBug: 1\nTest: N/A\n"
+        msg_no_cid = "feat: Commit\n\nExplain what and why.\n\nBug: 1\nTest: N/A\n"
         errors = validate_commit_message(msg_no_cid, expected_change_id=cid)
         self.assertTrue(any("Change-Id line is missing" in e for e in errors))
 
@@ -124,6 +136,7 @@ class TestAmendCommitWorkflowIntegration(unittest.TestCase):
         cid = "Iabcdef0123456789abcdef0123456789abcdef01"
         valid_msg = (
             "feat: Amended commit\n\n"
+            "Explain what and why.\n\n"
             "Bug: 12345678\n"
             "Test: Presubmit\n"
             f"Change-Id: {cid}\n"
@@ -150,6 +163,7 @@ class TestAmendCommitWorkflowIntegration(unittest.TestCase):
         cid = "Iabcdef0123456789abcdef0123456789abcdef01"
         valid_msg = (
             "feat: Amended commit\n\n"
+            "Explain what and why.\n\n"
             "Bug: 12345678\n"
             "Test: Presubmit\n"
             f"Change-Id: {cid}\n"
@@ -169,12 +183,14 @@ class TestAmendCommitWorkflowIntegration(unittest.TestCase):
         cid = "Iabcdef0123456789abcdef0123456789abcdef01"
         current_msg = (
             "feat: Original commit\n\n"
+            "Original body.\n\n"
             "Bug: 12345678\n"
             "Test: Presubmit\n"
             f"Change-Id: {cid}\n"
         )
         amended_msg = (
             "feat: Amended commit\n\n"
+            "Amended body.\n\n"
             "Bug: 12345678\n"
             "Test: Presubmit\n"
             f"Change-Id: {cid}\n"
@@ -192,6 +208,59 @@ class TestAmendCommitWorkflowIntegration(unittest.TestCase):
             )
             self.assertEqual(res.returncode, 0)
             self.assertIn("Commit amendment verification passed", res.stdout)
+
+    def test_setup_msg_files_and_verify_proposed(self):
+        cid = "Iabcdef0123456789abcdef0123456789abcdef01"
+        current_msg = (
+            "feat: Original commit\n\n"
+            "Original body.\n\n"
+            "Bug: 12345678\n"
+            "Test: N/A\n"
+            f"Change-Id: {cid}\n"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            current_file = Path(tmpdir) / "current.txt"
+            proposed_file = Path(tmpdir) / "proposed.txt"
+
+            setup_res = subprocess.run(
+                [sys.executable, self.setup_msg_files_py, str(current_file), str(proposed_file)],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            self.assertEqual(setup_res.stdout.strip(), "OK")
+            self.assertTrue(current_file.is_file())
+            self.assertTrue(proposed_file.is_file())
+
+            current_file.write_text(current_msg, encoding="utf-8")
+            proposed_file.write_text(current_msg, encoding="utf-8")
+
+            v_res = subprocess.run(
+                [sys.executable, self.verify_proposed_msg_py, str(proposed_file), cid, "--current-file", str(current_file)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(v_res.returncode, 0)
+
+            bad_cid_msg = current_msg.replace(cid, "I0000000000000000000000000000000000000000")
+            proposed_file.write_text(bad_cid_msg, encoding="utf-8")
+            v_res2 = subprocess.run(
+                [sys.executable, self.verify_proposed_msg_py, str(proposed_file), cid, "--current-file", str(current_file)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(v_res2.returncode, 1)
+            self.assertIn("Change-Id must not be modified", v_res2.stderr)
+
+    def test_init_fails_on_non_git_dir(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            res = subprocess.run(
+                [sys.executable, self.get_base_commit_py, "HEAD", "--cwd", tmpdir],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(res.returncode, 1)
+            self.assertIn("not a Git repository", res.stderr)
 
 
 if __name__ == "__main__":

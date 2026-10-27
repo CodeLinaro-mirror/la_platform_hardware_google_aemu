@@ -14,6 +14,7 @@
 
 """Buganizer deduplication & stack fingerprint searching subcommand module for emu-dev-cli (`crash find-bug`)."""
 
+import logging
 import argparse
 import json
 import re
@@ -78,8 +79,8 @@ def run_find_bug(args: argparse.Namespace) -> None:
         try:
             with open(ctx.metadata_path, "r", encoding="utf-8") as f:
                 meta_json = json.load(f)
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in run_find_bug: %s", exc)
 
     vinfo = extract_crash_version_info(meta_json)
     build_id = meta.build_id or vinfo.get("build_id", "unknown")
@@ -136,8 +137,8 @@ def run_find_bug(args: argparse.Namespace) -> None:
                         fetched_status = client.get_issue_status(int(b_id))
                         if isinstance(fetched_status, str) and fetched_status:
                             status_val = fetched_status
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Ignored error in run_find_bug: %s", exc)
                     candidates.append(
                         {
                             "confidence": "EXACT (Linked in go/crash)",
@@ -150,8 +151,8 @@ def run_find_bug(args: argparse.Namespace) -> None:
                             },
                         }
                     )
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in run_find_bug: %s", exc)
 
     # Tier 1: Signature Match
     if stable_sig and stable_sig != "Unknown":
@@ -221,8 +222,8 @@ def run_find_bug(args: argparse.Namespace) -> None:
                         break
                 if added_t2:
                     break
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in run_find_bug: %s", exc)
 
     # Normalize candidate issues for fix status evaluation
     normalized_candidates = []

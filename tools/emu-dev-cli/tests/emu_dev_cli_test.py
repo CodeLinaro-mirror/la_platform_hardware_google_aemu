@@ -6,8 +6,6 @@ import sys
 SRC_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"
 )
-if SRC_DIR not in sys.path:
-    sys.path.insert(0, SRC_DIR)
 
 from commands.launch import resolve_emulator_executable, prepare_environment
 from install.installer import detect_default_install_path, copy_src_to_release_lib
@@ -201,6 +199,112 @@ Crashing Thread:
                 )
             )
 
+    def test_json_mode_stdout_purity_across_subcommands(self):
+        import argparse
+        from io import StringIO
+        import json
+        import tempfile
+        from unittest.mock import MagicMock, patch
+
+        # 1. update_cmd with json=True on success (stdout is strictly JSON, no progress banners)
+        from commands.update_cmd import run_update_cmd
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            fake_bin = os.path.join(tmp_dir, "emu-dev-cli")
+            with open(fake_bin, "w", encoding="utf-8") as f:
+                f.write("#!/bin/sh\n")
+            buf = StringIO()
+            with patch(
+                "commands.update_cmd.get_source_directory", return_value=tmp_dir
+            ), patch(
+                "commands.update_cmd.find_bazel_cmd", return_value="bazel"
+            ), patch(
+                "commands.update_cmd.subprocess.run",
+                return_value=MagicMock(returncode=0, stdout="", stderr=""),
+            ), patch(
+                "commands.update_cmd.resolve_built_artifact", return_value=fake_bin
+            ), patch(
+                "commands.update_cmd.install_launcher_wrapper"
+            ), patch(
+                "commands.update_cmd.install_skill", return_value=[]
+            ), patch(
+                "commands.update_cmd.ensure_codesearch_urls_config"
+            ), patch(
+                "sys.stdout", buf
+            ), self.assertRaises(
+                SystemExit
+            ):
+                run_update_cmd(argparse.Namespace(json=True, verbose=True, path=fake_bin))
+            parsed = json.loads(buf.getvalue())
+            self.assertEqual(parsed["status"], "success")
+            self.assertEqual(parsed["action"], "update")
+
+        # 2. docs with json=True
+        from commands.docs import run_docs_index
+
+        buf = StringIO()
+        with patch("commands.docs.discover_wiki_documents", return_value=[]), patch(
+            "sys.stdout", buf
+        ), self.assertRaises(SystemExit):
+            run_docs_index(argparse.Namespace(json=True, category="all"))
+        parsed = json.loads(buf.getvalue())
+        self.assertEqual(parsed["status"], "success")
+        self.assertEqual(parsed["action"], "docs index")
+
+        # 3. tidy add with json=True
+        from commands.tidy.add_cmd import handle_tidy_add
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            build_file = os.path.join(tmp_dir, "BUILD.bazel")
+            with open(build_file, "w", encoding="utf-8") as f:
+                f.write('cc_library(name = "my_lib", srcs = ["a.cc"])\n')
+            buf = StringIO()
+            with patch(
+                "commands.tidy.add_cmd.get_source_directory", return_value=tmp_dir
+            ), patch("sys.stdout", buf), self.assertRaises(SystemExit):
+                handle_tidy_add(
+                    argparse.Namespace(path=build_file, targets=None, json=True)
+                )
+            parsed = json.loads(buf.getvalue())
+            self.assertEqual(parsed["status"], "success")
+            self.assertEqual(parsed["action"], "tidy add")
+
+        # 4. crash autofix with json=True on dry_run
+        from commands.crash.autofix import run_autofix
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            rca_path = os.path.join(tmp_dir, "rca_summary.md")
+            with open(rca_path, "w", encoding="utf-8") as f:
+                f.write(
+                    "```yaml\nactionability:\n  fixable: true\n  target_file: a.cc\n  target_function: foo\n```\n"
+                )
+            buf = StringIO()
+            with patch(
+                "commands.crash.autofix.get_crashadvisor_sandbox_dir",
+                return_value=tmp_dir,
+            ), patch(
+                "commands.crash.autofix.run_crashadvisor_bazel", return_value=MagicMock()
+            ), patch(
+                "commands.crash.autofix.acquire_auth_token", return_value="tok"
+            ), patch(
+                "commands.crash.autofix.get_source_directory", return_value=tmp_dir
+            ), patch(
+                "sys.stdout", buf
+            ), self.assertRaises(
+                SystemExit
+            ):
+                run_autofix(
+                    argparse.Namespace(
+                        crash_id="05d8356e2f800000",
+                        token="tok",
+                        dry_run=True,
+                        force=False,
+                        json=True,
+                    )
+                )
+            parsed = json.loads(buf.getvalue())
+            self.assertEqual(parsed["status"], "dry_run")
+            self.assertEqual(parsed["action"], "crash autofix")
 
 
 if __name__ == "__main__":

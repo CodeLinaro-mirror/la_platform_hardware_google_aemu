@@ -74,6 +74,9 @@ Sample Invocations:
   # List flaky tests across all 5 target platforms combined:
   emu-dev-cli flakiness list --target all --mode all --min-flake-rate 5.0
 
+  # List Android Device Hub test flake rates from Studio TestActions (studio-flakes):
+  emu-dev-cli flakiness list --target studio-all --min-flake-rate 0
+
   # Output machine-readable JSON for agentic parsing:
   emu-dev-cli --json flakiness list --target emulator_linux_x64_tsan
 
@@ -110,14 +113,14 @@ Sample Invocations:
         "--min_flake_rate",
         dest="min_flake_rate",
         type=float,
-        default=5.0,
-        help="Minimum failure/flake rate percentage threshold (default: 5.0)",
+        default=None,
+        help="Minimum failure/flake rate percentage threshold (default: any flake >0% for Android Device Hub, 5.0 for other targets)",
     )
     list_parser.add_argument(
         "--days",
         type=int,
-        default=7,
-        help="Historical window in days (default: 7)",
+        default=None,
+        help="Historical window in days (default: 7 for ATH, 20 for studio-*)",
     )
     list_parser.add_argument(
         "--mode",
@@ -125,6 +128,36 @@ Sample Invocations:
         default="postsubmit",
         choices=["all", "presubmit", "postsubmit"],
         help="Run type filter: 'postsubmit' (default), 'presubmit', or 'all' (both pre and post)",
+    )
+    list_parser.add_argument(
+        "--dir",
+        "--directory",
+        dest="directory",
+        type=str,
+        default=None,
+        help="Bazel package prefix filter for Studio / TestActions queries (default: //tools/vendor/google/cli/android-device-hub/electron for studio-* targets)",
+    )
+    list_parser.add_argument(
+        "--window",
+        type=int,
+        choices=[100, 250],
+        default=None,
+        help="Rolling run window for Studio / TestActions flake rate threshold (default: 250 for Android Device Hub, 100 otherwise)",
+    )
+    list_parser.add_argument(
+        "--accounting-group",
+        "--accounting_group",
+        dest="accounting_group",
+        type=str,
+        default=None,
+        help="Optional F1 MDB accounting group (--f1_sql_accounting_group)",
+    )
+    list_parser.add_argument(
+        "--print-sql",
+        "--print_sql",
+        dest="print_sql",
+        action="store_true",
+        help="Print the generated F1 SQL query for Studio targets and exit without executing",
     )
     list_parser.add_argument(
         "--token",
@@ -245,22 +278,22 @@ Sample Invocations:
         "--component_id",
         dest="component_id",
         type=str,
-        default="1016880",
-        help="Buganizer Component ID for emulator flakiness (default: 1016880)",
+        default=None,
+        help="Buganizer Component ID (default: 1016880 for emulator, 2289192 for Android Device Hub)",
     )
     triage_parser.add_argument(
         "--min-flake-rate",
         "--min_flake_rate",
         dest="min_flake_rate",
         type=float,
-        default=10.0,
-        help="Minimum failure/flake rate percentage threshold for bug filing (default: 10.0)",
+        default=None,
+        help="Minimum failure/flake rate percentage threshold for bug filing (default: any flake >0% for Android Device Hub, 10.0 for other targets)",
     )
     triage_parser.add_argument(
         "--days",
         type=int,
-        default=7,
-        help="Historical window in days (default: 7)",
+        default=None,
+        help="Historical window in days (default: 7 for ATH, 20 for studio-*)",
     )
     triage_parser.add_argument(
         "--mode",
@@ -268,6 +301,36 @@ Sample Invocations:
         default="postsubmit",
         choices=["all", "presubmit", "postsubmit"],
         help="Run type filter: 'postsubmit' (default), 'presubmit', or 'all' (both pre and post)",
+    )
+    triage_parser.add_argument(
+        "--dir",
+        "--directory",
+        dest="directory",
+        type=str,
+        default=None,
+        help="Bazel package prefix filter for Studio / TestActions queries (default: //tools/vendor/google/cli/android-device-hub/electron for studio-* targets)",
+    )
+    triage_parser.add_argument(
+        "--window",
+        type=int,
+        choices=[100, 250],
+        default=None,
+        help="Rolling run window for Studio / TestActions flake rate threshold (default: 250 for Android Device Hub, 100 otherwise)",
+    )
+    triage_parser.add_argument(
+        "--accounting-group",
+        "--accounting_group",
+        dest="accounting_group",
+        type=str,
+        default=None,
+        help="Optional F1 MDB accounting group (--f1_sql_accounting_group)",
+    )
+    triage_parser.add_argument(
+        "--print-sql",
+        "--print_sql",
+        dest="print_sql",
+        action="store_true",
+        help="Print the generated F1 SQL query for Studio targets and exit without executing",
     )
     triage_parser.add_argument(
         "--ai-model",
@@ -363,8 +426,8 @@ Sample Invocations:
     history_parser.add_argument(
         "--days",
         type=int,
-        default=7,
-        help="Historical window in days (default: 7)",
+        default=None,
+        help="Historical window in days (default: 7 for ATH, 20 for studio-*)",
     )
     history_parser.add_argument(
         "--mode",
@@ -378,6 +441,21 @@ Sample Invocations:
         type=int,
         default=50,
         help="Maximum historical runs to display (default: 50)",
+    )
+    history_parser.add_argument(
+        "--accounting-group",
+        "--accounting_group",
+        dest="accounting_group",
+        type=str,
+        default=None,
+        help="Optional F1 MDB accounting group (--f1_sql_accounting_group)",
+    )
+    history_parser.add_argument(
+        "--print-sql",
+        "--print_sql",
+        dest="print_sql",
+        action="store_true",
+        help="Print the generated F1 SQL query for Studio targets and exit without executing",
     )
     history_parser.add_argument(
         "--token",

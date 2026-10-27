@@ -17,7 +17,10 @@ import tempfile
 import shutil
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from aemu.toolchains.windows_generator import WindowsToWindowsGenerator
+from aemu.toolchains.windows_generator import (
+    WindowsToWindowsAarch64Generator,
+    WindowsToWindowsGenerator,
+)
 
 
 class TestWindowsToWindowsGenerator(unittest.TestCase):
@@ -140,6 +143,35 @@ class TestWindowsToWindowsGenerator(unittest.TestCase):
         self.assertIn("-L__AOSP_ROOT__/bazel-out/x64_windows-opt/bin/toolchain/lib", content)
 
         self.assertEqual(self.gen.toolchain_map["cc"], "cc.py")
+
+    def test_hermetic_sysroot_and_aarch64_cross_config(self):
+        vctools_dir = self.aosp / "external/vctools_hermetic+"
+        winsdk_dir = self.aosp / "external/windows_sdk_hermetic+"
+        (vctools_dir / "msvc/include").mkdir(parents=True, exist_ok=True)
+        (vctools_dir / "msvc/lib/arm64").mkdir(parents=True, exist_ok=True)
+        (winsdk_dir / "Include/ucrt").mkdir(parents=True, exist_ok=True)
+        (winsdk_dir / "Lib/um/arm64").mkdir(parents=True, exist_ok=True)
+
+        with patch("aemu.toolchains.toolchain_generator.CommandLineReconstructor"):
+            arm_gen = WindowsToWindowsAarch64Generator(
+                self.aosp, self.dest, self.prefix, self.versions
+            )
+            arm_gen.sysroot = vctools_dir
+            arm_gen.wrapper_path = lambda p: p
+
+        cc_cmd, _ = arm_gen.cc()
+        self.assertIn("-target aarch64-pc-windows-msvc", cc_cmd)
+        self.assertNotIn("-march=native", cc_cmd)
+        self.assertIn("arm64", arm_gen.env["LIB"])
+        self.assertEqual(arm_gen.rust_flags(), ["--target=aarch64-pc-windows-msvc"])
+
+        self.dest.mkdir(parents=True, exist_ok=True)
+        arm_gen.toolchain_map = {"cc": "cc.py", "cxx": "c++.py"}
+        arm_gen.write_toolchain_config()
+        ini_content = (self.dest / "aosp-cl.ini").read_text(encoding="utf-8")
+        self.assertIn("skip_sanity_check = true", ini_content)
+        self.assertIn("[host_machine]", ini_content)
+        self.assertIn("cpu_family = 'aarch64'", ini_content)
 
 
 if __name__ == "__main__":

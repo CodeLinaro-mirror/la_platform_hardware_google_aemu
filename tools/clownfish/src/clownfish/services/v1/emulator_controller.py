@@ -921,7 +921,7 @@ class EmulatorControllerServicer(pb_grpc.EmulatorControllerServicer):
                 grpc.StatusCode.INVALID_ARGUMENT,
                 "Audio samplingRate must be in [0, 192000].",
             )
-        rate = request.samplingRate if request.samplingRate > 0 else 44100
+        rate = request.samplingRate if request.samplingRate > 0 else 48000
         channels = 2 if request.channels == pb.AudioFormat.Stereo else 1
         bps = 2 if request.format == pb.AudioFormat.AUD_FMT_S16 else 1
         chunk_samples = rate // 20  # 50ms packet

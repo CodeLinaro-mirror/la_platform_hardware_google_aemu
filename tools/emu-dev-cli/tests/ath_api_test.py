@@ -515,6 +515,79 @@ class AthApiTest(unittest.TestCase):
         self.assertEqual(history[0].status, "FAILED")
         self.assertEqual(history[0].work_unit_id, "WU_TARGET")
 
+    @patch("lib.resultstore_api.os.path.exists", return_value=True)
+    @patch("lib.resultstore_api.subprocess.run")
+    def test_query_resultstore_invocation_sponge_cli_fallback(
+        self, mock_run, mock_exists
+    ):
+        import json as _json
+        from lib.resultstore_api import query_resultstore_invocation
+
+        stubby_proc = MagicMock(returncode=1, stdout="", stderr="APP_ERROR(7)")
+        status_proc = MagicMock(
+            returncode=0,
+            stdout=_json.dumps(
+                {
+                    "invocation_id": "ff0bab7a-ff89-4b52-b9f4-54561f5bc86e",
+                    "description": "Studio Linux postsubmit",
+                    "targets": [
+                        {
+                            "target": "//tools/vendor/google/cli/android-device-hub/electron:test",
+                            "status": "FAILED",
+                            "total": 4,
+                            "failed_runs": ["test_run_1"],
+                        }
+                    ],
+                }
+            ),
+            stderr="",
+        )
+        failures_proc = MagicMock(
+            returncode=0,
+            stdout=_json.dumps(
+                {
+                    "failures": [
+                        {
+                            "action_id": "test_run_1",
+                            "message": "Expected window visible",
+                        }
+                    ]
+                }
+            ),
+            stderr="",
+        )
+        list_proc = MagicMock(
+            returncode=0,
+            stdout=_json.dumps(
+                {
+                    "artifacts": [
+                        {
+                            "action_id": "test_run_1",
+                            "uid": "test.log",
+                            "uri": "https://storage.googleapis.com/example/test.log/1024",
+                        }
+                    ]
+                }
+            ),
+            stderr="",
+        )
+        mock_run.side_effect = [stubby_proc, status_proc, failures_proc, list_proc]
+
+        inv = query_resultstore_invocation(
+            "ff0bab7a-ff89-4b52-b9f4-54561f5bc86e"
+        )
+        self.assertIsNotNone(inv)
+        self.assertEqual(len(inv.actions), 1)
+        self.assertEqual(
+            inv.actions[0].target_id,
+            "//tools/vendor/google/cli/android-device-hub/electron:test",
+        )
+        self.assertEqual(inv.actions[0].status, "FAILED")
+        self.assertIn("Expected window visible", inv.actions[0].error_messages)
+        self.assertEqual(len(inv.actions[0].files), 1)
+        self.assertEqual(inv.actions[0].files[0].uid, "test.log")
+        self.assertEqual(inv.actions[0].files[0].length, 1024)
+
 
 if __name__ == "__main__":
     unittest.main()

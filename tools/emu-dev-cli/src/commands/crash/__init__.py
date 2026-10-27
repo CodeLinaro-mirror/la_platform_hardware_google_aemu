@@ -12,7 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Crash Investigation Subcommand Group for emu-dev-cli."""
+"""Crash Investigation Subcommand Group for emu-dev-cli.
+
+Integrates CrashAdvisor to provide:
+- Intelligent Buganizer deduplication & stack analysis (`find-bug`)
+- Fixed bug verification & older repository build version checking
+- Automated RCA & Buganizer issue filing (`file-bug`)
+- Closed-loop autonomous engineer fixing (`autofix`) with older build guardrails
+- Unified crash analysis (`analyze`)
+- Local debugger crash reproduction (`reproduce`)
+"""
 
 from commands.crash.advisor import (
     ensure_crashadvisor_imports,
@@ -30,6 +39,11 @@ from commands.crash.fix_checker import (
     evaluate_crash_fix_status,
     extract_crash_version_info,
     format_agent_version_guardrail_prompt,
+)
+from commands.crash.link_bug import register_link_bug_parser, run_link_bug
+from commands.crash.list_crashes import (
+    register_list_crashes_parser,
+    run_list_crashes,
 )
 from commands.crash.parser import register_parser
 from commands.crash.reproduce import register_reproduce_parser, run_reproduce
@@ -63,6 +77,8 @@ __all__ = [
     "register_autofix_parser",
     "register_file_bug_parser",
     "register_find_bug_parser",
+    "register_link_bug_parser",
+    "register_list_crashes_parser",
     "register_parser",
     "register_reproduce_parser",
     "run_analyze",
@@ -70,5 +86,7 @@ __all__ = [
     "run_crashadvisor_bazel",
     "run_file_bug",
     "run_find_bug",
+    "run_link_bug",
+    "run_list_crashes",
     "run_reproduce",
 ]

@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import asyncio
-
+import logging
 import subprocess
 import sys
 from pathlib import Path
@@ -30,6 +30,8 @@ from lib.tidy_engine import (
     _extract_rename_symbols,
     _run_clang_format,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _build_batched_prompt(
@@ -108,14 +110,15 @@ class BatchedRefactoringEngine:
         repo_dir = resolve_git_repo_for_target(target, root_hint=self.source_dir)
 
         cohorts = self.planner.plan(diagnostics)
-        print(f"\n--- Planned {len(cohorts)} independent cohort batches ---")
+        logger.info("--- Planned %d independent cohort batches ---", len(cohorts))
 
         for cohort_idx, cohort in enumerate(cohorts):
-            print(f"\n======================================")
-            print(
-                f"=== Processing Cohort {cohort_idx+1}/{len(cohorts)} (Tasks: {len(cohort.tasks)}) ==="
+            logger.info(
+                "=== Processing Cohort %d/%d (Tasks: %d) ===",
+                cohort_idx + 1,
+                len(cohorts),
+                len(cohort.tasks),
             )
-            print(f"======================================")
 
             # 1. Apply ALL seed renames for the cohort
             applied_diags = []
@@ -138,18 +141,19 @@ class BatchedRefactoringEngine:
                         applied_diags.append((diag, old_s, new_s))
 
             if not applied_diags:
-                print("  [Seed] No valid target renames in cohort. Skipping.")
+                logger.info("  [Seed] No valid target renames in cohort. Skipping.")
                 continue
 
             # 2. Global Build (Oracle)
-            print(f"  [Oracle] Checking compilation for cohort...")
+            logger.info("  [Oracle] Checking compilation for cohort...")
             report = self.oracle.run_compilation_check(
                 compilation_targets, workspace_root=self.source_dir
             )
 
             if not report.success:
-                print(
-                    f"  [Oracle] Captured {len(report.errors)} broken call sites. Dispatching AI Agents..."
+                logger.info(
+                    "  [Oracle] Captured %d broken call sites. Dispatching AI Agents...",
+                    len(report.errors),
                 )
 
                 # 3. Parallel AI Patcher
@@ -164,19 +168,18 @@ class BatchedRefactoringEngine:
 
                 failed_agents = [r for r in results if r is not True]
                 if len(failed_agents) == len(results):
-                    print(
-                        "  ⚠️ All AI subagents failed to apply patches. Skipping cohort.",
-                        file=sys.stderr,
+                    logger.warning(
+                        "  All AI subagents failed to apply patches. Skipping cohort."
                     )
                     continue
                 elif failed_agents:
-                    print(
-                        f"  ⚠️ {len(failed_agents)} AI subagents encountered errors (some patches applied).",
-                        file=sys.stderr,
+                    logger.warning(
+                        "  %d AI subagents encountered errors (some patches applied).",
+                        len(failed_agents),
                     )
                     for err in failed_agents:
                         if isinstance(err, Exception):
-                            print(f"    - Error: {err}", file=sys.stderr)
+                            logger.warning("    - Error: %s", err)
 
                 _run_clang_format(repo_dir)
 
@@ -190,20 +193,18 @@ class BatchedRefactoringEngine:
                     compilation_targets, workspace_root=self.source_dir
                 )
                 if not verify.success:
-                    print(
-                        f"\n⚠️ Verification failed for Cohort {cohort_idx+1}. Automating rollback.",
-                        file=sys.stderr,
+                    logger.error(
+                        "Verification failed for Cohort %d. Automating rollback.",
+                        cohort_idx + 1,
                     )
                     tx.rollback_step()
                     sys.exit(1)
 
             # Test Gate
             if test_target:
-                print(f"  [Test Gate] Verifying test suite...")
+                logger.info("  [Test Gate] Verifying test suite...")
                 if self.runner.test([test_target], check=False).returncode != 0:
-                    print(
-                        f"⚠️ Unit tests failed. Automating rollback.", file=sys.stderr
-                    )
+                    logger.error("Unit tests failed. Automating rollback.")
                     tx.rollback_step()
                     sys.exit(1)
 
@@ -213,4 +214,4 @@ class BatchedRefactoringEngine:
                 symbol_new=f"{len(applied_diags)} symbols",
                 message=f"style: Batched refactoring for Cohort {cohort_idx+1}",
             )
-            print(f"  ✅ Verified and committed Cohort {cohort_idx+1}")
+            logger.info("  Verified and committed Cohort %d", cohort_idx + 1)

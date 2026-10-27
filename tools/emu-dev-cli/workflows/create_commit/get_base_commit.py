@@ -20,15 +20,7 @@ import os
 import subprocess
 import sys
 
-_CUR_DIR = os.path.dirname(os.path.abspath(__file__))
-_GIT_COMMIT_DIR = os.path.abspath(os.path.join(_CUR_DIR, "..", "common", "git_commit"))
-if _GIT_COMMIT_DIR not in sys.path:
-    sys.path.insert(0, _GIT_COMMIT_DIR)
-
-try:
-    from commit_verifier import get_head_commit_hash
-except ImportError:
-    from workflows.common.git_commit import get_head_commit_hash
+from workflows.common.git_commit import get_head_commit_hash
 
 
 def main() -> int:
@@ -47,6 +39,7 @@ def main() -> int:
                 text=True,
                 check=True,
                 cwd=args.cwd,
+                timeout=30,
             )
         except Exception:
             print(f"Error: Specified directory is not a Git repository: '{args.cwd}'", file=sys.stderr)

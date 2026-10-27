@@ -188,8 +188,8 @@ class BuganizerClient:
             out = subprocess.check_output(cmd, timeout=15).decode("utf-8").strip()
             try:
                 os.unlink(tf_path)
-            except OSError:
-                pass
+            except OSError as exc:
+                logging.getLogger(__name__).debug("Ignored error in create_bug: %s", exc)
             m = re.search(r"b/(\d+)", out) or re.search(r"(\d{6,})", out)
             if m:
                 return f"b/{m.group(1)}"

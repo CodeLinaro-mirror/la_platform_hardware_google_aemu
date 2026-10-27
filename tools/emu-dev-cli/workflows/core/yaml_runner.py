@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import argparse
 import os
 from pathlib import Path
@@ -24,6 +25,36 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import uuid
 
 import yaml
+
+_CORE_DIR = Path(__file__).resolve().parent
+_WORKFLOWS_DIR = _CORE_DIR.parent
+_EMU_DEV_CLI_DIR = _WORKFLOWS_DIR.parent
+_SRC_DIR = _EMU_DEV_CLI_DIR / "src"
+
+for _p in (str(_WORKFLOWS_DIR), str(_EMU_DEV_CLI_DIR), str(_SRC_DIR)):
+    if _p in sys.path:
+        sys.path.remove(_p)
+    if os.path.isdir(_p):
+        sys.path.insert(0, _p)
+
+
+def _build_subprocess_env(base_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """Builds an environment dictionary with emu-dev-cli import roots in PYTHONPATH."""
+    env = dict(base_env if base_env is not None else os.environ)
+    extra_paths = [
+        p
+        for p in (str(_SRC_DIR), str(_EMU_DEV_CLI_DIR), str(_WORKFLOWS_DIR))
+        if os.path.isdir(p)
+    ]
+    existing = env.get("PYTHONPATH", "")
+    existing_parts = [p for p in existing.split(os.pathsep) if p] if existing else []
+    merged = extra_paths + [p for p in existing_parts if p not in extra_paths]
+    if merged:
+        env["PYTHONPATH"] = os.pathsep.join(merged)
+    return env
+
+
+os.environ["PYTHONPATH"] = _build_subprocess_env().get("PYTHONPATH", "")
 
 
 class WorkflowError(Exception):
@@ -291,7 +322,13 @@ def execute_init(init_spec: Dict[str, Any], init_context: Optional[Dict[str, Any
         if isinstance(val, dict) and "cmd" in val:
             cmd_args = build_cmd_args(val["cmd"], ctx)
             try:
-                output = subprocess.check_output(cmd_args, shell=False, text=True).strip()
+                output = subprocess.check_output(
+                    cmd_args,
+                    shell=False,
+                    text=True,
+                    env=_build_subprocess_env(),
+                    timeout=120,
+                ).strip()
             except subprocess.CalledProcessError as e:
                 raise RuntimeError(
                     f"Init command for '{key}' failed with exit code {e.returncode}."
@@ -367,8 +404,8 @@ def resolve_workflow_file(target_name: str, base_hint: Optional[Path] = None) ->
         _, found = find_workflow_target(target_name)
         if found and os.path.isfile(found):
             return Path(found).resolve()
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in resolve_workflow_file: %s", exc)
 
     if base_hint:
         base_parent = base_hint.parent if base_hint.is_file() else base_hint
@@ -569,8 +606,8 @@ def detect_active_conversation_id() -> Optional[str]:
             cid = (parsed.get("tool") or {}).get("conversationId")
             if cid and str(cid).strip():
                 return str(cid).strip()
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in detect_active_conversation_id: %s", exc)
     return None
 
 
@@ -1105,7 +1142,15 @@ def execute_workflow_step(
     # Case 2C: Active Step with verifier_cmd executed safely with shell=False
     try:
         eval_cmd = build_cmd_args(verifier_cmd, context)
-        check_res = subprocess.run(eval_cmd, shell=False, text=True, capture_output=True)
+        step_timeout = float(step_spec.get("timeout", 600))
+        check_res = subprocess.run(
+            eval_cmd,
+            shell=False,
+            text=True,
+            capture_output=True,
+            env=_build_subprocess_env(),
+            timeout=step_timeout,
+        )
     except FileNotFoundError as e:
         check_res = subprocess.CompletedProcess(
             args=verifier_cmd,

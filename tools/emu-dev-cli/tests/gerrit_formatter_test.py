@@ -20,12 +20,8 @@ _TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 _EMU_DEV_CLI_DIR = os.path.dirname(_TESTS_DIR)
 _WORKFLOWS_DIR = os.path.join(_EMU_DEV_CLI_DIR, "workflows")
 _SRC_DIR = os.path.join(_EMU_DEV_CLI_DIR, "src")
-if _SRC_DIR not in sys.path:
-    sys.path.insert(0, _SRC_DIR)
-if _EMU_DEV_CLI_DIR not in sys.path:
-    sys.path.insert(0, _EMU_DEV_CLI_DIR)
-if _WORKFLOWS_DIR not in sys.path:
-    sys.path.insert(0, _WORKFLOWS_DIR)
+
+
 
 from workflows.common.git_commit import (
     CommitMessage,
@@ -196,17 +192,23 @@ class TestGerritFormatter(unittest.TestCase):
         self.assertTrue(formatted.endswith("\n"))
 
     def test_detect_formatting_errors_subject(self):
-        # Subject too long
-        long_subject = "feat: " + "a" * 70
-        errors = detect_formatting_errors_in_string(long_subject + "\n\nBug: 1\nTest: N/A\n")
+        # Subject too long (> 50 chars)
+        long_subject = "feat: " + "a" * 45
+        errors = detect_formatting_errors_in_string(long_subject + "\n\nBody.\n\nBug: 1\nTest: N/A\n")
         self.assertTrue(any(e.type == ErrorType.SUBJECT_TOO_LONG for e in errors))
 
+        # Subject exactly 50 chars is allowed
+        exact_50_subject = "feat: " + "a" * 44
+        self.assertEqual(len(exact_50_subject), 50)
+        errors_50 = detect_formatting_errors_in_string(exact_50_subject + "\n\nBody.\n\nBug: 1\nTest: N/A\n")
+        self.assertFalse(any(e.type == ErrorType.SUBJECT_TOO_LONG for e in errors_50))
+
         # Leading spaces in subject
-        errors = detect_formatting_errors_in_string(" feat: Title\n\nBug: 1\nTest: N/A\n")
+        errors = detect_formatting_errors_in_string(" feat: Title\n\nBody.\n\nBug: 1\nTest: N/A\n")
         self.assertTrue(any(e.type == ErrorType.LEADING_SPACES for e in errors))
 
         # Trailing spaces in subject
-        errors = detect_formatting_errors_in_string("feat: Title \n\nBug: 1\nTest: N/A\n")
+        errors = detect_formatting_errors_in_string("feat: Title \n\nBody.\n\nBug: 1\nTest: N/A\n")
         self.assertTrue(any(e.type == ErrorType.TRAILING_SPACES for e in errors))
 
     def test_detect_formatting_errors_comments(self):
@@ -256,10 +258,40 @@ class TestGerritFormatter(unittest.TestCase):
         )
         self.assertEqual(validate_commit_message(valid), [])
 
-        # Message with subject > 72 chars rejected by validate_commit_message
-        invalid_subject = ("x" * 75) + "\n\nBug: 1\nTest: N/A\n"
+        # Valid message with optional scope and BREAKING CHANGE footer
+        valid_scoped = (
+            "refactor(display): Simplify frame pipeline\n\n"
+            "Consolidates frame buffer handoff to avoid redundant copies.\n\n"
+            "Bug: 12345678\n"
+            "Test: bazel test //...\n"
+            "BREAKING CHANGE: Removed legacy FrameBuffer v1 constructor\n"
+        )
+        self.assertEqual(validate_commit_message(valid_scoped), [])
+
+        # Message with subject > 50 chars rejected by validate_commit_message
+        invalid_subject = "feat: " + ("x" * 46) + "\n\nBody.\n\nBug: 1\nTest: N/A\n"
         errors = validate_commit_message(invalid_subject)
-        self.assertTrue(any("Subject exceeds 72 characters" in e for e in errors))
+        self.assertTrue(any("Subject exceeds 50 characters" in e for e in errors))
+
+        # Message with invalid or missing semantic <type> rejected
+        invalid_type = "foo: Implement feature\n\nBody.\n\nBug: 1\nTest: N/A\n"
+        errors = validate_commit_message(invalid_type)
+        self.assertTrue(any("Semantic Commit format" in e for e in errors))
+
+        # Message with lowercase <description> rejected
+        lowercase_desc = "feat: implement feature\n\nBody.\n\nBug: 1\nTest: N/A\n"
+        errors = validate_commit_message(lowercase_desc)
+        self.assertTrue(any("start with a capital letter" in e for e in errors))
+
+        # Message with trailing period in subject rejected
+        trailing_period = "feat: Implement feature.\n\nBody.\n\nBug: 1\nTest: N/A\n"
+        errors = validate_commit_message(trailing_period)
+        self.assertTrue(any("must not end with a period" in e for e in errors))
+
+        # Message missing explanatory body rejected
+        no_body = "feat: Implement feature\n\nBug: 12345678\nTest: N/A\n"
+        errors = validate_commit_message(no_body)
+        self.assertTrue(any("missing an explanatory body" in e for e in errors))
 
         # Message with trailing spaces rejected
         trailing_msg = "feat: Title \n\nBody.\n\nBug: 1\nTest: N/A\n"

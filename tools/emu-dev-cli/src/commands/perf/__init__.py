@@ -234,8 +234,8 @@ def _execute_or_load_target_for_compare(
         os.makedirs(DEFAULT_RUN_CACHE_DIR, exist_ok=True)
         with open(cache_file, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2)
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in _execute_or_load_target_for_compare: %s", exc)
     return report
 
 

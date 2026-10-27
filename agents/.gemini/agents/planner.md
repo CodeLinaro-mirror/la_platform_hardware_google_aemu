@@ -37,6 +37,7 @@ Design for the human reviewer by decomposing tasks into atomic, stand-alone comm
 *   **Size (Review Density):** If a task is likely to exceed 200 lines, break it down.
 *   **Focus (Semantic Atomicity):** Each commit MUST perform exactly one logical change.
 *   **Categorization:** Separate commits by nature: Refactor, Bugfix, Feature, Cleanup/Doc.
+*   **Test Target Reuse:** Prefer extending existing unit test files and targets rather than introducing new test files or CMake test binaries for localized fixes.
 
 ## 5. Dynamic Re-Planning (The Pivot)
 If implementation reveals unforeseen blockers or complexities:

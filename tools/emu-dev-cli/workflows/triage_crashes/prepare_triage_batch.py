@@ -15,6 +15,7 @@
 
 """Pre-fetches untriaged qemu-next crashes, auto-links exact Buganizer matches, and builds a compact triage dossier."""
 
+import logging
 import argparse
 import json
 import os
@@ -25,8 +26,6 @@ from typing import Any
 _WORKFLOW_DIR = Path(__file__).resolve().parent
 _EMU_DEV_CLI_DIR = _WORKFLOW_DIR.parent.parent
 _SRC_DIR = _EMU_DEV_CLI_DIR / "src"
-if str(_SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(_SRC_DIR))
 
 from commands.crash.advisor import ensure_crashadvisor_imports
 from commands.crash.link_bug import (
@@ -123,8 +122,8 @@ def try_auto_link_existing_buganizer_matches(
                         client.ensure_crash_hotlists(
                             int(clean_bug_id), version=first_ver
                         )
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception as exc:  # noqa: BLE001
+                    logging.getLogger(__name__).debug("Ignored error in try_auto_link_existing_buganizer_matches: %s", exc)
 
                 enriched = dict(cluster)
                 enriched["bug_ids"] = [clean_bug_id if clean_bug_id else matched_bug_id]

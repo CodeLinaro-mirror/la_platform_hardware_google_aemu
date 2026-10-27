@@ -241,6 +241,10 @@ class MesonProjectBuilder:
                         script_path = (self.toolchain / stripped).as_posix()
                         config["binaries"][key] = f"['{py_exe}', '{script_path}']"
                         modified = True
+                    elif stripped.endswith(".cmd") and not val.strip().startswith("["):
+                        script_path = (self.toolchain / stripped).as_posix()
+                        config["binaries"][key] = f"'{script_path}'"
+                        modified = True
                 if modified:
                     resolved_native_file = self.dest / "aosp-cl.ini"
                     with open(resolved_native_file, "w", encoding="utf-8") as f:

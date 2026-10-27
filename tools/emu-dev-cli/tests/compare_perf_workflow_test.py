@@ -26,13 +26,10 @@ from unittest.mock import patch
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(ROOT_DIR, "src")
 WORKFLOW_DIR = os.path.join(ROOT_DIR, "workflows", "compare_perf")
-for p in (ROOT_DIR, SRC_DIR, WORKFLOW_DIR):
-    if p not in sys.path:
-        sys.path.insert(0, p)
 
-import prepare_perf_batch
-import verify_perf_report
-import verify_perf_run
+from workflows.compare_perf import prepare_perf_batch
+from workflows.compare_perf import verify_perf_report
+from workflows.compare_perf import verify_perf_run
 from commands.workflow import list_available_workflows
 from workflows.core.yaml_runner import load_state_yaml, run_yaml_workflow
 
@@ -82,8 +79,8 @@ class ComparePerfWorkflowTest(unittest.TestCase):
             workflows["compare-perf"]["target_path"].endswith("workflow.yaml")
         )
 
-    @patch("prepare_perf_batch._resolve_perf_avd_template")
-    @patch("prepare_perf_batch._detect_default_host", return_value="mac-arm64")
+    @patch("workflows.compare_perf.prepare_perf_batch._resolve_perf_avd_template")
+    @patch("workflows.compare_perf.prepare_perf_batch._detect_default_host", return_value="mac-arm64")
     def test_prepare_perf_batch_ready_and_missing(
         self, _mock_host, mock_resolve_avd
     ):
@@ -178,7 +175,7 @@ class ComparePerfWorkflowTest(unittest.TestCase):
             )
             self.assertTrue(ok_pass)
 
-    @patch("prepare_perf_batch._resolve_perf_avd_template")
+    @patch("workflows.compare_perf.prepare_perf_batch._resolve_perf_avd_template")
     def test_end_to_end_workflow_lifecycle(self, mock_resolve_avd):
         mock_resolve_avd.return_value = {
             "template_avd": "perf_avd",

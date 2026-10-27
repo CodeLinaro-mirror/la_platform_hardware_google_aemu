@@ -117,6 +117,76 @@ class FlakinessTriageTest(unittest.TestCase):
             flakiness.handle_flakiness_triage(args)
         self.assertIn("No execution or flakiness records found in ATH", str(ctx.exception))
 
+    @patch("lib.agent.verify_agentapi_available")
+    @patch("commands.flakiness.triage.generate_ai_patch_for_test")
+    @patch("commands.flakiness.triage.query_studio_flaky_tests")
+    @patch("commands.flakiness.triage.BuganizerClient.fetch_all_component_open_bugs")
+    @patch("commands.flakiness.triage.BuganizerClient.find_existing_open_bug")
+    @patch("commands.flakiness.triage.BuganizerClient.create_bug")
+    @patch("commands.flakiness.triage.print_result")
+    def test_handle_flakiness_triage_studio_defaults_component_2289192(
+        self,
+        mock_print_result,
+        mock_create_bug,
+        mock_find,
+        mock_fetch_bugs,
+        mock_studio_query,
+        mock_patch,
+        mock_verify,
+    ):
+        from lib.ai_patch_generator import AIPatchResult
+
+        mock_patch.return_value = AIPatchResult(
+            test_identifier="//tools/vendor/google/cli/android-device-hub/electron:test",
+            root_cause_summary="Test Summary",
+            detailed_explanation="Test Explanation",
+            proposed_diff="--- a/test.ts\n+++ b/test.ts\n",
+        )
+        mock_studio_query.return_value = [
+            FlakyTestRecord(
+                test_identifier="//tools/vendor/google/cli/android-device-hub/electron:test",
+                module_name="electron",
+                target="studio-linux",
+                config_name="//tools/vendor/google/cli/android-device-hub/electron",
+                total_runs=100,
+                failed_runs=1,
+                flake_rate_pct=1.0,
+                latest_build_id="16630553",
+                latest_invocation_id="ff0bab7a-ff89-4b52-b9f4-54561f5bc86e",
+                latest_work_unit_id="",
+                l100_failed=1,
+                l100_total=100,
+                l100_flake_rate_pct=1.0,
+                l250_failed=1,
+                l250_total=250,
+                l250_flake_rate_pct=0.4,
+            )
+        ]
+        mock_find.return_value = None
+        mock_create_bug.return_value = "b/DRY_RUN_BUG_ID"
+
+        # Omitting --min-flake-rate and --window defaults to ADH zero-tolerance (>0% over window=250)
+        args = self.parser.parse_args(
+            [
+                "flakiness",
+                "triage",
+                "--target",
+                "studio-linux",
+                "--dry-run",
+            ]
+        )
+        flakiness.handle_flakiness_triage(args)
+        mock_studio_query.assert_called_once()
+        _, kwargs = mock_studio_query.call_args
+        self.assertEqual(kwargs["min_flake_rate"], 0.0)
+        self.assertEqual(kwargs["min_failed_runs"], 1)
+        self.assertEqual(kwargs["window"], 250)
+        mock_fetch_bugs.assert_called_once_with("2289192")
+        mock_print_result.assert_called_once()
+        data = mock_print_result.call_args[0][0]
+        self.assertEqual(data["component_id"], "2289192")
+        self.assertEqual(data["triaged_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

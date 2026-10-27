@@ -51,11 +51,11 @@ class CommitMessage:
     has_trailing_blank_line: bool = False
 
 
-MAX_SUBJECT_LENGTH: int = 72
+MAX_SUBJECT_LENGTH: int = 50
 MAX_LINE_LENGTH: int = 72
 INDENTATION_THRESHOLD: int = 4
 BULLET_POINT_REGEX: re.Pattern = re.compile(r"^\s*[-+*#]\s")
-FOOTER_REGEX: re.Pattern = re.compile(r"^([\w-]+)(?::[ \t]+|=)(.*)$")
+FOOTER_REGEX: re.Pattern = re.compile(r"^(BREAKING CHANGE|[\w-]+)(?::[ \t]+|=)(.*)$")
 
 
 def port_footers_from_body(message: CommitMessage) -> CommitMessage:

@@ -222,6 +222,12 @@ class V1ServicesIntegrationTest(unittest.TestCase):
             )
         self.assertEqual(rec_ctx.exception.code(), grpc.StatusCode.INVALID_ARGUMENT)
 
+    def test_stream_audio_defaults_to_48khz(self) -> None:
+        stream = self.ec.streamAudio(ec_pb.AudioFormat())
+        pkt = next(stream)
+        stream.cancel()
+        self.assertEqual(pkt.format.samplingRate, 48000)
+
     def test_fault_injection_interceptor(self) -> None:
         self.server.inject_error(
             "getBattery", grpc.StatusCode.UNAVAILABLE, "Simulated outage"

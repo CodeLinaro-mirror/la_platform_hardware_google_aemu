@@ -22,19 +22,27 @@ steps:
     title: Draft Proposed Commit Message
     prompt: |
       Please write the proposed commit message for the changes in your working tree into '{proposed-msg-file}'.
-      Follow Gerrit guidelines: craft a clear, concise subject line (50-72 characters), separate
-      the subject from the body with a blank line, and wrap body lines at 72 characters explaining
-      the rationale and impact. The proposed commit message must satisfy the following verification requirements:
+      Follow Gerrit and Semantic Commit Message guidelines:
+      1. Structure:
+         <type>[optional scope]: <description>
 
-      - No 'Tag=' or 'CONV=' lines
-      - A 'Bug: ' line with a bug number (e.g. 'Bug: 12345678') or 'Bug: N/A'
-      - A 'Test: ' line describing the verification command or procedure, or 'TEST: N/A'
-      - Subject line: at most 72 characters, with no leading or trailing whitespace
-      - Body lines: wrapped at 72 characters (exempt: markdown code blocks, quotes, indented text, or URLs)
-      - No trailing spaces on any line
-      - No leading spaces on subject or footer lines
-      - No '#' git comment lines
-      - No consecutive blank lines
+         [body]
+
+         [footer(s)]
+      2. Subject Line Constraints:
+         - Length: at most 50 characters, with no leading or trailing whitespace
+         - Format: '<type>[optional scope]: <description>'
+         - Allowed <type> (mandatory): feat, fix, build, docs, chore, test, refactor, perf, style
+         - Grammar & Style: use the imperative mood (e.g. "Add", "Fix", "Refactor"), capitalize the first letter of <description>, and do NOT include a trailing period ('.')
+      3. Separation & Body:
+         - Separate the subject from the body with a blank line, and separate the body from the footers with a blank line
+         - Include a non-empty explanatory body wrapped at 72 characters explaining what and why vs. how (exempt: markdown code blocks, quotes, indented text, or URLs)
+      4. Footers & Bug Relevance:
+         - Include a 'Bug: ' line with a bug number (e.g. 'Bug: 12345678') or 'Bug: N/A' (cross-check the referenced Buganizer issue against the code changes to verify the bug exists and is relevant to the change)
+         - Include a 'Test: ' line describing the verification command or procedure, or 'TEST: N/A'
+         - Include 'BREAKING CHANGE: <description>' in the footers if introducing breaking API changes
+         - No 'Tag=' or 'CONV=' lines
+         - No trailing spaces on any line, no leading spaces on subject or footer lines, no '#' comment lines, and no consecutive blank lines
     verifier_cmd: "python3 {workflow_dir}/verify_proposed_msg.py {proposed-msg-file}"
     error_prompt: |
       Proposed commit message verification failed (attempt {retries} of {max_retries}):
