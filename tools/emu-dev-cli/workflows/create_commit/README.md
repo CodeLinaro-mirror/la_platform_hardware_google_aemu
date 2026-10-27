@@ -7,8 +7,10 @@ Guides developers and AI agents in drafting a commit message in a cache file, va
 The workflow enforces a safe two-step process:
 1. **Step 0 (`Draft Proposed Commit Message`)**:
    - The user/agent writes the proposed message into `{cache-dir}/proposed_commit_msg_{state_id}.txt`.
+   - **Semantic Commit Subject**: Enforces `<type>[optional scope]: <description>` ($\le 50$ characters) with allowed `<type>` (`feat`, `fix`, `build`, `docs`, `chore`, `test`, `refactor`, `perf`, `style`), imperative mood, capitalized `<description>`, and no trailing period (`.`).
+   - **Explanatory Body**: Requires a non-empty body paragraph separated by blank lines and wrapped at $\le 72$ characters explaining what and why vs. how.
    - **Forbidden Tags Ban**: Ensures no `Tag=` or `CONV=` metadata tags are included.
-   - **Bug Tracking Line**: Enforces a valid `Bug: <number>` line or `Bug: N/A`.
+   - **Bug Tracking Line**: Enforces a valid `Bug: <number>` line or `Bug: N/A` (with bug relevance cross-checked against the change).
    - **Test Command Line**: Enforces a valid `Test: <command>` or `TEST: N/A` line.
 2. **Step 1 (`Create Commit`)**:
    - The user/agent creates the commit using the verified message.

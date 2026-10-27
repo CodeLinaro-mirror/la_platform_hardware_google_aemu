@@ -1,0 +1,34 @@
+# Code Review: Duplication & Code Reuse Workflow (YAML)
+# Reviews a commit to check and remove duplicate code and maximize code reuse.
+
+name: review-duplication
+description: Review a commit to remove duplicate code and maximize code reuse.
+
+args:
+  - name: commit
+    required: false
+    default: "HEAD"
+    help: "Target commit reference or hash to review (default: HEAD)"
+  - name: repo
+    required: false
+    default: "."
+    help: "Target Git repository directory (default: .)"
+
+steps:
+  - step: 0
+    title: Review Commit to Remove Duplicate Code
+    prompt: |
+      Please check commit '{commit}' in repository '{repo}' to remove duplicate code:
+
+      1. Inspect the changes introduced in '{commit}' (e.g. via `git show {commit}` or `git diff {commit}~1..{commit}`).
+      2. Check for duplicate code and code reuse opportunities:
+         - Identify any repeated logic, duplicate functions, copy-pasted blocks, or redundant checks introduced in the commit.
+         - Look for existing helper functions, standard library utilities, or shared modules across the codebase that can be reused instead of adding new duplicate code.
+         - Identify opportunities to extract duplicated code into reusable functions or shared components.
+      3. If duplicate code is found:
+         - Refactor the code in '{repo}' to remove duplicate code and consolidate common logic.
+         - Verify that changes compile and any relevant tests pass.
+         - Amend the commit (preserving any Gerrit Change-Id).
+      4. If the commit is already free of duplicate code and maximizes reuse:
+         - Confirm that no changes are needed.
+    verifier_cmd: null

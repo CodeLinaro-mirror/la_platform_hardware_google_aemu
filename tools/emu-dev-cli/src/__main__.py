@@ -19,13 +19,26 @@ import os
 import platform
 import sys
 
+MIN_PYTHON = (3, 10)
+if sys.version_info < MIN_PYTHON:
+    sys.exit(
+        f"Error: emu-dev-cli requires Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer "
+        f"(matching the Bazel hermetic runtime).\n"
+        f"Detected Python {sys.version.split()[0]} at {sys.executable}.\n"
+        "Please install or switch to Python 3.10+ (e.g. via 'brew install python@3.11' or pyenv)."
+    )
+
 REAL_FILE = os.path.realpath(__file__)
 SCRIPT_DIR = os.path.dirname(REAL_FILE)
-if SCRIPT_DIR not in sys.path:
-    sys.path.insert(0, SCRIPT_DIR)
-lib_dir = os.path.join(SCRIPT_DIR, "lib")
-if os.path.exists(lib_dir) and lib_dir not in sys.path:
-    sys.path.insert(0, lib_dir)
+ROOT_DIR = os.path.dirname(SCRIPT_DIR)
+_path_dirs = [os.path.join(SCRIPT_DIR, "lib"), SCRIPT_DIR]
+if os.path.isdir(os.path.join(ROOT_DIR, "workflows")):
+    _path_dirs.insert(0, ROOT_DIR)
+for _dir in _path_dirs:
+    if _dir in sys.path:
+        sys.path.remove(_dir)
+    if os.path.exists(_dir):
+        sys.path.insert(0, _dir)
 
 from commands import (
     build_times,
@@ -36,10 +49,12 @@ from commands import (
     fetch_build,
     flakiness,
     gerrit,
+    harness,
     init_cmd,
     launch,
     mesh,
     perf,
+    sbom,
     source_directory,
     tidy,
     update_cmd,
@@ -95,11 +110,13 @@ def main():
     fetch_build.register_parser(subparsers, default_host)
     flakiness.register_parser(subparsers)
     gerrit.register_parser(subparsers)
+    harness.register_parser(subparsers)
     init_cmd.register_parser(subparsers)
     installer.register_parser(subparsers)
     launch.register_parser(subparsers)
     mesh.register_parser(subparsers)
     perf.register_parser(subparsers)
+    sbom.register_parser(subparsers)
     source_directory.register_parser(subparsers)
     tidy.register_parser(subparsers)
     update_cmd.register_parser(subparsers)

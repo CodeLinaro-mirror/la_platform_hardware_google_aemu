@@ -6,8 +6,6 @@ import sys
 SRC_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"
 )
-if SRC_DIR not in sys.path:
-    sys.path.insert(0, SRC_DIR)
 
 from commands.launch import resolve_emulator_executable, prepare_environment
 from install.installer import detect_default_install_path, copy_src_to_release_lib

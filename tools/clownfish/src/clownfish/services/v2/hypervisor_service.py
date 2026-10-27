@@ -136,13 +136,28 @@ class HypervisorServiceServicer(pb_grpc.HypervisorServiceServicer):
     def StopVm(
         self, request: pb.StopVmRequest, context: grpc.ServicerContext
     ) -> pb.VmState:
+        if request.mode not in (
+            pb.StopVmRequest.MODE_UNSPECIFIED,
+            pb.StopVmRequest.GRACEFUL,
+            pb.StopVmRequest.TERMINATE,
+            pb.StopVmRequest.CRASH,
+        ):
+            context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                f"Unsupported StopVmRequest.Mode: {request.mode}",
+            )
+        graceful = request.mode in (
+            pb.StopVmRequest.MODE_UNSPECIFIED,
+            pb.StopVmRequest.GRACEFUL,
+        )
+        save_quickboot = graceful and request.save_quickboot_snapshot
         png = (
             self.renderer.render_frame(display_id=0, output_format="PNG").data
-            if request.save_quickboot_snapshot
+            if save_quickboot
             else b""
         )
         self.state.stop_vm_v2(
-            save_quickboot=request.save_quickboot_snapshot,
+            save_quickboot=save_quickboot,
             screenshot_png=png,
         )
         return self._build_vm_state()

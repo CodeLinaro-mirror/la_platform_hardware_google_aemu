@@ -710,6 +710,31 @@ Uses clean, isolated per-run AVDs by default and automatically installs the pack
 
 ---
 
+### 12.6 Software Bill of Materials (`sbom`)
+
+Generates, inspects, audits, and diffs SPDX 2.3 JSON Software Bills of Materials (`go/spdx-style-guide`) for both Google internal releases and AOSP snapshot builds (`--aosp`):
+
+- **Generate SPDX 2.3 SBOM via Bazel (`sbom generate`):**
+  ```bash
+  emu-dev-cli sbom generate --build-id 12345678
+  emu-dev-cli sbom generate --aosp --build-id 12345678 --out /tmp/aosp-sbom.spdx.json
+  ```
+- **Inspect SBOM Packages, Versions, Licenses & PURLs (`sbom inspect`):**
+  ```bash
+  emu-dev-cli sbom inspect
+  emu-dev-cli sbom inspect --filter qemu
+  ```
+- **Audit SBOM Compliance (`sbom audit`):** Validates against Google's SPDX 2.3 style guide (`go/spdx-style-guide`) and `/google/bin/releases/opensource/tools/spdx_validator/validate`:
+  ```bash
+  emu-dev-cli sbom audit
+  ```
+- **Diff Two SBOMs (`sbom diff`):**
+  ```bash
+  emu-dev-cli sbom diff /tmp/old.spdx.json /tmp/new.spdx.json
+  ```
+
+---
+
 ### 13. Common Natural Language Requests & Agent Action Mapping
 
 | User Request                                                                                                                               | Target Command                                                                                                                                                                                     |
@@ -730,6 +755,11 @@ Uses clean, isolated per-run AVDs by default and automatically installs the pack
 | _"Reproduce and stress-test Windows flaky test on Linux"_                                                                                  | `emu-dev-cli flakiness reproduce --test @goldfish//emulator/libs/async:loop_handoff_test --target emulator_windows_x64 --iterations 30` _(uses RBE `--config=rbe-win-x64` automatically on Linux)_ |
 | _"Fix flaky test bug b/123456789 and upload the CL"_                                                                                       | `emu-dev-cli flakiness fix --bug 123456789 --iterations 50 --upload`                                                                                                                               |
 | _"Run the daily untriaged production crash triage workflow"_                                                                               | `emu-dev-cli workflow triage-crashes init -- --days 2`                                                                                                                                             |
+| _"Review a commit to remove duplicate code and maximize code reuse"_                                                                        | `emu-dev-cli workflow review-duplication init -- --commit HEAD`                                                                                                                                     |
+| _"Review a commit to decompose monolithic files and functions"_                                                                            | `emu-dev-cli workflow review-modularity init -- --commit HEAD`                                                                                                                                      |
+| _"Review a commit to simplify control flow and reduce nesting"_                                                                            | `emu-dev-cli workflow review-control-flow init -- --commit HEAD`                                                                                                                                     |
+| _"Review a commit to replace magic numbers with named constants and enums"_                                                                | `emu-dev-cli workflow review-constants init -- --commit HEAD`                                                                                                                                        |
+| _"Review a commit for proper Unicode string and file path handling and Unicode unit test coverage"_                                         | `emu-dev-cli workflow review-unicode init -- --commit HEAD`                                                                                                                                          |
 | _"List untriaged production qemu-next crashes from the last 7 days"_                                                                       | `emu-dev-cli crash list-crashes --unassigned-only --days 7`                                                                                                                                        |
 | _"Associate Buganizer issue b/567125517 with crash signature virtio_gpu_rutabaga_load-e709a6ba in go/crash"_                               | `emu-dev-cli crash link-bug "virtio_gpu_rutabaga_load-e709a6ba" b/567125517`                                                                                                                       |
 
@@ -753,8 +783,9 @@ standard loop:
    `emu-dev-cli flakiness reproduce --test <target> --target <target> --iterations 50` until **0%
    flake rate (PASSED)** is achieved.
 6. **Submit:** Author the commit using `emu-dev-cli workflow create-commit` ensuring full compliance
-   with Gerrit format protocol (no `TAG=` or `CONV=` tags, line lengths <= 72, clean footer tags
-   `Bug:` and `Test:`).
+   with Gerrit and Semantic Commit Message protocol (`<type>[optional scope]: <description>` subject
+   <= 50 chars with capitalized imperative description and no trailing period, non-empty explanatory
+   body wrapped <= 72 chars, no `TAG=` or `CONV=` tags, and clean footer tags `Bug:` and `Test:`).
 
 ---
 

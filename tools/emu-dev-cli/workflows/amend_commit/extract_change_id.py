@@ -16,18 +16,9 @@
 """Helper script to extract Gerrit Change-Id from current HEAD commit during workflow initialization."""
 
 import argparse
-from pathlib import Path
 import sys
 
-_CUR_DIR = Path(__file__).resolve().parent
-_GIT_COMMIT_DIR = str((_CUR_DIR.parent / "common" / "git_commit").resolve())
-if _GIT_COMMIT_DIR not in sys.path:
-    sys.path.insert(0, _GIT_COMMIT_DIR)
-
-try:
-    from commit_verifier import extract_change_id, get_commit_message
-except ImportError:
-    from workflows.common.git_commit import extract_change_id, get_commit_message
+from workflows.common.git_commit import extract_change_id, get_commit_message
 
 
 def main() -> int:

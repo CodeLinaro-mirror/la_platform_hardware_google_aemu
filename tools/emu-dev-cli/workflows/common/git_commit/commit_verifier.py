@@ -25,11 +25,29 @@ import re
 import subprocess
 from typing import List, Optional
 
-try:
-    from .gerrit_formatter import detect_formatting_errors_in_string
-except ImportError:
-    from gerrit_formatter import detect_formatting_errors_in_string  # type: ignore
+from workflows.common.git_commit.gerrit_formatter import (
+    detect_formatting_errors_in_string,
+    parse_commit_message_string,
+)
 
+
+# Allowed Semantic Commit <type> values
+ALLOWED_COMMIT_TYPES = (
+    "feat",
+    "fix",
+    "build",
+    "docs",
+    "chore",
+    "test",
+    "refactor",
+    "perf",
+    "style",
+)
+
+# Regular expression to validate Semantic Commit subject: <type>[optional scope]: <description>
+SEMANTIC_SUBJECT_PATTERN = re.compile(
+    r"^(feat|fix|build|docs|chore|test|refactor|perf|style)(?:\(([^)]*)\))?:\s+(.+)$"
+)
 
 # Regular expression to extract Gerrit Change-Id
 CHANGE_ID_PATTERN = re.compile(r"(?im)^\s*Change-Id:\s*(I[0-9a-fA-F]{40})\b")
@@ -75,7 +93,37 @@ def validate_commit_message(
     if not msg or not msg.strip():
         return ["Commit message is empty."]
 
-    # 1. Forbidden Tags Check (No Tag= or CONV=)
+    parsed = parse_commit_message_string(msg)
+    subject_str = parsed.subject.strip()
+
+    # 1. Semantic Commit Subject Check: <type>[optional scope]: <description>
+    semantic_match = SEMANTIC_SUBJECT_PATTERN.match(subject_str)
+    if not semantic_match:
+        errors.append(
+            "Subject must follow Semantic Commit format '<type>[optional scope]: <description>' "
+            f"with allowed <type>: {', '.join(ALLOWED_COMMIT_TYPES)}."
+        )
+    else:
+        scope = semantic_match.group(2)
+        description = semantic_match.group(3).strip()
+        if scope is not None and not scope.strip():
+            errors.append("Subject scope in '<type>(<scope>): <description>' must not be empty.")
+        if not description or not description[0].isupper():
+            errors.append(
+                "Subject <description> must start with a capital letter "
+                "(e.g. 'feat: Add feature', not 'feat: add feature')."
+            )
+        if description.endswith("."):
+            errors.append("Subject line must not end with a period '.'.")
+
+    # 2. Explanatory Body Check (what and why vs. how)
+    if not any(line.strip() for line in parsed.body):
+        errors.append(
+            "Commit message is missing an explanatory body paragraph between the subject and footers "
+            "(explain what and why vs. how)."
+        )
+
+    # 3. Forbidden Tags Check (No Tag= or CONV=)
     if FORBIDDEN_TAG_PATTERN.search(msg):
         errors.append("Commit message contains forbidden tag 'Tag=' ('Tag=' and 'CONV=' are not allowed).")
     if FORBIDDEN_CONV_PATTERN.search(msg):

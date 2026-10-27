@@ -12,6 +12,14 @@ from typing import Dict, List, Optional, Tuple
 
 from commands.source_directory import get_source_directory
 from lib.output import print_result
+from workflows.core.yaml_runner import (
+    _build_subprocess_env,
+    approve_workflow_session,
+    get_state_base_dir,
+    load_yaml,
+    resume_workflow_session,
+    run_yaml_workflow,
+)
 
 
 
@@ -61,7 +69,6 @@ def discover_workflow_directories() -> List[str]:
 
     # 5. Also check state base dir for dynamically created custom workflows
     try:
-        from workflows.core.yaml_runner import get_state_base_dir
         state_base = str(get_state_base_dir())
         if os.path.isdir(state_base) and state_base not in candidates:
             candidates.append(state_base)
@@ -107,18 +114,11 @@ def list_available_workflows() -> Dict[str, Dict[str, str]]:
 
             if target_type == "yaml":
                 try:
-                    from workflows.core.yaml_runner import load_yaml
                     spec = load_yaml(target_path)
                     if "description" in spec:
                         desc = clean_description(spec["description"])
                 except Exception:
-                    try:
-                        from core.yaml_runner import load_yaml
-                        spec = load_yaml(target_path)
-                        if "description" in spec:
-                            desc = clean_description(spec["description"])
-                    except Exception:
-                        pass
+                    pass
             elif target_type == "script":
                 readme_path = os.path.join(entry_path, "README.md")
                 if os.path.isfile(readme_path):
@@ -135,7 +135,6 @@ def list_available_workflows() -> Dict[str, Dict[str, str]]:
             wf_name = entry.replace("_", "-")
             if target_type == "yaml":
                 try:
-                    from workflows.core.yaml_runner import load_yaml
                     spec = load_yaml(target_path)
                     if "name" in spec:
                         wf_name = spec["name"]
@@ -173,13 +172,9 @@ def find_workflow_main(workflow_name: str) -> Optional[str]:
 def run_workflow_main(main_script: str, args: List[str]) -> int:
     """Executes workflow script or YAML with forwarded arguments."""
     if main_script.endswith((".yaml", ".yml")):
-        try:
-            from workflows.core.yaml_runner import run_yaml_workflow
-        except ImportError:
-            from core.yaml_runner import run_yaml_workflow
         return run_yaml_workflow(main_script, args)
     cmd = [sys.executable, main_script] + args
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, env=_build_subprocess_env())
     return result.returncode
 
 
@@ -325,13 +320,9 @@ def register_parser(subparsers):
             def make_help_func(path, ttype):
                 def _help(file=None):
                     if ttype == "yaml" or path.endswith((".yaml", ".yml")):
-                        try:
-                            from workflows.core.yaml_runner import run_yaml_workflow
-                        except ImportError:
-                            from core.yaml_runner import run_yaml_workflow
                         run_yaml_workflow(path, ["--help"])
                     else:
-                        subprocess.run([sys.executable, path, "--help"])
+                        subprocess.run([sys.executable, path, "--help"], env=_build_subprocess_env())
                 return _help
             wf_p.print_help = make_help_func(target_path, target_type)
 
@@ -373,17 +364,7 @@ def run_workflow_help(args):
 
 def run_workflow_ui(args):
     """Launches the workflow web UI visualizer."""
-    try:
-        from workflows.ui.server import start_server
-    except ImportError:
-        try:
-            from ui.server import start_server
-        except ImportError:
-            sys.path.insert(
-                0,
-                os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
-            )
-            from workflows.ui.server import start_server
+    from workflows.ui.server import start_server
 
     port = getattr(args, "port", 8080)
     host = getattr(args, "host", "127.0.0.1")
@@ -393,11 +374,6 @@ def run_workflow_ui(args):
 
 def run_workflow_approve(args):
     """Approves a workflow session paused at a human verification barrier."""
-    try:
-        from workflows.core.yaml_runner import approve_workflow_session
-    except ImportError:
-        from core.yaml_runner import approve_workflow_session
-
     state_id = getattr(args, "state_id", "")
     wf_name = getattr(args, "workflow_name", None)
     feedback = getattr(args, "feedback", None)
@@ -412,11 +388,6 @@ def run_workflow_approve(args):
 
 def run_workflow_resume(args):
     """Resumes a workflow session and optionally wakes its linked Jetski conversation."""
-    try:
-        from workflows.core.yaml_runner import resume_workflow_session
-    except ImportError:
-        from core.yaml_runner import resume_workflow_session
-
     state_id = getattr(args, "state_id", "")
     wf_name = getattr(args, "workflow_name", None)
     step = int(getattr(args, "step", 0) or 0)
@@ -467,10 +438,6 @@ def run_workflow_direct(args):
         sys.exit(1)
     target = find_workflow_target(wf_name)
     if target and target[0] == "yaml":
-        try:
-            from workflows.core.yaml_runner import run_yaml_workflow
-        except ImportError:
-            from core.yaml_runner import run_yaml_workflow
         code = run_yaml_workflow(target[1], target_args)
     else:
         code = run_workflow_main(main_script, target_args)

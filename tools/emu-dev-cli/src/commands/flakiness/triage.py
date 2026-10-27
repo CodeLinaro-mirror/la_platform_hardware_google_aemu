@@ -31,6 +31,21 @@ from lib.ath_api import (
     sanitize_bazel_target,
 )
 from lib.buganizer import BuganizerClient, BuganizerIssuePayload
+from lib.f1_test_actions import (
+    DEFAULT_STUDIO_BRANCH,
+    DEFAULT_STUDIO_COMPONENT_ID,
+    DEFAULT_STUDIO_DIR_PREFIX,
+    DEFAULT_STUDIO_LOOKBACK_DAYS,
+    build_studio_flakes_sql,
+    is_android_device_hub_target,
+    is_studio_query,
+    normalize_target_prefix,
+    query_studio_flaky_tests,
+    resolve_studio_branches,
+    resolve_studio_min_flake_threshold,
+    resolve_studio_targets,
+    resolve_studio_window,
+)
 from lib.output import format_markdown_table, print_result
 
 logger = logging.getLogger(__name__)
@@ -39,15 +54,58 @@ logger = logging.getLogger(__name__)
 def handle_flakiness_triage(args):
     """Handles 'emu-dev-cli flakiness triage' subcommand.
 
-    Queries ATH, deduplicates against open Buganizer issues under component 1016880,
-    downloads diagnostic logs, runs Jetski AI root cause analysis, saves report
-    artifacts to disk, and optionally files Buganizer issues with --auto-file.
+    Queries ATH (or F1 TestActions for Studio targets), deduplicates against open
+    Buganizer issues, downloads diagnostic logs, runs Jetski AI root cause analysis,
+    saves report artifacts to disk, and optionally files Buganizer issues with --auto-file.
     """
-    logger.info("Executing flakiness triage command (target=%s, test=%s, auto_file=%s, dry_run=%s)", getattr(args, "target", "emulator_linux_x64"), getattr(args, "test", None), getattr(args, "auto_file", False), getattr(args, "dry_run", False))
     json_mode = getattr(args, "json", False)
     target = getattr(args, "target", "emulator_linux_x64")
-    component_id = getattr(args, "component_id", "1016880")
     explicit_test = getattr(args, "test", None)
+    directory = getattr(args, "directory", None)
+    studio_mode = is_studio_query(
+        target=target,
+        branch=getattr(args, "branch", None),
+        directory=directory,
+        test_target=explicit_test,
+    )
+    raw_days = getattr(args, "days", None)
+    days = (
+        raw_days
+        if raw_days is not None
+        else (DEFAULT_STUDIO_LOOKBACK_DAYS if studio_mode else 7)
+    )
+    mode = getattr(args, "mode", "postsubmit")
+    raw_component = getattr(args, "component_id", None)
+    if raw_component:
+        component_id = raw_component
+    elif studio_mode and is_android_device_hub_target(
+        directory or explicit_test or DEFAULT_STUDIO_DIR_PREFIX
+    ):
+        component_id = DEFAULT_STUDIO_COMPONENT_ID
+    else:
+        component_id = "1016880"
+
+    logger.info(
+        "Executing flakiness triage command (target=%s, test=%s, component_id=%s, studio_mode=%s, auto_file=%s, dry_run=%s)",
+        target,
+        explicit_test,
+        component_id,
+        studio_mode,
+        getattr(args, "auto_file", False),
+        getattr(args, "dry_run", False),
+    )
+
+    if studio_mode and getattr(args, "print_sql", False):
+        sql = build_studio_flakes_sql(
+            targets=resolve_studio_targets(target),
+            branches=resolve_studio_branches(getattr(args, "branch", None)),
+            directory_prefix=normalize_target_prefix(directory),
+            days=days,
+            mode=mode,
+            test_target=explicit_test,
+        )
+        print(sql.strip())
+        return
 
     # Verify upfront environment readiness (agent session or standalone jetski binary)
     from lib.agent_dispatcher import AgentDispatcher
@@ -64,9 +122,67 @@ def handle_flakiness_triage(args):
 
     from lib.oauth import OAuthTokenManager
 
-    auth_token = getattr(args, "token", None) or OAuthTokenManager().get_token()
+    auth_token = (
+        None
+        if studio_mode
+        else (getattr(args, "token", None) or OAuthTokenManager().get_token())
+    )
 
-    if explicit_test:
+    if studio_mode:
+        studio_hint = directory or explicit_test
+        min_flake_rate, min_failed_runs = resolve_studio_min_flake_threshold(
+            getattr(args, "min_flake_rate", None),
+            default_non_adh_rate=10.0,
+            directory_or_target=studio_hint,
+        )
+        window = resolve_studio_window(
+            getattr(args, "window", None),
+            directory_or_target=studio_hint,
+        )
+        sys.stderr.write(
+            f"🔍 Querying F1 TestActions for Studio flaky tests (target={target}, window={window})...\n"
+        )
+        recs = query_studio_flaky_tests(
+            target=target,
+            directory=directory,
+            branch=getattr(args, "branch", DEFAULT_STUDIO_BRANCH),
+            min_flake_rate=(0.0 if explicit_test else min_flake_rate),
+            min_failed_runs=(0 if explicit_test else max(1, min_failed_runs)),
+            days=days,
+            mode=mode,
+            window=window,
+            test_target=explicit_test,
+            accounting_group=getattr(args, "accounting_group", None),
+            progress_callback=cb,
+        )
+        sys.stderr.write("\n")
+        if explicit_test:
+            clean_explicit = sanitize_bazel_target(explicit_test)
+            matched = [
+                r
+                for r in recs
+                if sanitize_bazel_target(r.test_identifier) == clean_explicit
+            ]
+            if matched:
+                rec = matched[0]
+                if rec.failed_runs == 0 or rec.flake_rate_pct == 0.0:
+                    sys.stderr.write(
+                        f"\nℹ️ Notice: Test target '{explicit_test}' has 0 failing runs (0.0% failure rate across {rec.total_runs} runs) on target '{rec.target}'.\n"
+                        f"   Skipping AI root-cause analysis as there are no failure instances to analyze.\n"
+                    )
+                    return
+                flaky_records.extend(matched)
+            else:
+                sys.stderr.write(
+                    f"\n❌ Error: No execution or flakiness records found in F1 TestActions for test target '{explicit_test}' on target '{target}'.\n"
+                    f"   Analysis aborted. No synthetic or fake test data will be generated.\n"
+                )
+                raise RuntimeError(
+                    f"No execution or flakiness records found in F1 TestActions for test target '{explicit_test}' on target '{target}'."
+                )
+        else:
+            flaky_records.extend(recs)
+    elif explicit_test:
         sys.stderr.write(f"🔍 Querying Android Test Hub (ATH) for records matching '{explicit_test}'...\n")
         raw_config = getattr(args, "config", None)
         resolved_config = (
@@ -79,8 +195,8 @@ def handle_flakiness_triage(args):
             config_name=resolved_config,
             branch=getattr(args, "branch", "git_emu-main-next"),
             min_flake_rate=0.0,
-            days=getattr(args, "days", 7),
-            mode=getattr(args, "mode", "postsubmit"),
+            days=days,
+            mode=mode,
             token=auth_token,
             progress_callback=cb,
         )
@@ -111,6 +227,10 @@ def handle_flakiness_triage(args):
             )
 
     else:
+        raw_min_flake_rate = getattr(args, "min_flake_rate", None)
+        ath_min_flake_rate = (
+            10.0 if raw_min_flake_rate is None else raw_min_flake_rate
+        )
         targets_to_query = (
             SUPPORTED_TARGET_PLATFORMS
             if target == "all"
@@ -121,9 +241,9 @@ def handle_flakiness_triage(args):
                 target=tgt,
                 config_name=getattr(args, "config", "all"),
                 branch=getattr(args, "branch", "git_emu-main-next"),
-                min_flake_rate=getattr(args, "min_flake_rate", 10.0),
-                days=getattr(args, "days", 7),
-                mode=getattr(args, "mode", "postsubmit"),
+                min_flake_rate=ath_min_flake_rate,
+                days=days,
+                mode=mode,
                 token=auth_token,
                 progress_callback=cb,
             )

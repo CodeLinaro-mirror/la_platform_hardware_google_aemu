@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "aemu-harness-mcp": {
+      "command": "__EMU_DEV_CLI_BIN__",
+      "args": ["harness", "mcp-server"]
+    }
+  }
+}

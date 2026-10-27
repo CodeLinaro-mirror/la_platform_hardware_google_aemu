@@ -1,0 +1,37 @@
+# Code Review: Named Constants & Magic Value Reduction Workflow (YAML)
+# Reviews a commit to replace magic numbers, magic strings, and unnamed literals with named constants and enums.
+
+name: review-constants
+description: Review a commit to replace magic numbers and unnamed literals with named constants and enums.
+
+args:
+  - name: commit
+    required: false
+    default: "HEAD"
+    help: "Target commit reference or hash to review (default: HEAD)"
+  - name: repo
+    required: false
+    default: "."
+    help: "Target Git repository directory (default: .)"
+
+steps:
+  - step: 0
+    title: Review Commit for Magic Numbers and Extract Named Constants
+    prompt: |
+      Please check commit '{commit}' in repository '{repo}' for any added or modified code with unexplained magic numbers or unnamed literals, and refactor them to use named constants or enums:
+
+      1. Inspect the changes introduced in '{commit}' (e.g. via `git show {commit}` or `git diff {commit}~1..{commit}`).
+      2. Check for magic values and unnamed literals in modified or newly added code:
+         - Magic numbers (e.g. unexplained timeouts, retry counts, status codes, bitmasks, buffer sizes, thresholds, coordinates, or array offsets) passed directly into logic or assertions.
+         - Raw numeric or string literals used where a domain enum or typed constant already exists or should be declared (e.g. network types, states, IPC channels, error codes).
+         - Magic strings repeated across calls or used as protocol identifiers without a shared constant.
+         - Test code asserting against raw ordinal numbers or literal strings instead of the corresponding named constants or enum members.
+      3. If magic values are found:
+         - Reuse existing enums, proto definitions, or constant tables where available.
+         - If none exist, extract descriptive, scoped named constants (e.g. `DEFAULT_TIMEOUT_MS`, `MAX_RETRIES`, `STATUS_OK`) or group related states into an enum.
+         - Update both production code and test assertions to reference the named constants or enums.
+         - Verify that changes compile and any relevant tests pass.
+         - Amend the commit (preserving any Gerrit Change-Id).
+      4. If the commit already uses self-documenting named constants and enums without magic values:
+         - Confirm that no changes are needed.
+    verifier_cmd: null

@@ -1,0 +1,47 @@
+# Code Review: Unicode Strings & File Paths Workflow (YAML)
+# Reviews a commit for proper cross-platform Unicode string and file path handling
+# and verifies unit test coverage for non-ASCII UTF-8 strings/paths across
+# emu-main-next and emu-main-dev.
+
+name: review-unicode
+description: Review a commit for proper Unicode string and file path handling and Unicode unit test coverage across emu-main-next and emu-main-dev.
+
+args:
+  - name: commit
+    required: false
+    default: "HEAD"
+    help: "Target commit reference or hash to review (default: HEAD)"
+  - name: repo
+    required: false
+    default: "."
+    help: "Target Git repository directory (default: .)"
+
+steps:
+  - step: 0
+    title: Review Commit for Unicode String & File Path Handling and Test Coverage
+    prompt: |
+      Please check commit '{commit}' in repository '{repo}' for proper cross-platform Unicode string and file path handling and Unicode unit test coverage:
+
+      1. Inspect the changes introduced in '{commit}' (e.g. via `git show {commit}` or `git diff {commit}~1..{commit}`) and identify which repository/branch '{repo}' belongs to (e.g. `emu-main-next` / `hardware/generic/goldfish` vs `emu-main-dev` / `external/qemu` or `hardware/google/aemu`).
+      2. Check added or modified code that handles file paths, directories, environment variables, CLI arguments, INI files, or process launching against the target repository's conventions:
+         - If in `emu-main-next` (`platform/hardware/generic/goldfish`):
+           * Represent strings as UTF-8 (`std::string`, `std::string_view`) and pass file paths as `std::filesystem::path` (`fs::path`) directly (do not use `std::filesystem::u8path` or `std::wstring` in general code, as Windows executables embed the `<activeCodePage>UTF-8</activeCodePage>` manifest).
+           * Use `android::base::file` (`//emulator/libs/file`, `goldfish/file/file.h` and `goldfish/file/file_atomic.h`: `read_whole_file`, `WriteFileAtomically`, `CreatePrivateFileExclusive`, `exists`, `is_file`, `is_dir`, `mkdir_recursive`, `mv_file`, `cp_file`, `rm`, etc.) instead of raw C/POSIX file APIs (`fopen`, `open`, `stat`, `mkdir`, `unlink`) or ad-hoc `std::ifstream` / `std::ofstream` boilerplate.
+           * Use `android::base::System::Get()` (`//emulator/libs/system`, `android/base/system.h`) for environment variables and system directories (`EnvGet`, `EnvSet`, `GetHomeDirectory`, `GetAppDataDirectory`, `GetTempDir`) instead of raw `std::getenv` / `_putenv_s`.
+           * Ensure any executable C++ binary target in `BUILD.bazel` uses `cc_binary_with_manifest` (`load("//emulator/tools:cc_binary_with_manifest.bzl", "cc_binary_with_manifest")`) instead of raw `cc_binary` (and unit tests link `//emulator/libs/test:googletest_main`) so the Windows UTF-8 `activeCodePage` manifest is embedded.
+           * Do not define `UNICODE` or `_UNICODE` in Windows translation units; at `wchar_t`-only Win32 API boundaries (e.g. `ReadDirectoryChangesW`, `SHGetKnownFolderPath`, `_wexecv`, `_waccess`, `SetThreadDescription`), use `path.c_str()` / `path.wstring()` or `android::base::Win32UnicodeString` (`//emulator/libs/windows`, `android/base/win32_unicode_string.h`).
+           * When embedding file paths or user-controlled strings into comma-delimited QEMU CLI option strings (`-device`, `-blockdev`, `-chardev`, `-name`), escape commas via `Device::EscapeQemuOptionValue` (`emulator/launcher/launch_qemu/device.h`).
+         - If in `emu-main-dev` (`platform/external/qemu`) or `platform/hardware/google/aemu`:
+           * Never pass raw narrow `const char*` or `std::string` paths directly to C/POSIX file functions (`fopen`, `open`, `stat`, `mkdir`, `rmdir`, `unlink`, `chmod`, `access`) or `std::ifstream` / `std::ofstream`, which corrupt non-ASCII UTF-8 paths under legacy Windows ANSI codepages.
+           * Use the Android cross-platform UTF-8 file I/O helpers in `android/utils/file_io.h` (`android_fopen`, `android_open`, `android_stat`, `android_lstat`, `android_mkdir`, `android_rmdir`, `android_unlink`, `android_chmod`, `android_creat`, `android_access`) or `aemu/base/files/PathUtils.h` (`PathUtils::asUnicodePath`).
+           * When calling Win32 APIs or CRT functions on `_WIN32`, convert UTF-8 strings to UTF-16 via `android::base::Win32UnicodeString` (`aemu/base/system/Win32UnicodeString.h`, e.g. `Win32UnicodeString(utf8_str).c_str()` and `Win32UnicodeString::convertToUtf8(wide_str)`) and call the wide `*W` / `_w*` variants (`CreateFileW`, `LoadLibraryW`, `CreateProcessW`, `_wfopen`, `_wopen`), and ensure CMake executables use `android_add_executable` so `utf8_manifest.rc` is embedded on Windows.
+      3. Check unit test coverage for Unicode strings and file paths:
+         - Whenever the commit adds or modifies code that processes file paths, directories, environment variables, INI files, CLI options, or process launching, verify that the unit tests explicitly include test cases with non-ASCII UTF-8 strings and file paths (e.g. `"täst_中文_🚀"` or `"José"`, as well as spaces or commas where relevant), not only ASCII paths.
+         - Prefer extending existing unit test files and targets rather than introducing new test binaries for localized fixes.
+      4. If Unicode string/path handling issues or missing Unicode unit tests are found:
+         - Refactor the code in '{repo}' to follow the repository's Unicode and file path conventions and add or update unit tests to cover non-ASCII UTF-8 strings/file paths.
+         - Verify that changes compile and any relevant tests pass.
+         - Amend the commit (preserving any Gerrit Change-Id).
+      5. If the commit already follows the repository's Unicode/file-path conventions and has appropriate Unicode test coverage (or does not touch string/path handling):
+         - Confirm that no changes are needed.
+    verifier_cmd: null
