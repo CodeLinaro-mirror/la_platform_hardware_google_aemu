@@ -10,7 +10,10 @@ load(
     "ts_proto_library",
 )
 
-package(default_visibility = ["//visibility:public"])
+package(
+    default_applicable_licenses = ["//:license"],
+    default_visibility = ["//visibility:public"],
+)
 
 aemu_service_v2(
     name = "common",
