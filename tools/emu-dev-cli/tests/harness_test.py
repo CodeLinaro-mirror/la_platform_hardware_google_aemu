@@ -23,7 +23,10 @@ from typing import Any, Dict, Tuple
 import unittest
 import yaml
 
-from commands.harness.code_guardrails import grpc_utils_advisories
+from commands.harness.code_guardrails import (
+    absl_mutex_lock_advisories,
+    grpc_utils_advisories,
+)
 from commands.harness.constants import (
     HookDecision,
     HookEvent,
@@ -404,6 +407,120 @@ class HarnessGuardrailTest(unittest.TestCase):
             ),
             [],
         )
+
+    def test_absl_mutex_advisory_allows_the_edit_and_suggests_the_reference_form(self) -> None:
+        conv_id = "conv-absl-mutex"
+        goldfish_cc = "/work/goldfish/emulator/clipboard/测试_🚀_é/clipboard_agent.cc"
+        pre, post = self._file_edit_hooks(
+            conv_id,
+            "edit_file",
+            {
+                "Path": goldfish_cc,
+                "Replacement": "  absl::MutexLock clip_lock(&clip_mutex_);  // guards clip_\n",
+            },
+            result="Made 1 replacement.",
+        )
+        self.assertEqual(pre, {"decision": HookDecision.ALLOW.value})
+        advisory = post["overwriteResult"]
+        self.assertTrue(advisory.startswith("Made 1 replacement.\n\n[AEMU Harness Code Advisory]"))
+        self.assertIn("'absl::MutexLock clip_lock(&clip_mutex_);'", advisory)
+        self.assertIn("Prefer the reference form: 'absl::MutexLock clip_lock(clip_mutex_);'", advisory)
+
+        # A whole-file write over many legacy locks yields one line, not one per site.
+        legacy_file = "".join(
+            f"void F{i}() {{ absl::MutexLock lock(&mu_{i}); }}\n" for i in range(40)
+        )
+        _, post = self._file_edit_hooks(
+            conv_id, "write_file", {"Path": goldfish_cc, "Content": legacy_file}
+        )
+        advisory = post["overwriteResult"]
+        self.assertEqual(advisory.count("\n  * "), 1)
+        self.assertIn("'void F0() { absl::MutexLock lock(&mu_0); }' (+39 more)", advisory)
+
+        # gRPC and MutexLock advice on one edit share a single note.
+        _, post = self._file_edit_hooks(
+            conv_id,
+            "edit_file",
+            {
+                "Path": "/work/goldfish/emulator/plugin/grpc/services/v2/clipboard_service.cc",
+                "Replacement": (
+                    "class ClipStream : public grpc::ServerWriteReactor<ClipData> {};\n"
+                    "absl::MutexLock lock(&mu_);\n"
+                ),
+            },
+        )
+        advisory = post["overwriteResult"]
+        self.assertEqual(advisory.count("[AEMU Harness Code Advisory]"), 1)
+        self.assertEqual(advisory.count("\n  * "), 2)
+
+        advised = {
+            "this member": (
+                "absl::ReaderMutexLock lock(&this->mu_);",
+                "absl::ReaderMutexLock lock(this->mu_);",
+            ),
+            "object member, brace init": (
+                "::absl::WriterMutexLock lock{ &state.mu_ };",
+                "::absl::WriterMutexLock lock{ state.mu_ };",
+            ),
+            "condition overload": (
+                "absl::MutexLock lock(&mu_, absl::Condition(&ready_));",
+                "absl::MutexLock lock(mu_, absl::Condition(&ready_));",
+            ),
+            "unqualified after using": (
+                "using absl::ReleasableMutexLock;\nReleasableMutexLock lock(&mu_);",
+                "ReleasableMutexLock lock(mu_);",
+            ),
+            "split across lines": ("absl::MutexLock lock(\n    &mu_);", "absl::MutexLock lock( mu_);"),
+        }
+        for case, (content, suggestion) in advised.items():
+            advice = absl_mutex_lock_advisories(goldfish_cc, content)
+            self.assertEqual(len(advice), 1, msg=case)
+            self.assertIn(f"Prefer the reference form: '{suggestion}'", advice[0], msg=case)
+
+        no_advice = {
+            "reference form": "absl::MutexLock clip_lock(clip_mutex_);",
+            "reference condition overload": (
+                "absl::MutexLock lock(this->mu_, absl::Condition(&ready_));"
+            ),
+            "MutexLockMaybe": "absl::MutexLockMaybe lock(&mu_);\nMutexLockMaybe other(mu_ptr);",
+            "line comment": "// absl::MutexLock lock(&mu_);",
+            "block comment": "/* Old: absl::MutexLock lock(&mu_);\n */",
+            "rvalue references": (
+                "MutexLock(MutexLock&&) = delete;\nvoid Take(absl::MutexLock&& lock);"
+            ),
+        }
+        for case, content in no_advice.items():
+            self.assertEqual(absl_mutex_lock_advisories(goldfish_cc, content), [], msg=case)
+
+        # emu-main-dev builds external/qemu and aemu against Abseil LTS 20240116, which
+        # has no `Mutex&` constructors, so the pointer form gets no advice there.
+        for path in (
+            "/work/emulator/external/qemu/android/android-emu/android/console.cpp",
+            "/work/emulator/hardware/google/aemu/base/include/aemu/base/events/EventWaiter.h",
+        ):
+            self.assertEqual(
+                absl_mutex_lock_advisories(path, "absl::MutexLock lock(&mu_);"), [], msg=path
+            )
+
+    def test_absl_mutex_advisory_follows_the_checkout_abseil_pin(self) -> None:
+        pointer_form = "absl::MutexLock lock(&mu_);"
+        workspace = self.base_path / "emu_测试_🚀"
+        goldfish = workspace / "hardware" / "generic" / "goldfish"
+        (goldfish / "emulator").mkdir(parents=True, exist_ok=True)
+        (goldfish / "emulator" / "BUILD.bazel").write_text("", encoding="utf-8")
+        (goldfish / "MODULE.bazel").write_text("# Placeholder.\n", encoding="utf-8")
+        source = str(goldfish / "emulator" / "libs" / "lock.cc")
+
+        # goldfish emu-36-3-release and emu-36-4-release pin Abseil 20250512.1.
+        (workspace / "MODULE.bazel").write_text(
+            'bazel_dep(name = "abseil-cpp", version = "20250512.1")\n', encoding="utf-8"
+        )
+        self.assertEqual(absl_mutex_lock_advisories(source, pointer_form), [])
+
+        (workspace / "MODULE.bazel").write_text(
+            'bazel_dep(name = "abseil-cpp", version = "20260526.0")\n', encoding="utf-8"
+        )
+        self.assertEqual(len(absl_mutex_lock_advisories(source, pointer_form)), 1)
 
     def test_pre_invocation_injects_grpc_playbook_context_when_working_in_grpc_plugin(self) -> None:
         conv_id = "conv-grpc-pre-inv"

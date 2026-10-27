@@ -252,3 +252,15 @@ GRPC_MANUAL_STATUS_SWITCH_PATTERN: re.Pattern[str] = re.compile(
     r"|\bTo(?:Grpc|Absl)Status\s*\()",
     re.DOTALL,
 )
+# `absl::{MutexLock,ReaderMutexLock,WriterMutexLock,ReleasableMutexLock} name(&mu...)`,
+# with or without the `absl::` qualifier. `MutexLockMaybe` never matches: the class name
+# must be followed by whitespace and a variable name.
+ABSL_MUTEX_LOCK_BY_POINTER_PATTERN: re.Pattern[str] = re.compile(
+    r"\b(?:absl::)?((?:Reader|Writer|Releasable)?MutexLock)\s+\w+\s*[({]\s*&(?!&)"
+)
+CPP_COMMENT_PATTERN: re.Pattern[str] = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)
+ABSEIL_BAZEL_DEP_VERSION_PATTERN: re.Pattern[str] = re.compile(
+    r'bazel_dep\(\s*name\s*=\s*"abseil-cpp"\s*,\s*version\s*=\s*"(\d{8})\.'
+)
+# First Abseil LTS (20250814.0) whose MutexLock family takes `absl::Mutex&`.
+ABSL_MUTEX_LOCK_REFERENCE_MIN_LTS: int = 20250814
