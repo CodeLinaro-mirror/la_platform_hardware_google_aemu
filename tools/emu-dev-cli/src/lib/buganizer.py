@@ -32,6 +32,7 @@ class BuganizerIssuePayload:
     component_id: int
     priority: str = "P2"
     severity: str = "S2"
+    assignee: Optional[str] = None
     tags: Optional[List[str]] = None
 
 
@@ -133,6 +134,34 @@ class BuganizerClient:
         """Checks if a test identifier is already reported in an open bug for component."""
         return self.find_existing_open_bug(component_id, test_identifier) is not None
 
+    def find_recently_fixed_bug(
+        self, component_id: int, test_identifier: str
+    ) -> Optional[str]:
+        """Returns a closed Buganizer Issue ID (e.g. '570657414') if one mentions test_identifier."""
+        if not os.path.exists(self.issues_bin):
+            return None
+
+        clean_target = test_identifier.replace("@@goldfish+//", "@goldfish//")
+        query = f'componentid:{int(component_id)} status:closed "{clean_target}"'
+        try:
+            out = subprocess.check_output(
+                [self.issues_bin, "readonly", "search", f"--query={query}", "--limit=5"],
+                timeout=10,
+                stderr=subprocess.DEVNULL,
+            ).decode("utf-8")
+            clean_out = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", out)
+            for line in clean_out.splitlines():
+                line_str = line.strip()
+                m_id = re.search(r"^(?:Issue ID|ID):\s*(\d+)", line_str, re.IGNORECASE)
+                if m_id:
+                    return m_id.group(1).strip()
+                m_single = re.search(r"^(?:Issue\s+|b/)?(\d+)\s*[:\-\t]\s*(.+)$", line_str, re.IGNORECASE)
+                if m_single:
+                    return m_single.group(1).strip()
+        except Exception:
+            return None
+        return None
+
     def search_open_bugs(
         self, component_id: int, test_identifier: str
     ) -> List[dict]:
@@ -185,6 +214,11 @@ class BuganizerClient:
                 f"--priority={payload.priority}",
                 f"--severity={payload.severity}",
             ]
+            if payload.assignee:
+                cmd.extend([
+                    f"--assignee={payload.assignee}",
+                    "--status=ASSIGNED",
+                ])
             out = subprocess.check_output(cmd, timeout=15).decode("utf-8").strip()
             try:
                 os.unlink(tf_path)

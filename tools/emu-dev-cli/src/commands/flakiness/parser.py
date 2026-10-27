@@ -282,6 +282,12 @@ Sample Invocations:
         help="Buganizer Component ID (default: 1016880 for emulator, 2289192 for Android Device Hub)",
     )
     triage_parser.add_argument(
+        "--assignee",
+        type=str,
+        default=None,
+        help="Buganizer issue assignee (default: groupagent-android-emulator@google.com for Android Device Hub, unassigned otherwise)",
+    )
+    triage_parser.add_argument(
         "--min-flake-rate",
         "--min_flake_rate",
         dest="min_flake_rate",

@@ -81,6 +81,42 @@ class BuganizerTest(unittest.TestCase):
         bug_id = client.create_bug(payload, dry_run=True)
         self.assertEqual(bug_id, "b/DRY_RUN_BUG_ID")
 
+    @patch("os.path.exists")
+    @patch("subprocess.check_output")
+    def test_create_bug_with_assignee_sets_assigned_status(
+        self, mock_check_output, mock_exists
+    ):
+        mock_exists.return_value = True
+        mock_check_output.return_value = b"Created issue b/987654321\n"
+        client = BuganizerClient()
+        payload = BuganizerIssuePayload(
+            title="[Flaky Test] adh_test",
+            description="Test description",
+            component_id=2289192,
+            assignee="groupagent-android-emulator@google.com",
+        )
+        bug_id = client.create_bug(payload, dry_run=False)
+        self.assertEqual(bug_id, "b/987654321")
+        cmd = mock_check_output.call_args[0][0]
+        self.assertIn("--assignee=groupagent-android-emulator@google.com", cmd)
+        self.assertIn("--status=ASSIGNED", cmd)
+
+    @patch("os.path.exists")
+    @patch("subprocess.check_output")
+    def test_find_recently_fixed_bug(
+        self, mock_check_output, mock_exists
+    ):
+        mock_exists.return_value = True
+        mock_check_output.return_value = (
+            b"Issue ID: 570657414\nTitle: The packaging script for android device hub is non-deterministic\n---\n"
+        )
+        client = BuganizerClient()
+        fixed_id = client.find_recently_fixed_bug(
+            2289192,
+            "//tools/vendor/google/cli/android-device-hub/electron:package_test",
+        )
+        self.assertEqual(fixed_id, "570657414")
+
 
 if __name__ == "__main__":
     unittest.main()
