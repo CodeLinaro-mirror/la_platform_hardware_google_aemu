@@ -2007,6 +2007,77 @@
     color: #ffffff;
     padding-bottom: 4px;
     border-bottom: 1px solid var(--g-border-subtle);
+    display: flex;
+    align-items: baseline;
+    gap: 0;
+    flex-wrap: wrap;
+  }
+  .commit-subj-type {
+    font-family: var(--g-mono);
+    font-size: 12px;
+    font-weight: 800;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(121, 192, 255, 0.14);
+    color: #79c0ff;
+    border: 1px solid rgba(121, 192, 255, 0.3);
+  }
+  .commit-subj-type-feat {
+    background: rgba(52, 211, 153, 0.14);
+    color: #6ee7b7;
+    border-color: rgba(52, 211, 153, 0.32);
+  }
+  .commit-subj-type-fix {
+    background: rgba(251, 113, 133, 0.14);
+    color: #fda4af;
+    border-color: rgba(251, 113, 133, 0.32);
+  }
+  .commit-subj-type-refactor {
+    background: rgba(196, 181, 253, 0.14);
+    color: #d8b4fe;
+    border-color: rgba(196, 181, 253, 0.32);
+  }
+  .commit-subj-type-perf {
+    background: rgba(56, 189, 248, 0.14);
+    color: #7dd3fc;
+    border-color: rgba(56, 189, 248, 0.32);
+  }
+  .commit-subj-type-test {
+    background: rgba(96, 165, 250, 0.14);
+    color: #93c5fd;
+    border-color: rgba(96, 165, 250, 0.32);
+  }
+  .commit-subj-type-docs,
+  .commit-subj-type-build,
+  .commit-subj-type-chore,
+  .commit-subj-type-style {
+    background: rgba(251, 191, 36, 0.13);
+    color: #fcd34d;
+    border-color: rgba(251, 191, 36, 0.3);
+  }
+  .commit-subj-scope {
+    font-family: var(--g-mono);
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #79c0ff;
+  }
+  .commit-subj-colon {
+    color: #94a3b8;
+    margin-right: 6px;
+  }
+  .commit-subj-desc {
+    color: #f8fafc;
+  }
+  .commit-len-warn {
+    margin-left: auto;
+    font-family: var(--g-mono);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.35);
   }
   .commit-md-p {
     margin: 0;
@@ -2052,6 +2123,26 @@
     color: #e2e8f0;
     padding: 1px 5px;
     border-radius: 4px;
+  }
+  .commit-md-inline-code.code-tok-flag {
+    color: #f2cc60;
+    background: rgba(242, 204, 96, 0.1);
+    border-color: rgba(242, 204, 96, 0.26);
+  }
+  .commit-md-inline-code.code-tok-path {
+    color: #79c0ff;
+    background: rgba(121, 192, 255, 0.1);
+    border-color: rgba(121, 192, 255, 0.25);
+  }
+  .commit-md-inline-code.code-tok-fn {
+    color: #d2a8ff;
+    background: rgba(210, 168, 255, 0.1);
+    border-color: rgba(210, 168, 255, 0.25);
+  }
+  .commit-md-inline-code.code-tok-sym {
+    color: #56d4dd;
+    background: rgba(86, 212, 221, 0.09);
+    border-color: rgba(86, 212, 221, 0.24);
   }
   .commit-md-pre {
     margin: 2px 0;
@@ -2125,10 +2216,33 @@
   }
   .commit-msg-footer-line {
     color: #d0d5df;
+    font-family: var(--g-mono);
+    font-size: 11.5px;
   }
   .commit-msg-footer-key {
     color: var(--g-accent);
-    font-weight: 600;
+    font-weight: 700;
+  }
+  .commit-msg-footer-key.footer-key-bug {
+    color: #79c0ff;
+  }
+  .commit-msg-footer-key.footer-key-test {
+    color: #6ee7b7;
+  }
+  .commit-msg-footer-key.footer-key-breaking {
+    color: #fca5a5;
+  }
+  .commit-msg-footer-key.footer-key-changeid {
+    color: #c4b5fd;
+  }
+  .commit-msg-footer-key.footer-key-meta {
+    color: #94a3b8;
+  }
+  .commit-footer-val-changeid {
+    color: #94a3b8;
+  }
+  .commit-footer-val-test {
+    color: #d1fae5;
   }
   .file-header {
     padding: 5px 12px;
@@ -2242,6 +2356,157 @@
   .code-del { background: rgba(223, 91, 83, 0.12); color: #f2bdb9; }
   .code-hunk { background: rgba(130, 177, 255, 0.08); color: #a6c4fa; }
   .code-ctx { color: #c9cdd6; }
+  .diff-scheme-select {
+    background: #1b1f29;
+    color: #dbe7ff;
+    border: 1px solid #3d465c;
+    border-radius: 5px;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--g-font);
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.12s ease, background 0.12s ease;
+  }
+  .diff-scheme-select:hover {
+    background: #242a38;
+    border-color: #566687;
+  }
+  .diff-scheme-select:focus {
+    border-color: var(--g-accent);
+  }
+  .file-lang-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: var(--g-font);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    background: #232733;
+    border: 1px solid #363d4f;
+    color: #9fb0ca;
+  }
+  .hunk-range-pill {
+    color: #82b1ff;
+    font-weight: 700;
+    margin-right: 6px;
+  }
+  .hunk-context-sig {
+    color: #e2e8f0;
+    font-weight: 600;
+  }
+  .code-table:not(.scheme-classic) .code-add {
+    background: rgba(46, 160, 67, 0.12);
+    border-left-color: rgba(63, 185, 80, 0.46);
+    color: #e6edf3;
+  }
+  .code-table:not(.scheme-classic) .code-del {
+    background: rgba(248, 81, 73, 0.12);
+    border-left-color: rgba(248, 81, 73, 0.46);
+    color: #e6edf3;
+  }
+  .code-table:not(.scheme-classic) .code-ctx {
+    color: #c9d1d9;
+  }
+  .code-table.scheme-intraline_focus .code-add {
+    background: rgba(46, 160, 67, 0.08);
+    color: #e2e8f0;
+  }
+  .code-table.scheme-intraline_focus .code-del {
+    background: rgba(248, 81, 73, 0.08);
+    color: #cbd5e1;
+  }
+  .code-table.scheme-intraline_focus .code-ctx {
+    color: #94a3b8;
+  }
+  .code-table.scheme-semantic_review .code-ctx {
+    color: #b8c2d0;
+  }
+  .code-table.scheme-github_high_contrast .code-add {
+    background: rgba(46, 160, 67, 0.18);
+    border-left-color: #3fb950;
+    color: #f0f6fc;
+  }
+  .code-table.scheme-github_high_contrast .code-del {
+    background: rgba(248, 81, 73, 0.18);
+    border-left-color: #f85149;
+    color: #f0f6fc;
+  }
+  .code-table.scheme-github_high_contrast .code-ctx {
+    color: #d0d7de;
+  }
+  .code-add .tok-prefix {
+    color: #56d364;
+    font-weight: 700;
+  }
+  .code-del .tok-prefix {
+    color: #ff7b72;
+    font-weight: 700;
+  }
+  .code-ctx .tok-prefix {
+    color: #6e7681;
+  }
+  .tok-comment {
+    color: #7d8899;
+    font-style: italic;
+  }
+  .tok-string {
+    color: #f2cc60;
+  }
+  .tok-keyword {
+    color: #d2a8ff;
+    font-weight: 600;
+  }
+  .tok-type {
+    color: #79c0ff;
+  }
+  .tok-func {
+    color: #a5d6ff;
+  }
+  .tok-number {
+    color: #56d4dd;
+  }
+  .tok-macro {
+    color: #ffa657;
+    font-weight: 600;
+  }
+  .tok-rev-flow {
+    color: #ffb86b;
+    font-weight: 700;
+    text-decoration: underline rgba(255, 184, 107, 0.45);
+    text-underline-offset: 2px;
+  }
+  .tok-rev-safety {
+    color: #ff80bf;
+    font-weight: 700;
+    background: rgba(247, 120, 186, 0.14);
+    border-radius: 2px;
+  }
+  .tok-rev-status {
+    color: #79c0ff;
+    font-weight: 600;
+  }
+  .diff-intra-add {
+    background: rgba(46, 160, 67, 0.44);
+    box-shadow: 0 0 0 1px rgba(63, 185, 80, 0.36);
+    border-radius: 2px;
+  }
+  .diff-intra-del {
+    background: rgba(248, 81, 73, 0.44);
+    box-shadow: 0 0 0 1px rgba(248, 81, 73, 0.36);
+    border-radius: 2px;
+  }
+  .code-table.scheme-github_high_contrast .diff-intra-add {
+    background: rgba(63, 185, 80, 0.54);
+    box-shadow: 0 0 0 1px rgba(126, 231, 135, 0.5);
+  }
+  .code-table.scheme-github_high_contrast .diff-intra-del {
+    background: rgba(248, 81, 73, 0.54);
+    box-shadow: 0 0 0 1px rgba(255, 123, 114, 0.5);
+  }
   .code-line.code-line-selected {
     border-left-color: var(--g-accent) !important;
     background: rgba(130, 177, 255, 0.19) !important;
@@ -4594,6 +4859,7 @@
     sidecarUpdateChecking: false,
     sidecarUpdateInFlight: false,
     updateWarningModalOpen: false,
+    diffColorScheme: "syntax_intraline",
   };
 
   const DEFAULT_SIDEBAR_WIDTH = 475;
@@ -4602,6 +4868,7 @@
   const SNAP_COLLAPSE_SIDEBAR_WIDTH = 135;
   const SIDEBAR_WIDTH_STORAGE_KEY = "gerrit_ui_sidebar_width_px";
   const SIDEBAR_COLLAPSED_STORAGE_KEY = "gerrit_ui_sidebar_collapsed";
+  const DIFF_COLOR_SCHEME_STORAGE_KEY = "gerrit_ui_diff_color_scheme";
 
   function clampSidebarWidth(rawPx) {
     const wsEl = document.getElementById("workspaceContainer");
@@ -4632,6 +4899,10 @@
       const savedCol = window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY);
       if (savedCol === "1" || savedCol === "true") {
         state.sidebarCollapsed = true;
+      }
+      const savedScheme = window.localStorage.getItem(DIFF_COLOR_SCHEME_STORAGE_KEY);
+      if (savedScheme && DIFF_COLOR_SCHEMES.some(s => s.id === savedScheme)) {
+        state.diffColorScheme = savedScheme;
       }
     } catch (_e) {}
     syncSidebarLayoutDom();
@@ -9110,17 +9381,426 @@
     return `<a class="file-cs-link" href="${escapeHtml(csUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" title="Open ${escapeHtml(filePath)}${escapeHtml(lineHint)} in Code Search ↗">${escapeHtml(label)}<span class="file-cs-link-icon" aria-hidden="true">↗</span></a>`;
   }
 
+  const DIFF_COLOR_SCHEMES = [
+    { id: "syntax_intraline", label: "🎨 Syntax + Word Diff" },
+    { id: "intraline_focus", label: "🔍 Word Diff Only" },
+    { id: "semantic_review", label: "🛡️ Review Focus" },
+    { id: "github_high_contrast", label: "🌙 GitHub High-Contrast" },
+    { id: "classic", label: "🌿 Classic Gerrit Tint" },
+  ];
+
+  const DIFF_SYNTAX_KEYWORDS = new Set([
+    "if", "else", "elif", "for", "while", "do", "switch", "case", "default",
+    "break", "continue", "return", "co_await", "co_return", "co_yield", "goto",
+    "def", "class", "fn", "pub", "impl", "struct", "enum", "union", "trait",
+    "let", "mut", "const", "constexpr", "consteval", "static", "inline", "extern",
+    "virtual", "override", "final", "explicit", "friend", "operator", "noexcept",
+    "namespace", "using", "template", "typename", "concept", "requires",
+    "import", "from", "as", "async", "await", "try", "catch", "except", "finally",
+    "raise", "throw", "with", "yield", "lambda", "pass", "del", "in", "is", "not",
+    "and", "or", "func", "package", "defer", "go", "select", "interface", "type",
+    "var", "function", "export", "new", "delete", "sizeof", "alignof", "static_assert",
+    "private", "protected", "public", "match", "where", "ref", "move", "unsafe",
+  ]);
+
+  const DIFF_SYNTAX_TYPES_AND_CONSTS = new Set([
+    "void", "bool", "char", "short", "int", "long", "float", "double", "signed",
+    "unsigned", "auto", "size_t", "ssize_t", "int8_t", "int16_t", "int32_t", "int64_t",
+    "uint8_t", "uint16_t", "uint32_t", "uint64_t", "uintptr_t", "intptr_t", "ptrdiff_t",
+    "string", "string_view", "wstring", "u8string", "vector", "map", "unordered_map",
+    "set", "unordered_set", "optional", "variant", "span", "unique_ptr", "shared_ptr",
+    "weak_ptr", "Status", "StatusOr", "StatusCode", "Path", "Any", "Optional", "Union",
+    "Dict", "List", "Tuple", "Set", "Callable", "Iterable", "Sequence", "str", "bytes",
+    "dict", "list", "tuple", "frozenset", "object", "Exception", "RuntimeError",
+    "ValueError", "TypeError", "OSError", "KeyError", "IndexError", "true", "false",
+    "True", "False", "None", "null", "nullptr", "undefined", "NaN", "Infinity", "nil",
+    "self", "this", "cls", "super", "Self", "Result", "Option", "Some", "Ok", "Err",
+    "String", "Vec", "Box", "Arc", "Rc", "Mutex", "RwLock",
+  ]);
+
+  const DIFF_REVIEW_FLOW_TOKENS = new Set([
+    "return", "co_return", "break", "continue", "goto", "throw", "raise", "panic",
+    "CHECK", "DCHECK", "QCHECK", "LOG", "FATAL", "DFATAL", "assert", "exit", "abort",
+  ]);
+
+  const DIFF_REVIEW_SAFETY_TOKENS = new Set([
+    "mutex", "Mutex", "lock_guard", "unique_lock", "shared_lock", "scoped_lock",
+    "Lock", "RLock", "Condition", "Semaphore", "atomic", "Atomic", "thread", "Thread",
+    "new", "delete", "free", "malloc", "calloc", "realloc", "memcpy", "memmove",
+    "memset", "strcpy", "strncpy", "reinterpret_cast", "const_cast", "static_cast",
+    "dynamic_cast", "move", "forward", "unsafe", "raw_ptr", "Send", "Sync", "detach",
+  ]);
+
+  const DIFF_REVIEW_STATUS_TOKENS = new Set([
+    "StatusOr", "Status", "StatusCode", "absl", "Error", "Exception", "RuntimeError",
+    "ValueError", "OSError", "TimeoutExpired", "ok", "try", "catch", "except",
+    "finally", "errno", "perror", "strerror",
+  ]);
+
+  const MAX_INTRALINE_PAIR_RUN = 14;
+  const MAX_INTRALINE_LINE_LEN = 420;
+  const MAX_INTRALINE_LCS_TOKENS = 48;
+
+  function setDiffColorScheme(schemeId, showNotification = false) {
+    if (!DIFF_COLOR_SCHEMES.some(s => s.id === schemeId)) return;
+    state.diffColorScheme = schemeId;
+    try {
+      window.localStorage.setItem(DIFF_COLOR_SCHEME_STORAGE_KEY, schemeId);
+    } catch (_e) {}
+    renderDiffPane({ preserveScroll: true });
+    if (showNotification) {
+      const found = DIFF_COLOR_SCHEMES.find(s => s.id === schemeId);
+      showToast(`Diff Scheme: ${found ? found.label : schemeId} (Shortcut: c)`);
+    }
+  }
+
+  function cycleDiffColorScheme() {
+    const curIdx = DIFF_COLOR_SCHEMES.findIndex(s => s.id === state.diffColorScheme);
+    const nextIdx = (curIdx + 1) % DIFF_COLOR_SCHEMES.length;
+    setDiffColorScheme(DIFF_COLOR_SCHEMES[nextIdx].id, true);
+  }
+
+  function renderDiffColorSchemeSelectHtml() {
+    const optsHtml = DIFF_COLOR_SCHEMES.map(s => {
+      const selAttr = s.id === state.diffColorScheme ? " selected" : "";
+      return `<option value="${escapeHtml(s.id)}"${selAttr}>${escapeHtml(s.label)}</option>`;
+    }).join("");
+    return `<select
+      id="diffColorSchemeSelect"
+      class="diff-scheme-select"
+      onchange="setDiffColorScheme(this.value, true)"
+      onclick="event.stopPropagation()"
+      title="Switch code diff color scheme (Shortcut: c)"
+      aria-label="Code diff color scheme"
+    >${optsHtml}</select>`;
+  }
+
+  function detectDiffFileLanguage(filePath) {
+    const raw = String(filePath || "").trim();
+    const base = raw.split("/").pop() || "";
+    const lowerBase = base.toLowerCase();
+    if (lowerBase === "build" || lowerBase === "build.bazel" || lowerBase === "workspace" || lowerBase.endsWith(".bzl") || lowerBase.endsWith(".bazel")) {
+      return { id: "python", badge: "Bazel" };
+    }
+    if (lowerBase === "cmakelists.txt" || lowerBase.endsWith(".cmake")) {
+      return { id: "config", badge: "CMake" };
+    }
+    const dotIdx = lowerBase.lastIndexOf(".");
+    const ext = dotIdx >= 0 ? lowerBase.slice(dotIdx + 1) : "";
+    if (["c", "cc", "cpp", "cxx", "h", "hh", "hpp", "hxx", "inc", "inl", "m", "mm"].includes(ext)) {
+      return { id: "cpp", badge: "C++" };
+    }
+    if (["py", "pyi"].includes(ext)) return { id: "python", badge: "Python" };
+    if (ext === "rs") return { id: "rust", badge: "Rust" };
+    if (ext === "go") return { id: "go", badge: "Go" };
+    if (["js", "mjs", "cjs", "jsx", "ts", "tsx"].includes(ext)) return { id: "js", badge: ext.startsWith("t") ? "TS" : "JS" };
+    if (["java", "kt", "kts"].includes(ext)) return { id: "cpp", badge: ext.startsWith("k") ? "Kotlin" : "Java" };
+    if (["html", "htm", "xml", "svg"].includes(ext)) return { id: "markup", badge: ext.toUpperCase() };
+    if (["json", "yaml", "yml", "toml", "ini", "cfg", "conf", "properties", "textproto", "pbtxt", "proto"].includes(ext)) {
+      return { id: "config", badge: ext === "proto" ? "Proto" : ext.toUpperCase() };
+    }
+    if (["sh", "bash", "zsh"].includes(ext)) return { id: "config", badge: "Shell" };
+    if (["md", "rst", "txt"].includes(ext)) return { id: "generic", badge: ext.toUpperCase() };
+    return { id: "generic", badge: "" };
+  }
+
+  function splitIntoDiffTokens(str) {
+    const out = [];
+    const re = /[A-Za-z0-9_\u0080-\uffff]+|\s+|[^\sA-Za-z0-9_\u0080-\uffff]/g;
+    let m;
+    while ((m = re.exec(str)) !== null) {
+      out.push({ text: m[0], start: m.index, end: m.index + m[0].length });
+    }
+    return out;
+  }
+
+  function mergeIntralineIntervals(intervals) {
+    if (!intervals.length) return [];
+    const sorted = intervals.slice().sort((a, b) => a[0] - b[0]);
+    const merged = [sorted[0].slice()];
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = merged[merged.length - 1];
+      if (sorted[i][0] <= prev[1]) {
+        prev[1] = Math.max(prev[1], sorted[i][1]);
+      } else {
+        merged.push(sorted[i].slice());
+      }
+    }
+    return merged;
+  }
+
+  function computePairIntralineIntervals(delRaw, addRaw) {
+    const delBody = /^[+\- ]/.test(delRaw) ? delRaw.slice(1) : delRaw;
+    const addBody = /^[+\- ]/.test(addRaw) ? addRaw.slice(1) : addRaw;
+    const delOffset = delRaw.length - delBody.length;
+    const addOffset = addRaw.length - addBody.length;
+    if (!delBody || !addBody || delBody === addBody) return null;
+    if (delBody.length > MAX_INTRALINE_LINE_LEN || addBody.length > MAX_INTRALINE_LINE_LEN) return null;
+
+    const dToks = splitIntoDiffTokens(delBody);
+    const aToks = splitIntoDiffTokens(addBody);
+    if (!dToks.length || !aToks.length) return null;
+
+    let p = 0;
+    const minLen = Math.min(dToks.length, aToks.length);
+    while (p < minLen && dToks[p].text === aToks[p].text) p++;
+
+    let s = 0;
+    while (
+      s < minLen - p &&
+      dToks[dToks.length - 1 - s].text === aToks[aToks.length - 1 - s].text
+    ) {
+      s++;
+    }
+    if (p === 0 && s === 0) return null;
+
+    const dMid = dToks.slice(p, dToks.length - s);
+    const aMid = aToks.slice(p, aToks.length - s);
+    if (dMid.length > 0 && dMid.length <= MAX_INTRALINE_LCS_TOKENS && aMid.length > 0 && aMid.length <= MAX_INTRALINE_LCS_TOKENS) {
+      const dp = Array.from({ length: dMid.length + 1 }, () => new Uint16Array(aMid.length + 1));
+      for (let i = dMid.length - 1; i >= 0; i--) {
+        for (let j = aMid.length - 1; j >= 0; j--) {
+          dp[i][j] = dMid[i].text === aMid[j].text
+            ? dp[i + 1][j + 1] + 1
+            : Math.max(dp[i + 1][j], dp[i][j + 1]);
+        }
+      }
+      const dKeep = new Set();
+      const aKeep = new Set();
+      let i = 0;
+      let j = 0;
+      while (i < dMid.length && j < aMid.length) {
+        if (dMid[i].text === aMid[j].text) {
+          dKeep.add(i);
+          aKeep.add(j);
+          i++;
+          j++;
+        } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+          i++;
+        } else {
+          j++;
+        }
+      }
+      const delSpans = mergeIntralineIntervals(
+        dMid.filter((_, idx) => !dKeep.has(idx)).map(t => [t.start + delOffset, t.end + delOffset])
+      );
+      const addSpans = mergeIntralineIntervals(
+        aMid.filter((_, idx) => !aKeep.has(idx)).map(t => [t.start + addOffset, t.end + addOffset])
+      );
+      return { delSpans, addSpans };
+    }
+
+    const delSpans = dMid.length
+      ? [[dMid[0].start + delOffset, dMid[dMid.length - 1].end + delOffset]]
+      : [];
+    const addSpans = aMid.length
+      ? [[aMid[0].start + addOffset, aMid[aMid.length - 1].end + addOffset]]
+      : [];
+    return { delSpans, addSpans };
+  }
+
+  function computeFileIntralineRanges(lines) {
+    const map = {};
+    if (!Array.isArray(lines) || lines.length === 0) return map;
+    let i = 0;
+    while (i < lines.length) {
+      if (lines[i].type !== "del") {
+        i++;
+        continue;
+      }
+      const delStart = i;
+      while (i < lines.length && lines[i].type === "del") i++;
+      const delEnd = i;
+      const addStart = i;
+      while (i < lines.length && lines[i].type === "add") i++;
+      const addEnd = i;
+
+      const delCount = delEnd - delStart;
+      const addCount = addEnd - addStart;
+      if (delCount > 0 && addCount > 0 && delCount <= MAX_INTRALINE_PAIR_RUN && addCount <= MAX_INTRALINE_PAIR_RUN) {
+        const pairCount = Math.min(delCount, addCount);
+        for (let k = 0; k < pairCount; k++) {
+          const dIdx = delStart + k;
+          const aIdx = addStart + k;
+          const paired = computePairIntralineIntervals(
+            String(lines[dIdx].text || ""),
+            String(lines[aIdx].text || "")
+          );
+          if (paired) {
+            if (paired.delSpans.length) map[dIdx] = paired.delSpans;
+            if (paired.addSpans.length) map[aIdx] = paired.addSpans;
+          }
+        }
+      }
+    }
+    return map;
+  }
+
+  function classifyIdentifierToken(ident, nextChar, scheme, langId) {
+    if (scheme === "semantic_review") {
+      if (DIFF_REVIEW_FLOW_TOKENS.has(ident)) return "tok-rev-flow";
+      if (DIFF_REVIEW_SAFETY_TOKENS.has(ident)) return "tok-rev-safety";
+      if (DIFF_REVIEW_STATUS_TOKENS.has(ident) || ident.startsWith("UV_") || ident.endsWith("Error")) {
+        return "tok-rev-status";
+      }
+      return "";
+    }
+    if (scheme === "intraline_focus") return "";
+    if (DIFF_SYNTAX_KEYWORDS.has(ident)) return "tok-keyword";
+    if (DIFF_SYNTAX_TYPES_AND_CONSTS.has(ident)) return "tok-type";
+    if (/^[A-Z][A-Z0-9_]{2,}$/.test(ident)) return "tok-type";
+    if (/^[A-Z][A-Za-z0-9_]*$/.test(ident) && langId !== "markup") return "tok-type";
+    if (nextChar === "(") return "tok-func";
+    return "";
+  }
+
+  function tokenizeDiffCodeLine(rawLine, langId, scheme) {
+    const text = String(rawLine || "");
+    if (!text) return [];
+    const spans = [];
+    let offset = 0;
+    if (/^[+\- ]/.test(text)) {
+      spans.push({ start: 0, end: 1, cls: "tok-prefix" });
+      offset = 1;
+    }
+    const body = text.slice(offset);
+    if (!body) return spans;
+
+    if (scheme === "intraline_focus") {
+      const commentIdx = langId === "python" || langId === "config"
+        ? body.indexOf("#")
+        : body.indexOf("//");
+      if (commentIdx === 0 || (commentIdx > 0 && /\s/.test(body[commentIdx - 1]))) {
+        if (commentIdx > 0) spans.push({ start: offset, end: offset + commentIdx, cls: "" });
+        spans.push({ start: offset + commentIdx, end: text.length, cls: "tok-comment" });
+        return spans;
+      }
+      spans.push({ start: offset, end: text.length, cls: "" });
+      return spans;
+    }
+
+    const tokenRe = new RegExp(
+      [
+        "(\\/\\/.*$|\\/\\*[\\s\\S]*?\\*\\/|<!--[\\s\\S]*?-->)",
+        "|(#.*$)",
+        '|("(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'|`(?:\\\\.|[^`\\\\])*`)',
+        "|(@[A-Za-z_][A-Za-z0-9_.]*)",
+        "|(\\b(?:0[xX][0-9a-fA-F_]+|\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?[uUlLfF]*)\\b)",
+        "|([A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*)",
+      ].join(""),
+      "g"
+    );
+
+    let cursor = 0;
+    let match;
+    while ((match = tokenRe.exec(body)) !== null) {
+      const mStart = match.index;
+      const mEnd = mStart + match[0].length;
+      if (mStart > cursor) {
+        spans.push({ start: offset + cursor, end: offset + mStart, cls: "" });
+      }
+      let tokCls = "";
+      if (match[1]) {
+        tokCls = "tok-comment";
+      } else if (match[2]) {
+        const trimmedBefore = body.slice(0, mStart).trim();
+        if (langId === "cpp" && trimmedBefore === "" && /^#\s*(?:include|define|ifdef|ifndef|endif|if|elif|else|pragma|undef|error)\b/.test(match[2])) {
+          const dirMatch = match[2].match(/^#\s*[a-zA-Z_]+/);
+          const dirLen = dirMatch ? dirMatch[0].length : 1;
+          spans.push({ start: offset + mStart, end: offset + mStart + dirLen, cls: "tok-macro" });
+          tokenRe.lastIndex = mStart + dirLen;
+          cursor = mStart + dirLen;
+          continue;
+        }
+        if (langId === "python" || langId === "config" || langId === "generic") {
+          tokCls = "tok-comment";
+        }
+      } else if (match[3]) {
+        tokCls = scheme === "semantic_review" ? "" : "tok-string";
+      } else if (match[4]) {
+        tokCls = scheme === "semantic_review" ? "" : "tok-macro";
+      } else if (match[5]) {
+        tokCls = scheme === "semantic_review" ? "" : "tok-number";
+      } else if (match[6]) {
+        const nextCh = body[mEnd] || "";
+        tokCls = classifyIdentifierToken(match[6], nextCh, scheme, langId);
+      }
+      spans.push({ start: offset + mStart, end: offset + mEnd, cls: tokCls });
+      cursor = mEnd;
+    }
+    if (cursor < body.length) {
+      spans.push({ start: offset + cursor, end: text.length, cls: "" });
+    }
+    return spans;
+  }
+
+  function renderHighlightedDiffLineHtml(rawLine, lineType, langId, scheme, intralineSpans) {
+    const text = String(rawLine || "");
+    if (!text || scheme === "classic") {
+      return escapeHtml(text);
+    }
+    const syntaxSpans = tokenizeDiffCodeLine(text, langId, scheme);
+    const intra = Array.isArray(intralineSpans) ? intralineSpans : [];
+    const intraClass = lineType === "add" ? "diff-intra-add" : (lineType === "del" ? "diff-intra-del" : "");
+
+    const cutPoints = new Set([0, text.length]);
+    syntaxSpans.forEach(sp => {
+      cutPoints.add(sp.start);
+      cutPoints.add(sp.end);
+    });
+    if (intraClass) {
+      intra.forEach(iv => {
+        cutPoints.add(Math.max(0, Math.min(text.length, iv[0])));
+        cutPoints.add(Math.max(0, Math.min(text.length, iv[1])));
+      });
+    }
+    const sortedCuts = Array.from(cutPoints).sort((a, b) => a - b);
+    let html = "";
+    let synIdx = 0;
+    for (let i = 0; i < sortedCuts.length - 1; i++) {
+      const segStart = sortedCuts[i];
+      const segEnd = sortedCuts[i + 1];
+      if (segEnd <= segStart) continue;
+      while (synIdx < syntaxSpans.length && syntaxSpans[synIdx].end <= segStart) {
+        synIdx++;
+      }
+      const synCls = (synIdx < syntaxSpans.length && syntaxSpans[synIdx].start <= segStart)
+        ? syntaxSpans[synIdx].cls
+        : "";
+      const hasIntra = Boolean(
+        intraClass && intra.some(iv => segStart >= iv[0] && segEnd <= iv[1])
+      );
+      const combinedCls = [synCls, hasIntra ? intraClass : ""].filter(Boolean).join(" ");
+      const sliceEscaped = escapeHtml(text.slice(segStart, segEnd));
+      html += combinedCls ? `<span class="${combinedCls}">${sliceEscaped}</span>` : sliceEscaped;
+    }
+    return html;
+  }
+
+  function renderHunkHeaderInnerHtml(rawText, scheme) {
+    const text = String(rawText || "");
+    if (scheme === "classic") return escapeHtml(text);
+    const m = text.match(/^(@@\s*-\d+(?:,\d+)?\s+\+\d+(?:,\d+)?\s*@@)(.*)$/);
+    if (!m) return escapeHtml(text);
+    const rangePart = escapeHtml(m[1]);
+    const ctxPart = escapeHtml(m[2] || "");
+    return `<span class="hunk-range-pill">${rangePart}</span><span class="hunk-context-sig">${ctxPart}</span>`;
+  }
+
   function renderFileDiffBlock(f, defaultClNum) {
     const firstTaggedCl = Array.isArray(f.lines)
       ? (f.lines.find(l => Number(l.clNum || 0) > 0) || {}).clNum
       : 0;
     const fallbackCl = Number(defaultClNum || firstTaggedCl || state.selectedClNumber || 0);
     const fileComments = getInlineCommentsForFile(fallbackCl, f.file);
+    const scheme = state.diffColorScheme || "syntax_intraline";
+    const langInfo = detectDiffFileLanguage(f.file);
+    const intralineByIdx = scheme === "classic" ? {} : computeFileIntralineRanges(f.lines || []);
     let maxDigits = 4;
     const linesHtml = (f.lines || []).map((ln, idx) => {
       const cls = ln.type === "add" ? "code-add" : (ln.type === "del" ? "code-del" : (ln.type === "hunk" ? "code-hunk" : "code-ctx"));
       if (ln.type === "hunk") {
-        return `<div class="code-line ${cls}" data-type="hunk"><span class="ln">${escapeHtml(ln.old)}</span><span class="ln">${escapeHtml(ln.new)}</span><span>${escapeHtml(ln.text)}</span></div>`;
+        return `<div class="code-line ${cls}" data-type="hunk"><span class="ln">${escapeHtml(ln.old)}</span><span class="ln">${escapeHtml(ln.new)}</span><span>${renderHunkHeaderInnerHtml(ln.text, scheme)}</span></div>`;
       }
       const lineCl = Number(ln.clNum || fallbackCl || 0);
       const oldStr = ln.old != null ? String(ln.old) : "";
@@ -9128,7 +9808,14 @@
       maxDigits = Math.max(maxDigits, oldStr.length, newStr.length);
       const threadCls = getLineThreadIndicatorClass(fileComments, oldStr, newStr, null, idx);
       const inlineCommentsHtml = renderInlineLineCommentsHtml(lineCl, f.file, oldStr, newStr, fileComments, null, idx);
-      return `<div class="code-line ${cls} ${threadCls}" data-cl="${lineCl}" data-file="${escapeHtml(f.file)}" data-idx="${idx}" data-old-ln="${escapeHtml(oldStr)}" data-new-ln="${escapeHtml(newStr)}" data-type="${escapeHtml(ln.type || "ctx")}"><span class="ln ln-old" onclick="onDiffLineGutterClick(event, this)" title="Click to select line · Shift+Click to highlight block">${escapeHtml(oldStr)}</span><span class="ln ln-new" onclick="onDiffLineGutterClick(event, this)" title="Click to Comment or Ask Agent · Shift+Click to highlight block"><span class="ln-add-btn">+</span>${escapeHtml(newStr)}</span><span class="code-text">${escapeHtml(ln.text)}</span></div>${inlineCommentsHtml}`;
+      const codeInnerHtml = renderHighlightedDiffLineHtml(
+        ln.text,
+        ln.type || "ctx",
+        langInfo.id,
+        scheme,
+        intralineByIdx[idx]
+      );
+      return `<div class="code-line ${cls} ${threadCls}" data-cl="${lineCl}" data-file="${escapeHtml(f.file)}" data-idx="${idx}" data-old-ln="${escapeHtml(oldStr)}" data-new-ln="${escapeHtml(newStr)}" data-type="${escapeHtml(ln.type || "ctx")}"><span class="ln ln-old" onclick="onDiffLineGutterClick(event, this)" title="Click to select line · Shift+Click to highlight block">${escapeHtml(oldStr)}</span><span class="ln ln-new" onclick="onDiffLineGutterClick(event, this)" title="Click to Comment or Ask Agent · Shift+Click to highlight block"><span class="ln-add-btn">+</span>${escapeHtml(newStr)}</span><span class="code-text">${codeInnerHtml}</span></div>${inlineCommentsHtml}`;
     }).join("");
     const colStyle = maxDigits > 5
       ? ` style="--ln-old-col:${maxDigits * 8 + 14}px;--ln-new-col:${maxDigits * 8 + 30}px;"`
@@ -9136,14 +9823,20 @@
     const truncHtml = f.truncated
       ? `<div class="code-line code-hunk" data-type="hunk"><span class="ln">…</span><span class="ln">…</span><span>Diff truncated — click "Open in Gerrit ↗" to view remaining lines</span></div>`
       : "";
+    const langBadgeHtml = langInfo.badge
+      ? `<span class="file-lang-badge" title="Detected syntax language">${escapeHtml(langInfo.badge)}</span>`
+      : "";
     return `<div class="file-header">
-              ${renderCodeSearchFileLinkHtml(fallbackCl, f.file)}
+              <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+                ${renderCodeSearchFileLinkHtml(fallbackCl, f.file)}
+                ${langBadgeHtml}
+              </div>
               <div style="display:flex;align-items:center;gap:12px;">
                 <span class="file-header-hint">💡 Drag to highlight code or click line # (+ Shift) to Comment or Ask Agent</span>
                 <span>+${f.additions} / -${f.deletions}</span>
               </div>
             </div>
-            <div class="code-table" data-cl="${fallbackCl}" data-file="${escapeHtml(f.file)}"${colStyle}>${linesHtml}${truncHtml}</div>`;
+            <div class="code-table scheme-${escapeHtml(scheme)}" data-cl="${fallbackCl}" data-file="${escapeHtml(f.file)}"${colStyle}>${linesHtml}${truncHtml}</div>`;
   }
 
   function getFullCommitMessage(c, bundle) {
@@ -9158,6 +9851,24 @@
     return (c && c.subject) || "";
   }
 
+  function _classifyInlineCodeSpanClass(rawCode) {
+    const t = String(rawCode || "").trim();
+    if (!t) return "";
+    if (/^-{1,2}[a-zA-Z0-9][\w.-]*(?:=.*)?$/.test(t)) return " code-tok-flag";
+    if (
+      /^(?:\/\/|@[a-zA-Z0-9_-]+\/\/)/.test(t) ||
+      /[\\/]/.test(t) ||
+      /\.[a-zA-Z0-9]{1,6}(?::\d+)?$/.test(t)
+    ) {
+      return " code-tok-path";
+    }
+    if (/\w+\s*\(.*\)$/.test(t) || /::/.test(t)) return " code-tok-fn";
+    if (/^[A-Z][A-Z0-9_]{2,}$/.test(t) || /^(?:StatusOr|Status|absl|std)\b/.test(t)) {
+      return " code-tok-sym";
+    }
+    return "";
+  }
+
   function renderInlineMarkdownHtml(rawText, isBugFooter = false) {
     const tokens = [];
     const stash = html => {
@@ -9168,10 +9879,13 @@
 
     let s = escapeHtml(String(rawText || ""));
 
-    // 1. Inline code spans (`...`) protected first
-    s = s.replace(/`([^`\n]+)`/g, (_m, code) =>
-      stash(`<code class="commit-md-inline-code">${code}</code>`)
-    );
+    // 1. Inline code spans (`...`) protected first with semantic token coloring
+    s = s.replace(/`([^`\n]+)`/g, (_m, code) => {
+      const tokCls = (state.diffColorScheme || "syntax_intraline") === "classic"
+        ? ""
+        : _classifyInlineCodeSpanClass(code);
+      return stash(`<code class="commit-md-inline-code${tokCls}">${code}</code>`);
+    });
 
     // 2. Explicit Markdown links [label](https://...) or [label](file:///...)
     s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, (_m, label, url) =>
@@ -9225,11 +9939,76 @@
     const m = line.match(/^(\s*)(Bug|Fixes|Issue|Test|Change-Id|Reviewed-on|Reviewed-by|Presubmit-Verified|Signed-off-by|Co-authored-by|BREAKING CHANGE)(\s*:\s*)(.*)$/i);
     if (!m) return renderInlineMarkdownHtml(line, false);
     const leading = escapeHtml(m[1]);
-    const key = escapeHtml(m[2]);
+    const rawKey = m[2];
+    const key = escapeHtml(rawKey);
     const sep = escapeHtml(m[3]);
-    const isBugKey = /^(bug|fixes|issue)$/i.test(m[2]);
-    const rhs = renderInlineMarkdownHtml(m[4], isBugKey);
-    return `<div class="commit-msg-footer-line">${leading}<span class="commit-msg-footer-key">${key}${sep}</span>${rhs}</div>`;
+    const lowerKey = rawKey.toLowerCase();
+    const isBugKey = /^(bug|fixes|issue)$/.test(lowerKey);
+    let keyCls = "footer-key-meta";
+    if (isBugKey) keyCls = "footer-key-bug";
+    else if (lowerKey === "test") keyCls = "footer-key-test";
+    else if (lowerKey === "breaking change") keyCls = "footer-key-breaking";
+    else if (lowerKey === "change-id") keyCls = "footer-key-changeid";
+    let rhs = renderInlineMarkdownHtml(m[4], isBugKey);
+    if (lowerKey === "change-id") {
+      rhs = `<span class="commit-footer-val-changeid">${rhs}</span>`;
+    } else if (lowerKey === "test") {
+      rhs = `<span class="commit-footer-val-test">${rhs}</span>`;
+    }
+    return `<div class="commit-msg-footer-line">${leading}<span class="commit-msg-footer-key ${keyCls}">${key}${sep}</span>${rhs}</div>`;
+  }
+
+  function _renderSubjectLineHtml(subjectLine) {
+    const scheme = state.diffColorScheme || "syntax_intraline";
+    const lenWarnHtml = scheme === "semantic_review" && subjectLine.length > 50
+      ? `<span class="commit-len-warn" title="Semantic Commit rule: Subject line exceeds 50 characters">${subjectLine.length}/50 chars</span>`
+      : "";
+    if (scheme === "classic") {
+      return `<div class="commit-msg-subject-line"><span class="commit-subj-desc">${renderInlineMarkdownHtml(subjectLine, false)}</span></div>`;
+    }
+    const semMatch = subjectLine.match(/^(\s*)([a-zA-Z]+)(\([^)]+\))?(!)?(:\s+)(.+)$/);
+    if (semMatch) {
+      const [, lead, typeRaw, scopeRaw, bangRaw, colonRaw, descRaw] = semMatch;
+      const typeLower = typeRaw.toLowerCase();
+      const scopeHtml = scopeRaw ? `<span class="commit-subj-scope">${escapeHtml(scopeRaw)}</span>` : "";
+      const colonStr = `${bangRaw || ""}${colonRaw}`;
+      return `<div class="commit-msg-subject-line">${escapeHtml(lead)}<span class="commit-subj-type commit-subj-type-${escapeHtml(typeLower)}">${escapeHtml(typeRaw)}</span>${scopeHtml}<span class="commit-subj-colon">${escapeHtml(colonStr)}</span><span class="commit-subj-desc">${renderInlineMarkdownHtml(descRaw, false)}</span>${lenWarnHtml}</div>`;
+    }
+    const bracketMatch = subjectLine.match(/^(\s*)(\[[^\]]+\])(\s+)(.+)$/);
+    if (bracketMatch) {
+      const [, lead, tagRaw, spaceRaw, descRaw] = bracketMatch;
+      return `<div class="commit-msg-subject-line">${escapeHtml(lead)}<span class="commit-subj-scope">${escapeHtml(tagRaw)}</span><span>${escapeHtml(spaceRaw)}</span><span class="commit-subj-desc">${renderInlineMarkdownHtml(descRaw, false)}</span>${lenWarnHtml}</div>`;
+    }
+    return `<div class="commit-msg-subject-line"><span class="commit-subj-desc">${renderInlineMarkdownHtml(subjectLine, false)}</span>${lenWarnHtml}</div>`;
+  }
+
+  function _resolveFenceLanguageId(langStr) {
+    const l = String(langStr || "").trim().toLowerCase();
+    if (!l) return "generic";
+    if (l === "c++" || l === "cpp" || l === "cc" || l === "c" || l === "h" || l === "hpp" || l === "java" || l === "kotlin" || l === "kt") return "cpp";
+    if (l === "py" || l === "python" || l === "bzl" || l === "bazel" || l === "starlark") return "python";
+    if (l === "js" || l === "javascript" || l === "ts" || l === "typescript") return "js";
+    if (l === "sh" || l === "bash" || l === "zsh" || l === "shell" || l === "json" || l === "yaml" || l === "yml" || l === "toml" || l === "ini") return "config";
+    if (l === "html" || l === "xml" || l === "svg") return "markup";
+    if (l === "diff" || l === "patch") return "diff";
+    return "generic";
+  }
+
+  function _renderFencedCodeBlockInnerHtml(codeLines, langStr) {
+    const scheme = state.diffColorScheme || "syntax_intraline";
+    if (scheme === "classic") {
+      return escapeHtml(codeLines.join("\n"));
+    }
+    const langId = _resolveFenceLanguageId(langStr);
+    return codeLines.map(rawLine => {
+      if (langId === "diff" || /^[+-](?![+-]{2})/.test(rawLine)) {
+        const lineType = rawLine.startsWith("+") ? "add" : (rawLine.startsWith("-") ? "del" : "ctx");
+        const rendered = renderHighlightedDiffLineHtml(rawLine, lineType, "generic", scheme, null);
+        const cls = lineType === "add" ? "code-add" : (lineType === "del" ? "code-del" : "");
+        return cls ? `<span class="${cls}" style="display:inline-block;width:100%;">${rendered}</span>` : rendered;
+      }
+      return renderHighlightedDiffLineHtml(` ${rawLine}`, "ctx", langId, scheme, null).replace(/^<span class="tok-prefix"> <\/span>/, "");
+    }).join("\n");
   }
 
   function formatCommitMessageHtml(rawMsg, clNum = 0) {
@@ -9252,7 +10031,7 @@
         startLn: subjectLn,
         endLn: subjectLn,
         rawText: subjectLine,
-        html: `<div class="commit-msg-subject-line">${renderInlineMarkdownHtml(subjectLine, false)}</div>`,
+        html: _renderSubjectLineHtml(subjectLine),
         extraCls: "",
       });
     }
@@ -9326,7 +10105,7 @@
           startLn: startFenceLn,
           endLn: endFenceLn,
           rawText: rawBlockLines.join("\n"),
-          html: `<pre class="commit-md-pre">${langHtml}<code class="commit-md-code-block">${escapeHtml(codeLines.join("\n"))}</code></pre>`,
+          html: `<pre class="commit-md-pre">${langHtml}<code class="commit-md-code-block">${_renderFencedCodeBlockInnerHtml(codeLines, lang)}</code></pre>`,
           extraCls: "",
         });
         continue;
@@ -9605,7 +10384,7 @@
       }
       return `${c.number}@${c.patch_set}|${hasFiles ? 1 : 0}|${threadCnt}|${c.viewer_cr_vote}|${c.viewer_autosubmit ? 1 : 0}|${c.viewer_presubmit_ready ? 1 : 0}|${c.presubmit_status}|${subTarget.canSubmit ? 1 : 0}:${subTarget.label}|${bugStr}|${revStr}|${ccCnt}${aiPart}`;
     });
-    return `${state.viewer}|single|${parts.join(";;")}`;
+    return `${state.viewer}|${state.diffColorScheme}|single|${parts.join(";;")}`;
   }
 
   function renderExpandSidebarButtonHtml() {
@@ -9786,6 +10565,7 @@
           </div>
           <div class="commit-sec-actions">
             <span style="font-size:11.5px;color:var(--g-muted);">${escapeHtml(c.project_short)} · PS${c.patch_set}</span>
+            ${renderDiffColorSchemeSelectHtml()}
             ${renderCommitNavButtonsHtml()}
             <a class="external-gerrit-pill" href="${escapeHtml(gerritUrl)}" target="_blank" rel="noopener noreferrer" title="Open ag/${c.number} in external Gerrit in a new tab">Open in Gerrit ↗</a>
             ${renderCommitSubmitButtonHtml(c)}
@@ -13745,6 +14525,11 @@
     if (e.key === "[" && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
       toggleSidebarCollapsed();
+      return;
+    }
+    if (e.key === "c" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      cycleDiffColorScheme();
       return;
     }
     if (e.key === "/") {

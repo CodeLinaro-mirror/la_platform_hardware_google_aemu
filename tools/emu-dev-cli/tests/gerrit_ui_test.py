@@ -4468,6 +4468,189 @@ document.getElementById("commentReplyInput-srv-thread-101-0").value = "Switched 
             httpd.shutdown()
             httpd.server_close()
 
+    def test_diff_color_schemes_intraline_diff_and_syntax_highlighting(self) -> None:
+        html = render_static_gerrit_ui_html()
+        for expected in (
+            'id="diffColorSchemeSelect"',
+            "DIFF_COLOR_SCHEMES",
+            "syntax_intraline",
+            "intraline_focus",
+            "semantic_review",
+            "github_high_contrast",
+            "classic",
+            "function setDiffColorScheme(",
+            "function cycleDiffColorScheme(",
+            "function computeFileIntralineRanges(",
+            "function tokenizeDiffCodeLine(",
+            "function renderHighlightedDiffLineHtml(",
+            "function renderHunkHeaderInnerHtml(",
+            "function _renderSubjectLineHtml(",
+            "function _classifyInlineCodeSpanClass(",
+            "function _renderFencedCodeBlockInnerHtml(",
+            ".diff-intra-add",
+            ".diff-intra-del",
+            ".tok-rev-flow",
+            ".tok-rev-safety",
+            ".tok-rev-status",
+            ".commit-subj-type-feat",
+            ".footer-key-bug",
+            ".footer-key-test",
+            ".code-tok-flag",
+            ".code-tok-path",
+        ):
+            self.assertIn(expected, html)
+
+        node_bin = shutil.which("node") or (
+            "/usr/bin/node" if Path("/usr/bin/node").is_file() else None
+        )
+        if not node_bin:
+            return
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, flags=re.S)
+        self.assertTrue(scripts)
+        ui_js = "\n".join(scripts)
+        for boot_call in (
+            "loadSidebarLayoutPrefs();",
+            "initWorkspaceSplitter();",
+            "initDiffCodeSelectionListeners();",
+            "initApp();",
+        ):
+            ui_js = ui_js.replace(boot_call, f"// {boot_call}")
+
+        harness_js = (
+            ui_js
+            + r"""
+const assert = require("node:assert/strict");
+
+function stripTags(htmlStr) {
+  return String(htmlStr)
+    .replace(/<[^>]+>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+// 1. Verify language detection across common repo extensions.
+assert.equal(detectDiffFileLanguage("emulator/net/socket_测试_🚀_é.cc").id, "cpp");
+assert.equal(detectDiffFileLanguage("tools/emu-dev-cli/src/gerrit_ui.py").id, "python");
+assert.equal(detectDiffFileLanguage("emulator/BUILD.bazel").badge, "Bazel");
+assert.equal(detectDiffFileLanguage("docs/guide.md").badge, "MD");
+
+// 2. Verify intraline word diff pairing and exact text preservation across all 5 schemes.
+const sampleLines = [
+  { type: "hunk", text: "@@ -42,4 +42,4 @@ absl::StatusOr<int> ConnectSocket(int timeout_ms)" },
+  { type: "ctx", old: 42, new: 42, text: "   std::lock_guard<std::mutex> lock(mu_); // comment 测试_🚀_é" },
+  { type: "del", old: 43, new: null, text: "-  if (timeout_ms <= 500) return absl::DeadlineExceededError(\"slow_测试_🚀_é\");" },
+  { type: "add", old: null, new: 43, text: "+  if (timeout_ms <= 2500) return absl::DeadlineExceededError(\"fast_测试_🚀_é\");" },
+];
+const intralineMap = computeFileIntralineRanges(sampleLines);
+assert.equal(Array.isArray(intralineMap[2]), true, "deleted line in pair should have intraline range");
+assert.equal(Array.isArray(intralineMap[3]), true, "added line in pair should have intraline range");
+
+const hunkHtml = renderHunkHeaderInnerHtml(sampleLines[0].text, "syntax_intraline");
+assert.equal(hunkHtml.includes("hunk-range-pill"), true);
+assert.equal(hunkHtml.includes("hunk-context-sig"), true);
+assert.equal(stripTags(hunkHtml), sampleLines[0].text);
+
+for (const schemeObj of DIFF_COLOR_SCHEMES) {
+  state.diffColorScheme = schemeObj.id;
+  for (let i = 1; i < sampleLines.length; i++) {
+    const ln = sampleLines[i];
+    const rendered = renderHighlightedDiffLineHtml(ln.text, ln.type, "cpp", schemeObj.id, intralineMap[i] || null);
+    assert.equal(
+      stripTags(rendered),
+      ln.text,
+      `Exact textContent must match raw line for scheme=${schemeObj.id} line=${i}`
+    );
+  }
+  const delRendered = renderHighlightedDiffLineHtml(sampleLines[2].text, "del", "cpp", schemeObj.id, intralineMap[2]);
+  const addRendered = renderHighlightedDiffLineHtml(sampleLines[3].text, "add", "cpp", schemeObj.id, intralineMap[3]);
+  if (schemeObj.id === "classic") {
+    assert.equal(delRendered.includes("diff-intra-del"), false);
+    assert.equal(addRendered.includes("tok-"), false);
+  } else if (schemeObj.id === "intraline_focus") {
+    assert.equal(delRendered.includes("diff-intra-del"), true);
+    assert.equal(addRendered.includes("diff-intra-add"), true);
+    assert.equal(addRendered.includes("tok-keyword"), false);
+  } else if (schemeObj.id === "semantic_review") {
+    assert.equal(addRendered.includes("tok-rev-flow"), true, "return should highlight as review control flow");
+    assert.equal(addRendered.includes("tok-rev-status"), true, "absl/Error should highlight as review status");
+    const ctxRendered = renderHighlightedDiffLineHtml(sampleLines[1].text, "ctx", "cpp", schemeObj.id, null);
+    assert.equal(ctxRendered.includes("tok-rev-safety"), true, "lock_guard/mutex should highlight as review safety");
+  } else {
+    assert.equal(delRendered.includes("diff-intra-del"), true);
+    assert.equal(addRendered.includes("diff-intra-add"), true);
+    assert.equal(addRendered.includes("tok-keyword"), true);
+  }
+}
+
+// 3. Verify Commit Message semantic highlighting (subject, inline code tokens, fenced blocks, footers).
+state.diffColorScheme = "syntax_intraline";
+const commitMsg = [
+  "feat(gerrit): Add interactive diff color schemes 测试_🚀_é",
+  "",
+  "Updates `//tools/emu-dev-cli:gerrit_ui` and `renderDiffPane()` with `--notify=OWNER`.",
+  "",
+  "```cpp",
+  "if (status.ok()) return *status;",
+  "```",
+  "",
+  "Bug: 43299169",
+  "Test: bazel test @aemu//tools/emu-dev-cli:gerrit_ui_test",
+  "Change-Id: I1234567890abcdef1234567890abcdef12345678",
+].join("\n");
+const msgHtml = formatCommitMessageHtml(commitMsg, 43299169);
+assert.equal(msgHtml.includes("commit-subj-type-feat"), true);
+assert.equal(msgHtml.includes("commit-subj-scope"), true);
+assert.equal(msgHtml.includes("code-tok-path"), true);
+assert.equal(msgHtml.includes("code-tok-fn"), true);
+assert.equal(msgHtml.includes("code-tok-flag"), true);
+assert.equal(msgHtml.includes("tok-keyword"), true);
+assert.equal(msgHtml.includes("footer-key-bug"), true);
+assert.equal(msgHtml.includes("footer-key-test"), true);
+assert.equal(msgHtml.includes("footer-key-changeid"), true);
+
+state.diffColorScheme = "semantic_review";
+const longSubjHtml = _renderSubjectLineHtml("feat(gerrit): Add a very long subject line that exceeds fifty characters easily");
+assert.equal(longSubjHtml.includes("commit-len-warn"), true);
+
+console.log("DIFF_COLOR_SCHEMES_OK");
+"""
+        )
+        vm_wrapper = (
+            'const fs = require("node:fs");\n'
+            'const vm = require("node:vm");\n'
+            "const code = fs.readFileSync(process.argv[2], 'utf8');\n"
+            "const sandbox = {\n"
+            "  require,\n"
+            "  console,\n"
+            "  setTimeout,\n"
+            "  clearTimeout,\n"
+            "  window: { addEventListener() {}, innerWidth: 1400 },\n"
+            "  document: { getElementById() { return null; }, addEventListener() {}, body: { classList: { toggle() {} } } },\n"
+            "  localStorage: { getItem() { return null; }, setItem() {} },\n"
+            "  navigator: { clipboard: { writeText: async () => {} } },\n"
+            "  fetch: async () => ({ ok: true, json: async () => ({}) }),\n"
+            "};\n"
+            "vm.runInNewContext(code, sandbox);\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            js_path = Path(tmp_dir) / "diff_scheme_harness.js"
+            runner_path = Path(tmp_dir) / "run_vm.js"
+            js_path.write_text(harness_js, encoding="utf-8")
+            runner_path.write_text(vm_wrapper, encoding="utf-8")
+            proc = subprocess.run(
+                [node_bin, str(runner_path), str(js_path)],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+            self.assertEqual(proc.returncode, 0, msg=f"Diff color scheme harness failed:\n{proc.stderr}\n{proc.stdout}")
+            self.assertIn("DIFF_COLOR_SCHEMES_OK", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
