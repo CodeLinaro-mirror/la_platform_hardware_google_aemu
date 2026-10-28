@@ -140,6 +140,13 @@ def main() -> None:
                         for submod_name in (
                             "commands.gerrit.presubmit_targets",
                             "commands.gerrit.sidecar_updater",
+                            "commands.gerrit.services.diff_parser",
+                            "commands.gerrit.services.queue_service",
+                            "commands.gerrit.services.vote_submit_service",
+                            "commands.gerrit.services.inline_qa_service",
+                            "commands.gerrit.services",
+                            "commands.gerrit.handlers.ui_handler",
+                            "commands.gerrit.handlers",
                         ):
                             submod = sys.modules.get(submod_name)
                             if submod is not None:

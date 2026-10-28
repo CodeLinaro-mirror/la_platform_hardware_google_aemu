@@ -848,7 +848,9 @@ def execute_workflow_step(
     state_arg: str,
     continuation_cmd: Optional[str] = None,
 ) -> int:
-    """Executes a single step of a workflow, delegating sub-workflows when encountered."""
+    """Executes a single step of a workflow using polymorphic WorkflowStep handlers."""
+    from .steps import StepExecutionContext, WorkflowStepFactory
+
     path = Path(spec_path).resolve()
     spec = load_yaml(path)
     wf_name = spec.get("name", path.stem).replace("_", "-")
@@ -879,7 +881,7 @@ def execute_workflow_step(
     retries = state_data.get("retries", 0)
     iteration = int(state_data.get("iteration", 0) or 0)
 
-    active_continuation = continuation_cmd or f'emu-dev-cli workflow {wf_name} --state={clean_id}'
+    active_continuation = continuation_cmd or f"emu-dev-cli workflow {wf_name} --state={clean_id}"
 
     # Build context for template interpolation
     context = dict(metadata)
@@ -901,355 +903,30 @@ def execute_workflow_step(
     if "output_dir" not in context:
         context["output_dir"] = context["cache-dir"]
 
-    def _advance_to_step(next_step_idx: int) -> int:
-        state_data["step"] = next_step_idx
-        state_data["retries"] = 0
-        state_data["stuck_reason"] = ""
-        state_data["state"] = "RUNNING"
-        save_state_yaml(state_file, state_data)
-
-        context["step"] = next_step_idx
-        context["retries"] = 0
-
-        if next_step_idx >= len(steps):
-            state_data["state"] = "DONE"
-            save_state_yaml(state_file, state_data)
-            print(f"Workflow '{wf_name}' completed successfully!")
-            return 0
-
-        next_spec = steps[next_step_idx]
-
-        # If next step is a sub-workflow, automatically execute its first step
-        if "workflow" in next_spec:
-            return execute_workflow_step(path, clean_id, continuation_cmd=active_continuation)
-
-        # If next step is a human verification barrier, enter WAITING_HUMAN
-        if _is_human_verify_step(next_spec):
-            state_data["state"] = "WAITING_HUMAN"
-            save_state_yaml(state_file, state_data)
-            prompt = format_step_prompt(next_spec, context)
-            print(_format_human_verify_prompt(prompt, active_continuation, clean_id))
-            return 0
-
-        # Passive completion step
-        if not next_spec.get("verifier_cmd"):
-            state_data["state"] = "DONE"
-            save_state_yaml(state_file, state_data)
-            print(format_step_prompt(next_spec, context))
-            return 0
-
-        # Active atomic step
-        prompt = format_step_prompt(next_spec, context)
-        if metadata.pop("_human_feedback", None) is not None:
-            context.pop("_human_feedback", None)
-            save_state_yaml(state_file, state_data)
-        print(format_prompt_with_suffix(prompt, active_continuation, "for next steps."))
-        return 0
-
-    # Check terminal condition
     if current_step_index >= len(steps):
         state_data["state"] = "DONE"
         save_state_yaml(state_file, state_data)
         print(f"Workflow '{wf_name}' completed successfully!")
         return 0
 
-    step_spec = steps[current_step_index]
-
-    # -------------------------------------------------------------
-    # Case 0: Human Verification Barrier Step ('human_verify: true')
-    # -------------------------------------------------------------
-    if _is_human_verify_step(step_spec):
-        approved_steps = metadata.get("_approved_steps", [])
-        if current_step_index in approved_steps:
-            return _advance_to_step(current_step_index + 1)
-
-        state_data["state"] = "WAITING_HUMAN"
-        save_state_yaml(state_file, state_data)
-        prompt = format_step_prompt(step_spec, context)
-        print(_format_human_verify_prompt(prompt, active_continuation, clean_id))
-        return 0
-
-    # -------------------------------------------------------------
-    # Case 1: Sub-Workflow Step ('workflow' key present in step_spec)
-    # -------------------------------------------------------------
-    if "workflow" in step_spec:
-        sub_wf_def = step_spec["workflow"]
-        if isinstance(sub_wf_def, str):
-            sub_name = sub_wf_def
-            sub_args_raw = {}
-            sub_outputs = {}
-        elif isinstance(sub_wf_def, dict):
-            sub_name = sub_wf_def.get("name", "")
-            sub_args_raw = sub_wf_def.get("args", {})
-            sub_outputs = sub_wf_def.get("outputs", {})
-        else:
-            print(f"Error: Invalid workflow step definition: {sub_wf_def}", file=sys.stderr)
-            return 1
-
-        step_custom_instr = step_spec.get("custom_instructions", "")
-        if not step_custom_instr and isinstance(sub_wf_def, dict):
-            step_custom_instr = sub_wf_def.get("custom_instructions", "")
-
-        sub_wf_meta = metadata.get("_sub_workflow")
-        if not sub_wf_meta or sub_wf_meta.get("parent_step") != current_step_index:
-            call_stack = list(metadata.get("_call_stack", [wf_name]))
-            if sub_name in call_stack:
-                raise WorkflowRecursionError(
-                    f"Circular workflow dependency detected: {' -> '.join(call_stack)} -> {sub_name}"
-                )
-            if len(call_stack) >= 5:
-                raise WorkflowRecursionError(
-                    f"Maximum workflow composition depth (5) exceeded: {' -> '.join(call_stack)}"
-                )
-
-            child_file = resolve_workflow_file(sub_name, path)
-            if not child_file:
-                raise WorkflowTargetNotFoundError(f"Sub-workflow '{sub_name}' not found.")
-
-            if isinstance(sub_args_raw, dict):
-                child_args = {k: interpolate(str(v), context) for k, v in sub_args_raw.items()}
-            elif isinstance(sub_args_raw, list):
-                child_args = [interpolate(str(a), context) for a in sub_args_raw]
-            else:
-                child_args = {}
-
-            child_spec = load_yaml(child_file)
-            # Auto-forward shared arguments from parent context if child declares them
-            if isinstance(child_args, dict):
-                child_arg_defs = _parse_args_spec(
-                    child_spec.get("args") or child_spec.get("init", {}).get("args") or []
-                )
-                for c_arg in child_arg_defs:
-                    c_name = c_arg.get("name")
-                    if c_name and c_name not in child_args:
-                        inherited_val = get_nested_context_val(context, c_name)
-                        if inherited_val is None:
-                            inherited_val = get_nested_context_val(context, c_name.replace("-", "_"))
-                        if inherited_val is not None and str(inherited_val).strip() != "":
-                            child_args[c_name] = str(inherited_val)
-
-            child_parent_ctx = dict(context)
-            if step_custom_instr:
-                child_parent_ctx["_custom_instructions"] = interpolate(str(step_custom_instr), context)
-
-            child_wf_name = child_spec.get("name", child_file.stem).replace("_", "-")
-            child_state_id = init_workflow_session(child_file, child_args, parent_context=child_parent_ctx)
-            sub_wf_meta = {
-                "name": child_wf_name,
-                "state_id": child_state_id,
-                "parent_step": current_step_index,
-            }
-            metadata["_sub_workflow"] = sub_wf_meta
-            save_state_yaml(state_file, state_data)
-            if metadata.pop("_human_feedback", None) is not None:
-                save_state_yaml(state_file, state_data)
-
-        child_wf_name = sub_wf_meta.get("name", sub_name)
-        child_state_id = sub_wf_meta["state_id"]
-        child_file = resolve_workflow_file(sub_name, path)
-        if not child_file:
-            raise WorkflowTargetNotFoundError(f"Sub-workflow '{sub_name}' not found.")
-
-        # Delegate execution to child step
-        child_rc = execute_workflow_step(child_file, child_state_id, continuation_cmd=active_continuation)
-
-        # Inspect child state
-        child_state_dir = get_state_base_dir() / child_wf_name
-        _, child_state_path = resolve_state_file(child_state_dir, child_state_id)
-        child_state = load_state_yaml(child_state_path)
-
-        if child_state.get("state") == "DONE":
-            # Extract outputs strictly and nest under workflow name
-            child_metadata = child_state.get("metadata", {})
-            wf_meta = metadata.setdefault(child_wf_name, {})
-            # Copy all child non-private metadata into workflow namespace
-            for k, v in child_metadata.items():
-                if not k.startswith("_"):
-                    wf_meta[k] = v
-
-            if child_metadata.get("_human_feedback") and not metadata.get("_human_feedback"):
-                metadata["_human_feedback"] = child_metadata["_human_feedback"]
-                context["_human_feedback"] = child_metadata["_human_feedback"]
-
-            for child_k, parent_k in sub_outputs.items():
-                if child_k not in child_metadata:
-                    available = ", ".join(child_metadata.keys())
-                    raise WorkflowOutputError(
-                        f"Sub-workflow '{child_wf_name}' completed but output key '{child_k}' was not found in metadata. "
-                        f"Available keys: [{available}]"
-                    )
-                wf_meta[parent_k] = child_metadata[child_k]
-
-            context[child_wf_name] = wf_meta
-
-            # Archive completed sub-workflow
-            history = metadata.setdefault("_sub_workflow_history", [])
-            history.append({
-                "name": sub_name,
-                "state_id": child_state_id,
-                "parent_step": current_step_index,
-                "status": "DONE",
-            })
-            metadata.pop("_sub_workflow", None)
-
-            return _advance_to_step(current_step_index + 1)
-
-        elif child_state.get("state") == "WAITING_HUMAN":
-            state_data["state"] = "WAITING_HUMAN"
-            state_data["stuck_reason"] = ""
-            save_state_yaml(state_file, state_data)
-            return child_rc
-        elif child_state.get("state") == "STUCK":
-            state_data["state"] = "STUCK"
-            state_data["stuck_reason"] = f"Sub-workflow '{sub_name}' is STUCK: {child_state.get('stuck_reason', '')}"
-            save_state_yaml(state_file, state_data)
-            return 1
-        else:
-            state_data["state"] = "RUNNING"
-            state_data["stuck_reason"] = ""
-            save_state_yaml(state_file, state_data)
-            return child_rc
-
-    # -------------------------------------------------------------
-    # Case 2: Atomic Step
-    # -------------------------------------------------------------
-    verifier_cmd = step_spec.get("verifier_cmd")
-    max_retries = step_spec.get("max_retries", 3)
-    context["max_retries"] = max_retries
-
-    # Case 2A: Passive Step (verifier_cmd is null/empty)
-    if not verifier_cmd:
-        state_data["state"] = "DONE"
-        state_data["stuck_reason"] = ""
-        state_data["retries"] = 0
-        save_state_yaml(state_file, state_data)
-
-        prompt = format_step_prompt(step_spec, context)
-        print(prompt)
-        return 0
-
-    # Case 2B: Step 0 freshly started from INIT with active verifier
-    if current_step_index == 0 and current_state == "INIT":
-        state_data["state"] = "RUNNING"
-        prompt = format_step_prompt(step_spec, context)
-        if metadata.pop("_human_feedback", None) is not None:
-            context.pop("_human_feedback", None)
-        save_state_yaml(state_file, state_data)
-
-        print(format_prompt_with_suffix(prompt, active_continuation, "for next steps."))
-        return 0
-
-    # Case 2C: Active Step with verifier_cmd executed safely with shell=False
-    try:
-        eval_cmd = build_cmd_args(verifier_cmd, context)
-        step_timeout = float(step_spec.get("timeout", 600))
-        check_res = subprocess.run(
-            eval_cmd,
-            shell=False,
-            text=True,
-            capture_output=True,
-            env=_build_subprocess_env(),
-            timeout=step_timeout,
-        )
-    except FileNotFoundError as e:
-        check_res = subprocess.CompletedProcess(
-            args=verifier_cmd,
-            returncode=127,
-            stdout="",
-            stderr=str(e),
-        )
-
-    verifier_out = (check_res.stdout.strip() or check_res.stderr.strip())
-    context["verifier_output"] = verifier_out
-
-    if step_spec.get("loop_to_step") is not None:
-        loop_exit_code = int(step_spec.get("loop_exit_code", 2))
-        max_iterations = int(step_spec.get("max_iterations", 5))
-        if check_res.returncode == loop_exit_code:
-            next_iter = iteration + 1
-            if next_iter >= max_iterations:
-                state_data["state"] = "STUCK"
-                state_data["stuck_reason"] = (
-                    f"Reached maximum loop iterations ({max_iterations}) at step {current_step_index}: {verifier_out}"
-                )
-                save_state_yaml(state_file, state_data)
-                print(
-                    format_prompt_with_suffix(
-                        state_data["stuck_reason"], active_continuation, "to resume."
-                    ),
-                    file=sys.stderr,
-                )
-                return 1
-
-            target_step_idx = int(step_spec["loop_to_step"])
-            state_data["iteration"] = next_iter
-            state_data["step"] = target_step_idx
-            state_data["retries"] = 0
-            state_data["stuck_reason"] = ""
-            state_data["state"] = "RUNNING"
-            save_state_yaml(state_file, state_data)
-
-            context["iteration"] = next_iter
-            context["step"] = target_step_idx
-            context["retries"] = 0
-
-            loop_header = ""
-            if "loop_prompt" in step_spec:
-                raw_lp = (
-                    " ".join(step_spec["loop_prompt"])
-                    if isinstance(step_spec["loop_prompt"], list)
-                    else str(step_spec["loop_prompt"])
-                )
-                loop_header = interpolate(raw_lp, context).strip()
-
-            target_spec = steps[target_step_idx] if 0 <= target_step_idx < len(steps) else step_spec
-            target_prompt = format_step_prompt(target_spec, context)
-            combined_prompt = (
-                f"{loop_header}\n\n{target_prompt}".strip()
-                if loop_header
-                else target_prompt
-            )
-            print(format_prompt_with_suffix(combined_prompt, active_continuation, "for next steps."))
-            return 0
-
-    if check_res.returncode != 0:
-        retries += 1
-        state_data["retries"] = retries
-        context["retries"] = retries
-        verifier_msg = (check_res.stderr.strip() or check_res.stdout.strip())
-        context["verifier_error"] = verifier_msg
-
-        if retries >= max_retries:
-            state_data["state"] = "STUCK"
-            if "stuck_reason" in step_spec:
-                reason = interpolate(step_spec["stuck_reason"], context)
-            else:
-                reason = f"Failed to find required input in step {current_step_index} after {retries} retries."
-            state_data["stuck_reason"] = reason
-            save_state_yaml(state_file, state_data)
-
-            if "stuck_prompt" in step_spec:
-                raw_prompt = " ".join(step_spec["stuck_prompt"]) if isinstance(step_spec["stuck_prompt"], list) else step_spec["stuck_prompt"]
-            else:
-                raw_prompt = f"Error: Step {current_step_index} verification failed. Workflow is now STUCK (retries reached {retries})."
-            prompt = interpolate(raw_prompt, context)
-            print(format_prompt_with_suffix(prompt, active_continuation, "to resume."), file=sys.stderr)
-            return 1
-        else:
-            state_data["state"] = "RUNNING"
-            state_data["stuck_reason"] = ""
-            save_state_yaml(state_file, state_data)
-
-            if "error_prompt" in step_spec:
-                raw_prompt = " ".join(step_spec["error_prompt"]) if isinstance(step_spec["error_prompt"], list) else step_spec["error_prompt"]
-            else:
-                raw_prompt = f"Error: Verification failed for step {current_step_index} (attempt {retries} of {max_retries})."
-            prompt = interpolate(raw_prompt, context)
-            print(format_prompt_with_suffix(prompt, active_continuation, "for next steps."), file=sys.stderr)
-            return 1
-
-    # Step Passed -> Advance to next step
-    return _advance_to_step(current_step_index + 1)
+    exec_ctx = StepExecutionContext(
+        wf_name=wf_name,
+        spec_path=path,
+        state_id=clean_id,
+        state_file=state_file,
+        state_data=state_data,
+        metadata=metadata,
+        steps=steps,
+        current_step_index=current_step_index,
+        current_state=current_state,
+        retries=retries,
+        iteration=iteration,
+        active_continuation=active_continuation,
+        context=context,
+        execute_step_fn=execute_workflow_step,
+    )
+    step_handler = WorkflowStepFactory.create_step(steps[current_step_index])
+    return step_handler.execute(exec_ctx)
 
 
 def run_yaml_workflow(spec_path: Union[str, Path], argv: Optional[List[str]] = None) -> int:
@@ -1324,6 +1001,23 @@ def run_yaml_workflow(spec_path: Union[str, Path], argv: Optional[List[str]] = N
         return 0
 
     return execute_workflow_step(path, args.state_id)
+
+
+def __getattr__(name: str) -> Any:
+    if name in (
+        "AtomicVerifierStep",
+        "HumanVerifyStep",
+        "LoopStep",
+        "PassiveStep",
+        "StepExecutionContext",
+        "SubWorkflowStep",
+        "WorkflowStep",
+        "WorkflowStepFactory",
+    ):
+        from . import steps
+
+        return getattr(steps, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 if __name__ == "__main__":
