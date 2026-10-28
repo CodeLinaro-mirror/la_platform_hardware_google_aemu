@@ -17,10 +17,12 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 from typing import Any, Dict, Tuple
 import unittest
+from unittest import mock
 import yaml
 
 from commands.harness.code_guardrails import (
@@ -52,6 +54,9 @@ class HarnessGuardrailTest(unittest.TestCase):
     """Tests PreToolUse, PostToolUse, PreInvocation, and Stop hook guardrails."""
 
     def setUp(self) -> None:
+        env_patcher = mock.patch.dict(os.environ, {"EMU_HARNESS_NO_TITLE": "1"})
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.base_path = Path(self.temp_dir.name)
         self.ledger_store = SessionLedgerStore(base_dir=self.base_path / "harness")
@@ -627,6 +632,9 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
     """Tests plugin installation, status verification, and sidecar state helpers."""
 
     def setUp(self) -> None:
+        env_patcher = mock.patch.dict(os.environ, {"EMU_HARNESS_NO_TITLE": "1"})
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.base_path = Path(self.temp_dir.name)
 
@@ -650,9 +658,8 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         )
         pre_tool_cmd = hooks_json["aemu-harness"]["PreToolUse"][0]["hooks"][0]["command"]
         self.assertIn("/custom/bin/emu-dev-cli harness hook --event pre-tool", pre_tool_cmd)
-        # Code advisories ride on the PostToolUse result of file edits.
-        post_tool_matcher = hooks_json["aemu-harness"]["PostToolUse"][0]["matcher"].split("|")
-        self.assertTrue({"run_command", "write_file", "edit_file"}.issubset(post_tool_matcher))
+        self.assertEqual(hooks_json["aemu-harness"]["PreToolUse"][0]["matcher"], "*")
+        self.assertEqual(hooks_json["aemu-harness"]["PostToolUse"][0]["matcher"], "*")
 
         mcp_json = json.loads(
             (target_plugin_dir / "mcp_config.json").read_text(encoding="utf-8")

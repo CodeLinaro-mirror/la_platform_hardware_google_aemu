@@ -13,11 +13,13 @@
 # limitations under the License.
 
 import itertools
+import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import threading
+from typing import Any, Dict, Optional
 
 _ATOMIC_WRITE_SEQ = itertools.count()
 DEFAULT_GIT_READONLY_TIMEOUT_SEC: float = 15.0
@@ -35,6 +37,17 @@ def atomic_write_text(dest_path: Path, content: str) -> None:
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise
+
+
+def read_json_dict(path: Path) -> Optional[Dict[str, Any]]:
+    """Reads `path` as a JSON object, returning None if missing or malformed."""
+    if not path.is_file():
+        return None
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def run_git_readonly(

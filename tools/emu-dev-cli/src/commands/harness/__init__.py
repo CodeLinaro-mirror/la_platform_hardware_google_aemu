@@ -46,6 +46,7 @@ from commands.harness.review_swarm import (
     prepare_review_swarm_bundle,
 )
 from commands.harness.review_targets import sanitize_target_id
+from commands.harness.terminal_title import TerminalTitleUpdater
 from core.command import (
     Command,
     CommandResult,
@@ -572,6 +573,7 @@ def run_harness_clear(
     conv_id = getattr(args, "conversation", None)
     store = SessionLedgerStore()
     removed = store.clear(conversation_id=conv_id)
+    TerminalTitleUpdater(base_dir=store.base_dir).clear_state(conversation_id=conv_id)
     res_payload = {
         "status": "success",
         "action": "harness clear",

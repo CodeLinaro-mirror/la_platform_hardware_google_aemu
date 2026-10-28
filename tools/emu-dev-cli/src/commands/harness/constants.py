@@ -65,6 +65,20 @@ MAX_STOP_CONTINUATIONS: int = 3
 # Maximum number of recent hook events retained per conversation ledger.
 MAX_LEDGER_EVENTS: int = 50
 
+# Jetski tool name sets shared across guardrails and terminal title hooks.
+SHELL_COMMAND_TOOL_NAMES: frozenset[str] = frozenset({
+    "run_command",
+    "run_shell_command",
+    "bash",
+})
+FILE_EDIT_TOOL_NAMES: frozenset[str] = frozenset({
+    "write_file",
+    "edit_file",
+    "replace_file_content",
+    "multi_replace_file_content",
+    "write_to_file",
+})
+
 # Regex patterns for command inspection in PreToolUse / PostToolUse
 GIT_COMMIT_AMEND_PATTERN: re.Pattern[str] = re.compile(r"(?:^|\s)--amend\b")
 GIT_COMMIT_NO_EDIT_PATTERN: re.Pattern[str] = re.compile(r"(?:^|\s)--no-edit\b")

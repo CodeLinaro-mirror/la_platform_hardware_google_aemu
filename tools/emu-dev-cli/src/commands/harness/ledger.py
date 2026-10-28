@@ -42,7 +42,7 @@ def get_harness_base_dir() -> Path:
     return base
 
 
-def _sanitize_conversation_id(conversation_id: Optional[str]) -> str:
+def sanitize_conversation_id(conversation_id: Optional[str]) -> str:
     """Sanitizes a conversation ID into a safe filename token."""
     raw = (conversation_id or "").strip()
     if not raw:
@@ -65,12 +65,12 @@ class SessionLedgerStore:
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
 
     def ledger_path(self, conversation_id: Optional[str]) -> Path:
-        safe_id = _sanitize_conversation_id(conversation_id)
+        safe_id = sanitize_conversation_id(conversation_id)
         return self.sessions_dir / f"{safe_id}.json"
 
     def load(self, conversation_id: Optional[str]) -> Dict[str, Any]:
         """Loads the session ledger for conversation_id, initializing defaults if absent."""
-        safe_id = _sanitize_conversation_id(conversation_id)
+        safe_id = sanitize_conversation_id(conversation_id)
         path = self.ledger_path(safe_id)
         if path.is_file():
             try:
@@ -96,7 +96,7 @@ class SessionLedgerStore:
 
     def save(self, conversation_id: Optional[str], data: Dict[str, Any]) -> Path:
         """Persists the session ledger to disk."""
-        safe_id = _sanitize_conversation_id(conversation_id)
+        safe_id = sanitize_conversation_id(conversation_id)
         data["conversation_id"] = safe_id
         data["updated_at"] = _utc_now_iso()
         events = data.get("events", [])
