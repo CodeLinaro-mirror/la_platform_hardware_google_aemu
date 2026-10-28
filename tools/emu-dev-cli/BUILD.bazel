@@ -87,7 +87,7 @@ cc_binary(
 
 [
     py_test(
-        name = f.replace("tests/", "").replace(".py", ""),
+        name = f.replace("tests/", "").replace("/", "_").replace(".py", ""),
         srcs = [f],
         # do not sort
         imports = [
@@ -100,15 +100,21 @@ cc_binary(
             ":emu_dev_cli_lib",
         ],
     )
-    for f in glob(["tests/*_test.py"])
+    for f in glob([
+        "tests/*_test.py",
+        "tests/core/*_test.py",
+    ])
 ]
 
 test_suite(
     name = "all_tests",
     tests = [
-        f.replace("tests/", "").replace(".py", "")
+        f.replace("tests/", "").replace("/", "_").replace(".py", "")
         for f in glob(
-            ["tests/*_test.py"],
+            [
+                "tests/*_test.py",
+                "tests/core/*_test.py",
+            ],
             exclude = ["tests/*benchmark*_test.py"],
         )
     ],
