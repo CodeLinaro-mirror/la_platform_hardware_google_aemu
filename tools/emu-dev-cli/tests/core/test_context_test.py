@@ -28,6 +28,13 @@ SRC_DIR = os.path.join(
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
+from clients.agent_runtime_service import (
+    FakeAgentRuntimeService,
+    ProdAgentRuntimeService,
+)
+from clients.artifact_service import FakeArtifactService, ProdArtifactService
+from clients.buganizer_service import FakeBuganizerService, ProdBuganizerService
+from clients.f1_sql_client import FakeF1SqlClient, ProdF1SqlClient
 from core.context import (
     AppConfig,
     ExecutionContext,
@@ -130,14 +137,30 @@ class ContextTest(unittest.TestCase):
 
     def test_execution_context_for_testing_and_prod_factory(self) -> None:
         with tempfile.TemporaryDirectory(prefix="emu_ctx_测试_") as tmp_dir:
+            fake_factory = FakeServiceFactory(
+                services={"custom_service": {"fake": True}}
+            )
             ctx = ExecutionContext.for_testing(
                 tmp_dir,
                 source_directories={"studio-main": tmp_dir},
-                services={"buganizer_client": {"fake": True}},
+                factory=fake_factory,
             )
             self.assertIsInstance(ctx.process_runner, FakeProcessRunner)
-            self.assertIs(ctx.fake_process_runner, ctx.process_runner)
-            self.assertEqual(ctx.services.resolve("buganizer_client"), {"fake": True})
+            self.assertIsInstance(ctx.artifact_service, FakeArtifactService)
+            self.assertIsInstance(ctx.f1_sql_client, FakeF1SqlClient)
+            self.assertIsInstance(ctx.buganizer_service, FakeBuganizerService)
+            self.assertIsInstance(ctx.agent_runtime_service, FakeAgentRuntimeService)
+            self.assertIs(ctx.fake_process_runner, fake_factory.process_runner)
+            self.assertIs(ctx.fake_artifact_service, fake_factory.artifact_service)
+            self.assertIs(ctx.fake_f1_sql_client, fake_factory.f1_sql_client)
+            self.assertIs(ctx.fake_buganizer_service, fake_factory.buganizer_service)
+            self.assertIs(
+                ctx.fake_agent_runtime_service,
+                fake_factory.agent_runtime_service,
+            )
+            self.assertEqual(
+                ctx.services.resolve("custom_service"), {"fake": True}
+            )
 
             derived = ctx.with_flags(json_mode=True, verbose=True)
             self.assertTrue(derived.config.json_mode)
@@ -149,8 +172,22 @@ class ContextTest(unittest.TestCase):
                 factory=ProdServiceFactory(record_events=True),
             )
             self.assertIsInstance(prod_ctx.process_runner, SubprocessRunner)
+            self.assertIsInstance(prod_ctx.artifact_service, ProdArtifactService)
+            self.assertIsInstance(prod_ctx.f1_sql_client, ProdF1SqlClient)
+            self.assertIsInstance(prod_ctx.buganizer_service, ProdBuganizerService)
+            self.assertIsInstance(
+                prod_ctx.agent_runtime_service, ProdAgentRuntimeService
+            )
             with self.assertRaises(ExecutionError):
                 _ = prod_ctx.fake_process_runner
+            with self.assertRaises(ExecutionError):
+                _ = prod_ctx.fake_artifact_service
+            with self.assertRaises(ExecutionError):
+                _ = prod_ctx.fake_f1_sql_client
+            with self.assertRaises(ExecutionError):
+                _ = prod_ctx.fake_buganizer_service
+            with self.assertRaises(ExecutionError):
+                _ = prod_ctx.fake_agent_runtime_service
 
 
 if __name__ == "__main__":
