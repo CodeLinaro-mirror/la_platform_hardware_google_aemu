@@ -95,8 +95,8 @@ def resolve_git_repo_for_target(
                 if (curr / ".git").exists():
                     return curr
                 curr = curr.parent
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in resolve_git_repo_for_target: %s", exc)
 
     return git_root
 

@@ -12,6 +12,15 @@ args:
 
 steps:
   - step: 0
+    title: Run Pre-Upload 8-Specialist Parallel Code-Review Swarm
+    description: Audit HEAD commit across all 8 review specialists before uploading to Gerrit
+    workflow:
+      name: review-swarm
+      args:
+        target: "HEAD"
+        repo: "{repo}"
+
+  - step: 1
     title: Upload Changes to Gerrit
     description: Configure push.negotiate false and run repo upload --cbr in the target repository
     prompt: |
@@ -23,7 +32,7 @@ steps:
     verifier_cmd: "python3 -c \"import sys; sys.exit(0)\""
     max_retries: 3
 
-  - step: 1
+  - step: 2
     title: Completion
     prompt: "Changes uploaded to Gerrit successfully."
     verifier_cmd: null

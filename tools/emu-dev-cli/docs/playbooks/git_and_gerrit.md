@@ -44,12 +44,39 @@ must follow these rules:
 
 ---
 
-## 3. Isolating Independent Fixes into Clean Branches
+## 3. Uploading & Amending Changes with `mise` (`mise.toml`)
+
+The workspace `mise.toml` (`hardware/generic/goldfish/development/mise.toml`, symlinked at
+`<workspace_root>/mise.toml`) defines per-repository Git and Gerrit tasks that use `dir = "{{ cwd }}"`.
+
+> **Important (`Cwd` Requirement):** Always run `mise presubmit`, `mise submit`, and `mise gum` with
+> `Cwd` set to the specific Git repository directory being uploaded or modified (e.g.,
+> `hardware/generic/goldfish` or `hardware/google/aemu`), **not** the workspace root.
+
+- **Upload and mark `Presubmit-Ready+1` (`mise presubmit`):**
+  ```bash
+  # Runs: git config push.negotiate false && repo upload . --cbr -y --label 'Presubmit-Ready+1'
+  mise presubmit
+  ```
+- **Upload for review without presubmit (`mise submit`):**
+  ```bash
+  # Runs: git config push.negotiate false && repo upload . --cbr -y
+  mise submit
+  ```
+- **Amend the latest commit if owned by `$USER` (`mise gum`):**
+  ```bash
+  # Runs: git add --update . && git commit --amend (if $USER is the author of HEAD)
+  mise gum
+  ```
+
+---
+
+## 4. Isolating Independent Fixes into Clean Branches
 
 When a feature stack contains standalone bug fixes or test infrastructure fixes (e.g., TSAN
 suppressions, flaky test fixes) that can land independently:
 
-1. **Create a clean repo branch from `goog/emu-main-next`:**
+1. **Create a clean repo branch from `goog/emu-main-next` (or `goog/main` in `aemu`):**
    ```bash
    repo start <fix-branch-name> .
    ```
@@ -57,11 +84,9 @@ suppressions, flaky test fixes) that can land independently:
    ```bash
    git cherry-pick <commit-sha>
    ```
-3. **Verify and upload the standalone branch:**
+3. **Upload the standalone branch for presubmit:**
    ```bash
    mise presubmit
-   git config push.negotiate false
-   repo upload --cbr -y -o "nokeycheck" .
    ```
 4. **Return to the feature stack and drop the cherry-picked commit:**
    ```bash
@@ -71,15 +96,11 @@ suppressions, flaky test fixes) that can land independently:
 
 ---
 
-## 4. Non-Interactive Gerrit Upload Flags
+## 5. Manual Non-Interactive `repo upload` Flags (When Custom Options Are Needed)
 
-- **Upload for full presubmit + review:**
-  ```bash
-  git config push.negotiate false
-  repo upload --cbr -y -o "nokeycheck" --label Presubmit-Ready+1 .
-  ```
-- **Upload as Work-In-Progress (WIP):**
+- **Upload as Work-In-Progress (WIP) or skip key check:**
   ```bash
   git config push.negotiate false
   repo upload --cbr -y --wip -o "nokeycheck" .
   ```
+

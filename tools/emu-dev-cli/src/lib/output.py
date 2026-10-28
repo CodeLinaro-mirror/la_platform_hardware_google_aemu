@@ -19,6 +19,16 @@ import sys
 import unicodedata
 
 
+def ensure_utf8_stdio() -> None:
+    """Reconfigures CLI stdin/stdout/stderr to UTF-8 so non-ASCII paths never fail on Windows."""
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
+
+
 def get_display_width(s: str) -> int:
     """Returns visual terminal display width accounting for wide characters and emojis."""
     width = 0
@@ -79,10 +89,17 @@ def format_markdown_table(headers: list, rows: list) -> str:
     return "\n".join([header_line, separator_line] + row_lines)
 
 
+def print_status(msg: str, json_mode: bool = False) -> None:
+    """Prints a human-readable progress/status message when not in JSON mode."""
+    if not json_mode:
+        print(msg)
+
+
 def print_result(data: dict, json_mode: bool = False, is_error: bool = False):
     """Prints output in either clean JSON format or human-readable terminal format."""
+    ensure_utf8_stdio()
     if json_mode:
-        output_str = json.dumps(data, indent=2)
+        output_str = json.dumps(data, indent=2, ensure_ascii=False)
         if is_error:
             print(output_str, file=sys.stderr)
         else:

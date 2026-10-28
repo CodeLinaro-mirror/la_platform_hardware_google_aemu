@@ -12,7 +12,49 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
+import os
+from pathlib import Path
 import re
+import subprocess
+import threading
+
+_ATOMIC_WRITE_SEQ = itertools.count()
+DEFAULT_GIT_READONLY_TIMEOUT_SEC: float = 15.0
+
+
+def atomic_write_text(dest_path: Path, content: str) -> None:
+    """Atomically writes UTF-8 text via a PID/thread/sequence-scoped sibling temp file."""
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = dest_path.parent / (
+        f".{dest_path.name}.{os.getpid()}.{threading.get_ident()}.{next(_ATOMIC_WRITE_SEQ)}.tmp"
+    )
+    try:
+        tmp_path.write_text(content, encoding="utf-8")
+        tmp_path.replace(dest_path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def run_git_readonly(
+    args: list[str],
+    cwd: Path,
+    timeout: float = DEFAULT_GIT_READONLY_TIMEOUT_SEC,
+) -> subprocess.CompletedProcess[str]:
+    """Executes a read-only UTF-8 git subprocess isolated from stdin with a bounded timeout."""
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(cwd),
+        stdin=subprocess.DEVNULL,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+    )
+
 
 def normalize_build_path(raw_path: str) -> str:
     """Strips Bazel virtual roots (execroot, bazel-out, external) from a file path."""

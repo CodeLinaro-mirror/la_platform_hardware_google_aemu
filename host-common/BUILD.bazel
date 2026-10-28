@@ -1,5 +1,10 @@
 load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 
+package(
+    default_applicable_licenses = ["//:license"],
+    default_visibility = ["//visibility:public"],
+)
+
 # Logging library
 cc_library(
     name = "logging-qemu2",
@@ -72,9 +77,6 @@ cc_library(
         "include/host-common/HostGoldfishPipe.h",
         "include/host-common/HostmemIdMapping.h",
         "include/host-common/MediaCodec.h",
-        "include/host-common/MediaCudaDriverHelper.h",
-        "include/host-common/MediaCudaUtils.h",
-        "include/host-common/MediaCudaVideoHelper.h",
         "include/host-common/MediaFfmpegVideoHelper.h",
         "include/host-common/MediaH264Decoder.h",
         "include/host-common/MediaH264DecoderDefault.h",
@@ -116,10 +118,6 @@ cc_library(
         "include/host-common/crash_reporter.h",
         "include/host-common/debug.h",
         "include/host-common/display_agent.h",
-        "include/host-common/dynlink_cuda.h",
-        "include/host-common/dynlink_cuda_cuda.h",
-        "include/host-common/dynlink_cuviddec.h",
-        "include/host-common/dynlink_nvcuvid.h",
         "include/host-common/emugl_vm_operations.h",
         "include/host-common/feature_control.h",
         "include/host-common/feature_control_base.h",

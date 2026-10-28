@@ -14,6 +14,7 @@
 
 """HTTP Server and API backend for the Workflow Visualizer Web UI."""
 
+import logging
 from datetime import datetime, timezone
 import http.server
 import io
@@ -107,8 +108,8 @@ def get_workflow_catalog() -> List[Dict[str, Any]]:
                 for s in spec.get("steps", []):
                     if s.get("human_verify"):
                         is_barrier = True
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in get_workflow_catalog: %s", exc)
         result.append({
             "name": name,
             "description": info.get("description", ""),
@@ -132,8 +133,8 @@ def get_known_source_directories() -> List[Dict[str, Any]]:
                 data = json.load(f)
                 if isinstance(data, dict) and isinstance(data.get("source_directories"), dict):
                     source_dirs = data["source_directories"]
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in get_known_source_directories: %s", exc)
 
     if not source_dirs:
         try:
@@ -141,8 +142,8 @@ def get_known_source_directories() -> List[Dict[str, Any]]:
             cfg = load_src_config()
             if isinstance(cfg.get("source_directories"), dict):
                 source_dirs = cfg["source_directories"]
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in get_known_source_directories: %s", exc)
 
     cwd_resolved = Path(os.getcwd()).resolve()
     items: List[Dict[str, Any]] = []
@@ -154,8 +155,8 @@ def get_known_source_directories() -> List[Dict[str, Any]]:
         try:
             cwd_resolved.relative_to(Path(norm_path).resolve())
             is_current = True
-        except ValueError:
-            pass
+        except ValueError as exc:
+            logging.getLogger(__name__).debug("Ignored error in get_known_source_directories: %s", exc)
         items.append({
             "branch": branch,
             "path": norm_path,
@@ -318,8 +319,8 @@ def resolve_live_agent_status(
                 metadata["_agent_status"] = "INTERRUPTED"
                 metadata.pop("_agent_pid", None)
                 save_state_yaml(state_file, state_data)
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in resolve_live_agent_status: %s", exc)
         return "INTERRUPTED", interrupt_reason
 
     # If state file still claims RUNNING but no background process is alive
@@ -331,8 +332,8 @@ def resolve_live_agent_status(
                     metadata["_agent_status"] = "INTERRUPTED"
                     metadata.pop("_agent_pid", None)
                     save_state_yaml(state_file, state_data)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Ignored error in resolve_live_agent_status: %s", exc)
             return "INTERRUPTED", reason
         else:
             if state_file and state_file.is_file():
@@ -340,8 +341,8 @@ def resolve_live_agent_status(
                     metadata["_agent_status"] = "IDLE"
                     metadata.pop("_agent_pid", None)
                     save_state_yaml(state_file, state_data)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Ignored error in resolve_live_agent_status: %s", exc)
             return "IDLE", ""
 
     if raw_status == "INTERRUPTED":
@@ -414,7 +415,8 @@ def scan_all_sessions(
                             child_ids.add(str(h["state_id"]))
 
                 raw_sessions.append((wf_name, state_id, state_file, data, metadata, mtime, iso_time, is_sub))
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in scan_all_sessions: %s", exc)
                 continue
 
     # Pass 2: Filter and build summaries
@@ -430,16 +432,16 @@ def scan_all_sessions(
             try:
                 spec = load_yaml(custom_spec_path)
                 total_steps = len(spec.get("steps", []))
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in scan_all_sessions: %s", exc)
         else:
             wf_def = available_wfs.get(wf_name)
             if wf_def and wf_def.get("target_path"):
                 try:
                     spec = load_yaml(wf_def["target_path"])
                     total_steps = len(spec.get("steps", []))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Ignored error in scan_all_sessions: %s", exc)
 
         # Extract key user-facing arguments
         key_args = {}
@@ -700,8 +702,8 @@ def get_session_detail(
                                 break
                         if parent_info:
                             break
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Ignored error in get_session_detail: %s", exc)
 
     agent_status, agent_reason = resolve_live_agent_status(state_id, state_data, state_file)
 
@@ -883,8 +885,8 @@ def _discover_newest_brain_conversation(before_ids: set) -> Optional[str]:
         if d.is_dir() and d.name not in before_ids and not d.name.startswith("."):
             try:
                 candidates.append((d.stat().st_mtime, d.name))
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in _discover_newest_brain_conversation: %s", exc)
     if candidates:
         candidates.sort(reverse=True)
         return candidates[0][1]
@@ -948,11 +950,12 @@ def get_conversation_transcript(
                                 "thinking": obj.get("thinking", ""),
                                 "tool_calls": normalized_tools,
                             })
-                        except Exception:
+                        except Exception as exc:
+                            logging.getLogger(__name__).debug("Ignored error in get_conversation_transcript: %s", exc)
                             continue
                     steps = parsed_steps
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Ignored error in get_conversation_transcript: %s", exc)
 
     raw_log = ""
     if log_file and str(log_file).strip():
@@ -961,8 +964,8 @@ def get_conversation_transcript(
             try:
                 text = lp.read_text(encoding="utf-8", errors="replace")
                 raw_log = text[-32768:]
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in get_conversation_transcript: %s", exc)
 
     return {
         "conversation_id": conversation_id or "",
@@ -1013,8 +1016,8 @@ def get_session_transcript(
                                         psid, pdata, psf
                                     )
                                 break
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Ignored error in get_session_transcript: %s", exc)
                 break
     elif resolved_cid:
         db_map = _query_conversation_summaries_db()
@@ -1082,8 +1085,8 @@ def _query_conversation_summaries_db(limit: int = 100) -> Dict[str, Dict[str, An
                             workspace_path = urllib.parse.unquote(first_uri[len("file://") :])
                         else:
                             workspace_path = first_uri
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Ignored error in _query_conversation_summaries_db: %s", exc)
                 rows_by_id[cid] = {
                     "conversation_id": cid,
                     "title": str(row["title"] or ""),
@@ -1151,7 +1154,8 @@ def _inspect_conversation_transcript_meta(
                             if c:
                                 info["first_user_prompt"] = _clean_conversation_text(c, 100)
                                 break
-                    except Exception:
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Ignored error in _inspect_conversation_transcript_meta: %s", exc)
                         continue
 
             # Read tail 16KB to inspect latest step
@@ -1176,7 +1180,8 @@ def _inspect_conversation_transcript_meta(
                             info["last_preview"] = _clean_conversation_text(c_text, 140)
                     if last_obj is not None and (not need_preview or info["last_preview"]):
                         break
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in _inspect_conversation_transcript_meta: %s", exc)
                 continue
 
         if not isinstance(last_obj, dict):
@@ -1213,8 +1218,8 @@ def _inspect_conversation_transcript_meta(
         elif step_type == "USER_INPUT":
             info["is_mid_turn"] = True
             info["mid_turn_reason"] = f"Conversation interrupted after prompt (step #{step_idx}) before agent responded."
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in _inspect_conversation_transcript_meta: %s", exc)
 
     return info
 
@@ -1311,8 +1316,8 @@ def scan_all_conversations(
                 if t_file.is_file():
                     try:
                         brain_entries.append((t_file.stat().st_mtime, d.name))
-                    except Exception:
-                        pass
+                    except OSError as exc:
+                        logging.getLogger(__name__).debug("Ignored error in scan_all_conversations: %s", exc)
         brain_entries.sort(reverse=True)
         for _, cid in brain_entries[:limit]:
             candidate_ids.append(cid)
@@ -1367,8 +1372,8 @@ def scan_all_conversations(
             try:
                 parsed_dt = datetime.fromisoformat(db_iso.replace("Z", "+00:00"))
                 mtime = max(mtime, parsed_dt.timestamp())
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in scan_all_conversations: %s", exc)
         if mtime <= 0:
             mtime = time.time()
         iso_time = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
@@ -1462,8 +1467,8 @@ def poke_conversation(
     if prev_proc is not None and prev_proc.poll() is None:
         try:
             prev_proc.terminate()
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in poke_conversation: %s", exc)
 
     _STARTING_CONVS.add(cid)
 
@@ -1497,8 +1502,8 @@ def poke_conversation(
             try:
                 with open(log_path, "a", encoding="utf-8") as log_f:
                     log_f.write(f"\n=== Error poking conversation {cid}: {exc} ===\n")
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in _run_conv: %s", exc)
         finally:
             _STARTING_CONVS.discard(cid)
             if proc is not None and _ACTIVE_CONV_PROCS.get(cid) is proc:
@@ -1602,16 +1607,16 @@ def launch_jetski_for_session(
     if prev_proc is not None and prev_proc.poll() is None:
         try:
             prev_proc.terminate()
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in launch_jetski_for_session: %s", exc)
 
     brain_dir = get_jetski_brain_dir()
     before_brain_ids = set()
     if brain_dir.is_dir():
         try:
             before_brain_ids = {d.name for d in brain_dir.iterdir() if d.is_dir()}
-        except Exception:
-            pass
+        except OSError as exc:
+            logging.getLogger(__name__).debug("Ignored error in launch_jetski_for_session: %s", exc)
 
     if poke and state_data.get("state") in ("STOPPED", "STUCK"):
         state_data["state"] = "RUNNING"
@@ -1644,8 +1649,8 @@ def launch_jetski_for_session(
                     st = load_state_yaml(state_file)
                     st.setdefault("metadata", {})["_agent_pid"] = proc.pid
                     save_state_yaml(state_file, st)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logging.getLogger(__name__).debug("Ignored error in _run_and_monitor: %s", exc)
                 _STARTING_AGENTS.discard(state_id)
 
                 if proc.stdout:
@@ -1667,8 +1672,8 @@ def launch_jetski_for_session(
                                     st = load_state_yaml(state_file)
                                     st.setdefault("metadata", {})["conversation_id"] = detected_conv_id
                                     save_state_yaml(state_file, st)
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logging.getLogger(__name__).debug("Ignored error in _run_and_monitor: %s", exc)
 
                         if not detected_conv_id:
                             new_cid = _discover_newest_brain_conversation(before_brain_ids)
@@ -1678,8 +1683,8 @@ def launch_jetski_for_session(
                                     st = load_state_yaml(state_file)
                                     st.setdefault("metadata", {})["conversation_id"] = detected_conv_id
                                     save_state_yaml(state_file, st)
-                                except Exception:
-                                    pass
+                                except Exception as exc:
+                                    logging.getLogger(__name__).debug("Ignored error in _run_and_monitor: %s", exc)
 
                         log_f.write(line)
                         log_f.flush()
@@ -1714,8 +1719,8 @@ def launch_jetski_for_session(
                 meta.pop("_agent_pid", None)
                 meta["_agent_status"] = "ERROR"
                 save_state_yaml(state_file, st)
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in _run_and_monitor: %s", exc)
         finally:
             _STARTING_AGENTS.discard(state_id)
             if proc is not None and _ACTIVE_AGENT_PROCS.get(state_id) is proc:
@@ -1755,14 +1760,14 @@ def delete_session(workflow_name: str, state_id: str, state_base_dir: Optional[P
             try:
                 state_file.unlink(missing_ok=True)
                 deleted = True
-            except Exception:
-                pass
+            except OSError as exc:
+                logging.getLogger(__name__).debug("Ignored error in delete_session: %s", exc)
         spec_file = base_dir / workflow_name / f"WORKFLOW-{state_id}{ext}"
         if spec_file.is_file():
             try:
                 spec_file.unlink(missing_ok=True)
-            except Exception:
-                pass
+            except OSError as exc:
+                logging.getLogger(__name__).debug("Ignored error in delete_session: %s", exc)
     return deleted
 
 
@@ -1814,7 +1819,8 @@ def clear_sessions(filter_type: str, state_base_dir: Optional[Path] = None) -> D
                     state_data["stuck_reason"] = "Workflow stopped by user via Web UI"
                     save_state_yaml(state_file, state_data)
                     count_updated += 1
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in clear_sessions: %s", exc)
                 continue
 
     return {"deleted": count_deleted, "updated": count_updated}
@@ -1828,7 +1834,8 @@ def find_available_port(host: str = "127.0.0.1", start_port: int = 8080, max_att
             try:
                 s.bind((host, p))
                 return p
-            except OSError:
+            except OSError as exc:
+                logging.getLogger(__name__).debug("Ignored error in find_available_port: %s", exc)
                 continue
     return start_port
 
@@ -1924,8 +1931,8 @@ class WorkflowUIHandler(http.server.BaseHTTPRequestHandler):
             if "limit" in params:
                 try:
                     limit = max(1, min(200, int(params["limit"][0])))
-                except Exception:
-                    pass
+                except (ValueError, TypeError, IndexError) as exc:
+                    logging.getLogger(__name__).debug("Ignored error in handle_api_conversations: %s", exc)
             if "include_subagents" in params:
                 include_subagents = params["include_subagents"][0].lower() in ("true", "1", "yes")
         conversations = scan_all_conversations(
@@ -2155,8 +2162,8 @@ class WorkflowUIHandler(http.server.BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(content)
                 return
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in handle_serve_index: %s", exc)
 
         # Fallback minimal HTML if template file is missing
         fallback = b"""<!DOCTYPE html><html><head><title>Workflow Visualizer</title></head><body><h1>Workflow Visualizer</h1><p>UI template not found.</p></body></html>"""

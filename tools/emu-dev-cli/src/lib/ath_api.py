@@ -385,8 +385,8 @@ class AthHttpClient:
                 return json.loads(resp.data.decode("utf-8"))
             except HTTPError:
                 raise
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug("Ignored error in get_json: %s", exc)
 
         req = urllib.request.Request(url, headers=self._headers)
         try:

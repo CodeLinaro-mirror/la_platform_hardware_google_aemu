@@ -166,6 +166,131 @@ class DocsWikiTest(unittest.TestCase):
             report_standalone = docs.lint_wiki_documents([str(standalone_root)])
             self.assertEqual(report_standalone["issues"], [])
 
+    def test_search_wiki_documents_extracts_package_targets_files_and_camelcase_queries(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            grpc_dir = (
+                root
+                / "hardware"
+                / "generic"
+                / "goldfish"
+                / "emulator"
+                / "plugin"
+                / "grpc"
+            )
+            v2_dir = grpc_dir / "services" / "v2"
+            v2_dir.mkdir(parents=True)
+            (grpc_dir / "BUILD.bazel").write_text(
+                'cc_library(\n    name = "sensors_service_v2",\n)\n'
+                'cc_test(\n    name = "sensors_service_v2_test",\n)\n',
+                encoding="utf-8",
+            )
+            (v2_dir / "sensors_service.h").write_text("// header\n", encoding="utf-8")
+            (v2_dir / "sensors_service.cc").write_text("// impl\n", encoding="utf-8")
+            (v2_dir / "sensors_service_test.cc").write_text(
+                "// test\n", encoding="utf-8"
+            )
+            (v2_dir / "ARCHITECTURE.md").write_text(
+                "# Component: V2 gRPC Services\n\n"
+                "**Role:** Modern V2 gRPC services\n"
+                "**Location:** `emulator/plugin/grpc/services/v2/`\n",
+                encoding="utf-8",
+            )
+
+            # Query using CamelCase symbol + partial extra term
+            results = docs.search_wiki_documents(
+                "SensorsServiceImpl NonExistentToken", [str(root)]
+            )
+            self.assertEqual(len(results), 1)
+            hit = results[0]
+            self.assertIn(
+                "@goldfish//emulator/plugin/grpc:sensors_service_v2",
+                hit["targets"],
+            )
+            self.assertIn(
+                "@goldfish//emulator/plugin/grpc:sensors_service_v2_test",
+                hit["targets"],
+            )
+            self.assertTrue(
+                any(f.endswith("sensors_service.h") for f in hit["files"])
+            )
+
+    def test_lint_wiki_documents_enforces_agents_md_drift_and_bazel_target_names(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            goldfish = root / "hardware" / "generic" / "goldfish"
+            (goldfish / "emulator").mkdir(parents=True)
+            (goldfish / "AGENTS.md").write_text(
+                "# Goldfish Agent Routing\n\n"
+                "**Scope:** `hardware/generic/goldfish/**`\n"
+                "- [gRPC](emulator/plugin/grpc/AGENTS.md)\n",
+                encoding="utf-8",
+            )
+
+            # 1. Properly linked & routed AGENTS.md with inline C++ lambda syntax
+            grpc_dir = goldfish / "emulator" / "plugin" / "grpc"
+            grpc_dir.mkdir(parents=True)
+            (grpc_dir / "BUILD.bazel").write_text(
+                'cc_library(\n    name = "grpc_service",\n)\n',
+                encoding="utf-8",
+            )
+            (grpc_dir / "ARCHITECTURE.md").write_text(
+                "# Component: gRPC\n\n"
+                "**Location:** `emulator/plugin/grpc/`\n"
+                "Read [`AGENTS.md`](AGENTS.md) first.\n",
+                encoding="utf-8",
+            )
+            (grpc_dir / "AGENTS.md").write_text(
+                "# gRPC Agent Playbook\n\n"
+                "**Scope:** `hardware/generic/goldfish/emulator/plugin/grpc/**`\n"
+                "Uses `//emulator/plugin/grpc:grpc_service` and callback "
+                "`[this](SystemState* state) { return; }`.\n",
+                encoding="utf-8",
+            )
+
+            # 2. Unlinked & unrouted AGENTS.md with missing Bazel target & stale Scope
+            hal_dir = goldfish / "emulator" / "plugin" / "hal"
+            hal_dir.mkdir(parents=True)
+            (hal_dir / "BUILD.bazel").write_text(
+                'cc_library(\n    name = "hal_core",\n)\n',
+                encoding="utf-8",
+            )
+            (hal_dir / "ARCHITECTURE.md").write_text(
+                "# Component: HAL\n\n"
+                "**Location:** `emulator/plugin/hal/`\n",
+                encoding="utf-8",
+            )
+            (hal_dir / "AGENTS.md").write_text(
+                "# HAL Agent Playbook\n\n"
+                "**Scope:** `hardware/generic/goldfish/emulator/old_hal/**`\n"
+                "Target: `//emulator/plugin/hal:non_existent_target`\n",
+                encoding="utf-8",
+            )
+
+            report = docs.lint_wiki_documents([str(root)])
+            issues_by_file = {}
+            for iss in report["issues"]:
+                issues_by_file.setdefault(iss["file"], set()).add(iss["kind"])
+
+            # Valid grpc/AGENTS.md has 0 issues (inline C++ lambda is not a broken link)
+            self.assertNotIn(
+                "hardware/generic/goldfish/emulator/plugin/grpc/AGENTS.md",
+                issues_by_file,
+            )
+
+            # Invalid hal/AGENTS.md flags stale_location, missing_bazel_target, unlinked_agents_md, unrouted_agents_md
+            hal_issues = issues_by_file.get(
+                "hardware/generic/goldfish/emulator/plugin/hal/AGENTS.md", set()
+            )
+            self.assertIn("stale_location", hal_issues)
+            self.assertIn("missing_bazel_target", hal_issues)
+            self.assertIn("unlinked_agents_md", hal_issues)
+            self.assertIn("unrouted_agents_md", hal_issues)
+
 
 if __name__ == "__main__":
     unittest.main()

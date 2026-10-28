@@ -1,4 +1,3 @@
-load("@goldfish-build-pypi//:requirements.bzl", "requirement")
 # Copyright 2026 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,12 +15,16 @@ load("@goldfish-build-pypi//:requirements.bzl", "requirement")
 load("@rules_cc//cc:defs.bzl", "cc_binary")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 
-package(default_visibility = ["//visibility:public"])
+package(
+    default_applicable_licenses = ["//:license"],
+    default_visibility = ["//visibility:public"],
+)
 
 py_library(
     name = "emu_dev_cli_lib",
     srcs = glob(
         [
+            "benchmarks/**/*.py",
             "src/**/*.py",
             "workflows/**/*.py",
         ],
@@ -33,9 +36,12 @@ py_library(
     ),
     data = glob(
         [
+            "benchmarks/*.json",
+            "benchmarks/*.md",
             "docs/**/*.md",
             "harness/plugin/**",
             "skills/*.md",
+            "src/templates/*.html",
             "src/templates/*.md",
             "workflows/**/*.yaml",
             "workflows/**/*.yml",
@@ -54,7 +60,7 @@ py_library(
     ],
     deps = [
         "//protos/aemu-grpc:aemu_grpc_lib",
-        requirement("PyYAML"),
+        "@pypi_aemu//pyyaml",
     ],
 )
 
@@ -89,6 +95,7 @@ cc_binary(
             ".",
             "workflows",
         ],
+        tags = ["manual"] if "benchmark" in f else [],
         deps = [
             ":emu_dev_cli_lib",
         ],
@@ -100,6 +107,9 @@ test_suite(
     name = "all_tests",
     tests = [
         f.replace("tests/", "").replace(".py", "")
-        for f in glob(["tests/*_test.py"])
+        for f in glob(
+            ["tests/*_test.py"],
+            exclude = ["tests/*benchmark*_test.py"],
+        )
     ],
 )

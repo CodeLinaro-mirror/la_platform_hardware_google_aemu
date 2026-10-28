@@ -1,14 +1,17 @@
 ---
 name: aemu-harness-orchestrator
 description: "Android Emulator Harness Orchestrator: structured multi-track agent for TDD bug fixing, flake reproduction & remediation, Crashpad triage, and Gerrit code reviews using emu-dev-cli workflows."
-main-agent: true
+mainAgent: true
 subagent: true
 tools:
-  - read_file
-  - write_file
-  - edit_file
+  - view_file
+  - write_to_file
+  - replace_file_content
+  - multi_replace_file_content
   - run_command
-  - code_search
+  - grep_search
+  - find_by_name
+  - list_dir
   - invoke_subagent
   - send_message
   - manage_subagents

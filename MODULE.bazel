@@ -7,14 +7,11 @@
 #    pkg-config, ninja, webrtc_sdk_android, prebuilt_android_sdk, meson, and
 #    custom C++/Node/Python toolchains) that only exist in emu-main-next's local
 #    registry and are not needed by @aemu//tools/clownfish/... or @aemu//api/web/...
-# 2. Aligns bazel_dep versions with studio-main's vendored BCR
-#    (prebuilts/tools/common/bzlmod/bcr).
+# 2. Aligns bazel_dep versions with studio-main's toplevel MODULE.bazel
 # 3. Uses grpc_java_stub(name = "grpc-java") instead of bazel_dep(name = "grpc-java")
 #    because studio-main provides grpc-java via WORKSPACE rather than Bzlmod, while
 #    protos/services_v2/defs.bzl loads @grpc-java//:java_grpc_library.bzl.
-# 4. Uses @aspect_rules_ts//ts:extensions.bzl "ext" (aspect_rules_ts 3.0.0) instead
-#    of "typescript" (aspect_rules_ts 3.10.1), configured by the root module.
-# 5. Configures @pypi_aemu for Python 3.11 (matching studio-main's default Python
+# 4. Configures @pypi_aemu for Python 3.11 (matching studio-main's default Python
 #    toolchain) with pip.whl_mods on protobuf to exclude duplicate namespace
 #    site-packages/__init__.py files in rules_python 2.3.2.
 
@@ -34,14 +31,15 @@ bazel_dep(name = "grpc", version = "1.83.0")
 bazel_dep(name = "googleapis", version = "0.0.0-20251003-2193a2bf")
 bazel_dep(name = "rules_nodejs", version = "6.7.5")
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
-bazel_dep(name = "aspect_rules_js", version = "2.0.0")
-bazel_dep(name = "aspect_rules_ts", version = "3.0.0")
+bazel_dep(name = "aspect_rules_js", version = "3.5.1")
+bazel_dep(name = "aspect_rules_ts", version = "3.10.1")
 
 grpc_java_stub = use_repo_rule("//protos/services_v2:ts_proto.bzl", "grpc_java_stub")
 
 grpc_java_stub(name = "grpc-java")
 
-rules_ts_ext = use_extension("@aspect_rules_ts//ts:extensions.bzl", "ext")
+rules_ts_ext = use_extension("@aspect_rules_ts//ts:extensions.bzl", "typescript")
+rules_ts_ext.deps()
 use_repo(rules_ts_ext, "npm_typescript")
 
 npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")

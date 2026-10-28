@@ -4,6 +4,7 @@ Dispatches and manages automated workflows to guide agents.
 """
 
 import argparse
+import logging
 import os
 import re
 import subprocess
@@ -21,6 +22,7 @@ from workflows.core.yaml_runner import (
     run_yaml_workflow,
 )
 
+logger = logging.getLogger(__name__)
 
 
 def clean_description(desc: str) -> str:
@@ -72,8 +74,8 @@ def discover_workflow_directories() -> List[str]:
         state_base = str(get_state_base_dir())
         if os.path.isdir(state_base) and state_base not in candidates:
             candidates.append(state_base)
-    except Exception:
-        pass
+    except OSError as exc:
+        logger.debug("Failed to resolve workflow state base directory: %s", exc)
 
     return candidates
 
@@ -112,13 +114,18 @@ def list_available_workflows() -> Dict[str, Dict[str, str]]:
             else:
                 continue
 
+            wf_name = entry.replace("_", "-")
             if target_type == "yaml":
                 try:
                     spec = load_yaml(target_path)
                     if "description" in spec:
                         desc = clean_description(spec["description"])
-                except Exception:
-                    pass
+                    if "name" in spec:
+                        wf_name = spec["name"]
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to parse workflow YAML '%s': %s", target_path, exc
+                    )
             elif target_type == "script":
                 readme_path = os.path.join(entry_path, "README.md")
                 if os.path.isfile(readme_path):
@@ -129,17 +136,12 @@ def list_available_workflows() -> Dict[str, Dict[str, str]]:
                                 if line and not line.startswith("#"):
                                     desc = clean_description(line)
                                     break
-                    except Exception:
-                        pass
-
-            wf_name = entry.replace("_", "-")
-            if target_type == "yaml":
-                try:
-                    spec = load_yaml(target_path)
-                    if "name" in spec:
-                        wf_name = spec["name"]
-                except Exception:
-                    pass
+                    except OSError as exc:
+                        logger.debug(
+                            "Failed to read workflow README '%s': %s",
+                            readme_path,
+                            exc,
+                        )
 
             if wf_name not in workflows:
                 workflows[wf_name] = {

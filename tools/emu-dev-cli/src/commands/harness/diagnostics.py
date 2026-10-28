@@ -19,18 +19,31 @@ headers, Windows UTF-8 path errors) and returns a concise diagnostic block to
 append via Jetski's PostToolUse `overwriteResult` contract.
 """
 
-from typing import Dict, List, Optional, Tuple
+import re
+from typing import Dict, List, Optional, Set, Tuple
 
-GOLDFISH_HEADER_TO_TARGET: Tuple[Tuple[str, str], ...] = (
-    ("goldfish/file/file.h", "//emulator/libs/file"),
-    ("android/goldfish/ini_file.h", "//emulator/libs/ini_file"),
-    ("goldfish/http/web_server.h", "//emulator/libs/http"),
-    ("goldfish/network/http_client.h", "//emulator/libs/network:http_client"),
-    ("goldfish/network/resolve.h", "//emulator/libs/network"),
-    ("goldfish/async/", "//emulator/libs/async"),
-    ("android/base/system.h", "//emulator/libs/system"),
-    ("android/base/testing/test_system.h", "//emulator/libs/system:test-headers"),
+from commands.harness.goldfish_libs import target_for_include
+
+_MISSING_HEADER_MARKERS: Tuple[str, ...] = (
+    "No such file or directory",
+    "file not found",
+    "undeclared inclusion",
 )
+# A header token must start at a token boundary, which keeps the scan linear on long
+# `[\w./+-]` runs, and must not be followed by `:LINE`, which marks a diagnostic
+# location or an `In file included from` frame rather than the missing header.
+_HEADER_TOKEN_PATTERN = re.compile(r"(?<![\w./+-])[\w./+-]+\.h\b(?!:\d)")
+# Jetski prefixes failed `run_command` results with this line; successful commands
+# (for example `sed` or `grep` over test files) can quote failure strings verbatim.
+# `[ \t]*` instead of `\s*` keeps `^` from scanning across runs of blank lines.
+_FAILED_EXIT_CODE_PATTERN = re.compile(r"(?m)^[ \t]*(?:Command )?exited with code [1-9]\d*\b")
+
+
+def _target_for_header(header_token: str) -> Optional[Tuple[str, str]]:
+    """Maps a header path from a compiler or Bazel error to (include path, Bazel target)."""
+    include_path = header_token.rsplit("include/", 1)[-1]
+    target = target_for_include(include_path)
+    return None if target is None else (include_path, target)
 
 
 def diagnose_command_failure(
@@ -65,14 +78,16 @@ def diagnose_command_failure(
             "lifetimes across async callbacks and event-loop teardown."
         )
 
-    for header_fragment, bazel_target in GOLDFISH_HEADER_TO_TARGET:
-        if header_fragment in combined and (
-            "No such file or directory" in combined
-            or "file not found" in combined
-            or "undeclared inclusion" in combined
-        ):
+    if any(marker in combined for marker in _MISSING_HEADER_MARKERS):
+        seen_headers: Set[str] = set()
+        for header_token in _HEADER_TOKEN_PATTERN.findall(combined):
+            mapped = _target_for_header(header_token)
+            if mapped is None or mapped[0] in seen_headers:
+                continue
+            include_path, bazel_target = mapped
+            seen_headers.add(include_path)
             hints.append(
-                f"Missing header `{header_fragment}`: add `{bazel_target}` to the "
+                f"Missing header `{include_path}`: add `{bazel_target}` to the "
                 "target's `deps` in `BUILD.bazel`."
             )
 
@@ -95,11 +110,16 @@ def enrich_post_tool_result(
 ) -> Optional[Tuple[str, str]]:
     """Checks a PostToolUse payload and builds an `overwriteResult` string if applicable.
 
+    Only failed commands (a PostToolUse `error`, or a non-zero exit code line) are
+    diagnosed, so successful commands that merely print failure strings are left alone.
+
     Returns:
         None if no diagnostic applies, or (overwritten_result, diagnostic_summary).
     """
     raw_result = str(payload.get("result") or "")
     raw_error = str(payload.get("error") or "")
+    if not raw_error.strip() and not _FAILED_EXIT_CODE_PATTERN.search(raw_result):
+        return None
     diagnostic = diagnose_command_failure(command, raw_result, raw_error)
     if not diagnostic:
         return None
