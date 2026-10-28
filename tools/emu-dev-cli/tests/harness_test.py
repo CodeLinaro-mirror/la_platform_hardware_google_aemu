@@ -19,9 +19,14 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+from typing import Any, Dict, Tuple
 import unittest
 import yaml
 
+from commands.harness.code_guardrails import (
+    absl_mutex_lock_advisories,
+    grpc_utils_advisories,
+)
 from commands.harness.constants import (
     HookDecision,
     HookEvent,
@@ -289,6 +294,270 @@ class HarnessGuardrailTest(unittest.TestCase):
         self.assertEqual(deny_statusor["decision"], HookDecision.DENY.value)
         self.assertIn("TotW 181", deny_statusor["reason"])
 
+    def _file_edit_hooks(
+        self, conv_id: str, tool: str, args: Dict[str, Any], result: str = "Created file."
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Runs the PreToolUse and PostToolUse hooks for one file edit."""
+        tool_call = {"name": tool, "args": args}
+        pre = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {"conversationId": conv_id, "toolCall": tool_call},
+            store=self.ledger_store,
+        )
+        post = dispatch_hook_event(
+            HookEvent.POST_TOOL.value,
+            {"conversationId": conv_id, "toolCall": tool_call, "result": result, "error": ""},
+            store=self.ledger_store,
+        )
+        return pre, post
+
+    def test_grpc_advisories_allow_the_edit_and_append_guidance(self) -> None:
+        conv_id = "conv-grpc-advisory"
+        battery_cc = "/work/goldfish/emulator/plugin/grpc/services/v2/battery/测试_🚀_é.cc"
+        raw_reactor = (
+            "class CustomBatteryStream final\n"
+            "    : public ::grpc::ServerWriteReactor<BatteryState> {\n"
+            " public:\n"
+            "  void OnDone() override { delete this; }\n"
+            "};\n"
+        )
+        status_switch = (
+            "switch (status.code()) {\n"
+            "  case absl::StatusCode::kInvalidArgument:\n"
+            "    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, \"bad\");\n"
+            "  default:\n"
+            "    return grpc::Status::OK;\n"
+            "}\n"
+        )
+
+        # The raw reactor is allowed, and the applied edit's result carries the advice.
+        pre, post = self._file_edit_hooks(
+            conv_id, "write_file", {"Path": battery_cc, "Content": raw_reactor}
+        )
+        self.assertEqual(pre, {"decision": HookDecision.ALLOW.value})
+        advisory = post["overwriteResult"]
+        self.assertTrue(advisory.startswith("Created file.\n\n[AEMU Harness Code Advisory]"))
+        self.assertIn("Non-blocking: the edit was applied", advisory)
+        self.assertIn("'CustomBatteryStream' subclasses raw 'grpc::ServerWriteReactor'", advisory)
+        self.assertIn("StateStreamWriter", advisory)
+        self.assertIn("emulator/plugin/grpc/AGENTS.md", advisory)
+        self.assertNotIn("Blocked by", advisory)
+
+        # Several legacy sites in one edit yield one note with one line per pattern.
+        pre, post = self._file_edit_hooks(
+            conv_id,
+            "edit_file",
+            {
+                "Path": battery_cc,
+                "Replacement": raw_reactor
+                + raw_reactor.replace("CustomBatteryStream", "Other")
+                + status_switch
+                + "return ToGrpcStatus(status);\n",
+            },
+            result="Made 1 replacement.",
+        )
+        self.assertEqual(pre["decision"], HookDecision.ALLOW.value)
+        advisory = post["overwriteResult"]
+        self.assertEqual(advisory.count("[AEMU Harness Code Advisory]"), 1)
+        self.assertEqual(advisory.count("\n  * "), 2)
+        self.assertIn("'grpc::ServerWriteReactor' (+1 more)", advisory)
+        self.assertIn("'switch (status.code())' (+1 more)", advisory)
+        self.assertIn("AbslStatusToGrpcStatus", advisory)
+        self.assertIn("absl_status_translate.h", advisory)
+
+        ledger = self.ledger_store.load(conv_id)
+        self.assertEqual(ledger["stats"]["code_advisories"], 2)
+        self.assertEqual(ledger["stats"]["guardrails_blocked"], 0)
+
+        # Code that already uses grpc_utils, a failed edit, and grpc_utils itself get no advice.
+        valid_header = (
+            "template <typename Reactor = ::grpc::ServerWriteReactor<SystemState>>\n"
+            "using SystemStateWriter = ::android::emulation::control::StateStreamWriter<\n"
+            "    SystemState, int, StateChangeEventSource, 128, true, Reactor>;\n"
+            "class SystemServiceImpl final {\n"
+            " public:\n"
+            "  ::grpc::ServerWriteReactor<SystemState>* StreamSystemState(\n"
+            "      ::grpc::CallbackServerContext* context,\n"
+            "      const ::google::protobuf::Empty* request);\n"
+            "};\n"
+            "return AbslStatusToGrpcStatus(status);\n"
+        )
+        _, post = self._file_edit_hooks(
+            conv_id,
+            "write_file",
+            {"Path": battery_cc.replace("测试_🚀_é", "system_service_impl"), "Content": valid_header},
+        )
+        self.assertEqual(post, {})
+        failed = dispatch_hook_event(
+            HookEvent.POST_TOOL.value,
+            {
+                "conversationId": conv_id,
+                "toolCall": {"name": "write_file", "args": {"Path": battery_cc, "Content": raw_reactor}},
+                "result": "",
+                "error": "permission denied",
+            },
+            store=self.ledger_store,
+        )
+        self.assertEqual(failed, {})
+        self.assertEqual(
+            grpc_utils_advisories(
+                "/work/goldfish/emulator/libs/grpc_utils/include/android/emulation/control/"
+                "simple_async_grpc.h",
+                "class WithSimpleQueueWriter : public grpc::ServerWriteReactor<T> {};\n",
+            ),
+            [],
+        )
+
+    def test_absl_mutex_advisory_allows_the_edit_and_suggests_the_reference_form(self) -> None:
+        conv_id = "conv-absl-mutex"
+        goldfish_cc = "/work/goldfish/emulator/clipboard/测试_🚀_é/clipboard_agent.cc"
+        pre, post = self._file_edit_hooks(
+            conv_id,
+            "edit_file",
+            {
+                "Path": goldfish_cc,
+                "Replacement": "  absl::MutexLock clip_lock(&clip_mutex_);  // guards clip_\n",
+            },
+            result="Made 1 replacement.",
+        )
+        self.assertEqual(pre, {"decision": HookDecision.ALLOW.value})
+        advisory = post["overwriteResult"]
+        self.assertTrue(advisory.startswith("Made 1 replacement.\n\n[AEMU Harness Code Advisory]"))
+        self.assertIn("'absl::MutexLock clip_lock(&clip_mutex_);'", advisory)
+        self.assertIn("Prefer the reference form: 'absl::MutexLock clip_lock(clip_mutex_);'", advisory)
+
+        # A whole-file write over many legacy locks yields one line, not one per site.
+        legacy_file = "".join(
+            f"void F{i}() {{ absl::MutexLock lock(&mu_{i}); }}\n" for i in range(40)
+        )
+        _, post = self._file_edit_hooks(
+            conv_id, "write_file", {"Path": goldfish_cc, "Content": legacy_file}
+        )
+        advisory = post["overwriteResult"]
+        self.assertEqual(advisory.count("\n  * "), 1)
+        self.assertIn("'void F0() { absl::MutexLock lock(&mu_0); }' (+39 more)", advisory)
+
+        # gRPC and MutexLock advice on one edit share a single note.
+        _, post = self._file_edit_hooks(
+            conv_id,
+            "edit_file",
+            {
+                "Path": "/work/goldfish/emulator/plugin/grpc/services/v2/clipboard_service.cc",
+                "Replacement": (
+                    "class ClipStream : public grpc::ServerWriteReactor<ClipData> {};\n"
+                    "absl::MutexLock lock(&mu_);\n"
+                ),
+            },
+        )
+        advisory = post["overwriteResult"]
+        self.assertEqual(advisory.count("[AEMU Harness Code Advisory]"), 1)
+        self.assertEqual(advisory.count("\n  * "), 2)
+
+        advised = {
+            "this member": (
+                "absl::ReaderMutexLock lock(&this->mu_);",
+                "absl::ReaderMutexLock lock(this->mu_);",
+            ),
+            "object member, brace init": (
+                "::absl::WriterMutexLock lock{ &state.mu_ };",
+                "::absl::WriterMutexLock lock{ state.mu_ };",
+            ),
+            "condition overload": (
+                "absl::MutexLock lock(&mu_, absl::Condition(&ready_));",
+                "absl::MutexLock lock(mu_, absl::Condition(&ready_));",
+            ),
+            "unqualified after using": (
+                "using absl::ReleasableMutexLock;\nReleasableMutexLock lock(&mu_);",
+                "ReleasableMutexLock lock(mu_);",
+            ),
+            "split across lines": ("absl::MutexLock lock(\n    &mu_);", "absl::MutexLock lock( mu_);"),
+        }
+        for case, (content, suggestion) in advised.items():
+            advice = absl_mutex_lock_advisories(goldfish_cc, content)
+            self.assertEqual(len(advice), 1, msg=case)
+            self.assertIn(f"Prefer the reference form: '{suggestion}'", advice[0], msg=case)
+
+        no_advice = {
+            "reference form": "absl::MutexLock clip_lock(clip_mutex_);",
+            "reference condition overload": (
+                "absl::MutexLock lock(this->mu_, absl::Condition(&ready_));"
+            ),
+            "MutexLockMaybe": "absl::MutexLockMaybe lock(&mu_);\nMutexLockMaybe other(mu_ptr);",
+            "line comment": "// absl::MutexLock lock(&mu_);",
+            "block comment": "/* Old: absl::MutexLock lock(&mu_);\n */",
+            "rvalue references": (
+                "MutexLock(MutexLock&&) = delete;\nvoid Take(absl::MutexLock&& lock);"
+            ),
+        }
+        for case, content in no_advice.items():
+            self.assertEqual(absl_mutex_lock_advisories(goldfish_cc, content), [], msg=case)
+
+        # emu-main-dev builds external/qemu and aemu against Abseil LTS 20240116, which
+        # has no `Mutex&` constructors, so the pointer form gets no advice there.
+        for path in (
+            "/work/emulator/external/qemu/android/android-emu/android/console.cpp",
+            "/work/emulator/hardware/google/aemu/base/include/aemu/base/events/EventWaiter.h",
+        ):
+            self.assertEqual(
+                absl_mutex_lock_advisories(path, "absl::MutexLock lock(&mu_);"), [], msg=path
+            )
+
+    def test_absl_mutex_advisory_follows_the_checkout_abseil_pin(self) -> None:
+        pointer_form = "absl::MutexLock lock(&mu_);"
+        workspace = self.base_path / "emu_测试_🚀"
+        goldfish = workspace / "hardware" / "generic" / "goldfish"
+        (goldfish / "emulator").mkdir(parents=True, exist_ok=True)
+        (goldfish / "emulator" / "BUILD.bazel").write_text("", encoding="utf-8")
+        (goldfish / "MODULE.bazel").write_text("# Placeholder.\n", encoding="utf-8")
+        source = str(goldfish / "emulator" / "libs" / "lock.cc")
+
+        # goldfish emu-36-3-release and emu-36-4-release pin Abseil 20250512.1.
+        (workspace / "MODULE.bazel").write_text(
+            'bazel_dep(name = "abseil-cpp", version = "20250512.1")\n', encoding="utf-8"
+        )
+        self.assertEqual(absl_mutex_lock_advisories(source, pointer_form), [])
+
+        (workspace / "MODULE.bazel").write_text(
+            'bazel_dep(name = "abseil-cpp", version = "20260526.0")\n', encoding="utf-8"
+        )
+        self.assertEqual(len(absl_mutex_lock_advisories(source, pointer_form)), 1)
+
+    def test_pre_invocation_injects_grpc_playbook_context_when_working_in_grpc_plugin(self) -> None:
+        conv_id = "conv-grpc-pre-inv"
+        # 1. Unrelated workspace/prompt returns empty dict when no workflow/emulator is active
+        unrelated = dispatch_hook_event(
+            HookEvent.PRE_INVOCATION.value,
+            {
+                "conversationId": conv_id,
+                "activeFile": "/work/goldfish/emulator/net/http_client.cc",
+                "prompt": "Fix timeout handling in HttpClient",
+            },
+            store=self.ledger_store,
+            state_root=self.workflow_state_root,
+        )
+        self.assertEqual(unrelated, {})
+
+        # 2. Prompt or activeFile under emulator/plugin/grpc injects gRPC playbook context
+        grpc_inv = dispatch_hook_event(
+            HookEvent.PRE_INVOCATION.value,
+            {
+                "conversationId": conv_id,
+                "activeFile": (
+                    "/work/goldfish/emulator/plugin/grpc/services/v2/"
+                    "battery/battery_service_impl.cc"
+                ),
+            },
+            store=self.ledger_store,
+            state_root=self.workflow_state_root,
+        )
+        self.assertIn("injectSteps", grpc_inv)
+        msg = grpc_inv["injectSteps"][0]["ephemeralMessage"]
+        self.assertIn("emulator/plugin/grpc/AGENTS.md", msg)
+        self.assertIn("//emulator/libs/grpc_utils", msg)
+        self.assertIn("StateStreamWriter", msg)
+        self.assertIn("SimpleServerLambdaReader", msg)
+        self.assertIn("AbslStatusToGrpcStatus", msg)
+
     def test_pre_tool_command_auto_rewrite_overwrite(self) -> None:
         conv_id = "conv-rewrite-1"
         gerrit_out = dispatch_hook_event(
@@ -381,6 +650,9 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         )
         pre_tool_cmd = hooks_json["aemu-harness"]["PreToolUse"][0]["hooks"][0]["command"]
         self.assertIn("/custom/bin/emu-dev-cli harness hook --event pre-tool", pre_tool_cmd)
+        # Code advisories ride on the PostToolUse result of file edits.
+        post_tool_matcher = hooks_json["aemu-harness"]["PostToolUse"][0]["matcher"].split("|")
+        self.assertTrue({"run_command", "write_file", "edit_file"}.issubset(post_tool_matcher))
 
         mcp_json = json.loads(
             (target_plugin_dir / "mcp_config.json").read_text(encoding="utf-8")

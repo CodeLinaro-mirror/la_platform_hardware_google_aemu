@@ -52,6 +52,38 @@ GOLDFISH_HEADER_TO_TARGET: Tuple[Tuple[str, str], ...] = (
     ("android/goldfish/ini_file.h", "//emulator/libs/ini_file"),
     ("android/base/testing/test_system.h", "//emulator/libs/system:test-headers"),
     ("android/base/system.h", "//emulator/libs/system"),
+    (
+        "android/emulation/control/grpc_event_stream_support.h",
+        "//emulator/libs/grpc_utils:event-stream",
+    ),
+    (
+        "android/emulation/control/simple_async_grpc.h",
+        "//emulator/libs/grpc_utils:async",
+    ),
+    (
+        "android/emulation/control/library.h",
+        "//emulator/libs/grpc_utils:async",
+    ),
+    (
+        "android/emulation/control/enum_translate.h",
+        "//emulator/libs/grpc_utils:async",
+    ),
+    (
+        "android/emulation/control/absl_status_translate.h",
+        "//emulator/libs/grpc_utils:absl_translate",
+    ),
+    (
+        "android/emulation/control/utils/service_utils.h",
+        "//emulator/libs/grpc_utils:service_utils",
+    ),
+    (
+        "android/emulation/control/utils/uuid.h",
+        "//emulator/libs/grpc_utils:uuid",
+    ),
+    (
+        "android/emulation/control/interceptor/",
+        "//emulator/libs/grpc_utils:interceptor",
+    ),
 )
 
 
@@ -171,5 +203,26 @@ REUSABLE_LIBS_CATALOG: List[Dict[str, str]] = [
         namespace="android::base::TestSystem",
         keywords="env environment variable system test_system fake test",
         summary="TestSystem fake that overrides environment and system queries in unit tests.",
+    ),
+    _catalog_entry(
+        name="grpc_event_stream",
+        header="android/emulation/control/grpc_event_stream_support.h",
+        namespace="android::emulation::control::StateStreamWriter",
+        keywords="grpc stream reactor StateStreamWriter UniqueEventStreamWriter GenericEventStreamWriter BaseEventStreamWriter ServerWriteReactor",
+        summary="gRPC server event/state stream reactors (StateStreamWriter, UniqueEventStreamWriter, GenericEventStreamWriter, BaseEventStreamWriter).",
+    ),
+    _catalog_entry(
+        name="grpc_async",
+        header="android/emulation/control/simple_async_grpc.h",
+        namespace="SimpleServerLambdaReader",
+        keywords="grpc async reactor SimpleServerLambdaReader SimpleServerLambdaWriter SimpleServerReader SimpleServerWriter ErrorServerWriter ServerReadReactor ServerWriteReactor",
+        summary="Callback gRPC stream reactors (SimpleServerLambdaReader, SimpleServerLambdaWriter, SimpleServerReader, SimpleServerWriter, ErrorServerWriter).",
+    ),
+    _catalog_entry(
+        name="grpc_absl_translate",
+        header="android/emulation/control/absl_status_translate.h",
+        namespace="android::emulation::control::AbslStatusToGrpcStatus",
+        keywords="grpc absl status translate AbslStatusToGrpcStatus GrpcStatusToAbslStatus StatusCode",
+        summary="Canonical absl::Status <-> grpc::Status translators (AbslStatusToGrpcStatus, GrpcStatusToAbslStatus).",
     ),
 ]

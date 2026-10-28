@@ -37,3 +37,9 @@ Before introducing any new helper class, test fixture, server, socket wrapper, o
 - **Production Target**: `//emulator/libs/system` (`#include "android/base/system.h"`, `android::base::System::Get()->EnvGet(...)`)
 - **Test Target**: `//emulator/libs/system:test-headers` (`#include "android/base/testing/test_system.h"`, `android::base::TestSystem`)
 - **When to use**: Querying environment variables or system paths in production code and overriding them hermetically in unit tests (never call `std::getenv` / `setenv` directly).
+
+## 7. gRPC Reactors & Status Translation (`//emulator/libs/grpc_utils:*`)
+- **Event Streams**: `//emulator/libs/grpc_utils:event-stream` (`#include "android/emulation/control/grpc_event_stream_support.h"`, `android::emulation::control::StateStreamWriter`, `UniqueEventStreamWriter`, `GenericEventStreamWriter`, `BaseEventStreamWriter`)
+- **Async Reactors & Helpers**: `//emulator/libs/grpc_utils:async` (`#include "android/emulation/control/simple_async_grpc.h"`, `::SimpleServerLambdaReader`, `::SimpleServerLambdaWriter`, `::SimpleServerReader`, `::SimpleServerWriter`, `::ErrorServerWriter`; `#include "android/emulation/control/library.h"`, `android::emulation::control::Library`; `#include "android/emulation/control/enum_translate.h"`, `::EnumTranslate::translate`)
+- **Status Translation**: `//emulator/libs/grpc_utils:absl_translate` (`#include "android/emulation/control/absl_status_translate.h"`, `android::emulation::control::AbslStatusToGrpcStatus`, `android::emulation::control::GrpcStatusToAbslStatus`)
+- **When to use**: All gRPC V1/V2 services under `emulator/plugin/grpc/`. Prefer these helpers over subclassing raw `grpc::ServerWriteReactor` / `grpc::ServerReadReactor` or hand-rolling `absl::Status` <-> `grpc::Status` switch blocks, and deviate only when they cannot express the RPC. The harness appends a non-blocking `[AEMU Harness Code Advisory]` to edits that do either. See `emulator/plugin/grpc/AGENTS.md`.

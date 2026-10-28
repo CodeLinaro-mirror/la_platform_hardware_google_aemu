@@ -21,6 +21,7 @@ Before writing any new utility, helper, test server, parser, or socket wrapper i
 
 ## 3. Code Quality, `absl::StatusOr` (TotW 181), & Error Messages (`go/error-messages`)
 - **TotW 181 (`absl::StatusOr`)**: Never use Hungarian `_or` / `maybe_` suffixes (e.g., use `auto config = LoadConfig();` rather than `config_or`). Access via `.ok()` and `*config` or `config->...`.
+- **Abseil Mutex Locks**: In `goldfish` (Abseil 20260526.0), prefer passing the mutex by reference: `absl::MutexLock clip_lock(clip_mutex_);` rather than `absl::MutexLock clip_lock(&clip_mutex_);`. Abseil deprecated the pointer constructors of `MutexLock`, `ReaderMutexLock`, `WriterMutexLock`, and `ReleasableMutexLock`; `MutexLockMaybe` keeps its nullable pointer. The harness appends a non-blocking `[AEMU Harness Code Advisory]` to edits that use the pointer form. Keep the pointer form in `external/qemu` and `hardware/google/aemu`, which still build against Abseil LTS 20240116 in `emu-main-dev`.
 - **Actionable Error Messages (TotT 607)**: Every `absl::*Error` or `LOG(ERROR)` must state what operation failed, why (underlying OS/library error), the offending value (without leaking secrets), and an actionable next step, using specific canonical `absl::StatusCode` values.
 - **Code Complexity Discipline**: Prefer guard clauses (`< 3` nesting levels), small single-purpose functions, named constants/enums instead of magic literals, and unit tests that include non-ASCII Unicode path/string coverage (`"测试_🚀_é"`).
 

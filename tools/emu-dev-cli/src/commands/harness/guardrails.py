@@ -19,8 +19,9 @@ Implements Jetski Web & CLI lifecycle hooks:
     invocations and `--notify=OWNER` on Gerrit mutations.
   - PostToolUse (`post-tool`): Tracks spawned/stopped emulator instances and
     workflow executions in the per-conversation Session Ledger, appends failure
-    diagnostics, and warns when a goldfish commit or upload changes
-    concurrency-sensitive code without touching a test.
+    diagnostics, warns when a goldfish commit or upload changes
+    concurrency-sensitive code without touching a test, and appends non-blocking
+    `[AEMU Harness Code Advisory]` suggestions to applied file edits.
   - PreInvocation (`pre-invocation`): Injects active `emu-dev-cli` workflow state
     and tracked emulator context as an `<ephemeralMessage>`.
   - SessionStart (`session-start`): Initializes the conversation ledger.
@@ -41,6 +42,7 @@ except ImportError:
 
 from commands import docs
 from commands.harness.code_guardrails import (
+    build_file_edit_advisory,
     evaluate_file_edit_payload,
     find_goldfish_repo_root,
 )
@@ -77,6 +79,15 @@ from commands.harness.upload_guardrails import (
     first_regex_group,
     resolve_command_cwd,
 )
+
+# Jetski tools that write or edit files; code guardrails and advisories apply to them.
+FILE_EDIT_TOOL_NAMES = frozenset({
+    "write_file",
+    "edit_file",
+    "replace_file_content",
+    "multi_replace_file_content",
+    "write_to_file",
+})
 
 
 def _load_commit_verifier():
@@ -522,13 +533,7 @@ def handle_pre_tool_hook(
     conversation_id = payload.get("conversationId") or payload.get("conversation_id")
     tool_name = _extract_tool_name(payload)
 
-    if tool_name in (
-        "write_file",
-        "edit_file",
-        "replace_file_content",
-        "multi_replace_file_content",
-        "write_to_file",
-    ):
+    if tool_name in FILE_EDIT_TOOL_NAMES:
         verdict = evaluate_file_edit_payload(payload)
         if verdict is not None:
             allowed, reason = verdict
@@ -602,6 +607,32 @@ def handle_pre_tool_hook(
     return {"decision": HookDecision.ALLOW.value}
 
 
+def _append_file_edit_advisory(
+    payload: Dict[str, Any],
+    ledger_store: SessionLedgerStore,
+    conversation_id: Optional[str],
+    tool_name: str,
+) -> Dict[str, Any]:
+    """Appends non-blocking code advisories to the result of an applied file edit."""
+    if str(payload.get("error") or "").strip():
+        return {}
+    advisory = build_file_edit_advisory(payload)
+    if advisory is None:
+        return {}
+    ledger_store.record_event(
+        conversation_id,
+        LedgerEventKind.CODE_ADVISORY_ISSUED,
+        advisory.splitlines()[1].strip()[:160],
+        {"tool": tool_name, "advisory": advisory},
+    )
+    result = str(payload.get("result") or "")
+    return {
+        "overwriteResult": (
+            f"{result.rstrip()}\n\n{advisory}\n" if result.strip() else f"{advisory}\n"
+        )
+    }
+
+
 def handle_post_tool_hook(
     payload: Dict[str, Any],
     store: Optional[SessionLedgerStore] = None,
@@ -609,6 +640,10 @@ def handle_post_tool_hook(
     """Handles Jetski `PostToolUse` hook events to track emulator and workflow state."""
     ledger_store = store or SessionLedgerStore()
     conversation_id = payload.get("conversationId") or payload.get("conversation_id")
+    tool_name = _extract_tool_name(payload)
+    if tool_name in FILE_EDIT_TOOL_NAMES:
+        return _append_file_edit_advisory(payload, ledger_store, conversation_id, tool_name)
+
     command = _extract_command_line(payload)
     if not command:
         return {}
@@ -681,12 +716,55 @@ def handle_session_start_hook(
     return {}
 
 
+GRPC_PLAYBOOK_EPHEMERAL_CONTEXT: str = (
+    "Goldfish gRPC Plugin Playbook (`emulator/plugin/grpc/AGENTS.md` & `//emulator/libs/grpc_utils`):\n"
+    "  - Prefer the `//emulator/libs/grpc_utils` wrappers below over subclassing raw `grpc::ServerWriteReactor` / `grpc::ServerReadReactor`; deviate only when they cannot express the RPC.\n"
+    "  - Server event/state streams (`//emulator/libs/grpc_utils:event-stream`, `#include \"android/emulation/control/grpc_event_stream_support.h\"`):\n"
+    "    * `android::emulation::control::StateStreamWriter<T, Event, Source, max_q, recycle, Reactor>`: First choice when RPC streams current device state (sends initial snapshot via `populate_fn(T*)`, then fresh snapshots when `source` fires).\n"
+    "    * `android::emulation::control::UniqueEventStreamWriter<T, Source>`: Deduplicates consecutive identical proto messages (`MessageDifferencer::Equals`).\n"
+    "    * `android::emulation::control::GenericEventStreamWriter<T>`: Forwards discrete events without an initial snapshot.\n"
+    "    * `android::emulation::control::BaseEventStreamWriter<T, Event, Source>`: Base class for custom event writers (call `this->Subscribe()` at the end of the subclass constructor).\n"
+    "  - Client/Server async streams (`//emulator/libs/grpc_utils:async`, `#include \"android/emulation/control/simple_async_grpc.h\"`):\n"
+    "    * `::SimpleServerLambdaReader<R>` / `::SimpleServerReader<R>`: First choice for client-streaming RPCs (`stream Req`).\n"
+    "    * `::SimpleServerLambdaWriter<W>` / `::SimpleServerWriter<W>`: Callback-driven server stream without an `EventChangeSupport` source.\n"
+    "    * `::ErrorServerWriter<W>`: Immediately finishes a server stream with a non-OK `grpc::Status` and self-deletes in `OnDone()`.\n"
+    "  - Status translation (`//emulator/libs/grpc_utils:absl_translate`, `#include \"android/emulation/control/absl_status_translate.h\"`):\n"
+    "    * Prefer `android::emulation::control::AbslStatusToGrpcStatus` and `GrpcStatusToAbslStatus` over hand-rolled `absl::Status` <-> `grpc::Status` switch blocks.\n"
+    "  - Lock ordering & unit testing: Acquire `EventChangeSupport` listener mutex before `reactor_lock_`, never perform blocking I/O under `reactor_lock_`, and test streaming reactors hermetically with `FakeWriteReactor<T>` (`//emulator/plugin/grpc/services/v2/test:grpc_v2_service_test`)."
+)
+
+
+def _contains_grpc_plugin_reference(value: Any) -> bool:
+    """Returns True if `value` (recursively) references `emulator/plugin/grpc`."""
+    if isinstance(value, str):
+        norm = value.replace("\\", "/")
+        return "emulator/plugin/grpc" in norm
+    if isinstance(value, dict):
+        return any(_contains_grpc_plugin_reference(v) for v in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return any(_contains_grpc_plugin_reference(item) for item in value)
+    return False
+
+
+def _should_inject_grpc_playbook_context(
+    payload: Dict[str, Any],
+    ledger: Dict[str, Any],
+) -> bool:
+    """Returns True when invocation payload or session ledger targets `emulator/plugin/grpc`."""
+    if _contains_grpc_plugin_reference(payload):
+        return True
+    events = ledger.get("events")
+    if isinstance(events, list) and _contains_grpc_plugin_reference(events[-10:]):
+        return True
+    return False
+
+
 def handle_pre_invocation_hook(
     payload: Dict[str, Any],
     store: Optional[SessionLedgerStore] = None,
     state_root: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    """Handles Jetski `PreInvocation` hook events by injecting active workflow/emulator context."""
+    """Handles Jetski `PreInvocation` hook events by injecting active workflow/emulator/gRPC context."""
     ledger_store = store or SessionLedgerStore()
     conversation_id = payload.get("conversationId") or payload.get("conversation_id")
     ledger = ledger_store.load(conversation_id)
@@ -696,8 +774,9 @@ def handle_pre_invocation_hook(
         state_root=state_root,
     )
     active_emulators = ledger.get("active_emulators", [])
+    inject_grpc_playbook = _should_inject_grpc_playbook_context(payload, ledger)
 
-    if not active_workflows and not active_emulators:
+    if not active_workflows and not active_emulators and not inject_grpc_playbook:
         return {}
 
     lines: List[str] = ["[AEMU Custom Agent Harness Context]"]
@@ -719,6 +798,9 @@ def handle_pre_invocation_hook(
             f"Tracked Running Emulator Instances: {avd_list} "
             "(remember to shut down spawned emulators when testing finishes)."
         )
+
+    if inject_grpc_playbook:
+        lines.append(GRPC_PLAYBOOK_EPHEMERAL_CONTEXT)
 
     return {
         "injectSteps": [

@@ -12,22 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Source-code guardrails for `write_file` and `edit_file` tool calls.
+"""Source-code guardrails and advisories for `write_file` and `edit_file` tool calls.
 
-Enforces Android Emulator C++ and Bazel invariants before edits hit disk:
+Blocking guardrails (PreToolUse `deny`) enforce Android Emulator C++ and Bazel
+invariants before edits hit disk:
   1. `cc_binary_with_manifest` enforcement in `goldfish` BUILD files (b/572839247).
   2. Cross-platform UTF-8 file I/O (`android::base::file` / `android/utils/file_io.h`)
      instead of raw `std::ifstream` / `std::ofstream`.
   3. TotW 181 `absl::StatusOr` variable naming (no `_or` Hungarian suffixes).
   4. `AGENTS.md` / `ARCHITECTURE.md` / `DESIGN.md` drift prevention in `goldfish`.
+
+Non-blocking advisories are appended to the PostToolUse result of an applied edit.
+They suggest a preferred pattern that code may knowingly deviate from:
+  a. `//emulator/libs/grpc_utils` reactors and status translation in
+     `emulator/plugin/grpc/`.
+  b. `absl::MutexLock` family locks constructed from a mutex reference rather than a
+     pointer in `goldfish`.
 """
 
 from pathlib import Path
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from commands import docs
 from commands.harness.constants import (
+    ABSEIL_BAZEL_DEP_VERSION_PATTERN,
+    ABSL_MUTEX_LOCK_BY_POINTER_PATTERN,
+    ABSL_MUTEX_LOCK_REFERENCE_MIN_LTS,
+    CPP_COMMENT_PATTERN,
+    GRPC_MANUAL_STATUS_SWITCH_PATTERN,
+    GRPC_RAW_REACTOR_INHERITANCE_PATTERN,
     LINKSHARED_TRUE_PATTERN,
     RAW_CC_BINARY_BLOCK_PATTERN,
     RAW_FSTREAM_PATTERN,
@@ -37,6 +51,14 @@ from commands.harness.constants import (
 CPP_EXTENSIONS = {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp"}
 BAZEL_BUILD_FILENAMES = {"BUILD", "BUILD.bazel"}
 GOLDFISH_DOC_FILENAMES = {"AGENTS.md", "ARCHITECTURE.md", "DESIGN.md"}
+ADVISORY_HEADER = "[AEMU Harness Code Advisory]"
+# Longest code snippet quoted in an advisory before it is truncated.
+MAX_ADVISORY_SNIPPET_CHARS = 100
+# Repos built in `emu-main-dev` against Abseil LTS 20240116, which has no `Mutex&` lock
+# constructors, so the pointer form is the only one that compiles there.
+PRE_REFERENCE_ABSEIL_REPO_MARKERS = ("/external/qemu/", "/hardware/google/aemu/")
+# How many directories above the goldfish root to search for the `abseil-cpp` pin.
+MAX_ABSEIL_PIN_SEARCH_PARENTS = 3
 
 
 def _extract_file_path_and_content(payload: Dict[str, Any]) -> Tuple[str, str]:
@@ -175,6 +197,126 @@ def evaluate_cpp_utf8_and_statusor(
         )
 
     return None
+
+
+def _is_goldfish_grpc_plugin_path(norm_path: str) -> bool:
+    """Returns True if `norm_path` is under `emulator/plugin/grpc/` in goldfish."""
+    if not _is_goldfish_path(norm_path):
+        return False
+    return (
+        norm_path.startswith("emulator/plugin/grpc/")
+        or "/emulator/plugin/grpc/" in norm_path
+    )
+
+
+def _quote_snippet(text: str) -> str:
+    """Collapses whitespace in `text` and truncates it for quoting in an advisory."""
+    snippet = " ".join(text.split())
+    if len(snippet) > MAX_ADVISORY_SNIPPET_CHARS:
+        snippet = snippet[: MAX_ADVISORY_SNIPPET_CHARS - 3] + "..."
+    return snippet
+
+
+def _more_suffix(count: int) -> str:
+    """Returns ` (+N more)` for `count` matches beyond the quoted one."""
+    return f" (+{count - 1} more)" if count > 1 else ""
+
+
+def grpc_utils_advisories(norm_path: str, content: str) -> List[str]:
+    """Returns non-blocking `//emulator/libs/grpc_utils` advice for an `emulator/plugin/grpc/` C++ edit."""
+    suffix = Path(norm_path).suffix.lower()
+    if suffix not in CPP_EXTENSIONS or not _is_goldfish_grpc_plugin_path(norm_path):
+        return []
+
+    advice: List[str] = []
+    reactors = list(GRPC_RAW_REACTOR_INHERITANCE_PATTERN.finditer(content))
+    if reactors:
+        first = reactors[0]
+        advice.append(
+            f"gRPC reactor: '{first.group(1)}' subclasses raw 'grpc::{first.group(2)}'"
+            f"{_more_suffix(len(reactors))}. Prefer a '//emulator/libs/grpc_utils' wrapper: "
+            "'StateStreamWriter', 'UniqueEventStreamWriter', 'GenericEventStreamWriter' or "
+            "'BaseEventStreamWriter' (':event-stream', "
+            "'android/emulation/control/grpc_event_stream_support.h') for server streams, or "
+            "'SimpleServerLambdaReader', 'SimpleServerLambdaWriter', 'SimpleServerReader', "
+            "'SimpleServerWriter', 'SimpleServerBidiStream' or 'ErrorServerWriter' (':async', "
+            "'android/emulation/control/simple_async_grpc.h'). See "
+            "'emulator/plugin/grpc/AGENTS.md'."
+        )
+    status_maps = list(GRPC_MANUAL_STATUS_SWITCH_PATTERN.finditer(content))
+    if status_maps:
+        advice.append(
+            f"gRPC status translation: '{_quote_snippet(status_maps[0].group(0))}'"
+            f"{_more_suffix(len(status_maps))} maps 'absl::Status' and 'grpc::Status' by hand. "
+            "Prefer 'android::emulation::control::AbslStatusToGrpcStatus' / "
+            "'GrpcStatusToAbslStatus' ('//emulator/libs/grpc_utils:absl_translate', "
+            "'android/emulation/control/absl_status_translate.h')."
+        )
+    return advice
+
+
+def _strip_cpp_comments(content: str) -> str:
+    """Removes C++ comments from `content`, keeping the newlines of block comments."""
+    return CPP_COMMENT_PATTERN.sub(lambda m: "\n" * m.group(0).count("\n"), content)
+
+
+def _pinned_abseil_lts(norm_path: str) -> Optional[int]:
+    """Returns the Abseil LTS date (YYYYMMDD) pinned by the checkout containing `norm_path`.
+
+    Reads the `abseil-cpp` `bazel_dep` from the first `MODULE.bazel` at or above the goldfish
+    root that declares one (in a repo checkout, the workspace root link to
+    `build/bazel/toplevel.MODULE.bazel`). Returns None when no pin is found on disk, for
+    example in a standalone goldfish clone.
+    """
+    repo_root = find_goldfish_repo_root(Path(norm_path).parent)
+    if repo_root is None or not repo_root.is_dir():
+        return None
+    for directory in (repo_root, *repo_root.parents[:MAX_ABSEIL_PIN_SEARCH_PARENTS]):
+        try:
+            module_text = (directory / "MODULE.bazel").read_text(encoding="utf-8")
+        except OSError:
+            continue
+        pin = ABSEIL_BAZEL_DEP_VERSION_PATTERN.search(module_text)
+        if pin:
+            return int(pin.group(1))
+    return None
+
+
+def absl_mutex_lock_advisories(norm_path: str, content: str) -> List[str]:
+    """Returns non-blocking advice for goldfish C++ edits that build MutexLock locks from `&mu`.
+
+    Skips `external/qemu` and `aemu`, and goldfish checkouts that pin an Abseil older than
+    the first LTS with the `Mutex&` constructors, where the reference form does not compile.
+    """
+    suffix = Path(norm_path).suffix.lower()
+    if (
+        suffix not in CPP_EXTENSIONS
+        or not _is_goldfish_path(norm_path)
+        or any(marker in norm_path for marker in PRE_REFERENCE_ABSEIL_REPO_MARKERS)
+    ):
+        return []
+
+    code = _strip_cpp_comments(content)
+    matches = list(ABSL_MUTEX_LOCK_BY_POINTER_PATTERN.finditer(code))
+    if not matches:
+        return []
+    pinned_lts = _pinned_abseil_lts(norm_path)
+    if pinned_lts is not None and pinned_lts < ABSL_MUTEX_LOCK_REFERENCE_MIN_LTS:
+        return []
+
+    first = matches[0]
+    line_start = code.rfind("\n", 0, first.start()) + 1
+    line_end = code.find("\n", first.end())
+    statement = code[line_start : len(code) if line_end == -1 else line_end]
+    offset = first.start() - line_start
+    fixed = statement[:offset] + re.sub(r"([({]\s*)&", r"\1", statement[offset:], count=1)
+    return [
+        f"absl::MutexLock: '{_quote_snippet(statement)}'{_more_suffix(len(matches))} passes "
+        "the mutex by pointer, which Abseil deprecated ('Use the constructor that takes a "
+        f"reference instead'). Prefer the reference form: '{_quote_snippet(fixed)}'. The same "
+        "applies to 'ReaderMutexLock', 'WriterMutexLock', 'ReleasableMutexLock' and the "
+        "'absl::Condition' overloads; 'MutexLockMaybe' keeps its pointer."
+    ]
 
 
 def _extract_goldfish_rel_dir(norm_path: str) -> str:
@@ -377,3 +519,29 @@ def evaluate_file_edit_payload(
         return doc_verdict
 
     return None
+
+
+# Non-blocking checks: each returns zero or more one-line suggestions for an edit.
+ADVISORY_CHECKERS = (grpc_utils_advisories, absl_mutex_lock_advisories)
+
+
+def build_file_edit_advisory(payload: Dict[str, Any]) -> Optional[str]:
+    """Builds the non-blocking advisory block for a `write_file` / `edit_file` payload.
+
+    Returns None when no advisory applies. Each checker contributes at most one line per
+    pattern, so an edit that touches many legacy sites still yields one short note.
+    """
+    path_str, content = _extract_file_path_and_content(payload)
+    if not path_str or not content:
+        return None
+    norm_path = path_str.replace("\\", "/")
+    advice = [line for checker in ADVISORY_CHECKERS for line in checker(norm_path, content)]
+    if not advice:
+        return None
+    lines = [f"{ADVISORY_HEADER} Non-blocking: the edit was applied. Suggestions for '{norm_path}':"]
+    lines.extend(f"  * {line}" for line in advice)
+    lines.append(
+        "  Follow them, or keep the code as written if it has to differ, and say why in a "
+        "comment or the commit message."
+    )
+    return "\n".join(lines)
