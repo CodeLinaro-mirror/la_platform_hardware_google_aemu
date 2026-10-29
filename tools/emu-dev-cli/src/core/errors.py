@@ -182,6 +182,9 @@ class UsageError(EmuCliError):
     default_error_code = ERROR_CODE_USAGE
 
 
+CommandValidationError = UsageError
+
+
 class ExecutionError(EmuCliError):
     """Raised when a command or workflow step fails during execution."""
 

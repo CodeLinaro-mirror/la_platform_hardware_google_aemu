@@ -12,3 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Unit tests for polymorphic WorkflowStep classes."""
+
+import os
+
+_REAL_WORKFLOWS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "workflows",
+)
+if os.path.isdir(_REAL_WORKFLOWS_DIR) and _REAL_WORKFLOWS_DIR not in __path__:
+    __path__.insert(0, _REAL_WORKFLOWS_DIR)
+

@@ -21,6 +21,7 @@ from core.command import (
     LegacyCommandAdapter,
     STATUS_ERROR,
     STATUS_SUCCESS,
+    bind_command,
 )
 from core.context import (
     AppConfig,
@@ -40,6 +41,7 @@ from core.context import (
 from core.dispatcher import CliDispatcher, OutputRenderer
 from core.errors import (
     AuthError,
+    CommandValidationError,
     EmuCliError,
     ExecutionError,
     ExitCode,
@@ -76,6 +78,7 @@ __all__ = [
     "CliEvent",
     "Command",
     "CommandResult",
+    "CommandValidationError",
     "DEFAULT_SUBPROCESS_TIMEOUT_SEC",
     "EmuCliError",
     "EventBus",
@@ -107,6 +110,7 @@ __all__ = [
     "SubprocessInvoked",
     "SubprocessRunner",
     "UsageError",
+    "bind_command",
     "detect_host_platform",
     "redact_command_args",
     "redact_sensitive_text",

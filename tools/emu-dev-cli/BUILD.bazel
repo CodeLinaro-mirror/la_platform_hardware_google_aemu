@@ -103,6 +103,7 @@ cc_binary(
     for f in glob([
         "tests/*_test.py",
         "tests/clients/*_test.py",
+        "tests/commands/*_test.py",
         "tests/core/*_test.py",
         "tests/gerrit/*_test.py",
         "tests/refactoring/*_test.py",
@@ -118,6 +119,7 @@ test_suite(
             [
                 "tests/*_test.py",
                 "tests/clients/*_test.py",
+                "tests/commands/*_test.py",
                 "tests/core/*_test.py",
                 "tests/gerrit/*_test.py",
                 "tests/refactoring/*_test.py",

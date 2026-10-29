@@ -306,6 +306,12 @@ class ServiceContainer:
             self._instances[name] = instance
             return instance
 
+    def get(self, name: str, default: Any = None) -> Any:
+        """Resolves the service registered under `name`, or returns `default` if absent."""
+        if default is not None and not self.has(name):
+            return default
+        return self.resolve(name)
+
 
 class ServiceFactory(ABC):
     """Abstract factory for populating a ServiceContainer."""
@@ -570,6 +576,11 @@ class ExecutionContext:
     def process_runner(self) -> ProcessRunner:
         """Resolves and returns the ProcessRunner service."""
         return self._services.resolve(SERVICE_PROCESS_RUNNER)
+
+    @property
+    def runner(self) -> ProcessRunner:
+        """Alias for `process_runner` returning the active ProcessRunner service."""
+        return self.process_runner
 
     @property
     def artifact_service(self) -> ArtifactService:

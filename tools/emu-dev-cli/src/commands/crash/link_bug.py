@@ -26,6 +26,14 @@ import subprocess
 import sys
 from typing import Any
 
+from core.command import Command, CommandResult, bind_command
+from core.context import (
+    ExecutionContext,
+    SERVICE_F1_SQL,
+    SERVICE_PROCESS_RUNNER,
+)
+from core.errors import ExecutionError, UsageError
+from core.process import ProcessRunner
 from lib.output import print_result
 
 from commands.crash.utils import parse_crash_id
@@ -152,6 +160,7 @@ def search_crash_annotations(
     product_name: str = DEFAULT_PRODUCT_NAME,
     signature_type: str = DEFAULT_SIGNATURE_TYPE,
     stubby_bin: str | None = None,
+    runner: ProcessRunner | None = None,
 ) -> dict[str, list[dict[str, str]]]:
     """Queries live `blade:crash-queryapi` `QueryAPIService.SearchAnnotations` for bug links.
 
@@ -160,6 +169,7 @@ def search_crash_annotations(
         product_name: Crash product name (default: 'AndroidEmulator').
         signature_type: Signature type (default: 'Stable').
         stubby_bin: Optional explicit path to `stubby` binary.
+        runner: Optional injected ProcessRunner for hermetic command execution.
 
     Returns:
         Mapping from `stable_signature` to list of `{"bug_id": str, "bug_url": str}`.
@@ -168,7 +178,9 @@ def search_crash_annotations(
     if not clean_sigs:
         return {}
 
-    resolved_stubby = stubby_bin or shutil.which("stubby")
+    resolved_stubby = stubby_bin or (
+        "stubby" if runner is not None else shutil.which("stubby")
+    )
     if not resolved_stubby:
         return {}
 
@@ -180,24 +192,31 @@ def search_crash_annotations(
         f"  stack_signatures: [{sig_entries}]\n"
         "}"
     )
+    cmd = [
+        resolved_stubby,
+        "call",
+        CRASH_QUERYAPI_TARGET,
+        "QueryAPIService.SearchAnnotations",
+        request_proto,
+    ]
+
+    if runner is not None:
+        res = runner.run(cmd, check=False, timeout_sec=15.0)
+        if res.returncode != 0 or not isinstance(res.stdout, str):
+            return {}
+        return parse_search_annotations_output(res.stdout)
 
     try:
-        res = subprocess.run(
-            [
-                resolved_stubby,
-                "call",
-                CRASH_QUERYAPI_TARGET,
-                "QueryAPIService.SearchAnnotations",
-                request_proto,
-            ],
+        res_proc = subprocess.run(
+            cmd,
             capture_output=True,
             text=True,
             timeout=15,
             check=False,
         )
-        if res.returncode != 0 or not isinstance(res.stdout, str):
+        if res_proc.returncode != 0 or not isinstance(res_proc.stdout, str):
             return {}
-        return parse_search_annotations_output(res.stdout)
+        return parse_search_annotations_output(res_proc.stdout)
     except (OSError, subprocess.SubprocessError):
         return {}
 
@@ -209,6 +228,7 @@ def update_crash_annotation(
     product_name: str = DEFAULT_PRODUCT_NAME,
     signature_type: str = DEFAULT_SIGNATURE_TYPE,
     stubby_bin: str | None = None,
+    runner: ProcessRunner | None = None,
 ) -> tuple[bool, str]:
     """Associates or removes a bug URL on a `stable_signature` in `go/crash`.
 
@@ -221,11 +241,14 @@ def update_crash_annotation(
         product_name: Crash product name (default: 'AndroidEmulator').
         signature_type: Signature type (default: 'Stable').
         stubby_bin: Optional explicit path to `stubby` binary.
+        runner: Optional injected ProcessRunner for hermetic command execution.
 
     Returns:
         Tuple of (success: bool, raw_output_or_error: str).
     """
-    resolved_stubby = stubby_bin or shutil.which("stubby")
+    resolved_stubby = stubby_bin or (
+        "stubby" if runner is not None else shutil.which("stubby")
+    )
     if not resolved_stubby:
         return False, "stubby binary not found on PATH"
 
@@ -236,27 +259,40 @@ def update_crash_annotation(
         f"stack_signature: {json.dumps(stable_signature)}\n"
         f"{url_field}: {json.dumps(bug_url)}\n"
     )
+    cmd = [
+        resolved_stubby,
+        "call",
+        CRASH_QUERYAPI_TARGET,
+        "QueryAPIService.UpdateAnnotation",
+        request_proto,
+    ]
 
-    try:
-        res = subprocess.run(
-            [
-                resolved_stubby,
-                "call",
-                CRASH_QUERYAPI_TARGET,
-                "QueryAPIService.UpdateAnnotation",
-                request_proto,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
+    if runner is not None:
+        res = runner.run(cmd, check=False, timeout_sec=15.0)
         stdout_str = res.stdout if isinstance(res.stdout, str) else ""
         stderr_str = res.stderr if isinstance(res.stderr, str) else ""
         if res.returncode == 0 and "status_code: SUCCESS" in stdout_str:
             return True, stdout_str.strip()
         return False, (
             stderr_str.strip() or stdout_str.strip() or f"Exit code {res.returncode}"
+        )
+
+    try:
+        res_proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        stdout_str = res_proc.stdout if isinstance(res_proc.stdout, str) else ""
+        stderr_str = res_proc.stderr if isinstance(res_proc.stderr, str) else ""
+        if res_proc.returncode == 0 and "status_code: SUCCESS" in stdout_str:
+            return True, stdout_str.strip()
+        return False, (
+            stderr_str.strip()
+            or stdout_str.strip()
+            or f"Exit code {res_proc.returncode}"
         )
     except (OSError, subprocess.SubprocessError) as e:
         return False, str(e)
@@ -275,6 +311,8 @@ def resolve_signature_from_report_id(
     report_id: str,
     f1_sql_bin: str = DEFAULT_F1_SQL_BIN,
     product_name: str = DEFAULT_PRODUCT_NAME,
+    f1_client: Any = None,
+    runner: ProcessRunner | None = None,
 ) -> str | None:
     """Resolves `stable_signature` for a 16-hex Crash `ReportID` via F1 SQL.
 
@@ -282,6 +320,8 @@ def resolve_signature_from_report_id(
         report_id: 16-character hex Crash ReportID.
         f1_sql_bin: Path to `f1-sql` executable.
         product_name: Crash product name (default: 'AndroidEmulator').
+        f1_client: Optional injected F1SqlClient.
+        runner: Optional injected ProcessRunner.
 
     Returns:
         The `stable_signature` string if found, else None.
@@ -294,6 +334,43 @@ def resolve_signature_from_report_id(
         "SELECT stable_signature FROM crash.prod.latest "
         f"WHERE product_name = '{product_name}' AND ReportID = '{clean_id}' LIMIT 1;"
     )
+    if f1_client is not None:
+        if hasattr(f1_client, "query_csv"):
+            rows = f1_client.query_csv(sql)
+        else:
+            rows = f1_client.execute_sql(sql)
+        for row in rows:
+            val = str(row.get("stable_signature") or "").strip()
+            if val and val != "NULL":
+                return val
+        return None
+
+    if runner is not None:
+        res_run = runner.run(
+            [f1_sql_bin, "--csv_output=true"],
+            input_text=sql,
+            check=False,
+            timeout_sec=60.0,
+        )
+        if res_run.returncode != 0 or not isinstance(res_run.stdout, str):
+            return None
+        raw_lines = res_run.stdout.splitlines()
+        header_idx = next(
+            (
+                i
+                for i, line in enumerate(raw_lines)
+                if line.strip().strip('"') == "stable_signature"
+            ),
+            None,
+        )
+        if header_idx is None:
+            return None
+        for line in raw_lines[header_idx + 1 :]:
+            val = line.strip().strip('"').replace('""', '"')
+            if val and val != "NULL":
+                return val
+        return None
+
     try:
         res = subprocess.run(
             [f1_sql_bin, "--csv_output=true"],
@@ -431,39 +508,142 @@ def run_link_bug(args: argparse.Namespace) -> None:
             print("   • Active go/crash Bug Links: (none)")
 
 
-def register_link_bug_parser(crash_subparsers) -> None:
-    """Registers the `link-bug` subcommand parser under `crash`."""
-    link_parser = crash_subparsers.add_parser(
-        "link-bug",
-        help="Associate (or unlink) a Buganizer issue URL with a crash signature in go/crash",
-        description=(
+class CrashLinkBugCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Command implementation for `emu-dev-cli crash link-bug`."""
+
+    name = "link-bug"
+    help_text = "Associate (or unlink) a Buganizer issue URL with a crash signature in go/crash"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.description = (
             "Associates or removes a Buganizer issue URL on a crash signature in go/crash "
             "via QueryAPIService.UpdateAnnotation on blade:crash-queryapi. Accepts either a "
             "stable_signature or a 16-hex crash ReportID."
-        ),
+        )
+        parser.add_argument(
+            "target",
+            help="Crash stable_signature (e.g. 'virtio_gpu_rutabaga_load-e709a6ba') or 16-hex crash ReportID",
+        )
+        parser.add_argument(
+            "bug",
+            help="Buganizer issue ID (e.g. '567125517', 'b/567125517') or full URL",
+        )
+        parser.add_argument(
+            "--unlink",
+            action="store_true",
+            help="Remove the bug URL association from the crash signature instead of adding it",
+        )
+        parser.add_argument(
+            "--product",
+            default=DEFAULT_PRODUCT_NAME,
+            help=f"go/crash product name (default: {DEFAULT_PRODUCT_NAME})",
+        )
+        parser.add_argument(
+            "--json",
+            action="store_true",
+            default=argparse.SUPPRESS,
+            help="Output machine-readable JSON result",
+        )
+
+    def validate(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> argparse.Namespace:
+        del ctx
+        target = str(
+            getattr(args, "target", None)
+            or getattr(args, "signature", None)
+            or ""
+        ).strip()
+        if not target:
+            raise UsageError(
+                "Crash target signature or ReportID cannot be empty for 'crash link-bug'.",
+                remediation="Pass a non-empty stable_signature or 16-hex crash ReportID.",
+            )
+        if not getattr(args, "target", None):
+            args.target = target
+        bug_arg = str(
+            getattr(args, "bug", None) or getattr(args, "bug_id", None) or ""
+        ).strip()
+        try:
+            normalize_bug_url_and_id(bug_arg)
+        except ValueError as exc:
+            raise UsageError(
+                str(exc),
+                remediation="Pass a numeric Buganizer ID (e.g. '567125517'), shortlink ('b/567125517'), or full issue URL.",
+            ) from exc
+        if not getattr(args, "bug", None):
+            args.bug = bug_arg
+        return args
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        unlink = bool(getattr(args, "unlink", False))
+        product_name = str(getattr(args, "product", DEFAULT_PRODUCT_NAME))
+        target = str(args.target).strip()
+        bug_id, bug_url = normalize_bug_url_and_id(str(args.bug))
+
+        f1_client = ctx.services.get(SERVICE_F1_SQL)
+        runner = ctx.services.get(SERVICE_PROCESS_RUNNER)
+
+        report_id: str | None = None
+        stable_signature = target
+        if is_crash_report_id(target):
+            report_id = parse_crash_id(target)
+            resolved = resolve_signature_from_report_id(
+                report_id,
+                product_name=product_name,
+                f1_client=f1_client,
+                runner=runner,
+            )
+            if not resolved:
+                raise ExecutionError(
+                    f"Could not resolve stable_signature for ReportID '{report_id}' in product '{product_name}'.",
+                    remediation="Verify the 16-hex ReportID exists in crash.prod.latest or pass the stable_signature directly.",
+                )
+            stable_signature = resolved
+
+        ok, detail = update_crash_annotation(
+            stable_signature=stable_signature,
+            bug_url=bug_url,
+            unlink=unlink,
+            product_name=product_name,
+            runner=runner,
+        )
+        if not ok:
+            raise ExecutionError(
+                f"Failed to {'unlink' if unlink else 'link'} {bug_url} for signature '{stable_signature}': {detail}",
+                remediation="Ensure stubby is available and you have access to blade:crash-queryapi.",
+            )
+
+        current_annotations = search_crash_annotations(
+            [stable_signature],
+            product_name=product_name,
+            runner=runner,
+        ).get(stable_signature, [])
+
+        verb = "Unlinked" if unlink else "Linked"
+        payload: dict[str, Any] = {
+            "status": "success",
+            "action": "crash link-bug",
+            "stable_signature": stable_signature,
+            "report_id": report_id,
+            "bug_id": bug_id,
+            "bug_url": bug_url,
+            "unlinked": unlink,
+            "linked_bugs": current_annotations,
+        }
+        return CommandResult(
+            data=payload,
+            action="crash link-bug",
+            summary=f"{verb} bug {bug_url} for go/crash signature '{stable_signature}'.",
+        )
+
+
+def register_link_bug_parser(crash_subparsers) -> None:
+    """Registers the `link-bug` subcommand parser under `crash`."""
+    bind_command(
+        crash_subparsers,
+        CrashLinkBugCommand(),
+        legacy_func=run_link_bug,
     )
-    link_parser.add_argument(
-        "target",
-        help="Crash stable_signature (e.g. 'virtio_gpu_rutabaga_load-e709a6ba') or 16-hex crash ReportID",
-    )
-    link_parser.add_argument(
-        "bug",
-        help="Buganizer issue ID (e.g. '567125517', 'b/567125517') or full URL",
-    )
-    link_parser.add_argument(
-        "--unlink",
-        action="store_true",
-        help="Remove the bug URL association from the crash signature instead of adding it",
-    )
-    link_parser.add_argument(
-        "--product",
-        default=DEFAULT_PRODUCT_NAME,
-        help=f"go/crash product name (default: {DEFAULT_PRODUCT_NAME})",
-    )
-    link_parser.add_argument(
-        "--json",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help="Output machine-readable JSON result",
-    )
-    link_parser.set_defaults(func=run_link_bug)

@@ -849,7 +849,13 @@ def execute_workflow_step(
     continuation_cmd: Optional[str] = None,
 ) -> int:
     """Executes a single step of a workflow using polymorphic WorkflowStep handlers."""
-    from .steps import StepExecutionContext, WorkflowStepFactory
+    try:
+        from .steps import StepExecutionContext, WorkflowStepFactory
+    except ImportError:
+        try:
+            from workflows.core.steps import StepExecutionContext, WorkflowStepFactory
+        except ImportError:
+            from steps import StepExecutionContext, WorkflowStepFactory
 
     path = Path(spec_path).resolve()
     spec = load_yaml(path)

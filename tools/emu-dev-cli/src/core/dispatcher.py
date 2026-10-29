@@ -15,6 +15,8 @@
 """Central CLI dispatcher and non-exiting OutputRenderer for emu-dev-cli."""
 
 import argparse
+from collections.abc import Mapping
+import inspect
 import json
 import logging
 import sys
@@ -26,7 +28,9 @@ from core.command import (
     Command,
     CommandResult,
     LegacyCommandAdapter,
+    META_KEY_ALREADY_RENDERED,
     STATUS_ERROR,
+    STATUS_SUCCESS,
 )
 from core.context import ExecutionContext
 from core.errors import EmuCliError, ExitCode, UsageError
@@ -153,14 +157,67 @@ def _resolve_command(args: argparse.Namespace) -> Command[Any, Any]:
     )
 
 
+def _coerce_raw_result(
+    action_name: str, raw_return: Any
+) -> CommandResult[Any]:
+    """Converts a raw return value from Command.execute into a CommandResult."""
+    if isinstance(raw_return, CommandResult):
+        return raw_return
+    if isinstance(raw_return, Mapping):
+        exit_code = int(raw_return.get("exit_code", ExitCode.SUCCESS))
+        status = str(
+            raw_return.get(
+                "status",
+                STATUS_SUCCESS
+                if exit_code == int(ExitCode.SUCCESS)
+                else STATUS_ERROR,
+            )
+        )
+        return CommandResult(
+            data=dict(raw_return),
+            action=str(raw_return.get("action", action_name)),
+            summary=str(raw_return.get("summary", action_name)),
+            status=status,
+            exit_code=exit_code,
+        )
+    if isinstance(raw_return, int):
+        exit_code = int(raw_return)
+        status = (
+            STATUS_SUCCESS
+            if exit_code == int(ExitCode.SUCCESS)
+            else STATUS_ERROR
+        )
+        return CommandResult(
+            data={},
+            action=action_name,
+            summary=action_name,
+            status=status,
+            exit_code=exit_code,
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
+    return CommandResult(
+        data={},
+        action=action_name,
+        summary=action_name,
+        status=STATUS_SUCCESS,
+        exit_code=int(ExitCode.SUCCESS),
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
+
+
 def _safe_rollback(
     command: Command[Any, Any],
     args: argparse.Namespace,
     ctx: ExecutionContext,
+    error: BaseException | None = None,
 ) -> None:
-    """Invokes `command.rollback(args, ctx)` while isolating rollback exceptions."""
+    """Invokes `command.rollback(args, ctx[, error])` while isolating rollback exceptions."""
     try:
-        command.rollback(args, ctx)
+        sig = inspect.signature(command.rollback)
+        if len(sig.parameters) >= 3:
+            command.rollback(args, ctx, error)  # type: ignore[call-arg]
+        else:
+            command.rollback(args, ctx)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         LOGGER.warning(
             "Rollback failed for command '%s': %s",
@@ -180,11 +237,29 @@ class CliDispatcher:
     ) -> None:
         self._context = context
         self._renderer = renderer or OutputRenderer()
+        self._registered_commands: dict[str, Command[Any, Any]] = {}
 
     @property
     def renderer(self) -> OutputRenderer:
         """Returns the OutputRenderer used by this dispatcher."""
         return self._renderer
+
+    def register_command(self, command: Command[Any, Any]) -> None:
+        """Registers a Command instance by its `name` and `aliases`."""
+        if command.name:
+            self._registered_commands[command.name] = command
+        for alias in getattr(command, "aliases", ()) or ():
+            self._registered_commands[str(alias)] = command
+
+    def resolve_command(self, args: argparse.Namespace) -> Command[Any, Any]:
+        """Resolves the Command instance bound to `args` or registered by subcommand name."""
+        bound_cmd = getattr(args, COMMAND_INSTANCE_ATTR, None)
+        if isinstance(bound_cmd, Command):
+            return bound_cmd
+        subcommand_name = str(getattr(args, "subcommand", None) or "")
+        if subcommand_name in self._registered_commands:
+            return self._registered_commands[subcommand_name]
+        return _resolve_command(args)
 
     def dispatch(
         self,
@@ -204,7 +279,7 @@ class CliDispatcher:
         start_time = time.monotonic()
 
         try:
-            command = _resolve_command(args)
+            command = self.resolve_command(args)
             step_name = command.name or step_name
         except EmuCliError as err:
             self._renderer.render_error(err, action=step_name, json_mode=json_mode)
@@ -212,8 +287,35 @@ class CliDispatcher:
 
         active_ctx.event_bus.publish(StepStarted(step_name=step_name))
         try:
-            command.validate(args, active_ctx)
-            result = command.execute(args, active_ctx)
+            validated_args = command.validate(args, active_ctx)
+            effective_args = (
+                validated_args if validated_args is not None else args
+            )
+            try:
+                raw_result = command.execute(effective_args, active_ctx)
+                result = _coerce_raw_result(step_name, raw_result)
+            except SystemExit as sys_exit:
+                code = (
+                    int(ExitCode.SUCCESS)
+                    if sys_exit.code is None
+                    else (
+                        int(sys_exit.code)
+                        if isinstance(sys_exit.code, int)
+                        else int(ExitCode.FAILURE)
+                    )
+                )
+                result = CommandResult(
+                    data={},
+                    action=step_name,
+                    summary=step_name,
+                    status=(
+                        STATUS_SUCCESS
+                        if code == int(ExitCode.SUCCESS)
+                        else STATUS_ERROR
+                    ),
+                    exit_code=code,
+                    metadata={META_KEY_ALREADY_RENDERED: True},
+                )
             self._renderer.render_result(result, json_mode=json_mode)
             duration = time.monotonic() - start_time
             active_ctx.event_bus.publish(
@@ -227,7 +329,7 @@ class CliDispatcher:
             return int(result.exit_code)
         except EmuCliError as err:
             duration = time.monotonic() - start_time
-            _safe_rollback(command, args, active_ctx)
+            _safe_rollback(command, args, active_ctx, err)
             self._renderer.render_error(err, action=step_name, json_mode=json_mode)
             active_ctx.event_bus.publish(
                 StepCompleted(
@@ -238,9 +340,9 @@ class CliDispatcher:
                 )
             )
             return int(err.exit_code)
-        except KeyboardInterrupt:
+        except KeyboardInterrupt as intr:
             duration = time.monotonic() - start_time
-            _safe_rollback(command, args, active_ctx)
+            _safe_rollback(command, args, active_ctx, intr)
             active_ctx.event_bus.publish(
                 StepCompleted(
                     step_name=step_name,

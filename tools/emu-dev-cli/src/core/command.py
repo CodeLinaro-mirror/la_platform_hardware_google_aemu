@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
 
 from core.context import ExecutionContext
-from core.errors import ExitCode, UsageError
+from core.errors import CommandValidationError, ExitCode, UsageError
 
 TArgs = TypeVar("TArgs")
 TResult = TypeVar("TResult")
@@ -52,6 +52,49 @@ class CommandResult(Generic[TResult]):
     exit_code: int = int(ExitCode.SUCCESS)
     markdown_table: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def success(
+        cls,
+        data: TResult,
+        *,
+        summary: str = "",
+        action: str = "",
+        markdown_table: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> "CommandResult[TResult]":
+        """Constructs a successful CommandResult with exit_code=0."""
+        return cls(
+            data=data,
+            summary=summary,
+            action=action,
+            status=STATUS_SUCCESS,
+            exit_code=int(ExitCode.SUCCESS),
+            markdown_table=markdown_table,
+            metadata=metadata or {},
+        )
+
+    @classmethod
+    def failure(
+        cls,
+        summary: str,
+        *,
+        exit_code: int = int(ExitCode.FAILURE),
+        data: Any = None,
+        action: str = "",
+        markdown_table: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> "CommandResult[Any]":
+        """Constructs a failed CommandResult with status='error'."""
+        return cls(
+            data=data,
+            summary=summary,
+            action=action,
+            status=STATUS_ERROR,
+            exit_code=int(exit_code),
+            markdown_table=markdown_table,
+            metadata=metadata or {},
+        )
 
     @property
     def ok(self) -> bool:
@@ -104,13 +147,14 @@ class Command(ABC, Generic[TArgs, TResult]):
     aliases: Sequence[str] = ()
     help_text: str = ""
 
-    @abstractmethod
     def configure_parser(self, parser: argparse.ArgumentParser) -> None:
         """Registers command-specific arguments on `parser`."""
+        del parser
 
-    def validate(self, args: TArgs, ctx: ExecutionContext) -> None:
+    def validate(self, args: TArgs, ctx: ExecutionContext) -> Any:
         """Optional hook to validate parsed arguments before execution."""
-        del args, ctx
+        del ctx
+        return args
 
     @abstractmethod
     def execute(
@@ -137,7 +181,12 @@ class Command(ABC, Generic[TArgs, TResult]):
         self.bind_parser(parser)
         return parser
 
-    def bind_parser(self, parser: argparse.ArgumentParser) -> None:
+    def bind_parser(
+        self,
+        parser: argparse.ArgumentParser,
+        *,
+        legacy_func: Callable[[argparse.Namespace], Any] | None = None,
+    ) -> None:
         """Attaches this Command instance to `parser` defaults."""
         from core.dispatcher import CliDispatcher
 
@@ -147,9 +196,35 @@ class Command(ABC, Generic[TArgs, TResult]):
         parser.set_defaults(
             **{
                 COMMAND_INSTANCE_ATTR: self,
-                "func": _legacy_entrypoint,
+                "func": (
+                    legacy_func if legacy_func is not None else _legacy_entrypoint
+                ),
             }
         )
+
+
+def bind_command(
+    target: Any,
+    command: Command[Any, Any],
+    *,
+    configure: bool = True,
+    legacy_func: Callable[[argparse.Namespace], Any] | None = None,
+) -> argparse.ArgumentParser:
+    """Registers or binds `command` on a subparsers action or an ArgumentParser."""
+    if hasattr(target, "add_parser"):
+        parser = command.register(target)
+        if legacy_func is not None:
+            command.bind_parser(parser, legacy_func=legacy_func)
+        return parser
+    if isinstance(target, argparse.ArgumentParser):
+        if configure:
+            command.configure_parser(target)
+        command.bind_parser(target, legacy_func=legacy_func)
+        return target
+    raise UsageError(
+        f"Cannot bind command '{command.name}' to unsupported target type {type(target).__name__}.",
+        remediation="Pass an argparse subparsers action or ArgumentParser to bind_command().",
+    )
 
 
 class LegacyCommandAdapter(Command[argparse.Namespace, dict[str, Any]]):

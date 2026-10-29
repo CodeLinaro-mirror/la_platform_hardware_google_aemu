@@ -14,12 +14,20 @@
 
 """Subcommand handler for 'emu-dev-cli flakiness sponge'."""
 
+import argparse
 import logging
 from pathlib import Path
 import sys
 from typing import Any, Dict, List, Optional
 
-from lib.ath_api import query_test_history
+from core.command import Command, CommandResult
+from core.context import ExecutionContext
+from core.errors import UsageError
+from lib.ath_api import (
+    SUPPORTED_TARGET_CHOICES,
+    SUPPORTED_TEST_IDENTIFIER_CHOICES,
+    query_test_history,
+)
 from lib.output import format_markdown_table, print_result
 from lib.resultstore_api import (
     ResultStoreInvocation,
@@ -239,3 +247,127 @@ def handle_flakiness_sponge(args):
         "markdown_table": "\n\n---\n\n".join(all_markdown_sections),
     }
     print_result(data, json_mode=json_mode)
+
+
+class FlakinessSpongeCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Command implementation for `emu-dev-cli flakiness sponge`."""
+
+    name = "sponge"
+    help_text = "Inspect ResultStore / Sponge / Fusion2 invocation actions, errors, durations, and logs"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--invocation",
+            type=str,
+            default=None,
+            help="Invocation UUID, full Fusion2 URL, or Sponge URL",
+        )
+        parser.add_argument(
+            "--test",
+            type=str,
+            default=None,
+            help="Bazel test target filter",
+        )
+        parser.add_argument(
+            "--target",
+            type=str,
+            default="emulator_linux_x64",
+            choices=SUPPORTED_TARGET_CHOICES,
+            help="Target platform matrix (default: emulator_linux_x64)",
+        )
+        parser.add_argument(
+            "--config",
+            "--test-id",
+            "--suite",
+            dest="config",
+            type=str,
+            default=None,
+            choices=SUPPORTED_TEST_IDENTIFIER_CHOICES,
+            help="Test identifier filter when querying latest failures",
+        )
+        parser.add_argument(
+            "--latest-failures",
+            "--latest_failures",
+            dest="latest_failures",
+            type=int,
+            default=0,
+            help="Automatically inspect the latest N failed invocations for the specified test target",
+        )
+        parser.add_argument(
+            "--days",
+            type=int,
+            default=7,
+            help="Historical window in days when querying latest failures (default: 7)",
+        )
+        parser.add_argument(
+            "--mode",
+            type=str,
+            default="all",
+            choices=["all", "presubmit", "postsubmit"],
+            help="Run type filter when querying latest failures (default: all)",
+        )
+        parser.add_argument(
+            "--token",
+            type=str,
+            default=None,
+            help="Explicit OAuth2 token for ATH queries",
+        )
+
+    def validate(self, args: argparse.Namespace, ctx: ExecutionContext) -> None:
+        del ctx
+        raw_inv = str(getattr(args, "invocation", "") or "").strip()
+        test_target = str(getattr(args, "test", "") or "").strip()
+        latest_failures = int(getattr(args, "latest_failures", 0) or 0)
+        if not raw_inv and not (test_target and latest_failures > 0):
+            raise UsageError(
+                "Missing invocation target for 'flakiness sponge'.",
+                remediation="Specify either --invocation <UUID/URL> or both --test <target> and --latest-failures <N>.",
+            )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        raw_invocation = str(getattr(args, "invocation", "") or "").strip()
+        test_target = getattr(args, "test", None)
+        uuid = extract_uuid(raw_invocation) if raw_invocation else ""
+        inv_data = (
+            query_resultstore_invocation(uuid, target_filter=test_target)
+            if uuid
+            else None
+        )
+        results: list[dict[str, Any]] = []
+        if inv_data is None:
+            results.append(
+                {
+                    "invocation_id": uuid,
+                    "status": "UNAVAILABLE",
+                    "error": "Failed to retrieve from ResultStore RPC",
+                }
+            )
+            md = f"### Invocation `{uuid}`\n\n*Unable to retrieve data from ResultStore.*"
+        else:
+            results.append(
+                {
+                    "invocation_id": inv_data.invocation_id,
+                    "fusion_url": inv_data.fusion_url,
+                    "sponge_url": inv_data.sponge_url,
+                    "total_actions": len(inv_data.actions),
+                    "failed_actions_count": len(inv_data.failed_actions),
+                }
+            )
+            md = f"### Invocation `{inv_data.invocation_id}`"
+
+        summary = f"Retrieved Sponge / ResultStore data for {len(results)} invocation(s)"
+        data: dict[str, Any] = {
+            "summary": summary,
+            "invocations_queried": len(results),
+            "results": results,
+            "markdown_table": md,
+        }
+        return CommandResult(
+            data=data,
+            action="flakiness sponge",
+            summary=summary,
+            markdown_table=md,
+        )
