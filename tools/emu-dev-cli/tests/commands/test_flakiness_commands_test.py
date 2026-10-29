@@ -19,6 +19,7 @@ from pathlib import Path
 import sys
 from typing import Any, Dict, List, Optional
 import unittest
+from unittest.mock import patch
 
 _SRC_DIR = str(Path(__file__).resolve().parents[2] / "src")
 if _SRC_DIR not in sys.path:
@@ -158,7 +159,7 @@ class FlakinessCommandsTest(unittest.TestCase):
         self.assertEqual(len(fake_f1.queries), 1)
         self.assertIn("unit_测试_🚀_é", fake_f1.queries[0])
 
-    def test_flakiness_subcommands_validation_guards(self) -> None:
+    def test_flakiness_cmds_validation_guards(self) -> None:
         ctx = ExecutionContext.for_testing()
         with self.assertRaises(CommandValidationError):
             FlakinessFetchLogsCommand().validate(
@@ -197,6 +198,153 @@ class FlakinessCommandsTest(unittest.TestCase):
         resolved = dispatcher.resolve_command(parsed)
         self.assertIsInstance(resolved, FlakinessListCommand)
         self.assertEqual(FlakinessCommand().name, "flakiness")
+
+
+    @patch("commands.flakiness.sponge.query_resultstore_invocation")
+    def test_flakiness_sponge_executes_with_uuid(self, mock_query_rs) -> None:
+        from lib.resultstore_api import (
+            ResultStoreAction,
+            ResultStoreFile,
+            ResultStoreInvocation,
+            ResultStoreTestCase,
+        )
+        failed_action = ResultStoreAction(
+            invocation_id="82bbf192-5d6f-418c-bef7-fdecb58fba26",
+            target_id="//emulator/launcher:can_boot",
+            action_id="test_action_fail",
+            configuration_id="default",
+            status="FAILED",
+            description="Test failed due to timeout",
+            error_messages=["Error: timeout exceeded after 60s"],
+            duration_seconds=60.5,
+            files=[
+                ResultStoreFile(uid="log1", uri="http://log1", length=1024),
+                ResultStoreFile(uid="log2", uri="http://log2", length=2048),
+                ResultStoreFile(uid="log3", uri="http://log3", length=4096),
+                ResultStoreFile(uid="log4", uri="http://log4", length=8192),
+                ResultStoreFile(uid="log5", uri="http://log5", length=16384),
+            ],
+            total_test_cases=1,
+            failed_test_cases=[
+                ResultStoreTestCase(
+                    case_name="test_timeout",
+                    class_name="LauncherTest",
+                    result="FAILED",
+                    failure_message="Timeout exceeded",
+                )
+            ],
+        )
+        mock_query_rs.return_value = ResultStoreInvocation(
+            invocation_id="82bbf192-5d6f-418c-bef7-fdecb58fba26",
+            fusion_url="http://fusion2/invocations/82bbf192-5d6f-418c-bef7-fdecb58fba26",
+            sponge_url="http://sponge2/82bbf192-5d6f-418c-bef7-fdecb58fba26",
+            actions=[failed_action],
+            failed_actions=[failed_action],
+            passed_actions=[],
+        )
+        ctx = ExecutionContext.for_testing()
+        cmd = FlakinessSpongeCommand()
+        args = argparse.Namespace(
+            invocation="82bbf192-5d6f-418c-bef7-fdecb58fba26",
+            test=None,
+            target="emulator_linux_x64",
+            latest_failures=0,
+            json=True,
+        )
+        cmd.validate(args, ctx)
+        res = cmd.execute(args, ctx)
+        self.assertTrue(res.ok)
+        self.assertEqual(res.data["invocations_queried"], 1)
+        self.assertEqual(res.data["results"][0]["invocation_id"], "82bbf192-5d6f-418c-bef7-fdecb58fba26")
+        self.assertEqual(res.data["results"][0]["failed_actions_count"], 1)
+
+    @patch("commands.flakiness.sponge.query_resultstore_invocation")
+    def test_flakiness_sponge_executes_unavailable(self, mock_query_rs) -> None:
+        mock_query_rs.return_value = None
+        ctx = ExecutionContext.for_testing()
+        cmd = FlakinessSpongeCommand()
+        args = argparse.Namespace(
+            invocation="82bbf192-5d6f-418c-bef7-fdecb58fba26",
+            test=None,
+            target="emulator_linux_x64",
+            latest_failures=0,
+            json=True,
+        )
+        res = cmd.execute(args, ctx)
+        self.assertTrue(res.ok)
+        self.assertEqual(res.data["results"][0]["status"], "UNAVAILABLE")
+
+    @patch("commands.flakiness.sponge.query_test_history")
+    def test_flakiness_sponge_executes_no_invocations_found(self, mock_history) -> None:
+        mock_history.return_value = ({}, [])
+        ctx = ExecutionContext.for_testing()
+        cmd = FlakinessSpongeCommand()
+        args = argparse.Namespace(
+            invocation=None,
+            test="//emulator/launcher:can_boot",
+            target="emulator_linux_x64",
+            latest_failures=1,
+            days=7,
+            mode="all",
+            token=None,
+            config=None,
+            json=True,
+        )
+        res = cmd.execute(args, ctx)
+        self.assertTrue(res.ok)
+        self.assertEqual(res.data["invocations_queried"], 0)
+
+    @patch("commands.flakiness.sponge.query_resultstore_invocation")
+    @patch("commands.flakiness.sponge.query_test_history")
+    def test_flakiness_sponge_executes_with_latest_failures(self, mock_history, mock_query_rs) -> None:
+        from lib.ath_api import TestHistoryEntry
+        from lib.resultstore_api import ResultStoreAction, ResultStoreInvocation
+        mock_history.return_value = (
+            {},
+            [
+                TestHistoryEntry(
+                    timestamp="2026-10-28 10:00:00",
+                    status="FAILED",
+                    run_type="postsubmit",
+                    build_id="16600001",
+                    invocation_id="82bbf192-5d6f-418c-bef7-fdecb58fba26",
+                    work_unit_id="WU123",
+                    target="emulator_linux_x64",
+                    test_uri="http://fusion2/invocations/82bbf192-5d6f-418c-bef7-fdecb58fba26",
+                )
+            ],
+        )
+        mock_query_rs.return_value = ResultStoreInvocation(
+            invocation_id="82bbf192-5d6f-418c-bef7-fdecb58fba26",
+            fusion_url="http://fusion2/invocations/82bbf192-5d6f-418c-bef7-fdecb58fba26",
+            sponge_url="http://sponge2/82bbf192-5d6f-418c-bef7-fdecb58fba26",
+            actions=[],
+            failed_actions=[],
+            passed_actions=[],
+        )
+        ctx = ExecutionContext.for_testing()
+        cmd = FlakinessSpongeCommand()
+        args = argparse.Namespace(
+            invocation=None,
+            test="//emulator/launcher:can_boot",
+            target="emulator_linux_x64",
+            latest_failures=1,
+            days=7,
+            mode="all",
+            token=None,
+            config=None,
+            json=True,
+        )
+        cmd.validate(args, ctx)
+        res = cmd.execute(args, ctx)
+        self.assertTrue(res.ok)
+        self.assertEqual(res.data["invocations_queried"], 1)
+
+    def test_flakiness_command_group_execute_delegates_to_subcommand(self) -> None:
+        group = FlakinessCommand()
+        ctx_json = ExecutionContext.for_testing(json_mode=True)
+        with self.assertRaises(CommandValidationError):
+            group.execute(argparse.Namespace(flakiness_cmd=""), ctx_json)
 
 
 if __name__ == "__main__":

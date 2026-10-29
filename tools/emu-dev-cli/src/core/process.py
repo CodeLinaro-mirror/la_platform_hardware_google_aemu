@@ -149,6 +149,7 @@ class FakeProcessCall:
     timeout_sec: float | None = None
     check: bool = False
     input_text: str | None = None
+    stream_output: bool = False
 
 
 class ProcessRunner(ABC):
@@ -165,8 +166,14 @@ class ProcessRunner(ABC):
         check: bool = False,
         input_text: str | None = None,
         remediation: str | None = None,
+        stream_output: bool = False,
     ) -> ProcessResult:
-        """Executes `args` without a shell and returns a structured ProcessResult."""
+        """Executes `args` without a shell and returns a structured ProcessResult.
+
+        With `stream_output=True` the child writes straight to this process's
+        stdout/stderr (long builds, interactive tools), so the result carries
+        empty stdout/stderr.
+        """
 
 
 class SubprocessRunner(ProcessRunner):
@@ -200,6 +207,7 @@ class SubprocessRunner(ProcessRunner):
         check: bool = False,
         input_text: str | None = None,
         remediation: str | None = None,
+        stream_output: bool = False,
     ) -> ProcessResult:
         normalized_args = _normalize_command_args(args)
         normalized_cwd = _normalize_cwd(cwd)
@@ -218,7 +226,7 @@ class SubprocessRunner(ProcessRunner):
                 cwd=normalized_cwd,
                 env=dict(env) if env is not None else None,
                 input=input_text,
-                capture_output=True,
+                capture_output=not stream_output,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
@@ -420,6 +428,7 @@ class FakeProcessRunner(ProcessRunner):
         check: bool = False,
         input_text: str | None = None,
         remediation: str | None = None,
+        stream_output: bool = False,
     ) -> ProcessResult:
         normalized_args = _normalize_command_args(args)
         normalized_cwd = _normalize_cwd(cwd)
@@ -430,6 +439,7 @@ class FakeProcessRunner(ProcessRunner):
             timeout_sec=timeout_sec,
             check=check,
             input_text=input_text,
+            stream_output=stream_output,
         )
         self.calls.append(call)
         result = self._resolve_result(call)

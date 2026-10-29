@@ -18,8 +18,9 @@ import argparse
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from commands import flakiness
+from core.context import ExecutionContext
 
 
 class FlakinessFetchLogsTest(unittest.TestCase):
@@ -29,10 +30,10 @@ class FlakinessFetchLogsTest(unittest.TestCase):
         self.parser.add_argument("--json", action="store_true")
         subparsers = self.parser.add_subparsers(dest="subcommand")
         flakiness.register_parser(subparsers)
+        self.ctx = ExecutionContext.for_testing()
 
     @patch("lib.ath_api.get_android_build_token")
-    @patch("commands.flakiness.fetch_logs.print_result")
-    def test_handle_flakiness_fetch_logs(self, mock_print_result, mock_token):
+    def test_handle_flakiness_fetch_logs(self, mock_token):
         mock_token.return_value = "mock_oauth2_token"
         with tempfile.TemporaryDirectory() as tmpdir:
             args = self.parser.parse_args(
@@ -47,9 +48,10 @@ class FlakinessFetchLogsTest(unittest.TestCase):
                     tmpdir,
                 ]
             )
-            flakiness.handle_flakiness_fetch_logs(args)
-            mock_print_result.assert_called_once()
-            call_data = mock_print_result.call_args[0][0]
+            cmd = flakiness.FlakinessFetchLogsCommand()
+            res = cmd.execute(args, self.ctx)
+            self.assertTrue(res.ok)
+            call_data = res.data
             self.assertEqual(call_data["total_files"], 2)
 
             stdout_log = Path(tmpdir) / "host_stdout.log"

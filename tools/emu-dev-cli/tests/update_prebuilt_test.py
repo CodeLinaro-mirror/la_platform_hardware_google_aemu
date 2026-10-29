@@ -23,6 +23,8 @@ from unittest.mock import patch
 import zipfile
 
 from commands import update_prebuilt
+from core.command import COMMAND_INSTANCE_ATTR, CommandResult
+from core.context import ExecutionContext
 from lib import prebuilt_updater
 from prebuilts import android_device_hub, kosmickrisp, lavapipe
 
@@ -34,19 +36,26 @@ class UpdatePrebuiltTest(unittest.TestCase):
         self.parser.add_argument("--json", action="store_true")
         subparsers = self.parser.add_subparsers(dest="subcommand")
         update_prebuilt.register_parser(subparsers, default_host="linux-x64")
+        ctx_root = tempfile.TemporaryDirectory()
+        self.addCleanup(ctx_root.cleanup)
+        self.ctx = ExecutionContext.for_testing(root_dir=ctx_root.name)
 
     def _create_fake_zip(self, zip_path: Path, files: dict):
         with zipfile.ZipFile(zip_path, "w") as zf:
             for arcname, content in files.items():
                 zf.writestr(arcname, content)
 
+    def _run(self, args: argparse.Namespace) -> CommandResult:
+        """Runs the Command bound to `args` the way CliDispatcher does."""
+        cmd = getattr(args, COMMAND_INSTANCE_ATTR)
+        validated = cmd.validate(args, self.ctx)
+        return cmd.execute(validated if validated is not None else args, self.ctx)
+
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
     @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
-    @patch("commands.update_prebuilt.print_result")
     def test_update_lavapipe_linux_x64_by_build_number(
         self,
-        mock_print_result,
         mock_download,
         mock_find_fetch_tool,
         mock_check_auth,
@@ -85,11 +94,9 @@ class UpdatePrebuiltTest(unittest.TestCase):
                     f"--dest-dir={tmp_dest}",
                 ]
             )
-            args.func(args)
-
-            mock_print_result.assert_called_once()
-            self.assertFalse(mock_print_result.call_args[1].get("is_error", False))
-            res = mock_print_result.call_args[0][0]
+            result = self._run(args)
+            self.assertTrue(result.ok)
+            res = result.data
             self.assertEqual(res["status"], "success")
             self.assertEqual(res["build_number"], "16534139")
             self.assertEqual(res["target"], "linux-x64")
@@ -109,10 +116,8 @@ class UpdatePrebuiltTest(unittest.TestCase):
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
     @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
-    @patch("commands.update_prebuilt.print_result")
     def test_update_lavapipe_dry_run_does_not_modify_files(
         self,
-        mock_print_result,
         mock_download,
         mock_find_fetch_tool,
         mock_check_auth,
@@ -149,23 +154,21 @@ class UpdatePrebuiltTest(unittest.TestCase):
                     "--dry-run",
                 ]
             )
-            args.func(args)
+            result = self._run(args)
 
             self.assertEqual(
                 (dest_path / "libvulkan_lvp.so").read_bytes(), b"old-lvp"
             )
             self.assertFalse((dest_path / "libLLVM.so").exists())
-            res = mock_print_result.call_args[0][0]
+            res = result.data
             self.assertEqual(res["status"], "success")
             self.assertTrue(res["dry_run"])
 
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
     @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
-    @patch("commands.update_prebuilt.print_result")
     def test_update_lavapipe_mac_arm64(
         self,
-        mock_print_result,
         mock_download,
         mock_find_fetch_tool,
         mock_check_auth,
@@ -201,11 +204,9 @@ class UpdatePrebuiltTest(unittest.TestCase):
                 ]
             )
             self.assertEqual(args.target, "mac-arm64")
-            args.func(args)
-
-            mock_print_result.assert_called_once()
-            self.assertFalse(mock_print_result.call_args[1].get("is_error", False))
-            res = mock_print_result.call_args[0][0]
+            result = self._run(args)
+            self.assertTrue(result.ok)
+            res = result.data
             self.assertEqual(res["status"], "success")
             self.assertEqual(res["target"], "mac-arm64")
             self.assertEqual(res["updated_files"], ["libvulkan_lvp.dylib"])
@@ -217,10 +218,8 @@ class UpdatePrebuiltTest(unittest.TestCase):
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
     @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
-    @patch("commands.update_prebuilt.print_result")
     def test_update_lavapipe_win_x64_and_crlf_normalization(
         self,
-        mock_print_result,
         mock_download,
         mock_find_fetch_tool,
         mock_check_auth,
@@ -255,11 +254,9 @@ class UpdatePrebuiltTest(unittest.TestCase):
                     f"--dest-dir={tmp_dest}",
                 ]
             )
-            args.func(args)
-
-            mock_print_result.assert_called_once()
-            self.assertFalse(mock_print_result.call_args[1].get("is_error", False))
-            res = mock_print_result.call_args[0][0]
+            result = self._run(args)
+            self.assertTrue(result.ok)
+            res = result.data
             self.assertEqual(res["status"], "success")
             self.assertEqual(res["target"], "win-x64")
             self.assertEqual(res["updated_files"], ["libvulkan_lvp.dll"])
@@ -271,10 +268,8 @@ class UpdatePrebuiltTest(unittest.TestCase):
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
     @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
-    @patch("commands.update_prebuilt.print_result")
     def test_update_lavapipe_default_all_targets(
         self,
-        mock_print_result,
         mock_download,
         mock_find_fetch_tool,
         mock_check_auth,
@@ -328,11 +323,9 @@ class UpdatePrebuiltTest(unittest.TestCase):
                 ]
             )
             self.assertEqual(args.target, "all")
-            args.func(args)
-
-            mock_print_result.assert_called_once()
-            self.assertFalse(mock_print_result.call_args[1].get("is_error", False))
-            res = mock_print_result.call_args[0][0]
+            result = self._run(args)
+            self.assertTrue(result.ok)
+            res = result.data
             self.assertEqual(res["status"], "success")
             self.assertEqual(res["target"], "all")
             self.assertEqual(res["build_number"], "16534139")
@@ -352,9 +345,8 @@ class UpdatePrebuiltTest(unittest.TestCase):
             )
 
     @patch("commands.update_prebuilt.check_authentication_status")
-    @patch("commands.update_prebuilt.print_result")
     def test_custom_plugin_with_minimal_two_arg_update_prebuilt(
-        self, mock_print_result, mock_check_auth
+        self, mock_check_auth
     ):
         """Verifies a prebuilt module implementing strictly update_prebuilt(build_number, targets)."""
         mock_check_auth.return_value = {"valid": True}
@@ -391,11 +383,10 @@ class UpdatePrebuiltTest(unittest.TestCase):
                     "--token=fake-token",
                 ]
             )
-            args.func(args)
+            result = self._run(args)
 
         self.assertEqual(captured_calls, [("16534139", ["mac-arm64"])])
-        mock_print_result.assert_called_once()
-        res = mock_print_result.call_args[0][0]
+        res = result.data
         self.assertEqual(res["status"], "success")
 
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
@@ -428,13 +419,10 @@ class UpdatePrebuiltTest(unittest.TestCase):
                 b"inner-zip-bytes",
             )
 
-    @patch("commands.update_prebuilt.print_result")
-    def test_update_prebuilt_list_command(self, mock_print_result):
+    def test_update_prebuilt_list_command(self):
         args = self.parser.parse_args(["update-prebuilt", "--list"])
-        args.func(args)
-
-        mock_print_result.assert_called_once()
-        res = mock_print_result.call_args[0][0]
+        result = self._run(args)
+        res = result.data
         self.assertEqual(res["status"], "success")
         self.assertEqual(res["action"], "update-prebuilt --list")
         self.assertIn("lavapipe", res["prebuilts"])
@@ -465,10 +453,8 @@ class UpdatePrebuiltTest(unittest.TestCase):
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
     @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
-    @patch("commands.update_prebuilt.print_result")
     def test_update_kosmickrisp_mac_arm64(
         self,
-        mock_print_result,
         mock_download,
         mock_find_fetch_tool,
         mock_check_auth,
@@ -502,11 +488,9 @@ class UpdatePrebuiltTest(unittest.TestCase):
                     f"--dest-dir={tmp_dest}",
                 ]
             )
-            args.func(args)
-
-            mock_print_result.assert_called_once()
-            self.assertFalse(mock_print_result.call_args[1].get("is_error", False))
-            res = mock_print_result.call_args[0][0]
+            result = self._run(args)
+            self.assertTrue(result.ok)
+            res = result.data
             self.assertEqual(res["status"], "success")
             self.assertEqual(res["prebuilt"], "kosmickrisp")
             self.assertEqual(res["target"], "mac-arm64")
@@ -533,10 +517,8 @@ class UpdatePrebuiltTest(unittest.TestCase):
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
     @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
-    @patch("commands.update_prebuilt.print_result")
     def test_update_android_device_hub_all_targets(
         self,
-        mock_print_result,
         mock_download,
         mock_find_fetch_tool,
         mock_check_auth,
@@ -573,11 +555,9 @@ class UpdatePrebuiltTest(unittest.TestCase):
                 ]
             )
             self.assertEqual(args.target, "all")
-            args.func(args)
-
-            mock_print_result.assert_called_once()
-            self.assertFalse(mock_print_result.call_args[1].get("is_error", False))
-            res = mock_print_result.call_args[0][0]
+            result = self._run(args)
+            self.assertTrue(result.ok)
+            res = result.data
             self.assertEqual(res["status"], "success")
             self.assertEqual(res["prebuilt"], "android-device-hub")
             self.assertEqual(res["target"], "all")
@@ -613,10 +593,8 @@ class UpdatePrebuiltTest(unittest.TestCase):
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
     @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
-    @patch("commands.update_prebuilt.print_result")
     def test_update_android_device_hub_linux_arm_alias_and_missing_leaf_dir(
         self,
-        mock_print_result,
         mock_download,
         mock_find_fetch_tool,
         mock_check_auth,
@@ -660,10 +638,8 @@ class UpdatePrebuiltTest(unittest.TestCase):
                     ]
                 )
                 self.assertEqual(args.target, "linux-arm64")
-                args.func(args)
-
-            mock_print_result.assert_called_once()
-            res = mock_print_result.call_args[0][0]
+                result = self._run(args)
+            res = result.data
             self.assertEqual(res["status"], "success")
             self.assertEqual(res["target"], "linux-arm64")
             installed = (
@@ -678,10 +654,8 @@ class UpdatePrebuiltTest(unittest.TestCase):
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
     @patch("lib.prebuilt_updater.AndroidBuildClient.get_latest_build_id")
     @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
-    @patch("commands.update_prebuilt.print_result")
     def test_update_android_device_hub_common_dir_layout_dedups_studio_linux_bid(
         self,
-        mock_print_result,
         mock_download,
         mock_get_latest_bid,
         mock_find_fetch_tool,
@@ -719,12 +693,12 @@ class UpdatePrebuiltTest(unittest.TestCase):
                     f"--dest-dir={tmp_adh}",
                 ]
             )
-            args.func(args)
+            result = self._run(args)
 
             # studio-linux should only be queried once even though both
             # linux-x64 and linux-arm64 use studio-linux.
             self.assertEqual(mock_get_latest_bid.call_count, 3)
-            res = mock_print_result.call_args[0][0]
+            res = result.data
             self.assertEqual(res["status"], "success")
             self.assertEqual(res["target"], "all")
             self.assertEqual(res["build_number"], "16709810, 16711071")

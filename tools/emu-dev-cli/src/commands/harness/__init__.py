@@ -333,12 +333,7 @@ def _register_install_parser(harness_subparsers: Any) -> Any:
         "install",
         help="Install the aemu-harness plugin into ~/.gemini/config/plugins/aemu-harness",
     )
-    bind_command(
-        install_p,
-        HarnessInstallCommand(),
-        configure=True,
-        legacy_func=run_harness_install,
-    )
+    bind_command(install_p, HarnessInstallCommand())
     return install_p
 
 
@@ -347,56 +342,26 @@ def _register_core_subparsers(harness_subparsers: Any) -> list[Any]:
     uninstall_p = harness_subparsers.add_parser(
         "uninstall", help="Uninstall the aemu-harness plugin from ~/.gemini/config/plugins/aemu-harness"
     )
-    bind_command(
-        uninstall_p,
-        HarnessUninstallCommand(),
-        configure=True,
-        legacy_func=run_harness_uninstall,
-    )
+    bind_command(uninstall_p, HarnessUninstallCommand())
 
     status_p = harness_subparsers.add_parser(
         "status", help="Show plugin installation status, active workflows, and session ledger telemetry"
     )
-    bind_command(
-        status_p,
-        HarnessStatusCommand(),
-        configure=True,
-        legacy_func=run_harness_status,
-    )
+    bind_command(status_p, HarnessStatusCommand())
 
     hook_p = harness_subparsers.add_parser(
         "hook", help="Internal Jetski lifecycle hook entrypoint (reads JSON from stdin, writes JSON to stdout)"
     )
-    bind_command(
-        hook_p,
-        HarnessHookCommand(),
-        configure=True,
-        legacy_func=run_harness_hook,
-    )
+    bind_command(hook_p, HarnessHookCommand())
 
     clear_p = harness_subparsers.add_parser("clear", help="Clear stored session ledger history")
-    bind_command(
-        clear_p,
-        HarnessClearCommand(),
-        configure=True,
-        legacy_func=run_harness_clear,
-    )
+    bind_command(clear_p, HarnessClearCommand())
 
     mcp_p = harness_subparsers.add_parser("mcp-server", help="Run the Stdio Model Context Protocol (MCP) server")
-    bind_command(
-        mcp_p,
-        HarnessMcpServerCommand(),
-        configure=True,
-        legacy_func=lambda _args: run_stdio_mcp_server(),
-    )
+    bind_command(mcp_p, HarnessMcpServerCommand())
 
     presets_p = harness_subparsers.add_parser("presets", help="List multi-agent swarm and workflow presets")
-    bind_command(
-        presets_p,
-        HarnessPresetsCommand(),
-        configure=True,
-        legacy_func=run_harness_presets,
-    )
+    bind_command(presets_p, HarnessPresetsCommand())
     return [uninstall_p, status_p, clear_p, presets_p]
 
 
@@ -407,12 +372,7 @@ def register_parser(subparsers: Any) -> None:
         help="Manage the Android Emulator Custom Agent Harness (Jetski Web & CLI plugin, hooks, and ledger)",
     )
     harness_subparsers = harness_parser.add_subparsers(dest="harness_action", help="Harness actions")
-    bind_command(
-        harness_parser,
-        HarnessCommand(parser=harness_parser),
-        configure=False,
-        legacy_func=lambda args: harness_parser.print_help(),
-    )
+    bind_command(harness_parser, HarnessCommand(parser=harness_parser))
 
     install_p = _register_install_parser(harness_subparsers)
     core_parsers = _register_core_subparsers(harness_subparsers)
@@ -427,12 +387,7 @@ def _register_review_swarm_parser(harness_subparsers: Any) -> Any:
         "review-swarm",
         help="Prepare or aggregate the 8-Specialist Single-Wave Parallel Code-Review Swarm",
     )
-    bind_command(
-        swarm_p,
-        HarnessReviewSwarmCommand(),
-        configure=True,
-        legacy_func=run_harness_review_swarm,
-    )
+    bind_command(swarm_p, HarnessReviewSwarmCommand())
     return swarm_p
 
 

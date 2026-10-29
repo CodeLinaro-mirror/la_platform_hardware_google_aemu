@@ -402,124 +402,22 @@ def resolve_signature_from_report_id(
         return None
 
 
-def run_link_bug(args: argparse.Namespace) -> None:
-    """CLI handler for `emu-dev-cli crash link-bug`."""
-    json_mode = getattr(args, "json", False)
-    unlink = getattr(args, "unlink", False)
-    product_name = getattr(args, "product", DEFAULT_PRODUCT_NAME)
-    target = args.target.strip()
-
-    try:
-        bug_id, bug_url = normalize_bug_url_and_id(args.bug)
-    except ValueError as e:
-        if json_mode:
-            print_result(
-                {"status": "error", "message": str(e)},
-                json_mode=True,
-                is_error=True,
-            )
-        else:
-            sys.stderr.write(f"❌ {e}\n")
-        sys.exit(1)
-
-    report_id: str | None = None
-    stable_signature = target
-    if is_crash_report_id(target):
-        report_id = parse_crash_id(target)
-        if not json_mode:
-            print(f"🔎 Resolving stable_signature for ReportID {report_id}...")
-        resolved = resolve_signature_from_report_id(
-            report_id, product_name=product_name
-        )
-        if not resolved:
-            msg = (
-                f"Could not resolve stable_signature for ReportID '{report_id}'. "
-                "Please pass the stable_signature directly."
-            )
-            if json_mode:
-                print_result(
-                    {"status": "error", "message": msg},
-                    json_mode=True,
-                    is_error=True,
-                )
-            else:
-                sys.stderr.write(f"❌ {msg}\n")
-            sys.exit(1)
-        stable_signature = resolved
-
-    ok, detail = update_crash_annotation(
-        stable_signature=stable_signature,
-        bug_url=bug_url,
-        unlink=unlink,
-        product_name=product_name,
-    )
-
-    if not ok:
-        msg = f"Failed to {'unlink' if unlink else 'link'} {bug_url} for signature '{stable_signature}': {detail}"
-        if json_mode:
-            print_result(
-                {
-                    "status": "error",
-                    "action": "crash link-bug",
-                    "stable_signature": stable_signature,
-                    "report_id": report_id,
-                    "bug_id": bug_id,
-                    "bug_url": bug_url,
-                    "unlinked": unlink,
-                    "message": msg,
-                },
-                json_mode=True,
-                is_error=True,
-            )
-        else:
-            sys.stderr.write(f"❌ {msg}\n")
-        sys.exit(1)
-
-    # Fetch updated annotations to confirm current state
-    current_annotations = search_crash_annotations(
-        [stable_signature], product_name=product_name
-    ).get(stable_signature, [])
-
-    payload: dict[str, Any] = {
-        "status": "success",
-        "action": "crash link-bug",
-        "stable_signature": stable_signature,
-        "report_id": report_id,
-        "bug_id": bug_id,
-        "bug_url": bug_url,
-        "unlinked": unlink,
-        "linked_bugs": current_annotations,
-    }
-
-    if json_mode:
-        print_result(payload, json_mode=True)
-    else:
-        verb = "Unlinked" if unlink else "Linked"
-        print(
-            f"✅ {verb} bug {bug_url} {'from' if unlink else 'to'} go/crash signature:"
-        )
-        print(f"   • Signature: {stable_signature}")
-        if report_id:
-            print(f"   • Report ID: {report_id}")
-        if current_annotations:
-            urls = ", ".join(b["bug_url"] for b in current_annotations)
-            print(f"   • Active go/crash Bug Links: {urls}")
-        else:
-            print("   • Active go/crash Bug Links: (none)")
-
-
 class CrashLinkBugCommand(Command[argparse.Namespace, dict[str, Any]]):
     """Command implementation for `emu-dev-cli crash link-bug`."""
 
     name = "link-bug"
-    help_text = "Associate (or unlink) a Buganizer issue URL with a crash signature in go/crash"
+    help_text = (
+        "Associate (or unlink) a Buganizer issue URL with a crash signature in go/crash"
+    )
+    help = help_text
+    description = (
+        "Associates or removes a Buganizer issue URL on a crash signature in go/crash "
+        "via QueryAPIService.UpdateAnnotation on blade:crash-queryapi. Accepts either a "
+        "stable_signature or a 16-hex crash ReportID."
+    )
 
     def configure_parser(self, parser: argparse.ArgumentParser) -> None:
-        parser.description = (
-            "Associates or removes a Buganizer issue URL on a crash signature in go/crash "
-            "via QueryAPIService.UpdateAnnotation on blade:crash-queryapi. Accepts either a "
-            "stable_signature or a 16-hex crash ReportID."
-        )
+        parser.description = self.description
         parser.add_argument(
             "target",
             help="Crash stable_signature (e.g. 'virtio_gpu_rutabaga_load-e709a6ba') or 16-hex crash ReportID",
@@ -555,7 +453,7 @@ class CrashLinkBugCommand(Command[argparse.Namespace, dict[str, Any]]):
             or ""
         ).strip()
         if not target:
-            raise UsageError(
+            raise CommandValidationError(
                 "Crash target signature or ReportID cannot be empty for 'crash link-bug'.",
                 remediation="Pass a non-empty stable_signature or 16-hex crash ReportID.",
             )
@@ -567,7 +465,7 @@ class CrashLinkBugCommand(Command[argparse.Namespace, dict[str, Any]]):
         try:
             normalize_bug_url_and_id(bug_arg)
         except ValueError as exc:
-            raise UsageError(
+            raise CommandValidationError(
                 str(exc),
                 remediation="Pass a numeric Buganizer ID (e.g. '567125517'), shortlink ('b/567125517'), or full issue URL.",
             ) from exc
@@ -640,10 +538,6 @@ class CrashLinkBugCommand(Command[argparse.Namespace, dict[str, Any]]):
         )
 
 
-def register_link_bug_parser(crash_subparsers) -> None:
+def register_link_bug_parser(crash_subparsers) -> argparse.ArgumentParser:
     """Registers the `link-bug` subcommand parser under `crash`."""
-    bind_command(
-        crash_subparsers,
-        CrashLinkBugCommand(),
-        legacy_func=run_link_bug,
-    )
+    return CrashLinkBugCommand().register(crash_subparsers)

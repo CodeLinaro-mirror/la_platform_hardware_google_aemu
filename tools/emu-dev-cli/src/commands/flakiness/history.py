@@ -12,241 +12,145 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Subcommand handler for 'emu-dev-cli flakiness history'."""
+"""Command for 'emu-dev-cli flakiness history'."""
 
 import argparse
 import logging
 from typing import Any
 
-from core.command import (
-    Command,
-    CommandResult,
-    META_KEY_ALREADY_RENDERED,
-)
-from core.context import ExecutionContext, SERVICE_F1_SQL
+from core.command import Command, CommandResult
+from core.context import ExecutionContext
 from core.errors import UsageError
-from lib.ath_api import (
-    SUPPORTED_TARGET_CHOICES,
-    SUPPORTED_TEST_IDENTIFIER_CHOICES,
-    query_test_history,
-)
+from lib.ath_api import TestHistoryEntry, query_test_history
 from lib.f1_test_actions import (
     DEFAULT_STUDIO_LOOKBACK_DAYS,
     build_studio_history_sql,
     is_studio_query,
-    query_studio_test_history,
     resolve_studio_branches,
     resolve_studio_targets,
 )
-from lib.output import format_markdown_table, print_result
+from lib.output import format_markdown_table
+from . import options
+from .common import HistoryQuery, fetch_test_history, is_json_mode, sql_preview_result
 from .progress import make_progress_callback
 
 logger = logging.getLogger(__name__)
 
+ACTION = "flakiness history"
+DEFAULT_HISTORY_TARGET = "emulator_linux_x64_tsan"
+DEFAULT_LIMIT = 50
+FAILED_STATUS = "FAILED"
+HISTORY_HEADERS = [
+    "#",
+    "Timestamp",
+    "Status",
+    "Run Type",
+    "Build ID",
+    "Invocation ID",
+    "Test Identifier",
+    "Target Platform",
+    "Link",
+]
 
-def handle_flakiness_history(args):
-    """Handles 'emu-dev-cli flakiness history' subcommand.
+HISTORY_DESCRIPTION = """
+Inspect Test Target Historical Run Status (`emu-dev-cli flakiness history`)
 
-    Fetches and displays chronological test execution records with clickable
-    Fusion2 links.
-    """
-    studio_mode = is_studio_query(
-        target=args.target,
-        branch=getattr(args, "branch", None),
-        test_target=args.test,
-    )
-    raw_days = getattr(args, "days", None)
-    days = (
-        raw_days
-        if raw_days is not None
-        else (DEFAULT_STUDIO_LOOKBACK_DAYS if studio_mode else 7)
-    )
-    mode = getattr(args, "mode", "all")
-    limit = getattr(args, "limit", 50)
-    logger.info(
-        "Executing flakiness history command (test=%s, target=%s, days=%s, studio_mode=%s)",
-        args.test,
-        args.target,
-        days,
-        studio_mode,
-    )
-    json_mode = getattr(args, "json", False)
-    cb = make_progress_callback(json_mode)
+Retrieves chronological execution records for a specific test target, showing pass/fail status, timestamps, build IDs, invocation IDs, target platforms, and direct clickable links.
 
-    if studio_mode and getattr(args, "print_sql", False):
-        sql = build_studio_history_sql(
-            test_target=args.test,
-            targets=resolve_studio_targets(args.target),
-            branches=resolve_studio_branches(getattr(args, "branch", None)),
-            days=days,
-            mode=mode,
-            limit=limit,
-        )
-        print(sql.strip())
-        return
+Sample Invocations:
+  # Query execution history for hal_plug_adapter_unittests on TSAN across 7 days:
+  emu-dev-cli flakiness history --test @goldfish//emulator/plugin/hal/plug:hal_plug_adapter_unittests --target emulator_linux_x64_tsan --days 7
 
-    extra_kwargs = {}
-    if getattr(args, "accounting_group", None):
-        extra_kwargs["accounting_group"] = args.accounting_group
+  # Query history across all target platforms combined:
+  emu-dev-cli flakiness history --test @goldfish//emulator/libs/async:loop_handoff_test --target all --days 3 --limit 25
+"""
 
-    summary, entries = query_test_history(
-        test_target=args.test,
-        target=args.target,
-        branch=getattr(args, "branch", "git_emu-main-next"),
-        days=days,
-        mode=mode,
-        limit=limit,
-        token=getattr(args, "token", None),
-        progress_callback=cb,
-        config_name=getattr(args, "config", None),
-        **extra_kwargs,
-    )
 
-    headers = [
-        "#",
-        "Timestamp",
-        "Status",
-        "Run Type",
-        "Build ID",
-        "Invocation ID",
-        "Test Identifier",
-        "Target Platform",
-        "Link",
+def _history_rows(entries: list[TestHistoryEntry]) -> list[list[Any]]:
+    return [
+        [
+            idx,
+            e.timestamp,
+            f"**{e.status}**" if e.status == FAILED_STATUS else f"`{e.status}`",
+            e.run_type,
+            f"`{e.build_id or 'N/A'}`",
+            f"`{e.invocation_id}`",
+            f"`{e.test_identifier or 'N/A'}`",
+            f"`{e.target}`",
+            f"[Fusion2]({e.test_uri})" if e.test_uri else "N/A",
+        ]
+        for idx, e in enumerate(entries, 1)
     ]
-    rows = []
-    for idx, e in enumerate(entries, 1):
-        status_fmt = (
-            f"**{e.status}**" if e.status == "FAILED" else f"`{e.status}`"
-        )
-        link_fmt = f"[Fusion2]({e.test_uri})" if e.test_uri else "N/A"
-        rows.append(
-            [
-                idx,
-                e.timestamp,
-                status_fmt,
-                e.run_type,
-                f"`{e.build_id or 'N/A'}`",
-                f"`{e.invocation_id}`",
-                f"`{getattr(e, 'test_identifier', 'N/A') or 'N/A'}`",
-                f"`{e.target}`",
-                link_fmt,
-            ]
-        )
 
-    summary_rows = [
-        ["Test Target", f"`{summary['test_target']}`"],
-        ["Test Identifier", f"`{summary.get('test_identifier', 'all')}`"],
-        ["Target Platform", f"`{summary['target']}`"],
-        ["Branch", f"`{summary['branch']}`"],
-        ["Time Window", f"{summary['days']} days ({summary['mode']})"],
-        ["Total Runs", f"{summary['total_runs']}"],
-        ["Passed Runs", f"{summary['passed_runs']}"],
-        ["Failed Runs", f"{summary['failed_runs']}"],
-        ["Flake Rate", f"**{summary['flake_rate_pct']:.1f}%**"],
-    ]
-    summary_table = format_markdown_table(["Property", "Value"], summary_rows)
-    history_table = (
-        format_markdown_table(headers, rows)
-        if rows
-        else "\n*No test runs found.*"
-    )
-    full_markdown = (
-        f"{summary_table}\n\n### Historical Test Runs\n\n{history_table}"
-    )
 
-    data = {
-        "summary": f"Fetched history for '{args.test}' on target '{args.target}' ({summary['failed_runs']}/{summary['total_runs']} failed, {summary['flake_rate_pct']:.1f}% flake rate)",
-        "test_target": summary["test_target"],
-        "test_identifier": summary.get("test_identifier", "all"),
-        "target": summary["target"],
-        "total_runs": summary["total_runs"],
-        "passed_runs": summary["passed_runs"],
-        "failed_runs": summary["failed_runs"],
-        "flake_rate_pct": summary["flake_rate_pct"],
-        "markdown_table": full_markdown,
-        "history": [e.__dict__ for e in entries],
-    }
-    print_result(data, json_mode=json_mode)
+def _summary_table(summary: dict[str, Any]) -> str:
+    return format_markdown_table(
+        ["Property", "Value"],
+        [
+            ["Test Target", f"`{summary['test_target']}`"],
+            ["Test Identifier", f"`{summary.get('test_identifier', 'all')}`"],
+            ["Target Platform", f"`{summary['target']}`"],
+            ["Branch", f"`{summary['branch']}`"],
+            ["Time Window", f"{summary['days']} days ({summary['mode']})"],
+            ["Total Runs", f"{summary['total_runs']}"],
+            ["Passed Runs", f"{summary['passed_runs']}"],
+            ["Failed Runs", f"{summary['failed_runs']}"],
+            ["Flake Rate", f"**{summary['flake_rate_pct']:.1f}%**"],
+        ],
+    )
 
 
 class FlakinessHistoryCommand(Command[argparse.Namespace, dict[str, Any]]):
-    """Command implementation for `emu-dev-cli flakiness history`."""
+    """Shows the run history of one test target."""
 
     name = "history"
     help_text = "Fetch and display the execution run history and status of an individual test target"
+    description = HISTORY_DESCRIPTION
+    formatter_class = argparse.RawDescriptionHelpFormatter
+
+    def __init__(self, *, history_query: HistoryQuery | None = None) -> None:
+        self._history_query = history_query
 
     def configure_parser(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
             "--test",
             type=str,
             required=True,
-            help="Bazel test target",
+            help="Bazel test target (e.g. @goldfish//emulator/plugin/grpc/services:screen_recording_impl_test)",
         )
-        parser.add_argument(
-            "--target",
-            type=str,
-            default="emulator_linux_x64_tsan",
-            choices=SUPPORTED_TARGET_CHOICES,
-            help="Target platform matrix or 'all' (default: emulator_linux_x64_tsan)",
+        options.add_target_option(
+            parser,
+            default=DEFAULT_HISTORY_TARGET,
+            help_text=f"Target platform matrix or 'all' (default: {DEFAULT_HISTORY_TARGET})",
         )
-        parser.add_argument(
-            "--config",
-            "--test-id",
-            "--suite",
-            dest="config",
-            type=str,
+        options.add_test_identifier_option(
+            parser,
             default=None,
-            choices=SUPPORTED_TEST_IDENTIFIER_CHOICES,
-            help="Test identifier filter",
+            help_text=(
+                "Test identifier filter (auto-inferred from --test when omitted; "
+                "e.g. 'ets', 'release', 'unit_tests', 'all')"
+            ),
         )
-        parser.add_argument(
-            "--branch",
-            type=str,
-            default="git_emu-main-next",
-            help="Target branch filter (default: git_emu-main-next)",
-        )
-        parser.add_argument(
-            "--days",
-            type=int,
-            default=None,
-            help="Historical window in days (default: 7 for ATH, 20 for studio-*)",
-        )
-        parser.add_argument(
-            "--mode",
-            type=str,
-            default="all",
-            choices=["all", "presubmit", "postsubmit"],
-            help="Run type filter",
+        options.add_branch_option(parser)
+        options.add_days_option(parser)
+        options.add_mode_option(
+            parser,
+            default=options.MODE_ALL,
+            help_text=(
+                "Run type filter: 'all' (both pre and post), 'presubmit', or "
+                "'postsubmit' (default: all)"
+            ),
         )
         parser.add_argument(
             "--limit",
             type=int,
-            default=50,
-            help="Maximum historical runs to display (default: 50)",
+            default=DEFAULT_LIMIT,
+            help=f"Maximum historical runs to display (default: {DEFAULT_LIMIT})",
         )
-        parser.add_argument(
-            "--accounting-group",
-            "--accounting_group",
-            dest="accounting_group",
-            type=str,
-            default=None,
-            help="Optional F1 MDB accounting group (--f1_sql_accounting_group)",
-        )
-        parser.add_argument(
-            "--print-sql",
-            "--print_sql",
-            dest="print_sql",
-            action="store_true",
-            help="Print the generated F1 SQL query for Studio targets and exit without executing",
-        )
-        parser.add_argument(
-            "--token",
-            type=str,
-            default=None,
-            help="Explicit OAuth2 token with androidbuild.internal scope",
-        )
+        options.add_f1_options(parser)
+        options.add_token_option(parser)
 
-    def validate(self, args: argparse.Namespace, ctx: ExecutionContext) -> None:
+    def validate(self, args: argparse.Namespace, ctx: ExecutionContext) -> argparse.Namespace:
         del ctx
         test_label = str(getattr(args, "test", "") or "").strip()
         if not test_label:
@@ -254,7 +158,7 @@ class FlakinessHistoryCommand(Command[argparse.Namespace, dict[str, Any]]):
                 "Bazel test target (--test) cannot be empty for 'flakiness history'.",
                 remediation="Pass a non-empty Bazel test target (e.g. --test @goldfish//emulator/libs/async:loop_handoff_test).",
             )
-        limit = int(getattr(args, "limit", 50))
+        limit = int(getattr(args, "limit", DEFAULT_LIMIT))
         if limit <= 0:
             raise UsageError(
                 f"History limit (--limit) must be positive (got {limit}).",
@@ -266,22 +170,19 @@ class FlakinessHistoryCommand(Command[argparse.Namespace, dict[str, Any]]):
         self, args: argparse.Namespace, ctx: ExecutionContext
     ) -> CommandResult[dict[str, Any]]:
         test_target = str(args.test).strip()
-        target = str(getattr(args, "target", "emulator_linux_x64_tsan"))
+        target = str(getattr(args, "target", DEFAULT_HISTORY_TARGET))
         branch = getattr(args, "branch", None)
-        studio_mode = is_studio_query(
-            target=target,
-            branch=branch,
-            test_target=test_target,
-        )
+        studio_mode = is_studio_query(target=target, branch=branch, test_target=test_target)
         raw_days = getattr(args, "days", None)
-        days = (
-            int(raw_days)
-            if raw_days is not None
-            else (DEFAULT_STUDIO_LOOKBACK_DAYS if studio_mode else 7)
+        default_days = DEFAULT_STUDIO_LOOKBACK_DAYS if studio_mode else options.ATH_LOOKBACK_DAYS
+        days = int(raw_days) if raw_days is not None else default_days
+        mode = str(getattr(args, "mode", options.MODE_ALL))
+        limit = int(getattr(args, "limit", DEFAULT_LIMIT))
+        json_mode = is_json_mode(args, ctx)
+        logger.info(
+            "Executing flakiness history (test=%s, target=%s, days=%s, studio_mode=%s)",
+            test_target, target, days, studio_mode,
         )
-        mode = str(getattr(args, "mode", "all"))
-        limit = int(getattr(args, "limit", 50))
-        json_mode = bool(ctx.config.json_mode or getattr(args, "json", False))
 
         if studio_mode and getattr(args, "print_sql", False):
             sql = build_studio_history_sql(
@@ -292,91 +193,35 @@ class FlakinessHistoryCommand(Command[argparse.Namespace, dict[str, Any]]):
                 mode=mode,
                 limit=limit,
             )
-            if not json_mode:
-                print(sql.strip())
-            return CommandResult(
-                data={"sql": sql.strip()},
-                action="flakiness history",
+            return sql_preview_result(
+                sql,
+                action=ACTION,
                 summary="Generated Studio history F1 SQL query",
-                metadata={META_KEY_ALREADY_RENDERED: not json_mode},
+                json_mode=json_mode,
             )
 
-        if studio_mode:
-            f1_client = ctx.services.get(SERVICE_F1_SQL)
-            summary, entries = query_studio_test_history(
-                test_target=test_target,
-                target=target,
-                branch=str(branch or "git_studio-main"),
-                days=days,
-                mode=mode,
-                limit=limit,
-                accounting_group=getattr(args, "accounting_group", None),
-                f1_client=f1_client,
-            )
-        else:
-            summary, entries = query_test_history(
-                test_target=test_target,
-                target=target,
-                branch=str(branch or "git_emu-main-next"),
-                days=days,
-                mode=mode,
-                limit=limit,
-                token=getattr(args, "token", None),
-                config_name=getattr(args, "config", None),
-            )
-
-        headers = [
-            "#",
-            "Timestamp",
-            "Status",
-            "Run Type",
-            "Build ID",
-            "Invocation ID",
-            "Test Identifier",
-            "Target Platform",
-            "Link",
-        ]
-        rows = []
-        for idx, e in enumerate(entries, 1):
-            status_fmt = (
-                f"**{e.status}**" if e.status == "FAILED" else f"`{e.status}`"
-            )
-            link_fmt = f"[Fusion2]({e.test_uri})" if e.test_uri else "N/A"
-            rows.append(
-                [
-                    idx,
-                    e.timestamp,
-                    status_fmt,
-                    e.run_type,
-                    f"`{e.build_id or 'N/A'}`",
-                    f"`{e.invocation_id}`",
-                    f"`{getattr(e, 'test_identifier', 'N/A') or 'N/A'}`",
-                    f"`{e.target}`",
-                    link_fmt,
-                ]
-            )
-
-        summary_rows = [
-            ["Test Target", f"`{summary['test_target']}`"],
-            ["Test Identifier", f"`{summary.get('test_identifier', 'all')}`"],
-            ["Target Platform", f"`{summary['target']}`"],
-            ["Branch", f"`{summary['branch']}`"],
-            ["Time Window", f"{summary['days']} days ({summary['mode']})"],
-            ["Total Runs", f"{summary['total_runs']}"],
-            ["Passed Runs", f"{summary['passed_runs']}"],
-            ["Failed Runs", f"{summary['failed_runs']}"],
-            ["Flake Rate", f"**{summary['flake_rate_pct']:.1f}%**"],
-        ]
-        summary_table = format_markdown_table(
-            ["Property", "Value"], summary_rows
+        summary, entries = fetch_test_history(
+            ctx,
+            self._history_query or query_test_history,
+            test_target=test_target,
+            target=target,
+            branch=str(branch or options.DEFAULT_BRANCH),
+            days=days,
+            mode=mode,
+            limit=limit,
+            token=getattr(args, "token", None),
+            config_name=getattr(args, "config", None),
+            accounting_group=getattr(args, "accounting_group", None),
+            progress_callback=make_progress_callback(json_mode),
         )
+        rows = _history_rows(entries)
         history_table = (
-            format_markdown_table(headers, rows)
+            format_markdown_table(HISTORY_HEADERS, rows)
             if rows
             else "\n*No test runs found.*"
         )
         full_markdown = (
-            f"{summary_table}\n\n### Historical Test Runs\n\n{history_table}"
+            f"{_summary_table(summary)}\n\n### Historical Test Runs\n\n{history_table}"
         )
         summary_str = (
             f"Fetched history for '{test_target}' on target '{target}' "
@@ -396,8 +241,5 @@ class FlakinessHistoryCommand(Command[argparse.Namespace, dict[str, Any]]):
             "history": [e.__dict__ for e in entries],
         }
         return CommandResult(
-            data=data,
-            action="flakiness history",
-            summary=summary_str,
-            markdown_table=full_markdown,
+            data=data, action=ACTION, summary=summary_str, markdown_table=full_markdown
         )

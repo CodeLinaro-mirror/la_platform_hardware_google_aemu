@@ -961,9 +961,10 @@ def fetch_target_history(
     token: Optional[str] = None,
     use_cache: bool = True,
     progress_callback: Optional[Callable[[str], None]] = None,
+    client: Optional[Any] = None,
 ) -> List[BuildProfileMetrics]:
     """Fetches and analyzes the last N submitted builds for a target in parallel."""
-    client = AndroidBuildClient(token=token)
+    client = client or AndroidBuildClient(token=token)
     builds = client.list_builds(branch=branch, target=target, limit=limit, include_building=False)
     if not builds:
         return []
@@ -1005,6 +1006,7 @@ def _get_git_commits_between(
     old_sha: str,
     new_sha: str,
     max_commits: int = 10,
+    runner: Optional[Any] = None,
 ) -> List[str]:
     """Runs git log --oneline old_sha..new_sha in source_root/repo_path if available locally."""
     if not source_root or not repo_path or not old_sha or not new_sha or old_sha == new_sha:
@@ -1012,14 +1014,12 @@ def _get_git_commits_between(
     full_dir = os.path.join(source_root, repo_path)
     if not os.path.isdir(full_dir):
         return []
+    cmd = ["git", "log", "--oneline", "-n", str(max_commits), f"{old_sha}..{new_sha}"]
     try:
-        res = subprocess.run(
-            ["git", "log", "--oneline", "-n", str(max_commits), f"{old_sha}..{new_sha}"],
-            cwd=full_dir,
-            capture_output=True,
-            text=True,
-            timeout=5.0,
-        )
+        if runner is not None:
+            res = runner.run(cmd, cwd=full_dir, timeout_sec=5.0)
+        else:
+            res = subprocess.run(cmd, cwd=full_dir, capture_output=True, text=True, timeout=5.0)
         if res.returncode == 0 and res.stdout.strip():
             return [line.strip() for line in res.stdout.strip().splitlines() if line.strip()]
     except Exception as exc:
@@ -1031,8 +1031,12 @@ def compare_build_profiles(
     baseline: BuildProfileMetrics,
     regressed: BuildProfileMetrics,
     source_root: Optional[str] = None,
+    runner: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """Compares a regressed build against a fast baseline build and attributes root causes."""
+    """Compares a regressed build against a fast baseline build and attributes root causes.
+
+    `runner` (a core.process.ProcessRunner) runs the local `git log` lookups when given.
+    """
     deltas = {
         "total_ci_sec": round(regressed.total_ci_sec - baseline.total_ci_sec, 2),
         "queue_sec": round(regressed.queue_sec - baseline.queue_sec, 2),
@@ -1152,7 +1156,9 @@ def compare_build_profiles(
             old_sha = older.repo_revisions.get(repo_name)
             if old_sha and old_sha != new_sha:
                 repo_path = newer.repo_paths.get(repo_name) or older.repo_paths.get(repo_name, "")
-                commits = _get_git_commits_between(source_root, repo_path, old_sha, new_sha)
+                commits = _get_git_commits_between(
+                    source_root, repo_path, old_sha, new_sha, runner=runner
+                )
                 changed_repos.append({
                     "repo": repo_name,
                     "path": repo_path,
