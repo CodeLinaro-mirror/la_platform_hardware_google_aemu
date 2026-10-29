@@ -58,6 +58,12 @@ export interface DeviceClientOptions {
   rtcConfig?: RTCConfiguration;
 
   /**
+   * Offer a sendrecv audio track at connect so `rtc.enableMicrophone()` can
+   * send the browser microphone later. Defaults to false.
+   */
+  microphone?: boolean;
+
+  /**
    * Optional custom fetch implementation.
    */
   fetch?: typeof fetch;
@@ -103,6 +109,7 @@ export class DeviceClient {
       inputChannel: this.input,
       sensorsChannel: this.sensorsChannel,
       peerConnectionConfig: options.rtcConfig,
+      microphone: options.microphone,
     });
 
     this.sensors = new SensorsClient(this.transport, this.sensorsChannel);
