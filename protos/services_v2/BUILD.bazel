@@ -150,6 +150,12 @@ ts_proto_library(
     proto = "@protobuf//:any_proto",
 )
 
+ts_proto_library(
+    name = "wrappers_ts_proto",
+    has_grpc = False,
+    proto = "@protobuf//:wrappers_proto",
+)
+
 ts_proto_group(
     name = "protobuf_ts_proto",
     deps = [
