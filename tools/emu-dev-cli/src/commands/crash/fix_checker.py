@@ -15,12 +15,16 @@
 """Fix checking & older repository build version awareness module for crash analyzer."""
 
 import json
+import logging
 import os
 import re
 import subprocess
+import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 CLOSED_STATUSES = {"FIXED", "VERIFIED", "OBSOLETE", "CLOSED", "DONE"}
 
@@ -133,8 +137,12 @@ def check_buganizer_fixed_status(
                     fixed_reasons.append(
                         f"Buganizer issue b/{iss_id} is {status} (Assignee: {assignee})"
                     )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(
+                "Buganizer signature search failed for '%s': %s",
+                stable_signature,
+                exc,
+            )
 
     # Tier 2: Search by top fault function across both open and closed bugs
     if top_func:
@@ -144,6 +152,7 @@ def check_buganizer_fixed_status(
                 f'componentid:{component_id} status:open "{top_func}"',
             ]
             for q in queries:
+                issues_list: List[Dict[str, Any]] = []
                 if getattr(client, "cli_binary", None) and not getattr(
                     client, "token", None
                 ):
@@ -153,38 +162,52 @@ def check_buganizer_fixed_status(
                     )
                     if res.returncode == 0 and res.stdout.strip():
                         issues = json.loads(res.stdout)
-                        for iss in issues if isinstance(issues, list) else [issues]:
-                            iss_id = str(iss.get("issueId") or iss.get("id", ""))
-                            if not iss_id or any(
-                                c["issue_id"] == iss_id for c in candidates
-                            ):
-                                continue
-                            state = iss.get("issueState", {})
-                            status = (
-                                state.get("status") or iss.get("status", "UNKNOWN")
-                            ).upper()
-                            title = state.get("title") or iss.get("title", "Untitled")
-                            assignee = state.get("assignee", {}).get(
-                                "emailAddress", "Unassigned"
-                            )
-                            candidates.append(
-                                {
-                                    "issue_id": iss_id,
-                                    "status": status,
-                                    "title": title,
-                                    "assignee": assignee,
-                                    "match_type": "Top Fault Frame Function",
-                                }
-                            )
-                            if status in CLOSED_STATUSES:
-                                is_fixed = True
-                                fixed_reasons.append(
-                                    f"Buganizer issue b/{iss_id} is {status} (Assignee: {assignee})"
-                                )
+                        issues_list = (
+                            issues if isinstance(issues, list) else [issues]
+                        )
                 elif hasattr(client, "_call_rest_api"):
-                    pass
-        except Exception:
-            pass
+                    base_url = getattr(
+                        client,
+                        "base_url",
+                        "https://issuetracker.googleapis.com/v1/issues",
+                    )
+                    params = urllib.parse.urlencode({"query": q})
+                    data = client._call_rest_api(f"{base_url}?{params}", method="GET")
+                    if isinstance(data, dict):
+                        issues_list = data.get("issues", [])
+
+                for iss in issues_list:
+                    iss_id = str(iss.get("issueId") or iss.get("id", ""))
+                    if not iss_id or any(
+                        c["issue_id"] == iss_id for c in candidates
+                    ):
+                        continue
+                    state = iss.get("issueState", {})
+                    status = (
+                        state.get("status") or iss.get("status", "UNKNOWN")
+                    ).upper()
+                    title = state.get("title") or iss.get("title", "Untitled")
+                    assignee = state.get("assignee", {}).get(
+                        "emailAddress", "Unassigned"
+                    )
+                    candidates.append(
+                        {
+                            "issue_id": iss_id,
+                            "status": status,
+                            "title": title,
+                            "assignee": assignee,
+                            "match_type": "Top Fault Frame Function",
+                        }
+                    )
+                    if status in CLOSED_STATUSES:
+                        is_fixed = True
+                        fixed_reasons.append(
+                            f"Buganizer issue b/{iss_id} is {status} (Assignee: {assignee})"
+                        )
+        except Exception as exc:
+            logger.debug(
+                "Buganizer top-function search failed for '%s': %s", top_func, exc
+            )
 
     fixed_reason_str = "; ".join(fixed_reasons) if fixed_reasons else None
     return is_fixed, candidates, fixed_reason_str
@@ -249,8 +272,8 @@ def check_git_history_fixes(
                             f"Recent commit touching {target_file}: '{line.strip()}'"
                         )
                         break
-        except Exception:
-            pass
+        except (OSError, subprocess.SubprocessError) as exc:
+            logger.debug("Failed to inspect git log for '%s': %s", target_file, exc)
 
     # Check git log by issue ID if available
     if issue_id:
@@ -273,8 +296,8 @@ def check_git_history_fixes(
                     evidence_parts.append(
                         f"Commit references b/{issue_id}: '{line.strip()}'"
                     )
-        except Exception:
-            pass
+        except (OSError, subprocess.SubprocessError) as exc:
+            logger.debug("Failed to search git log for issue '%s': %s", issue_id, exc)
 
     summary = "; ".join(evidence_parts) if evidence_parts else None
     return has_fix, relevant_commits, summary
@@ -308,8 +331,8 @@ def evaluate_crash_fix_status(
         try:
             with open(metadata_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-        except Exception:
-            pass
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.debug("Failed to read crash metadata from '%s': %s", metadata_path, exc)
 
     vinfo = extract_crash_version_info(data)
     build_id = vinfo.get("build_id", "unknown")

@@ -8,11 +8,11 @@ option java_package = "com.android.emulator.v2";
 
 import "google/api/field_behavior.proto";
 
-// Injects touch, mouse, stylus, keyboard, rotary axis, and IME text events into the device,
+// Injects touch, mouse, stylus, keyboard, rotary axis, and text events into the device,
 // and observes input dispatched by every connected client.
 service InputService {
-  // Performs a bounded, self-contained input gesture and returns once its final event has
-  // been dispatched to the guest.
+  // Performs a bounded input gesture batch and returns once its final event has been dispatched
+  // to the guest.
   //
   // Prefer this over `StreamInputEvents` for discrete gestures (tap, swipe, long press, text
   // entry). It is also the only input RPC reachable from gRPC-Web, which does not implement
@@ -23,13 +23,27 @@ service InputService {
   //   `timestamp_nanos` values, anchored to the host `CLOCK_MONOTONIC` clock when dispatch
   //   begins. If no event sets `timestamp_nanos`, every event is dispatched back-to-back as
   //   fast as the guest input pipeline accepts them, which is the appropriate mode for key
-  //   presses and text commits.
+  //   presses and text entry.
   //
   //   Real-time pacing is a correctness requirement rather than a fidelity nicety. Android
   //   arms long-press and double-tap detection with wall-clock handler timers instead of
   //   arithmetic over event timestamps, so a gesture whose events are delivered back-to-back
   //   is observed by the guest as a plain tap regardless of what `timestamp_nanos` claims.
   //   Allow at least 500ms between DOWN and UP to produce a long press.
+  //
+  // HELD INPUT & MULTI-BATCH GESTURES:
+  //   - Identified callers (non-zero `input_source_id` or a non-empty `x-client-id` gRPC
+  //     metadata header) execute in a persistent source session: pointers and keys left held at
+  //     the end of a `SendInputEvents` call remain held across subsequent `SendInputEvents`
+  //     calls, enabling multi-batch drags and gestures longer than
+  //     `InputCapabilities.max_batch_duration_ms`. If `InputCapabilities.held_input_idle_timeout_ms`
+  //     is greater than 0 and no further events arrive from that source before the timeout elapses,
+  //     held contacts and keys are automatically released as synthesized `POINTER_ACTION_CANCEL`
+  //     and `KEY_ACTION_UP` events. Parallel `SendInputEvents` calls from the same identified
+  //     source are unsupported because their events interleave on the shared session.
+  //   - Anonymous callers (`input_source_id == 0` with no `x-client-id` metadata header) run in
+  //     an isolated per-call session whose held contacts and keys are automatically released
+  //     when the call finishes.
   //
   // Because the call returns only after the last event is dispatched, the response doubles as
   // a completion barrier for callers that need to observe the resulting UI state.
@@ -111,7 +125,10 @@ enum PointerAction {
   POINTER_ACTION_MOVE = 2;
   // Contact lifted off the surface or button released (Android MotionEvent.ACTION_UP).
   POINTER_ACTION_UP = 3;
-  // Aborts an active gesture without triggering click or drop handlers (Android MotionEvent.ACTION_CANCEL).
+  // Aborts an active gesture without triggering click or drop handlers (Android
+  // MotionEvent.ACTION_CANCEL / MotionEvent.FLAG_CANCELED). For touch contacts, the contact tool
+  // type is switched to a palm (Linux `MT_TOOL_PALM`) before lifting so the guest aborts the
+  // gesture without firing a click or drop.
   POINTER_ACTION_CANCEL = 4;
   // Pointer entered the display hover region without touching (Android MotionEvent.ACTION_HOVER_ENTER).
   POINTER_ACTION_HOVER_ENTER = 5;
@@ -207,13 +224,11 @@ message InputEvent {
   //   - When both `input_source_id` is `0` and `x-client-id` is absent, source `0` denotes
   //     the human operator at the device UI.
   //
-  // Pointer state is tracked per source: `pointer_id` 0 from source 0 and `pointer_id` 0 from
-  // source 7 are independent contacts occupying different slots. The requirement that a
-  // `PointerEvent` enumerate every active contact point therefore applies within a source, and
-  // each client lists only its own pointers. This is what allows a human and an agent to touch
-  // the device concurrently without erasing one another's gestures, and it scopes disconnect
-  // cleanup so that an agent dropping its connection cannot cancel a gesture the human is
-  // still performing.
+  // Pointer state is tracked per session and source: `pointer_id` 0 from source 0 and
+  // `pointer_id` 0 from source 7 are independent contacts occupying different slots. Each client
+  // lists only its own pointers. This is what allows a human and an agent to touch the device
+  // concurrently without erasing one another's gestures, and it scopes disconnect cleanup so
+  // that an agent dropping its connection cannot cancel a gesture the human is still performing.
   int32 input_source_id = 6;
 
   // Specific input event payload (exactly one must be set).
@@ -224,7 +239,7 @@ message InputEvent {
     KeyEvent key = 3;
     // Rotary dial, automotive knob, or steering wheel axis event.
     AxisEvent axis = 4;
-    // Direct UTF-8 IME text commit event.
+    // Synthesized ASCII keyboard text typing event.
     TextEvent text = 5;
   }
 }
@@ -233,15 +248,15 @@ message InputEvent {
 //
 // --- Coordinate Frame & Unit Boundaries ---
 // PointerEvent uses three distinct unit conventions matching each physical input mode:
-//   1. Absolute position (`Pointer.x`, `Pointer.y`) and contact size (`Pointer.size`):
-//      Normalized `[0.0, 1.0]` relative to the active oriented viewport (`Screenshot.width` /
-//      `Screenshot.height`). Callers inspecting a Screenshot map pixels via:
-//        x = pixel_x / Screenshot.width
-//        y = pixel_y / Screenshot.height
-//      `Pointer.size` is normalized relative to the shorter viewport dimension
-//      `min(Screenshot.width, Screenshot.height)` in range `[0.0, 1.0]`.
-//      Coordinates outside `[0.0, 1.0]` (e.g., `-0.05` or `1.05`) are permitted and not
-//      clamped, enabling bezel-originating gestures (system back, notification shade).
+//   1. Absolute position (`Pointer.x`, `Pointer.y`), pressure (`Pointer.pressure`), and contact
+//      size (`Pointer.size`):
+//      Normalized `[0.0, 1.0]` in the display panel's **natural (unrotated) coordinate frame**
+//      across the panel's width and height (`DisplayHardware.width` / `DisplayHardware.height`),
+//      matching the touchscreen hardware and `EmulatorController` v1 input.
+//      `Pointer.size` is normalized relative to the shorter panel dimension
+//      `min(width, height)` in range `[0.0, 1.0]`.
+//      Coordinates (`x`, `y`), `pressure`, and `size` outside `[0.0, 1.0]` are **clamped** to
+//      `[0.0, 1.0]` (the panel bounds and device range).
 //   2. Relative motion (`Pointer.delta_x`, `Pointer.delta_y`):
 //      Raw unscaled **pixels** matching W3C Pointer Lock (`MouseEvent.movementX`/`movementY`)
 //      and Linux `REL_X`/`REL_Y` for FPS gaming and relative trackballs where viewport bounds
@@ -260,19 +275,22 @@ message InputEvent {
 //   3. Send POINTER_ACTION_UP at (x1, y1) (pressure defaults to 0.0 when omitted) to complete the gesture.
 //
 // --- Multi-Touch Protocol (Pinch / Zoom) ---
-// Every PointerEvent MUST include ALL contact points currently active FOR ITS OWN
-// `input_source_id` (matching Android MotionEvent and W3C TouchEvent.touches), each
-// identified by a stable `pointer_id` (0..9) for the duration of its contact. Contacts
-// belonging to other sources are tracked independently and must not be listed; a client only
-// ever enumerates pointers it owns.
+// Each contact point is identified by a stable `pointer_id` (0..9) within the caller's session
+// for the duration of its contact. Each `PointerEvent` only needs to list the pointers being
+// pressed, moved, or released in that step (or all active pointers of that session); previously
+// pressed pointers omitted from a `POINTER_ACTION_MOVE` remain held at their last reported
+// position. In a multi-finger gesture, a `POINTER_ACTION_MOVE` event where an individual pointer
+// explicitly sets `pressure = 0.0` lifts that pointer while the other pointers continue moving.
+// Contacts belonging to other sessions or sources are tracked independently and must not be
+// listed; a client only ever enumerates pointers it owns.
 message PointerEvent {
   // Target display identifier (0 for the primary display; defaults to 0).
   int32 display_id = 1;
   // Lifecycle transition of the pointer event.
   PointerAction action = 2;
-  // All currently active pointers on the display. For multi-touch gestures
-  // (e.g., 2-finger pinch-to-zoom), every event MUST include all active contact
-  // points (e.g., pointer_id 0 and pointer_id 1).
+  // Pointers being pressed, moved, or released in this step (or all active pointers of this
+  // session). In a multi-finger `POINTER_ACTION_MOVE`, setting `pressure = 0.0` on an individual
+  // pointer lifts that pointer while the other pointers continue moving.
   repeated Pointer pointers = 3;
   // Horizontal scroll delta in wheel detents/ticks (positive scrolls right).
   // When action is POINTER_ACTION_SCROLL, pointers[0] MUST specify the (x, y)
@@ -289,15 +307,20 @@ message PointerEvent {
     int32 pointer_id = 1;
     // Physical input tool type for this contact point.
     ToolType tool_type = 2;
-    // Normalized X coordinate [0.0, 1.0] relative to active viewport width (defaults to 0.0).
+    // Normalized X coordinate in the display panel's natural (unrotated) coordinate frame,
+    // clamped to [0.0, 1.0] (defaults to 0.0).
     float x = 3;
-    // Normalized Y coordinate [0.0, 1.0] relative to active viewport height (defaults to 0.0).
+    // Normalized Y coordinate in the display panel's natural (unrotated) coordinate frame,
+    // clamped to [0.0, 1.0] (defaults to 0.0).
     float y = 4;
-    // Normalized contact pressure in range [0.0, 1.0].
+    // Normalized contact pressure, clamped to [0.0, 1.0].
     // When omitted, defaults to 1.0 for POINTER_ACTION_DOWN and POINTER_ACTION_MOVE,
     // and 0.0 for POINTER_ACTION_UP, POINTER_ACTION_CANCEL, and HOVER_* actions.
+    // In a multi-finger POINTER_ACTION_MOVE, explicitly setting `pressure = 0.0` lifts this
+    // pointer while other active pointers continue moving.
     optional float pressure = 5;
-    // Touch ellipse major axis diameter normalized relative to `min(width, height)` in range [0.0, 1.0] (defaults to 0.0).
+    // Touch ellipse major axis diameter normalized relative to `min(width, height)` of the
+    // display panel, clamped to [0.0, 1.0] (defaults to 0.0).
     float size = 6;
     // Tool orientation angle in radians within range [-pi/2, pi/2] relative to vertical (defaults to 0.0).
     float orientation_radians = 7;
@@ -338,9 +361,14 @@ message AxisEvent {
   float value = 2;
 }
 
-// Commits a UTF-8 text string directly to the active Android InputConnection (IME).
+// Types ASCII text as a sequence of synthesized key events on the guest keyboard.
+//
+// This is keyboard key-event synthesis rather than a direct Android `InputConnection` IME
+// commit; printable ASCII characters (`[0x20, 0x7f)`) are translated to key presses (with
+// modifier keys as needed) and non-ASCII characters are ignored.
 message TextEvent {
-  // UTF-8 text string to commit (supports full Unicode / non-ASCII scripts such as "こんにちは").
+  // Printable ASCII text string to type as synthesized keyboard key events (non-ASCII
+  // characters are ignored).
   string text = 1;
 }
 
@@ -351,7 +379,7 @@ message SendInputEventsRequest {
   repeated InputEvent events = 1;
 }
 
-// Reports when a completed gesture's events reached the guest.
+// Reports when a completed gesture's events were queued to the guest input device.
 //
 // Dispatch timestamps lie on the same `CLOCK_MONOTONIC` timeline as
 // `Screenshot.presentation_time_nanos` and `AudioChunk.timestamp_nanos`, which gives callers
@@ -360,9 +388,11 @@ message SendInputEventsRequest {
 // waiting for the UI to react should compare against that bound rather than sleeping for an
 // arbitrary interval.
 message SendInputEventsResponse {
-  // Output only. Host monotonic time at which the first event was dispatched.
+  // Output only. Host monotonic time (`CLOCK_MONOTONIC`) at which the first event's report was
+  // queued to the guest input device.
   int64 first_event_dispatched_at_nanos = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
-  // Output only. Host monotonic time at which the final event was dispatched.
+  // Output only. Host monotonic time (`CLOCK_MONOTONIC`) at which the final event's report was
+  // queued to the guest input device.
   int64 last_event_dispatched_at_nanos = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
   // Output only. Number of events dispatched, equal to the request's event count on success.
   int32 events_dispatched = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
@@ -382,13 +412,13 @@ message StreamInputActivityRequest {
   optional int32 input_source_id = 1;
 }
 
-// Reports a single input event after it was dispatched to the guest.
+// Reports a single input event after its report was queued to the guest input device.
 message InputActivity {
   // Output only. Event exactly as dispatched, including the `input_source_id` that produced it.
   InputEvent event = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
 
-  // Output only. Host monotonic time (`CLOCK_MONOTONIC`) at which the event reached the guest
-  // input pipeline. Deltas between consecutive values reproduce the original gesture timing
+  // Output only. Host monotonic time (`CLOCK_MONOTONIC`) at which the report was queued to the
+  // guest input device. Deltas between consecutive values reproduce the original gesture timing
   // and can be written directly into `InputEvent.timestamp_nanos` to replay the sequence
   // through `SendInputEvents`.
   int64 dispatched_at_nanos = 2 [(google.api.field_behavior) = OUTPUT_ONLY];

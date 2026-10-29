@@ -20,7 +20,9 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
+import sys
 import urllib.parse
 from typing import Any, Dict, List, Optional
 
@@ -39,57 +41,35 @@ SEMANTIC_SUBJECT_RE = re.compile(
 BUG_FOOTER_RE = re.compile(r"(?im)^\s*Bug:\s*(?:b/)?(\d+|N/A|None)\s*$")
 TEST_FOOTER_RE = re.compile(r"(?im)^\s*Test:\s*(\S.*?)\s*$")
 
-SIDE_CAR_LIBS_CATALOG: List[Dict[str, str]] = [
-    {
-        "name": "file",
-        "bazel_target": "//emulator/libs/file",
-        "header": "goldfish/file/file.h",
-        "namespace": "android::base::file",
-        "summary": "Cross-platform UTF-8 file I/O helpers safe on Windows non-ASCII paths.",
-    },
-    {
-        "name": "ini_file",
-        "bazel_target": "//emulator/libs/ini_file",
-        "header": "android/goldfish/ini_file.h",
-        "namespace": "android::goldfish::IniFile",
-        "summary": "INI configuration parser and writer for AVD and hardware profiles.",
-    },
-    {
-        "name": "http",
-        "bazel_target": "//emulator/libs/http",
-        "header": "goldfish/http/web_server.h",
-        "namespace": "goldfish::http::WebServer",
-        "summary": "Embedded HTTP WebServer (`CreateWebServer`) for production and unit tests.",
-    },
-    {
-        "name": "http_client",
-        "bazel_target": "//emulator/libs/network:http_client",
-        "header": "goldfish/network/http_client.h",
-        "namespace": "goldfish::network::HttpClient",
-        "summary": "HTTP/HTTPS client with StatusOr error propagation.",
-    },
-    {
-        "name": "network",
-        "bazel_target": "//emulator/libs/network",
-        "header": "goldfish/network/resolve.h",
-        "namespace": "goldfish::network::ResolveEndpoints",
-        "summary": "DNS and socket endpoint resolution helpers.",
-    },
-    {
-        "name": "async",
-        "bazel_target": "//emulator/libs/async",
-        "header": "goldfish/async/threaded_event_loop.h",
-        "namespace": "goldfish::async",
-        "summary": "LibuvEventLoop, ThreadedEventLoop, AsyncSocket, and UvErrToAbslStatus.",
-    },
-    {
-        "name": "system",
-        "bazel_target": "//emulator/libs/system",
-        "header": "android/base/system.h",
-        "namespace": "android::base::System",
-        "summary": "Environment variable queries (`EnvGet`) and `TestSystem` (`:test-headers`).",
-    },
-]
+LIBS_CATALOG_PATH: Path = Path(__file__).with_name("libs_catalog.json")
+
+
+def _load_libs_catalog() -> List[Dict[str, str]]:
+    """Loads the reusable-library catalog rendered next to this file.
+
+    The sidecar runs standalone and cannot import the CLI, so `emu-dev-cli harness install`
+    writes `libs_catalog.json` from `commands.harness.goldfish_libs.REUSABLE_LIBS_CATALOG`.
+    Returns an empty list, with a warning, if the file is missing or malformed.
+    """
+    try:
+        catalog = json.loads(LIBS_CATALOG_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        catalog = None
+        reason = str(exc)
+    else:
+        reason = f"expected a JSON list, got {type(catalog).__name__}"
+    if isinstance(catalog, list):
+        return catalog
+    print(
+        f"warning: aemu-harness sidecar could not load the library catalog "
+        f"'{LIBS_CATALOG_PATH}' ({reason}), so the Libraries panel is empty. "
+        "Re-run 'emu-dev-cli harness install' to regenerate it.",
+        file=sys.stderr,
+    )
+    return []
+
+
+SIDE_CAR_LIBS_CATALOG: List[Dict[str, str]] = _load_libs_catalog()
 
 
 def _get_harness_dir() -> Path:
@@ -250,6 +230,174 @@ def list_workflow_sessions(conversation_id: Optional[str] = None) -> List[Dict[s
             "updated_at": str(data.get("updated_at", "")),
         })
     return sessions
+
+
+SIDECAR_PRELOAD_JS: str = """(function() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('token') || '';
+  const conversationId = params.get('conversationId') || '';
+
+  let currentWorkspaceUris = [];
+  let hasInitialWorkspace = false;
+  const workspaceListeners = new Set();
+  let resolveInitialWorkspace;
+  const initialWorkspacePromise = new Promise((resolve) => {
+    resolveInitialWorkspace = resolve;
+  });
+
+  window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'theme-change') {
+      const vars = (event.data.payload && event.data.payload.cssVariables) || {};
+      for (const [key, value] of Object.entries(vars)) {
+        document.documentElement.style.setProperty(key, value);
+      }
+    } else if (event.data && event.data.type === 'workspace-change') {
+      const payload = event.data.payload || {};
+      currentWorkspaceUris = Array.isArray(payload.workspaceUris)
+        ? payload.workspaceUris.slice()
+        : [];
+      hasInitialWorkspace = true;
+      resolveInitialWorkspace();
+      for (const listener of workspaceListeners) {
+        try {
+          listener(currentWorkspaceUris.slice());
+        } catch (err) {
+          console.error('workspace-change listener failed:', err);
+        }
+      }
+    }
+  });
+
+  function secureFetch(url, options = {}) {
+    let targetUrl = url;
+    if (token && !/[?&]token=/.test(targetUrl)) {
+      const sep = targetUrl.includes('?') ? '&' : '?';
+      targetUrl = `${targetUrl}${sep}token=${encodeURIComponent(token)}`;
+    }
+    const headers = new Headers(options.headers || {});
+    headers.set('Content-Type', 'application/json');
+    if (token) {
+      headers.set('X-Sidecar-Token', token);
+    }
+    return fetch(targetUrl, Object.assign({}, options, { headers }));
+  }
+
+  const projectIdPromise = (async () => {
+    if (!conversationId) return '';
+    try {
+      const res = await secureFetch('/_sidecar/get-conversation-metadata', {
+        method: 'POST',
+        body: JSON.stringify({ conversationId })
+      });
+      if (!res.ok) return '';
+      const data = await res.json();
+      const metaEvent = (data && data.response && (data.response.conversationMetadata || data.response.conversation_metadata)) || {};
+      const meta = metaEvent.metadata || {};
+      return meta.projectId || meta.project_id || '';
+    } catch (e) {
+      return '';
+    }
+  })();
+
+  async function getWorkspaceUris() {
+    if (window.parent === window) {
+      return [];
+    }
+    await initialWorkspacePromise;
+    return currentWorkspaceUris.slice();
+  }
+
+  window.sidecar = {
+    conversationId,
+    fetch: secureFetch,
+    getWorkspaceUris,
+    onWorkspaceChange(listener) {
+      if (typeof listener !== 'function') return () => {};
+      workspaceListeners.add(listener);
+      if (hasInitialWorkspace) {
+        queueMicrotask(() => {
+          if (workspaceListeners.has(listener)) {
+            listener(currentWorkspaceUris.slice());
+          }
+        });
+      }
+      return () => { workspaceListeners.delete(listener); };
+    },
+    agent: {
+      async sendMessage(message, convId) {
+        const resolvedProjectId = await projectIdPromise;
+        const res = await secureFetch('/_sidecar/send-message', {
+          method: 'POST',
+          body: JSON.stringify({
+            conversationId: convId || conversationId,
+            message,
+            projectId: resolvedProjectId
+          })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      },
+      async startConversation(message, title) {
+        const resolvedProjectId = await projectIdPromise;
+        const res = await secureFetch('/_sidecar/new-conversation', {
+          method: 'POST',
+          body: JSON.stringify({ message, title, projectId: resolvedProjectId })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      },
+      async getConversationMetadata(convId) {
+        const res = await secureFetch('/_sidecar/get-conversation-metadata', {
+          method: 'POST',
+          body: JSON.stringify({ conversationId: convId || conversationId })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      }
+    },
+    ui: {
+      toggleAuxPane(request) {
+        window.parent.postMessage({ type: 'toggle-aux-pane', payload: request }, '*');
+      },
+      toggleConversation(convId) {
+        window.parent.postMessage({ type: 'toggle-conversation', payload: { conversationId: convId } }, '*');
+      }
+    }
+  };
+})();
+"""
+
+SIDECAR_PRELOAD_SCRIPT_TAG: str = '<script src="/preload.js"></script>'
+
+
+def _run_sidecar_agentapi(args: List[str], project_id: Optional[str] = None) -> Dict[str, Any]:
+    """Invokes `agentapi` for Jetski Web sidecar conversation integration."""
+    agentapi_bin = shutil.which("agentapi")
+    if not agentapi_bin:
+        cand = Path.home() / ".gemini" / "jetski" / "bin" / "agentapi"
+        agentapi_bin = str(cand) if cand.is_file() else "agentapi"
+    env = os.environ.copy()
+    if project_id:
+        env["ANTIGRAVITY_PROJECT_ID"] = project_id
+    res = subprocess.run(
+        [agentapi_bin, *args],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+        timeout=30,
+    )
+    if res.returncode != 0:
+        raise RuntimeError(f"agentapi failed: {(res.stderr or '').strip()}")
+    out = (res.stdout or "").strip()
+    return json.loads(out) if out else {}
+
+
+def _render_harness_index_html() -> str:
+    """Inlines `SIDECAR_PRELOAD_JS` so cross-site Cloudtop gateways never block `/preload.js`."""
+    return INDEX_HTML.replace(
+        SIDECAR_PRELOAD_SCRIPT_TAG, f"<script>\n{SIDECAR_PRELOAD_JS}\n</script>"
+    )
 
 
 INDEX_HTML: str = """<!DOCTYPE html>
@@ -431,6 +579,7 @@ INDEX_HTML: str = """<!DOCTYPE html>
     <button class="tab-btn active" onclick="switchTab('control', this)">Control Center</button>
     <button class="tab-btn" onclick="switchTab('commit', this)">Commit Sandbox</button>
     <button class="tab-btn" onclick="switchTab('libs', this)">//emulator/libs/*</button>
+    <button class="tab-btn" onclick="switchTab('swarm', this)">Review Swarm</button>
   </div>
 
   <div id="tab-control" class="tab-pane active">
@@ -462,8 +611,8 @@ INDEX_HTML: str = """<!DOCTYPE html>
         <button onclick="dispatchPrompt('Run `emu-dev-cli workflow amend-commit init` to amend HEAD with a verified Semantic Commit.')">
           ✏️ Amend HEAD Commit
         </button>
-        <button onclick="dispatchPrompt('Run a 3-agent parallel code review swarm on my current commit/CL covering (1) //emulator/libs/* reuse, (2) go/error-messages & TotW 181 StatusOr, and (3) 5-way code complexity & Unicode safety.')">
-          🐝 3-Agent Review Swarm
+        <button onclick="dispatchPrompt('Run `emu-dev-cli harness review-swarm` to launch the 8-Specialist Single-Wave Parallel Code-Review Swarm on my current commit/CL.')">
+          🐝 8-Agent Review Swarm
         </button>
         <button onclick="dispatchPrompt('Run `emu-dev-cli workflow address-review init` to fetch and resolve open Gerrit review comments on my CL.')">
           💬 Address Gerrit Review
@@ -505,6 +654,21 @@ INDEX_HTML: str = """<!DOCTYPE html>
       <div class="section-title">📚 //emulator/libs/* Reuse Explorer</div>
       <input type="text" id="libs-search" oninput="renderLibs()" placeholder="Filter by keyword (e.g. http, file, ini, async, system)..." />
       <div id="libs-list"></div>
+    </div>
+  </div>
+
+  <div id="tab-swarm" class="tab-pane">
+    <div class="section">
+      <div class="section-title">🐝 8-Specialist Parallel Code-Review Swarm</div>
+      <input type="text" id="swarm-target" value="HEAD" placeholder="Gerrit CL (e.g. 43137255, ag/43137255) or git ref (HEAD)" />
+      <div class="btn-grid" style="margin-bottom:8px;">
+        <button onclick="launchReviewSwarm('workflow')">⚡ Launch 8-Agent run_workflow</button>
+        <button onclick="launchReviewSwarm('swarm')">🐝 Launch 8-Agent Native Swarm</button>
+      </div>
+      <div class="muted">
+        Specialists: (1) Commit &amp; Bug, (2) Duplication &amp; Reuse, (3) Modularity, (4) Control Flow,
+        (5) Named Constants, (6) Unicode &amp; Platform, (7) Error Messages &amp; StatusOr, (8) Concurrency &amp; Safety.
+      </div>
     </div>
   </div>
 
@@ -565,6 +729,13 @@ INDEX_HTML: str = """<!DOCTYPE html>
       const msg = document.getElementById("commit-input").value.trim();
       if (!msg) return;
       dispatchPrompt("Commit the current staged changes using this exact Semantic Commit message:\\n\\n```\\n" + msg + "\\n```");
+    }
+
+    function launchReviewSwarm(mode) {
+      const target = (document.getElementById("swarm-target").value || "HEAD").trim();
+      dispatchPrompt(
+        `Run \\`emu-dev-cli harness review-swarm --target "${target}" --mode ${mode}\\` to prepare the 8-Specialist Single-Wave Parallel Code-Review Swarm, then execute the generated workflow script via \\`run_workflow\\` and present the diff-bounded Markdown report and Gerrit JSON payload.`
+      );
     }
 
     function renderLibs() {
@@ -693,7 +864,7 @@ class HarnessSidecarHandler(BaseHTTPRequestHandler):
         route = parsed.path
 
         if route == "/preload.js":
-            js = b"window.sidecar = window.sidecar || {};\n"
+            js = SIDECAR_PRELOAD_JS.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/javascript; charset=utf-8")
             self.send_header("Referrer-Policy", "no-referrer")
@@ -703,7 +874,7 @@ class HarnessSidecarHandler(BaseHTTPRequestHandler):
             return
 
         if route in ("/", "/index.html"):
-            body = INDEX_HTML.encode("utf-8")
+            body = _render_harness_index_html().encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Referrer-Policy", "no-referrer")
@@ -742,6 +913,51 @@ class HarnessSidecarHandler(BaseHTTPRequestHandler):
             body = json.loads(raw_body)
         except Exception:
             body = {}
+
+        try:
+            if parsed.path == "/_sidecar/get-conversation-metadata":
+                conv_id = str(
+                    body.get("conversationId")
+                    or os.environ.get("ANTIGRAVITY_SIDECAR_CONVERSATION_ID")
+                    or os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
+                    or ""
+                ).strip()
+                if not conv_id:
+                    self._send_json(400, {"error": "Missing conversationId"})
+                    return
+                self._send_json(200, _run_sidecar_agentapi(["get-conversation-metadata", conv_id]))
+                return
+
+            if parsed.path == "/_sidecar/send-message":
+                msg = str(body.get("message") or "").strip()
+                conv_id = str(
+                    body.get("conversationId")
+                    or os.environ.get("ANTIGRAVITY_SIDECAR_CONVERSATION_ID")
+                    or os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
+                    or ""
+                ).strip()
+                if not msg or not conv_id:
+                    self._send_json(400, {"error": "Missing message or conversationId"})
+                    return
+                args = ["send-message"]
+                if body.get("title"):
+                    args.extend(["--title", str(body["title"])])
+                args.extend([conv_id, msg])
+                self._send_json(200, _run_sidecar_agentapi(args, project_id=body.get("projectId")))
+                return
+
+            if parsed.path == "/_sidecar/new-conversation":
+                msg = str(body.get("message") or "").strip()
+                args = ["new-conversation"]
+                if body.get("title"):
+                    args.extend(["--title", str(body["title"])])
+                if msg:
+                    args.append(msg)
+                self._send_json(200, _run_sidecar_agentapi(args, project_id=body.get("projectId")))
+                return
+        except Exception as exc:
+            self._send_json(500, {"error": str(exc)})
+            return
 
         if parsed.path == "/api/commit/validate":
             msg = str(body.get("message") or "")

@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
+import logging
 import argparse
 import os
 import re
@@ -44,6 +47,10 @@ DOC_TARGETS = {
     "goldfish-architecture": (
         "emu-main-next",
         "hardware/generic/goldfish/ARCHITECTURE.md",
+    ),
+    "goldfish-agents": (
+        "emu-main-next",
+        "hardware/generic/goldfish/AGENTS.md",
     ),
     "playbook-index": (
         "emu-main-next",
@@ -87,10 +94,23 @@ _REPO_SUBPATHS = (
 _TITLE_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 _ROLE_RE = re.compile(r"\*\*Role:\*\*\s*(.+)$", re.MULTILINE)
 _LOCATION_RE = re.compile(r"\*\*Location:\*\*\s*`([^`]+)`")
+_SCOPE_RE = re.compile(r"\*\*Scope:\*\*\s*`([^`]+)`")
 _BAZEL_LABEL_RE = re.compile(
     r"`((?:@(?:goldfish|aemu|qemu))?//[A-Za-z0-9_./+-]+(?::[A-Za-z0-9_./+-]+)?)`"
 )
 _MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+_MACRO_TARGET_SUFFIXES = (
+    "_cc_grpc",
+    "_cc_proto",
+    "_py_pb2_grpc",
+    "_py_pb2",
+    "_java_grpc",
+    "_java_proto",
+    "_ts_proto",
+    "_proto",
+    "_x86_64",
+    "_aarch64",
+)
 
 
 def resolve_doc_file_path(branch, relative_path):
@@ -151,6 +171,8 @@ def _extract_doc_metadata(file_path: Path, workspace_root: Path) -> dict:
     role = role_match.group(1).strip() if role_match else ""
     loc_match = _LOCATION_RE.search(text)
     declared_location = loc_match.group(1).strip() if loc_match else ""
+    scope_match = _SCOPE_RE.search(text)
+    declared_scope = scope_match.group(1).strip() if scope_match else ""
 
     if "docs/playbooks/" in rel_path:
         category = "playbook"
@@ -158,6 +180,8 @@ def _extract_doc_metadata(file_path: Path, workspace_root: Path) -> dict:
         category = "architecture"
     elif file_path.name == "DESIGN.md":
         category = "design"
+    elif file_path.name == "AGENTS.md":
+        category = "agents"
     else:
         category = "doc"
 
@@ -165,6 +189,7 @@ def _extract_doc_metadata(file_path: Path, workspace_root: Path) -> dict:
         "title": title,
         "role": role,
         "declared_location": declared_location,
+        "declared_scope": declared_scope,
         "category": category,
         "relative_path": rel_path,
         "path": str(file_path),
@@ -173,8 +198,8 @@ def _extract_doc_metadata(file_path: Path, workspace_root: Path) -> dict:
 
 def discover_wiki_documents(source_dirs: list[str] | None = None) -> list[dict]:
     """
-    Discovers all ARCHITECTURE.md, DESIGN.md, and docs/playbooks/*.md files across
-    the given source directories (or registered workspace roots).
+    Discovers all ARCHITECTURE.md, DESIGN.md, AGENTS.md, and docs/playbooks/*.md files
+    across the given source directories (or registered workspace roots).
     """
     roots = source_dirs if source_dirs is not None else get_all_source_directories()
     seen_rel_paths = set()
@@ -201,14 +226,21 @@ def discover_wiki_documents(source_dirs: list[str] | None = None) -> list[dict]:
                     if d not in _SKIP_DIRS and not d.startswith("bazel-")
                 ]
                 rel_dir = Path(dirpath).relative_to(workspace_root).as_posix()
-                # Skip template scaffolding files
-                if "tools/emu-dev-cli/src/templates" in rel_dir:
+                # Skip template and plugin scaffolding files
+                if (
+                    "tools/emu-dev-cli/src/templates" in rel_dir
+                    or "tools/emu-dev-cli/harness/plugin" in rel_dir
+                    or rel_dir.endswith("hardware/google/aemu/agents")
+                    or rel_dir == "agents"
+                ):
                     continue
 
                 for fname in sorted(filenames):
-                    is_wiki_doc = fname in ("ARCHITECTURE.md", "DESIGN.md") or (
-                        "docs/playbooks" in rel_dir and fname.endswith(".md")
-                    )
+                    is_wiki_doc = fname in (
+                        "ARCHITECTURE.md",
+                        "DESIGN.md",
+                        "AGENTS.md",
+                    ) or ("docs/playbooks" in rel_dir and fname.endswith(".md"))
                     if not is_wiki_doc:
                         continue
                     fpath = Path(dirpath) / fname
@@ -222,16 +254,207 @@ def discover_wiki_documents(source_dirs: list[str] | None = None) -> list[dict]:
     return documents
 
 
+_BAZEL_RULE_RE = re.compile(
+    r"\b(?:cc_library|cc_test|cc_binary|py_library|py_test|py_binary|rust_library|rust_test|alias|clang_tidy_test)\s*\([^)]*?\bname\s*=\s*\"([^\"]+)\"",
+    re.DOTALL,
+)
+_SOURCE_EXTS = (
+    ".h",
+    ".hpp",
+    ".cc",
+    ".cpp",
+    ".c",
+    ".mm",
+    ".py",
+    ".rs",
+    ".tsx",
+    ".ts",
+    ".ini",
+    ".proto",
+)
+
+
+def _expand_query_term_variants(term: str) -> list[str]:
+    """Expands a query term into lowercase, snake_case, hyphenated, and underscore-stripped variants."""
+    low = term.lower()
+    snake = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", term).lower()
+    stem = re.sub(r"_impl$", "", snake)
+    hyphen = low.replace("_", "-")
+    underscored = low.replace("-", "_")
+    no_us = low.replace("_", "").replace("-", "")
+    variants = []
+    for v in (low, snake, stem, hyphen, underscored, no_us):
+        if v and v not in variants:
+            variants.append(v)
+    return variants
+
+
+def _term_matches_text(term_variants: list[str], text_lower: str) -> bool:
+    text_no_us = text_lower.replace("_", "").replace("-", "")
+    return any(v in text_lower or (len(v) >= 4 and v in text_no_us) for v in term_variants)
+
+
+def _extract_package_brief(
+    doc_path: Path, workspace_root: Path, term_variant_groups: list[list[str]]
+) -> dict:
+    """Extracts Bazel targets and source/header files for the package containing doc_path."""
+    doc_dir = doc_path.parent
+    repo_root = _get_repo_root_for_file(doc_path, workspace_root)
+    rel_repo = (
+        repo_root.relative_to(workspace_root).as_posix()
+        if repo_root.is_relative_to(workspace_root)
+        else ""
+    )
+    if rel_repo == "hardware/generic/goldfish" or repo_root.name == "goldfish":
+        repo_prefix = "@goldfish"
+    elif rel_repo == "hardware/google/aemu" or repo_root.name == "aemu":
+        repo_prefix = "@aemu"
+    elif rel_repo == "external/qemu" or repo_root.name == "qemu":
+        repo_prefix = "@qemu"
+    else:
+        repo_prefix = ""
+
+    doc_rel = (
+        doc_dir.relative_to(repo_root).as_posix()
+        if doc_dir.is_relative_to(repo_root)
+        else ""
+    )
+    if doc_rel == ".":
+        doc_rel = ""
+
+    # Locate BUILD.bazel in doc_dir or up to 2 ancestor directories within repo_root
+    build_dir = doc_dir
+    build_file = build_dir / "BUILD.bazel"
+    if not build_file.is_file():
+        build_file = build_dir / "BUILD"
+    steps_up = 0
+    while not build_file.is_file() and build_dir != repo_root and steps_up < 2:
+        parent = build_dir.parent
+        if not parent.is_relative_to(repo_root) or parent == repo_root:
+            break
+        build_dir = parent
+        build_file = build_dir / "BUILD.bazel"
+        if not build_file.is_file():
+            build_file = build_dir / "BUILD"
+        steps_up += 1
+
+    build_pkg_rel = (
+        build_dir.relative_to(repo_root).as_posix()
+        if build_dir.is_relative_to(repo_root)
+        else ""
+    )
+    if build_pkg_rel == ".":
+        build_pkg_rel = ""
+
+    build_text = ""
+    targets = []
+    if build_file.is_file():
+        try:
+            build_text = build_file.read_text(encoding="utf-8")
+        except OSError:
+            build_text = ""
+        for match in _BAZEL_RULE_RE.finditer(build_text):
+            tname = match.group(1)
+            if tname == "tidy" or tname.endswith("_tidy"):
+                continue
+            label = (
+                f"{repo_prefix}//{build_pkg_rel}:{tname}"
+                if build_pkg_rel
+                else f"{repo_prefix}//:{tname}"
+            )
+            if label not in targets:
+                targets.append(label)
+
+    pkg_files = []
+    file_stems = set()
+    if doc_dir.is_dir():
+        for root_dir, dirnames, filenames in os.walk(doc_dir):
+            cur_dir = Path(root_dir)
+            if not doc_rel:
+                # For repository-root docs, only inspect root-level source files
+                dirnames[:] = []
+            elif cur_dir != doc_dir:
+                # Do not descend into child Bazel packages
+                if (cur_dir / "BUILD.bazel").is_file() or (
+                    cur_dir / "BUILD"
+                ).is_file():
+                    dirnames[:] = []
+                    continue
+            dirnames[:] = [
+                d
+                for d in sorted(dirnames)
+                if d not in _SKIP_DIRS and not d.startswith("bazel-")
+            ]
+            for fname in sorted(filenames):
+                if fname.endswith(_SOURCE_EXTS):
+                    full_f = cur_dir / fname
+                    f_rel = (
+                        full_f.relative_to(doc_dir).as_posix()
+                        if full_f.is_relative_to(doc_dir)
+                        else fname
+                    )
+                    pkg_files.append(f_rel)
+                    file_stems.add(Path(fname).stem.lower())
+
+    dir_stem = doc_dir.name.lower()
+    # Prioritize files and targets that match query terms and local directory stems
+    if term_variant_groups or file_stems:
+        pkg_files.sort(
+            key=lambda f: (
+                -sum(
+                    1
+                    for tv in term_variant_groups
+                    if _term_matches_text(tv, f.lower())
+                ),
+                0 if dir_stem and dir_stem in f.lower() else 1,
+                0
+                if f.endswith((".h", ".py", ".ini", "_test.cc", "_test.py"))
+                else 1,
+                f,
+            )
+        )
+        targets.sort(
+            key=lambda lbl: (
+                -sum(
+                    1
+                    for tv in term_variant_groups
+                    if _term_matches_text(tv, lbl.lower())
+                ),
+                0
+                if dir_stem
+                and dir_stem.replace("_", "")
+                in lbl.split(":")[-1].lower().replace("_", "")
+                else 1,
+                0
+                if lbl.endswith(("_test", "_unittests", "_tests"))
+                else 1,
+                lbl,
+            )
+        )
+
+    return {
+        "build_text": build_text,
+        "targets": targets[:10],
+        "files": pkg_files[:14],
+    }
+
+
 def search_wiki_documents(
     query: str, source_dirs: list[str] | None = None
 ) -> list[dict]:
     """
-    Searches discovered wiki documents by keyword across title, path, role, and content.
+    Searches discovered wiki documents by keyword across title, path, role,
+    markdown body, and co-located BUILD.bazel targets and source/header filenames.
+    Ranks documents by number of matched query terms and term frequency.
     """
-    docs_list = discover_wiki_documents(source_dirs)
-    terms = [t.lower() for t in query.split() if t.strip()]
-    if not terms:
+    roots = source_dirs if source_dirs is not None else get_all_source_directories()
+    docs_list = discover_wiki_documents(roots)
+    raw_terms = [t for t in re.split(r"[\s,;|]+", query) if t.strip()]
+    if not raw_terms:
         return docs_list
+
+    term_variant_groups = [_expand_query_term_variants(t) for t in raw_terms]
+    resolved_roots = [Path(r).resolve() for r in roots if Path(r).is_dir()]
 
     results = []
     for doc in docs_list:
@@ -241,49 +464,87 @@ def search_wiki_documents(
         except OSError:
             content = ""
 
+        workspace_root = fpath.parent
+        for rp in resolved_roots:
+            if fpath.is_relative_to(rp):
+                workspace_root = rp
+                break
+
+        brief = _extract_package_brief(
+            fpath, workspace_root, term_variant_groups
+        )
         haystack_title = doc["title"].lower()
         haystack_path = doc["relative_path"].lower()
+        haystack_dirname = fpath.parent.name.lower()
         haystack_role = doc["role"].lower()
         haystack_body = content.lower()
+        haystack_pkg = (
+            brief["build_text"].lower()
+            + "\n"
+            + " ".join(brief["files"]).lower()
+            + "\n"
+            + " ".join(brief["targets"]).lower()
+        )
 
         score = 0
-        matched_all = True
+        matched_terms = 0
         matching_snippets = []
 
-        for term in terms:
-            in_title = term in haystack_title
-            in_path = term in haystack_path
-            in_role = term in haystack_role
-            in_body = term in haystack_body
-            if not (in_title or in_path or in_role or in_body):
-                matched_all = False
-                break
+        for tv in term_variant_groups:
+            in_title = _term_matches_text(tv, haystack_title)
+            in_path = _term_matches_text(tv, haystack_path)
+            in_dirname = _term_matches_text(tv, haystack_dirname)
+            in_role = _term_matches_text(tv, haystack_role)
+            in_body = _term_matches_text(tv, haystack_body)
+            in_pkg = _term_matches_text(tv, haystack_pkg)
+            if not (in_title or in_path or in_role or in_body or in_pkg):
+                continue
+            matched_terms += 1
+            if in_dirname:
+                score += 25
             if in_title:
-                score += 10
+                score += 15
             if in_path:
-                score += 8
+                score += 12
+            if in_pkg:
+                score += 10
             if in_role:
                 score += 5
             if in_body:
-                score += haystack_body.count(term)
+                body_hits = sum(haystack_body.count(v) for v in tv)
+                score += min(15, body_hits * 2 + 2)
 
-        if not matched_all:
+        if matched_terms == 0:
             continue
 
         for line in content.splitlines():
             sline = line.strip()
-            if sline and any(t in sline.lower() for t in terms):
-                matching_snippets.append(sline[:140])
-                if len(matching_snippets) >= 3:
+            if sline and any(
+                _term_matches_text(tv, sline.lower())
+                for tv in term_variant_groups
+            ):
+                matching_snippets.append(sline[:180])
+                if len(matching_snippets) >= 2:
                     break
 
         entry = dict(doc)
-        entry["score"] = score
+        entry["score"] = score + (matched_terms * 100)
+        entry["matched_terms"] = matched_terms
+        entry["total_terms"] = len(raw_terms)
         entry["snippets"] = matching_snippets
+        entry["targets"] = brief["targets"]
+        entry["files"] = brief["files"]
         results.append(entry)
 
-    results.sort(key=lambda r: (-r["score"], r["relative_path"]))
-    return results
+    results.sort(
+        key=lambda r: (-r["matched_terms"], -r["score"], r["relative_path"])
+    )
+    full_matches = [r for r in results if r["matched_terms"] == len(raw_terms)]
+    if full_matches:
+        return full_matches[:4] + [
+            r for r in results if r["matched_terms"] < len(raw_terms)
+        ][: max(0, 4 - len(full_matches))]
+    return results[:4]
 
 
 def _resolve_bazel_pkg_dir(
@@ -327,14 +588,47 @@ def _resolve_bazel_pkg_dir(
     return repo_root / pkg_part if pkg_part else repo_root
 
 
+def _bazel_target_exists_in_build_file(target_name: str, build_text: str) -> bool:
+    """Returns True if target_name (or its macro base name) is declared in build_text."""
+    if not target_name or target_name in ("all", "*"):
+        return True
+    if "name" not in build_text:
+        # Synthetic/stub BUILD file in unit tests without rule declarations
+        return True
+    if f'"{target_name}"' in build_text or f"'{target_name}'" in build_text:
+        return True
+    for suffix in _MACRO_TARGET_SUFFIXES:
+        if target_name.endswith(suffix) and len(target_name) > len(suffix):
+            stem = target_name[: -len(suffix)]
+            if (
+                f'"{stem}"' in build_text
+                or f"'{stem}'" in build_text
+                or f'"{stem}_"' in build_text
+                or f"'{stem}_'" in build_text
+            ):
+                return True
+    return False
+
+
+def _is_goldfish_repo(repo_root: Path, file_path: Path) -> bool:
+    norm_repo = repo_root.as_posix()
+    norm_file = file_path.as_posix()
+    return (
+        norm_repo.endswith("hardware/generic/goldfish")
+        or repo_root.name == "goldfish"
+        or "/goldfish/" in norm_file
+    )
+
+
 def lint_wiki_documents(
     source_dirs: list[str] | None = None, fix: bool = False
 ) -> dict:
     """
-    Deterministically audits ARCHITECTURE.md and DESIGN.md files for:
-    1. Stale **Location:** headers that don't match the file's directory
-    2. Missing/moved Bazel packages referenced in backticks
+    Deterministically audits ARCHITECTURE.md, DESIGN.md, and AGENTS.md files for:
+    1. Stale **Location:** or **Scope:** headers that don't match the file's directory
+    2. Missing/moved Bazel packages or non-existent Bazel target names referenced in backticks
     3. Broken relative markdown links
+    4. Unlinked or unrouted AGENTS.md files in hardware/generic/goldfish
     """
     roots = source_dirs if source_dirs is not None else get_all_source_directories()
     docs_list = discover_wiki_documents(roots)
@@ -343,7 +637,7 @@ def lint_wiki_documents(
     files_checked = 0
 
     for doc in docs_list:
-        if doc["category"] not in ("architecture", "design"):
+        if doc["category"] not in ("architecture", "design", "agents"):
             continue
 
         files_checked += 1
@@ -364,33 +658,34 @@ def lint_wiki_documents(
 
         try:
             text = fpath.read_text(encoding="utf-8")
-        except OSError:
+        except OSError as exc:
+            logging.getLogger(__name__).debug("Ignored error in lint_wiki_documents: %s", exc)
             continue
 
         updated_text = text
+        norm_expected = expected_rel_dir.strip("/")
+        ws_expected = fpath.parent.relative_to(workspace_root).as_posix().strip("/")
 
-        # 1. Check **Location:** header
+        # Valid if it matches repo-relative dir, workspace-relative dir, or file path
+        valid_locations = (
+            {
+                norm_expected,
+                ws_expected,
+                f"{norm_expected}/{fpath.name}".strip("/"),
+                f"{ws_expected}/{fpath.name}".strip("/"),
+            }
+            | {f"{sub}/{norm_expected}".strip("/") for sub in _REPO_SUBPATHS}
+            | {
+                f"{sub}/{norm_expected}/{fpath.name}".strip("/")
+                for sub in _REPO_SUBPATHS
+            }
+        )
+
+        # 1a. Check **Location:** header
         loc_match = _LOCATION_RE.search(text)
         if loc_match:
             declared = loc_match.group(1).strip()
             norm_declared = declared.strip("/")
-            norm_expected = expected_rel_dir.strip("/")
-            ws_expected = fpath.parent.relative_to(workspace_root).as_posix().strip("/")
-
-            # Valid if it matches repo-relative dir, workspace-relative dir, or file path
-            valid_locations = (
-                {
-                    norm_expected,
-                    ws_expected,
-                    f"{norm_expected}/{fpath.name}".strip("/"),
-                    f"{ws_expected}/{fpath.name}".strip("/"),
-                }
-                | {f"{sub}/{norm_expected}".strip("/") for sub in _REPO_SUBPATHS}
-                | {
-                    f"{sub}/{norm_expected}/{fpath.name}".strip("/")
-                    for sub in _REPO_SUBPATHS
-                }
-            )
             if norm_declared not in valid_locations:
                 replacement_loc = f"{norm_expected}/" if norm_expected else "./"
                 if fix:
@@ -411,7 +706,36 @@ def lint_wiki_documents(
                         }
                     )
 
-        # 2. Check Bazel package labels
+        # 1b. Check **Scope:** header (used in AGENTS.md)
+        scope_match = _SCOPE_RE.search(text)
+        if scope_match:
+            declared_scope = scope_match.group(1).strip()
+            norm_scope = re.sub(r"/\*+$", "", declared_scope).strip("/")
+            if norm_scope not in valid_locations:
+                replacement_scope = (
+                    f"hardware/generic/goldfish/{norm_expected}/**"
+                    if _is_goldfish_repo(repo_root, fpath) and norm_expected
+                    else (f"{norm_expected}/**" if norm_expected else "**")
+                )
+                if fix:
+                    updated_text = _SCOPE_RE.sub(
+                        f"**Scope:** `{replacement_scope}`", updated_text, count=1
+                    )
+                else:
+                    issues.append(
+                        {
+                            "file": doc["relative_path"],
+                            "kind": "stale_location",
+                            "message": (
+                                f"Declared **Scope:** `{declared_scope}` does not match "
+                                f"actual directory `{replacement_scope}`"
+                            ),
+                            "declared": declared_scope,
+                            "expected": replacement_scope,
+                        }
+                    )
+
+        # 2. Check Bazel package labels and target names
         seen_labels = set()
         for match in _BAZEL_LABEL_RE.finditer(updated_text):
             label = match.group(1)
@@ -421,10 +745,10 @@ def lint_wiki_documents(
             pkg_dir = _resolve_bazel_pkg_dir(label, repo_root, workspace_root)
             if pkg_dir is None:
                 continue
-            has_build = (pkg_dir / "BUILD.bazel").is_file() or (
-                pkg_dir / "BUILD"
-            ).is_file()
-            if not has_build:
+            build_file = pkg_dir / "BUILD.bazel"
+            if not build_file.is_file():
+                build_file = pkg_dir / "BUILD"
+            if not build_file.is_file():
                 issues.append(
                     {
                         "file": doc["relative_path"],
@@ -433,9 +757,36 @@ def lint_wiki_documents(
                         "label": label,
                     }
                 )
+                continue
 
-        # 3. Check relative Markdown links
-        for match in _MARKDOWN_LINK_RE.finditer(updated_text):
+            if ":" in label and _is_goldfish_repo(repo_root, fpath):
+                target_name = label.split(":", 1)[1].strip()
+                try:
+                    build_text = build_file.read_text(encoding="utf-8")
+                except OSError:
+                    build_text = ""
+                if not _bazel_target_exists_in_build_file(target_name, build_text):
+                    rel_bf = (
+                        build_file.relative_to(workspace_root)
+                        if build_file.is_relative_to(workspace_root)
+                        else build_file
+                    )
+                    issues.append(
+                        {
+                            "file": doc["relative_path"],
+                            "kind": "missing_bazel_target",
+                            "message": f"Bazel target `{label}` not found in `{rel_bf}`",
+                            "label": label,
+                        }
+                    )
+
+        # 3. Check relative Markdown links (excluding fenced code blocks and inline code spans
+        # containing C++ lambdas like `` `[this](SystemState* s)` ``)
+        non_code_text = re.sub(r"```.*?```", "", updated_text, flags=re.DOTALL)
+        non_code_text = re.sub(
+            r"`[^`\n]*\[[^\]]*\]\([^)]*\)[^`\n]*`", "", non_code_text
+        )
+        for match in _MARKDOWN_LINK_RE.finditer(non_code_text):
             raw_target = match.group(1).strip()
             if not raw_target or raw_target.startswith(
                 (
@@ -475,12 +826,51 @@ def lint_wiki_documents(
                     }
                 )
 
+        # 4. Check AGENTS.md <-> ARCHITECTURE.md synchronization in hardware/generic/goldfish
+        if doc["category"] == "agents" and _is_goldfish_repo(repo_root, fpath):
+            co_arch = fpath.parent / "ARCHITECTURE.md"
+            if co_arch.is_file():
+                try:
+                    arch_text = co_arch.read_text(encoding="utf-8")
+                except OSError:
+                    arch_text = ""
+                if "AGENTS.md" not in arch_text:
+                    issues.append(
+                        {
+                            "file": doc["relative_path"],
+                            "kind": "unlinked_agents_md",
+                            "message": (
+                                f"Co-located `{co_arch.relative_to(workspace_root) if co_arch.is_relative_to(workspace_root) else co_arch}` "
+                                "does not link to `AGENTS.md`"
+                            ),
+                        }
+                    )
+
+            root_agents = repo_root / "AGENTS.md"
+            if fpath.parent != repo_root and root_agents.is_file():
+                try:
+                    root_agents_text = root_agents.read_text(encoding="utf-8")
+                except OSError:
+                    root_agents_text = ""
+                rel_agents = f"{norm_expected}/AGENTS.md" if norm_expected else "AGENTS.md"
+                if rel_agents not in root_agents_text:
+                    issues.append(
+                        {
+                            "file": doc["relative_path"],
+                            "kind": "unrouted_agents_md",
+                            "message": (
+                                f"Subsystem playbook `{rel_agents}` is not registered in "
+                                f"`{root_agents.relative_to(workspace_root) if root_agents.is_relative_to(workspace_root) else root_agents}`"
+                            ),
+                        }
+                    )
+
         if fix and updated_text != text:
             try:
                 fpath.write_text(updated_text, encoding="utf-8")
                 fixed_files.append(doc["relative_path"])
-            except OSError:
-                pass
+            except OSError as exc:
+                logging.getLogger(__name__).debug("Ignored error in lint_wiki_documents: %s", exc)
 
     return {
         "files_checked": files_checked,
@@ -511,11 +901,11 @@ def register_parser(subparsers):
     # 1. index subcommand
     index_parser = docs_subparsers.add_parser(
         "index",
-        help="List all indexed ARCHITECTURE.md, DESIGN.md, and operational playbooks",
+        help="List all indexed ARCHITECTURE.md, DESIGN.md, AGENTS.md, and operational playbooks",
     )
     index_parser.add_argument(
         "--category",
-        choices=["all", "architecture", "design", "playbook"],
+        choices=["all", "architecture", "design", "agents", "playbook"],
         default="all",
         help="Filter by document category",
     )
@@ -524,7 +914,7 @@ def register_parser(subparsers):
     # 2. search subcommand
     search_parser = docs_subparsers.add_parser(
         "search",
-        help="Search across all ARCHITECTURE.md, DESIGN.md, and operational playbooks",
+        help="Search across all ARCHITECTURE.md, DESIGN.md, AGENTS.md, and operational playbooks",
     )
     search_parser.add_argument(
         "query",
@@ -536,7 +926,7 @@ def register_parser(subparsers):
     # 3. lint subcommand
     lint_parser = docs_subparsers.add_parser(
         "lint",
-        help="Audit ARCHITECTURE.md and DESIGN.md files for stale locations, moved Bazel packages, and broken links",
+        help="Audit ARCHITECTURE.md, DESIGN.md, and AGENTS.md files for stale locations, moved Bazel targets, broken links, and unrouted AGENTS.md files",
     )
     lint_parser.add_argument(
         "--fix",
@@ -614,6 +1004,10 @@ def run_docs_search(args):
     for r in results:
         print(f"  • {r['path']}  (score: {r['score']})")
         print(f"    Title: {r['title']}")
+        if r.get("targets"):
+            print(f"    Targets: {', '.join(r['targets'])}")
+        if r.get("files"):
+            print(f"    Files: {', '.join(r['files'])}")
         for snip in r.get("snippets", []):
             print(f"      > {snip}")
         print()
@@ -649,7 +1043,7 @@ def run_docs_lint(args):
 
     if not issues:
         print(
-            f"✓ Wiki lint passed: {report['files_checked']} ARCHITECTURE.md/DESIGN.md file(s) verified with 0 issues."
+            f"✓ Wiki lint passed: {report['files_checked']} ARCHITECTURE.md/DESIGN.md/AGENTS.md file(s) verified with 0 issues."
         )
         return
 
@@ -662,6 +1056,7 @@ def run_docs_lint(args):
 
 
 def run_doc_target(target_name, args):
+    json_mode = getattr(args, "json", False)
     target_info = DOC_TARGETS.get(target_name)
     if not target_info:
         print_result(
@@ -671,12 +1066,12 @@ def run_doc_target(target_name, args):
                 "error_message": f"Unknown doc target '{target_name}'",
                 "exit_code": 1,
             },
+            json_mode=json_mode,
             is_error=True,
         )
         sys.exit(1)
 
     branch, rel_path = target_info
-    json_mode = getattr(args, "json", False)
     use_cs_url = getattr(args, "codesearch_url", False)
 
     full_doc_path = resolve_doc_file_path(branch, rel_path)

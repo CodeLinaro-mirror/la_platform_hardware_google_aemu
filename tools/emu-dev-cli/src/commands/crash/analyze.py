@@ -30,6 +30,7 @@ from commands.crash.utils import (
     is_path_secure_user_owned,
     parse_crash_id,
 )
+from lib.output import print_status
 
 
 def run_analyze(args: argparse.Namespace) -> None:
@@ -41,6 +42,7 @@ def run_analyze(args: argparse.Namespace) -> None:
     Args:
         args: Parsed command line arguments.
     """
+    json_mode = getattr(args, "json", False)
     crash_id = parse_crash_id(args.crash_id)
     file_bug_flag = getattr(args, "file_bug", False)
     autofix_flag = getattr(args, "autofix", False)
@@ -52,8 +54,14 @@ def run_analyze(args: argparse.Namespace) -> None:
     else:
         # Run find-bug first for quick deduplication feedback, then run interactive/auto RCA
         run_find_bug(args)
-        print("\n------------------------------------------------------------")
-        print(f"🔬 Launching interactive CrashAdvisor RCA diagnostic session...")
+        print_status(
+            "\n------------------------------------------------------------",
+            json_mode=json_mode,
+        )
+        print_status(
+            "🔬 Launching interactive CrashAdvisor RCA diagnostic session...",
+            json_mode=json_mode,
+        )
         ensure_crashadvisor_imports()
 
         sandbox_dir = get_crashadvisor_sandbox_dir(crash_id, create=True)
@@ -82,12 +90,13 @@ def run_analyze(args: argparse.Namespace) -> None:
                         f"⚠️ Security warning: Refusing to execute {script_path} because directory or script permissions/ownership are insecure (must be owned by user {current_user} and not writable by group/others).\n"
                     )
                 else:
-                    print(
-                        f"\n🚀 Launching interactive AI investigation session ({script_path})...\n"
+                    print_status(
+                        f"\n🚀 Launching interactive AI investigation session ({script_path})...\n",
+                        json_mode=json_mode,
                     )
                     try:
                         script_path.chmod(0o700)
-                        subprocess.run(["bash", str(script_path)])
+                        subprocess.run(["bash", str(script_path)], timeout=3600)
                     except Exception as e:
                         sys.stderr.write(
                             f"⚠️ Failed to launch interactive script: {e}\n"

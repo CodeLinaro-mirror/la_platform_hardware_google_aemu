@@ -3,18 +3,34 @@
 **Role:** Operational Playbook  
 **Location:** `hardware/google/aemu/tools/emu-dev-cli/docs/playbooks/build_and_tidy.md`
 
-## 1. Clang-Tidy Verification (`mise tidy` / `clang_tidy.py`)
+## 1. `mise` Build, Test & Clang-Tidy Tasks (`mise.toml`)
+
+The workspace `mise.toml` (`hardware/generic/goldfish/development/mise.toml`, symlinked at
+`<workspace_root>/mise.toml`) provides standard build, test, and clang-tidy tasks that run from the
+workspace root:
+
+| Task | Command Executed | When to Use |
+| :--- | :--- | :--- |
+| `mise fastbuild` | `bazel build --noshow_progress -- @goldfish//...` (excluding non-`cc_*` targets) | Fast C++-only compilation check across `@goldfish`. |
+| `mise fasttest` | `bazel test -- @goldfish//...` (excluding `dump_syms` and `build_zip` rdeps in `fasttest_exclusions.txt`) | Fast unit test verification across `@goldfish`. |
+| `mise build` | `bazel build @goldfish//emulator:release` | Full emulator release archive build. |
+| `mise test` | `bazel test @goldfish//...` | Full `@goldfish` test suite including packaging targets. |
+| `mise tidy` | `hardware/generic/goldfish/development/tools/clang_tidy.py --commit HEAD` | Run `clang-tidy` against C/C++ lines modified in `HEAD`. |
+| `mise tidy_fix` | `bazel run @goldfish//:clang_tidy_report` | Apply automated fixes from the clang-tidy report. |
+| `mise bcc` | `bazel run @goldfish//development/tools:generate_bcc -- --workspace $BAZEL_ROOT` | Regenerate `compile_commands.json` for `clangd`. |
+
+### Clang-Tidy Stack Audit (`clang_tidy.py`)
 
 When verifying a stack of commits in `hardware/generic/goldfish` or `hardware/google/aemu`:
 
-- **Single Commit Audit:** Run `clang_tidy.py` against a specific commit SHA from the workspace
-  root:
+- **Single Commit Audit:** Run `mise tidy` (for `HEAD`) or invoke `clang_tidy.py` against a specific
+  commit SHA from the workspace root:
   ```bash
-  python3 hardware/generic/goldfish/tools/clang_tidy.py --commit <sha>
+  hardware/generic/goldfish/development/tools/clang_tidy.py --commit <sha>
   ```
 - **Top-Down Stack Audit:** When asked to tidy a commit stack from top (`HEAD`) to bottom:
-  1. Audit commits with `clang_tidy.py --commit <sha>` starting at `HEAD` down to the base commit to
-     identify which commits have findings.
+  1. Audit commits with `hardware/generic/goldfish/development/tools/clang_tidy.py --commit <sha>`
+     starting at `HEAD` down to the base commit to identify which commits have findings.
   2. When applying fixes to earlier commits in the stack, use interactive rebase (`git rebase -i`)
      or fold fixups into the target commits, and re-verify that no rebase conflicts or regressions
      are introduced in descendant commits.

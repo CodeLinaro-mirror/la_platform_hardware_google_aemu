@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import argparse
 import os
 from pathlib import Path
@@ -326,6 +327,7 @@ def execute_init(init_spec: Dict[str, Any], init_context: Optional[Dict[str, Any
                     shell=False,
                     text=True,
                     env=_build_subprocess_env(),
+                    timeout=120,
                 ).strip()
             except subprocess.CalledProcessError as e:
                 raise RuntimeError(
@@ -402,8 +404,8 @@ def resolve_workflow_file(target_name: str, base_hint: Optional[Path] = None) ->
         _, found = find_workflow_target(target_name)
         if found and os.path.isfile(found):
             return Path(found).resolve()
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger(__name__).debug("Ignored error in resolve_workflow_file: %s", exc)
 
     if base_hint:
         base_parent = base_hint.parent if base_hint.is_file() else base_hint
@@ -604,8 +606,8 @@ def detect_active_conversation_id() -> Optional[str]:
             cid = (parsed.get("tool") or {}).get("conversationId")
             if cid and str(cid).strip():
                 return str(cid).strip()
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in detect_active_conversation_id: %s", exc)
     return None
 
 
@@ -1140,12 +1142,14 @@ def execute_workflow_step(
     # Case 2C: Active Step with verifier_cmd executed safely with shell=False
     try:
         eval_cmd = build_cmd_args(verifier_cmd, context)
+        step_timeout = float(step_spec.get("timeout", 600))
         check_res = subprocess.run(
             eval_cmd,
             shell=False,
             text=True,
             capture_output=True,
             env=_build_subprocess_env(),
+            timeout=step_timeout,
         )
     except FileNotFoundError as e:
         check_res = subprocess.CompletedProcess(

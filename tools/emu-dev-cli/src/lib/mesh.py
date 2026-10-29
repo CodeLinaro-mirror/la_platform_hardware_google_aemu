@@ -14,6 +14,7 @@
 
 """Mesh node health, boot completion, keyguard unlock, and Netsim radio management."""
 
+import logging
 import glob
 import json
 import os
@@ -149,8 +150,8 @@ def get_device_avd_name(
             first_line = res.stdout.strip().splitlines()[0].strip()
             if first_line and first_line not in ("KO", "OK"):
                 return first_line
-    except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
-        pass
+    except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:
+        logging.getLogger(__name__).debug("Ignored error in get_device_avd_name: %s", exc)
 
     try:
         res = subprocess.run(
@@ -162,8 +163,8 @@ def get_device_avd_name(
         )
         if res.returncode == 0 and res.stdout.strip():
             return res.stdout.strip()
-    except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):
-        pass
+    except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:
+        logging.getLogger(__name__).debug("Ignored error in get_device_avd_name: %s", exc)
 
     return None
 

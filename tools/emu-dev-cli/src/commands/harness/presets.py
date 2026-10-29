@@ -19,20 +19,18 @@ from typing import Dict, List, Optional
 HARNESS_SWARM_PRESETS: List[Dict[str, str]] = [
     {
         "name": "parallel-code-review",
-        "title": "3-Agent Parallel Code Review Swarm",
+        "title": "8-Specialist Single-Wave Parallel Code-Review Swarm",
         "summary": (
-            "Spawns 3 specialized review subagents in parallel (Library Reuse Auditor, "
-            "Error Message & StatusOr Auditor, and 5-Way Complexity & Unicode Auditor) "
-            "and aggregates findings."
+            "Fans out 8 non-overlapping review specialists in a single wave (`run_workflow` / "
+            "`swarm`) covering Commit/Bug, Duplication/Reuse, Modularity, Control Flow, "
+            "Constants, Unicode/Platform, Error Messages/StatusOr, and Concurrency/Safety, "
+            "then deterministically filters findings to modified diff lines."
         ),
         "prompt": (
-            "Run a 3-agent parallel code review on the current commit/CL by invoking "
-            "`aemu-code-reviewer` across three focused angles in parallel:\n"
-            "1. Library Reuse Audit (`//emulator/libs/*`, headers, test servers).\n"
-            "2. Error Message & TotW 181 Audit (`go/error-messages` 4-part structure, "
-            "canonical `absl::StatusCode`, no `_or` suffixes).\n"
-            "3. 5-Way Code Complexity, Unicode Path Safety & Semantic Commit Audit.\n"
-            "Synthesize a single deduplicated review report with `Reuse audit: N checked, "
+            "Run `emu-dev-cli harness review-swarm` (or `aemu_prepare_review_swarm`) on the "
+            "target CL/commit, then execute the generated `run_review_swarm_workflow.py` via "
+            "`run_workflow` to fan out all 8 review specialists (`aemu-code-reviewer`) in parallel "
+            "and synthesize a diff-bounded report with `Reuse audit: N abstractions checked, "
             "M duplicates` and `Error-message audit: N sites checked, M findings`."
         ),
     },

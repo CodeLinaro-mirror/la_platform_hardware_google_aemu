@@ -138,6 +138,29 @@ class AIPatchGeneratorTest(unittest.TestCase):
             )
             self.assertIn("AI-Suggested Root Cause", body)
 
+    @patch("lib.ai_patch_generator.fetch_invocation_artifacts")
+    def test_generate_ai_patch_non_reproducible_omits_diff(self, mock_fetch):
+        mock_fetch.return_value = {"downloaded_files": []}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rca_file = Path(tmpdir) / "rca_summary.md"
+            rca_file.write_text(
+                "### 🔬 Jetski RCA Analysis\n\n"
+                "**Reproducible:** No\n\n"
+                "**Reproduction Results:** 20/20 local stress runs passed.\n\n"
+                "**Root Cause Summary:** Transient runner exit code 1; does not reproduce on HEAD.\n\n"
+                "**Detailed Explanation:**\n"
+                "Stress-tested 20 iterations locally with 0 failures.\n",
+                encoding="utf-8",
+            )
+            patch = generate_ai_patch_for_test(self.record, out_dir=tmpdir)
+            self.assertFalse(patch.reproducible)
+            self.assertEqual(patch.proposed_diff, "")
+            self.assertIn("20/20 local stress runs passed", patch.reproduction_results)
+            body = format_bug_body_with_ai_patch(self.record, patch)
+            self.assertIn("**Reproducible Locally:** `No`", body)
+            self.assertIn("No code patch proposed", body)
+            self.assertNotIn("flakiness fix --bug", body)
+
 
 if __name__ == "__main__":
     unittest.main()

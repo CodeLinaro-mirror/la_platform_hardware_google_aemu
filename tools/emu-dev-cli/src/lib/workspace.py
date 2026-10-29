@@ -190,8 +190,8 @@ class WorkspacePathResolver:
                             cand_p = Path(line.strip())
                             if cand_p.is_file():
                                 return cand_p.parent, cand_p
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in resolve_bazel_target_source_path: %s", exc)
 
         # 2. Search package directory across registered workspace roots
         package_dir = None
@@ -288,8 +288,8 @@ class WorkspacePathResolver:
                                 is_windows or os.access(art, os.X_OK)
                             ):
                                 return art
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("Ignored error in find_tool_binary: %s", exc)
 
         # 2. Check bazel_bin_rel if provided
         if bazel_bin_rel:

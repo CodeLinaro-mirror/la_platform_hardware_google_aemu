@@ -20,13 +20,17 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import shlex
 import subprocess
 import sys
+
+_SHELL_OPERATORS = ("&&", "||", "|", ";", ">", "<")
 
 
 def verify_all_fixes(
     queue_file: Path | str,
     test_cmd: str = "",
+    timeout: float = 600.0,
 ) -> int:
     """Verifies that every unresolved thread has a staged reply and runs the test command."""
     q_path = Path(queue_file)
@@ -71,13 +75,18 @@ def verify_all_fixes(
 
     clean_test_cmd = (test_cmd or "").strip()
     if clean_test_cmd:
+        use_shell = any(op in clean_test_cmd for op in _SHELL_OPERATORS)
+        cmd_arg: str | list[str] = (
+            clean_test_cmd if use_shell else shlex.split(clean_test_cmd)
+        )
         res = subprocess.run(
-            clean_test_cmd,
-            shell=True,
+            cmd_arg,
+            shell=use_shell,
             capture_output=True,
             text=True,
             check=False,
             cwd=str(primary_repo),
+            timeout=timeout,
         )
         if res.returncode != 0:
             combined = ((res.stdout or "") + "\n" + (res.stderr or "")).strip()
@@ -103,8 +112,18 @@ def main() -> int:
         default="",
         help="Verification command to run (e.g. mise presubmit or bazel test ...)",
     )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=600.0,
+        help="Timeout in seconds for verification command (default: 600)",
+    )
     args = parser.parse_args()
-    return verify_all_fixes(queue_file=args.queue_file, test_cmd=args.test_cmd)
+    return verify_all_fixes(
+        queue_file=args.queue_file,
+        test_cmd=args.test_cmd,
+        timeout=args.timeout,
+    )
 
 
 if __name__ == "__main__":

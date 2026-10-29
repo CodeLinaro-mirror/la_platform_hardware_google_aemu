@@ -30,6 +30,9 @@ import tempfile
 import zipfile
 
 
+_BUILD_TOOL_TIMEOUT_SECS = 120
+
+
 def _find_in_sdk(sdk_files: list[str], basename: str) -> str:
     for path in sdk_files:
         name = os.path.basename(path)
@@ -74,7 +77,9 @@ def build_apk(
             str(dex_zip),
             input_jar,
         ]
-        res_d8 = subprocess.run(d8_cmd, capture_output=True, text=True, check=False)
+        res_d8 = subprocess.run(
+            d8_cmd, capture_output=True, text=True, check=False, timeout=_BUILD_TOOL_TIMEOUT_SECS
+        )
         if res_d8.returncode != 0:
             raise RuntimeError(
                 f"D8 dex compilation failed (exit {res_d8.returncode}):\n{res_d8.stderr}"
@@ -91,7 +96,9 @@ def build_apk(
             "-I",
             android_jar,
         ]
-        res_aapt2 = subprocess.run(aapt2_cmd, capture_output=True, text=True, check=False)
+        res_aapt2 = subprocess.run(
+            aapt2_cmd, capture_output=True, text=True, check=False, timeout=_BUILD_TOOL_TIMEOUT_SECS
+        )
         if res_aapt2.returncode != 0:
             raise RuntimeError(
                 f"aapt2 link failed (exit {res_aapt2.returncode}):\n{res_aapt2.stderr}"
@@ -151,7 +158,9 @@ def build_apk(
             output_apk,
             str(unsigned_apk),
         ]
-        res_sign = subprocess.run(sign_cmd, capture_output=True, text=True, check=False)
+        res_sign = subprocess.run(
+            sign_cmd, capture_output=True, text=True, check=False, timeout=_BUILD_TOOL_TIMEOUT_SECS
+        )
         if res_sign.returncode != 0:
             raise RuntimeError(
                 f"apksigner failed (exit {res_sign.returncode}):\n{res_sign.stderr}"

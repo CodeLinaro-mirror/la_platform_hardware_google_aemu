@@ -39,6 +39,7 @@ def main() -> int:
                 text=True,
                 check=True,
                 cwd=args.cwd,
+                timeout=30,
             )
         except Exception:
             print(f"Error: Specified directory is not a Git repository: '{args.cwd}'", file=sys.stderr)

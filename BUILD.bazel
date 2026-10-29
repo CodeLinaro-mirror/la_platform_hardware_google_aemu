@@ -5,14 +5,80 @@ package(
     default_visibility = ["//visibility:public"],
 )
 
+# aemu is Apache-2.0, and this is the default license of every package.
+# Targets that also compile code under another license add the matching
+# license below to applicable_licenses. Each license() lists exactly the
+# license kinds that its license_text covers.
 license(
     name = "license",
     package_name = "aemu",
-    copyright_notice = "Copyright 2024 - The Android Open Source Project",
+    copyright_notice = "Copyright 2026 - The Android Open Source Project",
     license_kinds = [
         "@rules_license//licenses/spdx:Apache-2.0",
     ],
     license_text = "LICENSE",
+    visibility = ["//visibility:public"],
+)
+
+# base/Debug.cpp, base/SocketUtils.cpp, base/SocketWaiter.cpp and the POSIX
+# compatibility layer in windows/.
+license(
+    name = "license_gpl2",
+    package_name = "aemu",
+    copyright_notice = "Copyright 2014-2023 - The Android Open Source Project",
+    license_kinds = [
+        "@rules_license//licenses/spdx:GPL-2.0-only",
+    ],
+    license_text = "LICENSES/GPL-2.0-only.txt",
+    visibility = ["//visibility:public"],
+)
+
+# base/Stream.cpp, base/ring_buffer.cpp and the base/include/aemu/base headers
+# marked "SPDX-License-Identifier: MIT".
+license(
+    name = "license_mit",
+    package_name = "aemu",
+    copyright_notice = "Copyright 2018-2021 Google",
+    license_kinds = [
+        "@rules_license//licenses/spdx:MIT",
+    ],
+    license_text = "LICENSES/MIT.txt",
+    visibility = ["//visibility:public"],
+)
+
+# base/include/aemu/base/memory/NoDestructor.h and its test, from Chromium.
+license(
+    name = "license_bsd3",
+    package_name = "aemu",
+    copyright_notice = "Copyright 2018 The Chromium Authors",
+    license_kinds = [
+        "@rules_license//licenses/spdx:BSD-3-Clause",
+    ],
+    license_text = "LICENSES/BSD-3-Clause.txt",
+    visibility = ["//visibility:public"],
+)
+
+# windows/src/getopt.c, from NetBSD.
+license(
+    name = "license_bsd2",
+    package_name = "aemu",
+    copyright_notice = "Copyright (c) 2000 The NetBSD Foundation, Inc.",
+    license_kinds = [
+        "@rules_license//licenses/spdx:BSD-2-Clause",
+    ],
+    license_text = "LICENSES/BSD-2-Clause.txt",
+    visibility = ["//visibility:public"],
+)
+
+# windows/src/getopt.c, from OpenBSD.
+license(
+    name = "license_isc",
+    package_name = "aemu",
+    copyright_notice = "Copyright (c) 2002 Todd C. Miller",
+    license_kinds = [
+        "@rules_license//licenses/spdx:ISC",
+    ],
+    license_text = "LICENSES/ISC.txt",
     visibility = ["//visibility:public"],
 )
 

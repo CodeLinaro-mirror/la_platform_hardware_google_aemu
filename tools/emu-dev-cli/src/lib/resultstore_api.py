@@ -267,8 +267,8 @@ def query_resultstore_invocation(
     finally:
         try:
             os.remove(ext_path)
-        except OSError:
-            pass
+        except OSError as exc:
+            logging.getLogger(__name__).debug("Ignored error in query_resultstore_invocation: %s", exc)
 
 
 def _run_sponge_json(

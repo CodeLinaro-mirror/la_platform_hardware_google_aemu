@@ -32,6 +32,7 @@ from lib.output import format_markdown_table, print_result
 from lib.prebuilt_updater import (
     SUPPORTED_TARGETS,
     log_progress,
+    normalize_target_name,
     resolve_targets_list,
 )
 
@@ -117,15 +118,22 @@ def _parse_and_validate_target_arg(supported_targets: Sequence[str]):
         parts = [p.strip().lower() for p in raw_value.split(",") if p.strip()]
         if not parts:
             return "all"
+        normalized_parts: List[str] = []
         for p in parts:
-            if p not in allowed:
+            norm = (
+                "all"
+                if p == "all"
+                else normalize_target_name(p, supported_targets)
+            )
+            if norm not in allowed:
                 import argparse
 
                 raise argparse.ArgumentTypeError(
                     f"invalid target '{p}' (choose from: all, "
                     f"{', '.join(supported_targets)})"
                 )
-        return ",".join(parts)
+            normalized_parts.append(norm)
+        return ",".join(dict.fromkeys(normalized_parts))
 
     return _validator
 

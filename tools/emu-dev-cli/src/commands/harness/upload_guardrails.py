@@ -1,0 +1,341 @@
+# Copyright 2026 The Android Open Source Project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Pre-upload review-swarm gate evaluation and repository path resolution."""
+
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+from typing import Any, Dict, Optional, Tuple
+
+from commands.harness.constants import (
+    GIT_C_FLAG_PATTERN,
+    HEAD_MUTATING_SEGMENT_PATTERN,
+    HELP_FLAG_PATTERN,
+    REPO_DIR_CD_PATTERN,
+    REPO_FLAG_PATTERN,
+    REPO_UPLOAD_BRANCH_FLAG_PATTERN,
+    REPO_UPLOAD_TAIL_PATTERN,
+    SKIP_REVIEW_SWARM_ENV_SEGMENT_PATTERN,
+    SKIP_REVIEW_SWARM_PATTERN,
+    UPLOAD_SEGMENT_PATTERN,
+)
+from commands.harness.review_swarm import (
+    prepare_review_swarm_bundle,
+    resolve_git_repo_dir,
+)
+from commands.harness.shell_segments import iter_command_segments
+
+_PRE_UPLOAD_GATE_PREFIX = "Blocked by AEMU Harness Pre-Upload Review-Swarm Gate"
+
+REPO_UPLOAD_VALUE_FLAGS = frozenset({
+    "-j",
+    "--jobs",
+    "--topic",
+    "--hashtag",
+    "--ht",
+    "-l",
+    "--label",
+    "--pd",
+    "--patchset-description",
+    "--re",
+    "--reviewers",
+    "--cc",
+    "--br",
+    "--branch",
+    "-o",
+    "--push-option",
+    "-D",
+    "--destination",
+    "--dest",
+})
+
+
+def first_regex_group(match: Optional[re.Match[str]]) -> Optional[str]:
+    """Returns the first non-empty captured group from a regex match, if any."""
+    if not match:
+        return None
+    for group_val in match.groups():
+        if group_val:
+            return group_val
+    return None
+
+
+def _resolve_relative_to_base(raw_path: str, base_dir: Path) -> Path:
+    """Resolves `raw_path` relative to `base_dir` unless `raw_path` is already absolute."""
+    expanded = Path(raw_path).expanduser()
+    return expanded.resolve() if expanded.is_absolute() else (base_dir / expanded).resolve()
+
+
+def _extract_repo_upload_positional_dir(command: str, base_dir: Path) -> Optional[Path]:
+    """Extracts a positional `<project>` directory from `repo upload [opts] <project>`."""
+    tail_match = REPO_UPLOAD_TAIL_PATTERN.search(command)
+    if not tail_match:
+        return None
+    try:
+        tokens = [
+            tok.strip("\"'")
+            for tok in shlex.split(tail_match.group(1), posix=(os.name != "nt"))
+        ]
+    except ValueError:
+        tokens = tail_match.group(1).split()
+
+    skip_next = False
+    for tok in tokens:
+        if skip_next:
+            skip_next = False
+            continue
+        if tok in REPO_UPLOAD_VALUE_FLAGS:
+            skip_next = True
+            continue
+        if tok.startswith("-"):
+            continue
+        resolved = _resolve_relative_to_base(tok, base_dir)
+        if resolved.is_dir():
+            return resolved
+    return None
+
+
+def resolve_command_cwd(
+    command: str,
+    git_c_text: str = "",
+    default_cwd: Optional[Path] = None,
+) -> Path:
+    """Returns the directory a command runs in after a leading `cd <dir>` and `git -C <dir>`.
+
+    `git_c_text` is the text searched for `-C <dir>`, for example only the `git commit`
+    segment, so that `grep -C 3` elsewhere in the command is not taken for a directory.
+    Relative directories resolve against `default_cwd` (or the process working directory).
+    """
+    base_dir = (default_cwd or Path.cwd()).expanduser().resolve()
+    for raw_dir in (
+        first_regex_group(REPO_DIR_CD_PATTERN.search(command)),
+        first_regex_group(GIT_C_FLAG_PATTERN.search(git_c_text)),
+    ):
+        if raw_dir:
+            base_dir = _resolve_relative_to_base(raw_dir, base_dir)
+    return base_dir
+
+
+def _resolve_upload_repo_dir(
+    command: str,
+    default_cwd: Optional[Path] = None,
+    upload_segment: Optional[str] = None,
+) -> Path:
+    """Extracts the target Git repository path from a Gerrit upload shell command."""
+    target_text = upload_segment if upload_segment is not None else command
+    branch_hint = first_regex_group(REPO_UPLOAD_BRANCH_FLAG_PATTERN.search(target_text))
+    current_base = resolve_command_cwd(command, default_cwd=default_cwd)
+
+    for pattern in (REPO_FLAG_PATTERN, GIT_C_FLAG_PATTERN):
+        raw_dir = first_regex_group(pattern.search(target_text))
+        if raw_dir:
+            candidate = _resolve_relative_to_base(raw_dir, current_base)
+            return resolve_git_repo_dir(repo_dir=candidate, branch_hint=branch_hint)
+
+    positional_dir = _extract_repo_upload_positional_dir(target_text, current_base)
+    return resolve_git_repo_dir(
+        repo_dir=positional_dir or current_base,
+        branch_hint=branch_hint,
+    )
+
+
+def resolve_command_repo_dir(command: str, default_cwd: Optional[Path] = None) -> Path:
+    """Resolves the Git repository targeted by a `git commit` or Gerrit upload shell command.
+
+    Honors `cd <dir> &&`, `git -C <dir>`, `--repo <dir>`, and `repo upload <project>`, and
+    falls back to `default_cwd` (or the process working directory).
+    """
+    return _resolve_upload_repo_dir(command, default_cwd=default_cwd)
+
+
+def _read_review_payload_finding_count(
+    payload_path: Path,
+    target_id: str,
+    script_path: str,
+) -> Tuple[Optional[int], Optional[str]]:
+    """Reads unresolved finding count from `payload_path`, failing closed on invalid JSON."""
+    try:
+        review_payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return (
+            None,
+            "Blocked by AEMU Harness Pre-Upload Review-Swarm Gate: "
+            f"Failed to read or parse review-swarm payload '{payload_path}' for commit "
+            f"'{target_id}' ({exc}). Wait for `run_workflow(ScriptPath=\"{script_path}\")` "
+            "to complete or re-run it to regenerate a valid JSON object before uploading.",
+        )
+
+    if not isinstance(review_payload, dict):
+        return (
+            None,
+            "Blocked by AEMU Harness Pre-Upload Review-Swarm Gate: "
+            f"Invalid review-swarm payload format in '{payload_path}' for commit '{target_id}' "
+            f"(expected a JSON object, got {type(review_payload).__name__}). "
+            f"Execute `run_workflow(ScriptPath=\"{script_path}\")` to regenerate a valid payload.",
+        )
+
+    comments_map = review_payload.get("comments")
+    if comments_map is None:
+        return 0, None
+    bad_comments = (
+        type(comments_map).__name__
+        if not isinstance(comments_map, dict)
+        else next(
+            (f"key '{k}' with value type {type(v).__name__}" for k, v in comments_map.items() if not isinstance(v, list)),
+            None,
+        )
+    )
+    if bad_comments is not None:
+        return (
+            None,
+            "Blocked by AEMU Harness Pre-Upload Review-Swarm Gate: "
+            f"Invalid 'comments' field in '{payload_path}' for commit '{target_id}' "
+            f"(expected a JSON object mapping file paths to comment lists, got {bad_comments}). "
+            f"Execute `run_workflow(ScriptPath=\"{script_path}\")` to regenerate a valid payload.",
+        )
+    return sum(len(items) for items in comments_map.values()), None
+
+
+def _verify_cached_review_payload(bundle: Dict[str, Any], repo_dir: Path) -> Tuple[bool, str]:
+    """Evaluates the review-swarm payload status for a prepared commit bundle."""
+    out_dir = Path(bundle["output_dir"])
+    payload_path = out_dir / "gerrit_review_payload.json"
+    script_path = bundle["workflow_script_path"]
+    target_id = bundle["target_id"]
+    subject = bundle.get("subject") or ""
+
+    if not payload_path.is_file():
+        return (
+            False,
+            "Blocked by AEMU Harness Pre-Upload Review-Swarm Gate:\n"
+            f"  Local commit '{target_id}' ({subject}) in '{repo_dir}' has not been audited by the "
+            "8-Specialist Parallel Code-Review Swarm before uploading to Gerrit.\n"
+            f"  Auto-prepared 8-specialist review-swarm bundle at: {script_path}\n"
+            f"Next step: Execute `run_workflow(ScriptPath=\"{script_path}\")` "
+            "(or `aemu_prepare_review_swarm`), fix and amend any findings on HEAD, "
+            "and re-run the upload command.",
+        )
+
+    finding_count, parse_err = _read_review_payload_finding_count(
+        payload_path, target_id, script_path
+    )
+    if parse_err is not None:
+        return False, parse_err
+
+    if (finding_count or 0) > 0 and os.environ.get("AEMU_ALLOW_REVIEW_FINDINGS") != "1":
+        report_path = out_dir / "review_swarm_report.md"
+        return (
+            False,
+            "Blocked by AEMU Harness Pre-Upload Review-Swarm Gate:\n"
+            f"  Local commit '{target_id}' ({subject}) has {finding_count} unresolved "
+            f"review-swarm finding(s) in {report_path}.\n"
+            "Next step: Address the findings, amend the commit, re-run the review-swarm on the "
+            "amended HEAD commit, or set `AEMU_ALLOW_REVIEW_FINDINGS=1` to upload with open findings.",
+        )
+
+    return (
+        True,
+        f"Verified 8-Specialist Parallel Code-Review Swarm audit for HEAD commit '{target_id}' (0 blocking findings)",
+    )
+
+
+def _scan_upload_segments(
+    command: str,
+) -> Tuple[Optional[str], Optional[Tuple[str, str]], bool]:
+    """Scans top-level segments for uploads, prior `HEAD` mutations, and skip flags."""
+    first_upload: Optional[str] = None
+    seen_mutation: Optional[str] = None
+    chained_pair: Optional[Tuple[str, str]] = None
+    skip_env = os.environ.get("AEMU_SKIP_REVIEW_SWARM") == "1"
+    all_uploads_skipped = True
+
+    for _, segment in iter_command_segments(command):
+        if SKIP_REVIEW_SWARM_ENV_SEGMENT_PATTERN.match(segment):
+            skip_env = True
+        if HELP_FLAG_PATTERN.search(segment):
+            continue
+        if UPLOAD_SEGMENT_PATTERN.match(segment):
+            seg_text = segment.strip()
+            first_upload = first_upload or seg_text
+            chained_pair = chained_pair or (
+                (seen_mutation, seg_text) if seen_mutation is not None else None
+            )
+            if not SKIP_REVIEW_SWARM_PATTERN.search(segment):
+                all_uploads_skipped = False
+            continue
+        if seen_mutation is None and HEAD_MUTATING_SEGMENT_PATTERN.match(segment):
+            seen_mutation = segment.strip()
+
+    if first_upload is None:
+        return None, None, False
+    return first_upload, chained_pair, (skip_env or all_uploads_skipped)
+
+
+def _format_chained_mutation_error(mutation_segment: str, upload_segment: str) -> str:
+    """Formats an actionable PreToolUse error when `HEAD` is mutated before upload."""
+    return (
+        f"{_PRE_UPLOAD_GATE_PREFIX}:\n"
+        "  Cannot chain a HEAD-mutating command with a Gerrit upload in the same shell command.\n"
+        "  The PreToolUse hook runs before the shell command executes, so chaining "
+        f"'{mutation_segment}' before '{upload_segment}' would inspect the stale pre-command "
+        "HEAD instead of the commit actually being uploaded.\n"
+        f"Next step: Run '{mutation_segment}' in a separate command first, audit the new HEAD "
+        'commit via `aemu_prepare_review_swarm(target="HEAD")` and `run_workflow(ScriptPath=...)`, '
+        f"and then run '{upload_segment}' on its own."
+    )
+
+
+def evaluate_upload_command(
+    command: str,
+    review_swarm_cache_root: Optional[Path] = None,
+    default_cwd: Optional[Path] = None,
+) -> Optional[Tuple[bool, str]]:
+    """Gates Gerrit uploads on a clean 8-Specialist Parallel Code-Review Swarm audit for `HEAD`."""
+    upload_segment, chained_pair, skip_requested = _scan_upload_segments(command)
+    if upload_segment is None:
+        return None
+    if skip_requested:
+        return (
+            True,
+            "Allowed Gerrit upload (pre-upload review-swarm bypassed via --skip-review-swarm / AEMU_SKIP_REVIEW_SWARM=1)",
+        )
+    if chained_pair is not None:
+        return False, _format_chained_mutation_error(chained_pair[0], chained_pair[1])
+
+    branch_hint = first_regex_group(REPO_UPLOAD_BRANCH_FLAG_PATTERN.search(upload_segment))
+    try:
+        repo_dir = _resolve_upload_repo_dir(
+            command,
+            default_cwd=default_cwd,
+            upload_segment=upload_segment,
+        )
+        bundle = prepare_review_swarm_bundle(
+            commit="HEAD",
+            repo_dir=repo_dir,
+            cache_root=review_swarm_cache_root,
+            branch_hint=branch_hint,
+        )
+    except Exception as exc:
+        fallback_dir = default_cwd or Path.cwd()
+        return (
+            False,
+            f"{_PRE_UPLOAD_GATE_PREFIX}: "
+            f"Could not inspect HEAD commit from '{fallback_dir}' ({exc}). "
+            'Call MCP tool `aemu_prepare_review_swarm(target="HEAD", repo_dir="<git-repo-path>")` '
+            "and execute `run_workflow(ScriptPath=...)` before uploading.",
+        )
+    return _verify_cached_review_payload(bundle, repo_dir)

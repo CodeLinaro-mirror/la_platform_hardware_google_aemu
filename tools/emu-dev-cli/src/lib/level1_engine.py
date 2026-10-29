@@ -80,16 +80,15 @@ class Level1RefactoringEngine:
     ) -> bool:
         """Executes Level 1 remediation loop."""
         if not force and not tx.is_tree_clean():
-            print(
-                "Error: Uncommitted changes detected in repository. Commit or stash them, or use --force.",
-                file=sys.stderr,
+            logger.error(
+                "Error: Uncommitted changes detected in repository. Commit or stash them, or use --force."
             )
             sys.exit(1)
 
-        print(f"\n[Phase 1] Building and analyzing diagnostics for {report_target}...")
+        logger.info("[Phase 1] Building and analyzing diagnostics for %s...", report_target)
         self.runner.build(
             [report_target],
-            flags=["--@goldfish_build//:clang_tidy_enabled=true"],
+            flags=["--@aemu//tools/clang_tidy:clang_tidy_enabled=true"],
             check=False,
         )
 
@@ -97,7 +96,7 @@ class Level1RefactoringEngine:
             self.runner, report_target, self.source_dir
         )
         if not yaml_file or not yaml_file.exists():
-            print("✨ No diagnostic report found or target is clean. Nothing to fix.")
+            logger.info("No diagnostic report found or target is clean. Nothing to fix.")
             return True
 
         diagnostics = lib.tidy_runner.parse_fixes_yaml(str(yaml_file))
@@ -105,33 +104,38 @@ class Level1RefactoringEngine:
             diagnostics, max_level=1, checks=checks
         )
         if not active_diags:
-            print(
-                f"✨ Target {target} is clean for Level 1 (0 actionable diagnostics)."
+            logger.info(
+                "Target %s is clean for Level 1 (0 actionable diagnostics).", target
             )
             return True
 
-        print(f"Found {len(active_diags)} diagnostics matching Level 1.")
+        logger.info("Found %d diagnostics matching Level 1.", len(active_diags))
         if dry_run:
-            print(
-                f"\n[Dry Run] Would apply fixes for {len(active_diags)} diagnostics across target {target}."
+            logger.info(
+                "[Dry Run] Would apply fixes for %d diagnostics across target %s.",
+                len(active_diags),
+                target,
             )
             return True
 
         if not continue_tx:
             anchor = tx.start_transaction(target=target, level=1, force=force)
-            print(
-                f"\n[Transaction Started] Anchor commit: {anchor[:8]} for {target} (Level 1)"
+            logger.info(
+                "[Transaction Started] Anchor commit: %s for %s (Level 1)",
+                anchor[:8],
+                target,
             )
         else:
-            print(f"\n[Transaction Resumed] Resuming Level 1 repairs for {target}...")
+            logger.info("[Transaction Resumed] Resuming Level 1 repairs for %s...", target)
 
-        print(
-            f"\n[Phase 2] Applying native compiler fixes for {len(active_diags)} diagnostics..."
+        logger.info(
+            "[Phase 2] Applying native compiler fixes for %d diagnostics...",
+            len(active_diags),
         )
         applied = lib.tidy_runner.apply_yaml_fixes(
             str(yaml_file), cwd=Path(self.source_dir), max_level=1, checks=checks
         )
-        print(f"Applied {applied} textual replacements.")
+        logger.info("Applied %d textual replacements.", applied)
         repo_dir = resolve_git_repo_for_target(target, root_hint=Path(self.source_dir))
         lib.tidy_engine._run_clang_format(repo_dir)
 
@@ -142,14 +146,13 @@ class Level1RefactoringEngine:
             message="Apply raw Level 1 yaml diagnostics",
         )
 
-        print("Validating compilation with fast build...")
+        logger.info("Validating compilation with fast build...")
         verify_report = self.oracle.run_compilation_check(
             [target], workspace_root=Path(self.source_dir)
         )
         if not verify_report.success:
-            print(
-                "⚠️ Build verification failed after native fix application. Attempting AI fixup...",
-                file=sys.stderr,
+            logger.warning(
+                "Build verification failed after native fix application. Attempting AI fixup..."
             )
             prompt = _build_level1_fixup_prompt(
                 target, verify_report.format_for_prompt()
@@ -164,9 +167,8 @@ class Level1RefactoringEngine:
                 [target], workspace_root=Path(self.source_dir)
             )
             if not verify_report_2.success:
-                print(
-                    "⚠️ Build verification failed again after AI fixup. Rolling back...",
-                    file=sys.stderr,
+                logger.error(
+                    "Build verification failed again after AI fixup. Rolling back..."
                 )
                 tx.rollback_step()
                 sys.exit(1)
@@ -179,14 +181,13 @@ class Level1RefactoringEngine:
             )
 
         if test_target:
-            print(f"Verifying unit test target {test_target}...")
+            logger.info("Verifying unit test target %s...", test_target)
             test_res = self.runner.test(
                 [test_target], check=False, capture_output=True, text=True
             )
             if test_res.returncode != 0:
-                print(
-                    f"⚠️ Unit tests failed for {test_target}. Attempting AI fixup...",
-                    file=sys.stderr,
+                logger.warning(
+                    "Unit tests failed for %s. Attempting AI fixup...", test_target
                 )
                 error_text = f"{test_res.stderr}\n{test_res.stdout}"
                 prompt = _build_level1_fixup_prompt(target, error_text)
@@ -198,9 +199,8 @@ class Level1RefactoringEngine:
                 lib.tidy_engine._run_clang_format(repo_dir)
                 test_res2 = self.runner.test([test_target], check=False)
                 if test_res2.returncode != 0:
-                    print(
-                        f"⚠️ Unit tests failed again after AI fixup. Rolling back...",
-                        file=sys.stderr,
+                    logger.error(
+                        "Unit tests failed again after AI fixup. Rolling back..."
                     )
                     tx.rollback_step()
                     sys.exit(1)
@@ -213,13 +213,16 @@ class Level1RefactoringEngine:
 
         unresolved = [d for d in active_diags if not d.replacements]
         if unresolved:
-            print(
-                f"⚠️ Found {len(unresolved)} Level 1 diagnostics with no native replacements. Escalating to AI...",
-                file=sys.stderr,
+            logger.warning(
+                "Found %d Level 1 diagnostics with no native replacements. Escalating to AI...",
+                len(unresolved),
             )
             for idx, diag in enumerate(unresolved, 1):
-                print(
-                    f"\n--- [{idx}/{len(unresolved)}] AI Refactoring L1 Diagnostic: {diag.name} ---"
+                logger.info(
+                    "--- [%d/%d] AI Refactoring L1 Diagnostic: %s ---",
+                    idx,
+                    len(unresolved),
+                    diag.name,
                 )
                 prompt = lib.tidy_engine._build_generic_diagnostic_prompt(diag)
                 self.dispatcher.dispatch_refactor_step(
@@ -232,9 +235,9 @@ class Level1RefactoringEngine:
                     [target], workspace_root=Path(self.source_dir)
                 )
                 if not verify_report_3.success:
-                    print(
-                        f"⚠️ Build verification failed after AI fix for {diag.name}. Rolling back...",
-                        file=sys.stderr,
+                    logger.error(
+                        "Build verification failed after AI fix for %s. Rolling back...",
+                        diag.name,
                     )
                     tx.rollback_step()
                     sys.exit(1)
@@ -244,10 +247,10 @@ class Level1RefactoringEngine:
                     symbol_new="ai_fixed",
                     message=f"Fix missing L1 replacement for {diag.name}",
                 )
-        print("✅ Compilation and test verification succeeded!")
+        logger.info("Compilation and test verification succeeded!")
 
         try:
             finalize_transaction(tx, target, 1, bug_id, test_target, upload, checks)
         except Exception as e:
-            print(f"⚠️ Failed to natively commit Level 1 changes: {e}", file=sys.stderr)
+            logger.warning("Failed to natively commit Level 1 changes: %s", e)
         return True

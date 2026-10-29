@@ -31,6 +31,7 @@ from commands.crash.utils import (
 from commands.source_directory import get_source_directory
 from lib.agent import AgentApiClient
 from lib.markdown import extract_yaml_block
+from lib.output import print_result, print_status
 
 
 def run_autofix(args: argparse.Namespace) -> None:
@@ -42,12 +43,16 @@ def run_autofix(args: argparse.Namespace) -> None:
     Args:
         args: Parsed command line arguments containing crash_id, token, dry_run, force flags.
     """
+    json_mode = getattr(args, "json", False)
     target_id = parse_crash_id(args.crash_id)
     token = acquire_auth_token(getattr(args, "token", None))
     dry_run = getattr(args, "dry_run", False)
     force = getattr(args, "force", False)
 
-    print(f"🔧 Initiating autonomous autofix pipeline for Target: {target_id}...")
+    print_status(
+        f"🔧 Initiating autonomous autofix pipeline for Target: {target_id}...",
+        json_mode=json_mode,
+    )
 
     sandbox_dir = get_crashadvisor_sandbox_dir(target_id, create=True)
 
@@ -64,16 +69,39 @@ def run_autofix(args: argparse.Namespace) -> None:
     rca_path = Path(sandbox_dir) / "rca_summary.md"
 
     if not rca_path.exists():
-        sys.stderr.write(f"❌ ERROR: RCA summary file not found at {rca_path}.\n")
+        if json_mode:
+            print_result(
+                {
+                    "status": "error",
+                    "action": "crash autofix",
+                    "crash_id": target_id,
+                    "message": f"RCA summary file not found at {rca_path}.",
+                },
+                json_mode=True,
+                is_error=True,
+            )
+        else:
+            sys.stderr.write(f"❌ ERROR: RCA summary file not found at {rca_path}.\n")
         sys.exit(1)
 
     rca_content = rca_path.read_text(encoding="utf-8")
     action_data = extract_yaml_block(rca_content, "actionability:")
 
     if not action_data:
-        print(
-            "🟡 RCA analysis completed, but no structured actionability block was generated. Halting autofix."
-        )
+        if json_mode:
+            print_result(
+                {
+                    "status": "halted",
+                    "action": "crash autofix",
+                    "crash_id": target_id,
+                    "reason": "no_actionability_block",
+                },
+                json_mode=True,
+            )
+        else:
+            print(
+                "🟡 RCA analysis completed, but no structured actionability block was generated. Halting autofix."
+            )
         sys.exit(0)
 
     is_fixable = action_data.get("fixable", "false").lower() == "true"
@@ -103,34 +131,75 @@ def run_autofix(args: argparse.Namespace) -> None:
         else "NEEDS VERIFICATION / FIX ⚠️"
     )
 
-    print(f"\n📋 Actionability Analysis Results:")
-    print(f"  • Fixable: {'YES ✅' if is_fixable else 'NO ❌'}")
-    print(f"  • Target File: {target_file}")
-    if local_file_path:
-        print(f"  • Local File Path: file://{local_file_path}")
-    print(f"  • Target Function: {target_func}")
-    print(f"  • Remediation: {remediation}")
-    print(f"  • Crash Build ID: {fix_res.build_id} (Version: {fix_res.version_str})")
-    print(f"  • Fix Status Assessment: {fixed_badge} ({fix_res.fix_reason})")
-    print(f"  • Repository Version Warning: {fix_res.older_version_warning}\n")
+    if not json_mode:
+        print(f"\n📋 Actionability Analysis Results:")
+        print(f"  • Fixable: {'YES ✅' if is_fixable else 'NO ❌'}")
+        print(f"  • Target File: {target_file}")
+        if local_file_path:
+            print(f"  • Local File Path: file://{local_file_path}")
+        print(f"  • Target Function: {target_func}")
+        print(f"  • Remediation: {remediation}")
+        print(f"  • Crash Build ID: {fix_res.build_id} (Version: {fix_res.version_str})")
+        print(f"  • Fix Status Assessment: {fixed_badge} ({fix_res.fix_reason})")
+        print(f"  • Repository Version Warning: {fix_res.older_version_warning}\n")
 
     if not is_fixable:
-        print(
-            "🛑 Issue is marked as not fixable autonomously. Halting for developer review."
-        )
+        if json_mode:
+            print_result(
+                {
+                    "status": "halted",
+                    "action": "crash autofix",
+                    "crash_id": target_id,
+                    "fixable": False,
+                    "target_file": target_file,
+                    "target_function": target_func,
+                },
+                json_mode=True,
+            )
+        else:
+            print(
+                "🛑 Issue is marked as not fixable autonomously. Halting for developer review."
+            )
         sys.exit(0)
 
     if fix_res.is_already_fixed and not force and not dry_run:
-        print(
-            f"🟢 Fix Assessment Notice: The bug associated with Crash {target_id} appears to ALREADY BE FIXED.\n"
-            f"   Reason: {fix_res.fix_reason}\n"
-            f"   Note: This crash occurred on Build ID {fix_res.build_id}, which is an older build than current repository HEAD.\n"
-            f"   Halting automated dispatch to prevent redundant CLs. To dispatch the AI engineer anyway, pass --force."
-        )
+        if json_mode:
+            print_result(
+                {
+                    "status": "already_fixed",
+                    "action": "crash autofix",
+                    "crash_id": target_id,
+                    "fix_reason": fix_res.fix_reason,
+                    "build_id": fix_res.build_id,
+                },
+                json_mode=True,
+            )
+        else:
+            print(
+                f"🟢 Fix Assessment Notice: The bug associated with Crash {target_id} appears to ALREADY BE FIXED.\n"
+                f"   Reason: {fix_res.fix_reason}\n"
+                f"   Note: This crash occurred on Build ID {fix_res.build_id}, which is an older build than current repository HEAD.\n"
+                f"   Halting automated dispatch to prevent redundant CLs. To dispatch the AI engineer anyway, pass --force."
+            )
         sys.exit(0)
 
     if dry_run:
-        print("🔍 Dry-run specified. Skipping agentapi dispatch.")
+        if json_mode:
+            print_result(
+                {
+                    "status": "dry_run",
+                    "action": "crash autofix",
+                    "crash_id": target_id,
+                    "fixable": is_fixable,
+                    "target_file": target_file,
+                    "local_file_path": local_file_path,
+                    "target_function": target_func,
+                    "remediation": remediation,
+                },
+                json_mode=True,
+            )
+        else:
+            print("🔍 Dry-run specified. Skipping agentapi dispatch.")
         sys.exit(0)
 
     # Construct prompt with older build version guardrails
@@ -144,7 +213,10 @@ def run_autofix(args: argparse.Namespace) -> None:
         fix_status=fix_res,
     )
 
-    print("🤖 Dispatching emu_main_next_engineer subagent via agentapi...")
+    print_status(
+        "🤖 Dispatching emu_main_next_engineer subagent via agentapi...",
+        json_mode=json_mode,
+    )
     try:
         agent_client = AgentApiClient()
         res = agent_client.start_conversation(
@@ -152,9 +224,32 @@ def run_autofix(args: argparse.Namespace) -> None:
             agent=".gemini/agents/emu_main_next_engineer.md",
             model="pro",
         )
-        print(f"✅ Autonomous engineer successfully dispatched!\n{res.stdout.strip()}")
+        if json_mode:
+            print_result(
+                {
+                    "status": "dispatched",
+                    "action": "crash autofix",
+                    "crash_id": target_id,
+                    "agent_output": res.stdout.strip(),
+                },
+                json_mode=True,
+            )
+        else:
+            print(f"✅ Autonomous engineer successfully dispatched!\n{res.stdout.strip()}")
     except Exception as e:
-        sys.stderr.write(f"❌ Failed to dispatch agentapi: {e}\n")
+        if json_mode:
+            print_result(
+                {
+                    "status": "error",
+                    "action": "crash autofix",
+                    "crash_id": target_id,
+                    "message": f"Failed to dispatch agentapi: {e}",
+                },
+                json_mode=True,
+                is_error=True,
+            )
+        else:
+            sys.stderr.write(f"❌ Failed to dispatch agentapi: {e}\n")
         sys.exit(1)
 
 

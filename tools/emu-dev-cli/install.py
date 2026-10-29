@@ -50,14 +50,16 @@ _EMU_DEV_CLI_SRC = _SCRIPT_DIR / "src"
 if _EMU_DEV_CLI_SRC.exists():
     sys.path.insert(0, str(_EMU_DEV_CLI_SRC))
 
+_IMPORT_ERROR = None
 try:
     from install import installer
     from lib.bazel import find_bazel_cmd
     from commands.source_directory import ensure_codesearch_urls_config
-except ImportError:
+except ImportError as exc:
     installer = None
     find_bazel_cmd = None
     ensure_codesearch_urls_config = None
+    _IMPORT_ERROR = exc
 
 
 def run_install(argv=None):
@@ -119,6 +121,8 @@ def run_install(argv=None):
 
     if not installer:
         sys.stderr.write(f"ERROR: Could not import emu-dev-cli installer modules from: {_EMU_DEV_CLI_SRC}\n")
+        if _IMPORT_ERROR:
+            sys.stderr.write(f"Cause: {_IMPORT_ERROR}\n")
         return 1
 
     default_install_path = installer.detect_default_install_path()
@@ -173,12 +177,16 @@ def run_install(argv=None):
         print(f"  + Installed emu-dev-cli global launcher to {dest_path}")
     except PermissionError:
         print(f"  + Permission denied for {dest_path}. Attempting to escalate with sudo...")
-        if installer.install_launcher_with_sudo(str(built_bin), str(dest_path)):
+        if installer.install_launcher_with_sudo(
+            str(built_bin), str(dest_path), source_dir=str(source_root)
+        ):
             final_installed = dest_path
             print(f"  + Installed emu-dev-cli global launcher to {dest_path} (via sudo)")
         else:
             fallback_path = Path(installer.get_fallback_install_path())
-            installer.install_launcher_wrapper(str(built_bin), str(fallback_path))
+            installer.install_launcher_wrapper(
+                str(built_bin), str(fallback_path), source_dir=str(source_root)
+            )
             final_installed = fallback_path
             print(f"  ! Sudo escalation failed; installed to fallback location: {fallback_path}")
 
