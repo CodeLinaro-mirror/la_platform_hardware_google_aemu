@@ -46,6 +46,7 @@ GERRIT_REPO_WATCH_PATHS: tuple[str, ...] = (
     "tools/emu-dev-cli/src/commands/gerrit",
     "tools/emu-dev-cli/src/templates/gerrit_ui.html",
     "tools/emu-dev-cli/src/lib/gerrit_api.py",
+    "tools/emu-dev-cli/src/lib/web_security.py",
     "tools/emu-dev-cli/harness/plugin/sidecars/aemu_gerrit_ui",
 )
 
@@ -108,6 +109,7 @@ def collect_installed_gerrit_blobs(lib_dir: Path) -> dict[str, str]:
     single_files = (
         (lib_dir / "templates" / "gerrit_ui.html", "tools/emu-dev-cli/src/templates/gerrit_ui.html"),
         (lib_dir / "lib" / "gerrit_api.py", "tools/emu-dev-cli/src/lib/gerrit_api.py"),
+        (lib_dir / "lib" / "web_security.py", "tools/emu-dev-cli/src/lib/web_security.py"),
     )
     for local_file, repo_rel in single_files:
         try:

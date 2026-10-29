@@ -39,9 +39,23 @@ from commands.gerrit.services.queue_service import (
     _normalize_viewer_email,
 )
 from lib.gerrit_api import DEFAULT_GERRIT_HOST
+from lib.web_security import (
+    SIDECAR_TOKEN_ENV,
+    RequestRejected,
+    mint_ui_token,
+    read_json_body,
+    require_ui_token,
+)
 
 DEFAULT_GERRIT_UI_PORT = 8085
 MAX_PORT_PROBES = 50
+# Only the sidecar bridge script is public. The page itself embeds the viewer's email, and
+# both the Jetski iframe URL and the standalone URL carry `?token=`.
+PUBLIC_GET_ROUTES: frozenset[str] = frozenset({"/preload.js"})
+_UI_TOKEN_HINT = (
+    "Open the Gerrit UI from the Jetski side panel, or through the URL printed by "
+    "'emu-dev-cli gerrit ui' (it ends with ?token=...)."
+)
 
 
 SIDECAR_PRELOAD_SCRIPT_TAG: str = '<script src="/preload.js"></script>'
@@ -201,21 +215,23 @@ def _is_truthy_query_flag(qs: dict[str, list[str]], key: str) -> bool:
     return (qs.get(key) or [""])[0].strip().lower() in ("1", "true", "yes")
 
 
-def make_gerrit_ui_handler(service: Any) -> type[http.server.BaseHTTPRequestHandler]:
-    """Creates the HTTP request handler bound to `service`."""
-    sidecar_ui_token = os.environ.get("ANTIGRAVITY_SIDECAR_UI_TOKEN", "")
+def make_gerrit_ui_handler(
+    service: Any, ui_token: str | None = None
+) -> type[http.server.BaseHTTPRequestHandler]:
+    """Creates the HTTP request handler bound to `service`.
+
+    Every route outside `PUBLIC_GET_ROUTES` requires `ui_token`, which defaults to
+    `ANTIGRAVITY_SIDECAR_UI_TOKEN`. With no token configured, those routes reject
+    every request.
+    """
+    expected_token = os.environ.get(SIDECAR_TOKEN_ENV, "") if ui_token is None else ui_token
 
     class GerritUIHandler(http.server.BaseHTTPRequestHandler):
         def log_message(self, fmt: str, *args: Any) -> None:
             return
 
-        def _check_sidecar_token(self, parsed: urllib.parse.ParseResult) -> bool:
-            if not sidecar_ui_token:
-                return True
-            if self.headers.get("X-Sidecar-Token", "") == sidecar_ui_token:
-                return True
-            qs = urllib.parse.parse_qs(parsed.query)
-            return (qs.get("token") or [""])[0] == sidecar_ui_token
+        def _require_token(self, parsed: urllib.parse.ParseResult) -> None:
+            require_ui_token(expected_token, self.headers, parsed.query, _UI_TOKEN_HINT)
 
         def _send_raw_bytes(self, content: bytes, content_type: str, status: int = 200) -> None:
             try:
@@ -234,11 +250,7 @@ def make_gerrit_ui_handler(service: Any) -> type[http.server.BaseHTTPRequestHand
             self._send_raw_bytes(body, "application/json; charset=utf-8", status=status)
 
         def _read_json_body(self) -> dict[str, Any]:
-            length = int(self.headers.get("Content-Length", "0") or 0)
-            if length <= 0:
-                return {}
-            raw = self.rfile.read(length).decode("utf-8", errors="replace")
-            return json.loads(raw) if raw.strip() else {}
+            return read_json_body(self.headers, self.rfile)
 
         def _handle_get_preload(self, _qs: dict[str, list[str]]) -> None:
             self._send_raw_bytes(
@@ -600,11 +612,15 @@ def make_gerrit_ui_handler(service: Any) -> type[http.server.BaseHTTPRequestHand
                 "/api/gerrit/update-status": self._handle_get_update_status,
             }
             try:
+                if parsed.path not in PUBLIC_GET_ROUTES:
+                    self._require_token(parsed)
                 handler_fn = get_routes.get(parsed.path)
                 if handler_fn is None:
                     self._send_json({"error": f"Unknown endpoint '{parsed.path}'"}, status=404)
                     return
                 handler_fn(qs)
+            except RequestRejected as exc:
+                self._send_json({"error": str(exc)}, status=exc.status)
             except ValueError as exc:
                 self._send_json({"error": str(exc)}, status=400)
             except Exception as exc:
@@ -612,9 +628,6 @@ def make_gerrit_ui_handler(service: Any) -> type[http.server.BaseHTTPRequestHand
 
         def do_POST(self) -> None:
             parsed = urllib.parse.urlparse(self.path)
-            if not self._check_sidecar_token(parsed):
-                self._send_json({"error": "Invalid sidecar UI token"}, status=403)
-                return
             post_routes: dict[str, Callable[[dict[str, Any]], None]] = {
                 "/_sidecar/get-conversation-metadata": self._handle_post_sidecar_metadata,
                 "/_sidecar/send-message": self._handle_post_sidecar_send_message,
@@ -634,12 +647,15 @@ def make_gerrit_ui_handler(service: Any) -> type[http.server.BaseHTTPRequestHand
                 "/api/gerrit/perform-update": self._handle_post_perform_update,
             }
             try:
+                self._require_token(parsed)
                 body = self._read_json_body()
                 handler_fn = post_routes.get(parsed.path)
                 if handler_fn is None:
                     self._send_json({"error": f"Unknown POST endpoint '{parsed.path}'"}, status=404)
                     return
                 handler_fn(body)
+            except RequestRejected as exc:
+                self._send_json({"error": str(exc)}, status=exc.status)
             except ValueError as exc:
                 self._send_json({"error": str(exc)}, status=400)
             except Exception as exc:
@@ -705,8 +721,12 @@ def serve_gerrit_ui(
 
     port_finder = resolve_ui_hook("find_available_port", find_available_port)
     bound_port = port_finder(host_addr, port)
-    url = f"http://{host_addr}:{bound_port}"
-    server = http.server.ThreadingHTTPServer((host_addr, bound_port), make_gerrit_ui_handler(service))
+    # Standalone servers mint their own token; the browser picks it up from `?token=`.
+    ui_token = mint_ui_token()
+    url = f"http://{host_addr}:{bound_port}/?token={ui_token}"
+    server = http.server.ThreadingHTTPServer(
+        (host_addr, bound_port), make_gerrit_ui_handler(service, ui_token=ui_token)
+    )
     print(f"AEMU Fast Gerrit UI running at {url} (viewer: {service.default_viewer})")
     if open_browser:
         try:

@@ -17,7 +17,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import http.client
 from http.server import ThreadingHTTPServer
+import io
 import json
 import os
 from pathlib import Path
@@ -27,7 +29,7 @@ import subprocess
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 import urllib.error
 import urllib.request
 
@@ -59,6 +61,17 @@ from commands.gerrit.ui_server import (
     render_static_gerrit_ui_html,
     resolve_code_search_base_url,
 )
+from lib.web_security import MAX_JSON_BODY_BYTES
+
+# Every Gerrit UI API route requires the UI token (see `make_gerrit_ui_handler`).
+_TEST_UI_TOKEN = "gerrit-ui-test-token"
+_AUTH_HEADERS = {"X-Sidecar-Token": _TEST_UI_TOKEN}
+_JSON_AUTH_HEADERS = {"Content-Type": "application/json", **_AUTH_HEADERS}
+
+
+def _authed_get(url: str) -> urllib.request.Request:
+    """Builds a GET request that carries the test UI token."""
+    return urllib.request.Request(url, headers=_AUTH_HEADERS)
 
 
 class GerritUIServerTest(unittest.TestCase):
@@ -389,19 +402,19 @@ class GerritUIServerTest(unittest.TestCase):
             patch.object(service, "fetch_queue", side_effect=fake_fetch_queue),
             patch.object(service, "schedule_background_prewarm", return_value=False),
         ):
-            handler_cls = make_gerrit_ui_handler(service)
+            handler_cls = make_gerrit_ui_handler(service, ui_token=_TEST_UI_TOKEN)
             httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
             port = httpd.server_address[1]
             srv_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
             srv_thread.start()
             try:
-                with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=5) as index_resp:
+                with urllib.request.urlopen(_authed_get(f"http://127.0.0.1:{port}/"), timeout=5) as index_resp:
                     served_html = index_resp.read().decode("utf-8")
                 self.assertIn('"viewer": "jansene@google.com"', served_html)
 
                 # Queue request without explicit viewer param resolves to service.default_viewer ($USER)
                 with urllib.request.urlopen(
-                    f"http://127.0.0.1:{port}/api/gerrit/queue?scope=reviewer&fast=1", timeout=5
+                    _authed_get(f"http://127.0.0.1:{port}/api/gerrit/queue?scope=reviewer&fast=1"), timeout=5
                 ) as queue_resp:
                     queue_payload = json.loads(queue_resp.read().decode("utf-8"))
                 self.assertEqual(queue_payload["viewer"], "jansene@google.com")
@@ -1454,7 +1467,7 @@ setImmediate(() => {
             service.send_reviewer_chat_dm(43217292, "jansene@google.com", unicode_msg)
 
         # Verify HTTP POST /api/gerrit/chat-dm returns 200 on success and 400 on ValueError
-        handler_cls = make_gerrit_ui_handler(service)
+        handler_cls = make_gerrit_ui_handler(service, ui_token=_TEST_UI_TOKEN)
         httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
         port = httpd.server_address[1]
         srv_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -1471,7 +1484,7 @@ setImmediate(() => {
                         "recipient": "jansene@google.com",
                         "message": unicode_msg,
                     }).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
+                    headers=_JSON_AUTH_HEADERS,
                     method="POST",
                 )
                 with urllib.request.urlopen(req_ok, timeout=5) as resp_ok:
@@ -1486,7 +1499,7 @@ setImmediate(() => {
                         "recipient": "joshuaduong@google.com",
                         "message": "Self ping",
                     }).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
+                    headers=_JSON_AUTH_HEADERS,
                     method="POST",
                 )
                 with self.assertRaises(urllib.error.HTTPError) as http_err:
@@ -1777,7 +1790,7 @@ setImmediate(() => {
         ):
             service = GerritUIService(default_viewer="joshuaduong@google.com")
 
-        handler_cls = make_gerrit_ui_handler(service)
+        handler_cls = make_gerrit_ui_handler(service, ui_token=_TEST_UI_TOKEN)
         httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
         port = httpd.server_address[1]
         srv_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -1791,8 +1804,10 @@ setImmediate(() => {
                 return_value=MagicMock(returncode=0, stdout=sample_rpc_json, stderr=""),
             ):
                 with urllib.request.urlopen(
-                    f"http://127.0.0.1:{port}/api/gerrit/presubmit-targets"
-                    "?cl=43234462&ps=2&project=platform/hardware/google/aemu",
+                    _authed_get(
+                        f"http://127.0.0.1:{port}/api/gerrit/presubmit-targets"
+                        "?cl=43234462&ps=2&project=platform/hardware/google/aemu"
+                    ),
                     timeout=5,
                 ) as resp:
                     self.assertEqual(resp.status, 200)
@@ -1801,7 +1816,7 @@ setImmediate(() => {
 
             with self.assertRaises(urllib.error.HTTPError) as bad_err:
                 urllib.request.urlopen(
-                    f"http://127.0.0.1:{port}/api/gerrit/presubmit-targets?cl=abc", timeout=5
+                    _authed_get(f"http://127.0.0.1:{port}/api/gerrit/presubmit-targets?cl=abc"), timeout=5
                 )
             self.assertEqual(bad_err.exception.code, 400)
         finally:
@@ -1871,7 +1886,7 @@ setImmediate(() => {
             self.assertEqual(q_done["changes"][0]["presubmit_status"], "passed")
 
             # Verify HTTP POST /api/gerrit/vote with presubmit_ready=0
-            handler_cls = make_gerrit_ui_handler(service)
+            handler_cls = make_gerrit_ui_handler(service, ui_token=_TEST_UI_TOKEN)
             httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
             port = httpd.server_address[1]
             srv_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -1884,7 +1899,7 @@ setImmediate(() => {
                         "code_review": None,
                         "presubmit_ready": 0,
                     }).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
+                    headers=_JSON_AUTH_HEADERS,
                     method="POST",
                 )
                 with urllib.request.urlopen(req_vote, timeout=5) as resp:
@@ -2087,14 +2102,14 @@ setImmediate(() => {
             patch.object(service, "fetch_queue", side_effect=fake_fetch_queue),
             patch.object(service, "schedule_background_prewarm", return_value=True) as mock_prewarm,
         ):
-            handler_cls = make_gerrit_ui_handler(service)
+            handler_cls = make_gerrit_ui_handler(service, ui_token=_TEST_UI_TOKEN)
             httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
             port = httpd.server_address[1]
             srv_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
             srv_thread.start()
             try:
                 with urllib.request.urlopen(
-                    f"http://127.0.0.1:{port}/api/gerrit/queue?scope=reviewer&fast=1", timeout=5
+                    _authed_get(f"http://127.0.0.1:{port}/api/gerrit/queue?scope=reviewer&fast=1"), timeout=5
                 ) as resp1:
                     d1 = json.loads(resp1.read().decode("utf-8"))
                 self.assertTrue(d1["is_partial"])
@@ -2102,7 +2117,7 @@ setImmediate(() => {
                 self.assertEqual(mock_prewarm.call_count, 0)
 
                 with urllib.request.urlopen(
-                    f"http://127.0.0.1:{port}/api/gerrit/queue?scope=reviewer&prewarm=1", timeout=5
+                    _authed_get(f"http://127.0.0.1:{port}/api/gerrit/queue?scope=reviewer&prewarm=1"), timeout=5
                 ) as resp2:
                     d2 = json.loads(resp2.read().decode("utf-8"))
                 self.assertFalse(d2["is_partial"])
@@ -2110,14 +2125,14 @@ setImmediate(() => {
                 self.assertEqual(mock_prewarm.call_count, 1)
 
                 with urllib.request.urlopen(
-                    f"http://127.0.0.1:{port}/api/gerrit/queue?scope=reviewer&fast=1&refresh=1",
+                    _authed_get(f"http://127.0.0.1:{port}/api/gerrit/queue?scope=reviewer&fast=1&refresh=1"),
                     timeout=5,
                 ) as resp3:
                     json.loads(resp3.read().decode("utf-8"))
                 self.assertEqual(calls[-1], (True, False))
 
                 with urllib.request.urlopen(
-                    f"http://127.0.0.1:{port}/api/gerrit/queue?prewarm_only=1&viewer=joshuaduong@google.com",
+                    _authed_get(f"http://127.0.0.1:{port}/api/gerrit/queue?prewarm_only=1&viewer=joshuaduong@google.com"),
                     timeout=5,
                 ) as resp4:
                     d4 = json.loads(resp4.read().decode("utf-8"))
@@ -2805,7 +2820,7 @@ setImmediate(() => {
                 self.assertIn(("DeleteCascadeTrajectory", {"cascadeId": "conv-mod-1"}), ls_calls)
 
                 # 2. Delete the modified 1-turn root question via HTTP handler.
-                handler_cls = make_gerrit_ui_handler(service)
+                handler_cls = make_gerrit_ui_handler(service, ui_token=_TEST_UI_TOKEN)
                 httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
                 port = httpd.server_address[1]
                 srv_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -2819,7 +2834,7 @@ setImmediate(() => {
                             "conversationId": "conv-mod-2",
                             "threadId": "inline-root-1",
                         }).encode("utf-8"),
-                        headers={"Content-Type": "application/json"},
+                        headers=_JSON_AUTH_HEADERS,
                         method="POST",
                     )
                     with urllib.request.urlopen(req, timeout=5) as resp:
@@ -3134,13 +3149,13 @@ setImmediate(() => {
                 self.assertEqual(spawn_calls, [])
 
                 # 2. Exercise HTTP GET + POST /api/gerrit/ai-analysis on local server.
-                server = ThreadingHTTPServer(("127.0.0.1", 0), make_gerrit_ui_handler(service))
+                server = ThreadingHTTPServer(("127.0.0.1", 0), make_gerrit_ui_handler(service, ui_token=_TEST_UI_TOKEN))
                 port = server.server_address[1]
                 server_thread = threading.Thread(target=server.serve_forever, daemon=True)
                 server_thread.start()
                 try:
                     with urllib.request.urlopen(
-                        f"http://127.0.0.1:{port}/api/gerrit/ai-analysis?cl=43288888&ps=2",
+                        _authed_get(f"http://127.0.0.1:{port}/api/gerrit/ai-analysis?cl=43288888&ps=2"),
                         timeout=5,
                     ) as resp:
                         http_initial = json.loads(resp.read().decode("utf-8"))
@@ -3157,7 +3172,7 @@ setImmediate(() => {
                                 "subject": "fix(gerrit): Tighten token check 测试_🚀_é",
                             }
                         ).encode("utf-8"),
-                        headers={"Content-Type": "application/json"},
+                        headers=_JSON_AUTH_HEADERS,
                         method="POST",
                     )
                     with urllib.request.urlopen(post_req, timeout=5) as resp:
@@ -3639,7 +3654,7 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
             patch("shutil.which", return_value="/usr/bin/gob-curl"),
             patch("subprocess.run", side_effect=fake_gob_curl),
         ):
-            httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_gerrit_ui_handler(service))
+            httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_gerrit_ui_handler(service, ui_token=_TEST_UI_TOKEN))
             port = httpd.server_address[1]
             t = threading.Thread(target=httpd.serve_forever, daemon=True)
             t.start()
@@ -3655,7 +3670,7 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
                             "message": "Staged batch vote 测试_🚀_é",
                         }
                     ).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
+                    headers=_JSON_AUTH_HEADERS,
                     method="POST",
                 )
                 with urllib.request.urlopen(req_vote, timeout=5) as resp:
@@ -3688,7 +3703,7 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
                             "message": "Top-level review note 测试_🚀_é",
                         }
                     ).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
+                    headers=_JSON_AUTH_HEADERS,
                     method="POST",
                 )
                 with urllib.request.urlopen(req_msg, timeout=5) as resp:
@@ -3736,7 +3751,7 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
             return []
 
         with patch.object(service.client, "_request_json", side_effect=fake_request_json):
-            httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_gerrit_ui_handler(service))
+            httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_gerrit_ui_handler(service, ui_token=_TEST_UI_TOKEN))
             port = httpd.server_address[1]
             t = threading.Thread(target=httpd.serve_forever, daemon=True)
             t.start()
@@ -3752,7 +3767,7 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
                             "viewer": "joshuaduong@google.com",
                         }
                     ).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
+                    headers=_JSON_AUTH_HEADERS,
                     method="POST",
                 )
                 with urllib.request.urlopen(req_rev, timeout=5) as resp:
@@ -3900,7 +3915,7 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
             patch("shutil.which", return_value="/usr/bin/gob-curl"),
             patch("subprocess.run", side_effect=fake_gob_curl),
         ):
-            handler = make_gerrit_ui_handler(service)
+            handler = make_gerrit_ui_handler(service, ui_token=_TEST_UI_TOKEN)
             httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
             port = httpd.server_address[1]
             t = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -3910,7 +3925,7 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
                 req_ok = urllib.request.Request(
                     f"http://127.0.0.1:{port}/api/gerrit/submit",
                     data=json.dumps({"cls": [43290001, 43290002]}).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
+                    headers=_JSON_AUTH_HEADERS,
                     method="POST",
                 )
                 with urllib.request.urlopen(req_ok, timeout=5) as resp:
@@ -3930,7 +3945,7 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
                 req_fail = urllib.request.Request(
                     f"http://127.0.0.1:{port}/api/gerrit/submit",
                     data=json.dumps({"cls": [43299999]}).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
+                    headers=_JSON_AUTH_HEADERS,
                     method="POST",
                 )
                 with self.assertRaises(urllib.error.HTTPError) as ctx:
@@ -4064,7 +4079,7 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
 
         # Exercise HTTP POST /api/gerrit/reply (200 OK and 400 validation).
         service.client._request_json = fake_request_json  # type: ignore[method-assign]
-        server = ThreadingHTTPServer(("127.0.0.1", 0), make_gerrit_ui_handler(service))
+        server = ThreadingHTTPServer(("127.0.0.1", 0), make_gerrit_ui_handler(service, ui_token=_TEST_UI_TOKEN))
         port = server.server_address[1]
         server_thread = threading.Thread(target=server.serve_forever, daemon=True)
         server_thread.start()
@@ -4082,7 +4097,7 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
                         "message": "HTTP reply check 测试_🚀_é",
                     }
                 ).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
+                headers=_JSON_AUTH_HEADERS,
                 method="POST",
             )
             with urllib.request.urlopen(ok_req, timeout=5) as resp:
@@ -4096,7 +4111,7 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
             bad_req = urllib.request.Request(
                 f"http://127.0.0.1:{port}/api/gerrit/reply",
                 data=json.dumps({"cl": 43152171, "comment_id": "", "message": "hi"}).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
+                headers=_JSON_AUTH_HEADERS,
                 method="POST",
             )
             with self.assertRaises(urllib.error.HTTPError) as ctx:
@@ -4425,14 +4440,14 @@ document.getElementById("commentReplyInput-srv-thread-101-0").value = "Switched 
                 default_viewer="joshuaduong@google.com", sidecar_updater=fake_updater  # type: ignore[arg-type]
             )
 
-        handler_cls = make_gerrit_ui_handler(service)
+        handler_cls = make_gerrit_ui_handler(service, ui_token=_TEST_UI_TOKEN)
         httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
         port = httpd.server_address[1]
         srv_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
         srv_thread.start()
         try:
             with urllib.request.urlopen(
-                f"http://127.0.0.1:{port}/api/gerrit/update-status?force=1", timeout=5
+                _authed_get(f"http://127.0.0.1:{port}/api/gerrit/update-status?force=1"), timeout=5
             ) as resp:
                 self.assertEqual(resp.status, 200)
                 st_payload = json.loads(resp.read().decode("utf-8"))
@@ -4442,7 +4457,7 @@ document.getElementById("commentReplyInput-srv-thread-101-0").value = "Switched 
             req_unconfirmed = urllib.request.Request(
                 f"http://127.0.0.1:{port}/api/gerrit/perform-update",
                 data=json.dumps({"force_discard_local": False}).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
+                headers=_JSON_AUTH_HEADERS,
                 method="POST",
             )
             with self.assertRaises(urllib.error.HTTPError) as ctx:
@@ -4456,7 +4471,7 @@ document.getElementById("commentReplyInput-srv-thread-101-0").value = "Switched 
             req_confirmed = urllib.request.Request(
                 f"http://127.0.0.1:{port}/api/gerrit/perform-update",
                 data=json.dumps({"force_discard_local": True}).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
+                headers=_JSON_AUTH_HEADERS,
                 method="POST",
             )
             with urllib.request.urlopen(req_confirmed, timeout=5) as resp2:
@@ -4650,6 +4665,162 @@ console.log("DIFF_COLOR_SCHEMES_OK");
             )
             self.assertEqual(proc.returncode, 0, msg=f"Diff color scheme harness failed:\n{proc.stderr}\n{proc.stdout}")
             self.assertIn("DIFF_COLOR_SCHEMES_OK", proc.stdout)
+
+
+class GerritUIHandlerSecurityTest(unittest.TestCase):
+    """Token, Content-Type and body-size checks on the Gerrit UI HTTP handler."""
+
+    def start(self, ui_token: str | None = None, env_token: str | None = None) -> tuple[MagicMock, str]:
+        service = MagicMock()
+        service.default_viewer = "jansene@google.com"
+        service.get_sidecar_update_status.return_value = {"status": "up_to_date"}
+        service.cast_batch_vote.return_value = {"status": "ok"}
+        env = {"ANTIGRAVITY_SIDECAR_UI_TOKEN": env_token} if env_token is not None else {}
+        with patch.dict(os.environ, env):
+            if env_token is None:
+                os.environ.pop("ANTIGRAVITY_SIDECAR_UI_TOKEN", None)
+            handler_cls = make_gerrit_ui_handler(service, ui_token=ui_token)
+        return service, self.serve(handler_cls)
+
+    def serve(self, handler_cls: type) -> str:
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.shutdown)
+        return f"http://127.0.0.1:{httpd.server_address[1]}"
+
+    def request(
+        self,
+        url: str,
+        token: str | None = None,
+        body: bytes | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> tuple[int, dict[str, str]]:
+        all_headers = {"X-Sidecar-Token": token} if token is not None else {}
+        all_headers.update(headers or {})
+        req = urllib.request.Request(url, data=body, headers=all_headers, method="POST" if body is not None else "GET")
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                return resp.status, dict(resp.headers)
+        except urllib.error.HTTPError as err:
+            return err.code, dict(err.headers)
+
+    def vote(self, base: str, token: str | None, content_type: str | None = "application/json") -> int:
+        headers = {"Content-Type": content_type} if content_type else {}
+        return self.request(f"{base}/api/gerrit/vote", token, b'{"cls": [43350001]}', headers)[0]
+
+    def test_unset_token_fails_closed(self) -> None:
+        for ui_token in (None, ""):
+            with self.subTest(ui_token=ui_token):
+                service, base = self.start(ui_token=ui_token)
+                self.assertEqual(self.request(f"{base}/api/gerrit/update-status?force=1", "")[0], 401)
+                self.assertEqual(self.request(f"{base}/api/gerrit/update-status?token=x", "x")[0], 401)
+                self.assertEqual(self.vote(base, ""), 401)
+                service.get_sidecar_update_status.assert_not_called()
+                service.cast_batch_vote.assert_not_called()
+
+    def test_api_routes_require_matching_token(self) -> None:
+        service, base = self.start(ui_token="secret-token")
+        for token in (None, "", "wrong", "secret-token-extra", "sécret"):
+            with self.subTest(token=token):
+                self.assertEqual(self.request(f"{base}/api/gerrit/update-status", token)[0], 401)
+                self.assertEqual(self.vote(base, token), 401)
+        service.cast_batch_vote.assert_not_called()
+
+        self.assertEqual(self.request(f"{base}/api/gerrit/update-status", "secret-token")[0], 200)
+        self.assertEqual(self.request(f"{base}/api/gerrit/update-status?token=secret-token")[0], 200)
+        self.assertEqual(self.vote(base, "secret-token"), 200)
+        service.cast_batch_vote.assert_called_once()
+
+    def test_env_token_is_the_default(self) -> None:
+        _, base = self.start(env_token="env-token")
+        self.assertEqual(self.request(f"{base}/api/gerrit/update-status", "env-token")[0], 200)
+        self.assertEqual(self.request(f"{base}/api/gerrit/update-status", "other")[0], 401)
+
+    def test_token_uses_constant_time_comparison(self) -> None:
+        import lib.web_security as web_security
+
+        _, base = self.start(ui_token="secret-token")
+        with patch.object(
+            web_security.hmac, "compare_digest", wraps=web_security.hmac.compare_digest
+        ) as compare_digest:
+            self.assertEqual(self.request(f"{base}/api/gerrit/update-status", "secret-token")[0], 200)
+        compare_digest.assert_called()
+
+    def test_page_requires_token_but_bridge_script_is_public(self) -> None:
+        _, base = self.start(ui_token="secret-token")
+        for path in ("/", "/index.html"):
+            with self.subTest(path=path):
+                self.assertEqual(self.request(f"{base}{path}")[0], 401)
+                self.assertEqual(self.request(f"{base}{path}?viewer=a&token=secret-token")[0], 200)
+                self.assertEqual(self.request(f"{base}{path}", "secret-token")[0], 200)
+        self.assertEqual(self.request(f"{base}/preload.js")[0], 200)
+
+    def test_post_requires_json_content_type(self) -> None:
+        service, base = self.start(ui_token="secret-token")
+        for content_type in ("text/plain", "application/x-www-form-urlencoded", None):
+            with self.subTest(content_type=content_type):
+                self.assertEqual(self.vote(base, "secret-token", content_type), 415)
+        service.cast_batch_vote.assert_not_called()
+
+    def test_post_rejects_malformed_and_oversized_bodies(self) -> None:
+        service, base = self.start(ui_token="secret-token")
+        json_headers = {"Content-Type": "application/json"}
+        for body in (b"not json", b"[]", b""):
+            with self.subTest(body=body):
+                status, _ = self.request(f"{base}/api/gerrit/vote", "secret-token", body, json_headers)
+                self.assertEqual(status, 400)
+        port = int(base.rsplit(":", 1)[1])
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        try:
+            conn.putrequest("POST", "/api/gerrit/vote")
+            conn.putheader("X-Sidecar-Token", "secret-token")
+            conn.putheader("Content-Type", "application/json")
+            conn.putheader("Content-Length", str(MAX_JSON_BODY_BYTES + 1))
+            conn.endheaders(b"{}")
+            self.assertEqual(conn.getresponse().status, 413)
+        finally:
+            conn.close()
+        service.cast_batch_vote.assert_not_called()
+
+    def test_no_cors_headers_for_other_origins(self) -> None:
+        _, base = self.start(ui_token="secret-token")
+        _, headers = self.request(
+            f"{base}/api/gerrit/update-status", "secret-token", headers={"Origin": "https://evil.example.com"}
+        )
+        self.assertNotIn("Access-Control-Allow-Origin", headers)
+
+    def test_standalone_server_mints_token_and_opens_token_url(self) -> None:
+        from commands.gerrit.handlers import ui_handler
+
+        captured: dict[str, object] = {}
+
+        class FakeServer:
+            def __init__(self, address: tuple[str, int], handler_cls: type) -> None:
+                captured["handler_cls"] = handler_cls
+
+            def serve_forever(self) -> None:
+                raise KeyboardInterrupt
+
+            def server_close(self) -> None:
+                pass
+
+        with (
+            patch("commands.gerrit.ui_server.GerritUIService") as service_cls,
+            patch.object(ui_handler, "find_available_port", return_value=18085),
+            patch.object(ui_handler.http.server, "ThreadingHTTPServer", FakeServer),
+            patch.object(ui_handler.webbrowser, "open", side_effect=lambda url: captured.update(url=url)),
+            patch("sys.stdout", new_callable=io.StringIO),
+        ):
+            service_cls.return_value.default_viewer = "jansene@google.com"
+            service_cls.return_value.get_sidecar_update_status.return_value = {"status": "up_to_date"}
+            self.assertEqual(ui_handler.serve_gerrit_ui(open_browser=True), 0)
+
+        match = re.fullmatch(r"http://127\.0\.0\.1:18085/\?token=([A-Za-z0-9_-]{32,})", str(captured["url"]))
+        self.assertIsNotNone(match, captured["url"])
+        base = self.serve(captured["handler_cls"])  # type: ignore[arg-type]
+        self.assertEqual(self.request(f"{base}/api/gerrit/update-status", match.group(1))[0], 200)
+        self.assertEqual(self.request(f"{base}/api/gerrit/update-status")[0], 401)
 
 
 if __name__ == "__main__":

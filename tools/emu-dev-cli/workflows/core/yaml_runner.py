@@ -89,21 +89,23 @@ def get_state_base_dir() -> Path:
     return base
 
 
-def get_workflow_cache_dir(workflow_name: str) -> Path:
-    """Returns the isolated, generic cache directory for a given workflow name."""
+def get_workflow_cache_root() -> Path:
+    """Returns the directory that holds every per-workflow cache directory."""
     custom_cache_dir = os.environ.get("EMU_DEV_CLI_WORKFLOW_CACHE_DIR")
     if custom_cache_dir:
-        base = Path(custom_cache_dir).expanduser().resolve() / workflow_name
-    else:
-        custom_state_dir = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
-        if custom_state_dir:
-            base = Path(custom_state_dir).expanduser().resolve() / workflow_name
-        else:
-            xdg_cache = os.environ.get("XDG_CACHE_HOME")
-            if xdg_cache:
-                base = Path(xdg_cache).expanduser().resolve() / "emu-dev-cli" / "workflows" / workflow_name
-            else:
-                base = Path.home() / ".cache" / "emu-dev-cli" / "workflows" / workflow_name
+        return Path(custom_cache_dir).expanduser().resolve()
+    custom_state_dir = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
+    if custom_state_dir:
+        return Path(custom_state_dir).expanduser().resolve()
+    xdg_cache = os.environ.get("XDG_CACHE_HOME")
+    if xdg_cache:
+        return Path(xdg_cache).expanduser().resolve() / "emu-dev-cli" / "workflows"
+    return Path.home() / ".cache" / "emu-dev-cli" / "workflows"
+
+
+def get_workflow_cache_dir(workflow_name: str) -> Path:
+    """Returns the isolated, generic cache directory for a given workflow name."""
+    base = get_workflow_cache_root() / workflow_name
     base.mkdir(parents=True, exist_ok=True, mode=0o700)
     return base
 

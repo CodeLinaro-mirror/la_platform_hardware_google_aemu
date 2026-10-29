@@ -16,6 +16,7 @@
 """Jetski Web AuxPane UI Sidecar for the Android Emulator Custom Agent Harness."""
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,7 @@ import re
 import shutil
 import subprocess
 import sys
+from types import ModuleType
 import urllib.parse
 from typing import Any, Dict, List, Optional
 
@@ -34,6 +36,35 @@ except ImportError:
 
 PORT: int = int(os.environ.get("ANTIGRAVITY_SIDECAR_WEB_PORT", "8765"))
 UI_TOKEN: str = os.environ.get("ANTIGRAVITY_SIDECAR_UI_TOKEN", "")
+UI_TOKEN_HINT: str = "Open this panel from Jetski, which supplies ANTIGRAVITY_SIDECAR_UI_TOKEN."
+WEB_SECURITY_FILENAME: str = "web_security.py"
+
+
+def _load_web_security() -> ModuleType:
+    """Loads the CLI's request checks without importing the CLI.
+
+    `emu-dev-cli harness install` copies `src/lib/web_security.py` next to this file.
+    When running from the source tree, the module is loaded from `src/lib` instead.
+    """
+    here = Path(__file__).resolve()
+    candidates = [here.with_name(WEB_SECURITY_FILENAME)]
+    if len(here.parents) > 4:
+        candidates.append(here.parents[4] / "src" / "lib" / WEB_SECURITY_FILENAME)
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        spec = importlib.util.spec_from_file_location("aemu_harness_web_security", candidate)
+        if spec is not None and spec.loader is not None:
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+    raise ImportError(
+        f"aemu-harness sidecar cannot find {WEB_SECURITY_FILENAME} (looked in "
+        f"{', '.join(str(c) for c in candidates)}). Re-run 'emu-dev-cli harness install'."
+    )
+
+
+web_security = _load_web_security()
 
 SEMANTIC_SUBJECT_RE = re.compile(
     r"^(feat|fix|build|docs|chore|test|refactor|perf|style)(?:\(([^)]+)\))?:\s+(.+)$"
@@ -839,16 +870,25 @@ class HarnessSidecarHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
         return
 
-    def _check_token(self, parsed_url: urllib.parse.ParseResult) -> bool:
-        if not UI_TOKEN:
-            return True
-        header_token = self.headers.get("X-Sidecar-Token", "")
-        if header_token == UI_TOKEN:
-            return True
-        query = urllib.parse.parse_qs(parsed_url.query)
-        if query.get("token", [""])[0] == UI_TOKEN:
-            return True
-        return False
+    def _send_rejection(self, exc: "web_security.RequestRejected") -> None:
+        self._send_json(int(exc.status), {"error": str(exc)})
+
+    def _require_token(self, parsed_url: urllib.parse.ParseResult) -> bool:
+        """Returns True if the request carries the UI token, else sends 401 and returns False."""
+        try:
+            web_security.require_ui_token(UI_TOKEN, self.headers, parsed_url.query, UI_TOKEN_HINT)
+        except web_security.RequestRejected as exc:
+            self._send_rejection(exc)
+            return False
+        return True
+
+    def _read_json_body(self) -> Optional[Dict[str, Any]]:
+        """Returns the JSON object body, or None after sending the 4xx error response."""
+        try:
+            return web_security.read_json_body(self.headers, self.rfile)
+        except web_security.RequestRejected as exc:
+            self._send_rejection(exc)
+            return None
 
     def _send_json(self, status_code: int, payload: Dict[str, Any]) -> None:
         raw = json.dumps(payload).encode("utf-8")
@@ -884,8 +924,7 @@ class HarnessSidecarHandler(BaseHTTPRequestHandler):
             return
 
         if route == "/api/state":
-            if not self._check_token(parsed):
-                self._send_json(403, {"error": "Invalid sidecar UI token"})
+            if not self._require_token(parsed):
                 return
             query = urllib.parse.parse_qs(parsed.query)
             conv_id = query.get("conversationId", [None])[0]
@@ -903,16 +942,12 @@ class HarnessSidecarHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
-        if not self._check_token(parsed):
-            self._send_json(403, {"error": "Invalid sidecar UI token"})
+        if not self._require_token(parsed):
             return
 
-        length = int(self.headers.get("Content-Length", "0"))
-        raw_body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
-        try:
-            body = json.loads(raw_body)
-        except Exception:
-            body = {}
+        body = self._read_json_body()
+        if body is None:
+            return
 
         try:
             if parsed.path == "/_sidecar/get-conversation-metadata":
@@ -981,6 +1016,12 @@ class HarnessSidecarHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    if not UI_TOKEN:
+        print(
+            "warning: ANTIGRAVITY_SIDECAR_UI_TOKEN is unset, so the aemu-harness sidecar rejects "
+            "every API request. Start it from Jetski, which sets the token.",
+            file=sys.stderr,
+        )
     server = ThreadingHTTPServer(("127.0.0.1", PORT), HarnessSidecarHandler)
     server.serve_forever()
 

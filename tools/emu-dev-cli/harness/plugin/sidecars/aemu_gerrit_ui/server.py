@@ -104,15 +104,24 @@ def main() -> None:
     import commands.gerrit.ui_server as ui_mod
     import lib.gerrit_api as gerrit_api_mod
 
+    if not os.environ.get("ANTIGRAVITY_SIDECAR_UI_TOKEN"):
+        print(
+            "warning: ANTIGRAVITY_SIDECAR_UI_TOKEN is unset, so the AEMU Gerrit sidecar rejects "
+            "every API request. Start it from Jetski, which sets the token.",
+            file=sys.stderr,
+        )
+
     def _current_bundle_mtime() -> tuple[float, ...]:
         pt_mod = sys.modules.get("commands.gerrit.presubmit_targets")
         su_mod = sys.modules.get("commands.gerrit.sidecar_updater")
+        ws_mod = sys.modules.get("lib.web_security")
         files = (
             getattr(ui_mod, "__file__", None),
             getattr(gerrit_api_mod, "__file__", None),
             getattr(ai_analysis_mod, "__file__", None),
             getattr(pt_mod, "__file__", None) if pt_mod is not None else None,
             getattr(su_mod, "__file__", None) if su_mod is not None else None,
+            getattr(ws_mod, "__file__", None) if ws_mod is not None else None,
         )
         tpl_f = ui_mod.get_gerrit_ui_template_path()
         mtimes: list[float] = []
@@ -138,6 +147,7 @@ def main() -> None:
                         importlib.reload(gerrit_api_mod)
                         importlib.reload(ai_analysis_mod)
                         for submod_name in (
+                            "lib.web_security",
                             "commands.gerrit.presubmit_targets",
                             "commands.gerrit.sidecar_updater",
                             "commands.gerrit.services.diff_parser",
