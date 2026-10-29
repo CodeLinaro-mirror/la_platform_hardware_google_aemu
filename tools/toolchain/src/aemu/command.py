@@ -16,7 +16,7 @@ import os
 import logging
 import sys
 import shlex
-from typing import List
+from typing import List, Optional, Tuple, Union
 from pathlib import Path
 
 
@@ -51,15 +51,18 @@ class CommandLineReconstructor:
     def get_cwd(self, fallback: Path = None) -> str:
         """Returns the current working directory.
 
-        If running under bazel, this will be the workspace root.
+        If running under bazel, this will be the invoking directory or workspace root.
 
         Returns:
             The path to the current working directory.
         """
+        # BUILD_WORKING_DIRECTORY is set by Bazel to the directory where `bazel run` was invoked.
         # BUILD_WORKSPACE_DIRECTORY is set by Bazel to the root of the workspace.
-        bazel_workspace_dir = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
-        if bazel_workspace_dir:
-            return bazel_workspace_dir
+        bazel_dir = os.environ.get("BUILD_WORKING_DIRECTORY") or os.environ.get(
+            "BUILD_WORKSPACE_DIRECTORY"
+        )
+        if bazel_dir:
+            return bazel_dir
         try:
             return os.getcwd()
         except FileNotFoundError as e:
@@ -69,3 +72,25 @@ class CommandLineReconstructor:
                 fallback,
             )
             return str(fallback)
+
+    _DEFAULT_PATH_ATTRS = ("out", "release", "config", "aosp", "build", "shim")
+
+    def resolve_path(
+        self, path_value: Union[str, Path], fallback: Optional[Path] = None
+    ) -> Path:
+        """Resolves a path argument relative to the invoking working directory."""
+        path = Path(path_value)
+        if path.is_absolute():
+            return path
+        return (Path(self.get_cwd(fallback=fallback)) / path).absolute()
+
+    def resolve_cli_paths(
+        self, args, attrs: Tuple[str, ...] = _DEFAULT_PATH_ATTRS
+    ) -> None:
+        """Resolves relative CLI path arguments on an argparse.Namespace."""
+        for attr in attrs:
+            val = getattr(args, attr, None)
+            if not val:
+                continue
+            resolved = self.resolve_path(val)
+            setattr(args, attr, resolved if attr == "out" else str(resolved))
