@@ -25,13 +25,13 @@ from pathlib import Path
 import re
 import shutil
 import socket
-import subprocess
 import sys
 import threading
 import time
 from typing import Any
 import urllib.parse
 
+from clients.buganizer_service import parse_issues_search_map
 from commands.gerrit.presubmit_targets import (
     ACTIVE_TARGETS_CACHE_TTL_SEC,
     COMPLETED_TARGETS_CACHE_TTL_SEC,
@@ -57,6 +57,7 @@ from commands.gerrit.services.diff_parser import (
     resolve_ui_hook,
 )
 from commands.harness.review_swarm_status import read_cl_swarm_status
+from core.process import SubprocessRunner
 from lib.gerrit_api import (
     DEFAULT_GERRIT_HOST,
     GERRIT_CLI_TIMEOUT_SEC,
@@ -161,69 +162,17 @@ def extract_bug_ids_from_change(change: dict[str, Any]) -> list[str]:
 
 def parse_issues_search_output(raw_text: str) -> dict[str, dict[str, str]]:
     """Parses `issues readonly search --fields issue_id,priority,severity,status,title` output."""
-    cleaned = _ANSI_ESCAPE_RE.sub("", raw_text or "")
-    parsed: dict[str, dict[str, str]] = {}
-    cur: dict[str, str] = {}
-
-    def flush_current() -> None:
-        issue_id = cur.get("id", "").strip()
-        if issue_id:
-            parsed[issue_id] = {
-                "id": issue_id,
-                "url": f"https://b.corp.google.com/issues/{issue_id}",
-                "priority": cur.get("priority", ""),
-                "severity": cur.get("severity", ""),
-                "status": cur.get("status", ""),
-                "title": cur.get("title", ""),
-            }
-        cur.clear()
-
-    for raw_line in cleaned.splitlines():
-        line = raw_line.strip()
-        if line == "---":
-            flush_current()
-            continue
-        m_id = re.match(r"^(?:Issue ID|ID):\s*(\d+)\s*$", line, re.IGNORECASE)
-        if m_id:
-            if cur.get("id"):
-                flush_current()
-            cur["id"] = m_id.group(1)
-            continue
-        m_pri = re.match(r"^Priority:\s*(P[0-4])\b", line, re.IGNORECASE)
-        if m_pri:
-            cur["priority"] = m_pri.group(1).upper()
-            continue
-        m_sev = re.match(r"^Severity:\s*(S[0-4])\b", line, re.IGNORECASE)
-        if m_sev:
-            cur["severity"] = m_sev.group(1).upper()
-            continue
-        m_status = re.match(r"^Status:\s*(.+)$", line, re.IGNORECASE)
-        if m_status:
-            cur["status"] = m_status.group(1).strip()
-            continue
-        m_title = re.match(r"^Title:\s*(.+)$", line, re.IGNORECASE)
-        if m_title:
-            cur["title"] = m_title.group(1).strip()
-            continue
-        m_batch = re.match(
-            r"^-\s*Issue\s+(\d+):\s*(.+?)\s*\[([^\]]+)\]\s*\(Priority:\s*(P[0-4])",
-            line,
-            re.IGNORECASE,
-        )
-        if m_batch:
-            flush_current()
-            bid = m_batch.group(1)
-            parsed[bid] = {
-                "id": bid,
-                "url": f"https://b.corp.google.com/issues/{bid}",
-                "priority": m_batch.group(4).upper(),
-                "severity": "",
-                "status": m_batch.group(3).strip(),
-                "title": m_batch.group(2).strip(),
-            }
-
-    flush_current()
-    return parsed
+    return {
+        bid: {
+            "id": info["id"],
+            "url": info["url"],
+            "priority": info["priority"],
+            "severity": info["severity"],
+            "status": info["status"],
+            "title": info["title"],
+        }
+        for bid, info in parse_issues_search_map(raw_text).items()
+    }
 
 
 
@@ -1013,12 +962,10 @@ def _normalize_viewer_email(raw_value: str | None) -> str:
 def _detect_git_user_email() -> str:
     """Returns `git config user.email` when it belongs to a human account."""
     try:
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             ["git", "config", "user.email"],
-            capture_output=True,
-            text=True,
             check=False,
-            timeout=5,
+            timeout_sec=5,
         )
     except Exception:
         return ""
@@ -1055,12 +1002,10 @@ def _detect_capsule_owner_email() -> str:
         hostname_short = socket.gethostname().split(".")[0].strip()
         if not hostname_short.startswith("cpl-"):
             return ""
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             ["cpl", "list"],
-            capture_output=True,
-            text=True,
             check=False,
-            timeout=5,
+            timeout_sec=5,
         )
     except Exception:
         return ""
@@ -1124,7 +1069,7 @@ class GerritQueueService(GerritServiceBase):
         if missing and os.path.exists(issues_bin):
             query = f"id:({' | '.join(missing[:80])})"
             try:
-                res = subprocess.run(
+                res = SubprocessRunner().run(
                     [
                         issues_bin,
                         "readonly",
@@ -1135,10 +1080,8 @@ class GerritQueueService(GerritServiceBase):
                         "--limit",
                         "100",
                     ],
-                    capture_output=True,
-                    text=True,
                     check=False,
-                    timeout=BUG_LOOKUP_TIMEOUT_SEC,
+                    timeout_sec=BUG_LOOKUP_TIMEOUT_SEC,
                 )
                 if res.returncode == 0 and res.stdout:
                     fetched = parse_issues_search_output(res.stdout)
@@ -1671,12 +1614,10 @@ class GerritQueueService(GerritServiceBase):
             raise ValueError(
                 f"Unsupported harness action '{action}' (expected 'review-swarm' or 'address-review')."
             )
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             cmd,
-            capture_output=True,
-            text=True,
             check=False,
-            timeout=60,
+            timeout_sec=60,
         )
         raw_out = (res.stdout or "").strip()
         parsed: Any = raw_out

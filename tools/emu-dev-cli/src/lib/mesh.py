@@ -23,6 +23,8 @@ import subprocess
 import time
 from typing import Any, Dict, List, Optional
 
+from core.process import SubprocessRunner
+
 
 def find_adb_binary() -> str:
     """Locates the adb binary from PATH or standard SDK locations."""
@@ -73,9 +75,7 @@ def get_connected_adb_devices(adb_path: Optional[str] = None) -> List[str]:
     """Returns a list of device serials currently recognized in 'device' state by adb."""
     adb_bin = adb_path or find_adb_binary()
     try:
-        res = subprocess.run(
-            [adb_bin, "devices"], capture_output=True, text=True, check=False
-        )
+        res = SubprocessRunner().run([adb_bin, "devices"], check=False)
         if res.returncode != 0:
             return []
         serials = []
@@ -94,11 +94,9 @@ def check_device_boot_completed(
     """Checks whether an Android device has finished booting (sys.boot_completed=1)."""
     adb_bin = adb_path or find_adb_binary()
     try:
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             [adb_bin, "-s", serial, "shell", "getprop", "sys.boot_completed"],
-            capture_output=True,
-            text=True,
-            timeout=5,
+            timeout=5.0,
             check=False,
         )
         return res.returncode == 0 and res.stdout.strip() == "1"
@@ -139,11 +137,9 @@ def get_device_avd_name(
     """Gets the AVD name for an emulator device via 'adb emu avd name' or system property."""
     adb_bin = adb_path or find_adb_binary()
     try:
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             [adb_bin, "-s", serial, "emu", "avd", "name"],
-            capture_output=True,
-            text=True,
-            timeout=5,
+            timeout=5.0,
             check=False,
         )
         if res.returncode == 0 and res.stdout.strip():
@@ -154,11 +150,9 @@ def get_device_avd_name(
         logging.getLogger(__name__).debug("Ignored error in get_device_avd_name: %s", exc)
 
     try:
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             [adb_bin, "-s", serial, "shell", "getprop", "ro.boot.qemu.avd_name"],
-            capture_output=True,
-            text=True,
-            timeout=5,
+            timeout=5.0,
             check=False,
         )
         if res.returncode == 0 and res.stdout.strip():
@@ -228,8 +222,8 @@ def get_netsim_devices(
     cmd.extend(["devices", "--json"])
 
     try:
-        res = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=5, check=False
+        res = SubprocessRunner().run(
+            cmd, timeout=5.0, check=False
         )
         if res.returncode == 0 and res.stdout.strip():
             return json.loads(res.stdout.strip())
@@ -328,11 +322,9 @@ def stop_emulator_device(
     """Stops a running emulator device gracefully via 'adb -s <serial> emu kill'."""
     adb_bin = adb_path or find_adb_binary()
     try:
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             [adb_bin, "-s", serial, "emu", "kill"],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+            timeout=float(timeout),
             check=False,
         )
         return res.returncode == 0
@@ -352,8 +344,8 @@ def reset_netsim_state(
         cmd.extend(["-p", str(port)])
     cmd.append("reset")
     try:
-        res = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=5, check=False
+        res = SubprocessRunner().run(
+            cmd, timeout=5.0, check=False
         )
         return res.returncode == 0
     except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired):

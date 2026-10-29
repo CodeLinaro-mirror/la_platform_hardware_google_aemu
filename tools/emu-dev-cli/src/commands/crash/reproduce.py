@@ -287,13 +287,6 @@ class CrashReproduceCommand(Command[argparse.Namespace, dict[str, Any]]):
                         artifact=f"sdk-repo-linux-emulator-{plan['build_id']}.zip",
                         dest_dir=emu_output_dir,
                     )
-                elif hasattr(artifact_service, "fetch_artifact"):
-                    artifact_service.fetch_artifact(
-                        build_id=str(plan["build_id"]),
-                        target=str(plan["build_target"]),
-                        artifact=f"sdk-repo-linux-emulator-{plan['build_id']}.zip",
-                        dest_dir=emu_output_dir,
-                    )
             except Exception as exc:  # noqa: BLE001
                 logging.getLogger(__name__).debug("Failed downloading emulator binary: %s", exc)
 
@@ -310,10 +303,10 @@ class CrashReproduceCommand(Command[argparse.Namespace, dict[str, Any]]):
 
             emu_proc = subprocess.Popen(launch_cmd, **popen_kwargs)
             try:
-                subprocess.run(
+                ctx.process_runner.run(
                     plan["lldb_command"],
                     check=False,
-                    timeout=int(reproduce_timeout_sec),
+                    timeout_sec=reproduce_timeout_sec,
                 )
             finally:
                 if emu_proc.poll() is None:

@@ -231,7 +231,9 @@ class TidyFixTest(unittest.TestCase):
                         "lib.tidy_engine.AgentDispatcher.dispatch_refactor_step",
                         return_value=True,
                     ):
-                        with self.assertRaises(SystemExit):
+                        from core.errors import ExecutionError
+
+                        with self.assertRaises(ExecutionError):
                             handle_tidy_fix(args)
 
         mock_tx.rollback_step.assert_called_once()

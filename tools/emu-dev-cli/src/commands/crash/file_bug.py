@@ -25,7 +25,6 @@ from typing import Any
 from commands.crash.advisor import (
     CrashAdvisorRunner,
     create_crash_bug_tracker,
-    ensure_crashadvisor_imports,
 )
 from commands.crash.link_bug import (
     is_crash_report_id,

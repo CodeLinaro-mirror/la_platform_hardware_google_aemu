@@ -26,10 +26,13 @@ import zipfile
 _TESTS_DIR = Path(__file__).resolve().parent
 _TOOL_ROOT = _TESTS_DIR.parent
 _SRC_DIR = str(_TOOL_ROOT / "src")
-if _SRC_DIR not in sys.path:
-    sys.path.insert(0, _SRC_DIR)
 if str(_TOOL_ROOT) not in sys.path:
     sys.path.insert(0, str(_TOOL_ROOT))
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
+elif sys.path.index(_SRC_DIR) > sys.path.index(str(_TOOL_ROOT)):
+    sys.path.remove(_SRC_DIR)
+    sys.path.insert(0, _SRC_DIR)
 
 import clients  # noqa: E402
 import commands  # noqa: E402

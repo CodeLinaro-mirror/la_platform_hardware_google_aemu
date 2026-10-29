@@ -30,6 +30,7 @@ import tempfile
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.process import SubprocessRunner
 from lib.avd import (
     create_single_avd,
     find_actual_sysimg_dir,
@@ -1028,9 +1029,7 @@ def summarize_samples(
 
 def detect_active_adb_serial(adb_bin: str = "adb") -> str:
     """Detects a single running emulator serial via `adb devices`."""
-    res = subprocess.run(
-        [adb_bin, "devices"], capture_output=True, text=True, check=False
-    )
+    res = SubprocessRunner().run([adb_bin, "devices"], check=False)
     serials: List[str] = []
     for line in res.stdout.splitlines():
         parts = line.strip().split()
@@ -1051,8 +1050,9 @@ def _adb_cmd(
 ) -> subprocess.CompletedProcess:
     cmd = [adb_bin, "-s", serial] + args
     try:
-        return subprocess.run(
-            cmd, capture_output=True, text=True, check=False, timeout=timeout
+        res = SubprocessRunner().run(cmd, check=False, timeout=timeout)
+        return subprocess.CompletedProcess(
+            cmd, returncode=res.returncode, stdout=res.stdout, stderr=res.stderr
         )
     except subprocess.TimeoutExpired as exc:
         return subprocess.CompletedProcess(
@@ -1926,10 +1926,8 @@ def _cleanup_stale_netsim(force: bool = False) -> None:
 
     if force:
         try:
-            res = subprocess.run(
+            res = SubprocessRunner().run(
                 ["pgrep", "-f", "netsimd"],
-                capture_output=True,
-                text=True,
                 check=False,
                 timeout=3.0,
             )

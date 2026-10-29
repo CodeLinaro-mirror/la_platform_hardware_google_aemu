@@ -18,14 +18,17 @@ import os
 import platform
 import re
 import shutil
-import subprocess
+from typing import Optional
 import zipfile
 
+from clients.artifact_service import (
+    DEFAULT_FETCH_ARTIFACT_BIN as FETCH_ARTIFACT_BIN,
+    ArtifactService,
+)
+from core.process import ProcessRunner, SubprocessRunner
 from lib.output import print_result
 
 logger = logging.getLogger(__name__)
-
-FETCH_ARTIFACT_BIN = "/google/data/ro/projects/android/fetch_artifact"
 
 HOST_BRANCH_TARGET_MAP = {
     "linux-x64": {
@@ -142,13 +145,19 @@ def register_parser(subparser, default_host):
     parser.set_defaults(func=handler)
 
 
-def run_emulator_fetch(args):
+def run_emulator_fetch(
+    args,
+    *,
+    artifact_service: Optional[ArtifactService] = None,
+    runner: Optional[ProcessRunner] = None,
+):
     host = args.host.lower()
     build_id = getattr(args, "build_id", None)
     is_latest = getattr(args, "latest", False)
     branch = getattr(args, "branch", "emu-main-next")
     json_mode = getattr(args, "json", False)
     token = getattr(args, "token", None)
+    proc_runner = runner or SubprocessRunner()
 
     if not getattr(args, "skip_auth_check", False):
         from lib.android_build_client import check_authentication_status
@@ -191,7 +200,7 @@ def run_emulator_fetch(args):
             patterns = HOST_ARTIFACT_PATTERNS.get(host, HOST_ARTIFACT_PATTERNS["linux-x64"])["latest"]
             for pattern in patterns:
                 cmd = [fetch_tool, "--branch", branch, "--target", target_name, "--latest", pattern, dest_dir]
-                res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                res = proc_runner.run(cmd, check=False)
                 if res.returncode == 0 and glob.glob(os.path.join(dest_dir, "*.zip")):
                     successful_target = target_name
                     successful_branch = branch
@@ -204,7 +213,7 @@ def run_emulator_fetch(args):
             for c in candidates:
                 target_name, branch_name = c["target"], c["branch"]
                 cmd = [fetch_tool, "--bid", build_id, "--target", target_name, pattern, dest_dir]
-                res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                res = proc_runner.run(cmd, check=False)
                 if res.returncode == 0 and glob.glob(os.path.join(dest_dir, "*.zip")):
                     successful_target = target_name
                     successful_branch = branch_name
@@ -218,7 +227,11 @@ def run_emulator_fetch(args):
     if not successful_target and not fetch_tool:
         try:
             from lib.android_build_client import AndroidBuildClient
-            client = AndroidBuildClient(token=token)
+            client = AndroidBuildClient(
+                token=token,
+                service=artifact_service,
+                process_runner=proc_runner,
+            )
 
             if is_latest:
                 target_map = HOST_BRANCH_TARGET_MAP.get(host, HOST_BRANCH_TARGET_MAP["mac-arm64" if host == "mac-arm64" else "linux-x64"])

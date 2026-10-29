@@ -16,9 +16,9 @@
 
 import logging
 from pathlib import Path
-import sys
 from typing import Optional
 
+from core.errors import ExecutionError
 from lib.agent_dispatcher import AgentDispatcher
 from lib.bazel import BazelRunner
 from lib.compiler_oracle import CompilerOracle
@@ -86,7 +86,10 @@ class Level1RefactoringEngine(BaseRefactoringEngine):
             logger.error(
                 "Error: Uncommitted changes detected in repository. Commit or stash them, or use --force."
             )
-            sys.exit(1)
+            raise ExecutionError(
+                "Uncommitted changes detected in repository.",
+                remediation="Commit or stash local changes, or pass --force.",
+            )
 
         logger.info("[Phase 1] Building and analyzing diagnostics for %s...", report_target)
         self.runner.build(

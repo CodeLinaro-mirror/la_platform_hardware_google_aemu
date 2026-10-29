@@ -81,6 +81,8 @@ def _validate_git_repository(cwd: Optional[str]) -> bool:
             ["git", "rev-parse", "--git-dir"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=True,
             cwd=cwd,
             timeout=30,

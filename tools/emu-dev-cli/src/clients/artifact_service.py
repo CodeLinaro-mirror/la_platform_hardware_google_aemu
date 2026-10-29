@@ -34,7 +34,7 @@ import zipfile
 
 from core.errors import AuthError, ExecutionError, UsageError
 from core.events import ArtifactDownloaded, EventBus
-from core.process import ProcessRunner
+from core.process import ProcessRunner, SubprocessRunner
 from lib.oauth import OAuthTokenManager, get_quota_project, get_ssl_context
 
 LOGGER = logging.getLogger(__name__)
@@ -85,6 +85,160 @@ AUTH_REMEDIATION = (
     "--scopes=https://www.googleapis.com/auth/androidbuild.internal,"
     "https://www.googleapis.com/auth/cloud-platform', or set ANDROID_BUILD_TOKEN."
 )
+
+AUTH_PROCEDURE_INSTRUCTIONS = """1. Generate Application Default Credentials (ADC) with the internal Android Build scope:
+   gcloud auth application-default login \\
+     --scopes=https://www.googleapis.com/auth/androidbuild.internal,https://www.googleapis.com/auth/cloud-platform
+
+2. (Optional) Set your quota project:
+   gcloud auth application-default set-quota-project emulator-builds
+
+Alternatively, provide an explicit access token via:
+   export ANDROID_BUILD_TOKEN="<token>"
+or pass the '--token "<token>"' flag."""
+
+
+def check_authentication_status(
+    token: str | None = None,
+    *,
+    process_runner: ProcessRunner | None = None,
+    fetch_artifact_bin: str | None = None,
+    token_manager_cls: type[OAuthTokenManager] = OAuthTokenManager,
+) -> dict[str, Any]:
+    """Verifies that authentication for Android Build (LOAS CLI or REST v4) is configured and valid."""
+    bin_candidate = fetch_artifact_bin or DEFAULT_FETCH_ARTIFACT_BIN
+    fetch_tool = (
+        bin_candidate
+        if os.path.exists(bin_candidate)
+        else shutil.which("fetch_artifact")
+    )
+
+    if fetch_tool and os.path.exists(GOOGLE_DATA_ROOT):
+        if shutil.which("gcertstatus"):
+            runner = process_runner or SubprocessRunner()
+            res = runner.run(["gcertstatus"], timeout_sec=5.0, check=False)
+            if not res.ok:
+                return {
+                    "valid": False,
+                    "auth_method": "FETCH_ARTIFACT_CLI",
+                    "file_path": fetch_tool,
+                    "file_exists": True,
+                    "error_message": "Corporate LOAS / gcert certificate is missing or expired.",
+                    "procedure": "Run 'gcert' in your terminal to renew your corporate authentication certificate.",
+                }
+        return {
+            "valid": True,
+            "auth_method": "FETCH_ARTIFACT_CLI",
+            "file_path": fetch_tool,
+            "file_exists": True,
+            "error_message": None,
+            "procedure": None,
+        }
+
+    auth_method = "ADC"
+    file_path: str | None = None
+    file_exists = False
+
+    if token:
+        auth_method = "EXPLICIT_TOKEN"
+    elif os.environ.get("ANDROID_BUILD_TOKEN") or os.environ.get("OAUTH2_TOKEN"):
+        auth_method = "ENV_VAR"
+    else:
+        file_path = os.environ.get(
+            "GOOGLE_APPLICATION_CREDENTIALS"
+        ) or os.path.expanduser(
+            "~/.config/gcloud/application_default_credentials.json"
+        )
+        file_exists = os.path.exists(file_path)
+        if not file_exists:
+            return {
+                "valid": False,
+                "auth_method": auth_method,
+                "file_path": file_path,
+                "file_exists": False,
+                "error_message": f"Application Default Credentials (ADC) file was not found at '{file_path}'.",
+                "procedure": AUTH_PROCEDURE_INSTRUCTIONS,
+            }
+
+    token_manager = token_manager_cls(
+        scopes=[ANDROID_BUILD_SCOPE],
+        env_vars=list(ANDROID_BUILD_TOKEN_ENV_VARS),
+    )
+    acquired_token = token_manager.get_token(user_token=token)
+    if not acquired_token:
+        return {
+            "valid": False,
+            "auth_method": auth_method,
+            "file_path": file_path,
+            "file_exists": file_exists,
+            "error_message": f"Could not acquire or refresh OAuth2 token from {auth_method}.",
+            "procedure": AUTH_PROCEDURE_INSTRUCTIONS,
+        }
+
+    quota_project = get_quota_project()
+    probe_url = (
+        f"{BUILD_API_BASE_URL}/builds?branches=git_emu-main-next"
+        f"&targets=emulator_mac_aarch64&buildType=SUBMITTED&pageSize=1"
+    )
+    headers = {
+        HEADER_AUTHORIZATION: f"Bearer {acquired_token}",
+        HEADER_ACCEPT: MIME_JSON,
+    }
+    if quota_project:
+        headers[HEADER_QUOTA_PROJECT] = quota_project
+
+    req = urllib.request.Request(probe_url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, context=get_ssl_context(), timeout=10.0) as resp:
+            if getattr(resp, "status", HTTP_OK) == HTTP_OK:
+                return {
+                    "valid": True,
+                    "auth_method": auth_method,
+                    "file_path": file_path,
+                    "file_exists": file_exists,
+                    "error_message": None,
+                    "procedure": None,
+                }
+    except urllib.error.HTTPError as exc:
+        error_body = _read_http_error_body(exc)
+        if (
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in error_body
+            or "insufficient authentication scopes" in error_body
+        ):
+            err_msg = (
+                f"Authentication file '{file_path}' exists, but lacks the required scope "
+                f"'{ANDROID_BUILD_SCOPE}'."
+            )
+        elif "quota project" in error_body.lower():
+            err_msg = "The Android Build API requires a quota project, which is not set or invalid."
+        else:
+            err_msg = f"Android Build API authentication check failed (HTTP {exc.code}: {exc.reason})."
+        return {
+            "valid": False,
+            "auth_method": auth_method,
+            "file_path": file_path,
+            "file_exists": file_exists,
+            "error_message": err_msg,
+            "procedure": AUTH_PROCEDURE_INSTRUCTIONS,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "valid": False,
+            "auth_method": auth_method,
+            "file_path": file_path,
+            "file_exists": file_exists,
+            "error_message": f"Preflight connection check to Android Build API failed: {exc}",
+            "procedure": AUTH_PROCEDURE_INSTRUCTIONS,
+        }
+
+    return {
+        "valid": True,
+        "auth_method": auth_method,
+        "file_path": file_path,
+        "file_exists": file_exists,
+        "error_message": None,
+        "procedure": None,
+    }
 
 
 def _candidate_branches(branch: str) -> tuple[str, ...]:
@@ -274,9 +428,15 @@ class UrllibHttpTransport(HttpTransport):
                 req, context=get_ssl_context(), timeout=timeout_sec
             ) as resp:
                 body = resp.read()
-                resp_headers = {str(k): str(v) for k, v in resp.headers.items()}
+                raw_status = getattr(resp, "status", HTTP_OK)
+                status_code = raw_status if isinstance(raw_status, int) else HTTP_OK
+                resp_headers = (
+                    {str(k): str(v) for k, v in resp.headers.items()}
+                    if hasattr(resp, "headers") and isinstance(resp.headers, Mapping)
+                    else {}
+                )
                 return HttpResponse(
-                    status_code=int(resp.status),
+                    status_code=status_code,
                     body=body,
                     headers=resp_headers,
                 )
@@ -310,7 +470,19 @@ class UrllibHttpTransport(HttpTransport):
             with urllib.request.urlopen(
                 req, context=get_ssl_context(), timeout=timeout_sec
             ) as resp:
-                total_size = int(resp.headers.get(HEADER_CONTENT_LENGTH, 0) or 0)
+                raw_len = (
+                    resp.headers.get(HEADER_CONTENT_LENGTH, 0)
+                    if hasattr(resp, "headers") and hasattr(resp.headers, "get")
+                    else 0
+                )
+                try:
+                    total_size = (
+                        int(raw_len or 0)
+                        if isinstance(raw_len, (int, str))
+                        else 0
+                    )
+                except ValueError:
+                    total_size = 0
                 return _stream_response_to_file(
                     resp, dest_file, total_size, progress_callback
                 )
@@ -495,6 +667,10 @@ class FakeHttpTransport(HttpTransport):
 class ArtifactService(ABC):
     """Abstract interface for querying and downloading Android Build (`go/ab`) artifacts."""
 
+    def check_auth(self, token: str | None = None) -> dict[str, Any]:
+        """Verifies Android Build authentication readiness."""
+        return check_authentication_status(token=token)
+
     @abstractmethod
     def resolve_build_id(
         self, branch: str, target: str, build_id: str | None = None
@@ -598,6 +774,14 @@ class ProdArtifactService(ArtifactService):
     def quota_project(self) -> str | None:
         """Returns the active quota project header value (Cleared after HTTP 403 retry)."""
         return self._quota_project
+
+    def check_auth(self, token: str | None = None) -> dict[str, Any]:
+        """Verifies Android Build authentication readiness using this service's runner."""
+        return check_authentication_status(
+            token=token if token is not None else self._token,
+            process_runner=self._process_runner,
+            fetch_artifact_bin=self._fetch_artifact_bin,
+        )
 
     def _ensure_token(self) -> str | None:
         if self._token:
@@ -1054,6 +1238,23 @@ class FakeArtifactService(ArtifactService):
         self._builds: list[BuildMetadata] = []
         self._artifacts: dict[tuple[str, str], dict[str, bytes]] = {}
         self.downloads: list[tuple[str, str, str, Path]] = []
+        self._auth_status: dict[str, Any] = {
+            "valid": True,
+            "auth_method": "FAKE",
+            "file_path": None,
+            "file_exists": True,
+            "error_message": None,
+            "procedure": None,
+        }
+
+    def set_auth_status(self, status: Mapping[str, Any]) -> None:
+        """Configures the fake authentication status returned by `check_auth()`."""
+        self._auth_status = dict(status)
+
+    def check_auth(self, token: str | None = None) -> dict[str, Any]:
+        """Returns the configured fake authentication readiness dictionary."""
+        del token
+        return dict(self._auth_status)
 
     def seed_build(self, build: BuildMetadata) -> None:
         """Seeds a BuildMetadata record into the fake service."""

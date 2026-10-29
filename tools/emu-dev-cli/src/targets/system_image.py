@@ -18,14 +18,17 @@ import os
 import platform
 import re
 import shutil
-import subprocess
+from typing import Optional
 import zipfile
 
+from clients.artifact_service import (
+    DEFAULT_FETCH_ARTIFACT_BIN as FETCH_ARTIFACT_BIN,
+    ArtifactService,
+)
+from core.process import ProcessRunner, SubprocessRunner
 from lib.output import print_result
 
 logger = logging.getLogger(__name__)
-
-FETCH_ARTIFACT_BIN = "/google/data/ro/projects/android/fetch_artifact"
 
 TARGET_CANDIDATES = {
     "x86_64": [
@@ -124,7 +127,12 @@ def register_parser(subparser, default_host):
     parser.set_defaults(func=handler)
 
 
-def run_system_image_fetch(args):
+def run_system_image_fetch(
+    args,
+    *,
+    artifact_service: Optional[ArtifactService] = None,
+    runner: Optional[ProcessRunner] = None,
+):
     host = args.host.lower()
     arch = args.arch.lower()
     build_id = getattr(args, "build_id", None)
@@ -132,6 +140,7 @@ def run_system_image_fetch(args):
     branch = getattr(args, "branch", "trunk-release")
     json_mode = getattr(args, "json", False)
     token = getattr(args, "token", None)
+    proc_runner = runner or SubprocessRunner()
 
     if not getattr(args, "skip_auth_check", False):
         from lib.android_build_client import check_authentication_status
@@ -192,7 +201,7 @@ def run_system_image_fetch(args):
                     cmd.insert(1, build_id)
                     cmd.insert(1, "--bid")
 
-                res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                res = proc_runner.run(cmd, check=False)
                 if res.returncode == 0 and glob.glob(os.path.join(dest_dir, "*.zip")):
                     successful_target = t_name
                     break
@@ -205,7 +214,11 @@ def run_system_image_fetch(args):
     if not successful_target and not fetch_tool:
         try:
             from lib.android_build_client import AndroidBuildClient
-            client = AndroidBuildClient(token=token)
+            client = AndroidBuildClient(
+                token=token,
+                service=artifact_service,
+                process_runner=proc_runner,
+            )
 
             for t_name in candidate_targets:
                 try:

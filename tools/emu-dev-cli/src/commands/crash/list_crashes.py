@@ -21,13 +21,14 @@ reflected immediately without waiting for the hourly F1 annotations table refres
 """
 
 import argparse
-import csv
-import io
 import os
-import subprocess
 import sys
 from typing import Any
 
+from clients.f1_sql_client import (
+    ProdF1SqlClient,
+    parse_f1_csv_output as _client_parse_f1_csv_output,
+)
 from core.command import (
     Command,
     CommandResult,
@@ -39,7 +40,8 @@ from core.context import (
     SERVICE_F1_SQL,
     SERVICE_PROCESS_RUNNER,
 )
-from core.errors import ExecutionError, UsageError
+from core.errors import EmuCliError, ExecutionError, UsageError
+from core.process import ProcessRunner, SubprocessRunner
 from lib.output import print_result
 
 from commands.crash.link_bug import (
@@ -257,26 +259,9 @@ LIMIT {int(limit)};
 
 def parse_f1_csv_output(raw_stdout: str) -> list[dict[str, str]]:
     """Strips leading F1 CLI banner/hint lines and parses CSV rows into dictionaries."""
-    lines = raw_stdout.splitlines()
-    header_idx: int | None = None
-    for idx, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith(("stable_signature,", '"stable_signature",')):
-            header_idx = idx
-            break
-
-    if header_idx is None:
-        return []
-
-    csv_text = "\n".join(lines[header_idx:])
-    reader = csv.DictReader(io.StringIO(csv_text))
-    rows: list[dict[str, str]] = []
-    for row in reader:
-        cleaned_row = {
-            k: ("" if v in (None, "NULL") else v) for k, v in row.items() if k
-        }
-        rows.append(cleaned_row)
-    return rows
+    return _client_parse_f1_csv_output(
+        raw_stdout, expected_header_columns=("stable_signature",)
+    )
 
 
 def execute_f1_query(
@@ -284,30 +269,26 @@ def execute_f1_query(
     f1_sql_bin: str = DEFAULT_F1_SQL_BIN,
     accounting_group: str | None = None,
     timeout: int = 120,
+    runner: ProcessRunner | None = None,
 ) -> list[dict[str, str]]:
-    """Executes an F1 SQL query via `f1-sql --csv_output=true` and returns parsed rows."""
+    """Executes an F1 SQL query via `ProdF1SqlClient.query_csv` and returns parsed rows."""
     if not os.path.exists(f1_sql_bin):
         raise FileNotFoundError(
             f"f1-sql binary not found at '{f1_sql_bin}'. Ensure you are running on a GLinux host."
         )
 
-    cmd = [f1_sql_bin, "--csv_output=true"]
-    if accounting_group:
-        cmd.append(f"--f1_sql_accounting_group={accounting_group}")
-
-    res = subprocess.run(
-        cmd,
-        input=sql,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
+    client = ProdF1SqlClient(
+        runner or SubprocessRunner(), f1_sql_bin=f1_sql_bin
     )
-    if res.returncode != 0:
-        err_msg = (res.stderr or res.stdout or f"Exit code {res.returncode}").strip()
-        raise RuntimeError(f"f1-sql query failed: {err_msg}")
-
-    return parse_f1_csv_output(res.stdout)
+    try:
+        return client.query_csv(
+            sql,
+            accounting_group=accounting_group,
+            timeout_sec=float(timeout),
+            expected_header_columns=("stable_signature",),
+        )
+    except EmuCliError as exc:
+        raise RuntimeError(exc.message) from exc
 
 
 def merge_and_normalize_rows(

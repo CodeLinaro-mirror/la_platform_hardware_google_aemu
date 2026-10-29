@@ -46,6 +46,7 @@ def register_parser(subparsers, default_host):
     def handle_fetch(args):
         if not getattr(args, "target", None):
             fetch_parser.print_help()
-            sys.exit(0)
+            return 0
+        return 0
 
     fetch_parser.set_defaults(func=handle_fetch)

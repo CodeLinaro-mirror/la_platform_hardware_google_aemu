@@ -33,6 +33,8 @@ import tempfile
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from core.process import SubprocessRunner
+
 try:
     import psutil
 except ImportError:
@@ -609,10 +611,8 @@ def find_emulator_pid(
 
     # Fallback to pgrep on macOS / non-procfs
     try:
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             ["pgrep", "-f", "qemu-system"],
-            capture_output=True,
-            text=True,
             check=False,
         )
         pids = [
@@ -638,10 +638,8 @@ def sample_host_cpu_pct(pid: int, window_sec: float = 1.0) -> float:
 
     # Fallback to `ps` for macOS
     try:
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             ["ps", "-p", str(pid), "-o", "%cpu"],
-            capture_output=True,
-            text=True,
             check=False,
         )
         lines = [ln.strip() for ln in res.stdout.splitlines() if ln.strip()]
@@ -775,6 +773,8 @@ class WorkloadProfilerSession:
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         text=True,
+                        encoding="utf-8",
+                        errors="replace",
                     )
                 elif "perf-stat" in self.profiles:
                     self._perf_mode = "stat"
@@ -790,6 +790,8 @@ class WorkloadProfilerSession:
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         text=True,
+                        encoding="utf-8",
+                        errors="replace",
                     )
         return self
 
@@ -824,7 +826,7 @@ class WorkloadProfilerSession:
                     and os.path.exists(self._perf_data_file)
                 ):
                     perf_bin = shutil.which("perf") or "perf"
-                    rep = subprocess.run(
+                    rep = SubprocessRunner().run(
                         [
                             perf_bin,
                             "report",
@@ -833,8 +835,6 @@ class WorkloadProfilerSession:
                             "-i",
                             self._perf_data_file,
                         ],
-                        capture_output=True,
-                        text=True,
                         check=False,
                         timeout=15.0,
                     )
@@ -882,10 +882,8 @@ def query_perfetto_top_slices(
             qf.write(sql)
             q_path = qf.name
         try:
-            res = subprocess.run(
+            res = SubprocessRunner().run(
                 [tp_bin, "-q", q_path, trace_path],
-                capture_output=True,
-                text=True,
                 check=False,
                 timeout=20.0,
             )

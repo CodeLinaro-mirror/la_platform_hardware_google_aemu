@@ -43,6 +43,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
+from core.process import SubprocessRunner
 from lib.oauth import OAuthTokenManager, get_ssl_context
 from lib.workspace import WorkspacePathResolver
 
@@ -1237,18 +1238,15 @@ def fetch_and_checkout_cl(
         fetch_ref = f"refs/changes/{shard}/{cl_num}/{rev_obj['_number']}"
 
     # Check current HEAD commit message for matching Change-Id
+    runner = SubprocessRunner()
     try:
-        head_msg = subprocess.run(
+        head_msg = runner.run(
             ["git", "log", "-1", "--format=%B", "HEAD"],
-            capture_output=True,
-            text=True,
             check=True,
             cwd=str(repo_path),
         ).stdout
-        head_sha = subprocess.run(
+        head_sha = runner.run(
             ["git", "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
             check=True,
             cwd=str(repo_path),
         ).stdout.strip()
@@ -1268,10 +1266,8 @@ def fetch_and_checkout_cl(
         raise RuntimeError(f"Could not determine Gerrit fetch ref for CL {cl_num}.")
 
     remote = _detect_git_remote(repo_path, change_detail.get("project", ""))
-    fetch_res = subprocess.run(
+    fetch_res = runner.run(
         ["git", "fetch", remote, fetch_ref],
-        capture_output=True,
-        text=True,
         check=False,
         cwd=str(repo_path),
     )
@@ -1282,24 +1278,19 @@ def fetch_and_checkout_cl(
 
     effective_mode = "cherry-pick" if mode in ("auto", "cherry-pick") else "checkout"
     if effective_mode == "cherry-pick":
-        cp_res = subprocess.run(
+        cp_res = runner.run(
             ["git", "cherry-pick", "FETCH_HEAD"],
-            capture_output=True,
-            text=True,
             check=False,
             cwd=str(repo_path),
         )
         if cp_res.returncode != 0:
-            subprocess.run(
+            runner.run(
                 ["git", "cherry-pick", "--abort"],
-                capture_output=True,
                 check=False,
                 cwd=str(repo_path),
             )
-            co_res = subprocess.run(
+            co_res = runner.run(
                 ["git", "checkout", "-B", f"review-{cl_num}", "FETCH_HEAD"],
-                capture_output=True,
-                text=True,
                 check=False,
                 cwd=str(repo_path),
             )
@@ -1309,10 +1300,8 @@ def fetch_and_checkout_cl(
                 )
             effective_mode = "checkout"
     else:
-        co_res = subprocess.run(
+        co_res = runner.run(
             ["git", "checkout", "-B", f"review-{cl_num}", "FETCH_HEAD"],
-            capture_output=True,
-            text=True,
             check=False,
             cwd=str(repo_path),
         )
@@ -1321,10 +1310,8 @@ def fetch_and_checkout_cl(
                 f"git checkout FETCH_HEAD failed in '{repo_path}': {co_res.stderr.strip()}"
             )
 
-    new_head = subprocess.run(
+    new_head = runner.run(
         ["git", "rev-parse", "HEAD"],
-        capture_output=True,
-        text=True,
         check=True,
         cwd=str(repo_path),
     ).stdout.strip()
@@ -1341,10 +1328,8 @@ def fetch_and_checkout_cl(
 def _detect_git_remote(repo_path: Path, project_name: str) -> str:
     """Resolves the Git remote name ('goog' or 'origin') or full Gerrit URL for fetching refs."""
     try:
-        remotes = subprocess.run(
+        remotes = SubprocessRunner().run(
             ["git", "remote"],
-            capture_output=True,
-            text=True,
             check=True,
             cwd=str(repo_path),
         ).stdout.splitlines()
@@ -1363,10 +1348,8 @@ def upload_cl(
     presubmit: bool = True,
 ) -> dict[str, Any]:
     """Configures `push.negotiate=false` and uploads the current branch via `repo upload`."""
-    subprocess.run(
+    SubprocessRunner().run(
         ["git", "config", "push.negotiate", "false"],
-        capture_output=True,
-        text=True,
         check=False,
         cwd=str(repo_path),
     )
@@ -1379,6 +1362,8 @@ def upload_cl(
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         cwd=str(repo_path),
     )
@@ -1394,6 +1379,8 @@ def upload_cl(
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
                 cwd=str(repo_path),
             )
@@ -1402,6 +1389,8 @@ def upload_cl(
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
                 cwd=str(repo_path),
             )
@@ -1413,6 +1402,8 @@ def upload_cl(
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             cwd=str(repo_path),
         )

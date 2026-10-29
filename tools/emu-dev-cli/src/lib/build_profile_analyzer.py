@@ -25,10 +25,10 @@ import os
 from pathlib import Path
 import shutil
 import statistics
-import subprocess
 import tempfile
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from core.process import ProcessRunner, SubprocessRunner
 from lib.android_build_client import AndroidBuildClient
 
 logger = logging.getLogger(__name__)
@@ -1016,10 +1016,8 @@ def _get_git_commits_between(
         return []
     cmd = ["git", "log", "--oneline", "-n", str(max_commits), f"{old_sha}..{new_sha}"]
     try:
-        if runner is not None:
-            res = runner.run(cmd, cwd=full_dir, timeout_sec=5.0)
-        else:
-            res = subprocess.run(cmd, cwd=full_dir, capture_output=True, text=True, timeout=5.0)
+        proc_runner: ProcessRunner = runner or SubprocessRunner()
+        res = proc_runner.run(cmd, cwd=full_dir, timeout_sec=5.0, check=False)
         if res.returncode == 0 and res.stdout.strip():
             return [line.strip() for line in res.stdout.strip().splitlines() if line.strip()]
     except Exception as exc:

@@ -2953,7 +2953,7 @@ setImmediate(() => {
             fake_issues_bin.chmod(0o755)
 
             with patch(
-                "commands.gerrit.ai_analysis.subprocess.run",
+                "subprocess.run",
                 return_value=subprocess.CompletedProcess(
                     args=[],
                     returncode=0,
@@ -3525,7 +3525,7 @@ assert.equal(diffCliffHtml.includes('<span class="commit-cl-id">ag/43280303</spa
 assert.equal(diffCliffHtml.includes("perf(gerrit): Cliff gated sibling 测试_🚀_é"), true);
 assert.equal(diffCliffHtml.includes("Review note for 43280303"), true);
 assert.equal(diffCliffHtml.includes("Analysis summary for 43280303"), true);
-assert.equal(diffCliffHtml.includes("+ // change 43280303"), true);
+assert.equal(diffCliffHtml.replace(/<[^>]+>/g, "").includes("+ // change 43280303"), true);
 assert.equal(
   diffCliffHtml.includes(
     '<a class="external-gerrit-pill" href="https://googleplex-android-review.git.corp.google.com/c/platform/hardware/google/aemu/+/43280303" target="_blank" rel="noopener noreferrer"'

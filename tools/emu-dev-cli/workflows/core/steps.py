@@ -348,6 +348,8 @@ class AtomicVerifierStep(WorkflowStep):
                 eval_cmd,
                 shell=False,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 capture_output=True,
                 env=_build_subprocess_env(),
                 timeout=step_timeout,

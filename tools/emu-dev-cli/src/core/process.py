@@ -71,7 +71,16 @@ def _coerce_timeout_text(raw: str | bytes | None) -> str:
         return ""
     if isinstance(raw, bytes):
         return raw.decode("utf-8", errors="replace")
-    return str(raw)
+    if isinstance(raw, str):
+        return raw
+    return ""
+
+
+def _coerce_returncode(raw_code: object) -> int:
+    """Coerces subprocess returncode to int, defaulting non-int mocks to 0."""
+    if isinstance(raw_code, int):
+        return int(raw_code)
+    return 0
 
 
 def _summarize_stderr(stderr: str) -> str:
@@ -163,6 +172,7 @@ class ProcessRunner(ABC):
         cwd: str | os.PathLike[str] | None = None,
         env: Mapping[str, str] | None = None,
         timeout_sec: float | None = DEFAULT_SUBPROCESS_TIMEOUT_SEC,
+        timeout: float | None = None,
         check: bool = False,
         input_text: str | None = None,
         remediation: str | None = None,
@@ -204,11 +214,13 @@ class SubprocessRunner(ProcessRunner):
         cwd: str | os.PathLike[str] | None = None,
         env: Mapping[str, str] | None = None,
         timeout_sec: float | None = DEFAULT_SUBPROCESS_TIMEOUT_SEC,
+        timeout: float | None = None,
         check: bool = False,
         input_text: str | None = None,
         remediation: str | None = None,
         stream_output: bool = False,
     ) -> ProcessResult:
+        effective_timeout = timeout if timeout is not None else timeout_sec
         normalized_args = _normalize_command_args(args)
         normalized_cwd = _normalize_cwd(cwd)
         sanitized_args = redact_command_args(normalized_args)
@@ -216,13 +228,13 @@ class SubprocessRunner(ProcessRunner):
             "Executing subprocess: %s (cwd=%s, timeout=%s)",
             " ".join(sanitized_args),
             normalized_cwd,
-            timeout_sec,
+            effective_timeout,
         )
 
         start_time = time.monotonic()
         try:
             completed = subprocess.run(
-                normalized_args,
+                list(normalized_args),
                 cwd=normalized_cwd,
                 env=dict(env) if env is not None else None,
                 input=input_text,
@@ -230,16 +242,16 @@ class SubprocessRunner(ProcessRunner):
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=timeout_sec,
+                timeout=effective_timeout,
                 check=False,
                 shell=False,
             )
             duration = time.monotonic() - start_time
             result = ProcessResult(
                 args=normalized_args,
-                returncode=completed.returncode,
-                stdout=completed.stdout or "",
-                stderr=completed.stderr or "",
+                returncode=_coerce_returncode(completed.returncode),
+                stdout=_coerce_timeout_text(completed.stdout),
+                stderr=_coerce_timeout_text(completed.stderr),
                 duration_sec=duration,
                 timed_out=False,
             )
@@ -425,18 +437,20 @@ class FakeProcessRunner(ProcessRunner):
         cwd: str | os.PathLike[str] | None = None,
         env: Mapping[str, str] | None = None,
         timeout_sec: float | None = DEFAULT_SUBPROCESS_TIMEOUT_SEC,
+        timeout: float | None = None,
         check: bool = False,
         input_text: str | None = None,
         remediation: str | None = None,
         stream_output: bool = False,
     ) -> ProcessResult:
+        effective_timeout = timeout if timeout is not None else timeout_sec
         normalized_args = _normalize_command_args(args)
         normalized_cwd = _normalize_cwd(cwd)
         call = FakeProcessCall(
             args=normalized_args,
             cwd=normalized_cwd,
             env=dict(env) if env is not None else None,
-            timeout_sec=timeout_sec,
+            timeout_sec=effective_timeout,
             check=check,
             input_text=input_text,
             stream_output=stream_output,

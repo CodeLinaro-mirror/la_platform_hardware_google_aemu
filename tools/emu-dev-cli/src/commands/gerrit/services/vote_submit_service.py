@@ -22,7 +22,6 @@ import os
 from pathlib import Path
 import re
 import shutil
-import subprocess
 import time
 from typing import Any
 import urllib.parse
@@ -43,6 +42,7 @@ from commands.harness.review_swarm_status import (
     GERRIT_REVIEW_PAYLOAD_FILENAME,
     resolve_swarm_dir_for_cl,
 )
+from core.process import ProcessResult, SubprocessRunner
 from lib.gerrit_api import (
     GERRIT_CLI_TIMEOUT_SEC,
     parse_cl_identifier,
@@ -105,7 +105,7 @@ def _normalize_chat_dm_recipient(raw_recipient: str, sender_email: str) -> str:
 
 def _run_gchat_send_dm_command(
     gchat_bin: str, recipient_email: str, msg_text: str, cl_id: str
-) -> subprocess.CompletedProcess[str]:
+) -> ProcessResult:
     """Executes `gchat mutate send-direct-message` for one verified 1:1 recipient."""
     cmd = [
         gchat_bin,
@@ -117,20 +117,17 @@ def _run_gchat_send_dm_command(
         msg_text,
         "--json",
     ]
-    try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=GCHAT_DM_TIMEOUT_SEC,
-        )
-    except subprocess.TimeoutExpired as exc:
+    proc = SubprocessRunner().run(
+        cmd,
+        check=False,
+        timeout_sec=GCHAT_DM_TIMEOUT_SEC,
+    )
+    if proc.timed_out:
         raise RuntimeError(
             f"Timed out after {GCHAT_DM_TIMEOUT_SEC}s while sending Google Chat DM to "
             f"'{recipient_email}' for ag/{cl_id}. Run 'gcert' in your terminal and retry, "
             "or click 'Copy Text' to paste into Google Chat."
-        ) from exc
+        )
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or f"exit code {proc.returncode}").strip()
         raise RuntimeError(
@@ -185,7 +182,7 @@ class GerritVoteSubmitService(GerritServiceBase):
     ) -> dict[str, Any]:
         """Posts a single `gob-curl` review payload with `notify: OWNER` for one CL."""
         url = f"{self.client.api_host}/a/changes/{cl_id}/revisions/{revision_segment}/review"
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             [
                 gob_curl,
                 "-s",
@@ -199,10 +196,8 @@ class GerritVoteSubmitService(GerritServiceBase):
                 payload_json,
                 url,
             ],
-            capture_output=True,
-            text=True,
             check=False,
-            timeout=GERRIT_CLI_TIMEOUT_SEC,
+            timeout_sec=GERRIT_CLI_TIMEOUT_SEC,
         )
         err_msg = (res.stderr or "").strip() if res.returncode != 0 else ""
         if (
@@ -356,7 +351,7 @@ class GerritVoteSubmitService(GerritServiceBase):
         """Submits one CL (or its whole topic when `submitWholeTopic` is active) with `notify: OWNER`."""
         url = f"{self.client.api_host}/a/changes/{cl_id}/submit"
         try:
-            res = subprocess.run(
+            res = SubprocessRunner().run(
                 [
                     gob_curl,
                     "-s",
@@ -369,13 +364,10 @@ class GerritVoteSubmitService(GerritServiceBase):
                     payload_json,
                     url,
                 ],
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
                 check=False,
-                timeout=GERRIT_CLI_TIMEOUT_SEC,
+                timeout_sec=GERRIT_CLI_TIMEOUT_SEC,
             )
-        except subprocess.TimeoutExpired:
+        except (subprocess.TimeoutExpired, ProcessTimeoutError):
             return {
                 "cl": cl_id,
                 "ok": False,

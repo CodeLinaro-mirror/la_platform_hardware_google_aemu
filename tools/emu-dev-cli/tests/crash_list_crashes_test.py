@@ -186,7 +186,7 @@ annotations {
         )
         self.assertFalse(is_crash_report_id("virtio_gpu_rutabaga_load-e709a6ba"))
 
-    @patch("commands.crash.link_bug.subprocess.run")
+    @patch("subprocess.run")
     def test_resolve_signature_from_report_id_handles_null_and_quotes(
         self, mock_subproc
     ):

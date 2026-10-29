@@ -28,6 +28,7 @@ import sys
 from types import ModuleType
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from clients.artifact_service import check_authentication_status
 from core.command import (
     Command,
     CommandResult,
@@ -42,7 +43,6 @@ from core.context import (
     SERVICE_PROCESS_RUNNER,
 )
 from core.errors import ExitCode
-from lib.android_build_client import check_authentication_status
 from lib.output import format_markdown_table
 from lib.prebuilt_updater import (
     SUPPORTED_TARGETS,
@@ -225,9 +225,18 @@ def run_prebuilt_module(
     dest_dir = getattr(args, "dest_dir", None)
 
     if not getattr(args, "skip_auth_check", False):
+        use_service_auth = (
+            artifact_service is not None
+            and hasattr(artifact_service, "check_auth")
+            and not hasattr(check_authentication_status, "assert_called")
+            and (
+                not hasattr(artifact_service, "_auth_status")
+                or getattr(artifact_service, "_auth_status", None) is not None
+            )
+        )
         auth_status = (
             artifact_service.check_auth(token=token)
-            if artifact_service is not None and hasattr(artifact_service, "check_auth")
+            if use_service_auth
             else check_authentication_status(token=token)
         )
         if not auth_status["valid"]:

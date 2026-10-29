@@ -51,9 +51,16 @@ class AgentApiClientTest(unittest.TestCase):
                 "--agent=.gemini/agents/emu_main_next_engineer.md",
                 "Fix the bug",
             ],
+            cwd=None,
+            env=None,
+            input=None,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=300.0,
             check=False,
+            shell=False,
         )
         self.assertEqual(res.returncode, 0)
 
@@ -77,9 +84,16 @@ class AgentApiClientTest(unittest.TestCase):
                 "conv-123",
                 "Please check tests",
             ],
+            cwd=None,
+            env=None,
+            input=None,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=300.0,
             check=False,
+            shell=False,
         )
 
 

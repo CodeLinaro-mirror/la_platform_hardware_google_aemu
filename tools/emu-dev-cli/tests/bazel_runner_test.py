@@ -88,6 +88,8 @@ class BazelRunnerTest(unittest.TestCase):
             check=False,
             capture_output=False,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
 
     @patch("subprocess.run")
@@ -103,6 +105,8 @@ class BazelRunnerTest(unittest.TestCase):
             check=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         self.assertEqual(res.stdout.strip(), "//target:out.bin")
 

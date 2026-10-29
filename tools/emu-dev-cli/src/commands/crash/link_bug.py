@@ -22,18 +22,21 @@ import argparse
 import json
 import re
 import shutil
-import subprocess
 import sys
 from typing import Any
 
+from clients.buganizer_service import (
+    is_safe_signature_issue_match as _service_is_safe_signature_issue_match,
+    normalize_bug_url_and_id as _service_normalize_bug_url_and_id,
+)
 from core.command import Command, CommandResult, bind_command
 from core.context import (
     ExecutionContext,
     SERVICE_F1_SQL,
     SERVICE_PROCESS_RUNNER,
 )
-from core.errors import ExecutionError, UsageError
-from core.process import ProcessRunner
+from core.errors import CommandValidationError, ExecutionError, UsageError
+from core.process import ProcessRunner, SubprocessRunner
 from lib.output import print_result
 
 from commands.crash.utils import parse_crash_id
@@ -44,81 +47,26 @@ CRASH_QUERYAPI_TARGET = "blade:crash-queryapi"
 DEFAULT_F1_SQL_BIN = "/google/bin/releases/f1-team/public/f1-sql"
 
 _HEX_REPORT_ID_RE = re.compile(r"^[0-9a-fA-F]{16}$")
-_BUG_ID_EXTRACT_RE = re.compile(r"(?:^|b/|issues/)(\d+)(?:[/?#]|$)")
 _ANNOTATION_BLOCK_RE = re.compile(r"annotations\s*\{(.*?)\n\}", re.DOTALL)
 _STACK_SIG_RE = re.compile(r'StackSignature:\s*"((?:[^"\\]|\\.)*)"')
 _BUG_INFO_BLOCK_RE = re.compile(r"BugInfo\s*\{(.*?)\}", re.DOTALL)
 _BUG_ID_FIELD_RE = re.compile(r"BugID:\s*(\d+)")
 _BUG_URL_FIELD_RE = re.compile(r'BugUrl:\s*"((?:[^"\\]|\\.)*)"')
-_SIG_HASH_SUFFIX_RE = re.compile(r"-([0-9a-fA-F]{6,16})\b")
-_GENERIC_WRAPPER_SIG_RE = re.compile(
-    r"(?:FailWithoutStackTrace|__abort_with_payload|PthreadWaiter::Wait|"
-    r"FutexWaiter::Wait|CrashReporterImpl::Die|LogMessage::Flush|"
-    r"\babort\b|std::terminate)"
-)
 
 
 def is_safe_signature_issue_match(
     stable_signature: str, issue: dict[str, Any] | None
 ) -> bool:
-    """Checks whether a Buganizer issue returned by signature search is a safe exact match.
-
-    Prevents false-positive matches when `BuganizerClient.search_issue_by_signature`
-    or Buganizer tokenization strips the `-<hex_hash>` suffix on generic abort/log/waiter
-    wrapper signatures (e.g. `FailWithoutStackTrace-7a37e8e9` matching `FailWithoutStackTrace-b59fb732`).
-    """
-    if not issue or not isinstance(issue, dict):
-        return False
-    sig = stable_signature.strip()
-    if not sig:
-        return False
-
-    state = issue.get("issueState") or {}
-    title = str(state.get("title") or issue.get("title") or "").strip()
-    if not title:
-        return True
-    sig_hash_match = _SIG_HASH_SUFFIX_RE.search(sig)
-
-    if sig_hash_match:
-        expected_hash = sig_hash_match.group(1).lower()
-        title_hashes = [m.lower() for m in _SIG_HASH_SUFFIX_RE.findall(title)]
-        if title_hashes and expected_hash not in title_hashes:
-            return False
-        if _GENERIC_WRAPPER_SIG_RE.search(sig) and expected_hash not in title_hashes:
-            return False
-
-    return True
+    """Checks whether a Buganizer issue returned by signature search is a safe exact match."""
+    return _service_is_safe_signature_issue_match(stable_signature, issue)
 
 
 def normalize_bug_url_and_id(bug_input: str) -> tuple[str, str]:
-    """Normalizes a Buganizer ID, shortlink, or full URL into (bug_id, canonical_url).
-
-    Args:
-        bug_input: Raw bug string such as '567125517', 'b/567125517', or
-            'https://b.corp.google.com/issues/567125517'.
-
-    Returns:
-        Tuple of (bug_id_str, canonical_bug_url).
-
-    Raises:
-        ValueError: If no numeric bug ID or valid URL can be extracted.
-    """
-    cleaned = bug_input.strip()
-    if cleaned.isdigit():
-        return cleaned, f"https://b.corp.google.com/issues/{cleaned}"
-
-    match = _BUG_ID_EXTRACT_RE.search(cleaned)
-    if match:
-        bug_id = match.group(1)
-        return bug_id, f"https://b.corp.google.com/issues/{bug_id}"
-
-    if cleaned.startswith(("http://", "https://")):
-        return "", cleaned
-
-    raise ValueError(
-        f"Invalid bug identifier '{bug_input}'. Expected a numeric Buganizer ID (e.g. 567125517), "
-        "shortlink (b/567125517), or full issue URL."
-    )
+    """Normalizes a Buganizer ID, shortlink, or full URL into (bug_id, canonical_url)."""
+    try:
+        return _service_normalize_bug_url_and_id(bug_input)
+    except UsageError as exc:
+        raise ValueError(exc.message) from exc
 
 
 def parse_search_annotations_output(
@@ -200,24 +148,13 @@ def search_crash_annotations(
         request_proto,
     ]
 
-    if runner is not None:
-        res = runner.run(cmd, check=False, timeout_sec=15.0)
+    proc_runner = runner or SubprocessRunner()
+    try:
+        res = proc_runner.run(cmd, check=False, timeout_sec=15.0)
         if res.returncode != 0 or not isinstance(res.stdout, str):
             return {}
         return parse_search_annotations_output(res.stdout)
-
-    try:
-        res_proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-        if res_proc.returncode != 0 or not isinstance(res_proc.stdout, str):
-            return {}
-        return parse_search_annotations_output(res_proc.stdout)
-    except (OSError, subprocess.SubprocessError):
+    except Exception:
         return {}
 
 
@@ -267,8 +204,9 @@ def update_crash_annotation(
         request_proto,
     ]
 
-    if runner is not None:
-        res = runner.run(cmd, check=False, timeout_sec=15.0)
+    proc_runner = runner or SubprocessRunner()
+    try:
+        res = proc_runner.run(cmd, check=False, timeout_sec=15.0)
         stdout_str = res.stdout if isinstance(res.stdout, str) else ""
         stderr_str = res.stderr if isinstance(res.stderr, str) else ""
         if res.returncode == 0 and "status_code: SUCCESS" in stdout_str:
@@ -276,26 +214,8 @@ def update_crash_annotation(
         return False, (
             stderr_str.strip() or stdout_str.strip() or f"Exit code {res.returncode}"
         )
-
-    try:
-        res_proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-        stdout_str = res_proc.stdout if isinstance(res_proc.stdout, str) else ""
-        stderr_str = res_proc.stderr if isinstance(res_proc.stderr, str) else ""
-        if res_proc.returncode == 0 and "status_code: SUCCESS" in stdout_str:
-            return True, stdout_str.strip()
-        return False, (
-            stderr_str.strip()
-            or stdout_str.strip()
-            or f"Exit code {res_proc.returncode}"
-        )
-    except (OSError, subprocess.SubprocessError) as e:
-        return False, str(e)
+    except Exception as exc:
+        return False, str(exc)
 
 
 def is_crash_report_id(target: str) -> bool:
@@ -345,8 +265,9 @@ def resolve_signature_from_report_id(
                 return val
         return None
 
-    if runner is not None:
-        res_run = runner.run(
+    proc_runner = runner or SubprocessRunner()
+    try:
+        res_run = proc_runner.run(
             [f1_sql_bin, "--csv_output=true"],
             input_text=sql,
             check=False,
@@ -370,35 +291,7 @@ def resolve_signature_from_report_id(
             if val and val != "NULL":
                 return val
         return None
-
-    try:
-        res = subprocess.run(
-            [f1_sql_bin, "--csv_output=true"],
-            input=sql,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-        )
-        if res.returncode != 0 or not isinstance(res.stdout, str):
-            return None
-        raw_lines = res.stdout.splitlines()
-        header_idx = next(
-            (
-                i
-                for i, line in enumerate(raw_lines)
-                if line.strip().strip('"') == "stable_signature"
-            ),
-            None,
-        )
-        if header_idx is None:
-            return None
-        for line in raw_lines[header_idx + 1 :]:
-            val = line.strip().strip('"').replace('""', '"')
-            if val and val != "NULL":
-                return val
-        return None
-    except (OSError, subprocess.SubprocessError):
+    except Exception:
         return None
 
 

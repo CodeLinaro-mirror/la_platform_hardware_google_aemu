@@ -14,20 +14,24 @@
 
 """Minimal helper utilities for fetching and installing prebuilts from go/ab."""
 
-import logging
 import filecmp
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 import zipfile
 
-from lib.android_build_client import AndroidBuildClient, FETCH_ARTIFACT_BIN
+from clients.artifact_service import (
+    DEFAULT_FETCH_ARTIFACT_BIN as FETCH_ARTIFACT_BIN,
+    ArtifactService,
+)
+from core.process import ProcessRunner, SubprocessRunner
+from lib.android_build_client import AndroidBuildClient
 from lib.output import format_markdown_table
 from lib.workspace import WorkspacePathResolver
 
@@ -160,6 +164,9 @@ def resolve_build_number(
     branch: Optional[str],
     ab_target: str,
     token: Optional[str] = None,
+    *,
+    artifact_service: Optional[ArtifactService] = None,
+    runner: Optional[ProcessRunner] = None,
 ) -> str:
     """Returns `build_number` directly, or resolves the latest green build ID on `branch`."""
     if build_number and build_number != "latest":
@@ -173,6 +180,7 @@ def resolve_build_number(
     log_progress(
         f"  🔍 Resolving latest build on '{branch}' ({ab_target})..."
     )
+    proc_runner = runner or SubprocessRunner()
     fetch_tool = _find_fetch_artifact_tool()
     if fetch_tool:
         with tempfile.TemporaryDirectory(prefix="emu_ab_bid_") as tmp:
@@ -186,9 +194,9 @@ def resolve_build_number(
                 "BUILD_INFO",
                 tmp,
             ]
-            res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            res = proc_runner.run(cmd, check=False)
             info_path = Path(tmp) / "BUILD_INFO"
-            if res.returncode == 0 and info_path.is_file():
+            if res.ok and info_path.is_file():
                 data = json.loads(info_path.read_text(encoding="utf-8"))
                 if data.get("bid"):
                     bid = str(data["bid"])
@@ -196,7 +204,11 @@ def resolve_build_number(
                     log_progress(f"  ✓ Resolved build: go/ab/{bid} ({elapsed:.1f}s)")
                     return bid
 
-    client = AndroidBuildClient(token=token)
+    client = AndroidBuildClient(
+        token=token,
+        service=artifact_service,
+        process_runner=proc_runner,
+    )
     bid = str(client.get_latest_build_id(branch, ab_target))
     elapsed = time.monotonic() - start_ts
     log_progress(f"  ✓ Resolved build: go/ab/{bid} ({elapsed:.1f}s)")
@@ -210,12 +222,16 @@ def fetch_ab_artifact(
     out_dir: Path,
     zip_entries: Optional[Sequence[str]] = None,
     token: Optional[str] = None,
+    *,
+    artifact_service: Optional[ArtifactService] = None,
+    runner: Optional[ProcessRunner] = None,
 ) -> Optional[str]:
     """Fetches an artifact (or specific zip entries from it) from go/ab into `out_dir`.
 
     Returns None on success, or an error message string on failure.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
+    proc_runner = runner or SubprocessRunner()
     fetch_tool = _find_fetch_artifact_tool()
     last_err = ""
     start_ts = time.monotonic()
@@ -242,15 +258,19 @@ def fetch_ab_artifact(
             cmd.extend(f"--zip_entry={entry}" for entry in zip_entries)
         cmd.extend([artifact, str(out_dir)])
 
-        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if res.returncode == 0:
+        res = proc_runner.run(cmd, check=False)
+        if res.ok:
             elapsed = time.monotonic() - start_ts
             log_progress(f"  ✓ Downloaded in {elapsed:.1f}s")
             return None
         last_err = res.stderr.strip() or res.stdout.strip()
 
     try:
-        client = AndroidBuildClient(token=token)
+        client = AndroidBuildClient(
+            token=token,
+            service=artifact_service,
+            process_runner=proc_runner,
+        )
         dl_path = client.download_artifact(
             str(build_number), ab_target, artifact, str(out_dir)
         )
@@ -395,3 +415,136 @@ def build_update_report(
         "files": file_records,
         "markdown_table": md_table,
     }
+
+
+def run_standard_prebuilt_update(
+    *,
+    prebuilt_name: str,
+    default_branch: str,
+    supported_targets: Sequence[str],
+    targets_config: Mapping[str, Mapping[str, Any]],
+    build_number: Optional[str],
+    targets: Optional[Union[str, Sequence[str]]] = None,
+    allow_missing_leaf_dir: bool = False,
+    tmp_prefix: str = "emu_prebuilt_",
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """Shared execution pipeline for table-driven prebuilt updater modules."""
+    dry_run = bool(kwargs.get("dry_run", False))
+    custom_dest = kwargs.get("dest_dir")
+    branch = kwargs.get("branch") or default_branch
+    token = kwargs.get("token")
+    runner = kwargs.get("runner")
+
+    resolved_targets = resolve_targets_list(targets, supported_targets)
+    is_multi = len(resolved_targets) > 1
+    total_targets = len(resolved_targets)
+
+    file_records: List[Dict[str, Any]] = []
+    updated_files: List[str] = []
+    errors: List[str] = []
+    resolved_bids: List[str] = []
+    bid_by_ab_target: Dict[str, str] = {}
+
+    for idx, target in enumerate(resolved_targets, 1):
+        cfg = targets_config.get(target)
+        if not cfg:
+            errors.append(f"Unsupported target '{target}' for {prebuilt_name}")
+            continue
+
+        log_progress(
+            f"\n📦 [{idx}/{total_targets}] {target} → {cfg['dest_rel_dir']}"
+        )
+        dest_dir = resolve_dest_dir(
+            cfg["dest_rel_dir"],
+            custom_dest=custom_dest,
+            target=target,
+            is_multi_target=is_multi,
+        )
+        dir_ok = bool(dest_dir) and (
+            bool(custom_dest)
+            or dest_dir.is_dir()
+            or (allow_missing_leaf_dir and dest_dir.parent.is_dir())
+        )
+        if not dest_dir or not dir_ok:
+            msg = f"Could not locate destination directory '{cfg['dest_rel_dir']}'"
+            log_progress(f"  ❌ {msg}")
+            errors.append(f"[{target}] {msg}")
+            continue
+
+        ab_target = cfg["ab_target"]
+        if ab_target in bid_by_ab_target:
+            bid = bid_by_ab_target[ab_target]
+        else:
+            try:
+                bid = resolve_build_number(
+                    build_number,
+                    branch,
+                    ab_target,
+                    token=token,
+                    runner=runner,
+                )
+            except Exception as exc:  # noqa: BLE001
+                log_progress(f"  ❌ {exc}")
+                errors.append(f"[{target}] {exc}")
+                continue
+            bid_by_ab_target[ab_target] = bid
+
+        if bid not in resolved_bids:
+            resolved_bids.append(bid)
+
+        archive = cfg["archive"].format(build_number=bid)
+        zip_entries = [src_rel for src_rel, _, _ in cfg["files"]]
+
+        with tempfile.TemporaryDirectory(prefix=f"{tmp_prefix}{target}_") as tmp:
+            tmp_dir = Path(tmp)
+            err = fetch_ab_artifact(
+                build_number=bid,
+                ab_target=ab_target,
+                artifact=archive,
+                out_dir=tmp_dir,
+                zip_entries=zip_entries,
+                token=token,
+                runner=runner,
+            )
+            if err:
+                errors.append(f"[{target}] {err}")
+                continue
+
+            for src_rel, dst_name, mode in cfg["files"]:
+                src_file = tmp_dir / src_rel
+                dst_file = dest_dir / dst_name
+                if not src_file.is_file():
+                    msg = f"Expected '{src_rel}' not found in {archive}"
+                    log_progress(f"    ❌ {msg}")
+                    errors.append(f"[{target}] {msg}")
+                    continue
+
+                changed, rec = install_prebuilt_file(
+                    src_file=src_file,
+                    dst_file=dst_file,
+                    target=target,
+                    mode=mode,
+                    dry_run=dry_run,
+                )
+                file_records.append(rec)
+                if changed:
+                    updated_files.append(
+                        f"{target}/{dst_name}" if is_multi else dst_name
+                    )
+
+    bid_display = (
+        ", ".join(resolved_bids)
+        if resolved_bids
+        else str(build_number or "latest")
+    )
+    return build_update_report(
+        prebuilt=prebuilt_name,
+        build_number=bid_display,
+        targets=resolved_targets,
+        file_records=file_records,
+        updated_files=updated_files,
+        errors=errors,
+        dry_run=dry_run,
+        supported_targets=supported_targets,
+    )

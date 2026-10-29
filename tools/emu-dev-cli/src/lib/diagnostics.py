@@ -26,6 +26,7 @@ import tempfile
 import time
 from typing import Any, Dict, List, Optional, Union
 
+from core.process import SubprocessRunner
 from lib.mesh import find_adb_binary, find_netsim_binary
 
 
@@ -141,12 +142,10 @@ class DiagnosticSession:
             for serial in self.devices:
                 log_file = os.path.join(self.session_dir, f"{serial}_logcat.log")
                 try:
-                    res = subprocess.run(
+                    res = SubprocessRunner().run(
                         [self.adb_bin, "-s", serial, "logcat", "-d", "-v", "threadtime"],
-                        capture_output=True,
-                        text=True,
                         check=False,
-                        timeout=10,
+                        timeout=10.0,
                     )
                     with open(log_file, "w", encoding="utf-8", errors="replace") as f:
                         f.write(res.stdout)
@@ -213,12 +212,10 @@ class DiagnosticSession:
                 # View Hierarchy XML
                 xml_file = os.path.join(self.session_dir, f"{serial}_ui.xml")
                 try:
-                    res = subprocess.run(
+                    res = SubprocessRunner().run(
                         [self.adb_bin, "-s", serial, "exec-out", "uiautomator", "dump", "/dev/tty"],
-                        capture_output=True,
-                        text=True,
                         check=False,
-                        timeout=10,
+                        timeout=10.0,
                     )
                     if res.returncode == 0 and res.stdout:
                         with open(xml_file, "w", encoding="utf-8", errors="replace") as f:

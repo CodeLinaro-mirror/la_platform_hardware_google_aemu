@@ -23,7 +23,6 @@ from typing import Any
 from commands.crash.advisor import (
     CrashAdvisorRunner,
     create_crash_bug_tracker,
-    ensure_crashadvisor_imports,
 )
 from commands.crash.fix_checker import (
     evaluate_crash_fix_status,

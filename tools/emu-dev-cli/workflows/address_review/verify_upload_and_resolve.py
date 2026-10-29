@@ -46,6 +46,8 @@ def _check_clean_working_tree(repo_path: Path) -> str | None:
         ["git", "status", "--porcelain", "--untracked-files=no"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         cwd=str(repo_path),
         timeout=30,

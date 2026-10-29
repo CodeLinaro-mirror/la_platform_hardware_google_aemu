@@ -414,6 +414,8 @@ def _run_sidecar_agentapi(args: List[str], project_id: Optional[str] = None) -> 
         [agentapi_bin, *args],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         env=env,
         check=False,
         timeout=30,
