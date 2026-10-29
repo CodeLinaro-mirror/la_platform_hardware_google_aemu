@@ -17,22 +17,29 @@ Before introducing any new helper class, test fixture, server, socket wrapper, o
 - **Class**: `android::goldfish::IniFile`
 - **When to use**: Reading or writing `.ini` files (`config.ini`, `hardware-qemu.ini`, AVD `.ini` files). Never write custom `key=value` line splitters.
 
-## 3. Embedded HTTP Server (`//emulator/libs/http`)
+## 3. Embedded HTTP Server (`//emulator/libs/http:web_server`)
 - **Header**: `#include "goldfish/http/web_server.h"`
 - **API**: `goldfish::http::WebServer` / `goldfish::http::CreateWebServer`
 - **When to use**: Both production HTTP endpoints and hermetic C++ unit test servers. Never spin up raw socket `accept()` loops in unit tests to mock an HTTP server.
 
 ## 4. HTTP Client & Endpoint Resolution (`//emulator/libs/network`)
 - **HTTP Client Target**: `//emulator/libs/network:http_client` (`#include "goldfish/network/http_client.h"`, `goldfish::network::HttpClient`)
-- **Endpoint Resolution Target**: `//emulator/libs/network` (`#include "goldfish/network/resolve.h"`, `goldfish::network::ResolveEndpoints`)
+- **Endpoint Resolution Target**: `//emulator/libs/network` (`#include "goldfish/network/dns_resolver.h"`, `goldfish::network::ResolveEndpoints`)
 - **When to use**: Performing HTTP/HTTPS requests or DNS/socket endpoint resolution.
 
-## 5. Async Event Loops & Sockets (`//emulator/libs/async`)
-- **Headers**: `goldfish/async/libuv_event_loop.h`, `goldfish/async/threaded_event_loop.h`, `goldfish/async/async_socket.h`
-- **APIs**: `goldfish::async::LibuvEventLoop`, `ThreadedEventLoop`, `AsyncSocket`, `UvErrToAbslStatus`
+## 5. Async Event Loops & Sockets (`//emulator/libs/async:*`)
+- **Interfaces**: `//emulator/libs/async:async_api` (`#include "goldfish/async/async_socket.h"`, `goldfish::async::EventLoop`, `goldfish::async::AsyncSocket`)
+- **Event Loops**: `//emulator/libs/async:libuv_event_loop` (`goldfish/async/libuv_event_loop.h`, `LibuvEventLoop`) and `//emulator/libs/async:threaded_event_loop` (`goldfish/async/threaded_event_loop.h`, `ThreadedEventLoop`)
+- **libuv Errors**: `//emulator/libs/async:uv_to_absl` (`goldfish/async/uv_to_absl.h`, `UvErrToAbslStatus`)
 - **When to use**: Asynchronous I/O, timers, sockets, and background event loops instead of raw `uv_loop_t` boilerplate.
 
 ## 6. Environment & System Fakes (`//emulator/libs/system`)
 - **Production Target**: `//emulator/libs/system` (`#include "android/base/system.h"`, `android::base::System::Get()->EnvGet(...)`)
 - **Test Target**: `//emulator/libs/system:test-headers` (`#include "android/base/testing/test_system.h"`, `android::base::TestSystem`)
 - **When to use**: Querying environment variables or system paths in production code and overriding them hermetically in unit tests (never call `std::getenv` / `setenv` directly).
+
+## 7. gRPC Reactors & Status Translation (`//emulator/libs/grpc_utils:*`)
+- **Event Streams**: `//emulator/libs/grpc_utils:event-stream` (`#include "android/emulation/control/grpc_event_stream_support.h"`, `android::emulation::control::StateStreamWriter`, `UniqueEventStreamWriter`, `GenericEventStreamWriter`, `BaseEventStreamWriter`)
+- **Async Reactors & Helpers**: `//emulator/libs/grpc_utils:async` (`#include "android/emulation/control/simple_async_grpc.h"`, `::SimpleServerLambdaReader`, `::SimpleServerLambdaWriter`, `::SimpleServerReader`, `::SimpleServerWriter`, `::ErrorServerWriter`; `#include "android/emulation/control/library.h"`, `android::emulation::control::Library`; `#include "android/emulation/control/enum_translate.h"`, `::EnumTranslate::translate`)
+- **Status Translation**: `//emulator/libs/grpc_utils:absl_translate` (`#include "android/emulation/control/absl_status_translate.h"`, `android::emulation::control::AbslStatusToGrpcStatus`, `android::emulation::control::GrpcStatusToAbslStatus`)
+- **When to use**: All gRPC V1/V2 services under `emulator/plugin/grpc/`. Prefer these helpers over subclassing raw `grpc::ServerWriteReactor` / `grpc::ServerReadReactor` or hand-rolling `absl::Status` <-> `grpc::Status` switch blocks, and deviate only when they cannot express the RPC. The harness appends a non-blocking `[AEMU Harness Code Advisory]` to edits that do either. See `emulator/plugin/grpc/AGENTS.md`.

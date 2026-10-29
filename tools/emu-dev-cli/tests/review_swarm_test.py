@@ -406,6 +406,129 @@ class ReviewSwarmTest(unittest.TestCase):
         mcp_resp = json.loads(mcp_out.buffer.getvalue().decode("utf-8"))
         self.assertFalse(mcp_resp["result"]["isError"])
 
+    def test_cli_aggregate_from_persists_payload_and_satisfies_mise_presubmit_gate(self) -> None:
+        _, repo_dir = self._create_multi_project_repo_fixture()
+        blocked = evaluate_upload_command("mise presubmit", default_cwd=repo_dir)
+        self.assertIsNotNone(blocked)
+        self.assertFalse(blocked[0])  # type: ignore[index]
+
+        raw_file = self.base_path / "raw_specialist_outputs_测试_🚀_é.json"
+        raw_file.write_text(
+            json.dumps([
+                {
+                    "specialist": "duplication-and-reuse-auditor",
+                    "duration_sec": 1.2,
+                    "checked_count": 3,
+                    "duplicate_count": 0,
+                    "finding_count": 0,
+                    "findings": [],
+                }
+            ]),
+            encoding="utf-8",
+        )
+        custom_out = self.base_path / "custom_swarm_out_测试_🚀_é"
+        buf = io.TextIOWrapper(io.BytesIO(), encoding="utf-8", errors="strict")
+        with mock.patch.object(sys, "stdout", buf), self.assertRaises(SystemExit) as cm:
+            run_harness_review_swarm(
+                argparse.Namespace(
+                    target="HEAD",
+                    cl=None,
+                    commit="HEAD",
+                    mode="swarm",
+                    repo=str(repo_dir),
+                    output_dir=str(custom_out),
+                    aggregate_from=str(raw_file),
+                    full=False,
+                    json=True,
+                )
+            )
+        self.assertEqual(cm.exception.code, 0)
+        self.assertTrue((custom_out / "review_swarm_report.md").is_file())
+        self.assertTrue((custom_out / "gerrit_review_payload.json").is_file())
+        self.assertTrue((custom_out / "review_swarm_metrics.json").is_file())
+        allowed = evaluate_upload_command("mise presubmit", default_cwd=repo_dir)
+        self.assertIsNotNone(allowed)
+        self.assertTrue(allowed[0], msg=allowed[1])  # type: ignore[index]
+
+    def _seed_clean_head_review_cache(self, repo_dir: Path, cache_root: Path) -> None:
+        first_verdict = evaluate_upload_command(
+            f'cd "{repo_dir}" && repo upload --cbr -y .',
+            review_swarm_cache_root=cache_root,
+        )
+        self.assertIsNotNone(first_verdict)
+        self.assertFalse(first_verdict[0])  # type: ignore[index]
+        head_out_dir = next(cache_root.iterdir())
+        (head_out_dir / "gerrit_review_payload.json").write_text(
+            json.dumps({"message": "0 findings", "notify": "OWNER", "comments": {}}),
+            encoding="utf-8",
+        )
+
+    def test_chained_head_mutation_before_upload_blocks_pre_tool_gate(self) -> None:
+        _, repo_dir = self._create_multi_project_repo_fixture()
+        cache_root = self.base_path / "chained_mutation_cache"
+        self._seed_clean_head_review_cache(repo_dir, cache_root)
+
+        msg_file = self.base_path / "msg_测试_🚀_é.txt"
+        msg_file.write_text(
+            "feat(gerrit): Add reviewer edit 测试_🚀_é\n\n"
+            "Explain what and why in commit body.\n\n"
+            "Bug: N/A\n"
+            "Test: bazel test @aemu//tools/emu-dev-cli:review_swarm_test\n"
+            "Change-Id: I1234567890abcdef1234567890abcdef12345678\n",
+            encoding="utf-8",
+        )
+        for cmd in (
+            f'cd "{repo_dir}" && git add -u && git commit -F "{msg_file}" && repo upload --cbr -y .',
+            f'cd "{repo_dir}" && git rebase goog/studio-main && repo upload --cbr -y .',
+            f'cd "{repo_dir}" && git cherry-pick abc1234 && git push goog HEAD:refs/for/studio-main',
+            f'cd "{repo_dir}" && emu-dev-cli workflow amend-commit && emu-dev-cli gerrit upload',
+            f'cd "{repo_dir}" && mise gum && mise presubmit',
+            f'cd "{repo_dir}" && repo sync . && repo upload --cbr -y .',
+            f'cd "{repo_dir}" && git checkout other-branch && repo upload --cbr -y .',
+            f'git -C "{repo_dir}" commit -m "docs: Mention --skip-review-swarm" && repo upload --cbr -y "{repo_dir}"',
+        ):
+            verdict = evaluate_upload_command(cmd, review_swarm_cache_root=cache_root)
+            self.assertIsNotNone(verdict, msg=cmd)
+            self.assertFalse(verdict[0], msg=cmd)  # type: ignore[index]
+            self.assertIn("Cannot chain a HEAD-mutating command", verdict[1], msg=cmd)  # type: ignore[index]
+
+    def test_pre_tool_hook_denies_chained_commit_upload_and_allows_safe_prefixes(self) -> None:
+        _, repo_dir = self._create_multi_project_repo_fixture()
+        cache_root = self.base_path / "safe_prefix_cache"
+        self._seed_clean_head_review_cache(repo_dir, cache_root)
+        msg_file = self.base_path / "hook_msg_测试_🚀_é.txt"
+        msg_file.write_text(
+            "feat(gerrit): Add reviewer edit 测试_🚀_é\n\nBody.\n\nBug: N/A\nTest: unit\n",
+            encoding="utf-8",
+        )
+        hook_out = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": "conv-chained-upload",
+                "workspacePaths": [str(repo_dir)],
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {
+                        "CommandLine": (
+                            f'cd "{repo_dir}" && git commit -F "{msg_file}" && '
+                            "repo upload --cbr -y ."
+                        )
+                    },
+                },
+            },
+        )
+        self.assertEqual(hook_out["decision"], HookDecision.DENY.value)
+        self.assertIn("Cannot chain a HEAD-mutating command", hook_out["reason"])
+
+        for safe_cmd in (
+            f'cd "{repo_dir}" && git status && repo upload --cbr -y .',
+            f'cd "{repo_dir}" && git checkout -- README.md && repo upload --cbr -y .',
+            f'cd "{repo_dir}" && grep -C 3 DeviceHub README.md ; repo upload --cbr -y .',
+        ):
+            safe_verdict = evaluate_upload_command(safe_cmd, review_swarm_cache_root=cache_root)
+            self.assertIsNotNone(safe_verdict, msg=safe_cmd)
+            self.assertTrue(safe_verdict[0], msg=f"{safe_cmd}: {safe_verdict[1]}")  # type: ignore[index]
+
 
 if __name__ == "__main__":
     unittest.main()

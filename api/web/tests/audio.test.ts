@@ -16,7 +16,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AudioClient, SampleFormat } from '../src/core/audio';
 import {
   AudioChunk,
+  AudioState,
+  MicrophoneInput_Kind,
   StreamSpeakerAudioRequest,
+  UpdateAudioStateRequest,
 } from '@android/emulator-services/audio_service';
 import { FakeTransport } from './fake_transport';
 
@@ -119,6 +122,41 @@ describe('AudioClient', () => {
     unsubscribe();
 
     expect(transport.streamCalls[0].signal?.aborted).toBe(true);
+  });
+
+  it('updates and observes AudioState over unary and streaming RPCs', async () => {
+    transport.respondWith(
+      AudioState.encode(
+        AudioState.fromPartial({
+          microphoneMuted: true,
+          hostMicrophoneEnabled: false,
+          microphoneInputs: [
+            {
+              sourceId: 'host',
+              kind: MicrophoneInput_Kind.HOST,
+              muted: true,
+              gain: 1.0,
+            },
+          ],
+        })
+      ).finish()
+    );
+
+    const updated = await client.UpdateAudioState({
+      microphoneMuted: true,
+      hostMicrophoneEnabled: false,
+    });
+
+    expect(transport.calls).toHaveLength(1);
+    expect(transport.calls[0].service).toBe(SERVICE);
+    expect(transport.calls[0].method).toBe('UpdateAudioState');
+    const sent = UpdateAudioStateRequest.decode(transport.calls[0].data);
+    expect(sent.microphoneMuted).toBe(true);
+    expect(sent.hostMicrophoneEnabled).toBe(false);
+    expect(updated.microphoneMuted).toBe(true);
+    expect(updated.hostMicrophoneEnabled).toBe(false);
+    expect(updated.microphoneInputs).toHaveLength(1);
+    expect(updated.microphoneInputs[0].sourceId).toBe('host');
   });
 });
 

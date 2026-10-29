@@ -9,22 +9,66 @@ option java_package = "com.android.emulator.v2";
 import "common.proto";
 import "google/api/field_behavior.proto";
 
-// Streams uncompressed PCM audio between the host and the device's microphone and speaker endpoints.
+// Controls the virtual microphone mixer and streams uncompressed PCM audio between
+// the host and the device's microphone and speaker endpoints.
 //
 // AVAILABILITY:
 //   The two directions are independent and are advertised separately by
 //   `AudioCapabilities.microphone_profile` and `AudioCapabilities.speaker_profile`.
 //   Emulated devices generally offer both. Physical devices reached over ADB
 //   typically offer speaker capture only, since there is no virtual microphone
-//   HAL to write into. Inspect the capability before opening a stream.
+//   HAL to write into. Inspect the capability before opening a stream or mutating
+//   microphone state.
 //
 //   This service is also independent of `RtcService`. RtcService carries encoded
 //   Opus audio inside a peer connection and is the right choice for human
 //   playback; AudioService delivers raw PCM and is the right choice for
 //   programmatic consumers (speech recognition, waveform assertions, audio
 //   diffing) that need unencoded samples. Either may be used without the other,
-//   and both may be open at once.
+//   and when `AudioCapabilities.max_concurrent_microphone_streams` is greater
+//   than 1, WebRTC and programmatic gRPC microphone streams are mixed together.
 service AudioService {
+  // Returns the current virtual microphone mixer and audio endpoint state.
+  //
+  // Recommended client deadline: >= 500ms.
+  //
+  // Expected gRPC status codes:
+  //   - FAILED_PRECONDITION: The audio subsystem is disabled (`DeviceCapabilities.audio` is unset).
+  rpc GetAudioState(GetAudioStateRequest) returns (AudioState);
+
+  // Streams real-time virtual microphone mixer and guest capture state updates.
+  //
+  // STREAM LIFECYCLE:
+  //   1. Client initiates RPC with `StreamAudioStateRequest`.
+  //   2. Server immediately sends the current `AudioState` snapshot as the first message.
+  //   3. Server pushes subsequent `AudioState` snapshots whenever mute state, channel gain,
+  //      attached mixer inputs, or guest microphone capture activity changes.
+  //   4. Client cancels the RPC context to unsubscribe.
+  //
+  // Expected gRPC status codes:
+  //   - FAILED_PRECONDITION: The audio subsystem is disabled (`DeviceCapabilities.audio` is unset).
+  rpc StreamAudioState(StreamAudioStateRequest) returns (stream AudioState);
+
+  // Updates virtual microphone mute state or per-channel mixer controls.
+  //
+  // Setting `microphone_muted = true` silences all microphone audio delivered to the guest OS
+  // by feeding virtual-clock-paced PCM silence while keeping attached WebRTC and gRPC streams
+  // connected. Setting `host_microphone_enabled = false` detaches only the host machine's
+  // physical microphone (`source_id = "host"`), feeding silence when idle while still allowing
+  // WebRTC and gRPC audio injection.
+  //
+  // Recommended client deadline: >= 500ms.
+  //
+  // Expected gRPC status codes:
+  //   - INVALID_ARGUMENT: Empty `source_id` or out-of-range `gain` (outside [0.0, 4.0]) in
+  //     `microphone_inputs`.
+  //   - NOT_FOUND: `source_id` in `microphone_inputs` does not match `"host"` or any currently
+  //     attached `MicrophoneInput`.
+  //   - PERMISSION_DENIED: Caller lacks write access (`ACCESS_MODE_READ_ONLY`).
+  //   - FAILED_PRECONDITION: This device has no controllable virtual microphone endpoint
+  //     (`AudioCapabilities.microphone_profile` is unset), or the audio subsystem is disabled.
+  rpc UpdateAudioState(UpdateAudioStateRequest) returns (AudioState);
+
   // Injects a complete, self-contained PCM audio clip into the device's microphone input
   // in a single unary call, paced automatically by the server according to its sample rate.
   //
@@ -34,7 +78,12 @@ service AudioService {
   // Recommended client deadline: >= clip duration + 1000ms.
   //
   // Expected gRPC status codes:
-  //   - INVALID_ARGUMENT: Unsupported sample rate, channel count, or sample format.
+  //   - INVALID_ARGUMENT: Unsupported sample rate, channel count, sample format, or reserved
+  //     `source_id` (`"host"`).
+  //   - ALREADY_EXISTS: Another stream with the same `source_id` is active, or exclusive
+  //     single-source microphone capacity (`max_concurrent_microphone_streams == 1`) is occupied.
+  //   - RESOURCE_EXHAUSTED: Maximum concurrent microphone mixer stream capacity
+  //     (`AudioCapabilities.max_concurrent_microphone_streams`) reached.
   //   - PERMISSION_DENIED: Caller lacks write access (`ACCESS_MODE_READ_ONLY`).
   //   - FAILED_PRECONDITION: This device has no injectable microphone endpoint
   //     (`AudioCapabilities.microphone_profile` is unset), or the audio subsystem is disabled.
@@ -48,7 +97,12 @@ service AudioService {
   //   3. Client half-closes the stream or cancels context to stop microphone injection.
   //
   // Expected gRPC status codes:
-  //   - INVALID_ARGUMENT: Unsupported sample rate, channel count, or sample format.
+  //   - INVALID_ARGUMENT: Unsupported sample rate, channel count, sample format, or reserved
+  //     `source_id` (`"host"`).
+  //   - ALREADY_EXISTS: Another stream with the same `source_id` is active, or exclusive
+  //     single-source microphone capacity (`max_concurrent_microphone_streams == 1`) is occupied.
+  //   - RESOURCE_EXHAUSTED: Maximum concurrent microphone mixer stream capacity
+  //     (`AudioCapabilities.max_concurrent_microphone_streams`) reached.
   //   - PERMISSION_DENIED: Caller lacks write access (`ACCESS_MODE_READ_ONLY`).
   //   - FAILED_PRECONDITION: This device has no injectable microphone endpoint
   //     (`AudioCapabilities.microphone_profile` is unset), or the audio subsystem is disabled.
@@ -87,6 +141,94 @@ message AudioChunk {
   // Monotonic timestamp in nanoseconds (`CLOCK_MONOTONIC`) for the first sample in `pcm_data`.
   // Populated by the server on speaker capture streams; optional on microphone injection streams.
   int64 timestamp_nanos = 5;
+  // Optional logical caller/channel identifier surfaced in `AudioState.microphone_inputs`
+  // (e.g., `"voice-agent"`). Must not be `"host"`. When unset or empty, defaults to the
+  // `x-client-id` gRPC metadata header if present, or a server-generated identifier.
+  optional string source_id = 6;
+}
+
+// Request message for querying current audio and virtual microphone mixer state.
+message GetAudioStateRequest {}
+
+// Request message for subscribing to audio and virtual microphone mixer state updates.
+message StreamAudioStateRequest {}
+
+// Describes a single audio input channel attached to the virtual microphone mixer.
+message MicrophoneInput {
+  // Classifies the audio producer feeding a virtual microphone mixer channel.
+  enum Kind {
+    // Default unspecified input kind.
+    KIND_UNSPECIFIED = 0;
+    // Host machine's physical audio capture backend (always uses `source_id = "host"`).
+    HOST = 1;
+    // Unary PCM clip injection via `AudioService.InjectAudioClip`.
+    GRPC_CLIP = 2;
+    // Continuous PCM stream injection via `AudioService.StreamMicrophoneAudio`.
+    GRPC_STREAM = 3;
+    // Inbound Opus microphone track from an active `RtcService` WebRTC peer connection
+    // (`source_id` matches `RtcSession.session_id`).
+    WEBRTC = 4;
+  }
+
+  // Mixer channel identifier (`"host"` for the built-in host physical microphone channel,
+  // `RtcSession.session_id` for WebRTC sessions, or caller/server-assigned ID for gRPC streams).
+  string source_id = 1;
+  // Output only. Category of audio producer feeding this input channel.
+  Kind kind = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // When true, this individual input channel contributes silence (0.0) to the mixer without
+  // disconnecting the underlying stream or peer connection.
+  bool muted = 3;
+  // Linear amplitude multiplier in range [0.0, 4.0] applied before mixing (1.0 = unity gain).
+  float gain = 4;
+}
+
+// Partial update targeting an individual channel in the virtual microphone mixer.
+message MicrophoneInputUpdate {
+  // Target mixer channel identifier (e.g., `"host"`, an `RtcSession.session_id`, or a gRPC `source_id`).
+  string source_id = 1 [(google.api.field_behavior) = REQUIRED];
+  // When set, mutes or unmutes this specific input channel.
+  optional bool muted = 2;
+  // When set, updates this input channel's linear gain multiplier in range [0.0, 4.0] (1.0 = unity).
+  optional float gain = 3;
+}
+
+// Represents the runtime state of the virtual microphone mixer and audio endpoints.
+//
+// --- Server-Side Coupling (`host_microphone_enabled` vs. `"host"` in `microphone_inputs`) ---
+// The built-in `"host"` channel in `microphone_inputs` and `host_microphone_enabled` reflect the
+// same underlying toggle (`host_microphone_enabled == !host_input.muted`). Mutating either field
+// in `UpdateAudioStateRequest` updates the other automatically.
+message AudioState {
+  // Master virtual microphone mute: when true, the guest HAL always receives virtual-clock-paced
+  // PCM silence regardless of attached `microphone_inputs`.
+  bool microphone_muted = 1;
+  // True when the built-in `"host"` physical microphone channel is unmuted. When false, ambient
+  // host machine audio never enters the guest (silence is fed when idle), while WebRTC and gRPC
+  // audio injection remain active.
+  bool host_microphone_enabled = 2;
+  // Output only. True when an Android guest application currently has a microphone capture
+  // stream (`AudioRecord`) open and active.
+  bool microphone_in_use_by_guest = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Input channels currently attached to the virtual microphone mixer (ordered with
+  // `"host"` first when audio input hardware is present, followed by active injected streams).
+  repeated MicrophoneInput microphone_inputs = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Monotonic timestamp in nanoseconds (`CLOCK_MONOTONIC`) aligned with audio/video.
+  int64 timestamp_nanos = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// Request message for partially mutating virtual microphone mute state and mixer channel controls.
+//
+// Only fields explicitly set on the wire are modified; omitted fields leave current state untouched.
+message UpdateAudioStateRequest {
+  // Master virtual microphone mute toggle. Setting `true` injects steady virtual-clock-paced
+  // silence into the guest across all inputs (host, WebRTC, and gRPC).
+  optional bool microphone_muted = 1;
+  // Convenience toggle for the built-in `"host"` physical microphone channel. Setting `false`
+  // silences host OS microphone passthrough while keeping WebRTC and gRPC injection active.
+  optional bool host_microphone_enabled = 2;
+  // Per-channel mute and gain updates keyed by `source_id` (applied in order after
+  // `host_microphone_enabled` if both are present).
+  repeated MicrophoneInputUpdate microphone_inputs = 3;
 }
 
 // Response message for InjectAudioClip.

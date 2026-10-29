@@ -32,7 +32,7 @@ PREBUILT_NAME = "android-device-hub"
 ALIASES = ("device-hub",)
 DESCRIPTION = "Update Android Device Hub prebuilt packages in prebuilts/"
 DEFAULT_BRANCH = "studio-main"
-SUPPORTED_TARGETS = ("linux-x64", "mac-arm64", "win-x64")
+SUPPORTED_TARGETS = ("linux-x64", "linux-arm64", "mac-arm64", "win-x64")
 
 TARGETS_CONFIG: Dict[str, Dict[str, Any]] = {
     "linux-x64": {
@@ -45,6 +45,20 @@ TARGETS_CONFIG: Dict[str, Dict[str, Any]] = {
             (
                 "device-hub_pack.zip",
                 "device-hub_pack_linux_x64.zip",
+                0o640,
+            ),
+        ),
+    },
+    "linux-arm64": {
+        "ab_target": "studio-linux",
+        "archive": "artifacts/android-cli-linux-arm64.zip",
+        "dest_rel_dir": (
+            "prebuilts/android-emulator-build/common/android-device-hub/linux-arm64"
+        ),
+        "files": (
+            (
+                "device-hub_pack.zip",
+                "device-hub_pack_linux_arm64.zip",
                 0o640,
             ),
         ),
@@ -99,6 +113,7 @@ def update_prebuilt(
     updated_files: List[str] = []
     errors: List[str] = []
     resolved_bids: List[str] = []
+    bid_by_ab_target: Dict[str, str] = {}
 
     for idx, target in enumerate(resolved_targets, 1):
         cfg = TARGETS_CONFIG.get(target)
@@ -115,20 +130,29 @@ def update_prebuilt(
             target=target,
             is_multi_target=is_multi,
         )
-        if not dest_dir or (not custom_dest and not dest_dir.is_dir()):
+        if not dest_dir or (
+            not custom_dest
+            and not dest_dir.is_dir()
+            and not dest_dir.parent.is_dir()
+        ):
             msg = f"Could not locate destination directory '{cfg['dest_rel_dir']}'"
             log_progress(f"  ❌ {msg}")
             errors.append(f"[{target}] {msg}")
             continue
 
-        try:
-            bid = resolve_build_number(
-                build_number, branch, cfg["ab_target"], token=token
-            )
-        except Exception as e:
-            log_progress(f"  ❌ {e}")
-            errors.append(f"[{target}] {e}")
-            continue
+        ab_target = cfg["ab_target"]
+        if ab_target in bid_by_ab_target:
+            bid = bid_by_ab_target[ab_target]
+        else:
+            try:
+                bid = resolve_build_number(
+                    build_number, branch, ab_target, token=token
+                )
+            except Exception as e:
+                log_progress(f"  ❌ {e}")
+                errors.append(f"[{target}] {e}")
+                continue
+            bid_by_ab_target[ab_target] = bid
 
         if bid not in resolved_bids:
             resolved_bids.append(bid)
@@ -185,4 +209,5 @@ def update_prebuilt(
         updated_files=updated_files,
         errors=errors,
         dry_run=dry_run,
+        supported_targets=SUPPORTED_TARGETS,
     )

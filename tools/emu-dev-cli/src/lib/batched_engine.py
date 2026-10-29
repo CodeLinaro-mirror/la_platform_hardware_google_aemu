@@ -24,6 +24,7 @@ from lib.bazel import BazelRunner
 from lib.compiler_oracle import CompilerOracle
 from lib.git_transaction import GitTransactionContext, resolve_git_repo_for_target
 from lib.planner import RefactorPlanner, Cohort, FileTask
+from lib.refactoring.base_engine import BaseRefactoringEngine
 from lib.tidy_types import TidyDiagnostic
 from lib.tidy_engine import (
     _apply_seed_declaration_rename,
@@ -68,7 +69,7 @@ Running `mise fastbuild --keep_going` identified the following broken call sites
 """
 
 
-class BatchedRefactoringEngine:
+class BatchedRefactoringEngine(BaseRefactoringEngine):
     """Orchestrates Refactoring in O(K) parallel cohorts using the RefactorPlanner."""
 
     def __init__(
@@ -78,25 +79,24 @@ class BatchedRefactoringEngine:
         dispatcher: AgentDispatcher,
         source_dir: str,
     ):
-        self.runner = runner
-        self.oracle = oracle
-        self.dispatcher = dispatcher
-        self.source_dir = Path(source_dir)
+        super().__init__(runner, oracle, dispatcher, source_dir, logger=logger)
         self.planner = RefactorPlanner(self.source_dir)
 
+    def run_pipeline(self, *args, **kwargs) -> None:
+        """Template method hook delegating to run_refactoring_loop."""
+        return self.run_refactoring_loop(*args, **kwargs)
+
     async def _dispatch_task(self, task: FileTask, prompt: str, model: str) -> bool:
-        # Check if dispatcher has async method, fallback to thread
         if hasattr(self.dispatcher, "dispatch_refactor_step_async"):
             return await self.dispatcher.dispatch_refactor_step_async(
                 prompt, f"Batch for {task.file_path}", model
             )
-        else:
-            return await asyncio.to_thread(
-                self.dispatcher.dispatch_refactor_step,
-                prompt,
-                f"Batch for {task.file_path}",
-                model,
-            )
+        return await asyncio.to_thread(
+            self.dispatcher.dispatch_refactor_step,
+            prompt,
+            f"Batch for {task.file_path}",
+            model,
+        )
 
     def run_refactoring_loop(
         self,
@@ -107,7 +107,7 @@ class BatchedRefactoringEngine:
         model: str,
         test_target: Optional[str] = None,
     ) -> None:
-        repo_dir = resolve_git_repo_for_target(target, root_hint=self.source_dir)
+        repo_dir = self.resolve_repo_dir(target)
 
         cohorts = self.planner.plan(diagnostics)
         logger.info("--- Planned %d independent cohort batches ---", len(cohorts))
@@ -123,7 +123,6 @@ class BatchedRefactoringEngine:
             # 1. Apply ALL seed renames for the cohort
             applied_diags = []
             for task in cohort.tasks:
-                # Sort diagnostics reverse-byte to avoid shifting
                 sorted_diags = sorted(
                     task.diagnostics,
                     key=lambda d: -d.replacements[0].offset if d.replacements else 0,
@@ -133,10 +132,7 @@ class BatchedRefactoringEngine:
                     if not old_s or not new_s or old_s == new_s:
                         continue
 
-                    decl_path = repo_dir / diag.file_path
-                    if not decl_path.exists():
-                        decl_path = self.source_dir / diag.file_path
-
+                    decl_path = self.resolve_declaration_path(repo_dir, diag.file_path)
                     if _apply_seed_declaration_rename(decl_path, diag, old_s, new_s):
                         applied_diags.append((diag, old_s, new_s))
 
@@ -146,9 +142,7 @@ class BatchedRefactoringEngine:
 
             # 2. Global Build (Oracle)
             logger.info("  [Oracle] Checking compilation for cohort...")
-            report = self.oracle.run_compilation_check(
-                compilation_targets, workspace_root=self.source_dir
-            )
+            report = self.verify_compilation(compilation_targets)
 
             if not report.success:
                 logger.info(
@@ -156,7 +150,6 @@ class BatchedRefactoringEngine:
                     len(report.errors),
                 )
 
-                # 3. Parallel AI Patcher
                 async def dispatch_all():
                     coros = []
                     for task in cohort.tasks:
@@ -181,35 +174,22 @@ class BatchedRefactoringEngine:
                         if isinstance(err, Exception):
                             logger.warning("    - Error: %s", err)
 
-                _run_clang_format(repo_dir)
+                self.format_code(repo_dir)
 
-                # 4. Commit and Verify
-                # Since AI agents apply their patches directly to the source tree in parallel
-                # via `dispatcher`, we commit the entire cohort as a single transactional batch.
-                # If subsequent compilation or tests fail, the transaction engine will roll back
-                # the entire cohort step.
-                # Verify
-                verify = self.oracle.run_compilation_check(
-                    compilation_targets, workspace_root=self.source_dir
+                self.verify_compilation_or_rollback(
+                    tx,
+                    compilation_targets,
+                    f"Verification failed for Cohort {cohort_idx + 1}. Automating rollback.",
                 )
-                if not verify.success:
-                    logger.error(
-                        "Verification failed for Cohort %d. Automating rollback.",
-                        cohort_idx + 1,
-                    )
-                    tx.rollback_step()
-                    sys.exit(1)
 
             # Test Gate
-            if test_target:
-                logger.info("  [Test Gate] Verifying test suite...")
-                if self.runner.test([test_target], check=False).returncode != 0:
-                    logger.error("Unit tests failed. Automating rollback.")
-                    tx.rollback_step()
-                    sys.exit(1)
+            self.verify_test_gate_or_rollback(
+                tx, test_target, "Unit tests failed. Automating rollback."
+            )
 
             # Commit Cohort success
-            tx.commit_step(
+            self.commit_verified_step(
+                tx,
                 symbol_old=f"Cohort {cohort_idx+1}",
                 symbol_new=f"{len(applied_diags)} symbols",
                 message=f"style: Batched refactoring for Cohort {cohort_idx+1}",

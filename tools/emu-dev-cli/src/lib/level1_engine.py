@@ -23,6 +23,7 @@ from lib.agent_dispatcher import AgentDispatcher
 from lib.bazel import BazelRunner
 from lib.compiler_oracle import CompilerOracle
 from lib.git_transaction import GitTransactionContext, resolve_git_repo_for_target
+from lib.refactoring.base_engine import BaseRefactoringEngine
 import lib.tidy_engine
 from lib.tidy_engine import finalize_transaction
 import lib.tidy_runner
@@ -49,7 +50,7 @@ Unfortunately, the automated string replacements broke native compilation.
 """
 
 
-class Level1RefactoringEngine:
+class Level1RefactoringEngine(BaseRefactoringEngine):
     """Orchestrates deterministic AST fixes, build/test validation, and AI fixups for Level 1."""
 
     def __init__(
@@ -59,10 +60,12 @@ class Level1RefactoringEngine:
         dispatcher: AgentDispatcher,
         source_dir: str,
     ):
-        self.runner = runner
-        self.oracle = oracle
-        self.dispatcher = dispatcher
+        super().__init__(runner, oracle, dispatcher, source_dir, logger=logger)
         self.source_dir = source_dir
+
+    def run_pipeline(self, *args, **kwargs) -> bool:
+        """Template method hook delegating to run_level1_remediation."""
+        return self.run_level1_remediation(*args, **kwargs)
 
     def run_level1_remediation(
         self,
@@ -88,12 +91,12 @@ class Level1RefactoringEngine:
         logger.info("[Phase 1] Building and analyzing diagnostics for %s...", report_target)
         self.runner.build(
             [report_target],
-            flags=["--@goldfish_build//:clang_tidy_enabled=true"],
+            flags=["--@aemu//tools/clang_tidy:clang_tidy_enabled=true"],
             check=False,
         )
 
         yaml_file = lib.tidy_engine._find_yaml_file(
-            self.runner, report_target, self.source_dir
+            self.runner, report_target, str(self.source_dir)
         )
         if not yaml_file or not yaml_file.exists():
             logger.info("No diagnostic report found or target is clean. Nothing to fix.")
@@ -133,23 +136,21 @@ class Level1RefactoringEngine:
             len(active_diags),
         )
         applied = lib.tidy_runner.apply_yaml_fixes(
-            str(yaml_file), cwd=Path(self.source_dir), max_level=1, checks=checks
+            str(yaml_file), cwd=self.source_path, max_level=1, checks=checks
         )
         logger.info("Applied %d textual replacements.", applied)
-        repo_dir = resolve_git_repo_for_target(target, root_hint=Path(self.source_dir))
-        lib.tidy_engine._run_clang_format(repo_dir)
+        repo_dir = self.resolve_repo_dir(target)
+        self.format_code(repo_dir)
 
-        # Commit the raw Level 1 application immediately to get a safe recovery point before AI verification
-        tx.commit_step(
+        self.commit_verified_step(
+            tx,
             symbol_old="level1",
             symbol_new="level1_replacements",
             message="Apply raw Level 1 yaml diagnostics",
         )
 
         logger.info("Validating compilation with fast build...")
-        verify_report = self.oracle.run_compilation_check(
-            [target], workspace_root=Path(self.source_dir)
-        )
+        verify_report = self.verify_compilation([target])
         if not verify_report.success:
             logger.warning(
                 "Build verification failed after native fix application. Attempting AI fixup..."
@@ -162,19 +163,14 @@ class Level1RefactoringEngine:
                 title=f"Fix Level 1 Compilation for {target}",
                 model=model,
             )
-            lib.tidy_engine._run_clang_format(repo_dir)
-            verify_report_2 = self.oracle.run_compilation_check(
-                [target], workspace_root=Path(self.source_dir)
+            self.format_code(repo_dir)
+            self.verify_compilation_or_rollback(
+                tx,
+                [target],
+                "Build verification failed again after AI fixup. Rolling back...",
             )
-            if not verify_report_2.success:
-                logger.error(
-                    "Build verification failed again after AI fixup. Rolling back..."
-                )
-                tx.rollback_step()
-                sys.exit(1)
-
-            # Commit the AI compilation fix
-            tx.commit_step(
+            self.commit_verified_step(
+                tx,
                 symbol_old="level1_fix",
                 symbol_new="level1_compilation",
                 message="Fix Level 1 compilation breakages",
@@ -196,16 +192,14 @@ class Level1RefactoringEngine:
                     title=f"Fix Level 1 Unit Tests for {target}",
                     model=model,
                 )
-                lib.tidy_engine._run_clang_format(repo_dir)
-                test_res2 = self.runner.test([test_target], check=False)
-                if test_res2.returncode != 0:
-                    logger.error(
-                        "Unit tests failed again after AI fixup. Rolling back..."
-                    )
-                    tx.rollback_step()
-                    sys.exit(1)
-
-                tx.commit_step(
+                self.format_code(repo_dir)
+                self.verify_test_gate_or_rollback(
+                    tx,
+                    test_target,
+                    "Unit tests failed again after AI fixup. Rolling back...",
+                )
+                self.commit_verified_step(
+                    tx,
                     symbol_old="level1_test_fix",
                     symbol_new="level1_tests",
                     message="Fix Level 1 unit test breakages",
@@ -230,19 +224,14 @@ class Level1RefactoringEngine:
                     title=f"Fix L1 Diagnostic: {diag.name}",
                     model=model,
                 )
-                lib.tidy_engine._run_clang_format(repo_dir)
-                verify_report_3 = self.oracle.run_compilation_check(
-                    [target], workspace_root=Path(self.source_dir)
+                self.format_code(repo_dir)
+                self.verify_compilation_or_rollback(
+                    tx,
+                    [target],
+                    f"Build verification failed after AI fix for {diag.name}. Rolling back...",
                 )
-                if not verify_report_3.success:
-                    logger.error(
-                        "Build verification failed after AI fix for %s. Rolling back...",
-                        diag.name,
-                    )
-                    tx.rollback_step()
-                    sys.exit(1)
-
-                tx.commit_step(
+                self.commit_verified_step(
+                    tx,
                     symbol_old=diag.name,
                     symbol_new="ai_fixed",
                     message=f"Fix missing L1 replacement for {diag.name}",

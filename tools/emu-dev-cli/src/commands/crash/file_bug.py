@@ -22,6 +22,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from core.command import Command, CommandResult, bind_command
+from core.context import (
+    ExecutionContext,
+    SERVICE_BUGANIZER,
+    SERVICE_F1_SQL,
+    SERVICE_PROCESS_RUNNER,
+)
+from core.errors import ExecutionError, UsageError
 from lib.output import print_result, print_status
 
 from commands.crash.advisor import (
@@ -485,63 +493,272 @@ def run_file_bug(args: argparse.Namespace) -> None:
         )
 
 
+class CrashFileBugCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Command implementation for `emu-dev-cli crash file-bug`."""
+
+    name = "file-bug"
+    help_text = "Run RCA analysis (or use --from-rca), create/update a Buganizer issue, and link it in go/crash"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.description = (
+            "Creates or updates a Buganizer issue for a crash and links the bug URL to the crash "
+            "signature in go/crash. Pass --from-rca <file.md> when an agent has already written "
+            "the RCA to file directly without spawning a nested AI session."
+        )
+        parser.add_argument(
+            "crash_id",
+            help="Crash ID (e.g. 05d8356e2f800000), go/crash URL, or stable_signature (when used with --from-rca)",
+        )
+        parser.add_argument(
+            "--from-rca",
+            dest="from_rca",
+            help="Path to an existing Markdown RCA file; files/updates Buganizer and links go/crash directly without spawning a nested AI session",
+        )
+        parser.add_argument(
+            "--title",
+            help="Descriptive Buganizer issue title. If omitted, will be extracted from RCA (# Title: ...) or derived from faulting frame",
+        )
+        parser.add_argument(
+            "--signature",
+            help="Explicit stable_signature (optional override when using --from-rca)",
+        )
+        parser.add_argument(
+            "--bug-id",
+            dest="bug_id",
+            help="Explicit existing Buganizer issue ID to attach the RCA comment to (optional with --from-rca)",
+        )
+        parser.add_argument(
+            "--token", help="OAuth2 token for Buganizer & Crash API"
+        )
+        parser.add_argument(
+            "--qa",
+            action="store_true",
+            help="Run against QA Issue Tracker endpoint",
+        )
+        parser.add_argument(
+            "--no-link-crash",
+            action="store_true",
+            help="Skip automatically linking the Buganizer issue to the crash signature in go/crash",
+        )
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Bypass duplicate comment suppression and force updating the Buganizer issue",
+        )
+        parser.add_argument(
+            "--work-dir",
+            dest="work_dir",
+            help="Optional explicit work directory override",
+        )
+        parser.add_argument(
+            "--json",
+            action="store_true",
+            default=argparse.SUPPRESS,
+            help="Output machine-readable JSON result",
+        )
+
+    def validate(self, args: argparse.Namespace, ctx: ExecutionContext) -> None:
+        del ctx
+        raw_id = str(getattr(args, "crash_id", "") or "").strip()
+        if not raw_id:
+            raise UsageError(
+                "Crash ID or signature cannot be empty for 'crash file-bug'.",
+                remediation="Pass a 16-hex Crash ID, go/crash URL, or stable_signature.",
+            )
+        from_rca = getattr(args, "from_rca", None)
+        if from_rca:
+            rca_path = Path(str(from_rca)).expanduser()
+            if not rca_path.is_file():
+                raise UsageError(
+                    f"RCA markdown file not found at '{rca_path}'.",
+                    remediation="Pass a valid path to an existing non-empty Markdown file via --from-rca.",
+                )
+            if not rca_path.read_text(encoding="utf-8").strip():
+                raise UsageError(
+                    f"RCA markdown file '{rca_path}' is empty.",
+                    remediation="Ensure the RCA markdown file contains a root-cause analysis summary before running 'crash file-bug --from-rca'.",
+                )
+        return args
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        raw_crash_arg = str(args.crash_id).strip()
+        crash_id = parse_crash_id(raw_crash_arg)
+        explicit_work_dir = getattr(args, "work_dir", None)
+        if explicit_work_dir:
+            sandbox_dir = str(Path(str(explicit_work_dir)).expanduser())
+        else:
+            cache_sandbox = ctx.config.cache_dir / "crashadvisor" / crash_id
+            if cache_sandbox.exists():
+                sandbox_dir = str(cache_sandbox)
+            else:
+                sandbox_dir = str(cache_sandbox)
+                cache_sandbox.mkdir(parents=True, exist_ok=True)
+
+        buganizer = ctx.services.get(SERVICE_BUGANIZER)
+        f1_client = ctx.services.get(SERVICE_F1_SQL)
+        runner = ctx.services.get(SERVICE_PROCESS_RUNNER)
+        qa = bool(getattr(args, "qa", False))
+        no_link_crash = bool(getattr(args, "no_link_crash", False))
+
+        from_rca = getattr(args, "from_rca", None)
+        if from_rca:
+            rca_path = Path(str(from_rca)).expanduser().resolve()
+            rca_content = rca_path.read_text(encoding="utf-8").strip()
+            stable_sig = str(getattr(args, "signature", None) or "").strip()
+            if not stable_sig:
+                stable_sig = _extract_signature_from_sandbox(sandbox_dir)
+            if not stable_sig:
+                if is_crash_report_id(raw_crash_arg):
+                    stable_sig = (
+                        resolve_signature_from_report_id(
+                            crash_id, f1_client=f1_client, runner=runner
+                        )
+                        or ""
+                    )
+                else:
+                    stable_sig = raw_crash_arg
+            if not stable_sig:
+                raise ExecutionError(
+                    f"Could not determine stable_signature for '{raw_crash_arg}'.",
+                    remediation="Pass --signature '<stable_signature>' explicitly when invoking 'crash file-bug --from-rca'.",
+                )
+
+            explicit_bug_id = getattr(args, "bug_id", None)
+            issue_action = "created"
+            bug_id_str = ""
+            if explicit_bug_id:
+                bug_id_str = (
+                    str(explicit_bug_id).removeprefix("b/").strip()
+                )
+                buganizer.add_comment(bug_id_str, rca_content)
+                issue_action = "updated"
+            else:
+                existing_issues = buganizer.search_issues(
+                    f'"{stable_sig}"', limit=5
+                )
+                matched = next(
+                    (
+                        iss
+                        for iss in existing_issues
+                        if is_safe_signature_issue_match(
+                            stable_sig,
+                            {
+                                "issueId": iss.issue_id,
+                                "issueState": {
+                                    "title": iss.title,
+                                    "status": iss.status,
+                                },
+                            },
+                        )
+                    ),
+                    None,
+                )
+                if matched is not None:
+                    bug_id_str = matched.issue_id
+                    if getattr(args, "force", False):
+                        buganizer.add_comment(bug_id_str, rca_content)
+                        issue_action = "updated"
+                    else:
+                        issue_action = "skipped_duplicate"
+                else:
+                    title = (
+                        str(getattr(args, "title", None) or "").strip()
+                        or f"[Crash] {stable_sig}"
+                    )
+                    if hasattr(buganizer, "create_issue"):
+                        created = buganizer.create_issue(
+                            component_id=29601,
+                            title=title,
+                            description=rca_content,
+                        )
+                        bug_id_str = (
+                            created.issue_id
+                            if hasattr(created, "issue_id")
+                            else str(created)
+                        )
+                    else:
+                        bug_id_str = str(
+                            buganizer.create_bug(
+                                component_id=29601,
+                                title=title,
+                                description=rca_content,
+                            )
+                        )
+                    issue_action = "created"
+
+            bug_url = f"https://b.corp.google.com/issues/{bug_id_str}"
+            linked_in_crash = False
+            if not no_link_crash and not qa:
+                linked_in_crash, _ = update_crash_annotation(
+                    stable_signature=stable_sig,
+                    bug_url=bug_url,
+                    runner=runner,
+                )
+
+            payload: dict[str, Any] = {
+                "status": "success",
+                "action": "crash file-bug",
+                "issue_action": issue_action,
+                "crash_id": crash_id,
+                "stable_signature": stable_sig,
+                "bug_id": bug_id_str,
+                "bug_url": bug_url,
+                "rca_file": str(rca_path),
+                "linked_in_crash": linked_in_crash,
+            }
+            return CommandResult(
+                data=payload,
+                action="crash file-bug",
+                summary=f"Buganizer issue b/{bug_id_str} ({issue_action}) for signature '{stable_sig}'.",
+            )
+
+        cmd_args = [
+            "bazel",
+            "run",
+            "//emulator/crashreport/tool/advisor:crashadvisor",
+            "--",
+            crash_id,
+            "--enable-buganizer",
+            "--auto-run",
+            "--work-dir",
+            sandbox_dir,
+        ]
+        token = getattr(args, "token", None)
+        if token:
+            cmd_args.extend(["--token", str(token)])
+        if qa:
+            cmd_args.append("--qa")
+        if getattr(args, "verbose", False) or ctx.config.verbose:
+            cmd_args.append("--verbose")
+        if getattr(args, "title", None):
+            cmd_args.extend(["--title", str(args.title)])
+        if getattr(args, "force", False):
+            cmd_args.append("--force")
+
+        runner.run(cmd_args, check=True)
+        payload = {
+            "status": "success",
+            "action": "crash file-bug",
+            "crash_id": crash_id,
+            "sandbox_dir": sandbox_dir,
+        }
+        return CommandResult(
+            data=payload,
+            action="crash file-bug",
+            summary=f"Filed/updated Buganizer issue for Crash ID {crash_id}.",
+        )
+
+
 def register_file_bug_parser(crash_subparsers) -> None:
     """Registers the `file-bug` subcommand parser under `crash`.
 
     Args:
         crash_subparsers: Subparser group instance from `crash` parser.
     """
-    file_bug_parser = crash_subparsers.add_parser(
-        "file-bug",
-        help="Run RCA analysis (or use --from-rca), create/update a Buganizer issue, and link it in go/crash",
-        description=(
-            "Creates or updates a Buganizer issue for a crash and links the bug URL to the crash "
-            "signature in go/crash. Pass --from-rca <file.md> when an agent has already written "
-            "the RCA to file directly without spawning a nested AI session."
-        ),
+    bind_command(
+        crash_subparsers,
+        CrashFileBugCommand(),
+        legacy_func=run_file_bug,
     )
-    file_bug_parser.add_argument(
-        "crash_id",
-        help="Crash ID (e.g. 05d8356e2f800000), go/crash URL, or stable_signature (when used with --from-rca)",
-    )
-    file_bug_parser.add_argument(
-        "--from-rca",
-        dest="from_rca",
-        help="Path to an existing Markdown RCA file; files/updates Buganizer and links go/crash directly without spawning a nested AI session",
-    )
-    file_bug_parser.add_argument(
-        "--title",
-        help="Descriptive Buganizer issue title. If omitted, will be extracted from RCA (# Title: ...) or derived from faulting frame",
-    )
-    file_bug_parser.add_argument(
-        "--signature",
-        help="Explicit stable_signature (optional override when using --from-rca)",
-    )
-    file_bug_parser.add_argument(
-        "--bug-id",
-        dest="bug_id",
-        help="Explicit existing Buganizer issue ID to attach the RCA comment to (optional with --from-rca)",
-    )
-    file_bug_parser.add_argument(
-        "--token", help="OAuth2 token for Buganizer & Crash API"
-    )
-    file_bug_parser.add_argument(
-        "--qa", action="store_true", help="Run against QA Issue Tracker endpoint"
-    )
-    file_bug_parser.add_argument(
-        "--no-link-crash",
-        action="store_true",
-        help="Skip automatically linking the Buganizer issue to the crash signature in go/crash",
-    )
-    file_bug_parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Bypass duplicate comment suppression and force updating the Buganizer issue",
-    )
-    file_bug_parser.add_argument(
-        "--json",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help="Output machine-readable JSON result",
-    )
-    file_bug_parser.set_defaults(func=run_file_bug)

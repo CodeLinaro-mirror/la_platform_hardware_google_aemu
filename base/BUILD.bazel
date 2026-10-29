@@ -1,4 +1,10 @@
 load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test", "objc_library")
+
+package(
+    default_applicable_licenses = ["//:license"],
+    default_visibility = ["//visibility:public"],
+)
+
 # Interface library
 
 cc_library(
@@ -165,6 +171,13 @@ cc_library(
         "include/aemu/base/utils/status_matcher_macros.h",
         "include/aemu/base/utils/stream.h",
     ],
+    # MIT: AlignedBuf.h, Allocator.h, BumpPool.h, EntityManager.h, Stream.h,
+    # ring_buffer.h. BSD-3-Clause: memory/NoDestructor.h.
+    applicable_licenses = [
+        "//:license",
+        "//:license_bsd3",
+        "//:license_mit",
+    ],
     defines = select({
         "@platforms//os:windows": [
             "WIN32_LEAN_AND_MEAN",
@@ -204,6 +217,8 @@ cc_library(
         "SocketUtils.cpp",
         "SocketWaiter.cpp",
     ],
+    # SocketUtils.cpp and SocketWaiter.cpp are GPL-2.0.
+    applicable_licenses = ["//:license_gpl2"],
     visibility = ["//visibility:public"],
     deps = [
         ":aemu-base-headers",
@@ -347,6 +362,12 @@ cc_library(
             "Thread_pthread.cpp",
         ],
     }),
+    # GPL-2.0: Debug.cpp. MIT: Stream.cpp and ring_buffer.cpp.
+    applicable_licenses = [
+        "//:license",
+        "//:license_gpl2",
+        "//:license_mit",
+    ],
     defines = [
         "BUILDING_EMUGL_COMMON_SHARED",
         "LOGGING_API_SHARED",
@@ -445,6 +466,11 @@ cc_test(
         ],
         "//conditions:default": [],
     }),
+    # NoDestructor_unittest.cpp is BSD-3-Clause.
+    applicable_licenses = [
+        "//:license",
+        "//:license_bsd3",
+    ],
     linkopts = [
         "-undefined error",
     ],

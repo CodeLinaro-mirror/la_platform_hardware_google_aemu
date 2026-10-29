@@ -44,6 +44,7 @@ class LedgerEventKind(str, Enum):
     GUARDRAIL_BLOCKED = "guardrail_blocked"
     GUARDRAIL_ALLOWED = "guardrail_allowed"
     CODE_GUARDRAIL_BLOCKED = "code_guardrail_blocked"
+    CODE_ADVISORY_ISSUED = "code_advisory_issued"
     COMMAND_REWRITTEN = "command_rewritten"
     DIAGNOSTIC_INJECTED = "diagnostic_injected"
     CONCURRENCY_TEST_WARNING = "concurrency_test_warning"
@@ -64,10 +65,21 @@ MAX_STOP_CONTINUATIONS: int = 3
 # Maximum number of recent hook events retained per conversation ledger.
 MAX_LEDGER_EVENTS: int = 50
 
+# Jetski tool name sets shared across guardrails and terminal title hooks.
+SHELL_COMMAND_TOOL_NAMES: frozenset[str] = frozenset({
+    "run_command",
+    "run_shell_command",
+    "bash",
+})
+FILE_EDIT_TOOL_NAMES: frozenset[str] = frozenset({
+    "write_file",
+    "edit_file",
+    "replace_file_content",
+    "multi_replace_file_content",
+    "write_to_file",
+})
+
 # Regex patterns for command inspection in PreToolUse / PostToolUse
-GIT_COMMIT_CMD_PATTERN: re.Pattern[str] = re.compile(
-    r"(?:^|[;&|]\s*|\b)git\s+(?:-C\s+\S+\s+)*commit\b"
-)
 GIT_COMMIT_AMEND_PATTERN: re.Pattern[str] = re.compile(r"(?:^|\s)--amend\b")
 GIT_COMMIT_NO_EDIT_PATTERN: re.Pattern[str] = re.compile(r"(?:^|\s)--no-edit\b")
 GIT_COMMIT_MSG_FLAG_PATTERN: re.Pattern[str] = re.compile(
@@ -107,7 +119,7 @@ REPO_UPLOAD_BRANCH_FLAG_PATTERN: re.Pattern[str] = re.compile(
     rf"(?:^|\s)--br(?:anch)?(?:=|\s+){_QUOTED_ARG_RE}"
 )
 REPO_UPLOAD_TAIL_PATTERN: re.Pattern[str] = re.compile(
-    rf"(?m)(?:^|[;&|]\s*){_REPO_UPLOAD_CMD_RE}([^;&|]*)"
+    rf"(?m)(?:^|[;&|])\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:env\s+)?{_REPO_UPLOAD_CMD_RE}([^;&|]*)"
 )
 MAX_REPO_SUBPROJECT_SCAN_DEPTH: int = 3
 
@@ -120,9 +132,13 @@ GERRIT_COMMENTS_PUBLISH_PATTERN: re.Pattern[str] = re.compile(
 GOB_CURL_REVIEW_POST_PATTERN: re.Pattern[str] = re.compile(
     r"\bgob-curl\b.*\/revisions\/[^\/\s]+\/review\b"
 )
+_MISE_UPLOAD_CMD_RE: str = (
+    rf"{_cli_exe_re('mise', _BATCH_OR_EXE_EXT_RE)}\s+(?:run\s+)?(?:presubmit|submit)\b"
+)
 GERRIT_UPLOAD_CMD_PATTERN: re.Pattern[str] = re.compile(
     rf"(?m)(?:^|[;&|]\s*)(?:{_REPO_UPLOAD_CMD_RE}"
     rf"|{_EMU_CLI_CMD_RE}\s+(?:gerrit|cr)\s+upload\b"
+    rf"|{_MISE_UPLOAD_CMD_RE}"
     rf"|{_cli_exe_re('git')}\s+(?:-C\s+(?:\"[^\"]+\"|'[^']+'|[^\s\"']+)\s+)*push\s+\S+\s+\S*refs/for/)"
 )
 SKIP_REVIEW_SWARM_PATTERN: re.Pattern[str] = re.compile(
@@ -141,11 +157,75 @@ NOTIFY_OWNER_FLAG_PATTERN: re.Pattern[str] = re.compile(
 NOTIFY_OWNER_JSON_PATTERN: re.Pattern[str] = re.compile(
     r"\"notify\"\s*:\s*\"OWNER\""
 )
+# The following patterns are matched against a single top-level command segment (see
+# `shell_segments.iter_command_segments`), so quoted mentions such as `grep "bazel test"`
+# or `git commit -m "... git commit ..."` never match.
+_SEGMENT_ENV_PREFIX_RE: str = r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
+
+
+def _segment_exe_re(name_re: str, ext_re: str = r"(?:\.exe)?") -> str:
+    """Builds a pattern for the binary that starts a command segment.
+
+    Accepts a bare name or a POSIX or Windows path, an optional extension, and optional
+    quotes. Unlike `_cli_exe_re`, the name must start the word or follow a path
+    separator, so `legit commit` is not a `git commit`.
+    """
+    return (
+        rf"(?:\"(?:[^\"]*[/\\])?{name_re}{ext_re}\""
+        rf"|'(?:[^']*[/\\])?{name_re}{ext_re}'"
+        rf"|(?:[^\s\"';&|]*[/\\])?{name_re}{ext_re})"
+    )
+
+
+_SEGMENT_PY_LAUNCHER_RE: str = (
+    rf"(?:{_segment_exe_re(_PY_BIN_NAME_RE)}\s+(?:-\d(?:\.\d+)?\s+)?)?"
+)
+_GIT_OPT_ARG_RE: str = r"(?:\"[^\"]*\"|'[^']*'|[^\s\"']+)"
+_GIT_PRE_SUBCMD_OPTS_RE: str = (
+    rf"(?:\s+(?:-[Cc]\s+{_GIT_OPT_ARG_RE}"
+    rf"|--(?:git-dir|work-tree)(?:=|\s+){_GIT_OPT_ARG_RE}"
+    rf"|--no-pager|--bare))*"
+)
+
 BAZEL_TEST_CMD_PATTERN: re.Pattern[str] = re.compile(
-    r"(?:^|[;&|]\s*|\b)bazel\s+test\b"
+    rf"{_SEGMENT_ENV_PREFIX_RE}{_segment_exe_re('bazel(?:isk)?')}(?:\s+--\S+)*\s+test\b"
+)
+GIT_COMMIT_SEGMENT_PATTERN: re.Pattern[str] = re.compile(
+    rf"{_SEGMENT_ENV_PREFIX_RE}{_segment_exe_re('git')}"
+    rf"{_GIT_PRE_SUBCMD_OPTS_RE}\s+commit\b"
+)
+SKIP_REVIEW_SWARM_ENV_SEGMENT_PATTERN: re.Pattern[str] = re.compile(
+    r"^\s*(?:export\s+)?AEMU_SKIP_REVIEW_SWARM=(?:1|\"1\"|'1')(?:\s|$)"
+)
+UPLOAD_SEGMENT_PATTERN: re.Pattern[str] = re.compile(
+    rf"{_SEGMENT_ENV_PREFIX_RE}(?:env\s+)?(?:"
+    rf"{_SEGMENT_PY_LAUNCHER_RE}{_segment_exe_re('repo', _BATCH_OR_EXE_EXT_RE)}\s+upload\b"
+    rf"|{_SEGMENT_PY_LAUNCHER_RE}{_segment_exe_re(_EMU_CLI_NAME_RE, _BATCH_OR_EXE_EXT_RE)}"
+    rf"\s+(?:gerrit|cr)\s+upload\b"
+    rf"|{_segment_exe_re('mise', _BATCH_OR_EXE_EXT_RE)}\s+(?:run\s+)?(?:presubmit|submit)\b"
+    rf"|{_segment_exe_re('git')}{_GIT_PRE_SUBCMD_OPTS_RE}\s+push\b[^\r\n]*refs/for/"
+    rf")"
+)
+HEAD_MUTATING_SEGMENT_PATTERN: re.Pattern[str] = re.compile(
+    rf"{_SEGMENT_ENV_PREFIX_RE}(?:env\s+)?(?:"
+    rf"{_segment_exe_re('git')}{_GIT_PRE_SUBCMD_OPTS_RE}"
+    rf"\s+(?:commit|rebase|cherry-pick|merge|am|reset|pull|revert|checkout(?!\s+--(?!\S))|switch)\b"
+    rf"|{_SEGMENT_PY_LAUNCHER_RE}{_segment_exe_re(_EMU_CLI_NAME_RE, _BATCH_OR_EXE_EXT_RE)}"
+    rf"\s+workflow\s+(?:create-commit|amend-commit)\b"
+    rf"|{_segment_exe_re('mise', _BATCH_OR_EXE_EXT_RE)}\s+(?:run\s+)?gum\b"
+    rf"|{_SEGMENT_PY_LAUNCHER_RE}{_segment_exe_re('repo', _BATCH_OR_EXE_EXT_RE)}"
+    rf"\s+(?:sync|rebase)\b"
+    rf")"
 )
 BAZEL_TEST_OUTPUT_FLAG_PATTERN: re.Pattern[str] = re.compile(
     r"--test_output(?:=|\s+)\S+"
+)
+SHELL_ASSIGNMENT_PATTERN: re.Pattern[str] = re.compile(
+    r"(?:^|[;&|\s])(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(\"[^\"]*\"|'[^']*'|[^\s;&|]*)"
+)
+# Output redirection (`>`, `>>`, `2>`) and `tee [-a]` targets anywhere in a command line.
+SHELL_WRITE_TARGET_PATTERN: re.Pattern[str] = re.compile(
+    rf"(?:(?<!\d)\d*>>?|\btee(?:\s+-a)?)\s*{_QUOTED_ARG_RE}"
 )
 
 EMU_LAUNCH_CMD_PATTERN: re.Pattern[str] = re.compile(
@@ -174,3 +254,27 @@ RAW_FSTREAM_PATTERN: re.Pattern[str] = re.compile(
 STATUSOR_HUNGARIAN_PATTERN: re.Pattern[str] = re.compile(
     r"\b(?:absl::StatusOr\s*<[^>]+>|auto)\s+([a-zA-Z0-9_]+_or|maybe_[a-zA-Z0-9_]+)\s*="
 )
+GRPC_RAW_REACTOR_INHERITANCE_PATTERN: re.Pattern[str] = re.compile(
+    r"\b(?:class|struct)\s+(?!ErrorServerReader\b)((?:\w+::)*\w+)(?:\s+final)?\s*:(?!:)[^{;]*?"
+    r"(?:::)?\bgrpc::(Server(?:Write|Read|Bidi)Reactor)\b",
+    re.DOTALL,
+)
+GRPC_MANUAL_STATUS_SWITCH_PATTERN: re.Pattern[str] = re.compile(
+    r"(?:\bswitch\s*\([^)]*\.(?:error_)?code\s*\(\s*\)\s*\)"
+    r"|\bswitch\s*\([^)]*\)\s*\{[^}]*\bcase\s+(?:::)?(?:absl|grpc)::StatusCode::"
+    r"|\bstatic_cast\s*<\s*(?:::)?(?:grpc|absl)::StatusCode\s*>\s*\([^)]*\.(?:error_)?code\s*\(\s*\)\s*\)"
+    r"|\bTo(?:Grpc|Absl)Status\s*\()",
+    re.DOTALL,
+)
+# `absl::{MutexLock,ReaderMutexLock,WriterMutexLock,ReleasableMutexLock} name(&mu...)`,
+# with or without the `absl::` qualifier. `MutexLockMaybe` never matches: the class name
+# must be followed by whitespace and a variable name.
+ABSL_MUTEX_LOCK_BY_POINTER_PATTERN: re.Pattern[str] = re.compile(
+    r"\b(?:absl::)?((?:Reader|Writer|Releasable)?MutexLock)\s+\w+\s*[({]\s*&(?!&)"
+)
+CPP_COMMENT_PATTERN: re.Pattern[str] = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)
+ABSEIL_BAZEL_DEP_VERSION_PATTERN: re.Pattern[str] = re.compile(
+    r'bazel_dep\(\s*name\s*=\s*"abseil-cpp"\s*,\s*version\s*=\s*"(\d{8})\.'
+)
+# First Abseil LTS (20250814.0) whose MutexLock family takes `absl::Mutex&`.
+ABSL_MUTEX_LOCK_REFERENCE_MIN_LTS: int = 20250814

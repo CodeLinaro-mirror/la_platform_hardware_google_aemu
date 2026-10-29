@@ -57,7 +57,7 @@ def _extract_cc_targets(content: str) -> List[str]:
 
 def _insert_load_statement(content: str, load_stmt: str) -> str:
     """Inserts load statement after top-of-file license comments."""
-    if "rules:clang_tidy.bzl" in content and "clang_tidy_test" in content:
+    if ("tools/clang_tidy:defs.bzl" in content or "rules:clang_tidy.bzl" in content) and "clang_tidy_test" in content:
         return content
 
     lines = content.splitlines(keepends=True)
@@ -283,7 +283,7 @@ def handle_tidy_add(args: argparse.Namespace) -> None:
     ]
 
     # 1. Ensure load statement is placed after license comments
-    load_stmt = 'load("@goldfish_build//rules:clang_tidy.bzl", "clang_tidy_test")\n'
+    load_stmt = 'load("@aemu//tools/clang_tidy:defs.bzl", "clang_tidy_test")\n'
     content = _insert_load_statement(content, load_stmt)
 
     # 2. Update existing rule or append new rule

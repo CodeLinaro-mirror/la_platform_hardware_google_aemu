@@ -76,7 +76,7 @@ Fetches prebuilt artifacts from Android Build (`go/ab`) into `prebuilts/android-
 emu-dev-cli update-prebuilt --list
 emu-dev-cli update-prebuilt lavapipe --build-number=16534139 [--target=linux-x64|mac-arm64|win-x64] [--dry-run]
 emu-dev-cli update-prebuilt kosmickrisp --build-number=16476462
-emu-dev-cli update-prebuilt android-device-hub --latest
+emu-dev-cli update-prebuilt android-device-hub --latest [--target=linux-x64|linux-arm64|mac-arm64|win-x64]
 ```
 ### 2. Source Directory Registry (`source-directory`)
 Manage mappings between branch names (`emu-main-dev`, `emu-main-next`, `git_main`) and local checkout paths in `~/.android/emu-dev-cli.json`:
@@ -123,11 +123,13 @@ emu-dev-cli cts run-cts-verifier --build-id 15900270 --module vibrations
   ```bash
   emu-dev-cli init
   ```
-- **Rebuild & update executable (`update`):** Rebuilds
-  `//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli` via Bazel from the configured local
-  `emu-main-next` source directory and re-installs the compiled release package:
+- **Rebuild & update executable (`update`):** Compares the installed `version.json` against the
+  configured local `emu-main-next` checkout, logs whether an update is needed, and rebuilds
+  `//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli` via Bazel when out of date or `--force`
+  (`-f`) is passed (`emu-dev-cli --version` prints the installed version):
   ```bash
-  emu-dev-cli update
+  emu-dev-cli update [--force]
+  emu-dev-cli --version
   ```
 ### 8. Codebase Wiki & Documentation Engine (`docs`)
 Provides a persistent **LLM Wiki** interface (`Query → Ingest → Lint`) across all `ARCHITECTURE.md`,
@@ -430,6 +432,12 @@ emu-dev-cli sbom audit
 emu-dev-cli sbom diff /tmp/old.spdx.json /tmp/new.spdx.json
 ```
 
+### 12.7 Screencast Upload (`screencast`)
+Uploads `.mp4`, `.webm`, or `.mov` videos to `screencast.googleplex.com` (gLinux/gMac/gWindows via `gosso`):
+```bash
+emu-dev-cli screencast /tmp/demo.mp4 [--title "Title" --description "Notes" --dry-run]
+```
+
 ### 13. Common Natural Language Requests & Agent Action Mapping
 | User Request | Target Command |
 | :--- | :--- |
@@ -456,6 +464,7 @@ emu-dev-cli sbom diff /tmp/old.spdx.json /tmp/new.spdx.json
 | _"Review a commit for duplication / modularity / control-flow / constants / unicode"_ | `emu-dev-cli workflow review-{duplication,modularity,control-flow,constants,unicode} init -- --commit HEAD` |
 | _"List untriaged production qemu-next crashes from the last 7 days"_ | `emu-dev-cli crash list-crashes --unassigned-only --days 7` |
 | _"Associate Buganizer issue b/567125517 with crash signature virtio_gpu_rutabaga_load-e709a6ba in go/crash"_ | `emu-dev-cli crash link-bug "virtio_gpu_rutabaga_load-e709a6ba" b/567125517` |
+| _"Upload a screen recording to Screencast"_ | `emu-dev-cli screencast /tmp/demo.mp4 --title "Title"` |
 
 ---
 ## 🤖 Agent Autonomous Flakiness Remediation Protocol

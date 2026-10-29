@@ -40,6 +40,13 @@ from commands.crash.utils import (
     parse_crash_id,
 )
 from commands.launch import prepare_environment
+from core.command import Command, CommandResult, bind_command
+from core.context import (
+    ExecutionContext,
+    SERVICE_ARTIFACT,
+    SERVICE_PROCESS_RUNNER,
+)
+from core.errors import ExecutionError, UsageError
 from lib.output import print_result
 
 
@@ -285,42 +292,154 @@ def run_reproduce(args: argparse.Namespace) -> None:
             sys.exit(1)
 
 
+class CrashReproduceCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Command implementation for `emu-dev-cli crash reproduce`."""
+
+    name = "reproduce"
+    help_text = "Automate fetching crashing emulator binaries and booting with LLDB attached to qemu-system process"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.description = (
+            "Extracts crash configuration from CrashAdvisor metadata, launches the emulator, "
+            "and automatically attaches LLDB to the spawned qemu-system engine using --wait-for."
+        )
+        parser.add_argument(
+            "crash_id", help="Crash ID (e.g. 05d8356e2f800000) or go/crash URL"
+        )
+        parser.add_argument("--token", help="OAuth2 token")
+        parser.add_argument(
+            "--avd", help="Target AVD profile to use (defaults to repro_<crash_id>)"
+        )
+        parser.add_argument(
+            "--lldb",
+            action="store_true",
+            help="Automatically attach LLDB to the spawned qemu-system worker process via --wait-for",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Generate and display the reproduction plan without launching",
+        )
+        parser.add_argument(
+            "--json",
+            action="store_true",
+            help="Output reproduction plan as structured JSON",
+        )
+        parser.add_argument(
+            "--work-dir",
+            dest="work_dir",
+            help="Optional explicit work directory containing metadata.json",
+        )
+        parser.add_argument(
+            "--extra-args",
+            nargs=argparse.REMAINDER,
+            help="Additional arguments to pass to the emulator",
+        )
+
+    def validate(self, args: argparse.Namespace, ctx: ExecutionContext) -> None:
+        del ctx
+        raw_id = str(getattr(args, "crash_id", "") or "").strip()
+        target_id = parse_crash_id(raw_id) if raw_id else ""
+        if not target_id:
+            raise UsageError(
+                "Crash ID cannot be empty for 'crash reproduce'.",
+                remediation="Pass a 16-hex Crash ID (e.g. '05d8356e2f800000') or go/crash URL.",
+            )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        target_id = parse_crash_id(str(args.crash_id))
+        dry_run = bool(getattr(args, "dry_run", False))
+        avd_override = getattr(args, "avd", None)
+        debugger = "lldb" if getattr(args, "lldb", False) else None
+        extra_args = getattr(args, "extra_args", None)
+
+        explicit_work_dir = getattr(args, "work_dir", None)
+        if explicit_work_dir:
+            sandbox_path = Path(str(explicit_work_dir)).expanduser()
+        else:
+            sandbox_path = ctx.config.cache_dir / "crashadvisor" / target_id
+            if not sandbox_path.exists():
+                sandbox_path.mkdir(parents=True, exist_ok=True)
+
+        meta_path = sandbox_path / "metadata.json"
+        runner = ctx.services.get(SERVICE_PROCESS_RUNNER)
+        if not meta_path.is_file():
+            cmd_args = [
+                "bazel",
+                "run",
+                "//emulator/crashreport/tool/advisor:crashadvisor",
+                "--",
+                target_id,
+                "--auto-run",
+                "--work-dir",
+                str(sandbox_path),
+            ]
+            token = getattr(args, "token", None)
+            if token:
+                cmd_args.extend(["--token", str(token)])
+            runner.run(cmd_args, check=False)
+
+        if not meta_path.is_file():
+            raise ExecutionError(
+                f"Crash metadata not found at '{meta_path}'. Cannot construct reproduction plan.",
+                remediation="Verify the Crash ID exists or provide a work directory containing metadata.json via --work-dir.",
+            )
+
+        plan = extract_reproduce_plan(
+            crash_id=target_id,
+            metadata_path=meta_path,
+            avd_override=avd_override,
+            debugger=debugger,
+            extra_args=extra_args,
+        )
+
+        if dry_run or ctx.config.json_mode or getattr(args, "json", False):
+            return CommandResult(
+                data={
+                    "status": "success",
+                    "action": "crash reproduce (plan)",
+                    "plan": plan,
+                },
+                action="crash reproduce (plan)",
+                summary=f"Constructed crash reproduction plan for {target_id}.",
+            )
+
+        artifact_service = ctx.services.get(SERVICE_ARTIFACT)
+        emu_output_dir = ctx.config.cache_dir / f"emulator-{plan['build_id']}"
+        emu_bin = emu_output_dir / "extracted" / "emulator" / "emulator"
+        if not emu_bin.is_file():
+            artifact_service.download_artifact(
+                build_id=str(plan["build_id"]),
+                target=str(plan["build_target"]),
+                artifact_name=f"sdk-repo-linux-emulator-{plan['build_id']}.zip",
+                dest_dir=emu_output_dir,
+            )
+
+        launch_cmd = list(plan["reproduce_command"])
+        if emu_bin.is_file() and "emulator" in launch_cmd:
+            launch_cmd[launch_cmd.index("emulator")] = str(emu_bin)
+        runner.run(launch_cmd, check=False, timeout_sec=3600.0)
+        return CommandResult(
+            data={
+                "status": "success",
+                "action": "crash reproduce",
+                "plan": plan,
+            },
+            action="crash reproduce",
+            summary=f"Executed crash reproduction for {target_id}.",
+        )
+
+
 def register_reproduce_parser(crash_subparsers) -> None:
     """Registers the `reproduce` subcommand parser under `crash`.
 
     Args:
         crash_subparsers: Subparser group instance from `crash` parser.
     """
-    reproduce_parser = crash_subparsers.add_parser(
-        "reproduce",
-        help="Automate fetching crashing emulator binaries and booting with LLDB attached to qemu-system process",
-        description="Extracts crash configuration from CrashAdvisor metadata, launches the emulator, and automatically attaches LLDB to the spawned qemu-system engine using --wait-for.",
+    bind_command(
+        crash_subparsers,
+        CrashReproduceCommand(),
+        legacy_func=run_reproduce,
     )
-    reproduce_parser.add_argument(
-        "crash_id", help="Crash ID (e.g. 05d8356e2f800000) or go/crash URL"
-    )
-    reproduce_parser.add_argument("--token", help="OAuth2 token")
-    reproduce_parser.add_argument(
-        "--avd", help="Target AVD profile to use (defaults to repro_<crash_id>)"
-    )
-    reproduce_parser.add_argument(
-        "--lldb",
-        action="store_true",
-        help="Automatically attach LLDB to the spawned qemu-system worker process via --wait-for",
-    )
-    reproduce_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Generate and display the reproduction plan without launching",
-    )
-    reproduce_parser.add_argument(
-        "--json",
-        action="store_true",
-        help="Output reproduction plan as structured JSON",
-    )
-    reproduce_parser.add_argument(
-        "--extra-args",
-        nargs=argparse.REMAINDER,
-        help="Additional arguments to pass to the emulator",
-    )
-    reproduce_parser.set_defaults(func=run_reproduce)

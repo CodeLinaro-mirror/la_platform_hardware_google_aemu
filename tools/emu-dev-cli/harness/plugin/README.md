@@ -30,10 +30,13 @@ emu-dev-cli harness status
    - **`PostToolUse` (`aemu-session-ledger-tracker`)**:
      - Tracks `emu-dev-cli launch emulator|mesh` and teardown commands in the per-conversation Session Ledger (`~/.cache/emu-dev-cli/harness/sessions/<conversationId>.json`).
      - After a successful `git commit` or Gerrit upload in `hardware/generic/goldfish`, appends a non-blocking `[AEMU Harness Concurrency-Test Check]` warning when `HEAD` adds concurrency-sensitive C++ (locks, threads, atomics, event-loop posting, callback registration, `delete this`, BQL) without touching a test, pointing to "Concurrency & Lifetime Tests" in `goldfish/AGENTS.md`.
+     - After a successful `write_file` / `edit_file`, appends a non-blocking `[AEMU Harness Code Advisory]` to the tool result when the new code deviates from a preferred pattern, for example a raw `grpc::Server*Reactor` subclass or a hand-rolled `absl::Status` <-> `grpc::Status` mapping under `emulator/plugin/grpc/` (suggesting the `//emulator/libs/grpc_utils` helper), or an `absl::MutexLock` constructed from `&mu` in goldfish (suggesting the reference form). Unlike the `PreToolUse` code guardrails (`cc_binary_with_manifest`, raw `std::fstream`, TotW 181), advisories never block the edit.
    - **`PreInvocation` (`aemu-workflow-context-injector`)**:
      - Automatically injects active `emu-dev-cli workflow` sessions (`RUNNING`, `RETRY`, `WAITING_HUMAN`) and tracked running AVDs into the prompt via `<ephemeralMessage>` so the agent never loses workflow state across context compactions.
    - **`Stop` (`aemu-workflow-continuation-guard`)**:
      - Automatically continues the turn (up to 3 times) if the conversation has an active `RUNNING` `emu-dev-cli` workflow that hasn't reached `DONE` or `WAITING_HUMAN`.
+   - **Live Terminal Title Status (`terminal_title.py`)**:
+     - When a controlling TTY (`/dev/tty` or `sys.stderr`) is available and `TERM` is not `dumb`, updates the terminal title via OSC 0 (`\033]0;{title}\007`) across `SessionStart` (`🧠 Session started`), `PreInvocation` (`🧠 Thinking... ({elapsed}s)`), `PreToolUse` (`⚡ {short_command} ({elapsed}s)`, `💾 {filename}`, `🔧 {tool_name}`), `PostToolUse`, and `Stop` (`✅ Done`), pushing/popping the user's original title via `\033[22;0t` / `\033[23;0t`. Set `EMU_HARNESS_NO_TITLE=1` or `NO_COLOR=1` to disable, or `EMU_HARNESS_NO_TICKER=1` to keep titles but skip the background elapsed-seconds refresh.
 
 2. **Always-On Emulator Engineering Rules (`rules/AGENTS.md`)**:
    - Repository architecture map (`emu-main-next` / `goldfish` Bazel vs `emu-main-dev` / `external/qemu` CMake vs `studio-main` / `aemu`).

@@ -46,11 +46,15 @@ and prompts for local source code repository paths on your workstation.
 
 ```bash
 emu-dev-cli update
+emu-dev-cli update --force
+emu-dev-cli --version
 ```
 
-`update` rebuilds `//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli` via
-Bazel from your local `emu-main-next` checkout and re-installs the compiled
-release package.
+`update` compares the installed `~/.android/emu-dev-cli/version.json` commit
+and working-tree state against your local `emu-main-next` checkout, skips
+rebuilding when already up to date (unless `--force` / `-f` is passed), and
+rebuilds `//hardware/google/aemu/tools/emu-dev-cli:emu-dev-cli` via Bazel when
+an update is needed.
 
 > [!NOTE] **Agent Integration:** Once initialized, `emu-dev-cli` skills are
 > automatically registered in `~/.gemini/skills/` and
@@ -350,7 +354,7 @@ emu-dev-cli update-prebuilt lavapipe --target=win-x64 --build-number=16534139
 # Update KosmicKrisp ICD prebuilt (mac-arm64)
 emu-dev-cli update-prebuilt kosmickrisp --build-number=16476462
 
-# Update Android Device Hub prebuilts from studio-main (linux-x64, mac-arm64, win-x64)
+# Update Android Device Hub prebuilts from studio-main (linux-x64, linux-arm64, mac-arm64, win-x64)
 emu-dev-cli update-prebuilt android-device-hub --latest
 
 # Preview prebuilt changes without modifying workspace files
@@ -379,6 +383,26 @@ emu-dev-cli sbom audit
 
 # Compare two SBOM files across releases or branches
 emu-dev-cli sbom diff /tmp/old.spdx.json /tmp/new.spdx.json
+```
+
+---
+
+### 12. Upload Screen Recordings to Screencast (`screencast`)
+
+Uploads local `.mp4`, `.webm`, or `.mov` videos to `screencast.googleplex.com`
+across gLinux, gMac, and gWindows (using `gosso` corporate SSO priming):
+
+```bash
+# Upload a local recording and print its shareable Screencast URL
+emu-dev-cli screencast /tmp/e2e_recording.mp4
+
+# Specify custom title and description (and optional JSON output)
+emu-dev-cli screencast /tmp/e2e_recording.mp4 \
+  --title "Playwright E2E Demo" \
+  --description "Headless API 35 emulator run"
+
+# Validate video file and inspect local corporate auth transports without uploading
+emu-dev-cli screencast /tmp/e2e_recording.mp4 --dry-run
 ```
 
 ---

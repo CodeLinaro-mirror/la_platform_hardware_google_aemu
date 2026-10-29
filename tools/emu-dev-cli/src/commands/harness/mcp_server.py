@@ -26,6 +26,7 @@ import sys
 from typing import Any, Dict, List, Optional
 
 from commands.harness.diagnostics import diagnose_command_failure
+from commands.harness.goldfish_libs import REUSABLE_LIBS_CATALOG
 from commands.harness.guardrails import (
     _load_commit_verifier,
     discover_active_workflows,
@@ -37,65 +38,6 @@ from commands.harness.review_swarm import (
     prepare_review_swarm_bundle,
 )
 from lib.output import ensure_utf8_stdio
-
-REUSABLE_LIBS_CATALOG: List[Dict[str, str]] = [
-    {
-        "name": "file",
-        "bazel_target": "//emulator/libs/file",
-        "header": "goldfish/file/file.h",
-        "namespace": "android::base::file",
-        "keywords": "file io utf8 unicode path read write fopen ifstream ofstream windows",
-        "summary": "Cross-platform UTF-8 file I/O helpers (ReadFile, WriteFile, path utilities) safe on Windows non-ASCII paths.",
-    },
-    {
-        "name": "ini_file",
-        "bazel_target": "//emulator/libs/ini_file",
-        "header": "android/goldfish/ini_file.h",
-        "namespace": "android::goldfish::IniFile",
-        "keywords": "ini config parser avd config.ini key value",
-        "summary": "Typed INI configuration file parser and serializer for AVD and hardware profiles.",
-    },
-    {
-        "name": "http",
-        "bazel_target": "//emulator/libs/http",
-        "header": "goldfish/http/web_server.h",
-        "namespace": "goldfish::http::WebServer",
-        "keywords": "http server web rest endpoint test fixture mock server",
-        "summary": "Embedded HTTP WebServer (`CreateWebServer`) for production endpoints and hermetic C++ unit tests.",
-    },
-    {
-        "name": "http_client",
-        "bazel_target": "//emulator/libs/network:http_client",
-        "header": "goldfish/network/http_client.h",
-        "namespace": "goldfish::network::HttpClient",
-        "keywords": "http client curl request get post download network",
-        "summary": "High-level HTTP/HTTPS client with StatusOr error propagation.",
-    },
-    {
-        "name": "network",
-        "bazel_target": "//emulator/libs/network",
-        "header": "goldfish/network/resolve.h",
-        "namespace": "goldfish::network",
-        "keywords": "dns resolve endpoints socket address ipv4 ipv6 network",
-        "summary": "Endpoint resolution (`ResolveEndpoints`) and network address utilities.",
-    },
-    {
-        "name": "async",
-        "bazel_target": "//emulator/libs/async",
-        "header": "goldfish/async/threaded_event_loop.h",
-        "namespace": "goldfish::async",
-        "keywords": "async libuv event loop socket timer thread callback uv_loop_t",
-        "summary": "LibuvEventLoop, ThreadedEventLoop, AsyncSocket, and UvErrToAbslStatus.",
-    },
-    {
-        "name": "system",
-        "bazel_target": "//emulator/libs/system",
-        "header": "android/base/system.h",
-        "namespace": "android::base::System",
-        "keywords": "env getenv environment variable system test_system fake",
-        "summary": "System environment queries (`System::Get()->EnvGet(...)`) and `TestSystem` (`//emulator/libs/system:test-headers`).",
-    },
-]
 
 MCP_TOOLS_SCHEMA: List[Dict[str, Any]] = [
     {

@@ -41,6 +41,8 @@ class AIPatchResult:
     investigation_cmd_path: Optional[str] = None
     rca_path: Optional[str] = None
     confidence_score: float = 0.50
+    reproducible: bool = True
+    reproduction_results: str = ""
 
 
 def _perform_in_process_log_analysis(
@@ -210,8 +212,23 @@ def generate_ai_patch_for_test(
         raise RuntimeError(f"RCA summary file missing at file://{rca_summary_path}")
 
     rca_text = rca_summary_path.read_text(encoding="utf-8")
+    reproducible = True
+    reproduction_results = ""
+    root_cause_summary = "AI-generated root cause analysis"
+    for line in rca_text.splitlines():
+        if "**Reproducible:**" in line:
+            val = line.split("**Reproducible:**", 1)[1].strip().lower()
+            if val.startswith("no") or val.startswith("false"):
+                reproducible = False
+            elif val.startswith("yes") or val.startswith("true"):
+                reproducible = True
+        elif "**Reproduction Results:**" in line:
+            reproduction_results = line.split("**Reproduction Results:**", 1)[1].strip()
+        elif "**Root Cause Summary:**" in line:
+            root_cause_summary = line.split("**Root Cause Summary:**", 1)[1].strip()
+
     diffs = extract_fenced_code_blocks(rca_text, lang="diff")
-    if not diffs:
+    if reproducible and not diffs:
         sys.stderr.write(
             f"\n❌ Error: RCA summary at file://{rca_summary_path} did not contain a valid diff block.\n"
         )
@@ -219,13 +236,9 @@ def generate_ai_patch_for_test(
             f"RCA summary for '{record.test_identifier}' did not contain a valid diff code block."
         )
 
-    proposed_diff = diffs[0].strip()
-    root_cause_summary = "AI-generated root cause analysis"
-    for line in rca_text.splitlines():
-        if "**Root Cause Summary:**" in line:
-            root_cause_summary = line.split("**Root Cause Summary:**", 1)[1].strip()
+    proposed_diff = diffs[0].strip() if (reproducible and diffs) else ""
     detailed_explanation = rca_text
-    confidence = 0.90
+    confidence = 0.90 if reproducible else 0.70
 
     return AIPatchResult(
         test_identifier=record.test_identifier,
@@ -235,6 +248,8 @@ def generate_ai_patch_for_test(
         investigation_cmd_path=None,
         rca_path=str(rca_summary_path),
         confidence_score=confidence,
+        reproducible=reproducible,
+        reproduction_results=reproduction_results,
     )
 
 
@@ -254,22 +269,12 @@ def format_bug_body_with_ai_patch(
             f"\n* **L250 Flake Rate:** `{(record.l250_flake_rate_pct or 0.0):.1f}%` ({record.l250_failed or 0}/{record.l250_total or 0} runs)"
             f"\n* **Studio Flakes Dashboard:** [studio-flakes](https://dashboards.corp.google.com/_b69adbf1_bc7f_4b7f_a2a7_607d6fd07a8e?f=ab_target_name:ct:{record.target})"
         )
-    return f"""### ⚠️ Flakiness Alert: {record.test_identifier}
+    repro_line = f"\n* **Reproducible Locally:** `{'Yes' if patch.reproducible else 'No'}`"
+    if patch.reproduction_results:
+        repro_line += f"\n* **Reproduction Results:** {patch.reproduction_results}"
 
-Test target `{record.test_identifier}` experienced a **{record.flake_rate_pct:.1f}% failure rate** ({record.failed_runs}/{record.total_runs} runs) on platform `{record.target}`.
-
-* **Android Test Hub Config:** `{record.config_name}`
-* **Latest Build ID:** `{record.latest_build_id or 'N/A'}`
-* **Latest Invocation ID:** `{record.latest_invocation_id or 'N/A'}`{studio_lines}{inv_script_line}
----
-
-### 🤖 AI-Suggested Root Cause & Proposed Fix
-
-**Root Cause Summary:** {patch.root_cause_summary}
-
-**Explanation:**
-{patch.detailed_explanation}
-
+    if patch.proposed_diff:
+        patch_section = f"""
 **Proposed Code Patch (Diff):**
 ```diff
 {patch.proposed_diff}
@@ -282,3 +287,25 @@ Test target `{record.test_identifier}` experienced a **{record.flake_rate_pct:.1
 emu-dev-cli flakiness fix --bug <BUG_ID>
 ```
 """
+    else:
+        patch_section = """
+**Proposed Code Patch (Diff):**
+*No code patch proposed because this flake could not be reproduced locally on current `HEAD`.*
+"""
+
+    return f"""### ⚠️ Flakiness Alert: {record.test_identifier}
+
+Test target `{record.test_identifier}` experienced a **{record.flake_rate_pct:.1f}% failure rate** ({record.failed_runs}/{record.total_runs} runs) on platform `{record.target}`.
+
+* **Android Test Hub Config:** `{record.config_name}`
+* **Latest Build ID:** `{record.latest_build_id or 'N/A'}`
+* **Latest Invocation ID:** `{record.latest_invocation_id or 'N/A'}`{studio_lines}{repro_line}{inv_script_line}
+---
+
+### 🤖 AI-Suggested Root Cause & Investigation
+
+**Root Cause Summary:** {patch.root_cause_summary}
+
+**Explanation:**
+{patch.detailed_explanation}
+{patch_section}"""

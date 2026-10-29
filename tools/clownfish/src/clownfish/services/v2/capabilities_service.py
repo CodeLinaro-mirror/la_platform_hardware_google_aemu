@@ -247,6 +247,7 @@ class CapabilitiesServiceServicer(pb_grpc.CapabilitiesServiceServicer):
                 fidelity=common_pb2.FIDELITY_HARDWARE,
                 microphone_profile=audio_profile,
                 speaker_profile=audio_profile,
+                max_concurrent_microphone_streams=1,
             )
 
             vm_caps = pb.VmCapabilities(
