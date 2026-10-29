@@ -236,6 +236,11 @@ class EmulatorState:
         self.mic_has_input: bool = True
         self.mic_is_plugged_in: bool = True
         self.mic_is_muted: bool = False
+        self.host_mic_enabled: bool = True
+        self.mic_in_use_by_guest: bool = False
+        self.mic_inputs: dict[str, dict[str, Any]] = {
+            "host": {"kind": 1, "muted": False, "gain": 1.0}
+        }
         self.injected_audio_bytes: int = 0
 
         # Telephony State

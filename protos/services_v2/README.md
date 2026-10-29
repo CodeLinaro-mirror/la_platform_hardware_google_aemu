@@ -97,7 +97,7 @@ post-action screenshots without sleeping (`sleep()`).
 | [`location_service.proto`](./location_service.proto)         | `LocationService`     | `Get/Stream/UpdateLocationState`, `StreamLocationUpdates`, `PlayRoute`                                                                          |   Yes    |      Mock      |
 | [`telephony_service.proto`](./telephony_service.proto)       | `TelephonyService`    | `Get/Stream/UpdateTelephonyState`, `SendSms`, `TransitionCall`                                                                                  |   Yes    |   Read-only    |
 | [`camera_service.proto`](./camera_service.proto)             | `CameraService`       | `Get/StreamCameraState`, `InjectFrame`, `StreamCameraFrames`, `ResetCamera`                                                                     |   Yes    |   Read-only    |
-| [`audio_service.proto`](./audio_service.proto)               | `AudioService`        | `StreamSpeakerAudio`, `InjectAudioClip`, `StreamMicrophoneAudio`                                                                                |   Yes    |      Yes       |
+| [`audio_service.proto`](./audio_service.proto)               | `AudioService`        | `Get/Stream/UpdateAudioState`, `StreamSpeakerAudio`, `InjectAudioClip`, `StreamMicrophoneAudio`                                                 |   Yes    |      Yes       |
 | [`hypervisor_service.proto`](./hypervisor_service.proto)     | `HypervisorService`   | `Get/StreamVmState`, `Pause/Resume/Reset/HardReset/StopVm`, `List/Get/Create/Restore/Update/Delete/Export/ImportSnapshot`, `SetQuickbootTarget` |   Yes    | `UNAVAILABLE`  |
 
 ---
