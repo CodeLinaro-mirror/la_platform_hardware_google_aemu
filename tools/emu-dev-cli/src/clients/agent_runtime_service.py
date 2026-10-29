@@ -15,7 +15,7 @@
 """Unified Agent Runtime service for agentapi and standalone Jetski CLI dispatch."""
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 import json
 import logging
@@ -59,6 +59,7 @@ DEFAULT_ESCALATION_RETRIES: int = 2
 DEFAULT_RETRY_BACKOFF_SEC: float = 2.0
 DEFAULT_AGENTAPI_TIMEOUT_SEC: float = 120.0
 DEFAULT_METADATA_TIMEOUT_SEC: float = 15.0
+DEFAULT_RAW_AGENTAPI_TIMEOUT_SEC: float = 30.0
 
 _UUID_PATTERN = re.compile(
     r"\b([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
@@ -230,6 +231,16 @@ class AgentRuntimeService(ABC):
         retries: int = DEFAULT_ESCALATION_RETRIES,
     ) -> AgentDispatchResult:
         """Dispatches `prompt` on fast model tier first and escalates to `pro` on failure."""
+
+    @abstractmethod
+    def invoke_agentapi_raw(
+        self,
+        args: Sequence[str],
+        *,
+        project_id: str | None = None,
+        timeout_sec: float = DEFAULT_RAW_AGENTAPI_TIMEOUT_SEC,
+    ) -> dict[str, Any]:
+        """Executes a raw `agentapi` CLI subcommand and returns its parsed JSON output."""
 
 
 class ProdAgentRuntimeService(AgentRuntimeService):
@@ -489,6 +500,38 @@ class ProdAgentRuntimeService(AgentRuntimeService):
             )
             return self.start_conversation(pro_request)
 
+    def invoke_agentapi_raw(
+        self,
+        args: Sequence[str],
+        *,
+        project_id: str | None = None,
+        timeout_sec: float = DEFAULT_RAW_AGENTAPI_TIMEOUT_SEC,
+    ) -> dict[str, Any]:
+        bin_path = resolve_agentapi_binary(self._agentapi_bin) or DEFAULT_AGENTAPI_CMD
+        env = dict(self._effective_env())
+        if project_id:
+            env["ANTIGRAVITY_PROJECT_ID"] = project_id
+        else:
+            env.pop("ANTIGRAVITY_SOURCE_METADATA", None)
+        res = self._process_runner.run(
+            [bin_path, *args],
+            env=env,
+            check=False,
+            timeout_sec=timeout_sec,
+        )
+        if res.returncode != 0:
+            subcmd = args[0] if args else "command"
+            detail = (
+                (res.stderr or res.stdout or "").strip()
+                or f"exit code {res.returncode}"
+            )
+            raise RuntimeError(
+                f"agentapi '{subcmd}' failed (exit {res.returncode}): {detail}. "
+                "Verify the Jetski agentapi binary and active language server session."
+            )
+        out = (res.stdout or "").strip()
+        return json.loads(out) if out else {}
+
 
 @dataclass(frozen=True)
 class FakeSentMessage:
@@ -507,8 +550,16 @@ class FakeAgentRuntimeService(AgentRuntimeService):
         self._next_index = 1
         self._fail_models: set[str] = set()
         self._metadata: dict[str, dict[str, Any]] = {}
+        self._raw_agentapi_responses: dict[str, dict[str, Any]] = {}
         self.started_requests: list[AgentDispatchRequest] = []
         self.sent_messages: list[FakeSentMessage] = []
+        self.raw_agentapi_calls: list[tuple[tuple[str, ...], str | None]] = []
+
+    def seed_raw_agentapi_response(
+        self, subcommand: str, payload: Mapping[str, Any]
+    ) -> None:
+        """Seeds the JSON payload returned by `invoke_agentapi_raw` for `subcommand`."""
+        self._raw_agentapi_responses[subcommand] = dict(payload)
 
     def set_session_active(self, active: bool) -> None:
         """Configures whether `is_agent_session_active()` returns True or False."""
@@ -627,3 +678,24 @@ class FakeAgentRuntimeService(AgentRuntimeService):
                 retries=retries,
             )
             return self.start_conversation(pro_req)
+
+    def invoke_agentapi_raw(
+        self,
+        args: Sequence[str],
+        *,
+        project_id: str | None = None,
+        timeout_sec: float = DEFAULT_RAW_AGENTAPI_TIMEOUT_SEC,
+    ) -> dict[str, Any]:
+        del timeout_sec
+        arg_tuple = tuple(str(a) for a in args)
+        self.raw_agentapi_calls.append((arg_tuple, project_id))
+        subcmd = arg_tuple[0] if arg_tuple else ""
+        if subcmd in self._raw_agentapi_responses:
+            return dict(self._raw_agentapi_responses[subcmd])
+        if subcmd == "new-conversation":
+            cid = f"00000000-0000-0000-0000-{self._next_index:012d}"
+            self._next_index += 1
+            return {"response": {"newConversation": {"conversationId": cid}}}
+        if subcmd == "get-conversation-metadata" and len(arg_tuple) >= 2:
+            return self.get_conversation_metadata(arg_tuple[1])
+        return {"status": "ok", "subcommand": subcmd}

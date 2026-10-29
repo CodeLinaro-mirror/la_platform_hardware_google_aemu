@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-import hashlib
 import json
 from pathlib import Path
 import re
@@ -28,6 +27,7 @@ from typing import Any
 import urllib.parse
 
 from commands.gerrit.sidecar_updater import GerritSidecarUpdater
+from core.web.assets import StaticAssetResolver, compute_asset_version
 from lib.gerrit_api import (
     DEFAULT_GERRIT_HOST,
     GerritClient,
@@ -260,20 +260,12 @@ def _candidate_gerrit_ui_template_paths() -> list[Path]:
 
 def get_gerrit_ui_template_path() -> Path:
     """Resolves the HTML template path for `emu-dev-cli gerrit ui`."""
-    candidates = _candidate_gerrit_ui_template_paths()
-    for cand in candidates:
-        if cand.is_file():
-            return cand
-    return candidates[0]
+    return StaticAssetResolver(_candidate_gerrit_ui_template_paths()).resolve_first_existing()
 
 
 def get_gerrit_ui_template_version() -> str:
     """Returns a short SHA-256 content hash of `gerrit_ui.html` for automatic UI reload detection."""
-    try:
-        tpl_path = get_gerrit_ui_template_path()
-        return hashlib.sha256(tpl_path.read_bytes()).hexdigest()[:12]
-    except OSError:
-        return "0"
+    return compute_asset_version(get_gerrit_ui_template_path())
 
 
 

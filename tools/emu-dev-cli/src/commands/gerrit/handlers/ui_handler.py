@@ -16,14 +16,10 @@
 
 from __future__ import annotations
 
-import hashlib
 import http.server
-import json
 import os
 from pathlib import Path
-import socket
-from typing import Any, Callable
-import urllib.parse
+from typing import Any
 import webbrowser
 
 from commands.gerrit.services.diff_parser import (
@@ -38,17 +34,29 @@ from commands.gerrit.services.queue_service import (
     TEAM_ROSTER_EMAILS,
     _normalize_viewer_email,
 )
-from lib.gerrit_api import DEFAULT_GERRIT_HOST
-from lib.web_security import (
+from core.web.agent_proxy import AgentProxy
+from core.web.assets import (
+    SIDECAR_PRELOAD_JS,
+    SIDECAR_PRELOAD_SCRIPT_TAG,
+    render_html_shell,
+)
+from core.web.handler import JsonRequestHandler
+from core.web.router import Router, WebRequest, is_truthy_query_flag
+from core.web.security import (
     SIDECAR_TOKEN_ENV,
     RequestRejected,
+    SecurityPolicy,
     mint_ui_token,
-    read_json_body,
-    require_ui_token,
 )
+from core.web.server import (
+    DEFAULT_MAX_PORT_PROBES,
+    find_available_port as _core_find_available_port,
+    serve_http,
+)
+from lib.gerrit_api import DEFAULT_GERRIT_HOST
 
 DEFAULT_GERRIT_UI_PORT = 8085
-MAX_PORT_PROBES = 50
+MAX_PORT_PROBES = DEFAULT_MAX_PORT_PROBES
 # Only the sidecar bridge script is public. The page itself embeds the viewer's email, and
 # both the Jetski iframe URL and the standalone URL carry `?token=`.
 PUBLIC_GET_ROUTES: frozenset[str] = frozenset({"/preload.js"})
@@ -57,162 +65,332 @@ _UI_TOKEN_HINT = (
     "'emu-dev-cli gerrit ui' (it ends with ?token=...)."
 )
 
-
-SIDECAR_PRELOAD_SCRIPT_TAG: str = '<script src="/preload.js"></script>'
-
-SIDECAR_PRELOAD_JS: str = """(function() {
-  const searchStr = (typeof window !== 'undefined' && window.location && window.location.search) || '';
-  const params = typeof URLSearchParams !== 'undefined' ? new URLSearchParams(searchStr) : { get: () => '' };
-  const token = params.get('token') || '';
-  const conversationId = params.get('conversationId') || '';
-
-  let currentWorkspaceUris = [];
-  let hasInitialWorkspace = false;
-  const workspaceListeners = new Set();
-  let resolveInitialWorkspace;
-  const initialWorkspacePromise = new Promise((resolve) => {
-    resolveInitialWorkspace = resolve;
-  });
-
-  window.addEventListener('message', (event) => {
-    if (event.data && event.data.type === 'theme-change') {
-      const vars = (event.data.payload && event.data.payload.cssVariables) || {};
-      for (const [key, value] of Object.entries(vars)) {
-        document.documentElement.style.setProperty(key, value);
-      }
-    } else if (event.data && event.data.type === 'workspace-change') {
-      const payload = event.data.payload || {};
-      currentWorkspaceUris = Array.isArray(payload.workspaceUris)
-        ? payload.workspaceUris.slice()
-        : [];
-      hasInitialWorkspace = true;
-      resolveInitialWorkspace();
-      for (const listener of workspaceListeners) {
-        try {
-          listener(currentWorkspaceUris.slice());
-        } catch (err) {
-          console.error('workspace-change listener failed:', err);
-        }
-      }
-    }
-  });
-
-  function secureFetch(url, options = {}) {
-    let targetUrl = url;
-    if (token && !/[?&]token=/.test(targetUrl)) {
-      const sep = targetUrl.includes('?') ? '&' : '?';
-      targetUrl = `${targetUrl}${sep}token=${encodeURIComponent(token)}`;
-    }
-    const headers = typeof Headers !== 'undefined' ? new Headers(options.headers || {}) : Object.assign({}, options.headers || {});
-    if (typeof headers.set === 'function') {
-      headers.set('Content-Type', 'application/json');
-      if (token) {
-        headers.set('X-Sidecar-Token', token);
-      }
-    }
-    return fetch(targetUrl, Object.assign({}, options, { headers }));
-  }
-
-  const projectIdPromise = (async () => {
-    if (!conversationId) return '';
-    try {
-      const res = await secureFetch('/_sidecar/get-conversation-metadata', {
-        method: 'POST',
-        body: JSON.stringify({ conversationId })
-      });
-      if (!res.ok) return '';
-      const data = await res.json();
-      const metaEvent = (data && data.response && (data.response.conversationMetadata || data.response.conversation_metadata)) || {};
-      const meta = metaEvent.metadata || {};
-      return meta.projectId || meta.project_id || '';
-    } catch (e) {
-      return '';
-    }
-  })();
-
-  async function getWorkspaceUris() {
-    if (window.parent === window) {
-      return [];
-    }
-    await initialWorkspacePromise;
-    return currentWorkspaceUris.slice();
-  }
-
-  window.sidecar = {
-    conversationId,
-    fetch: secureFetch,
-    getWorkspaceUris,
-    onWorkspaceChange(listener) {
-      if (typeof listener !== 'function') return () => {};
-      workspaceListeners.add(listener);
-      if (hasInitialWorkspace) {
-        queueMicrotask(() => {
-          if (workspaceListeners.has(listener)) {
-            listener(currentWorkspaceUris.slice());
-          }
-        });
-      }
-      return () => { workspaceListeners.delete(listener); };
-    },
-    agent: {
-      async sendMessage(message, convId) {
-        const resolvedProjectId = await projectIdPromise;
-        const res = await secureFetch('/_sidecar/send-message', {
-          method: 'POST',
-          body: JSON.stringify({
-            conversationId: convId || conversationId,
-            message,
-            projectId: resolvedProjectId
-          })
-        });
-        if (!res.ok) throw new Error(await res.text());
-        return res.json();
-      },
-      async startConversation(message, title) {
-        const resolvedProjectId = await projectIdPromise;
-        const res = await secureFetch('/_sidecar/new-conversation', {
-          method: 'POST',
-          body: JSON.stringify({ message, title, projectId: resolvedProjectId })
-        });
-        if (!res.ok) throw new Error(await res.text());
-        return res.json();
-      },
-      async getConversationMetadata(convId) {
-        const res = await secureFetch('/_sidecar/get-conversation-metadata', {
-          method: 'POST',
-          body: JSON.stringify({ conversationId: convId || conversationId })
-        });
-        if (!res.ok) throw new Error(await res.text());
-        return res.json();
-      }
-    },
-    ui: {
-      toggleAuxPane(request) {
-        window.parent.postMessage({ type: 'toggle-aux-pane', payload: request }, '*');
-      },
-      toggleConversation(convId) {
-        window.parent.postMessage({ type: 'toggle-conversation', payload: { conversationId: convId } }, '*');
-      }
-    }
-  };
-})();
-"""
+_is_truthy_query_flag = is_truthy_query_flag
 
 
 def render_static_gerrit_ui_html(initial_payload: dict[str, Any] | None = None) -> str:
     """Renders `gerrit_ui.html` with inlined `window.sidecar` bridge and optional JSON state."""
-    tpl_path = get_gerrit_ui_template_path()
-    html = tpl_path.read_text(encoding="utf-8")
-    inline_preload = f"<script>\n{SIDECAR_PRELOAD_JS}\n</script>"
-    html = html.replace(SIDECAR_PRELOAD_SCRIPT_TAG, inline_preload)
-    html = html.replace('"__GERRIT_UI_VERSION__"', json.dumps(get_gerrit_ui_template_version()))
-    bootstrap_json = json.dumps(initial_payload or {}, ensure_ascii=False).replace("</", "<\\/")
-    return html.replace("__GERRIT_UI_BOOTSTRAP_JSON__", bootstrap_json)
+    return render_html_shell(
+        get_gerrit_ui_template_path(),
+        inline_preload=True,
+        version_placeholder='"__GERRIT_UI_VERSION__"',
+        version=get_gerrit_ui_template_version(),
+        bootstrap_placeholder="__GERRIT_UI_BOOTSTRAP_JSON__",
+        bootstrap_payload=initial_payload,
+    )
 
 
-def _is_truthy_query_flag(qs: dict[str, list[str]], key: str) -> bool:
-    """Returns `True` if query string parameter `key` is `"1"`, `"true"`, or `"yes"`."""
-    return (qs.get(key) or [""])[0].strip().lower() in ("1", "true", "yes")
+def _extract_code_question_kwargs(req: WebRequest) -> dict[str, Any]:
+    """Extracts shared inline code question coordinates and metadata from `req`."""
+    body = req.body
+    default_line = int(body.get("line") or 1)
+    return {
+        "cl_number": body.get("cl", ""),
+        "file_path": str(body.get("file_path") or body.get("file") or ""),
+        "start_line": int(body.get("start_line") or default_line),
+        "end_line": int(body.get("end_line") or default_line),
+        "code_snippet": str(body.get("code_snippet") or body.get("code") or ""),
+        "question": str(body.get("question") or ""),
+        "side": str(body.get("side") or "REVISION"),
+        "conversation_id": req.body_opt_str("conversationId"),
+        "project_id": req.body_opt_str("projectId"),
+        "thread_id": req.body_opt_str("threadId"),
+        "function_name": str(
+            body.get("function_name") or body.get("functionName") or ""
+        ).strip(),
+    }
+
+
+def _coerce_vote_flag(raw_val: Any) -> bool | int | None:
+    """Coerces a vote flag (`autosubmit` / `presubmit_ready`) to `bool | int | None`."""
+    if isinstance(raw_val, bool) or raw_val is None:
+        return raw_val
+    return int(raw_val)
+
+
+class _GerritRouteEndpoints:
+    """Cohesive Gerrit UI endpoint controller bound to a `GerritUIService` instance."""
+
+    def __init__(self, service: Any) -> None:
+        self._service = service
+
+    def get_preload(self, handler: JsonRequestHandler, _req: WebRequest) -> None:
+        handler.send_javascript(SIDECAR_PRELOAD_JS)
+
+    def get_index(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        req_viewer = _normalize_viewer_email(req.query_str("viewer"))
+        initial_state: dict[str, Any] = {
+            "viewer": req_viewer or self._service.default_viewer,
+            "roster": list(TEAM_ROSTER_EMAILS),
+        }
+        handler.send_html(render_static_gerrit_ui_html(initial_payload=initial_state))
+
+    def get_queue(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        viewer = req.query_str("viewer")
+        if req.query_flag("prewarm_only"):
+            scheduled = self._service.schedule_background_prewarm(viewer or None)
+            handler.send_json({"status": "ok", "prewarm_scheduled": scheduled})
+            return
+        fast_flag = req.query_flag("fast")
+        data = self._service.fetch_queue(
+            viewer_email=viewer or None,
+            query=req.query_str("query") or None,
+            scope=req.query_str("scope", "reviewer") or "reviewer",
+            author=req.query_str("author") or None,
+            fast=fast_flag,
+            use_cache=not req.query_flag("refresh"),
+        )
+        if req.query_flag("prewarm") or not fast_flag:
+            self._service.schedule_background_prewarm(data.get("viewer") or viewer or None)
+        handler.send_json(data)
+
+    def get_diffs(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        diffs = self._service.fetch_multi_commit_diffs(req.query_csv("cls"))
+        handler.send_json({"diffs": diffs, "ui_version": get_gerrit_ui_template_version()})
+
+    def get_swarm_status(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        handler.send_json(
+            {
+                "statuses": self._service.get_swarm_statuses(req.query_csv("cls")),
+                "ui_version": get_gerrit_ui_template_version(),
+            }
+        )
+
+    def get_code_questions(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        conv_id = req.query_opt_str("conversationId")
+        handler.send_json(
+            {"questions": self._service.get_code_questions(req.query_csv("cls"), conversation_id=conv_id)}
+        )
+
+    def get_suggest_reviewers(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        handler.send_json(
+            {
+                "suggestions": self._service.suggest_reviewers(
+                    req.query_str("cl"), query=req.query_str("q")
+                )
+            }
+        )
+
+    def get_presubmit_targets(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        cl_num = req.query_str("cl", strip=True)
+        if not cl_num:
+            handler.send_json(
+                {"error": "Missing required `cl` query parameter for `/api/gerrit/presubmit-targets`."},
+                status=400,
+            )
+            return
+        handler.send_json(
+            self._service.get_presubmit_targets(
+                cl_num,
+                patchset=req.query_int("ps", digits_only=True),
+                project=req.query_str("project", strip=True),
+                force_refresh=req.query_flag("refresh"),
+            )
+        )
+
+    def get_ai_analysis(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        cl_num = req.query_str("cl", strip=True)
+        if not cl_num:
+            handler.send_json(
+                {
+                    "error": "Missing required `cl` query parameter for `/api/gerrit/ai-analysis` "
+                    "(pass e.g. `?cl=43256612&ps=1`)."
+                },
+                status=400,
+            )
+            return
+        handler.send_json(
+            self._service.get_ai_analysis(cl_num, patchset=req.query_int("ps", digits_only=True))
+        )
+
+    def get_update_status(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        force_flag = req.query_flag("force", "refresh")
+        handler.send_json(self._service.get_sidecar_update_status(force_fetch=force_flag))
+
+    def post_vote(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        if "code_review" in body:
+            cr_arg = int(body["code_review"]) if body["code_review"] is not None else None
+        elif (
+            "autosubmit" in body
+            or "presubmit_ready" in body
+            or str(body.get("message") or "").strip()
+        ):
+            cr_arg = None
+        else:
+            cr_arg = 2
+        res = self._service.cast_batch_vote(
+            cl_numbers=body.get("cls") or [],
+            code_review=cr_arg,
+            autosubmit=_coerce_vote_flag(body.get("autosubmit", False)),
+            presubmit_ready=_coerce_vote_flag(body.get("presubmit_ready", False)),
+            message=str(body.get("message", "")),
+        )
+        handler.send_json(res)
+
+    def post_submit(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        raw_cls = req.body_list("cls", fallback_single_key="cl")
+        res = self._service.submit_changes(cl_numbers=raw_cls)
+        handler.send_json(res, status=200 if res.get("status") == "ok" else 409)
+
+    def post_assign_reviewer(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        handler.send_json(
+            self._service.assign_second_human_reviewer(
+                cl_number=body.get("cl", ""),
+                reviewer_email=body.get("reviewer", ""),
+            )
+        )
+
+    def post_reviewer(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        batch_cls = body.get("cls")
+        action = str(body.get("action") or "add")
+        account = body.get("account") or body.get("reviewer") or ""
+        state = str(body.get("state") or "REVIEWER")
+        viewer_email = req.body_opt_str("viewer")
+        if isinstance(batch_cls, list) and len(batch_cls) > 0:
+            res = self._service.modify_reviewers_batch(
+                cl_numbers=batch_cls,
+                action=action,
+                account=account,
+                state=state,
+                viewer_email=viewer_email,
+            )
+        else:
+            res = self._service.modify_reviewer(
+                cl_number=body.get("cl", ""),
+                action=action,
+                account=account,
+                state=state,
+                viewer_email=viewer_email,
+            )
+        handler.send_json(res)
+
+    def post_chat_dm(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        handler.send_json(
+            self._service.send_reviewer_chat_dm(
+                cl_number=body.get("cl", ""),
+                recipient=str(body.get("recipient") or body.get("reviewer") or ""),
+                message=str(body.get("message") or ""),
+            )
+        )
+
+    def post_harness(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        handler.send_json(
+            self._service.run_harness_action(
+                cl_number=body.get("cl", ""),
+                action=body.get("action", "review-swarm"),
+            )
+        )
+
+    def post_swarm_review(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        handler.send_json(self._service.post_swarm_review(cl_number=req.body.get("cl", "")))
+
+    def post_inline_comment(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        handler.send_json(
+            self._service.post_inline_comment(
+                cl_number=body.get("cl", ""),
+                file_path=str(body.get("file_path") or body.get("file") or ""),
+                line=int(body.get("line") or body.get("end_line") or 1),
+                message=str(body.get("message") or ""),
+                start_line=(
+                    int(body["start_line"]) if body.get("start_line") is not None else None
+                ),
+                end_line=(int(body["end_line"]) if body.get("end_line") is not None else None),
+                side=str(body.get("side") or "REVISION"),
+                unresolved=bool(body.get("unresolved", True)),
+            )
+        )
+
+    def post_reply_comment(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        handler.send_json(
+            self._service.reply_inline_comment(
+                cl_number=body.get("cl", ""),
+                comment_id=str(body.get("comment_id") or body.get("in_reply_to") or ""),
+                file_path=str(body.get("file_path") or body.get("file") or ""),
+                message=str(body.get("message") or ""),
+                line=req.body_int("line", digits_only=True),
+                patch_set=req.body_int("patch_set", "ps", digits_only=True),
+                side=str(body.get("side") or "REVISION"),
+                unresolved=bool(body.get("unresolved", False)),
+            )
+        )
+
+    def post_ask_code(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        kwargs = _extract_code_question_kwargs(req)
+        handler.send_json(
+            self._service.ask_agent_about_code(
+                **kwargs,
+                spawn_new=bool(req.body.get("spawnNew", False)),
+            )
+        )
+
+    def post_code_question_action(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        kwargs = _extract_code_question_kwargs(req)
+        handler.send_json(
+            self._service.modify_or_delete_code_question(
+                action=req.body_str("action"),
+                **kwargs,
+            )
+        )
+
+    def post_ai_analysis(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        handler.send_json(
+            self._service.trigger_or_cancel_ai_analysis(
+                cl_number=body.get("cl", ""),
+                action=str(body.get("action") or "analyze"),
+                patchset=req.body_int("ps", digits_only=True),
+                project=str(body.get("project") or ""),
+                subject=str(body.get("subject") or ""),
+                project_id=req.body_opt_str("projectId"),
+                force=bool(body.get("force", False)),
+            )
+        )
+
+    def post_perform_update(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        force_discard = bool(req.body.get("force_discard_local", False))
+        res = self._service.perform_sidecar_update(force_discard_local=force_discard)
+        http_status = 200 if res.get("status") == "ok" else 409
+        handler.send_json(res, status=http_status)
+
+
+def _build_gerrit_router(service: Any, agent_proxy: AgentProxy) -> Router:
+    """Registers all Gerrit UI GET and POST routes on a shared `Router`."""
+    endpoints = _GerritRouteEndpoints(service)
+    router = Router()
+    agent_proxy.register_routes(router)
+
+    router.add_get("/preload.js", endpoints.get_preload)
+    router.add_get(["/", "/index.html"], endpoints.get_index)
+    router.add_get("/api/gerrit/queue", endpoints.get_queue)
+    router.add_get("/api/gerrit/diffs", endpoints.get_diffs)
+    router.add_get("/api/gerrit/swarm-status", endpoints.get_swarm_status)
+    router.add_get("/api/gerrit/code-questions", endpoints.get_code_questions)
+    router.add_get("/api/gerrit/suggest-reviewers", endpoints.get_suggest_reviewers)
+    router.add_get("/api/gerrit/presubmit-targets", endpoints.get_presubmit_targets)
+    router.add_get("/api/gerrit/ai-analysis", endpoints.get_ai_analysis)
+    router.add_get("/api/gerrit/update-status", endpoints.get_update_status)
+
+    router.add_post("/api/gerrit/vote", endpoints.post_vote)
+    router.add_post("/api/gerrit/submit", endpoints.post_submit)
+    router.add_post("/api/gerrit/assign-reviewer", endpoints.post_assign_reviewer)
+    router.add_post("/api/gerrit/reviewer", endpoints.post_reviewer)
+    router.add_post("/api/gerrit/chat-dm", endpoints.post_chat_dm)
+    router.add_post("/api/gerrit/harness", endpoints.post_harness)
+    router.add_post("/api/gerrit/post-swarm-review", endpoints.post_swarm_review)
+    router.add_post("/api/gerrit/comment", endpoints.post_inline_comment)
+    router.add_post("/api/gerrit/reply", endpoints.post_reply_comment)
+    router.add_post("/api/gerrit/ask-code", endpoints.post_ask_code)
+    router.add_post("/api/gerrit/code-question-action", endpoints.post_code_question_action)
+    router.add_post("/api/gerrit/ai-analysis", endpoints.post_ai_analysis)
+    router.add_post("/api/gerrit/perform-update", endpoints.post_perform_update)
+    return router
 
 
 def make_gerrit_ui_handler(
@@ -225,458 +403,33 @@ def make_gerrit_ui_handler(
     every request.
     """
     expected_token = os.environ.get(SIDECAR_TOKEN_ENV, "") if ui_token is None else ui_token
+    policy = SecurityPolicy(
+        expected_token=expected_token,
+        public_get_routes=PUBLIC_GET_ROUTES,
+        token_hint=_UI_TOKEN_HINT,
+        enable_cors=False,
+    )
+    agent_proxy = AgentProxy(
+        invoker=lambda args, project_id=None: resolve_ui_hook(
+            "_run_sidecar_agentapi", _run_sidecar_agentapi
+        )(list(args), project_id=project_id)
+    )
+    bound_router = _build_gerrit_router(service, agent_proxy)
 
-    class GerritUIHandler(http.server.BaseHTTPRequestHandler):
-        def log_message(self, fmt: str, *args: Any) -> None:
-            return
-
-        def _require_token(self, parsed: urllib.parse.ParseResult) -> None:
-            require_ui_token(expected_token, self.headers, parsed.query, _UI_TOKEN_HINT)
-
-        def _send_raw_bytes(self, content: bytes, content_type: str, status: int = 200) -> None:
-            try:
-                self.send_response(status)
-                self.send_header("Content-Type", content_type)
-                self.send_header("Referrer-Policy", "no-referrer")
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("Content-Length", str(len(content)))
-                self.end_headers()
-                self.wfile.write(content)
-            except (BrokenPipeError, ConnectionResetError):
-                pass
-
-        def _send_json(self, payload: Any, status: int = 200) -> None:
-            body = json.dumps(payload).encode("utf-8")
-            self._send_raw_bytes(body, "application/json; charset=utf-8", status=status)
-
-        def _read_json_body(self) -> dict[str, Any]:
-            return read_json_body(self.headers, self.rfile)
-
-        def _handle_get_preload(self, _qs: dict[str, list[str]]) -> None:
-            self._send_raw_bytes(
-                SIDECAR_PRELOAD_JS.encode("utf-8"),
-                "application/javascript; charset=utf-8",
-            )
-
-        def _handle_get_index(self, qs: dict[str, list[str]]) -> None:
-            req_viewer = _normalize_viewer_email((qs.get("viewer") or [""])[0])
-            initial_state: dict[str, Any] = {
-                "viewer": req_viewer or service.default_viewer,
-                "roster": list(TEAM_ROSTER_EMAILS),
-            }
-            html_bytes = render_static_gerrit_ui_html(initial_payload=initial_state).encode("utf-8")
-            self._send_raw_bytes(html_bytes, "text/html; charset=utf-8")
-
-        def _handle_get_queue(self, qs: dict[str, list[str]]) -> None:
-            viewer = (qs.get("viewer") or [""])[0]
-            if _is_truthy_query_flag(qs, "prewarm_only"):
-                scheduled = service.schedule_background_prewarm(viewer or None)
-                self._send_json({"status": "ok", "prewarm_scheduled": scheduled})
-                return
-            query = (qs.get("query") or [""])[0]
-            scope = (qs.get("scope") or ["reviewer"])[0]
-            author = (qs.get("author") or [""])[0]
-            fast_flag = _is_truthy_query_flag(qs, "fast")
-            refresh_flag = _is_truthy_query_flag(qs, "refresh")
-            data = service.fetch_queue(
-                viewer_email=viewer or None,
-                query=query or None,
-                scope=scope,
-                author=author or None,
-                fast=fast_flag,
-                use_cache=not refresh_flag,
-            )
-            if _is_truthy_query_flag(qs, "prewarm") or not fast_flag:
-                service.schedule_background_prewarm(data.get("viewer") or viewer or None)
-            self._send_json(data)
-
-        def _handle_get_diffs(self, qs: dict[str, list[str]]) -> None:
-            raw_cls = (qs.get("cls") or [""])[0]
-            cl_list = [x.strip() for x in raw_cls.split(",") if x.strip()]
-            diffs = service.fetch_multi_commit_diffs(cl_list)
-            self._send_json({"diffs": diffs, "ui_version": get_gerrit_ui_template_version()})
-
-        def _handle_get_swarm_status(self, qs: dict[str, list[str]]) -> None:
-            raw_cls = (qs.get("cls") or [""])[0]
-            cl_list = [x.strip() for x in raw_cls.split(",") if x.strip()]
-            self._send_json(
-                {
-                    "statuses": service.get_swarm_statuses(cl_list),
-                    "ui_version": get_gerrit_ui_template_version(),
-                }
-            )
-
-        def _handle_get_code_questions(self, qs: dict[str, list[str]]) -> None:
-            raw_cls = (qs.get("cls") or [""])[0]
-            conv_id = (qs.get("conversationId") or [""])[0].strip() or None
-            cl_list = [x.strip() for x in raw_cls.split(",") if x.strip()]
-            self._send_json(
-                {"questions": service.get_code_questions(cl_list, conversation_id=conv_id)}
-            )
-
-        def _handle_get_suggest_reviewers(self, qs: dict[str, list[str]]) -> None:
-            cl_num = (qs.get("cl") or [""])[0]
-            query_str = (qs.get("q") or [""])[0]
-            self._send_json({"suggestions": service.suggest_reviewers(cl_num, query=query_str)})
-
-        def _handle_get_presubmit_targets(self, qs: dict[str, list[str]]) -> None:
-            cl_num = (qs.get("cl") or [""])[0].strip()
-            if not cl_num:
-                self._send_json(
-                    {"error": "Missing required `cl` query parameter for `/api/gerrit/presubmit-targets`."},
-                    status=400,
-                )
-                return
-            raw_ps = (qs.get("ps") or [""])[0].strip()
-            ps_val = int(raw_ps) if raw_ps.isdigit() else None
-            proj = (qs.get("project") or [""])[0].strip()
-            refresh_flag = _is_truthy_query_flag(qs, "refresh")
-            self._send_json(
-                service.get_presubmit_targets(
-                    cl_num,
-                    patchset=ps_val,
-                    project=proj,
-                    force_refresh=refresh_flag,
-                )
-            )
-
-        def _handle_get_ai_analysis(self, qs: dict[str, list[str]]) -> None:
-            cl_num = (qs.get("cl") or [""])[0].strip()
-            if not cl_num:
-                self._send_json(
-                    {
-                        "error": "Missing required `cl` query parameter for `/api/gerrit/ai-analysis` "
-                        "(pass e.g. `?cl=43256612&ps=1`)."
-                    },
-                    status=400,
-                )
-                return
-            raw_ps = (qs.get("ps") or [""])[0].strip()
-            ps_val = int(raw_ps) if raw_ps.isdigit() else None
-            self._send_json(service.get_ai_analysis(cl_num, patchset=ps_val))
-
-        def _handle_get_update_status(self, qs: dict[str, list[str]]) -> None:
-            force_flag = _is_truthy_query_flag(qs, "force") or _is_truthy_query_flag(qs, "refresh")
-            self._send_json(service.get_sidecar_update_status(force_fetch=force_flag))
-
-        def _handle_post_sidecar_metadata(self, body: dict[str, Any]) -> None:
-            conv_id = str(
-                body.get("conversationId")
-                or os.environ.get("ANTIGRAVITY_SIDECAR_CONVERSATION_ID")
-                or os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
-                or ""
-            ).strip()
-            if not conv_id:
-                self._send_json(
-                    {
-                        "error": (
-                            "Missing conversationId for /api/sidecar/metadata: provide "
-                            "'conversationId' in the JSON body or set ANTIGRAVITY_CONVERSATION_ID."
-                        )
-                    },
-                    status=400,
-                )
-                return
-            runner = resolve_ui_hook("_run_sidecar_agentapi", _run_sidecar_agentapi)
-            self._send_json(runner(["get-conversation-metadata", conv_id]))
-
-        def _handle_post_sidecar_send_message(self, body: dict[str, Any]) -> None:
-            msg = str(body.get("message") or "").strip()
-            conv_id = str(
-                body.get("conversationId")
-                or os.environ.get("ANTIGRAVITY_SIDECAR_CONVERSATION_ID")
-                or os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
-                or ""
-            ).strip()
-            if not msg or not conv_id:
-                self._send_json(
-                    {
-                        "error": (
-                            "Missing message or conversationId for /api/sidecar/send-message: "
-                            "provide non-empty 'message' and 'conversationId' fields in the JSON body."
-                        )
-                    },
-                    status=400,
-                )
-                return
-            args = ["send-message"]
-            if body.get("title"):
-                args.extend(["--title", str(body["title"])])
-            args.extend([conv_id, msg])
-            runner = resolve_ui_hook("_run_sidecar_agentapi", _run_sidecar_agentapi)
-            self._send_json(runner(args, project_id=body.get("projectId")))
-
-        def _handle_post_sidecar_new_conversation(self, body: dict[str, Any]) -> None:
-            msg = str(body.get("message") or "").strip()
-            if not msg:
-                self._send_json(
-                    {
-                        "error": (
-                            "Missing message for /api/sidecar/new-conversation: provide "
-                            "a non-empty 'message' field in the JSON body."
-                        )
-                    },
-                    status=400,
-                )
-                return
-            args = ["new-conversation"]
-            if body.get("title"):
-                args.extend(["--title", str(body["title"])])
-            args.append(msg)
-            runner = resolve_ui_hook("_run_sidecar_agentapi", _run_sidecar_agentapi)
-            self._send_json(runner(args, project_id=body.get("projectId")))
-
-        def _handle_post_vote(self, body: dict[str, Any]) -> None:
-            if "code_review" in body:
-                cr_arg = int(body["code_review"]) if body["code_review"] is not None else None
-            elif (
-                "autosubmit" in body
-                or "presubmit_ready" in body
-                or str(body.get("message") or "").strip()
-            ):
-                cr_arg = None
-            else:
-                cr_arg = 2
-            raw_as = body.get("autosubmit", False)
-            as_arg: bool | int | None = (
-                raw_as if isinstance(raw_as, bool) or raw_as is None else int(raw_as)
-            )
-            raw_pr = body.get("presubmit_ready", False)
-            pr_arg: bool | int | None = (
-                raw_pr if isinstance(raw_pr, bool) or raw_pr is None else int(raw_pr)
-            )
-            res = service.cast_batch_vote(
-                cl_numbers=body.get("cls") or [],
-                code_review=cr_arg,
-                autosubmit=as_arg,
-                presubmit_ready=pr_arg,
-                message=str(body.get("message", "")),
-            )
-            self._send_json(res)
-
-        def _handle_post_submit(self, body: dict[str, Any]) -> None:
-            raw_cls = body.get("cls")
-            if not isinstance(raw_cls, list):
-                single_cl = body.get("cl")
-                raw_cls = [single_cl] if single_cl is not None and str(single_cl).strip() else []
-            res = service.submit_changes(cl_numbers=raw_cls)
-            self._send_json(res, status=200 if res.get("status") == "ok" else 409)
-
-        def _handle_post_assign_reviewer(self, body: dict[str, Any]) -> None:
-            res = service.assign_second_human_reviewer(
-                cl_number=body.get("cl", ""),
-                reviewer_email=body.get("reviewer", ""),
-            )
-            self._send_json(res)
-
-        def _handle_post_reviewer(self, body: dict[str, Any]) -> None:
-            batch_cls = body.get("cls")
-            if isinstance(batch_cls, list) and len(batch_cls) > 0:
-                res = service.modify_reviewers_batch(
-                    cl_numbers=batch_cls,
-                    action=str(body.get("action") or "add"),
-                    account=body.get("account") or body.get("reviewer") or "",
-                    state=str(body.get("state") or "REVIEWER"),
-                    viewer_email=str(body.get("viewer") or "").strip() or None,
-                )
-            else:
-                res = service.modify_reviewer(
-                    cl_number=body.get("cl", ""),
-                    action=str(body.get("action") or "add"),
-                    account=body.get("account") or body.get("reviewer") or "",
-                    state=str(body.get("state") or "REVIEWER"),
-                    viewer_email=str(body.get("viewer") or "").strip() or None,
-                )
-            self._send_json(res)
-
-        def _handle_post_chat_dm(self, body: dict[str, Any]) -> None:
-            res = service.send_reviewer_chat_dm(
-                cl_number=body.get("cl", ""),
-                recipient=str(body.get("recipient") or body.get("reviewer") or ""),
-                message=str(body.get("message") or ""),
-            )
-            self._send_json(res)
-
-        def _handle_post_harness(self, body: dict[str, Any]) -> None:
-            res = service.run_harness_action(
-                cl_number=body.get("cl", ""),
-                action=body.get("action", "review-swarm"),
-            )
-            self._send_json(res)
-
-        def _handle_post_swarm_review(self, body: dict[str, Any]) -> None:
-            self._send_json(service.post_swarm_review(cl_number=body.get("cl", "")))
-
-        def _handle_post_inline_comment(self, body: dict[str, Any]) -> None:
-            res = service.post_inline_comment(
-                cl_number=body.get("cl", ""),
-                file_path=str(body.get("file_path") or body.get("file") or ""),
-                line=int(body.get("line") or body.get("end_line") or 1),
-                message=str(body.get("message") or ""),
-                start_line=(
-                    int(body["start_line"]) if body.get("start_line") is not None else None
-                ),
-                end_line=(int(body["end_line"]) if body.get("end_line") is not None else None),
-                side=str(body.get("side") or "REVISION"),
-                unresolved=bool(body.get("unresolved", True)),
-            )
-            self._send_json(res)
-
-        def _handle_post_reply_comment(self, body: dict[str, Any]) -> None:
-            raw_line = body.get("line")
-            raw_ps = body.get("patch_set") if body.get("patch_set") is not None else body.get("ps")
-            res = service.reply_inline_comment(
-                cl_number=body.get("cl", ""),
-                comment_id=str(body.get("comment_id") or body.get("in_reply_to") or ""),
-                file_path=str(body.get("file_path") or body.get("file") or ""),
-                message=str(body.get("message") or ""),
-                line=(int(raw_line) if raw_line is not None and str(raw_line).isdigit() else None),
-                patch_set=(int(raw_ps) if raw_ps is not None and str(raw_ps).isdigit() else None),
-                side=str(body.get("side") or "REVISION"),
-                unresolved=bool(body.get("unresolved", False)),
-            )
-            self._send_json(res)
-
-        def _handle_post_ask_code(self, body: dict[str, Any]) -> None:
-            res = service.ask_agent_about_code(
-                cl_number=body.get("cl", ""),
-                file_path=str(body.get("file_path") or body.get("file") or ""),
-                start_line=int(body.get("start_line") or body.get("line") or 1),
-                end_line=int(body.get("end_line") or body.get("line") or 1),
-                code_snippet=str(body.get("code_snippet") or body.get("code") or ""),
-                question=str(body.get("question") or ""),
-                side=str(body.get("side") or "REVISION"),
-                conversation_id=str(body.get("conversationId") or "").strip() or None,
-                project_id=str(body.get("projectId") or "").strip() or None,
-                spawn_new=bool(body.get("spawnNew", False)),
-                thread_id=str(body.get("threadId") or "").strip() or None,
-                function_name=str(
-                    body.get("function_name") or body.get("functionName") or ""
-                ).strip(),
-            )
-            self._send_json(res)
-
-        def _handle_post_code_question_action(self, body: dict[str, Any]) -> None:
-            res = service.modify_or_delete_code_question(
-                action=str(body.get("action") or ""),
-                cl_number=body.get("cl", ""),
-                conversation_id=str(body.get("conversationId") or "").strip() or None,
-                thread_id=str(body.get("threadId") or "").strip() or None,
-                question=str(body.get("question") or ""),
-                file_path=str(body.get("file_path") or body.get("file") or ""),
-                start_line=int(body.get("start_line") or body.get("line") or 1),
-                end_line=int(body.get("end_line") or body.get("line") or 1),
-                code_snippet=str(body.get("code_snippet") or body.get("code") or ""),
-                side=str(body.get("side") or "REVISION"),
-                function_name=str(
-                    body.get("function_name") or body.get("functionName") or ""
-                ).strip(),
-                project_id=str(body.get("projectId") or "").strip() or None,
-            )
-            self._send_json(res)
-
-        def _handle_post_ai_analysis(self, body: dict[str, Any]) -> None:
-            raw_ps = body.get("ps")
-            ps_val = int(raw_ps) if raw_ps is not None and str(raw_ps).isdigit() else None
-            res = service.trigger_or_cancel_ai_analysis(
-                cl_number=body.get("cl", ""),
-                action=str(body.get("action") or "analyze"),
-                patchset=ps_val,
-                project=str(body.get("project") or ""),
-                subject=str(body.get("subject") or ""),
-                project_id=str(body.get("projectId") or "").strip() or None,
-                force=bool(body.get("force", False)),
-            )
-            self._send_json(res)
-
-        def _handle_post_perform_update(self, body: dict[str, Any]) -> None:
-            force_discard = bool(body.get("force_discard_local", False))
-            res = service.perform_sidecar_update(force_discard_local=force_discard)
-            http_status = 200 if res.get("status") == "ok" else 409
-            self._send_json(res, status=http_status)
-
-        def do_GET(self) -> None:
-            parsed = urllib.parse.urlparse(self.path)
-            qs = urllib.parse.parse_qs(parsed.query)
-            get_routes: dict[str, Callable[[dict[str, list[str]]], None]] = {
-                "/preload.js": self._handle_get_preload,
-                "/": self._handle_get_index,
-                "/index.html": self._handle_get_index,
-                "/api/gerrit/queue": self._handle_get_queue,
-                "/api/gerrit/diffs": self._handle_get_diffs,
-                "/api/gerrit/swarm-status": self._handle_get_swarm_status,
-                "/api/gerrit/code-questions": self._handle_get_code_questions,
-                "/api/gerrit/suggest-reviewers": self._handle_get_suggest_reviewers,
-                "/api/gerrit/presubmit-targets": self._handle_get_presubmit_targets,
-                "/api/gerrit/ai-analysis": self._handle_get_ai_analysis,
-                "/api/gerrit/update-status": self._handle_get_update_status,
-            }
-            try:
-                if parsed.path not in PUBLIC_GET_ROUTES:
-                    self._require_token(parsed)
-                handler_fn = get_routes.get(parsed.path)
-                if handler_fn is None:
-                    self._send_json({"error": f"Unknown endpoint '{parsed.path}'"}, status=404)
-                    return
-                handler_fn(qs)
-            except RequestRejected as exc:
-                self._send_json({"error": str(exc)}, status=exc.status)
-            except ValueError as exc:
-                self._send_json({"error": str(exc)}, status=400)
-            except Exception as exc:
-                self._send_json({"error": str(exc)}, status=500)
-
-        def do_POST(self) -> None:
-            parsed = urllib.parse.urlparse(self.path)
-            post_routes: dict[str, Callable[[dict[str, Any]], None]] = {
-                "/_sidecar/get-conversation-metadata": self._handle_post_sidecar_metadata,
-                "/_sidecar/send-message": self._handle_post_sidecar_send_message,
-                "/_sidecar/new-conversation": self._handle_post_sidecar_new_conversation,
-                "/api/gerrit/vote": self._handle_post_vote,
-                "/api/gerrit/submit": self._handle_post_submit,
-                "/api/gerrit/assign-reviewer": self._handle_post_assign_reviewer,
-                "/api/gerrit/reviewer": self._handle_post_reviewer,
-                "/api/gerrit/chat-dm": self._handle_post_chat_dm,
-                "/api/gerrit/harness": self._handle_post_harness,
-                "/api/gerrit/post-swarm-review": self._handle_post_swarm_review,
-                "/api/gerrit/comment": self._handle_post_inline_comment,
-                "/api/gerrit/reply": self._handle_post_reply_comment,
-                "/api/gerrit/ask-code": self._handle_post_ask_code,
-                "/api/gerrit/code-question-action": self._handle_post_code_question_action,
-                "/api/gerrit/ai-analysis": self._handle_post_ai_analysis,
-                "/api/gerrit/perform-update": self._handle_post_perform_update,
-            }
-            try:
-                self._require_token(parsed)
-                body = self._read_json_body()
-                handler_fn = post_routes.get(parsed.path)
-                if handler_fn is None:
-                    self._send_json({"error": f"Unknown POST endpoint '{parsed.path}'"}, status=404)
-                    return
-                handler_fn(body)
-            except RequestRejected as exc:
-                self._send_json({"error": str(exc)}, status=exc.status)
-            except ValueError as exc:
-                self._send_json({"error": str(exc)}, status=400)
-            except Exception as exc:
-                self._send_json({"error": str(exc)}, status=500)
+    class GerritUIHandler(JsonRequestHandler):
+        router = bound_router
+        security_policy = policy
 
     return GerritUIHandler
 
 
 def find_available_port(host: str, start_port: int) -> int:
     """Finds the first available TCP port starting at `start_port`."""
-    for offset in range(MAX_PORT_PROBES):
-        candidate = start_port + offset
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            try:
-                sock.bind((host, candidate))
-                return candidate
-            except OSError:
-                continue
-    raise RuntimeError(
-        f"Could not bind Gerrit UI server on '{host}' across ports {start_port}..{start_port + MAX_PORT_PROBES - 1}."
+    return _core_find_available_port(
+        host,
+        start_port,
+        max_attempts=MAX_PORT_PROBES,
+        server_label="Gerrit UI server",
     )
 
 
@@ -719,24 +472,19 @@ def serve_gerrit_ui(
         print(f"Exported static Gerrit UI snapshot ({len(queue_data['changes'])} CLs) to {out_file}")
         return 0
 
-    port_finder = resolve_ui_hook("find_available_port", find_available_port)
-    bound_port = port_finder(host_addr, port)
-    # Standalone servers mint their own token; the browser picks it up from `?token=`.
     ui_token = mint_ui_token()
-    url = f"http://{host_addr}:{bound_port}/?token={ui_token}"
-    server = http.server.ThreadingHTTPServer(
-        (host_addr, bound_port), make_gerrit_ui_handler(service, ui_token=ui_token)
+    serve_http(
+        lambda tok: make_gerrit_ui_handler(service, ui_token=tok),
+        host=host_addr,
+        port=port,
+        ui_token=ui_token,
+        open_browser=open_browser,
+        port_finder=resolve_ui_hook("find_available_port", find_available_port),
+        server_cls=http.server.ThreadingHTTPServer,
+        browser_opener=webbrowser.open,
+        banner_fn=lambda url, _port: (
+            f"AEMU Fast Gerrit UI running at {url} (viewer: {service.default_viewer})"
+        ),
+        shutdown_message="\nShutting down Gerrit UI server.",
     )
-    print(f"AEMU Fast Gerrit UI running at {url} (viewer: {service.default_viewer})")
-    if open_browser:
-        try:
-            webbrowser.open(url)
-        except Exception:
-            pass
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nShutting down Gerrit UI server.")
-    finally:
-        server.server_close()
     return 0

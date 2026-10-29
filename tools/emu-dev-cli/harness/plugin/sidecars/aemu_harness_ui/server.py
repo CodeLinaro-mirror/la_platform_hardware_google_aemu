@@ -250,11 +250,13 @@ def list_workflow_sessions(conversation_id: Optional[str] = None) -> List[Dict[s
             continue
 
         wf_conv = str(meta.get("conversation_id") or "")
+        raw_state = data.get("state") or data.get("status", "UNKNOWN")
+        raw_step = data.get("step") if data.get("step") is not None else data.get("current_step", 0)
         sessions.append({
             "workflow_name": data.get("workflow_name") or sf.parent.name,
             "state_id": data.get("state_id") or sf.stem.replace("STATE-", ""),
-            "status": str(data.get("status", "UNKNOWN")).upper(),
-            "current_step": int(data.get("current_step", 0)),
+            "status": str(raw_state).upper(),
+            "current_step": int(raw_step),
             "retries": int(data.get("retries", 0)),
             "conversation_id": wf_conv,
             "matches_conversation": bool(conversation_id and wf_conv == conversation_id),
