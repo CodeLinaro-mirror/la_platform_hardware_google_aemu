@@ -302,6 +302,23 @@ Signaling is performed directly over gRPC-Web using `RtcService`:
 5. **Media Streams:** Dispatches incoming `MediaStreamTrack` (primary video,
    secondary video, audio) directly to `<video>` elements and Web Audio
    contexts.
+6. **Browser Microphone (opt-in):** With `microphone: true` on
+   `DeviceClientOptions` (or `<DeviceProvider microphone>`), `connect()` adds a
+   `sendrecv` audio transceiver before the offer, so the session is negotiated
+   once with a send-capable audio m-line. The emulator then lists one
+   `MicrophoneInput` of kind `WEBRTC` with `source_id = "webrtc"` for the
+   whole session; it is silent while no track is attached. There is no
+   renegotiation: `enableMicrophone(constraints?)` opens the microphone with
+   `getUserMedia` (browser echo cancellation stays on) and attaches it with
+   `RTCRtpSender.replaceTrack(track)`; `disableMicrophone()` calls
+   `replaceTrack(null)` and stops the track, releasing the browser's mic
+   indicator. Enable and disable are serialized, so a disable issued while
+   `getUserMedia` is pending still ends with the microphone off.
+   `microphoneEnabled` and the `"microphoneChange"` event report the state;
+   `useMicrophone()` wraps them for React. `useAudio()` reads
+   `AudioState.microphone_inputs` and mutes inputs such as `"webrtc"` or the
+   host machine's microphone (`"host"`). Without the option the offer is
+   unchanged (`recvonly` audio) and `enableMicrophone()` rejects.
 
 ---
 

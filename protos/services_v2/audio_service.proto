@@ -53,9 +53,10 @@ service AudioService {
   //
   // Setting `microphone_muted = true` silences all microphone audio delivered to the guest OS
   // by feeding virtual-clock-paced PCM silence while keeping attached WebRTC and gRPC streams
-  // connected. Setting `host_microphone_enabled = false` detaches only the host machine's
-  // physical microphone (`source_id = "host"`), feeding silence when idle while still allowing
-  // WebRTC and gRPC audio injection.
+  // connected. The host machine's physical microphone is the `"host"` entry in
+  // `microphone_inputs`; it is muted by default unless the emulator was launched with host
+  // audio input allowed. Setting `microphone_inputs { source_id: "host" muted: true }` detaches
+  // only that microphone, while WebRTC and gRPC audio injection continue.
   //
   // Recommended client deadline: >= 500ms.
   //
@@ -79,7 +80,7 @@ service AudioService {
   //
   // Expected gRPC status codes:
   //   - INVALID_ARGUMENT: Unsupported sample rate, channel count, sample format, or reserved
-  //     `source_id` (`"host"`).
+  //     `source_id` (`"host"` or `"webrtc"`).
   //   - ALREADY_EXISTS: Another stream with the same `source_id` is active, or exclusive
   //     single-source microphone capacity (`max_concurrent_microphone_streams == 1`) is occupied.
   //   - RESOURCE_EXHAUSTED: Maximum concurrent microphone mixer stream capacity
@@ -98,7 +99,7 @@ service AudioService {
   //
   // Expected gRPC status codes:
   //   - INVALID_ARGUMENT: Unsupported sample rate, channel count, sample format, or reserved
-  //     `source_id` (`"host"`).
+  //     `source_id` (`"host"` or `"webrtc"`).
   //   - ALREADY_EXISTS: Another stream with the same `source_id` is active, or exclusive
   //     single-source microphone capacity (`max_concurrent_microphone_streams == 1`) is occupied.
   //   - RESOURCE_EXHAUSTED: Maximum concurrent microphone mixer stream capacity
@@ -142,7 +143,8 @@ message AudioChunk {
   // Populated by the server on speaker capture streams; optional on microphone injection streams.
   int64 timestamp_nanos = 5;
   // Optional logical caller/channel identifier surfaced in `AudioState.microphone_inputs`
-  // (e.g., `"voice-agent"`). Must not be `"host"`. When unset or empty, defaults to the
+  // (e.g., `"voice-agent"`). Must not be `"host"` or `"webrtc"`, which name the host machine's
+  // microphone and the WebRTC clients' microphone. When unset or empty, defaults to the
   // `x-client-id` gRPC metadata header if present, or a server-generated identifier.
   optional string source_id = 6;
 }
@@ -165,13 +167,15 @@ message MicrophoneInput {
     GRPC_CLIP = 2;
     // Continuous PCM stream injection via `AudioService.StreamMicrophoneAudio`.
     GRPC_STREAM = 3;
-    // Inbound Opus microphone track from an active `RtcService` WebRTC peer connection
-    // (`source_id` matches `RtcSession.session_id`).
+    // Inbound Opus microphone audio from `RtcService` WebRTC peer connections. All connected
+    // sessions that offer microphone audio share one input with `source_id = "webrtc"` and are
+    // mixed into it; it is silent while no session has a microphone track attached.
     WEBRTC = 4;
   }
 
   // Mixer channel identifier (`"host"` for the built-in host physical microphone channel,
-  // `RtcSession.session_id` for WebRTC sessions, or caller/server-assigned ID for gRPC streams).
+  // `"webrtc"` for the input shared by all WebRTC sessions, or caller/server-assigned ID for
+  // gRPC streams).
   string source_id = 1;
   // Output only. Category of audio producer feeding this input channel.
   Kind kind = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
@@ -184,7 +188,7 @@ message MicrophoneInput {
 
 // Partial update targeting an individual channel in the virtual microphone mixer.
 message MicrophoneInputUpdate {
-  // Target mixer channel identifier (e.g., `"host"`, an `RtcSession.session_id`, or a gRPC `source_id`).
+  // Target mixer channel identifier (e.g., `"host"`, `"webrtc"`, or a gRPC `source_id`).
   string source_id = 1 [(google.api.field_behavior) = REQUIRED];
   // When set, mutes or unmutes this specific input channel.
   optional bool muted = 2;
@@ -194,26 +198,21 @@ message MicrophoneInputUpdate {
 
 // Represents the runtime state of the virtual microphone mixer and audio endpoints.
 //
-// --- Server-Side Coupling (`host_microphone_enabled` vs. `"host"` in `microphone_inputs`) ---
-// The built-in `"host"` channel in `microphone_inputs` and `host_microphone_enabled` reflect the
-// same underlying toggle (`host_microphone_enabled == !host_input.muted`). Mutating either field
-// in `UpdateAudioStateRequest` updates the other automatically.
+// The host machine's physical microphone is the `"host"` entry in `microphone_inputs`. It is
+// muted by default unless the emulator was launched with host audio input allowed; unmute it
+// with `UpdateAudioStateRequest.microphone_inputs { source_id: "host" muted: false }`.
 message AudioState {
   // Master virtual microphone mute: when true, the guest HAL always receives virtual-clock-paced
   // PCM silence regardless of attached `microphone_inputs`.
   bool microphone_muted = 1;
-  // True when the built-in `"host"` physical microphone channel is unmuted. When false, ambient
-  // host machine audio never enters the guest (silence is fed when idle), while WebRTC and gRPC
-  // audio injection remain active.
-  bool host_microphone_enabled = 2;
   // Output only. True when an Android guest application currently has a microphone capture
   // stream (`AudioRecord`) open and active.
-  bool microphone_in_use_by_guest = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+  bool microphone_in_use_by_guest = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
   // Output only. Input channels currently attached to the virtual microphone mixer (ordered with
   // `"host"` first when audio input hardware is present, followed by active injected streams).
-  repeated MicrophoneInput microphone_inputs = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+  repeated MicrophoneInput microphone_inputs = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
   // Output only. Monotonic timestamp in nanoseconds (`CLOCK_MONOTONIC`) aligned with audio/video.
-  int64 timestamp_nanos = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+  int64 timestamp_nanos = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
 }
 
 // Request message for partially mutating virtual microphone mute state and mixer channel controls.
@@ -223,12 +222,9 @@ message UpdateAudioStateRequest {
   // Master virtual microphone mute toggle. Setting `true` injects steady virtual-clock-paced
   // silence into the guest across all inputs (host, WebRTC, and gRPC).
   optional bool microphone_muted = 1;
-  // Convenience toggle for the built-in `"host"` physical microphone channel. Setting `false`
-  // silences host OS microphone passthrough while keeping WebRTC and gRPC injection active.
-  optional bool host_microphone_enabled = 2;
-  // Per-channel mute and gain updates keyed by `source_id` (applied in order after
-  // `host_microphone_enabled` if both are present).
-  repeated MicrophoneInputUpdate microphone_inputs = 3;
+  // Per-channel mute and gain updates keyed by `source_id`, applied in order. Use
+  // `source_id: "host"` for the host machine's physical microphone.
+  repeated MicrophoneInputUpdate microphone_inputs = 2;
 }
 
 // Response message for InjectAudioClip.

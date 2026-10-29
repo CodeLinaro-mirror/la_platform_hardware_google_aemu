@@ -26,6 +26,11 @@ import grpc
 from clownfish.state import EmulatorState
 
 _SUPPORTED_RATES = {16000, 44100, 48000}
+# Mixer source_ids injection may not use, and what they name.
+_RESERVED_SOURCE_IDS = {
+    "host": "the host physical microphone",
+    "webrtc": "the microphone audio WebRTC clients send",
+}
 _SUPPORTED_CHANNELS = {1, 2}
 _SUPPORTED_FORMATS = {
     common_pb2.SAMPLE_FORMAT_PCM16_BIT,
@@ -54,7 +59,6 @@ class AudioServiceServicer(pb_grpc.AudioServiceServicer):
             ]
             return pb.AudioState(
                 microphone_muted=self.state.mic_is_muted,
-                host_microphone_enabled=self.state.host_mic_enabled,
                 microphone_in_use_by_guest=self.state.mic_in_use_by_guest,
                 microphone_inputs=inputs,
                 timestamp_nanos=self.state.monotonic_ns(),
@@ -108,19 +112,11 @@ class AudioServiceServicer(pb_grpc.AudioServiceServicer):
 
             if request.HasField("microphone_muted"):
                 self.state.mic_is_muted = request.microphone_muted
-            if request.HasField("host_microphone_enabled"):
-                self.state.host_mic_enabled = request.host_microphone_enabled
-                if "host" in self.state.mic_inputs:
-                    self.state.mic_inputs["host"]["muted"] = (
-                        not request.host_microphone_enabled
-                    )
 
             for upd in request.microphone_inputs:
                 entry = self.state.mic_inputs[upd.source_id]
                 if upd.HasField("muted"):
                     entry["muted"] = upd.muted
-                    if upd.source_id == "host":
-                        self.state.host_mic_enabled = not upd.muted
                 if upd.HasField("gain"):
                     entry["gain"] = upd.gain
 
@@ -131,10 +127,11 @@ class AudioServiceServicer(pb_grpc.AudioServiceServicer):
 
     @staticmethod
     def _validate_chunk(chunk: pb.AudioChunk, context: grpc.ServicerContext) -> int:
-        if chunk.source_id == "host":
+        if chunk.source_id in _RESERVED_SOURCE_IDS:
             context.abort(
                 grpc.StatusCode.INVALID_ARGUMENT,
-                "source_id 'host' is reserved for the host physical microphone.",
+                f"source_id '{chunk.source_id}' is reserved for "
+                f"{_RESERVED_SOURCE_IDS[chunk.source_id]}.",
             )
         if (
             chunk.sample_rate_hz not in _SUPPORTED_RATES
