@@ -43,6 +43,8 @@ def main() -> int:
                 ["git", "rev-parse", "--git-dir"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=True,
                 cwd=args.cwd,
                 timeout=30,

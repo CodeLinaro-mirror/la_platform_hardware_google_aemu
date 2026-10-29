@@ -21,6 +21,7 @@ import shutil
 import subprocess
 from typing import Dict, List, Optional
 
+from core.process import ProcessRunner, SubprocessRunner
 from lib.bazel import BazelRunner, BuildExitCode
 
 
@@ -31,9 +32,11 @@ class TransactionalPatchContext:
         self,
         workspace_root: Optional[Path] = None,
         bazel_runner: Optional[BazelRunner] = None,
+        process_runner: Optional[ProcessRunner] = None,
     ):
         self.workspace_root = workspace_root or Path.cwd()
         self.bazel_runner = bazel_runner or BazelRunner(source_dir=self.workspace_root)
+        self._runner = process_runner or SubprocessRunner()
         self._snapshots: Dict[Path, bytes] = {}
 
     def snapshot(self, files: List[Path]) -> None:
@@ -68,11 +71,9 @@ class TransactionalPatchContext:
                 return res.returncode == 0
             elif shutil.which("mise"):
                 # Try mise fastbuild if mise executable is available on PATH
-                res = subprocess.run(
+                res = self._runner.run(
                     ["mise", "run", "fastbuild"],
                     cwd=str(self.workspace_root),
-                    capture_output=True,
-                    text=True,
                     check=False,
                 )
                 return res.returncode == 0
@@ -91,11 +92,9 @@ class TransactionalPatchContext:
                 res = self.bazel_runner.test([test_target])
                 return res.returncode == 0
             elif shutil.which("mise"):
-                res = subprocess.run(
+                res = self._runner.run(
                     ["mise", "run", "fasttest"],
                     cwd=str(self.workspace_root),
-                    capture_output=True,
-                    text=True,
                     check=False,
                 )
                 return res.returncode == 0

@@ -24,6 +24,8 @@ import subprocess
 import sys
 from typing import List, Optional
 
+from core.process import ProcessRunner, SubprocessRunner
+
 logger = logging.getLogger(__name__)
 
 
@@ -170,11 +172,10 @@ class OAuthTokenManager:
 
         # 3. Try gcloud auth application-default print-access-token
         try:
-            res = subprocess.run(
+            res = SubprocessRunner().run(
                 ["gcloud", "auth", "application-default", "print-access-token"],
-                capture_output=True,
-                text=True,
-                timeout=10.0,
+                check=False,
+                timeout_sec=10.0,
             )
             if res.returncode == 0 and res.stdout.strip():
                 for line in reversed(res.stdout.strip().splitlines()):
@@ -201,11 +202,10 @@ class OAuthTokenManager:
 
         for cmd in cmd_variants:
             try:
-                res = subprocess.run(
+                res = SubprocessRunner().run(
                     cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=10.0,
+                    check=False,
+                    timeout_sec=10.0,
                 )
                 if res.returncode == 0 and res.stdout.strip():
                     cleaned = self.clean_token(res.stdout)
@@ -223,11 +223,10 @@ class OAuthTokenManager:
                     s if s.startswith("https://") else f"https://www.googleapis.com/auth/{s}"
                     for s in self.scopes
                 ]
-                res = subprocess.run(
+                res = SubprocessRunner().run(
                     [str(sso_bin), sso_email] + full_scopes,
-                    capture_output=True,
-                    text=True,
-                    timeout=10.0,
+                    check=False,
+                    timeout_sec=10.0,
                 )
                 if res.returncode == 0 and res.stdout.strip():
                     cleaned = self.clean_token(res.stdout)
@@ -261,11 +260,10 @@ class OAuthTokenManager:
                             host,
                             subcmd,
                         ]
-                        res = subprocess.run(
+                        res = SubprocessRunner().run(
                             remote_cmd,
-                            capture_output=True,
-                            text=True,
-                            timeout=8.0,
+                            check=False,
+                            timeout_sec=8.0,
                         )
                         if res.returncode == 0 and res.stdout.strip():
                             cleaned = self.clean_token(res.stdout)
@@ -330,7 +328,7 @@ class OAuthTokenManager:
                 os.environ.pop(var, None)
             os.environ.pop("OAUTH2_TOKEN", None)
             try:
-                subprocess.run(["oauth2l", "reset"], capture_output=True, timeout=5.0)
+                SubprocessRunner().run(["oauth2l", "reset"], check=False, timeout_sec=5.0)
             except Exception as exc:
                 logging.getLogger(__name__).debug("Ignored error in get_token: %s", exc)
         return self.acquire_token(user_token=user_token)

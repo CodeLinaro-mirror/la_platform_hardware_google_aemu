@@ -21,13 +21,14 @@ reflected immediately without waiting for the hourly F1 annotations table refres
 """
 
 import argparse
-import csv
-import io
 import os
-import subprocess
 import sys
 from typing import Any
 
+from clients.f1_sql_client import (
+    ProdF1SqlClient,
+    parse_f1_csv_output as _client_parse_f1_csv_output,
+)
 from core.command import (
     Command,
     CommandResult,
@@ -39,7 +40,8 @@ from core.context import (
     SERVICE_F1_SQL,
     SERVICE_PROCESS_RUNNER,
 )
-from core.errors import ExecutionError, UsageError
+from core.errors import EmuCliError, ExecutionError, UsageError
+from core.process import ProcessRunner, SubprocessRunner
 from lib.output import print_result
 
 from commands.crash.link_bug import (
@@ -257,26 +259,9 @@ LIMIT {int(limit)};
 
 def parse_f1_csv_output(raw_stdout: str) -> list[dict[str, str]]:
     """Strips leading F1 CLI banner/hint lines and parses CSV rows into dictionaries."""
-    lines = raw_stdout.splitlines()
-    header_idx: int | None = None
-    for idx, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith(("stable_signature,", '"stable_signature",')):
-            header_idx = idx
-            break
-
-    if header_idx is None:
-        return []
-
-    csv_text = "\n".join(lines[header_idx:])
-    reader = csv.DictReader(io.StringIO(csv_text))
-    rows: list[dict[str, str]] = []
-    for row in reader:
-        cleaned_row = {
-            k: ("" if v in (None, "NULL") else v) for k, v in row.items() if k
-        }
-        rows.append(cleaned_row)
-    return rows
+    return _client_parse_f1_csv_output(
+        raw_stdout, expected_header_columns=("stable_signature",)
+    )
 
 
 def execute_f1_query(
@@ -284,30 +269,26 @@ def execute_f1_query(
     f1_sql_bin: str = DEFAULT_F1_SQL_BIN,
     accounting_group: str | None = None,
     timeout: int = 120,
+    runner: ProcessRunner | None = None,
 ) -> list[dict[str, str]]:
-    """Executes an F1 SQL query via `f1-sql --csv_output=true` and returns parsed rows."""
+    """Executes an F1 SQL query via `ProdF1SqlClient.query_csv` and returns parsed rows."""
     if not os.path.exists(f1_sql_bin):
         raise FileNotFoundError(
             f"f1-sql binary not found at '{f1_sql_bin}'. Ensure you are running on a GLinux host."
         )
 
-    cmd = [f1_sql_bin, "--csv_output=true"]
-    if accounting_group:
-        cmd.append(f"--f1_sql_accounting_group={accounting_group}")
-
-    res = subprocess.run(
-        cmd,
-        input=sql,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
+    client = ProdF1SqlClient(
+        runner or SubprocessRunner(), f1_sql_bin=f1_sql_bin
     )
-    if res.returncode != 0:
-        err_msg = (res.stderr or res.stdout or f"Exit code {res.returncode}").strip()
-        raise RuntimeError(f"f1-sql query failed: {err_msg}")
-
-    return parse_f1_csv_output(res.stdout)
+    try:
+        return client.query_csv(
+            sql,
+            accounting_group=accounting_group,
+            timeout_sec=float(timeout),
+            expected_header_columns=("stable_signature",),
+        )
+    except EmuCliError as exc:
+        raise RuntimeError(exc.message) from exc
 
 
 def merge_and_normalize_rows(
@@ -414,176 +395,7 @@ def merge_and_normalize_rows(
     return records
 
 
-def run_list_crashes(args: argparse.Namespace) -> None:
-    """CLI handler for `emu-dev-cli crash list-crashes`."""
-    json_mode = getattr(args, "json", False)
-    days = getattr(args, "days", None)
-    hours = (
-        int(days * 24)
-        if days is not None
-        else int(getattr(args, "hours", DEFAULT_HOURS))
-    )
-    version_regex = getattr(args, "version_regex", DEFAULT_VERSION_REGEX)
-    exclude_modules = getattr(args, "exclude_modules", DEFAULT_EXCLUDE_MODULES)
-    include_modules = getattr(args, "include_modules", DEFAULT_INCLUDE_MODULES)
-    unassigned_only = getattr(args, "unassigned_only", False)
-    raw = getattr(args, "raw", False)
-    limit = int(getattr(args, "limit", DEFAULT_LIMIT))
-    accounting_group = getattr(args, "accounting_group", None)
-    f1_sql_bin = getattr(args, "f1_sql_bin", DEFAULT_F1_SQL_BIN)
 
-    try:
-        sql = build_f1_crashes_query(
-            hours=hours,
-            version_regex=version_regex,
-            exclude_modules=exclude_modules,
-            include_modules=include_modules,
-            unassigned_only=unassigned_only,
-            raw=raw,
-            limit=limit,
-        )
-    except ValueError as e:
-        if json_mode:
-            print_result(
-                {
-                    "status": "error",
-                    "action": "crash list-crashes",
-                    "message": str(e),
-                },
-                json_mode=True,
-                is_error=True,
-            )
-        else:
-            sys.stderr.write(f"❌ {e}\n")
-        sys.exit(1)
-
-    if getattr(args, "print_sql", False):
-        print(sql.strip())
-        return
-
-    if not json_mode:
-        mode_str = "unassigned only" if unassigned_only else "all"
-        print(
-            f"🔎 Querying crash.prod.latest for qemu-next crashes (last {hours}h, {mode_str})..."
-        )
-
-    try:
-        csv_rows = execute_f1_query(
-            sql=sql,
-            f1_sql_bin=f1_sql_bin,
-            accounting_group=accounting_group,
-        )
-    except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as e:
-        if json_mode:
-            print_result(
-                {
-                    "status": "error",
-                    "action": "crash list-crashes",
-                    "message": str(e),
-                },
-                json_mode=True,
-                is_error=True,
-            )
-        else:
-            sys.stderr.write(f"❌ {e}\n")
-        sys.exit(1)
-
-    unique_sigs = list(
-        {
-            r.get("stable_signature", "").strip()
-            for r in csv_rows
-            if r.get("stable_signature", "").strip()
-        }
-    )
-    live_annotations = search_crash_annotations(unique_sigs)
-    crashes = merge_and_normalize_rows(
-        csv_rows=csv_rows,
-        live_annotations=live_annotations,
-        raw=raw,
-        unassigned_only=unassigned_only,
-    )
-
-    payload: dict[str, Any] = {
-        "status": "success",
-        "action": "crash list-crashes",
-        "hours": hours,
-        "version_regex": version_regex,
-        "exclude_modules": exclude_modules,
-        "include_modules": include_modules,
-        "unassigned_only": unassigned_only,
-        "raw": raw,
-        "count": len(crashes),
-        "crashes": crashes,
-    }
-
-    if json_mode:
-        print_result(payload, json_mode=True)
-        return
-
-    if not crashes:
-        print(f"🟢 No matching qemu-next crashes found in the last {hours} hours.")
-        return
-
-    if raw:
-        print(f"\n📋 Found {len(crashes)} crash report(s) (last {hours}h):\n")
-        for idx, item in enumerate(crashes, 1):
-            bugs_str = (
-                ", ".join(f"b/{bid}" for bid in item["bug_ids"])
-                if item["bug_ids"]
-                else "UNASSIGNED ⚠️"
-            )
-            print(
-                f"  {idx}. [{bugs_str}] {item['stable_signature']}\n"
-                f"     • Report ID: {item['report_id']} (https://crash.corp.google.com/{item['report_id']})\n"
-                f"     • Version:   {item['version']} (Build IDs: {', '.join(item['build_ids']) or 'N/A'}) | OS: {item['os']}\n"
-                f"     • Location:  {item['crash_location'] or 'N/A'}"
-            )
-            for k, v in item["custom_keys"].items():
-                snippet = v.replace("\n", " ")[:120]
-                print(f"     • {k}: {snippet}")
-            print()
-    else:
-        total_reports = sum(item["occurrences"] for item in crashes)
-        print(
-            f"\n📋 Found {len(crashes)} crash signature cluster(s) ({total_reports} total reports in last {hours}h):\n"
-        )
-        for idx, item in enumerate(crashes, 1):
-            bugs_str = (
-                ", ".join(f"b/{bid}" for bid in item["bug_ids"])
-                if item["bug_ids"]
-                else "UNASSIGNED ⚠️"
-            )
-            rep_id = item["latest_report_id"]
-            print(
-                f"  {idx}. [{item['occurrences']}x] {item['stable_signature']}  -->  {bugs_str}\n"
-                f"     • Latest Report: {rep_id} (https://crash.corp.google.com/{rep_id})\n"
-                f"     • Versions:      {', '.join(item['versions'])} (Build IDs: {', '.join(item['build_ids']) or 'N/A'})\n"
-                f"     • Host OS:       {', '.join(item['os'])}\n"
-                f"     • Location:      {item['crash_location'] or 'N/A'}"
-            )
-            for k, v in item["custom_keys"].items():
-                snippet = v.replace("\n", " ")[:140]
-                print(f"     • {k}: {snippet}")
-            if item["bug_urls"]:
-                print(f"     • Linked Bugs:   {', '.join(item['bug_urls'])}")
-            print()
-
-        sample_unassigned = next(
-            (c for c in crashes if not c["bug_ids"] and not c["bug_urls"]),
-            crashes[0],
-        )
-        sample_rep = sample_unassigned["latest_report_id"]
-        sample_sig = sample_unassigned["stable_signature"]
-        print("💡 Next Steps in Triage Loop:")
-        print(
-            f"   1. Deduplicate / check fix status: emu-dev-cli crash find-bug {sample_rep}"
-        )
-        print(
-            f"   2. Run RCA & file/update bug:      emu-dev-cli crash file-bug {sample_rep}"
-        )
-        print(
-            f'   3. Link existing bug in go/crash:  emu-dev-cli crash link-bug "{sample_sig}" b/<BUG_ID>'
-        )
 
 
 def _normalize_sql_rows_to_str(
@@ -813,10 +625,6 @@ class CrashListCrashesCommand(Command[argparse.Namespace, dict[str, Any]]):
         )
 
 
-def register_list_crashes_parser(crash_subparsers) -> None:
+def register_list_crashes_parser(crash_subparsers) -> argparse.ArgumentParser:
     """Registers the `list-crashes` subcommand parser under `crash`."""
-    bind_command(
-        crash_subparsers,
-        CrashListCrashesCommand(),
-        legacy_func=run_list_crashes,
-    )
+    return CrashListCrashesCommand().register(crash_subparsers)

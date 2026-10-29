@@ -3,9 +3,15 @@ import os
 import sys
 
 # Ensure src/ is in sys.path
-SRC_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"
+SRC_DIR = os.path.abspath(
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"
+    )
 )
+if sys.path and sys.path[0] != SRC_DIR:
+    sys.path.insert(0, SRC_DIR)
+if "install" in sys.modules and not hasattr(sys.modules["install"], "__path__"):
+    del sys.modules["install"]
 
 from commands.launch import resolve_emulator_executable, prepare_environment
 from install.installer import detect_default_install_path, copy_src_to_release_lib
@@ -270,7 +276,8 @@ Crashing Thread:
             self.assertEqual(parsed["action"], "tidy add")
 
         # 4. crash autofix with json=True on dry_run
-        from commands.crash.autofix import run_autofix
+        from commands.crash.autofix import CrashAutofixCommand
+        from core.context import ExecutionContext
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             rca_path = os.path.join(tmp_dir, "rca_summary.md")
@@ -278,33 +285,19 @@ Crashing Thread:
                 f.write(
                     "```yaml\nactionability:\n  fixable: true\n  target_file: a.cc\n  target_function: foo\n```\n"
                 )
-            buf = StringIO()
-            with patch(
-                "commands.crash.autofix.get_crashadvisor_sandbox_dir",
-                return_value=tmp_dir,
-            ), patch(
-                "commands.crash.autofix.run_crashadvisor_bazel", return_value=MagicMock()
-            ), patch(
-                "commands.crash.autofix.acquire_auth_token", return_value="tok"
-            ), patch(
-                "commands.crash.autofix.get_source_directory", return_value=tmp_dir
-            ), patch(
-                "sys.stdout", buf
-            ), self.assertRaises(
-                SystemExit
-            ):
-                run_autofix(
-                    argparse.Namespace(
-                        crash_id="05d8356e2f800000",
-                        token="tok",
-                        dry_run=True,
-                        force=False,
-                        json=True,
-                    )
-                )
-            parsed = json.loads(buf.getvalue())
-            self.assertEqual(parsed["status"], "dry_run")
-            self.assertEqual(parsed["action"], "crash autofix")
+            ctx = ExecutionContext.for_testing()
+            cmd = CrashAutofixCommand()
+            args = argparse.Namespace(
+                crash_id="05d8356e2f800000",
+                token="tok",
+                dry_run=True,
+                force=False,
+                work_dir=tmp_dir,
+            )
+            res = cmd.execute(args, ctx)
+            self.assertTrue(res.ok)
+            self.assertEqual(res.data["status"], "dry_run")
+            self.assertEqual(res.data["action"], "crash autofix")
 
 
 if __name__ == "__main__":

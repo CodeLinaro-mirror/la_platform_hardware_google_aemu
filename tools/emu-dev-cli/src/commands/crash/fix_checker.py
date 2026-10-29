@@ -18,11 +18,12 @@ import json
 import logging
 import os
 import re
-import subprocess
 import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from core.process import ProcessRunner, SubprocessRunner
 
 logger = logging.getLogger(__name__)
 
@@ -157,8 +158,8 @@ def check_buganizer_fixed_status(
                     client, "token", None
                 ):
                     cmd = [client.cli_binary, "search", q, "--format=json"]
-                    res = subprocess.run(
-                        cmd, capture_output=True, text=True, timeout=10
+                    res = SubprocessRunner().run(
+                        cmd, check=False, timeout_sec=10
                     )
                     if res.returncode == 0 and res.stdout.strip():
                         issues = json.loads(res.stdout)
@@ -219,6 +220,7 @@ def check_git_history_fixes(
     target_func: Optional[str] = None,
     issue_id: Optional[str] = None,
     signature: Optional[str] = None,
+    runner: Optional[ProcessRunner] = None,
 ) -> Tuple[bool, List[str], Optional[str]]:
     """Inspects local git repository history for commits touching the faulting file or referencing the bug.
 
@@ -228,6 +230,7 @@ def check_git_history_fixes(
         target_func: Target function name where crash occurred.
         issue_id: Associated Buganizer issue ID if known.
         signature: Stable crash signature string.
+        runner: Optional ProcessRunner for hermetic execution.
 
     Returns:
         Tuple of (has_recent_fix_commit, list_of_commit_messages, summary_reason).
@@ -235,6 +238,7 @@ def check_git_history_fixes(
     if not source_dir or not os.path.isdir(source_dir):
         return False, [], None
 
+    proc_runner = runner or SubprocessRunner()
     relevant_commits: List[str] = []
     has_fix = False
     evidence_parts: List[str] = []
@@ -257,7 +261,7 @@ def check_git_history_fixes(
                 "--",
                 target_file,
             ]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            res = proc_runner.run(cmd, check=False, timeout_sec=5)
             if res.returncode == 0 and res.stdout.strip():
                 lines = res.stdout.strip().splitlines()
                 relevant_commits.extend(lines[:5])
@@ -272,7 +276,7 @@ def check_git_history_fixes(
                             f"Recent commit touching {target_file}: '{line.strip()}'"
                         )
                         break
-        except (OSError, subprocess.SubprocessError) as exc:
+        except Exception as exc:
             logger.debug("Failed to inspect git log for '%s': %s", target_file, exc)
 
     # Check git log by issue ID if available
@@ -288,7 +292,7 @@ def check_git_history_fixes(
                 "--oneline",
                 f"--grep={issue_id}",
             ]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            res = proc_runner.run(cmd, check=False, timeout_sec=5)
             if res.returncode == 0 and res.stdout.strip():
                 for line in res.stdout.strip().splitlines():
                     has_fix = True
@@ -296,7 +300,7 @@ def check_git_history_fixes(
                     evidence_parts.append(
                         f"Commit references b/{issue_id}: '{line.strip()}'"
                     )
-        except (OSError, subprocess.SubprocessError) as exc:
+        except Exception as exc:
             logger.debug("Failed to search git log for issue '%s': %s", issue_id, exc)
 
     summary = "; ".join(evidence_parts) if evidence_parts else None

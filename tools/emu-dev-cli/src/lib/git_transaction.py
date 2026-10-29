@@ -26,6 +26,7 @@ import subprocess
 from typing import Dict, List, Optional
 
 from commands.source_directory import get_all_source_directories, get_source_directory
+from core.process import SubprocessRunner
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +65,9 @@ def resolve_git_repo_for_target(
 
     if git_root == base:
         try:
-            res = subprocess.run(
+            res = SubprocessRunner().run(
                 ["git", "rev-parse", "--show-toplevel"],
                 cwd=base,
-                capture_output=True,
-                text=True,
                 check=False,
             )
             if res.returncode == 0 and res.stdout.strip():
@@ -81,11 +80,9 @@ def resolve_git_repo_for_target(
 
     # 2. Map Bazel target natively via bazel query --output=location
     try:
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             ["bazel", "query", "--output=location", target],
             cwd=base,
-            capture_output=True,
-            text=True,
             check=False,
         )
         if res.returncode == 0 and res.stdout.strip():
@@ -124,11 +121,9 @@ class GitTransactionContext:
         cmd = ["git", "status", "--porcelain"]
         if ignore_untracked:
             cmd.append("-uno")
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             cmd,
             cwd=self.workspace_root,
-            capture_output=True,
-            text=True,
             check=False,
         )
         return not bool(res.stdout.strip())
@@ -142,11 +137,9 @@ class GitTransactionContext:
                 "Uncommitted changes detected in repository. Commit or stash them before starting a transaction."
             )
 
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             ["git", "rev-parse", "HEAD"],
             cwd=self.workspace_root,
-            capture_output=True,
-            text=True,
             check=True,
         )
         self._anchor_commit = res.stdout.strip()
@@ -178,11 +171,9 @@ class GitTransactionContext:
                 symbol_old,
                 symbol_new,
             )
-            res = subprocess.run(
+            res = SubprocessRunner().run(
                 ["git", "rev-parse", "HEAD"],
                 cwd=self.workspace_root,
-                capture_output=True,
-                text=True,
                 check=True,
             )
             return res.stdout.strip()
@@ -203,11 +194,9 @@ class GitTransactionContext:
             ["git", "commit", "-m", commit_msg], cwd=self.workspace_root, check=True
         )
 
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             ["git", "rev-parse", "HEAD"],
             cwd=self.workspace_root,
-            capture_output=True,
-            text=True,
             check=True,
         )
         commit_hash = res.stdout.strip()
@@ -262,11 +251,9 @@ class GitTransactionContext:
             raise RuntimeError("No active transaction anchor found to finalize.")
 
         # Check if HEAD is ahead of anchor
-        current_head = subprocess.run(
+        current_head = SubprocessRunner().run(
             ["git", "rev-parse", "HEAD"],
             cwd=self.workspace_root,
-            capture_output=True,
-            text=True,
             check=True,
         ).stdout.strip()
 
@@ -283,11 +270,9 @@ class GitTransactionContext:
             check=True,
         )
 
-        final_hash = subprocess.run(
+        final_hash = SubprocessRunner().run(
             ["git", "rev-parse", "HEAD"],
             cwd=self.workspace_root,
-            capture_output=True,
-            text=True,
             check=True,
         ).stdout.strip()
         logger.info(
@@ -302,11 +287,9 @@ class GitTransactionContext:
     ) -> Optional[ActiveTransaction]:
         """Inspects the latest git commit for active Tidy-Transaction trailers."""
         root = workspace_root or Path.cwd()
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             ["git", "log", "-1", "--pretty=format:%B"],
             cwd=root,
-            capture_output=True,
-            text=True,
             check=False,
         )
         if res.returncode != 0 or not res.stdout:

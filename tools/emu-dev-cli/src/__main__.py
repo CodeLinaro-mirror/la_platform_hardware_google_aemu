@@ -61,31 +61,13 @@ from commands import (
     update_prebuilt,
     workflow,
 )
-from core.command import COMMAND_INSTANCE_ATTR, bind_command
+from core.command import COMMAND_INSTANCE_ATTR
 from core.context import detect_host_platform
 from core.dispatcher import CliDispatcher
 from install import installer
 from lib.logging_config import setup_logging
 from lib.output import ensure_utf8_stdio, print_result
 from lib.version import UNKNOWN_COMMIT, format_version_display, read_installed_version
-
-
-MIGRATED_COMMANDS = (
-    build_times.BuildTimesCommand,
-    crash.CrashCommand,
-    cts.CtsCommand,
-    flakiness.FlakinessCommand,
-    harness.HarnessCommand,
-    update_prebuilt.UpdatePrebuiltCommand,
-)
-
-
-def create_cli_dispatcher() -> CliDispatcher:
-    """Builds a `CliDispatcher` with all Command-pattern subcommands registered."""
-    dispatcher = CliDispatcher()
-    for cmd_cls in MIGRATED_COMMANDS:
-        dispatcher.register_command(cmd_cls())
-    return dispatcher
 
 
 def detect_default_host():
@@ -188,7 +170,7 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    exit_code = create_cli_dispatcher().dispatch(args)
+    exit_code = CliDispatcher().dispatch(args)
     if exit_code != 0:
         sys.exit(exit_code)
 

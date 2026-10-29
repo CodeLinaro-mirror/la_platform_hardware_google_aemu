@@ -39,6 +39,7 @@ from commands.gerrit.services.diff_parser import (
     register_ui_hook,
     resolve_ui_hook,
 )
+from core.process import SubprocessRunner
 from lib.gerrit_api import parse_cl_identifier
 
 _CODE_QUESTION_PROMPT_RE = re.compile(
@@ -444,13 +445,12 @@ def _run_sidecar_agentapi(args: list[str], project_id: str | None = None) -> dic
         env["ANTIGRAVITY_PROJECT_ID"] = project_id
     else:
         env.pop("ANTIGRAVITY_SOURCE_METADATA", None)
-    res = subprocess.run(
+    res = SubprocessRunner().run(
         [agentapi_bin, *args],
-        capture_output=True,
-        text=True,
         env=env,
+        merge_Env=False,
         check=False,
-        timeout=30,
+        timeout_sec=30,
     )
     if res.returncode != 0:
         subcmd = args[0] if args else "command"

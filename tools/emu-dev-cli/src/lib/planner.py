@@ -16,8 +16,9 @@ import subprocess
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict, Set
+from typing import List, Dict, Optional, Set
 
+from core.process import ProcessRunner, SubprocessRunner
 from lib.tidy_types import TidyDiagnostic
 
 
@@ -33,8 +34,11 @@ class Cohort:
 
 
 class RefactorPlanner:
-    def __init__(self, workspace_root: Path):
+    def __init__(
+        self, workspace_root: Path, runner: Optional[ProcessRunner] = None
+    ):
         self.workspace_root = workspace_root
+        self._runner = runner or SubprocessRunner()
 
     def _resolve_target_label(self, file_path: str) -> str:
         path = self.workspace_root / file_path
@@ -58,8 +62,8 @@ class RefactorPlanner:
         # TDD Mock: in tests this will be mocked.
         # In reality, this will execute: bazel query --keep_going "rdeps(//..., <label>)"
         cmd = ["bazel", "query", "--keep_going", f"rdeps(//..., {label})"]
-        res = subprocess.run(
-            cmd, cwd=self.workspace_root, capture_output=True, text=True
+        res = self._runner.run(
+            cmd, cwd=self.workspace_root, check=False
         )
         if res.returncode != 0 and not res.stdout:
             # Maybe keep going still printed to stdout?

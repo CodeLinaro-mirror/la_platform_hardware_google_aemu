@@ -23,6 +23,8 @@ import sys
 import time
 from typing import Optional
 
+from core.process import ProcessResult, ProcessRunner, SubprocessRunner
+
 logger = logging.getLogger(__name__)
 
 
@@ -69,13 +71,20 @@ def verify_agentapi_available() -> str:
 class AgentApiClient:
     """Client for programmatically dispatching conversations and messaging subagents via agentapi CLI."""
 
-    def __init__(self, cli_binary: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        cli_binary: Optional[str] = None,
+        *,
+        process_runner: Optional[ProcessRunner] = None,
+    ) -> None:
         """Initializes AgentApiClient.
 
         Args:
             cli_binary: The CLI command name or path to the agentapi tool (auto-resolved if None).
+            process_runner: Optional ProcessRunner for hermetic execution.
         """
         self.cli_binary = cli_binary or resolve_agentapi_binary() or "agentapi"
+        self._runner = process_runner or SubprocessRunner()
 
     def start_conversation(
         self,
@@ -85,7 +94,7 @@ class AgentApiClient:
         title: Optional[str] = None,
         profile: Optional[str] = None,
         retries: int = 3,
-    ) -> subprocess.CompletedProcess:
+    ) -> ProcessResult:
         """Starts a new agent conversation with automatic retries on temporary RPC glitches.
 
         Args:
@@ -97,7 +106,7 @@ class AgentApiClient:
             retries: Number of retry attempts on non-zero exit (default: 3).
 
         Returns:
-            CompletedProcess execution result.
+            ProcessResult execution result.
         """
         cmd = [self.cli_binary, "new-conversation", f"--model={model}"]
         if agent:
@@ -111,7 +120,7 @@ class AgentApiClient:
         logger.debug("Dispatching agentapi start_conversation: %s", " ".join(cmd[:cmd.index(prompt)]))
         last_error = ""
         for attempt in range(1, retries + 1):
-            res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            res = self._runner.run(cmd, check=False)
             if res.returncode == 0:
                 return res
             last_error = (res.stderr or res.stdout or f"Exit code {res.returncode}").strip()
@@ -128,7 +137,7 @@ class AgentApiClient:
         message: str,
         title: Optional[str] = None,
         retries: int = 3,
-    ) -> subprocess.CompletedProcess:
+    ) -> ProcessResult:
         """Sends a message to an existing conversation with automatic retries.
 
         Args:
@@ -138,7 +147,7 @@ class AgentApiClient:
             retries: Number of retry attempts on non-zero exit (default: 3).
 
         Returns:
-            CompletedProcess execution result.
+            ProcessResult execution result.
         """
         cmd = [self.cli_binary, "send-message"]
         if title:
@@ -148,7 +157,7 @@ class AgentApiClient:
         logger.debug("Dispatching agentapi send_message to recipient %s", recipient_id)
         last_error = ""
         for attempt in range(1, retries + 1):
-            res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            res = self._runner.run(cmd, check=False)
             if res.returncode == 0:
                 return res
             last_error = (res.stderr or res.stdout or f"Exit code {res.returncode}").strip()

@@ -24,6 +24,7 @@ import sys
 import time
 from typing import Any, Optional
 
+from core.process import ProcessRunner, SubprocessRunner
 from lib.agent import AgentApiClient, resolve_agentapi_binary
 
 logger = logging.getLogger(__name__)
@@ -252,7 +253,7 @@ class AgentDispatcher:
                 f"⏳ Executing Jetski CLI to generate root cause analysis...\n"
             )
 
-            res = subprocess.run(cmd_args, capture_output=True, text=True, check=False)
+            res = SubprocessRunner().run(cmd_args, check=False)
             if res.returncode != 0 and not rca_summary_path.exists():
                 sys.stderr.write(
                     f"\n❌ Error: Standalone Jetski CLI execution failed with exit code {res.returncode}.\n"
@@ -278,7 +279,7 @@ class AgentDispatcher:
                     "Executing standalone agent CLI %s for %s", standalone_bin, title
                 )
                 cmd = [standalone_bin, f"--model={model}", "--prompt", prompt]
-                res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                res = SubprocessRunner().run(cmd, check=False)
                 return res.returncode == 0
             logger.info(
                 "Standalone mode: No active agent session (ANTIGRAVITY_LS_ADDRESS unset) and no standalone CLI."

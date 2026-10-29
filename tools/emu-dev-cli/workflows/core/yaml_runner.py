@@ -328,6 +328,8 @@ def execute_init(init_spec: Dict[str, Any], init_context: Optional[Dict[str, Any
                     cmd_args,
                     shell=False,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     env=_build_subprocess_env(),
                     timeout=120,
                 ).strip()

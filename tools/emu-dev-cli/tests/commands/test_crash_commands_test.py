@@ -165,28 +165,28 @@ class _FakeArtifactService:
         self.files_to_write = dict(files_to_write or {})
         self.fetch_calls: List[Dict[str, Any]] = []
 
-    def fetch_artifact(
+    def download_artifact(
         self,
-        *,
         build_id: str,
         target: str,
-        artifact_name: str,
+        artifact: str,
         dest_dir: str | Path,
-        zip_entry: Optional[str] = None,
-        output_filename: Optional[str] = None,
-        branch: Optional[str] = None,
+        *,
+        zip_entries: Optional[Sequence[str]] = None,
+        progress_callback: Optional[Any] = None,
     ) -> Path:
+        del progress_callback
         self.fetch_calls.append(
             {
                 "build_id": build_id,
                 "target": target,
-                "artifact_name": artifact_name,
-                "zip_entry": zip_entry,
+                "artifact_name": artifact,
+                "zip_entries": list(zip_entries or ()),
             }
         )
         dest_path = Path(dest_dir)
         dest_path.mkdir(parents=True, exist_ok=True)
-        out_name = output_filename or Path(zip_entry or artifact_name).name
+        out_name = Path(artifact).name
         out_file = dest_path / out_name
         payload = self.files_to_write.get(out_name, b"ELF_FAKE_BINARY")
         out_file.write_bytes(payload)

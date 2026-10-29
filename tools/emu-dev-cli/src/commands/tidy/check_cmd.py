@@ -24,6 +24,7 @@ import sys
 from typing import List, Optional
 
 from commands.source_directory import get_source_directory
+from core.process import SubprocessRunner
 from lib.bazel import BazelRunner, BuildExitCode
 from lib.output import format_markdown_table
 from lib.tidy_types import TidyDiagnostic
@@ -123,10 +124,8 @@ def handle_tidy_check(args: argparse.Namespace) -> None:
 
     if filter_diff:
         try:
-            diff_res = subprocess.run(
+            diff_res = SubprocessRunner().run(
                 ["git", "diff", "--name-only", "HEAD"],
-                capture_output=True,
-                text=True,
                 check=False,
             )
             modified_files = set(diff_res.stdout.strip().splitlines())

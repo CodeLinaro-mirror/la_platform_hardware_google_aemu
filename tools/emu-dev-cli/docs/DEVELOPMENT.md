@@ -118,7 +118,14 @@ emu-dev-cli update
 ## 🛠️ Adding New Subcommands
 
 To add a new subcommand to `emu-dev-cli`:
-1. Add a module inside `src/commands/<command_name>.py`.
-2. Define `register_parser(subparsers)` with argument definitions.
-3. Import and register the command in `src/__main__.py`.
-4. Run `emu-dev-cli update` to test your changes.
+1. Add a module inside `src/commands/<command_name>.py` with a `Command` subclass
+   (`src/core/command.py`). Declare its arguments once, in `configure_parser()`, and do
+   the work in `execute(args, ctx)`, which returns a `CommandResult` instead of printing
+   and exiting. Get processes, Android Build, F1, Buganizer and agents from the
+   `ExecutionContext` services so tests can swap in fakes.
+2. For a command family (`emu-dev-cli <group> <action>`), subclass `CommandGroup` and
+   pass it the action commands.
+3. Define `register_parser(subparsers)` as `bind_command(subparsers, YourCommand())`,
+   then call it from `src/__main__.py`.
+4. Test `execute()` directly with `ExecutionContext.for_testing()` and `FakeServiceFactory`.
+5. Run `emu-dev-cli update` to test your changes.

@@ -4726,7 +4726,13 @@
 <script>
   window.__GERRIT_UI_VERSION__ = "__GERRIT_UI_VERSION__";
   window.__GERRIT_UI_BOOTSTRAP__ = __GERRIT_UI_BOOTSTRAP_JSON__;
-  const _sidecarUrlParams = new URLSearchParams(window.location.search);
+  const _sidecarUrlParams = {
+    get: function(key) {
+      const search = (typeof window !== "undefined" && window.location && window.location.search) || "";
+      const match = search.match(new RegExp("[?&]" + key + "=([^&]*)"));
+      return match ? decodeURIComponent(match[1].replace(/\+/g, " ")) : null;
+    }
+  };
   const sidecarUiToken = _sidecarUrlParams.get("token") || "";
 
   function sidecarFetch(path, options = {}) {

@@ -1593,6 +1593,8 @@ def poke_conversation(
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                 )
                 _ACTIVE_CONV_PROCS[cid] = proc
                 _STARTING_CONVS.discard(cid)
@@ -1753,6 +1755,8 @@ def launch_jetski_for_session(
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                 )
                 _ACTIVE_AGENT_PROCS[state_id] = proc
                 try:

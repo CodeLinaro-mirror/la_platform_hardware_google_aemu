@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional, Tuple, List
 import subprocess
 
+from core.process import SubprocessRunner
 from lib.bazel import BazelRunner
 from lib.git_transaction import GitTransactionContext
 from lib.path_utils import normalize_build_path
@@ -131,11 +132,9 @@ def _extract_rename_symbols(diagnostic: TidyDiagnostic) -> Tuple[str, str]:
 
 def _run_clang_format(repo_dir: Path) -> None:
     try:
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             ["git", "status", "--porcelain"],
             cwd=repo_dir,
-            capture_output=True,
-            text=True,
             check=True,
         )
         files_to_format = []

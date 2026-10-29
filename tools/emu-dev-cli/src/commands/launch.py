@@ -19,6 +19,7 @@ import re
 import subprocess
 import sys
 import time
+from core.process import SubprocessRunner
 from lib.avd import get_mesh_node_names
 from lib.emulator import (
     calculate_mesh_ports,
@@ -34,9 +35,7 @@ from lib.output import print_result
 def get_display_owner_label(disp_num):
     sock_path = f"/tmp/.X11-unix/X{disp_num}"
     try:
-        res = subprocess.run(
-            ["fuser", sock_path], capture_output=True, text=True, check=False
-        )
+        res = SubprocessRunner().run(["fuser", sock_path], check=False)
         pids = res.stdout.strip().split()
         if pids:
             pid = pids[0]

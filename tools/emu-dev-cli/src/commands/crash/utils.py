@@ -21,13 +21,58 @@ Provides modular helpers for:
 - Resolving and validating secure user-owned sandbox directories
 """
 
+from collections.abc import Callable
+import re
+import sys
 import tempfile
 from pathlib import Path
 from typing import Optional
 
+from core.errors import ExecutionError
 from lib.oauth import OAuthTokenManager
 from lib.security import is_path_secure_user_owned
 from lib.stacktrace import StackTraceParser, extract_top_fault_frame
+
+# Resolves the OAuth2 token from the --token value (None when the flag is absent).
+TokenProvider = Callable[[Optional[str]], Optional[str]]
+
+CRASHADVISOR_CACHE_DIR_NAME = "crashadvisor"
+PRIVATE_DIR_MODE = 0o700
+FALLBACK_WORK_DIR_NAME = "unknown"
+_UNSAFE_DIR_NAME_CHARS = re.compile(r"[^\w.-]")
+
+
+def resolve_crash_work_dir(
+    cache_dir: Path, crash_id: str, explicit_dir: Optional[str] = None
+) -> Path:
+    """Returns the CrashAdvisor work directory for `crash_id`, creating it if needed.
+
+    An explicit --work-dir wins. Otherwise each crash gets a private folder in the
+    CLI cache, so find-bug, analyze, autofix and reproduce reuse one download.
+    """
+    if explicit_dir:
+        work_dir = Path(explicit_dir).expanduser()
+    else:
+        dir_name = _UNSAFE_DIR_NAME_CHARS.sub("_", crash_id).lstrip(".")
+        work_dir = (
+            Path(cache_dir)
+            / CRASHADVISOR_CACHE_DIR_NAME
+            / (dir_name or FALLBACK_WORK_DIR_NAME)
+        )
+    try:
+        work_dir.mkdir(mode=PRIVATE_DIR_MODE, parents=True, exist_ok=True)
+    except OSError as exc:
+        raise ExecutionError(
+            f"Could not create the crash work directory '{work_dir}': {exc.strerror or exc}.",
+            remediation="Pass a writable directory with --work-dir.",
+            cause=exc,
+        ) from exc
+    return work_dir
+
+
+def print_warning(message: str) -> None:
+    """Writes a warning to stderr so JSON output on stdout stays clean."""
+    sys.stderr.write(f"{message}\n")
 
 
 def create_secure_sandbox_dir(crash_id: str) -> str:
