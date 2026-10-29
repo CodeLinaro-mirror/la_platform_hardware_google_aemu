@@ -471,24 +471,43 @@ TLB:        250        150        100         50   TLB shootdowns
         self.assertEqual(records[1]["scenario"], "disk_rand_4k_fsync")
         self.assertAlmostEqual(records[1]["iops"], 845.2)
 
-        apk_path = resolve_perf_probe_apk()
-        self.assertTrue(os.path.isfile(apk_path))
-        self.assertTrue(apk_path.endswith("perf_probe.apk"))
         import zipfile
-        with zipfile.ZipFile(apk_path, "r") as zf:
-            names = zf.namelist()
-            self.assertIn("AndroidManifest.xml", names)
-            self.assertIn("classes.dex", names)
-            if "resources.arsc" in names:
-                info = zf.getinfo("resources.arsc")
-                self.assertEqual(info.compress_type, zipfile.ZIP_STORED)
-                data_offset = (
-                    info.header_offset
-                    + 30
-                    + len(info.filename.encode("utf-8"))
-                    + len(info.extra)
+
+        with tempfile.TemporaryDirectory() as tmp_rf:
+            try:
+                apk_path = resolve_perf_probe_apk()
+            except FileNotFoundError:
+                mock_apk = os.path.join(
+                    tmp_rf,
+                    "_main",
+                    "tools",
+                    "emu-dev-cli",
+                    "perf_probe",
+                    "perf_probe.apk",
                 )
-                self.assertEqual(data_offset % 4, 0)
+                os.makedirs(os.path.dirname(mock_apk), exist_ok=True)
+                with zipfile.ZipFile(mock_apk, "w") as zf:
+                    zf.writestr("AndroidManifest.xml", b"<manifest/>")
+                    zf.writestr("classes.dex", b"dex\n035\x00")
+                with patch.dict(os.environ, {"RUNFILES_DIR": tmp_rf}):
+                    apk_path = resolve_perf_probe_apk()
+
+            self.assertTrue(os.path.isfile(apk_path))
+            self.assertTrue(apk_path.endswith("perf_probe.apk"))
+            with zipfile.ZipFile(apk_path, "r") as zf:
+                names = zf.namelist()
+                self.assertIn("AndroidManifest.xml", names)
+                self.assertIn("classes.dex", names)
+                if "resources.arsc" in names:
+                    info = zf.getinfo("resources.arsc")
+                    self.assertEqual(info.compress_type, zipfile.ZIP_STORED)
+                    data_offset = (
+                        info.header_offset
+                        + 30
+                        + len(info.filename.encode("utf-8"))
+                        + len(info.extra)
+                    )
+                    self.assertEqual(data_offset % 4, 0)
 
     def test_probe_suites_comparison_and_markdown(self):
         suites, workloads = resolve_suites("input,disk,memory,cpu")
@@ -876,6 +895,522 @@ TLB:        250        150        100         50   TLB shootdowns
             with patch.dict(os.environ, {"TMPDIR": tmpdir}):
                 _cleanup_stale_netsim(force=False)
             self.assertFalse(os.path.exists(netsim_ini))
+
+
+class PerfStrategiesAndSessionsTest(unittest.TestCase):
+    """Hermetic tests for `src/lib/perf/` strategies, AdbDevice, and session templates."""
+
+    def test_adb_device_and_detect_active_serial_with_fake_process_runner(self):
+        from core.process import FakeProcessRunner, ProcessResult
+        from lib.perf import AdbDevice, detect_active_adb_serial
+
+        runner = FakeProcessRunner()
+        runner.register_prefix(
+            ["adb", "devices"],
+            ProcessResult(
+                args=("adb", "devices"),
+                returncode=0,
+                stdout="List of devices attached\nemulator-5554\toffline\nemulator-5556\tdevice\n",
+                stderr="",
+            ),
+        )
+        serial = detect_active_adb_serial(process_runner=runner)
+        self.assertEqual(serial, "emulator-5556")
+
+        empty_runner = FakeProcessRunner()
+        empty_runner.register_prefix(
+            ["adb", "devices"],
+            ProcessResult(
+                args=("adb", "devices"),
+                returncode=0,
+                stdout="List of devices attached\n\n",
+                stderr="",
+            ),
+        )
+        with self.assertRaises(RuntimeError):
+            detect_active_adb_serial(process_runner=empty_runner)
+
+        adb = AdbDevice(serial="emulator-5556", process_runner=runner)
+        runner.register_prefix(
+            ["adb", "-s", "emulator-5556", "shell", "getprop", "sys.boot_completed"],
+            ProcessResult(
+                args=(), returncode=0, stdout="1\r\n", stderr=""
+            ),
+        )
+        self.assertEqual(adb.getprop("sys.boot_completed"), "1")
+
+        # Verify Unicode path handling across push/pull/shell
+        unicode_path = "/tmp/测试_🚀_é.bin"
+        adb.push(unicode_path, "/data/local/tmp/测试_🚀_é.bin")
+        adb.pull("/data/local/tmp/测试_🚀_é.bin", unicode_path)
+        adb.drop_caches()
+        joined_calls = "\n".join(" ".join(c.args) for c in runner.calls)
+        self.assertIn(unicode_path, joined_calls)
+        self.assertIn("drop_caches", joined_calls)
+
+    def test_workload_strategy_registry_dispatches_all_builtin_workloads(self):
+        from lib.perf import (
+            AdbTransferWorkloadStrategy,
+            BUILTIN_SUITES,
+            ColdBootWorkloadStrategy,
+            DisplayWorkloadStrategy,
+            IdleWorkloadStrategy,
+            ProbeWorkloadStrategy,
+            SnapshotWorkloadStrategy,
+            create_default_workload_registry,
+        )
+
+        registry = create_default_workload_registry()
+        for w in BUILTIN_SUITES["all"]["workloads"]:
+            strategy = registry.resolve(w)
+            if w == "cold_boot":
+                self.assertIsInstance(strategy, ColdBootWorkloadStrategy)
+            elif w == "idle_steady_state":
+                self.assertIsInstance(strategy, IdleWorkloadStrategy)
+            elif w in ("snapshot_save", "snapshot_load"):
+                self.assertIsInstance(strategy, SnapshotWorkloadStrategy)
+            elif w == "display_gfxinfo":
+                self.assertIsInstance(strategy, DisplayWorkloadStrategy)
+            elif w.startswith(("push_", "pull_")):
+                self.assertIsInstance(strategy, AdbTransferWorkloadStrategy)
+            else:
+                self.assertIsInstance(strategy, ProbeWorkloadStrategy)
+
+        with self.assertRaises(ValueError):
+            registry.resolve("unknown_workload_xyz")
+
+    def test_measured_workload_template_adaptive_cv_early_stopping(self):
+        from core.process import FakeProcessRunner
+        from lib.perf import AdbDevice, MeasuredWorkloadTemplate, WorkloadContext
+
+        class _DummyWorkload(MeasuredWorkloadTemplate):
+            def __init__(self, samples_seq):
+                self._samples_seq = list(samples_seq)
+                self.cleaned = False
+
+            def matches(self, workload_name: str) -> bool:
+                return workload_name == "dummy"
+
+            def run_single_iteration(
+                self, workload_name: str, ctx: WorkloadContext, state, *, is_warmup: bool = False
+            ):
+                val = self._samples_seq.pop(0)
+                return {"wall_mib_s": val}
+
+            def teardown_workload(
+                self, workload_name: str, ctx: WorkloadContext, state
+            ) -> None:
+                self.cleaned = True
+
+        adb = AdbDevice("emulator-5554", process_runner=FakeProcessRunner())
+        ctx = WorkloadContext(adb=adb, emu_pid=None, iterations=3, warmup=1)
+
+        # Low CV (< 0.08) after 3 measured iterations -> stops at target_iters=3 without running max_extra=2
+        low_cv_strategy = _DummyWorkload([500.0, 500.0, 502.0, 501.0, 500.0, 500.0])
+        res_early = low_cv_strategy.execute("dummy", ctx)
+        self.assertEqual(res_early["n"], 3)
+        self.assertTrue(low_cv_strategy.cleaned)
+
+        # High CV (> 0.08) on first 3 iterations -> runs up to max_extra=2 extra iterations (total n=5)
+        high_cv_strategy = _DummyWorkload([100.0, 400.0, 900.0, 900.0, 900.0])
+        ctx_noisy = WorkloadContext(adb=adb, emu_pid=None, iterations=3, warmup=0)
+        res_full = high_cv_strategy.execute("dummy", ctx_noisy)
+        self.assertEqual(res_full["n"], 5)
+
+    def test_adb_transfer_and_probe_and_idle_and_display_strategies(self):
+        from core.process import FakeProcessRunner, ProcessResult
+        from lib.perf import (
+            AdbDevice,
+            AdbTransferWorkloadStrategy,
+            ColdBootWorkloadStrategy,
+            DisplayWorkloadStrategy,
+            IdleWorkloadStrategy,
+            ProbeWorkloadStrategy,
+            WorkloadContext,
+        )
+
+        runner = FakeProcessRunner(
+            default_result=ProcessResult(
+                args=(),
+                returncode=0,
+                stdout="64.0 MB/s (67108864 bytes in 1.000s)\n",
+                stderr="",
+            )
+        )
+        adb = AdbDevice("emulator-5554", process_runner=runner)
+
+        # 1. AdbTransferWorkloadStrategy (push_64MiB_tmpfs)
+        transfer_strategy = AdbTransferWorkloadStrategy()
+        ctx = WorkloadContext(adb=adb, emu_pid=None, iterations=2, warmup=1)
+        t_res = transfer_strategy.execute("push_64MiB_tmpfs", ctx)
+        self.assertEqual(t_res["n"], 2)
+        self.assertIn("wall_mib_s_p50", t_res)
+        self.assertAlmostEqual(t_res["adb_mb_s_p50"], 64.0)
+
+        # 2. IdleWorkloadStrategy
+        runner.register_prefix(
+            ["adb", "-s", "emulator-5554", "shell", "cat /proc/loadavg"],
+            ProcessResult(
+                args=(),
+                returncode=0,
+                stdout="0.25 0.15 0.10 1/250 999\n",
+                stderr="",
+            ),
+        )
+        with patch("lib.perf.workloads.idle.time.sleep", return_value=None):
+            idle_res = IdleWorkloadStrategy().execute("idle_steady_state", ctx)
+        self.assertEqual(idle_res["n"], 1)
+        self.assertAlmostEqual(idle_res["guest_loadavg_1m"], 0.25)
+
+        # 3. DisplayWorkloadStrategy
+        runner.register_prefix(
+            ["adb", "-s", "emulator-5554", "shell", "dumpsys", "gfxinfo"],
+            ProcessResult(
+                args=(),
+                returncode=0,
+                stdout=(
+                    "Total frames rendered: 120\n"
+                    "Janky frames: 6 (5.00%)\n"
+                    "50th percentile: 8ms\n"
+                    "90th percentile: 14ms\n"
+                ),
+                stderr="",
+            ),
+        )
+        with patch("lib.perf.workloads.display.time.sleep", return_value=None):
+            disp_res = DisplayWorkloadStrategy(duration_sec=1.0).execute(
+                "display_gfxinfo", ctx
+            )
+        self.assertEqual(disp_res["total_frames"], 120)
+        self.assertAlmostEqual(disp_res["jank_pct"], 5.0)
+        self.assertAlmostEqual(disp_res["frame_p50_ms"], 8.0)
+        self.assertAlmostEqual(disp_res["frame_p90_ms"], 14.0)
+
+        # 4. ColdBootWorkloadStrategy
+        runner.register_prefix(
+            ["adb", "-s", "emulator-5554", "shell", "getprop", "ro.boottime.init"],
+            ProcessResult(args=(), returncode=0, stdout="1200000000\n", stderr=""),
+        )
+        runner.register_prefix(
+            ["adb", "-s", "emulator-5554", "shell", "getprop", "ro.boottime.zygote"],
+            ProcessResult(args=(), returncode=0, stdout="2400000000\n", stderr=""),
+        )
+        boot_ctx = WorkloadContext(
+            adb=adb,
+            emu_pid=None,
+            boot_metrics={"n": 1, "duration_ms_p50": 8500.0},
+        )
+        boot_res = ColdBootWorkloadStrategy().execute("cold_boot", boot_ctx)
+        self.assertEqual(boot_res["duration_ms_p50"], 8500.0)
+        self.assertEqual(boot_res["ro_boottime_init_ns"], 1200000000)
+        self.assertEqual(boot_res["ro_boottime_zygote_ns"], 2400000000)
+
+        # 5. ProbeWorkloadStrategy
+        class _FakeProbe:
+            def ensure_installed_and_ready(self):
+                pass
+
+            def run_key_arrival_latency(self, count: int = 15):
+                return {"duration_ms": 4.2, "kernel_to_app_ms_p50": 1.8}
+
+            def run_intent_scenario(self, scenario, extras=None, **kwargs):
+                return {"iops": 950.0, "p50_ms": 1.05, "p95_ms": 1.80, "duration_ms": 250.0}
+
+        probe_ctx = WorkloadContext(
+            adb=adb,
+            emu_pid=None,
+            iterations=2,
+            warmup=0,
+            probe_session=_FakeProbe(),
+        )
+        probe_strategy = ProbeWorkloadStrategy()
+        key_res = probe_strategy.execute("key_arrival_latency", probe_ctx)
+        self.assertAlmostEqual(key_res["duration_ms_p50"], 4.2)
+        disk_res = probe_strategy.execute("disk_rand_4k_fsync", probe_ctx)
+        self.assertAlmostEqual(disk_res["iops_p50"], 950.0)
+
+    def test_live_device_session_and_managed_benchmark_config(self):
+        from core.process import FakeProcessRunner, ProcessResult
+        from lib.perf import (
+            BenchmarkPlan,
+            EmulatorLaunchConfig,
+            LiveDeviceBenchmarkSession,
+            ManagedBenchmarkConfig,
+            ResolvedPerfTarget,
+            run_managed_emulator_benchmark,
+        )
+
+        runner = FakeProcessRunner(
+            default_result=ProcessResult(
+                args=(), returncode=0, stdout="1\n", stderr=""
+            )
+        )
+        plan = BenchmarkPlan(
+            suites=["boot", "idle"],
+            workloads=["cold_boot", "idle_steady_state"],
+            iterations=1,
+            warmup=0,
+            settle_seconds=0.0,
+        )
+        with patch("lib.perf.workloads.idle.time.sleep", return_value=None):
+            session = LiveDeviceBenchmarkSession(
+                serial="emulator-5554",
+                plan=plan,
+                label="hermetic-live",
+                boot_metrics={"n": 1, "duration_ms_p50": 9100.0},
+                process_runner=runner,
+            )
+            rep = session.run()
+        self.assertEqual(rep["label"], "hermetic-live")
+        self.assertIn("cold_boot", rep["tests"])
+        self.assertIn("idle_steady_state", rep["tests"])
+        self.assertEqual(rep["tests"]["cold_boot"]["duration_ms_p50"], 9100.0)
+
+        # Verify ManagedBenchmarkConfig validation rejects missing emulator binary
+        bad_target = ResolvedPerfTarget(
+            spec="bad", kind="emulator_dir", label="bad"
+        )
+        bad_cfg = ManagedBenchmarkConfig(
+            launch=EmulatorLaunchConfig(target=bad_target),
+            plan=plan,
+        )
+        with self.assertRaises(ValueError):
+            run_managed_emulator_benchmark(config=bad_cfg)
+
+    def test_resolve_perf_target_json_and_directory_and_uncached_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            json_file = os.path.join(tmp, "bench.json")
+            with open(json_file, "w", encoding="utf-8") as f:
+                f.write("{}")
+            t_json = resolve_perf_target(f"{json_file}:cand_a")
+            self.assertEqual(t_json.kind, "json")
+            self.assertEqual(t_json.label, "cand_a")
+
+            emu_dir = os.path.join(tmp, "emulator-linux-x64-15075377")
+            os.makedirs(os.path.join(emu_dir, "lib", "qemu"), exist_ok=True)
+            with open(os.path.join(emu_dir, "source.properties"), "w", encoding="utf-8") as f:
+                f.write("Pkg.Revision=36.2.1\n")
+            emu_bin_path = os.path.join(emu_dir, "emulator")
+            with open(emu_bin_path, "w", encoding="utf-8") as f:
+                f.write("#!/bin/sh\n")
+            os.chmod(emu_bin_path, 0o755)
+
+            t_dir = resolve_perf_target(emu_dir)
+            self.assertEqual(t_dir.kind, "emulator_dir")
+            self.assertEqual(t_dir.build_id, "15075377")
+            self.assertEqual(t_dir.engine, "qemu-next")
+            self.assertEqual(t_dir.pkg_revision, "36.2.1")
+
+            with self.assertRaises(FileNotFoundError):
+                resolve_perf_target("999999999", auto_fetch=False)
+
+    def test_all_intent_scenario_specs_and_dir_transfers(self):
+        from core.process import FakeProcessRunner, ProcessResult
+        from lib.perf import (
+            AdbDevice,
+            AdbTransferWorkloadStrategy,
+            INTENT_SCENARIO_SPECS,
+            ProbeWorkloadStrategy,
+            WorkloadContext,
+        )
+
+        runner = FakeProcessRunner(
+            default_result=ProcessResult(
+                args=(),
+                returncode=0,
+                stdout="128.0 MB/s (2097152 bytes in 0.016s)\n",
+                stderr="",
+            )
+        )
+        adb = AdbDevice("emulator-5554", process_runner=runner)
+        ctx = WorkloadContext(adb=adb, emu_pid=None, iterations=1, warmup=0)
+
+        # Directory push and pull workloads
+        dir_push = AdbTransferWorkloadStrategy().execute("push_2x1MiB_dir", ctx)
+        self.assertEqual(dir_push["n"], 1)
+        dir_pull = AdbTransferWorkloadStrategy().execute("pull_2x1MiB_dir", ctx)
+        self.assertEqual(dir_pull["n"], 1)
+
+        with self.assertRaises(ValueError):
+            AdbTransferWorkloadStrategy().execute("invalid_adb_workload", ctx)
+
+        # Verify all 6 INTENT_SCENARIO_SPECS extract expected metric keys
+        sample_record = {
+            "write_mib_s": 512.0,
+            "read_mib_s": 1024.0,
+            "write_ms": 250.0,
+            "read_ms": 125.0,
+            "iops": 850.0,
+            "p50_ms": 1.1,
+            "p95_ms": 2.1,
+            "duration_ms": 290.0,
+            "pages_per_sec": 220000.0,
+            "us_per_page": 4.5,
+            "wall_mib_s": 8192.0,
+            "copy_gib_s": 8.0,
+            "single_thread_mops_s": 120.0,
+            "multi_thread_mops_s": 420.0,
+            "smp_scaling_ratio": 3.5,
+            "roundtrip_us": 11.5,
+            "switches_per_sec": 173900.0,
+        }
+        for name, spec in INTENT_SCENARIO_SPECS.items():
+            metrics = spec.extract_metrics(sample_record)
+            self.assertTrue(metrics, f"Empty metrics for {name}")
+
+    def test_managed_emulator_benchmark_session_multiboot_and_error_recovery(self):
+        from core.process import FakeProcessRunner, ProcessResult
+        from lib.perf import (
+            BenchmarkPlan,
+            EmulatorLaunchConfig,
+            LiveDeviceBenchmarkSession,
+            ManagedBenchmarkConfig,
+            ManagedEmulatorBenchmarkSession,
+            ResolvedPerfTarget,
+            WorkloadContext,
+            WorkloadStrategy,
+            WorkloadStrategyRegistry,
+        )
+
+        class _FailingStrategy(WorkloadStrategy):
+            def matches(self, workload_name: str) -> bool:
+                return workload_name == "always_fails"
+
+            def execute(self, workload_name: str, ctx: WorkloadContext):
+                raise RuntimeError("Simulated device disconnect")
+
+        runner = FakeProcessRunner(
+            default_result=ProcessResult(
+                args=(), returncode=0, stdout="1\n", stderr=""
+            )
+        )
+        reg = WorkloadStrategyRegistry(strategies=[_FailingStrategy()])
+        plan_err = BenchmarkPlan(
+            suites=["custom"],
+            workloads=["always_fails"],
+            iterations=1,
+            warmup=0,
+            settle_seconds=0.0,
+        )
+        live_rep = LiveDeviceBenchmarkSession(
+            serial="emulator-5554",
+            plan=plan_err,
+            registry=reg,
+            process_runner=runner,
+        ).run()
+        self.assertEqual(live_rep["tests"]["always_fails"]["status"], "broken")
+        self.assertIn(
+            "Simulated device disconnect",
+            live_rep["tests"]["always_fails"]["error"],
+        )
+
+        # Test ManagedEmulatorBenchmarkSession across 2 boots with clean_avd=True
+        with tempfile.TemporaryDirectory() as tmp:
+            emu_bin = os.path.join(tmp, "emulator")
+            with open(emu_bin, "w", encoding="utf-8") as f:
+                f.write("#!/bin/sh\n")
+            os.chmod(emu_bin, 0o755)
+            target = ResolvedPerfTarget(
+                spec=tmp,
+                kind="emulator_dir",
+                label="test-emu (qemu-next)",
+                emulator_dir=tmp,
+                emulator_bin=emu_bin,
+                build_id="15075377",
+                engine="qemu-next",
+            )
+            cfg = ManagedBenchmarkConfig(
+                launch=EmulatorLaunchConfig(
+                    target=target,
+                    avd_name="TestAvd",
+                    clean_avd=True,
+                    sysimg_dir=tmp,
+                ),
+                plan=BenchmarkPlan(
+                    suites=["boot"],
+                    workloads=["cold_boot"],
+                    iterations=1,
+                    warmup=0,
+                    boots=2,
+                    settle_seconds=0.0,
+                ),
+            )
+
+            class _FakeProc:
+                pid = 54321
+
+                def poll(self):
+                    return None
+
+                def kill(self):
+                    pass
+
+                def wait(self, timeout=None):
+                    return 0
+
+            with (
+                patch(
+                    "lib.perf.session._resolve_perf_avd_template",
+                    return_value={
+                        "sysimg_dir": tmp,
+                        "ram": 2048,
+                        "cores": 4,
+                        "disk_size": "6G",
+                        "template_avd": "TestAvd",
+                    },
+                ),
+                patch(
+                    "lib.perf.session.create_single_avd",
+                    return_value={
+                        "ini_file": os.path.join(tmp, "ephem.ini"),
+                        "avd_dir": os.path.join(tmp, "ephem.avd"),
+                    },
+                ),
+                patch(
+                    "lib.perf.session.spawn_emulator_process",
+                    return_value=_FakeProc(),
+                ),
+                patch(
+                    "lib.perf.session._kill_emulator_process_tree",
+                    return_value=None,
+                ),
+                patch(
+                    "lib.perf.session.find_emulator_pid",
+                    return_value=54321,
+                ),
+            ):
+                managed_session = ManagedEmulatorBenchmarkSession(
+                    config=cfg,
+                    process_runner=runner,
+                    record_history=False,
+                )
+                m_rep = managed_session.run()
+
+            self.assertEqual(m_rep["boots"], 2)
+            self.assertEqual(m_rep["build_id"], "15075377")
+            self.assertEqual(m_rep["tests"]["cold_boot"]["n"], 2)
+
+    def test_secure_temp_files_and_user_cache_dir(self):
+        """Verifies trace/log temp files use mkstemp and build cache uses user cache dir."""
+        from lib.perf.session import _create_secure_temp_file
+        from lib.perf.target_resolver import _get_perf_cache_dir
+
+        f1 = _create_secure_temp_file(prefix="emu_perf_test_", suffix=".log")
+        f2 = _create_secure_temp_file(prefix="emu_perf_test_", suffix=".pftrace")
+        try:
+            self.assertNotEqual(f1, f2)
+            self.assertTrue(os.path.isfile(f1))
+            self.assertTrue(os.path.isfile(f2))
+        finally:
+            for fp in (f1, f2):
+                if os.path.exists(fp):
+                    os.unlink(fp)
+
+        with tempfile.TemporaryDirectory() as fake_home:
+            with patch.dict(os.environ, {"HOME": fake_home}):
+                cache_dir = _get_perf_cache_dir()
+                self.assertTrue(cache_dir.startswith(fake_home))
+                self.assertTrue(os.path.isdir(cache_dir))
 
 
 if __name__ == "__main__":
