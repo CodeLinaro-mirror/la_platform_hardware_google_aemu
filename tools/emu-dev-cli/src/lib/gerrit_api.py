@@ -43,7 +43,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-from core.process import SubprocessRunner
+from core.process import FakeProcessRunner, ProcessRunner, SubprocessRunner
 from lib.oauth import OAuthTokenManager, get_ssl_context
 from lib.workspace import WorkspacePathResolver
 
@@ -223,21 +223,35 @@ def decode_gerrit_patch(raw_patch: str) -> str:
         return raw_patch
 
 
-def _resolve_head_change_id(cwd: Path | str | None) -> str:
+def _resolve_head_change_id(
+    cwd: Path | str | None,
+    *,
+    runner: ProcessRunner | None = None,
+) -> str:
     """Extracts the `Change-Id: I...` footer from the local `HEAD` commit."""
     work_dir = str(Path(cwd).resolve()) if cwd else None
     try:
-        res = subprocess.run(
-            ["git", "log", "-1", "--format=%B", "HEAD"],
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=True,
-            cwd=work_dir,
-            timeout=GERRIT_CLI_TIMEOUT_SEC,
-        )
+        if runner is not None:
+            res = runner.run(
+                ["git", "log", "-1", "--format=%B", "HEAD"],
+                cwd=work_dir,
+                check=True,
+                timeout_sec=GERRIT_CLI_TIMEOUT_SEC,
+            )
+            stdout_text = res.stdout
+        else:
+            res = subprocess.run(
+                ["git", "log", "-1", "--format=%B", "HEAD"],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=True,
+                cwd=work_dir,
+                timeout=GERRIT_CLI_TIMEOUT_SEC,
+            )
+            stdout_text = res.stdout
     except Exception as exc:
         stderr = (getattr(exc, "stderr", None) or "").strip()
         detail = f"{exc}: {stderr}" if stderr else str(exc)
@@ -245,7 +259,7 @@ def _resolve_head_change_id(cwd: Path | str | None) -> str:
             f"Failed to read HEAD commit message in '{work_dir or '.'}' ({detail}). "
             "Provide an explicit CL number or URL."
         ) from exc
-    match = COMMIT_CHANGE_ID_RE.search(res.stdout)
+    match = COMMIT_CHANGE_ID_RE.search(stdout_text)
     if match:
         return match.group(1)
     raise ValueError(
@@ -260,12 +274,13 @@ def parse_cl_identifier(
     *,
     allow_head: bool = True,
     strict: bool = False,
+    runner: ProcessRunner | None = None,
 ) -> str:
     """Normalizes a CL URL, `ag/<id>`, numeric CL ID, Change-Id, or `HEAD` into a Gerrit ID."""
     cleaned = (cl_input or "").strip()
     if not cleaned or cleaned.upper() == "HEAD":
         if allow_head:
-            return _resolve_head_change_id(cwd)
+            return _resolve_head_change_id(cwd, runner=runner)
     else:
         for pattern in (_AG_SHORTLINK_RE, _URL_CL_RE, _LEGACY_URL_CL_RE):
             matched = pattern.search(cleaned)
@@ -311,13 +326,20 @@ class GerritClient:
         self,
         host: str = DEFAULT_GERRIT_HOST,
         token: str | None = None,
+        *,
+        runner: ProcessRunner | None = None,
+        gob_curl_bin: str | None = None,
     ) -> None:
         self.host = host.rstrip("/")
         self.api_host = self.host.replace(
             ".git.corp.google.com", ".googlesource.com"
         )
         self._explicit_token = token
-        self._urllib_auth_failed = False
+        self._runner = runner
+        self._gob_curl_bin = gob_curl_bin
+        self._urllib_auth_failed = bool(
+            token is None and isinstance(runner, FakeProcessRunner)
+        )
         self._conn_lock = threading.Lock()
         self._idle_conns: dict[str, list[http.client.HTTPSConnection]] = {}
         self._ssl_context = get_ssl_context()
@@ -475,6 +497,21 @@ class GerritClient:
         allow_empty: bool = False,
     ) -> str | None:
         """Executes a `gob-curl` or `gosso` CLI fallback command with UTF-8 decoding."""
+        if self._runner is not None:
+            proc = self._runner.run(
+                cmd,
+                check=False,
+                timeout_sec=GERRIT_CLI_TIMEOUT_SEC,
+            )
+            if proc.timed_out:
+                transport_errors.append(f"{label} TimeoutExpired")
+                return None
+            if proc.returncode == 0 and (allow_empty or proc.stdout.strip()):
+                return proc.stdout
+            err_lines = (proc.stderr or "").strip().splitlines()
+            err_detail = f" ({err_lines[0].split('?', 1)[0]})" if err_lines else ""
+            transport_errors.append(f"{label} exit code {proc.returncode}{err_detail}")
+            return None
         try:
             res = subprocess.run(
                 cmd,
@@ -506,7 +543,11 @@ class GerritClient:
     ) -> str | None:
         """Attempts authenticated Gerrit REST fallback via `gob-curl` then `gosso`."""
         allow_empty = method.upper() != "GET"
-        gob_curl = shutil.which("gob-curl")
+        gob_curl = (
+            self._gob_curl_bin
+            or shutil.which("gob-curl")
+            or ("/usr/bin/gob-curl" if isinstance(self._runner, FakeProcessRunner) else None)
+        )
         if gob_curl:
             cmd = [gob_curl, "-s", "-f", "-S", "--compressed", "-X", method]
             if data is not None:
@@ -866,8 +907,65 @@ class GerritClient:
 
             sleep_fn(min(interval_sec, max(0.0, deadline - now)))
 
+    def wait_for_presubmit_verified(
+        self,
+        change_id: str,
+        *,
+        required_score: int = 2,
+        timeout: timedelta = timedelta(minutes=30),
+        poll_interval: timedelta = timedelta(seconds=20),
+        sleep_fn: Callable[[float], None] = time.sleep,
+        clock_fn: Callable[[], float] = time.monotonic,
+    ) -> dict[str, Any]:
+        """Polls Gerrit until `Presubmit-Verified` reaches `required_score` (default `+2`).
 
-def _extract_label_score(label_info: dict[str, Any] | None) -> int:
+        @param change_id Gerrit CL number or Change-Id.
+        @param required_score Minimum positive Presubmit-Verified score required (default: 2).
+        @param timeout Maximum duration to poll before returning `status='timeout'`.
+        @param poll_interval Interval between Gerrit REST API polls.
+        @param sleep_fn Injectable sleep callable for deterministic testing.
+        @param clock_fn Injectable monotonic clock callable for deterministic testing.
+        @return Dictionary containing `status` (`'verified'`, `'presubmit_failed'`, or `'timeout'`), `presubmit_score`, `polls`, and `detail`.
+        """
+        start_ts = clock_fn()
+        deadline = start_ts + max(0.0, timeout.total_seconds())
+        interval_sec = max(1.0, poll_interval.total_seconds())
+        polls = 0
+        last_detail: dict[str, Any] = {}
+
+        while True:
+            polls += 1
+            last_detail = self.get_change_detail(change_id)
+            labels = last_detail.get("labels") or {}
+            pv_score = extract_label_score(labels.get("Presubmit-Verified"))
+            if pv_score >= required_score:
+                return {
+                    "status": "verified",
+                    "presubmit_score": pv_score,
+                    "polls": polls,
+                    "detail": last_detail,
+                }
+            if pv_score < 0:
+                return {
+                    "status": "presubmit_failed",
+                    "presubmit_score": pv_score,
+                    "polls": polls,
+                    "detail": last_detail,
+                }
+
+            now = clock_fn()
+            if now >= deadline:
+                return {
+                    "status": "timeout",
+                    "presubmit_score": pv_score,
+                    "polls": polls,
+                    "detail": last_detail,
+                }
+
+            sleep_fn(min(interval_sec, max(0.0, deadline - now)))
+
+
+def extract_label_score(label_info: dict[str, Any] | None) -> int:
     """Extracts the effective integer score (-2..+2) from a Gerrit DetailedLabelInfo dict."""
     if not isinstance(label_info, dict):
         return 0
@@ -887,6 +985,9 @@ def _extract_label_score(label_info: dict[str, Any] | None) -> int:
         if any(v > 0 for v in vals):
             return max(vals)
     return int(label_info.get("value", 0) or 0)
+
+
+_extract_label_score = extract_label_score
 
 
 def _has_ai_review_completed_on_patchset(
