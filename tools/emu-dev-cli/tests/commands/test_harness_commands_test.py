@@ -29,6 +29,7 @@ from commands.harness import (
     HarnessCommand,
     HarnessHookCommand,
     HarnessInstallCommand,
+    HarnessMcpServerCommand,
     HarnessPresetsCommand,
     HarnessReviewSwarmCommand,
     HarnessStatusCommand,
@@ -37,7 +38,7 @@ from commands.harness import (
 )
 from core.command import CommandValidationError
 from core.context import ExecutionContext
-from core.dispatcher import CliDispatcher
+from core.dispatcher import CliDispatcher, OutputRenderer
 
 
 class HarnessCommandsTest(unittest.TestCase):
@@ -111,13 +112,52 @@ class HarnessCommandsTest(unittest.TestCase):
             (["harness", "install", "--workspace"], HarnessInstallCommand),
             (["harness", "uninstall"], HarnessUninstallCommand),
             (["harness", "status"], HarnessStatusCommand),
+            (["harness", "hook", "--event", "pre-tool"], HarnessHookCommand),
             (["harness", "clear"], HarnessClearCommand),
+            (["harness", "mcp-server"], HarnessMcpServerCommand),
             (["harness", "presets"], HarnessPresetsCommand),
             (["harness", "review-swarm", "--commit", "HEAD"], HarnessReviewSwarmCommand),
         ):
             parsed = parser.parse_args(sub_argv)
             resolved = dispatcher.resolve_command(parsed)
             self.assertIsInstance(resolved, expected_cls)
+
+    def test_harness_hook_and_mcp_server_set_already_rendered(self) -> None:
+        import io
+        import json
+        from unittest.mock import patch
+
+        ctx = ExecutionContext.for_testing()
+        fake_stdin = io.StringIO('{"conversationId": "conv_测试_🚀_é"}')
+        fake_stdout = io.StringIO()
+        fake_stderr = io.StringIO()
+        dispatcher = CliDispatcher(
+            context=ctx,
+            renderer=OutputRenderer(stdout=fake_stdout, stderr=fake_stderr),
+        )
+
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="subcommand")
+        register_parser(subparsers)
+        parsed_hook = parser.parse_args(["harness", "hook", "--event", "pre-tool"])
+
+        with patch("sys.stdin", fake_stdin), patch("sys.stdout", fake_stdout):
+            hook_res = HarnessHookCommand().execute(parsed_hook, ctx)
+            self.assertTrue(hook_res.already_rendered)
+            fake_stdin.seek(0)
+            composite_res = HarnessCommand().execute(parsed_hook, ctx)
+            self.assertTrue(composite_res.already_rendered)
+            fake_stdout.seek(0)
+            fake_stdout.truncate(0)
+            fake_stdin.seek(0)
+            exit_code = dispatcher.dispatch(parsed_hook, ctx=ctx)
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(fake_stdout.getvalue()), {"decision": "allow"})
+
+        with patch("sys.stdin", io.StringIO("")), patch("sys.stdout", io.StringIO()):
+            mcp_res = HarnessMcpServerCommand().execute(argparse.Namespace(), ctx)
+            self.assertTrue(mcp_res.already_rendered)
 
 
 if __name__ == "__main__":

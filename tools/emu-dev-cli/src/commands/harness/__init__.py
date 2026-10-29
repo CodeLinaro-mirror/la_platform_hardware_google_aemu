@@ -16,11 +16,12 @@
 
 import argparse
 import json
+import logging
 from pathlib import Path
 import sys
 from typing import Any, Dict, Optional
 
-from commands.harness.constants import HookEvent
+from commands.harness.constants import HookDecision, HookEvent
 from commands.harness.guardrails import (
     discover_active_workflows,
     dispatch_hook_event,
@@ -45,9 +46,17 @@ from commands.harness.review_swarm import (
     prepare_review_swarm_bundle,
 )
 from commands.harness.review_targets import sanitize_target_id
-from core.command import Command, CommandResult, CommandValidationError, bind_command
+from core.command import (
+    Command,
+    CommandResult,
+    CommandValidationError,
+    META_KEY_ALREADY_RENDERED,
+    bind_command,
+)
 from core.context import ExecutionContext
 from lib.output import ensure_utf8_stdio, print_result
+
+LOGGER = logging.getLogger(__name__)
 
 REPORT_MD_FILENAME: str = "review_swarm_report.md"
 GERRIT_PAYLOAD_FILENAME: str = "gerrit_review_payload.json"
@@ -166,7 +175,10 @@ class HarnessHookCommand(Command[argparse.Namespace, Dict[str, Any]]):
     ) -> CommandResult[Dict[str, Any]]:
         del ctx
         payload = run_harness_hook(args)
-        return CommandResult.success(payload)
+        return CommandResult.success(
+            payload,
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
 
 class HarnessClearCommand(Command[argparse.Namespace, Dict[str, Any]]):
@@ -197,7 +209,10 @@ class HarnessMcpServerCommand(Command[argparse.Namespace, Dict[str, Any]]):
     ) -> CommandResult[Dict[str, Any]]:
         del args, ctx
         run_stdio_mcp_server()
-        return CommandResult.success({"status": "success", "action": "harness mcp-server"})
+        return CommandResult.success(
+            {"status": "success", "action": "harness mcp-server"},
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
 
 class HarnessPresetsCommand(Command[argparse.Namespace, Dict[str, Any]]):
@@ -532,7 +547,18 @@ def run_harness_hook(args: argparse.Namespace) -> Dict[str, Any]:
         except Exception:
             payload = {}
 
-    response = dispatch_hook_event(args.event, payload)
+    try:
+        response = dispatch_hook_event(args.event, payload)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        LOGGER.warning(
+            "Failed to dispatch harness hook event %r: %s; falling back to "
+            '\'{"decision": "allow"}\'. Run \'emu-dev-cli --verbose harness status\' '
+            "to inspect harness state.",
+            getattr(args, "event", None),
+            exc,
+        )
+        response = {"decision": HookDecision.ALLOW.value}
+
     sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
     sys.stdout.flush()
     return response
