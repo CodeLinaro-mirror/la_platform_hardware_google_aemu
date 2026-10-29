@@ -16,7 +16,6 @@
 import argparse
 
 import os
-import platform
 import sys
 
 MIN_PYTHON = (3, 10)
@@ -62,22 +61,35 @@ from commands import (
     update_prebuilt,
     workflow,
 )
+from core.command import COMMAND_INSTANCE_ATTR, bind_command
+from core.context import detect_host_platform
+from core.dispatcher import CliDispatcher
 from install import installer
 from lib.logging_config import setup_logging
 from lib.output import ensure_utf8_stdio, print_result
 from lib.version import UNKNOWN_COMMIT, format_version_display, read_installed_version
 
 
+MIGRATED_COMMANDS = (
+    build_times.BuildTimesCommand,
+    crash.CrashCommand,
+    cts.CtsCommand,
+    flakiness.FlakinessCommand,
+    harness.HarnessCommand,
+    update_prebuilt.UpdatePrebuiltCommand,
+)
+
+
+def create_cli_dispatcher() -> CliDispatcher:
+    """Builds a `CliDispatcher` with all Command-pattern subcommands registered."""
+    dispatcher = CliDispatcher()
+    for cmd_cls in MIGRATED_COMMANDS:
+        dispatcher.register_command(cmd_cls())
+    return dispatcher
+
+
 def detect_default_host():
-    system = platform.system().lower()
-    machine = platform.machine().lower()
-    if system == "linux":
-        return "linux-x64"
-    elif system == "darwin":
-        return "mac-arm64" if machine in ("arm64", "aarch64") else "mac-x64"
-    elif system == "windows":
-        return "windows-x64"
-    return "linux-x64"
+    return detect_host_platform()
 
 
 def _handle_version_flag(args) -> None:
@@ -170,11 +182,15 @@ def main():
     if getattr(args, "version", False):
         _handle_version_flag(args)
 
-    if not args.subcommand or not hasattr(args, "func"):
+    if not args.subcommand or (
+        not hasattr(args, "func") and not hasattr(args, COMMAND_INSTANCE_ATTR)
+    ):
         parser.print_help()
         sys.exit(1)
 
-    args.func(args)
+    exit_code = create_cli_dispatcher().dispatch(args)
+    if exit_code != 0:
+        sys.exit(exit_code)
 
 
 if __name__ == "__main__":

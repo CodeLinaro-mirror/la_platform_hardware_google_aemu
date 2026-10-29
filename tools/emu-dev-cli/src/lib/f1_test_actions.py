@@ -452,6 +452,7 @@ def query_studio_flaky_tests(
     accounting_group: Optional[str] = None,
     f1_sql_bin: str = DEFAULT_F1_SQL_BIN,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    f1_client: Any = None,
 ) -> List[FlakyTestRecord]:
     """Queries `android_devtools_infra.TestActions` for flaky Studio / Android Device Hub tests."""
     if window not in (100, 250):
@@ -477,11 +478,23 @@ def query_studio_flaky_tests(
             f"Querying F1 TestActions for {dir_prefix} across {', '.join(targets)} ({days}d)...",
         )
 
-    rows = execute_f1_jsonl_query(
-        sql=sql,
-        f1_sql_bin=f1_sql_bin,
-        accounting_group=accounting_group,
-    )
+    if f1_client is not None:
+        if hasattr(f1_client, "query_jsonl"):
+            rows = f1_client.query_jsonl(
+                sql,
+                accounting_group=accounting_group,
+            )
+        else:
+            rows = f1_client.execute_sql(
+                sql,
+                accounting_group=accounting_group,
+            )
+    else:
+        rows = execute_f1_jsonl_query(
+            sql=sql,
+            f1_sql_bin=f1_sql_bin,
+            accounting_group=accounting_group,
+        )
 
     if progress_callback:
         progress_callback(
@@ -585,6 +598,7 @@ def query_studio_test_history(
     accounting_group: Optional[str] = None,
     f1_sql_bin: str = DEFAULT_F1_SQL_BIN,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    f1_client: Any = None,
 ) -> Tuple[Dict[str, Any], List[TestHistoryEntry]]:
     """Queries `android_devtools_infra.TestActions` for chronological run history of a test target."""
     clean_target = sanitize_bazel_target(test_target)
@@ -607,11 +621,23 @@ def query_studio_test_history(
             f"Querying F1 TestActions history for {clean_target} on {', '.join(targets)}...",
         )
 
-    rows = execute_f1_jsonl_query(
-        sql=sql,
-        f1_sql_bin=f1_sql_bin,
-        accounting_group=accounting_group,
-    )
+    if f1_client is not None:
+        if hasattr(f1_client, "query_jsonl"):
+            rows = f1_client.query_jsonl(
+                sql,
+                accounting_group=accounting_group,
+            )
+        else:
+            rows = f1_client.execute_sql(
+                sql,
+                accounting_group=accounting_group,
+            )
+    else:
+        rows = execute_f1_jsonl_query(
+            sql=sql,
+            f1_sql_bin=f1_sql_bin,
+            accounting_group=accounting_group,
+        )
 
     if progress_callback:
         progress_callback(

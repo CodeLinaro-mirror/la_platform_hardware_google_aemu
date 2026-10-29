@@ -28,6 +28,18 @@ import subprocess
 import sys
 from typing import Any
 
+from core.command import (
+    Command,
+    CommandResult,
+    META_KEY_ALREADY_RENDERED,
+    bind_command,
+)
+from core.context import (
+    ExecutionContext,
+    SERVICE_F1_SQL,
+    SERVICE_PROCESS_RUNNER,
+)
+from core.errors import ExecutionError, UsageError
 from lib.output import print_result
 
 from commands.crash.link_bug import (
@@ -574,80 +586,237 @@ def run_list_crashes(args: argparse.Namespace) -> None:
         )
 
 
-def register_list_crashes_parser(crash_subparsers) -> None:
-    """Registers the `list-crashes` subcommand parser under `crash`."""
-    list_parser = crash_subparsers.add_parser(
-        "list-crashes",
-        help="Query production qemu-next crashes from crash.prod.latest via F1 SQL and go/crash annotations",
-        description=(
+def _normalize_sql_rows_to_str(
+    raw_rows: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    """Normalizes F1SqlClient rows into string dictionaries expected by `merge_and_normalize_rows`."""
+    cleaned: list[dict[str, str]] = []
+    for row in raw_rows:
+        cleaned.append(
+            {
+                str(k): ("" if v in (None, "NULL") else str(v))
+                for k, v in row.items()
+                if k
+            }
+        )
+    return cleaned
+
+
+class CrashListCrashesCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Command implementation for `emu-dev-cli crash list-crashes`."""
+
+    name = "list-crashes"
+    help_text = "Query production qemu-next crashes from crash.prod.latest via F1 SQL and go/crash annotations"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.description = (
             "Queries crash.prod.latest joined with crash_annotations.prod.latest via f1-sql "
             "and cross-checks live QueryAPIService.SearchAnnotations on blade:crash-queryapi "
             "to discover and triage production qemu-next crashes."
-        ),
+        )
+        parser.add_argument(
+            "--hours",
+            type=int,
+            default=DEFAULT_HOURS,
+            help=f"Lookback window in hours (default: {DEFAULT_HOURS})",
+        )
+        parser.add_argument(
+            "--days",
+            type=int,
+            help="Lookback window in days (overrides --hours with days * 24)",
+        )
+        parser.add_argument(
+            "--version-regex",
+            default=DEFAULT_VERSION_REGEX,
+            help=f"RE2 regex matching product.Version for qemu-next (default: '{DEFAULT_VERSION_REGEX}')",
+        )
+        parser.add_argument(
+            "--exclude-modules",
+            default=DEFAULT_EXCLUDE_MODULES,
+            help=(
+                "RE2 regex of non-qemu-next Module.CodeFile substrings to exclude "
+                f"(default: '{DEFAULT_EXCLUDE_MODULES}')"
+            ),
+        )
+        parser.add_argument(
+            "--include-modules",
+            default=DEFAULT_INCLUDE_MODULES,
+            help=(
+                "RE2 regex of required emulator Module.CodeFile substrings to include "
+                f"(default: '{DEFAULT_INCLUDE_MODULES}')"
+            ),
+        )
+        parser.add_argument(
+            "--unassigned-only",
+            "--untriaged",
+            action="store_true",
+            dest="unassigned_only",
+            help="Filter out any stable_signature that already has a linked bug in go/crash",
+        )
+        parser.add_argument(
+            "--raw",
+            action="store_true",
+            help="Return ungrouped individual crash reports instead of grouping by stable_signature",
+        )
+        parser.add_argument(
+            "--limit",
+            type=int,
+            default=DEFAULT_LIMIT,
+            help=f"Maximum number of clusters or rows to return (default: {DEFAULT_LIMIT})",
+        )
+        parser.add_argument(
+            "--accounting-group",
+            help="Optional F1 MDB accounting group (--f1_sql_accounting_group)",
+        )
+        parser.add_argument(
+            "--print-sql",
+            action="store_true",
+            help="Print the generated F1 SQL query and exit without executing",
+        )
+        parser.add_argument(
+            "--json",
+            action="store_true",
+            default=argparse.SUPPRESS,
+            help="Output machine-readable JSON",
+        )
+
+    def _resolve_hours(self, args: argparse.Namespace) -> int:
+        days = getattr(args, "days", None)
+        return (
+            int(days * 24)
+            if days is not None
+            else int(getattr(args, "hours", DEFAULT_HOURS))
+        )
+
+    def validate(self, args: argparse.Namespace, ctx: ExecutionContext) -> None:
+        del ctx
+        hours = self._resolve_hours(args)
+        if hours <= 0:
+            raise UsageError(
+                f"Lookback window must be positive (got {hours} hours).",
+                remediation="Pass a positive integer to --hours or --days.",
+            )
+        limit = int(getattr(args, "limit", DEFAULT_LIMIT))
+        if limit <= 0:
+            raise UsageError(
+                f"Result limit must be positive (got {limit}).",
+                remediation="Pass a positive integer to --limit (e.g. --limit 50).",
+            )
+        try:
+            build_f1_crashes_query(
+                hours=hours,
+                version_regex=str(
+                    getattr(args, "version_regex", DEFAULT_VERSION_REGEX)
+                ),
+                exclude_modules=str(
+                    getattr(args, "exclude_modules", DEFAULT_EXCLUDE_MODULES)
+                ),
+                include_modules=str(
+                    getattr(args, "include_modules", DEFAULT_INCLUDE_MODULES)
+                ),
+                unassigned_only=bool(getattr(args, "unassigned_only", False)),
+                raw=bool(getattr(args, "raw", False)),
+                limit=limit,
+            )
+        except ValueError as exc:
+            raise UsageError(
+                f"Invalid SQL filter parameter for 'crash list-crashes': {exc}",
+                remediation="Remove single quotes from --version-regex, --include-modules, and --exclude-modules.",
+            ) from exc
+        return args
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        hours = self._resolve_hours(args)
+        version_regex = str(
+            getattr(args, "version_regex", DEFAULT_VERSION_REGEX)
+        )
+        exclude_modules = str(
+            getattr(args, "exclude_modules", DEFAULT_EXCLUDE_MODULES)
+        )
+        include_modules = str(
+            getattr(args, "include_modules", DEFAULT_INCLUDE_MODULES)
+        )
+        unassigned_only = bool(getattr(args, "unassigned_only", False))
+        raw = bool(getattr(args, "raw", False))
+        limit = int(getattr(args, "limit", DEFAULT_LIMIT))
+        accounting_group = getattr(args, "accounting_group", None)
+
+        sql = build_f1_crashes_query(
+            hours=hours,
+            version_regex=version_regex,
+            exclude_modules=exclude_modules,
+            include_modules=include_modules,
+            unassigned_only=unassigned_only,
+            raw=raw,
+            limit=limit,
+        )
+
+        if getattr(args, "print_sql", False):
+            json_mode = bool(
+                ctx.config.json_mode or getattr(args, "json", False)
+            )
+            if not json_mode:
+                print(sql.strip())
+            return CommandResult(
+                data={"sql": sql.strip()},
+                action="crash list-crashes",
+                summary="Generated F1 SQL query",
+                metadata={META_KEY_ALREADY_RENDERED: not json_mode},
+            )
+
+        f1_client = ctx.services.get(SERVICE_F1_SQL)
+        runner = ctx.services.get(SERVICE_PROCESS_RUNNER)
+        if hasattr(f1_client, "query_csv"):
+            raw_rows = f1_client.query_csv(
+                sql,
+                accounting_group=accounting_group,
+            )
+        else:
+            raw_rows = f1_client.execute_sql(
+                sql,
+                accounting_group=accounting_group,
+            )
+        csv_rows = _normalize_sql_rows_to_str(raw_rows)
+
+        unique_sigs = [
+            r.get("stable_signature", "").strip()
+            for r in csv_rows
+            if r.get("stable_signature", "").strip()
+        ]
+        dedup_sigs = list(dict.fromkeys(unique_sigs))
+        live_annotations = search_crash_annotations(dedup_sigs, runner=runner)
+        crashes = merge_and_normalize_rows(
+            csv_rows=csv_rows,
+            live_annotations=live_annotations,
+            raw=raw,
+            unassigned_only=unassigned_only,
+        )
+
+        payload: dict[str, Any] = {
+            "status": "success",
+            "action": "crash list-crashes",
+            "hours": hours,
+            "version_regex": version_regex,
+            "exclude_modules": exclude_modules,
+            "include_modules": include_modules,
+            "unassigned_only": unassigned_only,
+            "raw": raw,
+            "count": len(crashes),
+            "crashes": crashes,
+        }
+        return CommandResult(
+            data=payload,
+            action="crash list-crashes",
+            summary=f"Found {len(crashes)} crash cluster(s) in the last {hours} hours.",
+        )
+
+
+def register_list_crashes_parser(crash_subparsers) -> None:
+    """Registers the `list-crashes` subcommand parser under `crash`."""
+    bind_command(
+        crash_subparsers,
+        CrashListCrashesCommand(),
+        legacy_func=run_list_crashes,
     )
-    list_parser.add_argument(
-        "--hours",
-        type=int,
-        default=DEFAULT_HOURS,
-        help=f"Lookback window in hours (default: {DEFAULT_HOURS})",
-    )
-    list_parser.add_argument(
-        "--days",
-        type=int,
-        help="Lookback window in days (overrides --hours with days * 24)",
-    )
-    list_parser.add_argument(
-        "--version-regex",
-        default=DEFAULT_VERSION_REGEX,
-        help=f"RE2 regex matching product.Version for qemu-next (default: '{DEFAULT_VERSION_REGEX}')",
-    )
-    list_parser.add_argument(
-        "--exclude-modules",
-        default=DEFAULT_EXCLUDE_MODULES,
-        help=(
-            "RE2 regex of non-qemu-next Module.CodeFile substrings to exclude "
-            f"(default: '{DEFAULT_EXCLUDE_MODULES}')"
-        ),
-    )
-    list_parser.add_argument(
-        "--include-modules",
-        default=DEFAULT_INCLUDE_MODULES,
-        help=(
-            "RE2 regex of required emulator Module.CodeFile substrings to include "
-            f"(default: '{DEFAULT_INCLUDE_MODULES}')"
-        ),
-    )
-    list_parser.add_argument(
-        "--unassigned-only",
-        "--untriaged",
-        action="store_true",
-        dest="unassigned_only",
-        help="Filter out any stable_signature that already has a linked bug in go/crash",
-    )
-    list_parser.add_argument(
-        "--raw",
-        action="store_true",
-        help="Return ungrouped individual crash reports instead of grouping by stable_signature",
-    )
-    list_parser.add_argument(
-        "--limit",
-        type=int,
-        default=DEFAULT_LIMIT,
-        help=f"Maximum number of clusters or rows to return (default: {DEFAULT_LIMIT})",
-    )
-    list_parser.add_argument(
-        "--accounting-group",
-        help="Optional F1 MDB accounting group (--f1_sql_accounting_group)",
-    )
-    list_parser.add_argument(
-        "--print-sql",
-        action="store_true",
-        help="Print the generated F1 SQL query and exit without executing",
-    )
-    list_parser.add_argument(
-        "--json",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help="Output machine-readable JSON",
-    )
-    list_parser.set_defaults(func=run_list_crashes)

@@ -14,16 +14,25 @@
 
 """Flakiness management and remediation commands for emu-dev-cli."""
 
-from .fetch_logs import handle_flakiness_fetch_logs
-from .fix import handle_flakiness_fix
-from .history import handle_flakiness_history
-from .list_cmd import handle_flakiness_list
-from .parser import register_parser, run_flakiness_help
+from .fetch_logs import FlakinessFetchLogsCommand, handle_flakiness_fetch_logs
+from .fix import FlakinessFixCommand, handle_flakiness_fix
+from .history import FlakinessHistoryCommand, handle_flakiness_history
+from .list_cmd import FlakinessListCommand, handle_flakiness_list
+from .parser import FlakinessCommand, register_parser, run_flakiness_help
 from .progress import make_progress_callback
-from .reproduce import handle_flakiness_reproduce
-from .triage import handle_flakiness_triage
+from .reproduce import FlakinessReproduceCommand, handle_flakiness_reproduce
+from .sponge import FlakinessSpongeCommand, handle_flakiness_sponge
+from .triage import FlakinessTriageCommand, handle_flakiness_triage
 
 __all__ = [
+    "FlakinessCommand",
+    "FlakinessFetchLogsCommand",
+    "FlakinessFixCommand",
+    "FlakinessHistoryCommand",
+    "FlakinessListCommand",
+    "FlakinessReproduceCommand",
+    "FlakinessSpongeCommand",
+    "FlakinessTriageCommand",
     "register_parser",
     "run_flakiness_help",
     "handle_flakiness_list",
@@ -32,5 +41,6 @@ __all__ = [
     "handle_flakiness_history",
     "handle_flakiness_reproduce",
     "handle_flakiness_fix",
+    "handle_flakiness_sponge",
     "make_progress_callback",
 ]

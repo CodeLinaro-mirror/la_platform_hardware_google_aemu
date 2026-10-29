@@ -1,14 +1,34 @@
-import os
-import sys
-import shutil
+import argparse
 import glob
+import os
+from pathlib import Path
+import shutil
 import subprocess
+import sys
+from typing import Any
 import urllib.request
-import zipfile
 import xml.etree.ElementTree as ET
+import zipfile
+
+from commands.source_directory import (
+    find_file_in_source_directories,
+    get_source_directory,
+)
+from core.command import (
+    Command,
+    CommandResult,
+    STATUS_ERROR,
+    STATUS_SUCCESS,
+    bind_command,
+)
+from core.context import (
+    ExecutionContext,
+    SERVICE_ARTIFACT,
+    SERVICE_PROCESS_RUNNER,
+)
+from core.errors import ExecutionError, ExitCode, UsageError
 from lib.bazel import find_bazel_cmd
 from lib.output import print_result, print_status
-from commands.source_directory import get_source_directory, find_file_in_source_directories
 
 PUBLIC_VERIFIER_URLS = {
     "x86":
@@ -98,6 +118,8 @@ def register_parser(subparsers):
     )
     verifier_parser.add_argument(
         "--build-id",
+        "--bid",
+        dest="build_id",
         type=str,
         default=None,
         help=
@@ -193,7 +215,13 @@ def register_parser(subparsers):
         help=
         "Scroll through CtsVerifier on device and collect all test activity labels into a JSON file"
     )
-    verifier_parser.set_defaults(parser=verifier_parser, func=run_cts_verifier)
+    bind_command(
+        verifier_parser,
+        CtsRunVerifierCommand(),
+        configure=False,
+        legacy_func=run_cts_verifier,
+    )
+    verifier_parser.set_defaults(parser=verifier_parser)
 
 
 def run_cts_help(args):
@@ -269,27 +297,78 @@ def download_with_progress(url, dest_path, json_mode=False):
         sys.stdout.flush()
 
 
-def fetch_from_android_build(build_id, branch, target, arch, dest_zip, json_mode=False):
+def fetch_from_android_build(
+    build_id,
+    branch,
+    target=None,
+    arch=None,
+    dest_zip=None,
+    json_mode=False,
+    *,
+    artifact_service=None,
+    runner=None,
+):
+    if dest_zip is None and arch is not None and target is not None:
+        dest_zip = arch
+        arch = "x86_64"
+        target = branch
+        branch = "trunk-release"
+
+    target_name = target or ("test_suites_arm64"
+                             if arch == "arm64" else "test_suites_x86_64")
+    if artifact_service is not None:
+        artifact_name = (
+            os.path.basename(dest_zip)
+            if dest_zip and str(dest_zip).endswith(".zip")
+            else "android-cts-verifier.zip"
+        )
+        dest_dir = (
+            os.path.dirname(str(dest_zip))
+            if dest_zip and str(dest_zip).endswith(".zip")
+            else str(dest_zip or ".")
+        )
+        if hasattr(artifact_service, "fetch_artifact"):
+            artifact_service.fetch_artifact(
+                build_id=str(build_id),
+                target=target_name,
+                artifact_name=artifact_name,
+                dest_dir=dest_dir,
+                branch=branch,
+            )
+            return True
+        if hasattr(artifact_service, "download_artifact"):
+            artifact_service.download_artifact(
+                build_id=str(build_id),
+                target=target_name,
+                artifact_name=artifact_name,
+                dest_dir=dest_dir,
+                branch=branch,
+            )
+            return True
+
     fetch_tool = FETCH_ARTIFACT_BIN if os.path.exists(
         FETCH_ARTIFACT_BIN) else shutil.which("fetch_artifact")
-    if not fetch_tool:
+    if not fetch_tool and runner is None:
         raise RuntimeError(
             "Neither /google/data/ro/projects/android/fetch_artifact nor 'fetch_artifact' in PATH was found."
         )
-    target_name = target or ("test_suites_arm64"
-                             if arch == "arm64" else "test_suites_x86_64")
+    fetch_tool = fetch_tool or FETCH_ARTIFACT_BIN
     cmd = [
-        fetch_tool, "--bid", build_id, "--branch", branch, "--target",
-        target_name, "android-cts-verifier.zip", dest_zip
+        fetch_tool, "--bid", str(build_id), "--branch", str(branch), "--target",
+        target_name, "android-cts-verifier.zip", str(dest_zip)
     ]
     print_status(
         f"Fetching CTS-Verifier from Android Build (bid={build_id}, branch={branch}, target={target_name})...",
         json_mode=json_mode,
     )
-    res = subprocess.run(cmd, check=False, timeout=_TEST_SCRIPT_TIMEOUT_SECS)
+    if runner is not None:
+        res = runner.run(cmd, check=False, timeout_sec=float(_TEST_SCRIPT_TIMEOUT_SECS))
+    else:
+        res = subprocess.run(cmd, check=False, timeout=_TEST_SCRIPT_TIMEOUT_SECS)
     if res.returncode != 0:
         raise RuntimeError(
             f"fetch_artifact failed with exit code {res.returncode}")
+    return True
 
 
 def run_cts_verifier(args):
@@ -772,3 +851,411 @@ def run_cts_verifier(args):
         json_mode=json_mode)
 
     sys.exit(run_res.returncode)
+
+
+class CtsRunVerifierCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Command implementation for `emu-dev-cli cts run-cts-verifier`."""
+
+    name = "run-cts-verifier"
+    help_text = "Download CTS-Verifier package (public release or go/ab build ID) and execute automated tests"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--build-id",
+            "--bid",
+            dest="build_id",
+            type=str,
+            default=None,
+            help="Optional numeric build ID from Android Build (go/ab)",
+        )
+        parser.add_argument(
+            "--module",
+            type=str,
+            default=None,
+            help="Module name to test (run --list-modules to discover available test scripts dynamically)",
+        )
+        parser.add_argument(
+            "--all",
+            action="store_true",
+            help="Run all available automated CTS-Verifier test modules sequentially",
+        )
+        parser.add_argument(
+            "--serial",
+            type=str,
+            default=None,
+            help="ADB device serial number",
+        )
+        parser.add_argument(
+            "--branch",
+            type=str,
+            default="trunk-release",
+            help="Branch when using --build-id (default: trunk-release)",
+        )
+        parser.add_argument(
+            "--target",
+            type=str,
+            default=None,
+            help="Build target when using --build-id",
+        )
+        parser.add_argument(
+            "--force-download",
+            action="store_true",
+            help="Re-download and extract CTS-Verifier archive even if cached",
+        )
+        parser.add_argument(
+            "--list-modules",
+            action="store_true",
+            help="Dynamically scan and list all automated CTS-Verifier test modules in repository",
+        )
+        parser.add_argument(
+            "--bazel",
+            action="store_true",
+            default=True,
+            help="Execute hermetic CTS-Verifier test target defined in verifier.bzl using Bazel (default)",
+        )
+        parser.add_argument(
+            "--no-bazel",
+            "--direct",
+            dest="bazel",
+            action="store_false",
+            help="Execute tests directly against an active emulator device over ADB",
+        )
+        parser.add_argument(
+            "--rbe",
+            action="store_true",
+            default=False,
+            help="Execute test target on Remote Build Execution (RBE) using Bazel remote config",
+        )
+        parser.add_argument(
+            "--window",
+            action="store_true",
+            default=True,
+            help="Launch emulator with GUI window enabled",
+        )
+        parser.add_argument(
+            "--no-window",
+            "--headless",
+            dest="window",
+            action="store_false",
+            help="Launch emulator in headless mode without GUI window",
+        )
+        parser.add_argument(
+            "--test-builder-mode",
+            "--test-builder",
+            action="store_true",
+            dest="test_builder_mode",
+            help="Run module using TestBuilder interactive automation generator",
+        )
+        parser.add_argument(
+            "--collect-tests",
+            "--collect-test-module-names",
+            "--collect-labels",
+            action="store_true",
+            dest="collect_test_module_names",
+            help="Scroll through CtsVerifier on device and collect all test activity labels into a JSON file",
+        )
+
+    def _resolve_scripts_dir(self, ctx: ExecutionContext) -> tuple[str | None, str | None]:
+        rel_path = os.path.join(
+            "third_party", "adt-infra", "goldfish_test", "xts", "verifier"
+        )
+        for branch_key, src_root in ctx.config.source_directories.items():
+            cand = os.path.join(src_root, rel_path)
+            if os.path.isdir(cand):
+                return cand, f"context config ({branch_key}: {cand})"
+        return find_verifier_scripts_dir()
+
+    def validate(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> argparse.Namespace:
+        del ctx
+        if (
+            not getattr(args, "module", None)
+            and not getattr(args, "all", False)
+            and not getattr(args, "list_modules", False)
+            and not getattr(args, "collect_test_module_names", False)
+        ):
+            raise UsageError(
+                "No CTS-Verifier execution mode specified.",
+                remediation="Specify one of --module <name>, --all, --list-modules, or --collect-test-module-names.",
+            )
+        return args
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        scripts_dir, origin_info = self._resolve_scripts_dir(ctx)
+        discovered_modules = discover_available_modules(scripts_dir)
+
+        if getattr(args, "list_modules", False):
+            data: dict[str, Any] = {
+                "status": "success",
+                "action": "list-modules",
+                "scripts_directory": scripts_dir,
+                "origin": origin_info,
+                "modules": discovered_modules,
+            }
+            return CommandResult(
+                data=data,
+                action="list-modules",
+                summary=f"Discovered {len(discovered_modules)} automated CTS-Verifier module(s).",
+            )
+
+        runner = ctx.services.get(SERVICE_PROCESS_RUNNER)
+        artifact_service = ctx.services.get(SERVICE_ARTIFACT)
+
+        has_custom_config = (
+            bool(getattr(args, "serial", None))
+            or bool(getattr(args, "build_id", None))
+            or bool(getattr(args, "target", None))
+            or bool(getattr(args, "force_download", False))
+            or (getattr(args, "branch", "trunk-release") != "trunk-release")
+        )
+        use_bazel = bool(getattr(args, "bazel", True)) and not has_custom_config
+
+        if use_bazel:
+            source_dir = (
+                ctx.config.get_source_directory("emu-main-next")
+                or get_source_directory("emu-main-next")
+                or os.getcwd()
+            )
+            bazel_bin = "bazel"
+            if getattr(args, "collect_test_module_names", False):
+                target = "@goldfish_test//xts:cts-verifier-automation-dev"
+                cmd = [
+                    bazel_bin,
+                    "run",
+                    target,
+                    "--",
+                    "--collect_tests",
+                    "--window",
+                ]
+            elif getattr(args, "test_builder_mode", False):
+                target = "@goldfish_test//xts:cts-verifier-automation-dev"
+                raw_mod = (
+                    str(getattr(args, "module", "") or "screen_lock")
+                    .lower()
+                    .replace("pass_", "")
+                    .replace("run_", "")
+                    .replace(".py", "")
+                    .replace(".sh", "")
+                    .replace(" ", "_")
+                )
+                if not raw_mod.endswith("_test"):
+                    raw_mod += "_test"
+                cmd = [
+                    bazel_bin,
+                    "run",
+                    target,
+                    "--",
+                    "--dev_mode",
+                    "--window",
+                    "--script",
+                    f"run_{raw_mod}.sh",
+                ]
+            else:
+                if getattr(args, "all", False) or not getattr(
+                    args, "module", None
+                ):
+                    target = "@goldfish_test//xts:ets-verifier"
+                    cmd = [bazel_bin, "test", target]
+                    cmd.append(
+                        "--test_arg=--window"
+                        if getattr(args, "window", True)
+                        else "--test_arg=--no-window"
+                    )
+                else:
+                    mod = (
+                        str(args.module)
+                        .lower()
+                        .replace("pass_", "")
+                        .replace("run_", "")
+                        .replace(".py", "")
+                        .replace(".sh", "")
+                    )
+                    if mod in ("clock", "clocktest", "clock_test"):
+                        subname = "ClockTest"
+                    elif mod in discovered_modules:
+                        subname = (
+                            discovered_modules[mod]
+                            .replace("pass_", "")
+                            .replace(".py", "")
+                        )
+                    else:
+                        subname = mod
+                    target = f"@goldfish_test//xts:ets-verifier.{subname}"
+                    if getattr(args, "rbe", False):
+                        cmd = [
+                            bazel_bin,
+                            "test",
+                            "-c",
+                            "opt",
+                            "--config=remote",
+                            "--sandbox_debug",
+                            "--nocache_test_results",
+                            "--config=ants",
+                            "--config=sponge",
+                            "--flaky_test_attempts=8",
+                            target,
+                        ]
+                    else:
+                        cmd = [bazel_bin, "run", target, "--"]
+                        cmd.append(
+                            "--window"
+                            if getattr(args, "window", True)
+                            else "--no-window"
+                        )
+
+            res = runner.run(
+                cmd,
+                cwd=source_dir,
+                check=False,
+                timeout_sec=float(_BAZEL_RUN_TIMEOUT_SECS),
+            )
+            ok = res.returncode == 0
+            return CommandResult(
+                data={
+                    "status": STATUS_SUCCESS if ok else STATUS_ERROR,
+                    "action": "run-cts-verifier",
+                    "target": target,
+                    "command": cmd,
+                    "exit_code": res.returncode,
+                },
+                action="run-cts-verifier",
+                summary=f"Executed Bazel CTS-Verifier target {target} (exit_code={res.returncode}).",
+                status=STATUS_SUCCESS if ok else STATUS_ERROR,
+                exit_code=(
+                    int(ExitCode.SUCCESS) if ok else int(ExitCode.FAILURE)
+                ),
+            )
+
+        serial = getattr(args, "serial", None)
+        if not serial:
+            adb_res = runner.run(
+                ["adb", "devices"],
+                check=False,
+                timeout_sec=float(_ADB_CMD_TIMEOUT_SECS),
+            )
+            for line in (adb_res.stdout or "").splitlines()[1:]:
+                parts = line.split()
+                if len(parts) >= 2 and parts[1] == "device":
+                    serial = parts[0]
+                    break
+        if not serial:
+            raise ExecutionError(
+                "No online ADB device/emulator found for direct CTS-Verifier execution.",
+                remediation="Launch an emulator first or pass --serial <device_serial>.",
+            )
+
+        abi_res = runner.run(
+            ["adb", "-s", str(serial), "shell", "getprop", "ro.product.cpu.abi"],
+            check=False,
+            timeout_sec=float(_ADB_CMD_TIMEOUT_SECS),
+        )
+        abi = (abi_res.stdout or "").strip().lower()
+        arch_key = "arm64" if ("arm" in abi or "aarch64" in abi) else "x86_64"
+
+        build_id = getattr(args, "build_id", None)
+        cache_dir = ctx.config.cache_dir / (
+            f"cts-verifier-bid-{build_id}-{arch_key}"
+            if build_id
+            else f"cts-verifier-public-17_r1-{arch_key}"
+        )
+        extracted_apk = (
+            cache_dir / "extracted" / "android-cts-verifier" / "CtsVerifier.apk"
+        )
+        if getattr(args, "force_download", False) or not extracted_apk.is_file():
+            target_name = getattr(args, "target", None) or (
+                "test_suites_arm64"
+                if arch_key == "arm64"
+                else "test_suites_x86_64"
+            )
+            if build_id:
+                artifact_service.download_artifact(
+                    build_id=str(build_id),
+                    target=target_name,
+                    artifact_name="android-cts-verifier.zip",
+                    dest_dir=cache_dir,
+                    branch=str(getattr(args, "branch", "trunk-release")),
+                )
+
+        if not scripts_dir:
+            raise ExecutionError(
+                "Could not locate third_party/adt-infra/goldfish_test/xts/verifier/ scripts directory.",
+                remediation="Configure emu-main-next in source-directory settings before running direct CTS-Verifier scripts.",
+            )
+
+        module_name = str(getattr(args, "module", "") or "").lower()
+        script_file = discovered_modules.get(module_name)
+        if not script_file:
+            raise UsageError(
+                f"Unknown CTS-Verifier module '{getattr(args, 'module', '')}'.",
+                remediation="Run 'emu-dev-cli cts run-cts-verifier --list-modules' to view available modules.",
+            )
+
+        script_path = os.path.join(scripts_dir, script_file)
+        run_res = runner.run(
+            [sys.executable, script_path],
+            cwd=scripts_dir,
+            check=False,
+            timeout_sec=float(_TEST_SCRIPT_TIMEOUT_SECS),
+        )
+        passed = run_res.returncode == 0
+        data = {
+            "status": STATUS_SUCCESS if passed else STATUS_ERROR,
+            "action": "run-cts-verifier",
+            "module": module_name,
+            "script": script_file,
+            "device_serial": serial,
+            "verifier_apk": str(extracted_apk),
+            "source_mode": (
+                f"go/ab build-id {build_id}"
+                if build_id
+                else "public CDN 17_r1"
+            ),
+            "exit_code": run_res.returncode,
+            "xml_report": None,
+        }
+        return CommandResult(
+            data=data,
+            action="run-cts-verifier",
+            summary=f"Executed CTS-Verifier module '{module_name}' on {serial} (exit_code={run_res.returncode}).",
+            status=STATUS_SUCCESS if passed else STATUS_ERROR,
+            exit_code=(
+                int(ExitCode.SUCCESS) if passed else int(ExitCode.FAILURE)
+            ),
+        )
+
+
+class CtsCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Top-level `cts` subcommand group."""
+
+    name = "cts"
+    help_text = "CTS and CTS-Verifier testing tools for emulator verification"
+
+    def __init__(self) -> None:
+        self._verifier_cmd = CtsRunVerifierCommand()
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        cts_subparsers = parser.add_subparsers(
+            dest="cts_cmd", help="Available CTS subcommands"
+        )
+        bind_command(
+            cts_subparsers,
+            self._verifier_cmd,
+            legacy_func=run_cts_verifier,
+        )
+
+    def validate(self, args: argparse.Namespace, ctx: ExecutionContext) -> None:
+        sub_name = str(getattr(args, "cts_cmd", "") or "").strip()
+        if sub_name != "run-cts-verifier":
+            raise UsageError(
+                "Subcommand required for 'cts': run-cts-verifier.",
+                remediation="Run 'emu-dev-cli cts run-cts-verifier --list-modules' or pass '--module <name>'.",
+            )
+        self._verifier_cmd.validate(args, ctx)
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        return self._verifier_cmd.execute(args, ctx)

@@ -27,10 +27,26 @@ from commands.crash.advisor import (
     ensure_crashadvisor_imports,
     run_crashadvisor_bazel,
 )
-from commands.crash.analyze import register_analyze_parser, run_analyze
-from commands.crash.autofix import register_autofix_parser, run_autofix
-from commands.crash.file_bug import register_file_bug_parser, run_file_bug
-from commands.crash.find_bug import register_find_bug_parser, run_find_bug
+from commands.crash.analyze import (
+    CrashAnalyzeCommand,
+    register_analyze_parser,
+    run_analyze,
+)
+from commands.crash.autofix import (
+    CrashAutofixCommand,
+    register_autofix_parser,
+    run_autofix,
+)
+from commands.crash.file_bug import (
+    CrashFileBugCommand,
+    register_file_bug_parser,
+    run_file_bug,
+)
+from commands.crash.find_bug import (
+    CrashFindBugCommand,
+    register_find_bug_parser,
+    run_find_bug,
+)
 from commands.crash.fix_checker import (
     CrashFixChecker,
     FixStatusResult,
@@ -40,13 +56,22 @@ from commands.crash.fix_checker import (
     extract_crash_version_info,
     format_agent_version_guardrail_prompt,
 )
-from commands.crash.link_bug import register_link_bug_parser, run_link_bug
+from commands.crash.link_bug import (
+    CrashLinkBugCommand,
+    register_link_bug_parser,
+    run_link_bug,
+)
 from commands.crash.list_crashes import (
+    CrashListCrashesCommand,
     register_list_crashes_parser,
     run_list_crashes,
 )
-from commands.crash.parser import register_parser
-from commands.crash.reproduce import register_reproduce_parser, run_reproduce
+from commands.crash.parser import CrashCommand, register_parser
+from commands.crash.reproduce import (
+    CrashReproduceCommand,
+    register_reproduce_parser,
+    run_reproduce,
+)
 from commands.crash.utils import (
     OAuthTokenManager,
     acquire_auth_token,
@@ -58,7 +83,15 @@ from commands.crash.utils import (
 )
 
 __all__ = [
+    "CrashAnalyzeCommand",
+    "CrashAutofixCommand",
+    "CrashCommand",
+    "CrashFileBugCommand",
+    "CrashFindBugCommand",
     "CrashFixChecker",
+    "CrashLinkBugCommand",
+    "CrashListCrashesCommand",
+    "CrashReproduceCommand",
     "FixStatusResult",
     "OAuthTokenManager",
     "acquire_auth_token",
