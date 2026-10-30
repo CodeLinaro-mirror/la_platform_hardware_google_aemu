@@ -17,5 +17,21 @@
 from __future__ import annotations
 
 from commands.gerrit.cmd import register_parser
+from commands.gerrit.ping_for_review import (
+    DEFAULT_PING_POLL_INTERVAL_SEC,
+    DEFAULT_PING_TIMEOUT_SEC,
+    GerritPingForReviewCommand,
+    PingArgs,
+    PingResult,
+    REQUIRED_PRESUBMIT_VERIFIED_SCORE,
+)
 
-__all__ = ["register_parser"]
+__all__ = [
+    "DEFAULT_PING_POLL_INTERVAL_SEC",
+    "DEFAULT_PING_TIMEOUT_SEC",
+    "GerritPingForReviewCommand",
+    "PingArgs",
+    "PingResult",
+    "REQUIRED_PRESUBMIT_VERIFIED_SCORE",
+    "register_parser",
+]

@@ -25,6 +25,12 @@ from pathlib import Path
 import sys
 from typing import Any
 
+from commands.gerrit.ping_for_review import (
+    GerritPingForReviewCommand,
+    PingArgs,
+    PingResult,
+)
+from core.command import bind_command
 from lib.gerrit_api import (
     DEFAULT_GERRIT_HOST,
     GerritClient,
@@ -782,6 +788,13 @@ def register_parser(subparsers: Any) -> argparse.ArgumentParser:
         help="Export a pre-populated static HTML snapshot to the specified file path",
     )
     ui_p.set_defaults(func=handle_gerrit_ui)
+
+    ping_cmd = GerritPingForReviewCommand()
+    ping_p = gerrit_sub.add_parser(
+        ping_cmd.name,
+        help=ping_cmd.help_text,
+    )
+    bind_command(ping_p, ping_cmd)
 
     return gerrit_parser
 

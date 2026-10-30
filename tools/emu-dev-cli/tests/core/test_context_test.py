@@ -34,6 +34,10 @@ from clients.agent_runtime_service import (
 )
 from clients.artifact_service import FakeArtifactService, ProdArtifactService
 from clients.buganizer_service import FakeBuganizerService, ProdBuganizerService
+from clients.chat_service import (
+    FakeChatNotificationService,
+    ProdChatNotificationService,
+)
 from clients.f1_sql_client import FakeF1SqlClient, ProdF1SqlClient
 from core.context import (
     AppConfig,
@@ -150,6 +154,7 @@ class ContextTest(unittest.TestCase):
             self.assertIsInstance(ctx.f1_sql_client, FakeF1SqlClient)
             self.assertIsInstance(ctx.buganizer_service, FakeBuganizerService)
             self.assertIsInstance(ctx.agent_runtime_service, FakeAgentRuntimeService)
+            self.assertIsInstance(ctx.chat_service, FakeChatNotificationService)
             self.assertIs(ctx.fake_process_runner, fake_factory.process_runner)
             self.assertIs(ctx.fake_artifact_service, fake_factory.artifact_service)
             self.assertIs(ctx.fake_f1_sql_client, fake_factory.f1_sql_client)
@@ -158,6 +163,7 @@ class ContextTest(unittest.TestCase):
                 ctx.fake_agent_runtime_service,
                 fake_factory.agent_runtime_service,
             )
+            self.assertIs(ctx.fake_chat_service, fake_factory.chat_service)
             self.assertEqual(
                 ctx.services.resolve("custom_service"), {"fake": True}
             )
@@ -178,6 +184,9 @@ class ContextTest(unittest.TestCase):
             self.assertIsInstance(
                 prod_ctx.agent_runtime_service, ProdAgentRuntimeService
             )
+            self.assertIsInstance(
+                prod_ctx.chat_service, ProdChatNotificationService
+            )
             with self.assertRaises(ExecutionError):
                 _ = prod_ctx.fake_process_runner
             with self.assertRaises(ExecutionError):
@@ -188,6 +197,8 @@ class ContextTest(unittest.TestCase):
                 _ = prod_ctx.fake_buganizer_service
             with self.assertRaises(ExecutionError):
                 _ = prod_ctx.fake_agent_runtime_service
+            with self.assertRaises(ExecutionError):
+                _ = prod_ctx.fake_chat_service
 
 
 if __name__ == "__main__":

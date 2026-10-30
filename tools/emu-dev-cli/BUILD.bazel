@@ -21,6 +21,24 @@ package(
 )
 
 py_library(
+    name = "emu_core",
+    srcs = glob(
+        [
+            "src/core/**/*.py",
+            "src/clients/**/*.py",
+        ],
+        exclude = [
+            "**/*_test.py",
+            "**/test_*.py",
+        ],
+    ),
+    # do not sort
+    imports = [
+        "src",
+    ],
+)
+
+py_library(
     name = "emu_dev_cli_lib",
     srcs = glob(
         [
