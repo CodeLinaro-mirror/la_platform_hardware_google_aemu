@@ -59,14 +59,25 @@ from workflows.core.yaml_runner import (
 )
 import yaml
 from commands.workflow import find_workflow_target, list_available_workflows
-from lib.security import resolve_within_roots
-from lib.web_security import (
+from core.web.assets import (
+    StaticAssetResolver,
+    read_bounded_utf8_preview,
+)
+from core.web.handler import JsonRequestHandler
+from core.web.router import Router, is_truthy_query_flag
+from core.web.security import (
     UI_TOKEN_HEADER,
     RequestRejected,
+    SecurityPolicy,
     allowed_cors_origin,
     mint_ui_token,
     read_json_body,
     require_ui_token,
+    resolve_within_roots,
+)
+from core.web.server import (
+    find_available_port as _core_find_available_port,
+    serve_http,
 )
 
 MAX_ARTIFACT_PREVIEW_BYTES = 128 * 1024
@@ -91,14 +102,10 @@ def _describe_roots(roots: List[Path]) -> str:
 
 def get_ui_html_path() -> Path:
     """Returns the path to index.html."""
-    candidates = [
+    return StaticAssetResolver([
         _CUR_DIR / "index.html",
         _CUR_DIR / "static" / "index.html",
-    ]
-    for c in candidates:
-        if c.is_file():
-            return c
-    return _CUR_DIR / "index.html"
+    ]).resolve_first_existing()
 
 
 def resolve_jetski_cli() -> Optional[str]:
@@ -1942,113 +1949,34 @@ def clear_sessions(filter_type: str, state_base_dir: Optional[Path] = None) -> D
 
 def find_available_port(host: str = "127.0.0.1", start_port: int = 8080, max_attempts: int = 50) -> int:
     """Finds the first available TCP port starting from start_port."""
-    for p in range(start_port, start_port + max_attempts):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            try:
-                s.bind((host, p))
-                return p
-            except OSError as exc:
-                logging.getLogger(__name__).debug("Ignored error in find_available_port: %s", exc)
-                continue
-    return start_port
+    return _core_find_available_port(
+        host=host,
+        start_port=start_port,
+        max_attempts=max_attempts,
+        fallback_to_start=True,
+    )
 
 
-class WorkflowUIHandler(http.server.BaseHTTPRequestHandler):
+_WORKFLOW_UI_ROUTER = Router()
+
+
+class WorkflowUIHandler(JsonRequestHandler):
     """HTTP handler serving REST API endpoints and single-page web visualizer."""
 
-    def log_message(self, format, *args):
-        # Suppress verbose HTTP polling logs in CLI console
-        pass
-
-    def do_OPTIONS(self):
-        if not allowed_cors_origin(self.headers.get("Origin")):
-            self.send_response(403)
-            self.end_headers()
-            return
-        self.send_response(204)
-        self._send_cors_headers()
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", f"Content-Type, {UI_TOKEN_HEADER}")
-        self.end_headers()
-
-    def _send_cors_headers(self):
-        origin = allowed_cors_origin(self.headers.get("Origin"))
-        if origin:
-            self.send_header("Access-Control-Allow-Origin", origin)
-            self.send_header("Vary", "Origin")
-
-    def _require_ui_token(self, query: str):
-        require_ui_token(getattr(self.server, "ui_token", ""), self.headers, query, _UI_TOKEN_HINT)
-
-    def do_POST(self):
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
-        try:
-            self._require_ui_token(parsed.query)
-            body = read_json_body(self.headers, self.rfile)
-        except RequestRejected as exc:
-            self.send_json({"error": str(exc)}, status=exc.status)
-            return
-
-        if path == "/api/session/stop":
-            self.handle_api_session_stop(body)
-        elif path == "/api/session/delete":
-            self.handle_api_session_delete(body)
-        elif path == "/api/sessions/clear":
-            self.handle_api_sessions_clear(body)
-        elif path == "/api/session/create":
-            self.handle_api_session_create(body)
-        elif path == "/api/session/approve":
-            self.handle_api_session_approve(body)
-        elif path in ("/api/session/launch_agent", "/api/session/poke"):
-            if path == "/api/session/poke":
-                body["poke"] = True
-                body["resume"] = True
-            self.handle_api_session_launch_agent(body)
-        elif path == "/api/conversation/poke":
-            self.handle_api_conversation_poke(body)
-        else:
-            self.send_error(404, "Endpoint not found")
-
-    def do_GET(self):
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
-        params = urllib.parse.parse_qs(parsed.query)
-        if path.startswith("/api/"):
-            try:
-                self._require_ui_token(parsed.query)
-            except RequestRejected as exc:
-                self.send_json({"error": str(exc)}, status=exc.status)
-                return
-
-        if path == "/api/sessions":
-            self.handle_api_sessions(params)
-        elif path == "/api/conversations":
-            self.handle_api_conversations(params)
-        elif path == "/api/session":
-            wf = params.get("workflow", [None])[0]
-            sid = params.get("id", [None])[0]
-            self.handle_api_session_detail(wf, sid)
-        elif path == "/api/transcript":
-            wf = params.get("workflow", [None])[0]
-            sid = params.get("id", [None])[0]
-            cid = params.get("conversation_id", [None])[0]
-            self.handle_api_transcript(wf, sid, cid)
-        elif path == "/api/workflows":
-            self.handle_api_workflows()
-        elif path == "/api/artifact":
-            file_path = params.get("path", [None])[0]
-            self.handle_api_artifact(file_path)
-        elif path in ("", "/", "/index.html"):
-            self.handle_serve_index()
-        else:
-            self.send_error(404, "Endpoint not found")
+    security_policy = SecurityPolicy(
+        expected_token="",
+        token_hint=_UI_TOKEN_HINT,
+        public_get_routes=frozenset({"", "/", "/index.html"}),
+        protected_get_prefixes=("/api/",),
+        enable_cors=True,
+    )
+    router = _WORKFLOW_UI_ROUTER
+    json_indent = 2
+    default_cache_control = None
+    unknown_route_as_json = False
 
     def handle_api_sessions(self, params: Optional[Dict[str, List[str]]] = None):
-        include_subs = False
-        if params and "include_sub_workflows" in params:
-            include_subs = params["include_sub_workflows"][0].lower() in ("true", "1", "yes")
+        include_subs = bool(params and is_truthy_query_flag(params, "include_sub_workflows"))
         sessions = scan_all_sessions(include_sub_workflows=include_subs)
         self.send_json({"sessions": sessions, "count": len(sessions)})
 
@@ -2061,8 +1989,7 @@ class WorkflowUIHandler(http.server.BaseHTTPRequestHandler):
                     limit = max(1, min(200, int(params["limit"][0])))
                 except (ValueError, TypeError, IndexError) as exc:
                     logging.getLogger(__name__).debug("Ignored error in handle_api_conversations: %s", exc)
-            if "include_subagents" in params:
-                include_subagents = params["include_subagents"][0].lower() in ("true", "1", "yes")
+            include_subagents = is_truthy_query_flag(params, "include_subagents")
         conversations = scan_all_conversations(
             limit=limit,
             include_subagents=include_subagents,
@@ -2135,20 +2062,20 @@ class WorkflowUIHandler(http.server.BaseHTTPRequestHandler):
                 )
             }, status=403)
             return
-        if not p.is_file():
-            self.send_json({"error": f"Artifact '{p}' does not exist or is not a regular file."}, status=404)
-            return
         try:
-            with p.open("rb") as artifact_file:
-                head = artifact_file.read(MAX_ARTIFACT_PREVIEW_BYTES)
-            # Drop a character cut in half by the byte cap instead of showing U+FFFD.
-            decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-            self.send_json({
-                "path": str(p),
-                "filename": p.name,
-                "size": p.stat().st_size,
-                "content": decoder.decode(head, final=len(head) < MAX_ARTIFACT_PREVIEW_BYTES),
-            })
+            preview = read_bounded_utf8_preview(
+                p,
+                roots,
+                max_bytes=MAX_ARTIFACT_PREVIEW_BYTES,
+            )
+            if preview is None:
+                self.send_json({"error": f"Artifact '{p}' is outside allowed roots."}, status=403)
+                return
+            self.send_json(preview)
+        except FileNotFoundError:
+            self.send_json(
+                {"error": f"Artifact '{p}' does not exist or is not a regular file."}, status=404
+            )
         except OSError as e:
             self.send_json({"error": f"Failed to read artifact '{p}': {e}"}, status=500)
 
@@ -2301,35 +2228,66 @@ class WorkflowUIHandler(http.server.BaseHTTPRequestHandler):
         html_path = get_ui_html_path()
         if html_path.is_file():
             try:
-                content = html_path.read_bytes()
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Content-Length", str(len(content)))
-                # The page URL carries the UI token, so never leak it through Referer.
-                self.send_header("Referrer-Policy", "no-referrer")
-                self.end_headers()
-                self.wfile.write(content)
+                self.send_html(html_path.read_bytes())
                 return
             except Exception as exc:
                 logging.getLogger(__name__).debug("Ignored error in handle_serve_index: %s", exc)
 
-        # Fallback minimal HTML if template file is missing
-        fallback = b"""<!DOCTYPE html><html><head><title>Workflow Visualizer</title></head><body><h1>Workflow Visualizer</h1><p>UI template not found.</p></body></html>"""
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(fallback)))
-        self.end_headers()
-        self.wfile.write(fallback)
+        fallback = (
+            b"<!DOCTYPE html><html><head><title>Workflow Visualizer</title></head>"
+            b"<body><h1>Workflow Visualizer</h1><p>UI template not found.</p></body></html>"
+        )
+        self.send_html(fallback)
 
-    def send_json(self, data: Any, status: int = 200):
-        body = json.dumps(data, indent=2).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Referrer-Policy", "no-referrer")
-        self._send_cors_headers()
-        self.end_headers()
-        self.wfile.write(body)
+
+def _register_workflow_ui_routes(router: Router) -> None:
+    """Registers all Workflow Visualizer GET and POST routes on `router`."""
+    router.add_get(["", "/", "/index.html"], lambda h, _r: h.handle_serve_index())
+    router.add_get("/api/sessions", lambda h, r: h.handle_api_sessions(dict(r.query_params)))
+    router.add_get(
+        "/api/conversations", lambda h, r: h.handle_api_conversations(dict(r.query_params))
+    )
+    router.add_get(
+        "/api/session",
+        lambda h, r: h.handle_api_session_detail(
+            r.query_str("workflow") or None, r.query_str("id") or None
+        ),
+    )
+    router.add_get(
+        "/api/transcript",
+        lambda h, r: h.handle_api_transcript(
+            r.query_str("workflow") or None,
+            r.query_str("id") or None,
+            r.query_str("conversation_id") or None,
+        ),
+    )
+    router.add_get("/api/workflows", lambda h, _r: h.handle_api_workflows())
+    router.add_get(
+        "/api/artifact", lambda h, r: h.handle_api_artifact(r.query_str("path") or None)
+    )
+
+    router.add_post("/api/session/stop", lambda h, r: h.handle_api_session_stop(dict(r.body)))
+    router.add_post("/api/session/delete", lambda h, r: h.handle_api_session_delete(dict(r.body)))
+    router.add_post("/api/sessions/clear", lambda h, r: h.handle_api_sessions_clear(dict(r.body)))
+    router.add_post("/api/session/create", lambda h, r: h.handle_api_session_create(dict(r.body)))
+    router.add_post(
+        "/api/session/approve", lambda h, r: h.handle_api_session_approve(dict(r.body))
+    )
+    router.add_post(
+        "/api/session/launch_agent", lambda h, r: h.handle_api_session_launch_agent(dict(r.body))
+    )
+    router.add_post(
+        "/api/session/poke",
+        lambda h, r: h.handle_api_session_launch_agent(
+            {**dict(r.body), "poke": True, "resume": True}
+        ),
+    )
+    router.add_post(
+        "/api/conversation/poke", lambda h, r: h.handle_api_conversation_poke(dict(r.body))
+    )
+
+
+_register_workflow_ui_routes(_WORKFLOW_UI_ROUTER)
 
 
 def start_server(
@@ -2344,24 +2302,20 @@ def start_server(
     Every `/api/` request must carry `ui_token` (a fresh random token by default),
     so the printed and auto-opened URL includes it as `?token=`.
     """
-    actual_port = find_available_port(host=host, start_port=port)
-    server_address = (host, actual_port)
-    httpd = http.server.ThreadingHTTPServer(server_address, WorkflowUIHandler)
-    httpd.ui_token = ui_token or mint_ui_token()
-
-    url = f"http://{host}:{actual_port}/?token={httpd.ui_token}"
-    print(f"🚀 emu-dev-cli Workflow Visualizer running at:\n   {url}\n")
-    print("Press Ctrl+C to stop the server.")
-
-    if open_browser:
-        threading.Timer(0.3, lambda: webbrowser.open_new_tab(url)).start()
-
-    if block:
-        try:
-            httpd.serve_forever()
-        except KeyboardInterrupt:
-            print("\nServer stopped.")
-        finally:
-            httpd.server_close()
-
-    return httpd, actual_port
+    return serve_http(
+        WorkflowUIHandler,
+        host=host,
+        port=port,
+        ui_token=ui_token,
+        open_browser=open_browser,
+        browser_delay_sec=0.3,
+        block=block,
+        port_finder=find_available_port,
+        server_cls=http.server.ThreadingHTTPServer,
+        browser_opener=webbrowser.open_new_tab,
+        banner_fn=lambda url, _port: (
+            f"🚀 emu-dev-cli Workflow Visualizer running at:\n   {url}\n\n"
+            "Press Ctrl+C to stop the server."
+        ),
+        shutdown_message="\nServer stopped.",
+    )

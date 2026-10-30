@@ -21,11 +21,11 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
-import subprocess
 import threading
 from typing import Any
 import urllib.request
+
+from clients.agent_runtime_service import ProdAgentRuntimeService
 
 from commands.gerrit.ai_analysis import (
     build_ai_analysis_prompt,
@@ -432,35 +432,10 @@ def _call_local_language_server_rpc(method_name: str, payload: dict[str, Any]) -
 
 
 def _run_sidecar_agentapi(args: list[str], project_id: str | None = None) -> dict[str, Any]:
-    """Invokes `agentapi` for Jetski Web sidecar conversation integration."""
-    agentapi_bin = shutil.which("agentapi")
-    if not agentapi_bin:
-        cand = Path.home() / ".gemini" / "jetski" / "bin" / "agentapi"
-        if cand.is_file():
-            agentapi_bin = str(cand)
-        else:
-            agentapi_bin = "agentapi"
-    env = os.environ.copy()
-    if project_id:
-        env["ANTIGRAVITY_PROJECT_ID"] = project_id
-    else:
-        env.pop("ANTIGRAVITY_SOURCE_METADATA", None)
-    res = SubprocessRunner().run(
-        [agentapi_bin, *args],
-        env=env,
-        merge_Env=False,
-        check=False,
-        timeout_sec=30,
+    """Invokes `agentapi` for Jetski Web sidecar conversation integration via AgentRuntimeService."""
+    return ProdAgentRuntimeService(SubprocessRunner()).invoke_agentapi_raw(
+        args, project_id=project_id
     )
-    if res.returncode != 0:
-        subcmd = args[0] if args else "command"
-        detail = (res.stderr or res.stdout or "").strip() or f"exit code {res.returncode}"
-        raise RuntimeError(
-            f"agentapi '{subcmd}' failed (exit {res.returncode}): {detail}. "
-            "Verify the Jetski agentapi binary and active language server session."
-        )
-    out = (res.stdout or "").strip()
-    return json.loads(out) if out else {}
 
 
 

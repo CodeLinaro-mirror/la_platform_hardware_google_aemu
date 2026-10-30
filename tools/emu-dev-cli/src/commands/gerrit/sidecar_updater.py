@@ -20,7 +20,6 @@ from collections.abc import Callable
 import hashlib
 import os
 from pathlib import Path
-import subprocess
 import threading
 import time
 from typing import Any
@@ -29,6 +28,7 @@ from commands.source_directory import (
     get_all_source_directories,
     get_source_directory,
 )
+from core.process import ProcessResult, SubprocessRunner
 from install.installer import get_release_package_directory
 from lib.bazel import find_bazel_cmd
 
@@ -44,6 +44,7 @@ AEMU_CLI_INSTALL_BAZEL_TARGET: str = "@aemu//tools/emu-dev-cli:emu-dev-cli"
 
 GERRIT_REPO_WATCH_PATHS: tuple[str, ...] = (
     "tools/emu-dev-cli/src/commands/gerrit",
+    "tools/emu-dev-cli/src/core/web",
     "tools/emu-dev-cli/src/templates/gerrit_ui.html",
     "tools/emu-dev-cli/src/lib/gerrit_api.py",
     "tools/emu-dev-cli/src/lib/web_security.py",
@@ -99,6 +100,11 @@ def collect_installed_gerrit_blobs(lib_dir: Path) -> dict[str, str]:
     _collect_dir_blobs(
         lib_dir / "commands" / "gerrit",
         "tools/emu-dev-cli/src/commands/gerrit",
+        blobs,
+    )
+    _collect_dir_blobs(
+        lib_dir / "core" / "web",
+        "tools/emu-dev-cli/src/core/web",
         blobs,
     )
     _collect_dir_blobs(
@@ -208,32 +214,25 @@ def _run_git_cmd(
     args: list[str],
     *,
     timeout: int = GIT_QUICK_CMD_TIMEOUT_SEC,
-) -> subprocess.CompletedProcess[str]:
+) -> ProcessResult:
     """Executes a non-interactive UTF-8 `git` command with unquoted Unicode paths."""
-    env = os.environ.copy()
-    env["GIT_TERMINAL_PROMPT"] = "0"
-    try:
-        return subprocess.run(
-            ["git", "-c", "core.quotePath=false", "-C", str(repo_root), *args],
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-            timeout=timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
+    res = SubprocessRunner().run(
+        ["git", "-c", "core.quotePath=false", "-C", str(repo_root), *args],
+        env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        timeout_sec=float(timeout),
+        check=False,
+    )
+    if res.timed_out:
         raise RuntimeError(
             f"Timed out after {timeout}s running 'git {' '.join(args)}' in '{repo_root}'. "
             "Verify network/SSO connectivity by running 'gcert' in your terminal and retry."
-        ) from exc
-    except OSError as exc:
+        )
+    if res.returncode == 127:
         raise RuntimeError(
-            f"Failed to execute 'git {' '.join(args)}' in '{repo_root}': {exc}. "
+            f"Failed to execute 'git {' '.join(args)}' in '{repo_root}': {res.stderr}. "
             "Ensure 'git' is installed on PATH and the repository path is accessible."
-        ) from exc
+        )
+    return res
 
 
 def resolve_upstream_ref(
@@ -378,30 +377,23 @@ def _default_bazel_install_runner(workspace_root: Path, aemu_repo_root: Path) ->
     """Rebuilds `@aemu//tools/emu-dev-cli:emu-dev-cli` and installs the updated CLI and sidecar."""
     bazel_cmd = find_bazel_cmd(workspace_root)
     cmd = [bazel_cmd, "run", AEMU_CLI_INSTALL_BAZEL_TARGET, "--", "--json", "install"]
-    try:
-        res = subprocess.run(
-            cmd,
-            cwd=str(workspace_root),
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=BAZEL_INSTALL_TIMEOUT_SEC,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
+    res = SubprocessRunner().run(
+        cmd,
+        cwd=workspace_root,
+        timeout_sec=float(BAZEL_INSTALL_TIMEOUT_SEC),
+        check=False,
+    )
+    if res.timed_out:
         raise RuntimeError(
             f"Timed out after {BAZEL_INSTALL_TIMEOUT_SEC}s rebuilding and installing "
             f"'{AEMU_CLI_INSTALL_BAZEL_TARGET}' in '{workspace_root}'. "
             f"Run '{bazel_cmd} run {AEMU_CLI_INSTALL_BAZEL_TARGET} -- install' manually to inspect build progress."
-        ) from exc
-    except OSError as exc:
+        )
+    if res.returncode == 127:
         raise RuntimeError(
             f"Failed to invoke Bazel installer '{bazel_cmd}' in '{workspace_root}' "
-            f"(repo '{aemu_repo_root}'): {exc}. Verify '{workspace_root}' contains a valid Bazel wrapper."
-        ) from exc
-
+            f"(repo '{aemu_repo_root}'): {res.stderr}. Verify '{workspace_root}' contains a valid Bazel wrapper."
+        )
     if res.returncode != 0:
         detail = (res.stderr or res.stdout or f"exit code {res.returncode}").strip()
         tail = "\n".join(detail.splitlines()[-12:])
