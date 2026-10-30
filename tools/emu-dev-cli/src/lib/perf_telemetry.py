@@ -412,18 +412,24 @@ def take_kvm_debugfs_snapshot(
     return counters
 
 
+def _compute_positive_deltas(
+    before: Optional[Dict[str, int]], after: Optional[Dict[str, int]]
+) -> Dict[str, int]:
+    """Computes positive counter deltas between two counter snapshots."""
+    if not before or not after:
+        return {}
+    return {
+        k: after_val - before.get(k, 0)
+        for k, after_val in after.items()
+        if after_val - before.get(k, 0) > 0
+    }
+
+
 def compute_kvm_exit_deltas(
     before: Optional[Dict[str, int]], after: Optional[Dict[str, int]]
 ) -> Dict[str, int]:
     """Computes non-zero deltas between two KVM debugfs snapshots."""
-    if not before or not after:
-        return {}
-    deltas: Dict[str, int] = {}
-    for k, after_val in after.items():
-        d = after_val - before.get(k, 0)
-        if d > 0:
-            deltas[k] = d
-    return deltas
+    return _compute_positive_deltas(before, after)
 
 
 def parse_guest_proc_interrupts(text: str) -> Dict[str, int]:
@@ -518,14 +524,7 @@ def compute_guest_hypervisor_deltas(
     before: Optional[Dict[str, int]], after: Optional[Dict[str, int]]
 ) -> Dict[str, int]:
     """Computes positive counter deltas between two guest hypervisor snapshots."""
-    if not before or not after:
-        return {}
-    deltas: Dict[str, int] = {}
-    for k, after_val in after.items():
-        d = after_val - before.get(k, 0)
-        if d > 0:
-            deltas[k] = d
-    return deltas
+    return _compute_positive_deltas(before, after)
 
 
 def is_nested_virtualization(proc_root: str = "/proc") -> bool:

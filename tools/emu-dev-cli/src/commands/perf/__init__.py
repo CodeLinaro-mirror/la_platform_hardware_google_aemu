@@ -17,10 +17,10 @@
 import json
 import logging
 import os
-import platform
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
+from core.context import detect_host_platform
 from lib.output import format_markdown_table, print_result
 from lib.perf_insights import (
     DEFAULT_RUN_CACHE_DIR,
@@ -31,6 +31,9 @@ from lib.perf_insights import (
 from lib.perf_runner import (
     BUILTIN_PROFILERS,
     BUILTIN_SUITES,
+    BenchmarkPlan,
+    EmulatorLaunchConfig,
+    ManagedBenchmarkConfig,
     compare_perf_reports,
     detect_active_adb_serial,
     load_perf_report_any_format,
@@ -49,11 +52,7 @@ logger = logging.getLogger(__name__)
 
 
 def _detect_host() -> str:
-    sys_name = platform.system().lower()
-    mach = platform.machine().lower()
-    if sys_name == "darwin":
-        return "mac-arm64" if mach in ("arm64", "aarch64") else "mac-x64"
-    return "linux-x64"
+    return detect_host_platform()
 
 
 def run_perf_list(args: Any) -> None:
@@ -120,25 +119,14 @@ def run_perf_run(args: Any) -> None:
             )
             if getattr(args, "label", None):
                 resolved.label = args.label
-            settle_sec = (
-                float(args.settle_seconds)
-                if getattr(args, "settle_seconds", None) is not None
-                else 30.0
-            )
-            report = run_managed_emulator_benchmark(
-                target=resolved,
-                avd_name=getattr(args, "avd", None),
+            config = ManagedBenchmarkConfig.from_args(
+                resolved,
+                args,
                 suites=suites,
                 workloads=workloads,
-                iterations=iterations,
-                warmup=warmup,
-                boots=boots,
-                settle_seconds=settle_sec,
                 profiles=profiles,
-                trace_path=getattr(args, "trace", None),
-                clean_avd=not getattr(args, "reuse_avd", False),
-                sysimg_dir=getattr(args, "sysimg_dir", None),
             )
+            report = run_managed_emulator_benchmark(config=config)
         else:
             serial = getattr(args, "serial", None) or detect_active_adb_serial()
             settle_sec = (
@@ -212,24 +200,14 @@ def _execute_or_load_target_for_compare(
     if getattr(args, "reuse_cache", False) and os.path.isfile(cache_file):
         return load_perf_report_any_format(cache_file)
 
-    settle_sec = (
-        float(args.settle_seconds)
-        if getattr(args, "settle_seconds", None) is not None
-        else 30.0
-    )
-    report = run_managed_emulator_benchmark(
-        target=resolved,
-        avd_name=getattr(args, "avd", None),
+    config = ManagedBenchmarkConfig.from_args(
+        resolved,
+        args,
         suites=suites,
         workloads=workloads,
-        iterations=int(getattr(args, "iterations", 5) or 5),
-        warmup=int(getattr(args, "warmup", 1) or 1),
-        boots=int(getattr(args, "boots", 1) or 1),
-        settle_seconds=settle_sec,
         profiles=profiles,
-        clean_avd=not getattr(args, "reuse_avd", False),
-        sysimg_dir=getattr(args, "sysimg_dir", None),
     )
+    report = run_managed_emulator_benchmark(config=config)
     try:
         os.makedirs(DEFAULT_RUN_CACHE_DIR, exist_ok=True)
         with open(cache_file, "w", encoding="utf-8") as f:
@@ -330,6 +308,55 @@ def run_perf_history(args: Any) -> None:
         print(format_perf_history_markdown(entries))
 
 
+def _add_common_benchmark_arguments(
+    parser: Any, default_settle_seconds: Optional[float]
+) -> None:
+    parser.add_argument(
+        "--avd",
+        type=str,
+        default=None,
+        help="Template AVD name for system image & hardware specs (by default, a clean isolated AVD is provisioned per run)",
+    )
+    parser.add_argument(
+        "--sysimg-dir",
+        dest="sysimg_dir",
+        type=str,
+        default=None,
+        help="Explicit system image directory for provisioning a clean isolated benchmark AVD",
+    )
+    parser.add_argument(
+        "--reuse-avd",
+        dest="reuse_avd",
+        action="store_true",
+        help="Boot the existing --avd in-place instead of provisioning a fresh clean AVD per boot",
+    )
+    parser.add_argument(
+        "--boots",
+        type=int,
+        default=1,
+        help="Number of cold boots to aggregate across when running a managed emulator binary (default: 1)",
+    )
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=5,
+        help="Number of measured iterations per workload per boot (default: 5)",
+    )
+    parser.add_argument(
+        "--warmup",
+        type=int,
+        default=1,
+        help="Number of warmup iterations before measurement (default: 1)",
+    )
+    parser.add_argument(
+        "--settle-seconds",
+        dest="settle_seconds",
+        type=float,
+        default=default_settle_seconds,
+        help="Seconds to settle guest/host CPU after boot before measuring (default: 30s managed, 0s live)",
+    )
+
+
 def register_parser(subparsers: Any) -> None:
     """Registers the `perf` command and its subcommands (`list`, `run`, `compare`, `history`)."""
     perf_parser = subparsers.add_parser(
@@ -395,50 +422,7 @@ def register_parser(subparsers: Any) -> None:
         default=None,
         help="Alias for --target when specifying a local extracted emulator directory",
     )
-    run_p.add_argument(
-        "--avd",
-        type=str,
-        default=None,
-        help="Template AVD name for system image & hardware specs (by default, a clean isolated AVD is provisioned per run)",
-    )
-    run_p.add_argument(
-        "--sysimg-dir",
-        dest="sysimg_dir",
-        type=str,
-        default=None,
-        help="Explicit system image directory for provisioning a clean isolated benchmark AVD",
-    )
-    run_p.add_argument(
-        "--reuse-avd",
-        dest="reuse_avd",
-        action="store_true",
-        help="Boot the existing --avd in-place instead of provisioning a fresh clean AVD per boot",
-    )
-    run_p.add_argument(
-        "--boots",
-        type=int,
-        default=1,
-        help="Number of cold boots to aggregate across when running a managed emulator binary (default: 1)",
-    )
-    run_p.add_argument(
-        "--iterations",
-        type=int,
-        default=5,
-        help="Number of measured iterations per workload per boot (default: 5)",
-    )
-    run_p.add_argument(
-        "--warmup",
-        type=int,
-        default=1,
-        help="Number of warmup iterations before measurement (default: 1)",
-    )
-    run_p.add_argument(
-        "--settle-seconds",
-        dest="settle_seconds",
-        type=float,
-        default=None,
-        help="Seconds to settle guest/host CPU after boot before measuring (default: 30s managed, 0s live)",
-    )
+    _add_common_benchmark_arguments(run_p, default_settle_seconds=None)
     run_p.add_argument(
         "--trace",
         type=str,
@@ -487,50 +471,7 @@ def register_parser(subparsers: Any) -> None:
         default="proc",
         help="Profilers to attach when comparing live builds (proc, perf-stat, perf-record, perfetto)",
     )
-    cmp_p.add_argument(
-        "--avd",
-        type=str,
-        default=None,
-        help="Template AVD name for system image & hardware specs (by default, each target gets its own fresh clean AVD)",
-    )
-    cmp_p.add_argument(
-        "--sysimg-dir",
-        dest="sysimg_dir",
-        type=str,
-        default=None,
-        help="Explicit system image directory for provisioning clean isolated AVDs for each target",
-    )
-    cmp_p.add_argument(
-        "--reuse-avd",
-        dest="reuse_avd",
-        action="store_true",
-        help="Boot the existing --avd in-place instead of provisioning a fresh clean AVD per target/boot",
-    )
-    cmp_p.add_argument(
-        "--boots",
-        type=int,
-        default=1,
-        help="Number of boots per build when comparing live builds (default: 1)",
-    )
-    cmp_p.add_argument(
-        "--iterations",
-        type=int,
-        default=5,
-        help="Number of iterations per workload when comparing live builds (default: 5)",
-    )
-    cmp_p.add_argument(
-        "--warmup",
-        type=int,
-        default=1,
-        help="Warmup iterations when comparing live builds (default: 1)",
-    )
-    cmp_p.add_argument(
-        "--settle-seconds",
-        dest="settle_seconds",
-        type=float,
-        default=30.0,
-        help="Post-boot settle seconds when comparing live builds (default: 30s)",
-    )
+    _add_common_benchmark_arguments(cmp_p, default_settle_seconds=30.0)
     cmp_p.add_argument(
         "--reuse-cache",
         dest="reuse_cache",
