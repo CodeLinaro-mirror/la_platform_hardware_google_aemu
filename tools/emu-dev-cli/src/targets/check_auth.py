@@ -14,6 +14,7 @@
 
 """Target handler for 'emu-dev-cli fetch-build check-auth'."""
 
+from clients.artifact_service import check_authentication_status
 from lib.output import print_result
 
 
@@ -38,7 +39,6 @@ def register_parser(subparser, default_host):
 def run_check_auth(args):
     json_mode = getattr(args, "json", False)
     token = getattr(args, "token", None)
-    from lib.android_build_client import check_authentication_status
 
     status = check_authentication_status(token=token)
     if status["valid"]:

@@ -24,6 +24,8 @@ import zipfile
 from clients.artifact_service import (
     DEFAULT_FETCH_ARTIFACT_BIN as FETCH_ARTIFACT_BIN,
     ArtifactService,
+    ProdArtifactService,
+    check_authentication_status,
 )
 from core.process import ProcessRunner, SubprocessRunner
 from lib.output import print_result
@@ -143,7 +145,6 @@ def run_system_image_fetch(
     proc_runner = runner or SubprocessRunner()
 
     if not getattr(args, "skip_auth_check", False):
-        from lib.android_build_client import check_authentication_status
         auth_status = check_authentication_status(token=token)
         if not auth_status["valid"]:
             res_data = {
@@ -213,23 +214,22 @@ def run_system_image_fetch(
     # Strategy 2: Direct Android Build v4 REST API fallback
     if not successful_target and not fetch_tool:
         try:
-            from lib.android_build_client import AndroidBuildClient
-            client = AndroidBuildClient(
+            service = artifact_service or ProdArtifactService(
+                proc_runner,
                 token=token,
-                service=artifact_service,
-                process_runner=proc_runner,
+                use_fetch_artifact_cli=False,
             )
 
             for t_name in candidate_targets:
                 try:
                     if is_latest:
-                        resolved_build_id = client.get_latest_build_id(branch, t_name)
+                        resolved_build_id = service.resolve_build_id(branch, t_name)
                     else:
                         resolved_build_id = build_id
 
-                    matched_art = client.find_matching_artifact(resolved_build_id, t_name, artifact_patterns)
+                    matched_art = service.find_matching_artifact(resolved_build_id, t_name, artifact_patterns)
                     if matched_art:
-                        client.download_artifact(resolved_build_id, t_name, matched_art, dest_dir)
+                        service.download_artifact(resolved_build_id, t_name, matched_art, dest_dir)
                         successful_target = t_name
                         break
                 except Exception as e:

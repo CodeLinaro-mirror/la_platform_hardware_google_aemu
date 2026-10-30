@@ -19,7 +19,6 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from core.errors import ExecutionError
-from lib.batched_engine import BatchedRefactoringEngine
 from lib.compiler_oracle import CompilerOracleReport
 from lib.level1_engine import Level1RefactoringEngine
 from lib.refactoring import BaseRefactoringEngine
@@ -45,7 +44,6 @@ class BaseRefactoringEngineTest(unittest.TestCase):
     def test_all_tidy_engines_inherit_from_base_engine(self):
         self.assertTrue(issubclass(Level1RefactoringEngine, BaseRefactoringEngine))
         self.assertTrue(issubclass(GitNativeRefactoringEngine, BaseRefactoringEngine))
-        self.assertTrue(issubclass(BatchedRefactoringEngine, BaseRefactoringEngine))
 
     def test_resolve_declaration_path_with_unicode(self):
         with tempfile.TemporaryDirectory() as tmpdir:

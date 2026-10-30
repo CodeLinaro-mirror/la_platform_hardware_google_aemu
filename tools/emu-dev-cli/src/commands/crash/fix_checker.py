@@ -17,8 +17,6 @@
 import json
 import logging
 import os
-import re
-import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -86,132 +84,6 @@ def extract_crash_version_info(meta_json: Dict[str, Any]) -> Dict[str, Any]:
         "timestamp": timestamp,
         "custom_keys": custom_keys,
     }
-
-
-def check_buganizer_fixed_status(
-    client: Any,
-    stable_signature: Optional[str] = None,
-    top_func: Optional[str] = None,
-    component_id: int = 29601,
-) -> Tuple[bool, List[Dict[str, Any]], Optional[str]]:
-    """Queries Buganizer for both open and closed issues matching signature or top fault frame.
-
-    Args:
-        client: BuganizerClient instance.
-        stable_signature: Primary crash signature (e.g., 'android::FrameBuffer::post').
-        top_func: Top faulting stack frame function name.
-        component_id: Buganizer component ID (default: 29601).
-
-    Returns:
-        Tuple of (is_fixed, candidate_issues, fixed_reason).
-    """
-    candidates: List[Dict[str, Any]] = []
-    is_fixed = False
-    fixed_reasons: List[str] = []
-
-    if not client:
-        return is_fixed, candidates, None
-
-    # Tier 1: Search by signature
-    if stable_signature and stable_signature != "Unknown":
-        clean_sig = re.sub(r"[^\w::]", " ", stable_signature).strip()
-        try:
-            issue_t1 = client.search_issue_by_signature(clean_sig or stable_signature)
-            if issue_t1:
-                iss_id = issue_t1.get("issueId") or issue_t1.get("id")
-                state = issue_t1.get("issueState", {})
-                status = (
-                    state.get("status") or issue_t1.get("status", "UNKNOWN")
-                ).upper()
-                title = state.get("title") or issue_t1.get("title", "Untitled")
-                assignee = state.get("assignee", {}).get("emailAddress", "Unassigned")
-                candidate_info = {
-                    "issue_id": str(iss_id),
-                    "status": status,
-                    "title": title,
-                    "assignee": assignee,
-                    "match_type": "Signature Match",
-                }
-                candidates.append(candidate_info)
-                if status in CLOSED_STATUSES:
-                    is_fixed = True
-                    fixed_reasons.append(
-                        f"Buganizer issue b/{iss_id} is {status} (Assignee: {assignee})"
-                    )
-        except Exception as exc:
-            logger.debug(
-                "Buganizer signature search failed for '%s': %s",
-                stable_signature,
-                exc,
-            )
-
-    # Tier 2: Search by top fault function across both open and closed bugs
-    if top_func:
-        try:
-            queries = [
-                f'componentid:{component_id} "{top_func}"',
-                f'componentid:{component_id} status:open "{top_func}"',
-            ]
-            for q in queries:
-                issues_list: List[Dict[str, Any]] = []
-                if getattr(client, "cli_binary", None) and not getattr(
-                    client, "token", None
-                ):
-                    cmd = [client.cli_binary, "search", q, "--format=json"]
-                    res = SubprocessRunner().run(
-                        cmd, check=False, timeout_sec=10
-                    )
-                    if res.returncode == 0 and res.stdout.strip():
-                        issues = json.loads(res.stdout)
-                        issues_list = (
-                            issues if isinstance(issues, list) else [issues]
-                        )
-                elif hasattr(client, "_call_rest_api"):
-                    base_url = getattr(
-                        client,
-                        "base_url",
-                        "https://issuetracker.googleapis.com/v1/issues",
-                    )
-                    params = urllib.parse.urlencode({"query": q})
-                    data = client._call_rest_api(f"{base_url}?{params}", method="GET")
-                    if isinstance(data, dict):
-                        issues_list = data.get("issues", [])
-
-                for iss in issues_list:
-                    iss_id = str(iss.get("issueId") or iss.get("id", ""))
-                    if not iss_id or any(
-                        c["issue_id"] == iss_id for c in candidates
-                    ):
-                        continue
-                    state = iss.get("issueState", {})
-                    status = (
-                        state.get("status") or iss.get("status", "UNKNOWN")
-                    ).upper()
-                    title = state.get("title") or iss.get("title", "Untitled")
-                    assignee = state.get("assignee", {}).get(
-                        "emailAddress", "Unassigned"
-                    )
-                    candidates.append(
-                        {
-                            "issue_id": iss_id,
-                            "status": status,
-                            "title": title,
-                            "assignee": assignee,
-                            "match_type": "Top Fault Frame Function",
-                        }
-                    )
-                    if status in CLOSED_STATUSES:
-                        is_fixed = True
-                        fixed_reasons.append(
-                            f"Buganizer issue b/{iss_id} is {status} (Assignee: {assignee})"
-                        )
-        except Exception as exc:
-            logger.debug(
-                "Buganizer top-function search failed for '%s': %s", top_func, exc
-            )
-
-    fixed_reason_str = "; ".join(fixed_reasons) if fixed_reasons else None
-    return is_fixed, candidates, fixed_reason_str
 
 
 def check_git_history_fixes(
@@ -311,7 +183,6 @@ def evaluate_crash_fix_status(
     crash_id: str,
     metadata_path: Optional[Path] = None,
     action_data: Optional[Dict[str, Any]] = None,
-    buganizer_client: Optional[Any] = None,
     source_dir: Optional[str] = None,
     candidate_issues: Optional[List[Dict[str, Any]]] = None,
     meta_json: Optional[Dict[str, Any]] = None,
@@ -322,7 +193,6 @@ def evaluate_crash_fix_status(
         crash_id: The crash ID string.
         metadata_path: Optional path to metadata.json file.
         action_data: Optional parsed actionability dictionary.
-        buganizer_client: Optional BuganizerClient instance.
         source_dir: Optional local source checkout directory path.
         candidate_issues: Optional pre-fetched list of candidate Buganizer issues.
         meta_json: Optional pre-loaded metadata dictionary.
@@ -330,6 +200,7 @@ def evaluate_crash_fix_status(
     Returns:
         FixStatusResult containing fix evaluation, build ID, warnings, and agent guardrail prompt notice.
     """
+    del crash_id
     data = meta_json or {}
     if not data and metadata_path and metadata_path.exists():
         try:
@@ -359,12 +230,6 @@ def evaluate_crash_fix_status(
                 is_fixed_buganizer = True
                 fixed_issues.append(iss)
                 bug_reason = f"Buganizer issue b/{iss.get('issue_id')} is {status}"
-    elif buganizer_client:
-        is_fixed_buganizer, fixed_issues, bug_reason = check_buganizer_fixed_status(
-            client=buganizer_client,
-            stable_signature=stable_sig,
-            top_func=target_func,
-        )
 
     # Check local git history
     first_issue_id = fixed_issues[0].get("issue_id") if fixed_issues else None
@@ -477,26 +342,3 @@ Follow the TDD loop (Red/Green/Refactor) coordinating with test_enforcer.
 Upon successful verification, hand off to reviewer.md for audit and committer.md to execute repo upload.
 """
 
-
-class CrashFixChecker:
-    """Unified engine for inspecting crash report age, Buganizer resolution, and git commit history."""
-
-    def __init__(
-        self, source_dir: Optional[str] = None, buganizer_client: Optional[Any] = None
-    ) -> None:
-        self.source_dir = source_dir
-        self.buganizer_client = buganizer_client
-
-    def evaluate(
-        self,
-        crash_id: str,
-        metadata_path: Optional[Path] = None,
-        action_data: Optional[Dict[str, Any]] = None,
-    ) -> FixStatusResult:
-        return evaluate_crash_fix_status(
-            crash_id=crash_id,
-            metadata_path=metadata_path,
-            action_data=action_data,
-            buganizer_client=self.buganizer_client,
-            source_dir=self.source_dir,
-        )

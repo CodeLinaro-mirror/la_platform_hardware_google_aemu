@@ -22,6 +22,7 @@ import re
 import sys
 from typing import Any
 
+from clients.buganizer_service import CreateBugRequest
 from commands.crash.advisor import (
     CrashAdvisorRunner,
     create_crash_bug_tracker,
@@ -451,10 +452,18 @@ class CrashFileBugCommand(Command[argparse.Namespace, dict[str, Any]]):
         token: str | None,
         qa: bool,
     ) -> tuple[str, str]:
-        default_component_id = "29601"
+        default_component_id = 29601
         explicit_bug_id = getattr(args, "bug_id", None)
-        if buganizer is not None and hasattr(buganizer, "create_bug"):
-            component_id = (
+        try:
+            client = create_crash_bug_tracker(
+                token=token,
+                qa_mode=qa,
+                verbose=bool(getattr(args, "verbose", False)),
+            )
+        except ExecutionError:
+            if buganizer is None:
+                raise
+            component_id = int(
                 getattr(args, "component_id", default_component_id)
                 or default_component_id
             )
@@ -466,20 +475,14 @@ class CrashFileBugCommand(Command[argparse.Namespace, dict[str, Any]]):
                 str(getattr(args, "title", None) or "").strip()
                 or f"[Crash] {stable_sig}"
             )
-            bug_id_str = str(
-                buganizer.create_bug(
+            created_issue = buganizer.create_issue(
+                CreateBugRequest(
                     title=title,
                     description=rca_content,
                     component_id=component_id,
                 )
             )
-            return bug_id_str, "created"
-
-        client = create_crash_bug_tracker(
-            token=token,
-            qa_mode=qa,
-            verbose=bool(getattr(args, "verbose", False)),
-        )
+            return created_issue.issue_id, "created"
         crash_info = _extract_crash_info_from_sandbox(sandbox_dir, rca_content)
         clean_ver = crash_info["versions"][0] if crash_info.get("versions") else ""
         if explicit_bug_id:

@@ -16,8 +16,7 @@
 
 from collections.abc import Callable, Sequence
 import subprocess
-import sys
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from core.process import ProcessResult, ProcessRunner, SubprocessRunner
 from lib.perf.catalog import DEFAULT_ADB_BIN
@@ -58,17 +57,6 @@ def _adb_cmd(
     )
 
 
-def _resolve_patched_adb_cmd() -> Optional[Callable[..., Any]]:  # type: ignore[name-defined]
-    """Returns `lib.perf_runner._adb_cmd` if a caller patched it at runtime."""
-    pr_mod = sys.modules.get("lib.perf_runner")
-    if pr_mod is None:
-        return None
-    fn = getattr(pr_mod, "_adb_cmd", None)
-    if fn is not None and fn is not _adb_cmd:
-        return fn
-    return None
-
-
 class AdbDevice:
     """Encapsulates ADB operations for a specific device serial over ProcessRunner."""
 
@@ -85,7 +73,6 @@ class AdbDevice:
             )
         self.serial: str = str(serial).strip()
         self.adb_bin: str = adb_bin or DEFAULT_ADB_BIN
-        self._explicit_runner: bool = process_runner is not None
         self.process_runner: ProcessRunner = process_runner or SubprocessRunner()
 
     def run(
@@ -96,25 +83,6 @@ class AdbDevice:
         check: bool = False,
     ) -> ProcessResult:
         """Executes `adb -s <serial> <args>` and returns a structured ProcessResult."""
-        if not self._explicit_runner:
-            patched_fn = _resolve_patched_adb_cmd()
-            if patched_fn is not None:
-                cp = patched_fn(
-                    self.serial,
-                    list(args),
-                    adb_bin=self.adb_bin,
-                    timeout=timeout,
-                )
-                res = ProcessResult(
-                    args=(self.adb_bin, "-s", self.serial, *[str(a) for a in args]),
-                    returncode=int(getattr(cp, "returncode", 0)),
-                    stdout=str(getattr(cp, "stdout", "") or ""),
-                    stderr=str(getattr(cp, "stderr", "") or ""),
-                )
-                if check:
-                    res.check_returncode()
-                return res
-
         cmd = [self.adb_bin, "-s", self.serial, *[str(a) for a in args]]
         return self.process_runner.run(
             cmd,
@@ -128,22 +96,6 @@ class AdbDevice:
         timeout: float = DEFAULT_ADB_TIMEOUT_SEC,
     ) -> subprocess.CompletedProcess:
         """Executes an ADB command and returns `subprocess.CompletedProcess` for callback compatibility."""
-        if not self._explicit_runner:
-            patched_fn = _resolve_patched_adb_cmd()
-            if patched_fn is not None:
-                cp = patched_fn(
-                    self.serial,
-                    list(args),
-                    adb_bin=self.adb_bin,
-                    timeout=timeout,
-                )
-                return subprocess.CompletedProcess(
-                    [self.adb_bin, "-s", self.serial, *[str(a) for a in args]],
-                    returncode=int(getattr(cp, "returncode", 0)),
-                    stdout=str(getattr(cp, "stdout", "") or ""),
-                    stderr=str(getattr(cp, "stderr", "") or ""),
-                )
-
         res = self.run(args, timeout=timeout, check=False)
         stderr_text = res.stderr
         if res.timed_out and not stderr_text:

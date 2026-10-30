@@ -211,7 +211,13 @@ def create_crash_bug_tracker(
 ) -> Any:
     """Returns CrashAdvisor's BuganizerClient (crash hotlists, QA tracker, duplicate checks)."""
     buganizer_mod = load_crashadvisor_modules()["buganizer"]
-    return buganizer_mod.BuganizerClient(
+    client_cls = getattr(buganizer_mod, "BuganizerClient", None)
+    if client_cls is None:
+        raise ExecutionError(
+            "CrashAdvisor buganizer module does not expose BuganizerClient.",
+            remediation=CHECKOUT_REMEDIATION,
+        )
+    return client_cls(
         token=token, qa_mode=qa_mode, verbose=verbose
     )
 

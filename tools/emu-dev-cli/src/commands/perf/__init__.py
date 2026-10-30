@@ -28,7 +28,7 @@ from lib.perf_insights import (
     format_perf_history_markdown,
     load_perf_history,
 )
-from lib.perf_runner import (
+from lib.perf import (
     BUILTIN_PROFILERS,
     BUILTIN_SUITES,
     BenchmarkPlan,

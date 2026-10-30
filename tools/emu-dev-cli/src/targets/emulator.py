@@ -24,6 +24,8 @@ import zipfile
 from clients.artifact_service import (
     DEFAULT_FETCH_ARTIFACT_BIN as FETCH_ARTIFACT_BIN,
     ArtifactService,
+    ProdArtifactService,
+    check_authentication_status,
 )
 from core.process import ProcessRunner, SubprocessRunner
 from lib.output import print_result
@@ -160,7 +162,6 @@ def run_emulator_fetch(
     proc_runner = runner or SubprocessRunner()
 
     if not getattr(args, "skip_auth_check", False):
-        from lib.android_build_client import check_authentication_status
         auth_status = check_authentication_status(token=token)
         if not auth_status["valid"]:
             res_data = {
@@ -226,27 +227,27 @@ def run_emulator_fetch(
     # Strategy 2: Direct Android Build v4 REST API fallback (e.g. macOS workstations)
     if not successful_target and not fetch_tool:
         try:
-            from lib.android_build_client import AndroidBuildClient
-            client = AndroidBuildClient(
+            service = artifact_service or ProdArtifactService(
+                proc_runner,
                 token=token,
-                service=artifact_service,
-                process_runner=proc_runner,
+                use_fetch_artifact_cli=False,
             )
 
             if is_latest:
                 target_map = HOST_BRANCH_TARGET_MAP.get(host, HOST_BRANCH_TARGET_MAP["mac-arm64" if host == "mac-arm64" else "linux-x64"])
                 target_name = target_map.get(branch, "emulator_mac_aarch64" if host == "mac-arm64" else "emulator_linux_x64")
-                resolved_build_id = client.get_latest_build_id(branch, target_name)
+                resolved_build_id = service.resolve_build_id(branch, target_name)
                 patterns = HOST_ARTIFACT_PATTERNS.get(host, HOST_ARTIFACT_PATTERNS["mac-arm64" if host == "mac-arm64" else "linux-x64"])["latest"]
-                matched_art = client.find_matching_artifact(resolved_build_id, target_name, patterns)
+                matched_art = service.find_matching_artifact(resolved_build_id, target_name, patterns)
                 if not matched_art:
                     # Fallback search for any non-symbols emulator zip
-                    for art in client.list_artifacts(resolved_build_id, target_name):
+                    for art_meta in service.list_artifacts(resolved_build_id, target_name):
+                        art = art_meta.name if hasattr(art_meta, "name") else str(art_meta)
                         if "emulator" in art and art.endswith(".zip") and "symbols" not in art and "breakpad" not in art:
                             matched_art = art
                             break
                 if matched_art:
-                    client.download_artifact(resolved_build_id, target_name, matched_art, dest_dir)
+                    service.download_artifact(resolved_build_id, target_name, matched_art, dest_dir)
                     successful_target = target_name
                     successful_branch = branch
                 else:
@@ -258,9 +259,9 @@ def run_emulator_fetch(
                 for c in candidates:
                     target_name, branch_name = c["target"], c["branch"]
                     try:
-                        matched_art = client.find_matching_artifact(resolved_build_id, target_name, [pattern, f"*-emulator-{build_id}.zip"])
+                        matched_art = service.find_matching_artifact(resolved_build_id, target_name, [pattern, f"*-emulator-{build_id}.zip"])
                         if matched_art:
-                            client.download_artifact(resolved_build_id, target_name, matched_art, dest_dir)
+                            service.download_artifact(resolved_build_id, target_name, matched_art, dest_dir)
                             successful_target = target_name
                             successful_branch = branch_name
                             break

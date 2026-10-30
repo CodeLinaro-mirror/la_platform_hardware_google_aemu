@@ -225,18 +225,10 @@ def run_prebuilt_module(
     dest_dir = getattr(args, "dest_dir", None)
 
     if not getattr(args, "skip_auth_check", False):
-        use_service_auth = (
-            artifact_service is not None
-            and hasattr(artifact_service, "check_auth")
-            and not hasattr(check_authentication_status, "assert_called")
-            and (
-                not hasattr(artifact_service, "_auth_status")
-                or getattr(artifact_service, "_auth_status", None) is not None
-            )
-        )
         auth_status = (
             artifact_service.check_auth(token=token)
-            if use_service_auth
+            if artifact_service is not None
+            and hasattr(artifact_service, "check_auth")
             else check_authentication_status(token=token)
         )
         if not auth_status["valid"]:

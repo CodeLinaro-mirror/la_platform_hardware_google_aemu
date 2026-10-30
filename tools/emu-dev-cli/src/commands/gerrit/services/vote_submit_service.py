@@ -40,8 +40,6 @@ from clients.chat_service import (
 from commands.gerrit.services.diff_parser import (
     DIFF_FETCH_WORKERS,
     GerritServiceBase,
-    register_ui_hook,
-    resolve_ui_hook,
 )
 from commands.gerrit.services.queue_service import (
     GerritQueueService,
@@ -62,8 +60,6 @@ from lib.gerrit_api import (
 )
 
 OWNER_NOTIFY_HANDLING = "OWNER"
-register_ui_hook("resolve_swarm_dir_for_cl", resolve_swarm_dir_for_cl)
-
 GCHAT_DM_TIMEOUT_SEC = int(_GCHAT_DM_TIMEOUT_SEC_FLOAT)
 
 
@@ -107,12 +103,6 @@ def _run_gchat_send_dm_command(
 def _parse_gchat_dm_output(stdout_str: str) -> tuple[str, str, str]:
     """Parses `gchat mutate send-direct-message --json` stdout into `(space_name, message_name, chat_url)`."""
     return parse_gchat_dm_output(stdout_str)
-
-
-register_ui_hook("_resolve_gchat_cli_bin", _resolve_gchat_cli_bin)
-
-
-
 
 
 class GerritVoteSubmitService(GerritServiceBase):
@@ -785,9 +775,7 @@ class GerritVoteSubmitService(GerritServiceBase):
         cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
         chat_service = ProdChatNotificationService(
             SubprocessRunner(),
-            binary_resolver=lambda: resolve_ui_hook(
-                "_resolve_gchat_cli_bin", _resolve_gchat_cli_bin
-            )(),
+            binary_resolver=_resolve_gchat_cli_bin,
             timeout_sec=GCHAT_DM_TIMEOUT_SEC,
         )
         try:
@@ -813,7 +801,7 @@ class GerritVoteSubmitService(GerritServiceBase):
                 "Run `gcert` on a gLinux / Cloudtop machine with `gob-curl` installed."
             )
         cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
-        swarm_dir = resolve_ui_hook("resolve_swarm_dir_for_cl", resolve_swarm_dir_for_cl)(cl_id)
+        swarm_dir = resolve_swarm_dir_for_cl(cl_id)
         payload_path = (swarm_dir / GERRIT_REVIEW_PAYLOAD_FILENAME) if swarm_dir else None
         if payload_path is None or not payload_path.is_file():
             raise ValueError(

@@ -22,14 +22,12 @@ from pathlib import Path
 from typing import Any
 import webbrowser
 
+from commands.gerrit.services import inline_qa_service
 from commands.gerrit.services.diff_parser import (
     _candidate_gerrit_ui_template_paths,
     get_gerrit_ui_template_path,
     get_gerrit_ui_template_version,
-    register_ui_hook,
-    resolve_ui_hook,
 )
-from commands.gerrit.services.inline_qa_service import _run_sidecar_agentapi
 from commands.gerrit.services.queue_service import (
     TEAM_ROSTER_EMAILS,
     _normalize_viewer_email,
@@ -509,9 +507,9 @@ def make_gerrit_ui_handler(
         enable_cors=False,
     )
     agent_proxy = AgentProxy(
-        invoker=lambda args, project_id=None: resolve_ui_hook(
-            "_run_sidecar_agentapi", _run_sidecar_agentapi
-        )(list(args), project_id=project_id)
+        invoker=lambda args, project_id=None: inline_qa_service._run_sidecar_agentapi(
+            list(args), project_id=project_id
+        )
     )
     bound_router = _build_gerrit_router(service, agent_proxy)
 
@@ -530,9 +528,6 @@ def find_available_port(host: str, start_port: int) -> int:
         max_attempts=MAX_PORT_PROBES,
         server_label="Gerrit UI server",
     )
-
-
-register_ui_hook("find_available_port", find_available_port)
 
 
 def serve_gerrit_ui(
@@ -578,7 +573,7 @@ def serve_gerrit_ui(
         port=port,
         ui_token=ui_token,
         open_browser=open_browser,
-        port_finder=resolve_ui_hook("find_available_port", find_available_port),
+        port_finder=find_available_port,
         server_cls=http.server.ThreadingHTTPServer,
         browser_opener=webbrowser.open,
         banner_fn=lambda url, _port: (

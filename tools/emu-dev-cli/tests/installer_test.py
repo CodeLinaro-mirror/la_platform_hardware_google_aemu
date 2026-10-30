@@ -240,7 +240,10 @@ class InstallerTest(unittest.TestCase):
             )
 
             # Should complete with successful exit code 0
-            with self.assertRaises(SystemExit) as cm:
+            with patch(
+                "commands.update_cmd.get_release_package_directory",
+                return_value=str(tmp_path / "release"),
+            ), self.assertRaises(SystemExit) as cm:
                 run_update_cmd(args)
             self.assertEqual(cm.exception.code, 0)
 

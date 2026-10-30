@@ -91,17 +91,13 @@ actionability:
             self.assertTrue(res.data["fixable"])
             self.assertEqual(res.data["target_file"], "android/FrameBuffer.cpp")
 
-    @patch("lib.agent.AgentApiClient.start_conversation")
     @patch("commands.crash.autofix.CrashAdvisorRunner.run")
     @patch("commands.crash.autofix.acquire_auth_token")
     def test_run_autofix_dispatch(
-        self, mock_acquire_token, mock_runner_run, mock_start_conv
+        self, mock_acquire_token, mock_runner_run
     ):
         """Tests autofix command successfully dispatching agent conversation."""
         mock_acquire_token.return_value = "token_abc"
-        mock_start_conv.return_value = MagicMock(
-            returncode=0, stdout="Conversation ID: 1234"
-        )
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             rca_file = os.path.join(tmp_dir, "rca_summary.md")

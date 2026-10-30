@@ -223,6 +223,9 @@ Crashing Thread:
             with patch(
                 "commands.update_cmd.get_source_directory", return_value=tmp_dir
             ), patch(
+                "commands.update_cmd.get_release_package_directory",
+                return_value=os.path.join(tmp_dir, "release"),
+            ), patch(
                 "commands.update_cmd.find_bazel_cmd", return_value="bazel"
             ), patch(
                 "commands.update_cmd.subprocess.run",

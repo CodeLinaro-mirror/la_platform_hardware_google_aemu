@@ -53,7 +53,7 @@ class UpdatePrebuiltTest(unittest.TestCase):
 
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
-    @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
+    @patch("lib.prebuilt_updater.ProdArtifactService.download_artifact")
     def test_update_lavapipe_linux_x64_by_build_number(
         self,
         mock_download,
@@ -115,7 +115,7 @@ class UpdatePrebuiltTest(unittest.TestCase):
 
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
-    @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
+    @patch("lib.prebuilt_updater.ProdArtifactService.download_artifact")
     def test_update_lavapipe_dry_run_does_not_modify_files(
         self,
         mock_download,
@@ -166,7 +166,7 @@ class UpdatePrebuiltTest(unittest.TestCase):
 
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
-    @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
+    @patch("lib.prebuilt_updater.ProdArtifactService.download_artifact")
     def test_update_lavapipe_mac_arm64(
         self,
         mock_download,
@@ -217,7 +217,7 @@ class UpdatePrebuiltTest(unittest.TestCase):
 
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
-    @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
+    @patch("lib.prebuilt_updater.ProdArtifactService.download_artifact")
     def test_update_lavapipe_win_x64_and_crlf_normalization(
         self,
         mock_download,
@@ -267,7 +267,7 @@ class UpdatePrebuiltTest(unittest.TestCase):
 
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
-    @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
+    @patch("lib.prebuilt_updater.ProdArtifactService.download_artifact")
     def test_update_lavapipe_default_all_targets(
         self,
         mock_download,
@@ -390,7 +390,7 @@ class UpdatePrebuiltTest(unittest.TestCase):
         self.assertEqual(res["status"], "success")
 
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
-    @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
+    @patch("lib.prebuilt_updater.ProdArtifactService.download_artifact")
     def test_fetch_ab_artifact_with_custom_zip(
         self, mock_download, mock_find_fetch_tool
     ):
@@ -452,7 +452,7 @@ class UpdatePrebuiltTest(unittest.TestCase):
 
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
-    @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
+    @patch("lib.prebuilt_updater.ProdArtifactService.download_artifact")
     def test_update_kosmickrisp_mac_arm64(
         self,
         mock_download,
@@ -516,7 +516,7 @@ class UpdatePrebuiltTest(unittest.TestCase):
 
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
-    @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
+    @patch("lib.prebuilt_updater.ProdArtifactService.download_artifact")
     def test_update_android_device_hub_all_targets(
         self,
         mock_download,
@@ -592,7 +592,7 @@ class UpdatePrebuiltTest(unittest.TestCase):
 
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
-    @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
+    @patch("lib.prebuilt_updater.ProdArtifactService.download_artifact")
     def test_update_android_device_hub_linux_arm_alias_and_missing_leaf_dir(
         self,
         mock_download,
@@ -652,8 +652,8 @@ class UpdatePrebuiltTest(unittest.TestCase):
 
     @patch("commands.update_prebuilt.check_authentication_status")
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
-    @patch("lib.prebuilt_updater.AndroidBuildClient.get_latest_build_id")
-    @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
+    @patch("lib.prebuilt_updater.ProdArtifactService.resolve_build_id")
+    @patch("lib.prebuilt_updater.ProdArtifactService.download_artifact")
     def test_update_android_device_hub_common_dir_layout_dedups_studio_linux_bid(
         self,
         mock_download,
@@ -716,7 +716,7 @@ class UpdatePrebuiltTest(unittest.TestCase):
             )
 
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
-    @patch("lib.prebuilt_updater.AndroidBuildClient.get_latest_build_id")
+    @patch("lib.prebuilt_updater.ProdArtifactService.resolve_build_id")
     def test_resolve_build_number_latest(
         self, mock_get_latest_bid, mock_find_fetch_tool
     ):

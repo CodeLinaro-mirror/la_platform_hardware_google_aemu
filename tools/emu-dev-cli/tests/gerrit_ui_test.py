@@ -41,27 +41,39 @@ from commands.gerrit.ai_analysis import (
     parse_ai_analysis_from_conversation,
     resolve_local_repo_root,
 )
-from commands.gerrit.ui_server import (
+from commands.gerrit.ui_server import GerritUIService
+from commands.gerrit.services.diff_parser import (
     AEMU_MAP_BASE_URL,
-    GerritUIService,
     build_aemu_map_commit_url,
     build_code_search_file_url,
-    build_viewer_gerrit_query,
     classify_commit_type,
     classify_risk_and_load,
+    extract_commit_message_from_patch,
+    extract_enclosing_function_from_diff_lines,
+    extract_symbol_from_code_line,
+    format_repo_display_path,
+    parse_unified_diff_files,
+    resolve_code_search_base_url,
+)
+from commands.gerrit.services.inline_qa_service import (
+    build_code_question_prompt,
     discover_transcript_code_questions,
+    parse_code_questions_from_transcript_lines,
+)
+from commands.gerrit.services.queue_service import (
+    build_viewer_gerrit_query,
     enrich_change_for_ui,
     extract_bug_ids_from_change,
-    format_repo_display_path,
     group_changes_into_stacks,
     is_agent_authored_or_uploaded,
     is_agent_or_bot_email,
     is_explicit_reviewer,
-    make_gerrit_ui_handler,
     parse_issues_search_output,
-    parse_unified_diff_files,
+)
+from commands.gerrit.ui_server import (
+    GerritUIService,
+    make_gerrit_ui_handler,
     render_static_gerrit_ui_html,
-    resolve_code_search_base_url,
 )
 from lib.web_security import MAX_JSON_BODY_BYTES
 
@@ -283,10 +295,7 @@ class GerritUIServerTest(unittest.TestCase):
             self.assertNotIn("__EMU_DEV_CLI_SRC_DIR__", server_text)
 
     def test_rendered_ui_inlines_sidecar_preload_without_external_script(self) -> None:
-        from commands.gerrit.ui_server import (
-            SIDECAR_PRELOAD_SCRIPT_TAG,
-            render_static_gerrit_ui_html,
-        )
+        from core.web.assets import SIDECAR_PRELOAD_SCRIPT_TAG
 
         html = render_static_gerrit_ui_html(
             {"viewer": "joshuaduong@google.com", "changes": [], "note": "测试_🚀_é"}
@@ -302,7 +311,7 @@ class GerritUIServerTest(unittest.TestCase):
         # 1) $USER resolves to <user>@google.com when AEMU_GERRIT_VIEWER, auth_email, and git config are unset
         with (
             patch.object(GerritUIService, "_detect_auth_email", return_value=""),
-            patch("commands.gerrit.ui_server.subprocess.run", return_value=empty_git),
+            patch("subprocess.run", return_value=empty_git),
             patch.dict(os.environ, {"USER": "Jansene", "USERNAME": ""}, clear=True),
         ):
             svc_user = GerritUIService()
@@ -311,7 +320,7 @@ class GerritUIServerTest(unittest.TestCase):
         # 2) $USERNAME (including Windows DOMAIN\user) resolves when $USER is unset
         with (
             patch.object(GerritUIService, "_detect_auth_email", return_value=""),
-            patch("commands.gerrit.ui_server.subprocess.run", return_value=empty_git),
+            patch("subprocess.run", return_value=empty_git),
             patch.dict(os.environ, {"USERNAME": r"GOOGLE\Joshuaduong"}, clear=True),
         ):
             svc_win = GerritUIService()
@@ -320,9 +329,9 @@ class GerritUIServerTest(unittest.TestCase):
         # 3) getpass.getuser() fallback when neither USER nor USERNAME is in os.environ
         with (
             patch.object(GerritUIService, "_detect_auth_email", return_value=""),
-            patch("commands.gerrit.ui_server.subprocess.run", return_value=empty_git),
+            patch("subprocess.run", return_value=empty_git),
             patch.dict(os.environ, {}, clear=True),
-            patch("commands.gerrit.ui_server.getpass.getuser", return_value="corakwue"),
+            patch("commands.gerrit.services.queue_service.getpass.getuser", return_value="corakwue"),
         ):
             svc_getpass = GerritUIService()
             self.assertEqual(svc_getpass.default_viewer, "corakwue@google.com")
@@ -343,8 +352,8 @@ class GerritUIServerTest(unittest.TestCase):
 
         with (
             patch.object(GerritUIService, "_detect_auth_email", return_value="groupagent-android-emulator@google.com"),
-            patch("commands.gerrit.ui_server.subprocess.run", side_effect=fake_subprocess_cpl),
-            patch("commands.gerrit.ui_server.socket.gethostname", return_value="cpl-test-box-123.c.googlers.com"),
+            patch("subprocess.run", side_effect=fake_subprocess_cpl),
+            patch("commands.gerrit.services.queue_service.socket.gethostname", return_value="cpl-test-box-123.c.googlers.com"),
             patch.dict(os.environ, {"USER": "groupagent-android-emulator"}, clear=True),
         ):
             svc_capsule = GerritUIService()
@@ -354,8 +363,8 @@ class GerritUIServerTest(unittest.TestCase):
         for non_ldap_user in ("root", "测试_🚀_é"):
             with (
                 patch.object(GerritUIService, "_detect_auth_email", return_value=""),
-                patch("commands.gerrit.ui_server.subprocess.run", return_value=empty_git),
-                patch("commands.gerrit.ui_server.socket.gethostname", return_value="workstation.local"),
+                patch("subprocess.run", return_value=empty_git),
+                patch("commands.gerrit.services.queue_service.socket.gethostname", return_value="workstation.local"),
                 patch.dict(os.environ, {"USER": non_ldap_user}, clear=True),
             ):
                 svc_none = GerritUIService()
@@ -364,7 +373,7 @@ class GerritUIServerTest(unittest.TestCase):
         # 6) Explicit AEMU_GERRIT_VIEWER takes precedence over $USER
         with (
             patch.object(GerritUIService, "_detect_auth_email", return_value=""),
-            patch("commands.gerrit.ui_server.subprocess.run", return_value=empty_git),
+            patch("subprocess.run", return_value=empty_git),
             patch.dict(os.environ, {"AEMU_GERRIT_VIEWER": "rkir", "USER": "jansene"}, clear=True),
         ):
             svc_env = GerritUIService()
@@ -377,7 +386,7 @@ class GerritUIServerTest(unittest.TestCase):
         with (
             patch.object(GerritUIService, "_detect_auth_email", return_value=""),
             patch(
-                "commands.gerrit.ui_server.subprocess.run",
+                "subprocess.run",
                 return_value=subprocess.CompletedProcess(["git"], 1, stdout="", stderr=""),
             ),
             patch.dict(os.environ, {"USER": "jansene"}, clear=True),
@@ -808,7 +817,8 @@ setImmediate(() => {
                 return MagicMock(returncode=0, stdout=")]}'\n{}", stderr="")
 
             with patch(
-                "commands.gerrit.ui_server.resolve_swarm_dir_for_cl", return_value=out_dir
+                "commands.gerrit.services.vote_submit_service.resolve_swarm_dir_for_cl",
+                return_value=out_dir,
             ), patch("shutil.which", return_value="/usr/bin/gob-curl"), patch(
                 "subprocess.run", side_effect=fake_post
             ):
@@ -939,8 +949,6 @@ setImmediate(() => {
             self.assertEqual(enriched["bugs"][0]["priority"], "P1")
             self.assertEqual(enriched["bugs"][0]["severity"], "S1")
 
-        from commands.gerrit.ui_server import extract_commit_message_from_patch
-
         patch_msg = extract_commit_message_from_patch(
             "From 1234567890abcdef Mon Sep 17 00:00:00 2001\n"
             "From: Test Author <test@google.com>\n"
@@ -981,8 +989,6 @@ setImmediate(() => {
         self.assertIn("window.__GERRIT_UI_VERSION__ =", rendered_html)
 
     def test_post_inline_comment_and_ask_agent_about_code(self) -> None:
-        from commands.gerrit.ui_server import build_code_question_prompt
-
         prompt = build_code_question_prompt(
             cl_number=43152171,
             file_path="emulator/net/socket_测试_🚀_é.cc",
@@ -1036,7 +1042,7 @@ setImmediate(() => {
         self.assertTrue(file_comments[0]["unresolved"])
 
         with patch(
-            "commands.gerrit.ui_server._run_sidecar_agentapi",
+            "commands.gerrit.services.inline_qa_service._run_sidecar_agentapi",
             return_value={"conversationId": "conv-123"},
         ) as mock_agentapi:
             ask_res = service.ask_agent_about_code(
@@ -1051,8 +1057,6 @@ setImmediate(() => {
             self.assertEqual(ask_res["status"], "ok")
             self.assertTrue(ask_res["dispatched"])
             mock_agentapi.assert_called_once()
-
-        from commands.gerrit.ui_server import parse_code_questions_from_transcript_lines
 
         tx_lines = [
             json.dumps(
@@ -1431,7 +1435,7 @@ setImmediate(() => {
 
         unicode_msg = 'Hi Erwin, could you review http://ag/43217292 ("测试_🚀_é")? Thanks!'
         with patch(
-            "commands.gerrit.ui_server._resolve_gchat_cli_bin",
+            "commands.gerrit.services.vote_submit_service._resolve_gchat_cli_bin",
             return_value="/google/bin/releases/gemini-agents-gchat/gchat",
         ), patch("subprocess.run", side_effect=fake_gchat_run):
             res = service.send_reviewer_chat_dm(43217292, "jansene", unicode_msg)
@@ -1464,7 +1468,8 @@ setImmediate(() => {
 
         # Actionable error when gchat CLI is unavailable
         with patch(
-            "commands.gerrit.ui_server._resolve_gchat_cli_bin", return_value=None
+            "commands.gerrit.services.vote_submit_service._resolve_gchat_cli_bin",
+            return_value=None,
         ), self.assertRaisesRegex(RuntimeError, "Copy Text"):
             service.send_reviewer_chat_dm(43217292, "jansene@google.com", unicode_msg)
 
@@ -1476,7 +1481,7 @@ setImmediate(() => {
         srv_thread.start()
         try:
             with patch(
-                "commands.gerrit.ui_server._resolve_gchat_cli_bin",
+                "commands.gerrit.services.vote_submit_service._resolve_gchat_cli_bin",
                 return_value="/google/bin/releases/gemini-agents-gchat/gchat",
             ), patch("subprocess.run", side_effect=fake_gchat_run):
                 req_ok = urllib.request.Request(
@@ -2064,7 +2069,10 @@ setImmediate(() => {
             patch.object(service.client, "get_revision_patch", return_value=raw_patch) as mock_patch,
             patch.object(service.client, "get_comment_threads", return_value=[]) as mock_threads,
             patch.object(service.client, "get_change_detail") as mock_detail,
-            patch("commands.gerrit.ui_server.discover_transcript_code_questions", return_value=[]),
+            patch(
+                "commands.gerrit.services.inline_qa_service.discover_transcript_code_questions",
+                return_value=[],
+            ),
         ):
             b1 = service.fetch_commit_diff_bundle(43260002)
             self.assertEqual(b1["files"][0]["file"], "src/测试_🚀_é.cc")
@@ -2594,11 +2602,6 @@ setImmediate(() => {
         self.assertNotIn('class="gate-pill active"', extra_body_inner)
 
     def test_extract_enclosing_function_from_diff_lines_with_unicode(self) -> None:
-        from commands.gerrit.ui_server import (
-            extract_enclosing_function_from_diff_lines,
-            extract_symbol_from_code_line,
-        )
-
         self.assertEqual(
             extract_symbol_from_code_line("  async def handle_测试_🚀_é(req, ctx):"),
             "handle_测试_🚀_é",
@@ -2660,9 +2663,12 @@ setImmediate(() => {
 
             with (
                 patch.dict(os.environ, {"ANTIGRAVITY_SIDECAR_CONVERSATION_ID": "main-chat-conv"}),
-                patch("commands.gerrit.ui_server._run_sidecar_agentapi", side_effect=fake_agentapi),
                 patch(
-                    "commands.gerrit.ui_server.discover_transcript_code_questions",
+                    "commands.gerrit.services.inline_qa_service._run_sidecar_agentapi",
+                    side_effect=fake_agentapi,
+                ),
+                patch(
+                    "commands.gerrit.services.inline_qa_service.discover_transcript_code_questions",
                     side_effect=scoped_discover,
                 ),
             ):
@@ -2787,10 +2793,16 @@ setImmediate(() => {
                 return orig_discover(*d_args, **d_kwargs)
 
             with (
-                patch("commands.gerrit.ui_server._run_sidecar_agentapi", side_effect=fake_agentapi),
-                patch("commands.gerrit.ui_server._call_local_language_server_rpc", side_effect=fake_ls_rpc),
                 patch(
-                    "commands.gerrit.ui_server.discover_transcript_code_questions",
+                    "commands.gerrit.services.inline_qa_service._run_sidecar_agentapi",
+                    side_effect=fake_agentapi,
+                ),
+                patch(
+                    "commands.gerrit.services.inline_qa_service._call_local_language_server_rpc",
+                    side_effect=fake_ls_rpc,
+                ),
+                patch(
+                    "commands.gerrit.services.inline_qa_service.discover_transcript_code_questions",
                     side_effect=scoped_discover,
                 ),
             ):
@@ -3139,9 +3151,18 @@ setImmediate(() => {
 
             with (
                 patch.object(service, "fetch_commit_diff_bundle", return_value=fake_bundle),
-                patch("commands.gerrit.ui_server._run_sidecar_agentapi", side_effect=fake_agentapi),
-                patch("commands.gerrit.ui_server._call_local_language_server_rpc", side_effect=fake_ls_rpc),
-                patch("commands.gerrit.ui_server.discover_transcript_code_questions", side_effect=scoped_discover),
+                patch(
+                    "commands.gerrit.services.inline_qa_service._run_sidecar_agentapi",
+                    side_effect=fake_agentapi,
+                ),
+                patch(
+                    "commands.gerrit.services.inline_qa_service._call_local_language_server_rpc",
+                    side_effect=fake_ls_rpc,
+                ),
+                patch(
+                    "commands.gerrit.services.inline_qa_service.discover_transcript_code_questions",
+                    side_effect=scoped_discover,
+                ),
                 patch("commands.gerrit.ai_analysis.fetch_buganizer_context", return_value=""),
             ):
                 # 1. Default GET never auto-triggers an agent run.
@@ -4059,8 +4080,11 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
             stderr="",
         )
         with (
-            patch("commands.gerrit.ui_server.shutil.which", return_value="/usr/bin/gob-curl"),
-            patch("commands.gerrit.ui_server.subprocess.run", return_value=fake_proc) as mock_run,
+            patch(
+                "commands.gerrit.services.vote_submit_service.shutil.which",
+                return_value="/usr/bin/gob-curl",
+            ),
+            patch("subprocess.run", return_value=fake_proc) as mock_run,
         ):
             gob_res = service.reply_inline_comment(
                 cl_number=43152171,
@@ -4879,11 +4903,13 @@ console.log("POLYGERRIT_UI_FORK_OK");
         import shutil
         import subprocess
         import tempfile
-        from commands.gerrit.ui_server import (
-            GerritUIService,
+        from commands.gerrit.services.queue_service import (
             build_viewer_gerrit_query,
             enrich_change_for_ui,
             is_cc_reviewer,
+        )
+        from commands.gerrit.ui_server import (
+            GerritUIService,
             render_static_gerrit_ui_html,
         )
 
@@ -5299,10 +5325,8 @@ console.log("POLYGERRIT_DASHBOARD_UX_OK");
         import shutil
         import subprocess
         import tempfile
-        from commands.gerrit.ui_server import (
-            enrich_change_for_ui,
-            render_static_gerrit_ui_html,
-        )
+        from commands.gerrit.services.queue_service import enrich_change_for_ui
+        from commands.gerrit.ui_server import render_static_gerrit_ui_html
 
         # 1. Verify submit_type is propagated by enrich_change_for_ui.
         now_dt = datetime(2026, 10, 29, 16, 0, 0, tzinfo=timezone.utc)

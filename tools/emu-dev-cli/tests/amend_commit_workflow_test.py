@@ -52,13 +52,9 @@ class TestAmendCommitWorkflowIntegration(unittest.TestCase):
         self.verifier_py = os.path.join(self.workflow_dir, "verify_amend.py")
         self.verify_proposed_msg_py = os.path.join(self.workflow_dir, "verify_proposed_msg.py")
         self.setup_msg_files_py = os.path.join(self.workflow_dir, "setup_msg_files.py")
-        self.extract_change_id_py = os.path.join(self.workflow_dir, "extract_change_id.py")
-        self.get_base_commit_py = os.path.join(self.workflow_dir, "get_base_commit.py")
         self.assertTrue(os.path.isfile(self.verifier_py))
         self.assertTrue(os.path.isfile(self.verify_proposed_msg_py))
         self.assertTrue(os.path.isfile(self.setup_msg_files_py))
-        self.assertTrue(os.path.isfile(self.extract_change_id_py))
-        self.assertTrue(os.path.isfile(self.get_base_commit_py))
 
     def test_workflow_discovery(self):
         workflows = list_available_workflows()
@@ -251,16 +247,6 @@ class TestAmendCommitWorkflowIntegration(unittest.TestCase):
             )
             self.assertEqual(v_res2.returncode, 1)
             self.assertIn("Change-Id must not be modified", v_res2.stderr)
-
-    def test_init_fails_on_non_git_dir(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            res = subprocess.run(
-                [sys.executable, self.get_base_commit_py, "HEAD", "--cwd", tmpdir],
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(res.returncode, 1)
-            self.assertIn("not a Git repository", res.stderr)
 
 
 if __name__ == "__main__":

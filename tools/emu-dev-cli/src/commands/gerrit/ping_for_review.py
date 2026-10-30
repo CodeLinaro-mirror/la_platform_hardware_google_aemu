@@ -279,7 +279,9 @@ class GerritPingForReviewCommand(Command[PingArgs, PingResult]):
     ) -> GerritClient:
         if self._gerrit_client_factory is not None:
             return self._gerrit_client_factory(ctx, host)
-        return GerritClient(host=host, runner=ctx.process_runner)
+        return GerritClient(
+            host=host, runner=ctx.process_runner, prefer_cli=True
+        )
 
     def execute(
         self, args: PingArgs | argparse.Namespace, ctx: ExecutionContext

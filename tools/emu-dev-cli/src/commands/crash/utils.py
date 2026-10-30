@@ -144,9 +144,7 @@ def acquire_auth_token(user_token: Optional[str] = None) -> Optional[str]:
 
 
 from commands.crash.fix_checker import (
-    CrashFixChecker,
     FixStatusResult,
-    check_buganizer_fixed_status,
     check_git_history_fixes,
     evaluate_crash_fix_status,
     extract_crash_version_info,
@@ -154,12 +152,10 @@ from commands.crash.fix_checker import (
 )
 
 __all__ = [
-    "CrashFixChecker",
     "FixStatusResult",
     "OAuthTokenManager",
     "StackTraceParser",
     "acquire_auth_token",
-    "check_buganizer_fixed_status",
     "check_git_history_fixes",
     "create_secure_sandbox_dir",
     "evaluate_crash_fix_status",

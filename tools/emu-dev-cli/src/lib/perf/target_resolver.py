@@ -21,7 +21,6 @@ import os
 import platform
 import re
 import shutil
-import sys
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
@@ -37,15 +36,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_STABLE_VERSION = "37.2.12"
 DEFAULT_STABLE_BUILD_ID = "16428233"
 ANDROID_REPO_XML_URL = "https://dl.google.com/android/repository/repository2-3.xml"
-
-
-def _resolve_emulator_executable_fn():
-    perf_runner_mod = sys.modules.get("lib.perf_runner")
-    if perf_runner_mod is not None:
-        patched = getattr(perf_runner_mod, "resolve_emulator_executable", None)
-        if patched is not None:
-            return patched
-    return resolve_emulator_executable
 
 
 def _read_pkg_revision(prop_path: str) -> Optional[str]:
@@ -128,8 +118,7 @@ def _build_emulator_dir_target(
     default_engine: Optional[str] = None,
 ) -> ResolvedPerfTarget:
     """Constructs a `ResolvedPerfTarget` for an emulator directory."""
-    resolve_fn = _resolve_emulator_executable_fn()
-    emu_bin, base_dir = resolve_fn(target_dir)
+    emu_bin, base_dir = resolve_emulator_executable(target_dir)
     meta = inspect_emulator_dir_metadata(base_dir)
     engine = meta.get("engine") or default_engine
     build_id = build_id_override or meta.get("build_id")
@@ -234,8 +223,7 @@ def _resolve_tree_or_local_target(
 ) -> ResolvedPerfTarget:
     if spec.lower() == "local":
         try:
-            resolve_fn = _resolve_emulator_executable_fn()
-            emu_bin, base_dir = resolve_fn(None)
+            emu_bin, base_dir = resolve_emulator_executable(None)
             meta = inspect_emulator_dir_metadata(base_dir)
             return ResolvedPerfTarget(
                 spec=spec,
@@ -433,8 +421,7 @@ def _resolve_stable_target(
         if platform.system().lower() == "darwin":
             runner.run(["xattr", "-cr", emu_subdir], check=False)
 
-    resolve_fn = _resolve_emulator_executable_fn()
-    emu_bin, base_dir = resolve_fn(emu_subdir)
+    emu_bin, base_dir = resolve_emulator_executable(emu_subdir)
     meta = inspect_emulator_dir_metadata(base_dir)
     return ResolvedPerfTarget(
         spec=spec,
@@ -538,8 +525,7 @@ def _resolve_ab_build_target(
 
     for cand in search_dirs:
         if os.path.isdir(cand):
-            resolve_fn = _resolve_emulator_executable_fn()
-            emu_bin, base_dir = resolve_fn(cand)
+            emu_bin, base_dir = resolve_emulator_executable(cand)
             meta = inspect_emulator_dir_metadata(base_dir)
             resolved_bid = build_id or meta.get("build_id") or spec
             eng_suffix = f" ({meta['engine']})" if meta.get("engine") else ""

@@ -29,9 +29,9 @@ import zipfile
 from clients.artifact_service import (
     DEFAULT_FETCH_ARTIFACT_BIN as FETCH_ARTIFACT_BIN,
     ArtifactService,
+    ProdArtifactService,
 )
 from core.process import ProcessRunner, SubprocessRunner
-from lib.android_build_client import AndroidBuildClient
 from lib.output import format_markdown_table
 from lib.workspace import WorkspacePathResolver
 
@@ -204,12 +204,12 @@ def resolve_build_number(
                     log_progress(f"  ✓ Resolved build: go/ab/{bid} ({elapsed:.1f}s)")
                     return bid
 
-    client = AndroidBuildClient(
+    service = artifact_service or ProdArtifactService(
+        proc_runner,
         token=token,
-        service=artifact_service,
-        process_runner=proc_runner,
+        use_fetch_artifact_cli=False,
     )
-    bid = str(client.get_latest_build_id(branch, ab_target))
+    bid = str(service.resolve_build_id(branch, ab_target))
     elapsed = time.monotonic() - start_ts
     log_progress(f"  ✓ Resolved build: go/ab/{bid} ({elapsed:.1f}s)")
     return bid
@@ -266,12 +266,12 @@ def fetch_ab_artifact(
         last_err = res.stderr.strip() or res.stdout.strip()
 
     try:
-        client = AndroidBuildClient(
+        service = artifact_service or ProdArtifactService(
+            proc_runner,
             token=token,
-            service=artifact_service,
-            process_runner=proc_runner,
+            use_fetch_artifact_cli=False,
         )
-        dl_path = client.download_artifact(
+        dl_path = service.download_artifact(
             str(build_number), ab_target, artifact, str(out_dir)
         )
         if zip_entries:

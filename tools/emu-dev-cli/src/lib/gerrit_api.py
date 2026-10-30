@@ -43,13 +43,11 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-from core.process import FakeProcessRunner, ProcessRunner, SubprocessRunner
+from core.process import ProcessRunner, SubprocessRunner
 from lib.oauth import OAuthTokenManager, get_ssl_context
 from lib.workspace import WorkspacePathResolver
 
 logger = logging.getLogger(__name__)
-
-_DEFAULT_URLOPEN = urllib.request.urlopen
 
 DEFAULT_GERRIT_HOST = "https://googleplex-android-review.git.corp.google.com"
 GERRIT_OAUTH_SCOPE = "https://www.googleapis.com/auth/gerritcodereview"
@@ -329,6 +327,8 @@ class GerritClient:
         *,
         runner: ProcessRunner | None = None,
         gob_curl_bin: str | None = None,
+        prefer_cli: bool = False,
+        urlopen: Callable[..., Any] | None = None,
     ) -> None:
         self.host = host.rstrip("/")
         self.api_host = self.host.replace(
@@ -337,9 +337,8 @@ class GerritClient:
         self._explicit_token = token
         self._runner = runner
         self._gob_curl_bin = gob_curl_bin
-        self._urllib_auth_failed = bool(
-            token is None and isinstance(runner, FakeProcessRunner)
-        )
+        self._urlopen = urlopen
+        self._urllib_auth_failed = bool(prefer_cli and token is None)
         self._conn_lock = threading.Lock()
         self._idle_conns: dict[str, list[http.client.HTTPSConnection]] = {}
         self._ssl_context = get_ssl_context()
@@ -472,10 +471,10 @@ class GerritClient:
         if body_bytes is not None:
             headers["Content-Type"] = "application/json; charset=UTF-8"
         try:
-            if urllib.request.urlopen is _DEFAULT_URLOPEN:
+            if self._urlopen is None:
                 return self._execute_keepalive_request(url, method, headers, body_bytes)
             req = urllib.request.Request(url, data=body_bytes, headers=headers, method=method)
-            with urllib.request.urlopen(
+            with self._urlopen(
                 req, context=self._ssl_context, timeout=GERRIT_HTTP_TIMEOUT_SEC
             ) as resp:
                 hdrs = getattr(resp, "headers", None)
@@ -546,7 +545,7 @@ class GerritClient:
         gob_curl = (
             self._gob_curl_bin
             or shutil.which("gob-curl")
-            or ("/usr/bin/gob-curl" if isinstance(self._runner, FakeProcessRunner) else None)
+            or ("/usr/bin/gob-curl" if self._runner is not None else None)
         )
         if gob_curl:
             cmd = [gob_curl, "-s", "-f", "-S", "--compressed", "-X", method]

@@ -32,7 +32,7 @@ from lib.perf_insights import (
     generate_diagnostic_insights,
     load_perf_history,
 )
-from lib.perf_runner import (
+from lib.perf import (
     compare_perf_reports,
     inspect_emulator_dir_metadata,
     load_perf_report_any_format,
@@ -57,7 +57,7 @@ from lib.perf_telemetry import (
 
 
 class PerfTelemetryAndInsightsTest(unittest.TestCase):
-    """Tests for src/lib/perf_telemetry.py, src/lib/perf_insights.py, and src/lib/perf_runner.py."""
+    """Tests for src/lib/perf_telemetry.py, src/lib/perf_insights.py, and src/lib/perf/."""
 
     def test_parse_proc_stat_line_handles_spaces_and_parens_in_comm(self):
         # Fields after comm: state(0) ppid(1) pgrp(2) session(3) tty(4) tpgid(5)
@@ -381,7 +381,7 @@ class PerfTelemetryAndInsightsTest(unittest.TestCase):
         self.assertIn("**FAIL**", md)
 
     def test_resolve_perf_avd_template(self):
-        from lib.perf_runner import _resolve_perf_avd_template
+        from lib.perf import _resolve_perf_avd_template
 
         with tempfile.TemporaryDirectory() as tmp:
             with open(os.path.join(tmp, "system.img"), "wb") as f:
@@ -616,29 +616,25 @@ TLB:        250        150        100         50   TLB shootdowns
         self.assertEqual(verdicts["cpu_ipi_ping_pong"], "GAIN")
 
     def test_run_snapshot_workload_load_waits_for_device(self):
-        from lib.perf_runner import run_snapshot_workload
+        from core.process import FakeProcessRunner, ProcessResult
+        from lib.perf import run_snapshot_workload
 
-        recorded_cmds = []
-
-        def fake_adb_cmd(serial, args, adb_bin="adb", timeout=60.0):
-            recorded_cmds.append(list(args))
-
-            class _Res:
-                returncode = 0
-                stdout = "OK\r\n"
-                stderr = ""
-
-            return _Res()
-
-        with patch(
-            "lib.perf_runner._adb_cmd", side_effect=fake_adb_cmd
-        ):
-            res = run_snapshot_workload(
-                workload_name="snapshot_load",
-                serial="emulator-5560",
-                emu_pid=None,
-                iterations=2,
+        runner = FakeProcessRunner(
+            default_result=ProcessResult(
+                args=(),
+                returncode=0,
+                stdout="OK\r\n",
+                stderr="",
             )
+        )
+        res = run_snapshot_workload(
+            workload_name="snapshot_load",
+            serial="emulator-5560",
+            emu_pid=None,
+            iterations=2,
+            process_runner=runner,
+        )
+        recorded_cmds = [list(call.args[3:]) for call in runner.calls]
         self.assertEqual(res["n"], 2)
         self.assertIn(
             ["emu", "avd", "snapshot", "save", "emu_perf_bench_snap"],
@@ -716,7 +712,7 @@ TLB:        250        150        100         50   TLB shootdowns
         self.assertAlmostEqual(s_out["kernel_to_app_ms_stdev"], 0.10)
 
     def test_ensure_valid_console_auth_token_clears_short_tokens(self):
-        from lib.perf_runner import _ensure_valid_console_auth_token
+        from lib.perf import _ensure_valid_console_auth_token
 
         with tempfile.TemporaryDirectory() as tmp:
             tok_file = os.path.join(tmp, ".emulator_console_auth_token")
@@ -736,7 +732,7 @@ TLB:        250        150        100         50   TLB shootdowns
                 self.assertEqual(f.read(), b"0123456789abcdef\n")
 
     def test_order_statistic_dominance_subframe_parity_and_weekly_report(self):
-        from lib.perf_runner import render_weekly_qualification_report
+        from lib.perf import render_weekly_qualification_report
 
         # 1. Sub-frame VSYNC latency jitter (< 1.0 ms p50 delta and < 0.5 ms mean delta with p > 0.05) -> PARITY (not NOISE)
         b_key = {
@@ -830,35 +826,37 @@ TLB:        250        150        100         50   TLB shootdowns
         self.assertNotIn("⚪ NOISE", report_md)
 
     def test_stabilize_guest_os_after_first_boot(self):
-        from lib.perf_runner import stabilize_guest_os_after_first_boot
+        from core.process import FakeProcessRunner, ProcessResult
+        from lib.perf import stabilize_guest_os_after_first_boot
 
         shell_cmds = []
         call_count = [0]
 
-        def fake_adb_cmd(serial, args, adb_bin="adb", timeout=60.0):
+        def handle_adb(call):
             call_count[0] += 1
+            args = list(call.args[3:])
             if args and args[0] == "shell":
                 shell_cmds.append(args[1])
-
-            class _Res:
-                returncode = 0
-                stdout = ""
-                stderr = ""
-
-            res = _Res()
+            stdout = ""
             if len(args) > 1 and "init.svc.bootanim" in args[1]:
-                res.stdout = "stopped\n1\nPM_OK\n"
+                stdout = "stopped\n1\nPM_OK\n"
             elif len(args) > 1 and "dex2oat" in args[1]:
-                # Simulate dex2oat busy on first poll, then drained on next 2 polls
-                res.stdout = "dex2oat64\n" if call_count[0] == 3 else ""
-            return res
+                stdout = "dex2oat64\n" if call_count[0] == 3 else ""
+            return ProcessResult(
+                args=call.args,
+                returncode=0,
+                stdout=stdout,
+                stderr="",
+            )
 
-        with (
-            patch("lib.perf_runner._adb_cmd", side_effect=fake_adb_cmd),
-            patch("time.sleep", return_value=None),
-        ):
+        runner = FakeProcessRunner()
+        runner.register_prefix(["adb", "-s", "emulator-5560"], handle_adb)
+
+        with patch("time.sleep", return_value=None):
             info = stabilize_guest_os_after_first_boot(
-                "emulator-5560", timeout_sec=30.0
+                "emulator-5560",
+                timeout_sec=30.0,
+                process_runner=runner,
             )
         self.assertEqual(info["last_busy_tasks"], "dex2oat64")
         joined_cmds = "\n".join(shell_cmds)
@@ -871,7 +869,7 @@ TLB:        250        150        100         50   TLB shootdowns
         self.assertIn("drop_caches", joined_cmds)
 
     def test_parse_emulator_boot_completed_ms_and_cleanup_stale_netsim(self):
-        from lib.perf_runner import (
+        from lib.perf import (
             _cleanup_stale_netsim,
             _parse_emulator_boot_completed_ms,
         )

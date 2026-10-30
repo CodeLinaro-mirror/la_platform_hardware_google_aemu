@@ -703,9 +703,11 @@ def resume_workflow_session(
         woke = False
         if os.environ.get("ANTIGRAVITY_LS_ADDRESS") and conv_id != detected_cid:
             try:
-                from lib.agent import AgentApiClient
-                AgentApiClient().send_message(
-                    recipient_id=conv_id,
+                from clients.agent_runtime_service import ProdAgentRuntimeService
+                from core.process import SubprocessRunner
+
+                ProdAgentRuntimeService(SubprocessRunner()).send_message(
+                    conversation_id=conv_id,
                     message=effective_msg,
                     title=f"Resume {resolved_wf_name} ({clean_id})",
                 )

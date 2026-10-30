@@ -79,9 +79,7 @@ RAW_SUBPROCESS_CEILINGS: Mapping[str, int] = {
     "src/core/process.py": 1,
     "src/install/installer.py": 2,
     "src/lib/bazel.py": 5,
-    "src/lib/buganizer.py": 1,
     "src/lib/corp_sso.py": 3,
-    "src/lib/diagnostics.py": 5,
     "src/lib/emulator.py": 2,
     "src/lib/gerrit_api.py": 6,
     "src/lib/git_transaction.py": 6,
@@ -92,7 +90,6 @@ RAW_SUBPROCESS_CEILINGS: Mapping[str, int] = {
     "src/lib/tidy_utils.py": 2,
     "workflows/address_review/verify_fixes.py": 1,
     "workflows/address_review/verify_upload_and_resolve.py": 1,
-    "workflows/amend_commit/get_base_commit.py": 1,
     "workflows/amend_commit/verify_amend.py": 1,
     "workflows/common/git_commit/commit_verifier.py": 7,
     "workflows/core/steps.py": 1,
@@ -146,8 +143,6 @@ ALL_EXIT_CEILINGS: Mapping[str, int] = {
     "workflows/address_review/prepare_review_batch.py": 1,
     "workflows/address_review/verify_fixes.py": 1,
     "workflows/address_review/verify_upload_and_resolve.py": 1,
-    "workflows/amend_commit/extract_change_id.py": 1,
-    "workflows/amend_commit/get_base_commit.py": 1,
     "workflows/amend_commit/setup_msg_files.py": 1,
     "workflows/amend_commit/verify_amend.py": 1,
     "workflows/amend_commit/verify_proposed_msg.py": 1,
@@ -505,6 +500,54 @@ def bad_helper(label: str = "测试_🚀_é") -> None:
         self.assertEqual(len(rep.unencoded_text_lines), 1)
         self.assertEqual(len(rep.sys_path_lines), 2)
         self.assertEqual(len(rep.exit_lines), 3)
+
+    def test_production_code_is_free_of_mock_probing_and_retired_facades(self) -> None:
+        retired_paths = (
+            "src/lib/agent.py",
+            "src/lib/android_build_client.py",
+            "src/lib/batched_engine.py",
+            "src/lib/buganizer.py",
+            "src/lib/diagnostics.py",
+            "src/lib/patch_verifier.py",
+            "src/lib/perf_runner.py",
+            "src/lib/planner.py",
+            "workflows/amend_commit/extract_change_id.py",
+            "workflows/amend_commit/get_base_commit.py",
+        )
+        for rel in retired_paths:
+            self.assertFalse(
+                (REPO_ROOT / rel).exists(),
+                f"Retired legacy facade/module {rel} must not be reintroduced",
+            )
+
+        forbidden_tokens = (
+            "_mock_name",
+            "assert_called",
+            "resolve_ui_hook",
+            "register_ui_hook",
+            "_resolve_patched_adb_cmd",
+            "_resolve_emulator_executable_fn",
+        )
+        for path in iter_non_test_python_files(REPO_ROOT):
+            rel = path.relative_to(REPO_ROOT).as_posix()
+            text = path.read_text(encoding="utf-8")
+            for token in forbidden_tokens:
+                self.assertNotIn(
+                    token,
+                    text,
+                    f"Production file {rel} must not probe mock/monkeypatch token {token!r}",
+                )
+            if not rel.startswith(("src/core/", "src/clients/")):
+                self.assertNotIn(
+                    "FakeProcessRunner",
+                    text,
+                    f"Production file {rel} must not branch on FakeProcessRunner",
+                )
+                self.assertNotIn(
+                    "_auth_status",
+                    text,
+                    f"Production file {rel} must not probe private fake attribute '_auth_status'",
+                )
 
 
 if __name__ == "__main__":

@@ -54,9 +54,7 @@ from commands.gerrit.services.diff_parser import (
     format_repo_display_path,
     get_gerrit_ui_template_version,
     parse_unified_diff_files,
-    register_ui_hook,
     resolve_code_search_base_url,
-    resolve_ui_hook,
 )
 from commands.harness.review_swarm_status import read_cl_swarm_status
 from core.process import SubprocessRunner
@@ -67,9 +65,6 @@ from lib.gerrit_api import (
     parse_cl_identifier,
     strip_xssi_prefix,
 )
-
-register_ui_hook("query_presubmit_targets_via_stubby", query_presubmit_targets_via_stubby)
-register_ui_hook("read_cl_swarm_status", read_cl_swarm_status)
 
 FRESH_THRESHOLD_HOURS = 24.0
 CLIFF_THRESHOLD_HOURS = 96.0
@@ -1920,7 +1915,7 @@ class GerritQueueService(GerritServiceBase):
                 if now_mono - cached_at < ttl:
                     return payload
 
-        payload = resolve_ui_hook("query_presubmit_targets_via_stubby", query_presubmit_targets_via_stubby)(
+        payload = query_presubmit_targets_via_stubby(
             cl_id=cl_id,
             patchset=resolved_ps,
             gerrit_host=self.host,
@@ -1941,7 +1936,7 @@ class GerritQueueService(GerritServiceBase):
             cleaned = str(raw_cl).strip()
             if not cleaned:
                 continue
-            status_obj = resolve_ui_hook("read_cl_swarm_status", read_cl_swarm_status)(cleaned, now_dt=now_dt)
+            status_obj = read_cl_swarm_status(cleaned, now_dt=now_dt)
             if status_obj is not None:
                 statuses[cleaned] = status_obj
         return statuses
@@ -1977,7 +1972,7 @@ class GerritQueueService(GerritServiceBase):
             "cl": cl_id,
             "exit_code": res.returncode,
             "result": parsed,
-            "swarm_status": resolve_ui_hook("read_cl_swarm_status", read_cl_swarm_status)(cl_id),
+            "swarm_status": read_cl_swarm_status(cl_id),
             "stderr": (res.stderr or "").strip(),
         }
 

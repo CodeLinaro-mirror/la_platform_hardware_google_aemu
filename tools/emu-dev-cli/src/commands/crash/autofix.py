@@ -18,6 +18,10 @@ import argparse
 from pathlib import Path
 from typing import Any
 
+from clients.agent_runtime_service import (
+    AgentDispatchRequest,
+    ProdAgentRuntimeService,
+)
 from commands.crash.advisor import CrashAdvisorRunner
 from commands.crash.fix_checker import (
     evaluate_crash_fix_status,
@@ -32,7 +36,7 @@ from commands.source_directory import get_source_directory
 from core.command import Command, CommandResult
 from core.context import ExecutionContext, SERVICE_AGENT_RUNTIME
 from core.errors import CommandValidationError, ExecutionError
-from lib.agent import AgentApiClient
+from core.process import SubprocessRunner
 from lib.markdown import extract_yaml_block
 
 
@@ -220,40 +224,19 @@ class CrashAutofixCommand(Command[argparse.Namespace, dict[str, Any]]):
             fix_status=fix_res,
         )
 
-        agent_runtime = ctx.services.get(SERVICE_AGENT_RUNTIME)
-        agent_def = ".gemini/agents/emu_main_next_engineer.md"
-        agent_model = "pro"
-        if agent_runtime and hasattr(agent_runtime, "start_conversation"):
-            try:
-                from clients.agent_runtime_service import AgentDispatchRequest
-
-                request = AgentDispatchRequest(
-                    prompt=prompt,
-                    agent_definition=agent_def,
-                    model=agent_model,
-                )
-                session = agent_runtime.start_conversation(request)
-            except (TypeError, ValueError):
-                session = agent_runtime.start_conversation(
-                    prompt=prompt,
-                    agent=agent_def,
-                    model=agent_model,
-                )
-            conv_id = getattr(session, "conversation_id", "")
-            agent_output = getattr(session, "stdout", "").strip()
-        elif agent_runtime and hasattr(agent_runtime, "send_prompt"):
-            res = agent_runtime.send_prompt(prompt)
-            conv_id = ""
-            agent_output = getattr(res, "stdout", "").strip()
-        else:
-            agent_client = AgentApiClient()
-            res = agent_client.start_conversation(
+        agent_runtime = (
+            ctx.services.get(SERVICE_AGENT_RUNTIME)
+            or ProdAgentRuntimeService(SubprocessRunner())
+        )
+        session = agent_runtime.start_conversation(
+            AgentDispatchRequest(
                 prompt=prompt,
-                agent=agent_def,
-                model=agent_model,
+                agent_definition=".gemini/agents/emu_main_next_engineer.md",
+                model="pro",
             )
-            conv_id = ""
-            agent_output = res.stdout.strip()
+        )
+        conv_id = getattr(session, "conversation_id", "") or ""
+        agent_output = (getattr(session, "stdout", "") or "").strip()
 
         payload = {
             "status": "dispatched",

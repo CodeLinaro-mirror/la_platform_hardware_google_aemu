@@ -22,7 +22,6 @@ from typing import Any
 
 from clients.artifact_service import (
     ArtifactService,
-    BuildMetadata,
     ProdArtifactService,
 )
 from core.command import Command, CommandGroup, CommandResult, bind_command
@@ -668,75 +667,6 @@ def _find_build(
     return next((m for m in history if m.build_id == str(build_id)), None)
 
 
-def _build_record(meta: BuildMetadata) -> dict[str, Any]:
-    """Converts BuildMetadata into the Android Build JSON record the analyzer reads."""
-    record = dict(meta.raw)
-    record.setdefault("buildId", meta.build_id)
-    record.setdefault("target", {"name": meta.target})
-    record.setdefault("branch", meta.branch)
-    record.setdefault("buildAttemptStatus", meta.status)
-    record.setdefault("successful", meta.successful)
-    record.setdefault("creationTimestamp", meta.creation_timestamp)
-    record.setdefault("completionTimestamp", meta.completion_timestamp)
-    record.setdefault("machineName", meta.machine_name)
-    return record
-
-
-class _ArtifactClientBridge:
-    """Presents an ArtifactService through the AndroidBuildClient calls `build_profile_analyzer` makes."""
-
-    def __init__(self, artifact_service: ArtifactService) -> None:
-        self._service = artifact_service
-
-    def get_latest_build_id(self, branch: str, target: str) -> str:
-        return self._service.resolve_build_id(branch, target)
-
-    def get_build(self, build_id: str, target: str) -> dict[str, Any] | None:
-        # Like AndroidBuildClient, metadata is best effort: the profiles still load without it.
-        try:
-            meta = self._service.get_build(build_id, target)
-        except EmuCliError as exc:
-            logger.debug("Build metadata unavailable for %s/%s: %s", build_id, target, exc)
-            return None
-        return _build_record(meta) if meta else None
-
-    def list_builds(
-        self,
-        branch: str,
-        target: str,
-        limit: int = DEFAULT_LIMIT,
-        include_building: bool = False,
-    ) -> list[dict[str, Any]]:
-        builds = self._service.list_builds(
-            branch, target, limit=limit, include_building=include_building
-        )
-        return [_build_record(meta) for meta in builds]
-
-    def list_artifacts(self, build_id: str, target: str) -> list[str]:
-        if hasattr(self._service, "list_artifacts"):
-            return [
-                artifact.name if hasattr(artifact, "name") else str(artifact)
-                for artifact in self._service.list_artifacts(build_id, target)
-            ]
-        return []
-
-    def download_artifact(
-        self, build_id: str, target: str, artifact: str, dest_dir: str
-    ) -> str:
-        if hasattr(self._service, "download_artifact"):
-            return str(self._service.download_artifact(build_id, target, artifact, dest_dir))
-        if hasattr(self._service, "fetch_artifact"):
-            return str(
-                self._service.fetch_artifact(
-                    build_id=build_id,
-                    target=target,
-                    artifact_name=artifact,
-                    dest_dir=dest_dir,
-                )
-            )
-        return str(self._service.download_artifact(build_id, target, artifact, dest_dir))
-
-
 def _artifact_service_for_token(ctx: ExecutionContext, token: str) -> ArtifactService:
     """Builds the production ArtifactService that authenticates REST calls with `--token`."""
     return ProdArtifactService(ctx.process_runner, event_bus=ctx.event_bus, token=token)
@@ -787,16 +717,14 @@ class _BuildTimesBaseCommand(Command[argparse.Namespace, dict[str, Any]]):
 
     def _client(
         self, args: argparse.Namespace, ctx: ExecutionContext
-    ) -> _ArtifactClientBridge:
+    ) -> ArtifactService:
         token = getattr(args, "token", None)
         if token and (
             self._token_service_factory is not _artifact_service_for_token
             or isinstance(ctx.artifact_service, ProdArtifactService)
         ):
-            service = self._token_service_factory(ctx, token)
-        else:
-            service = ctx.artifact_service
-        return _ArtifactClientBridge(service)
+            return self._token_service_factory(ctx, token)
+        return ctx.artifact_service
 
 
 class BuildTimesInspectCommand(_BuildTimesBaseCommand):
@@ -839,7 +767,7 @@ class BuildTimesInspectCommand(_BuildTimesBaseCommand):
         targets = _resolve_targets(str(getattr(args, "target", DEFAULT_INSPECT_TARGET)))
         client = self._client(args, ctx)
         build_id = str(
-            getattr(args, "build_id", None) or client.get_latest_build_id(branch, targets[0])
+            getattr(args, "build_id", None) or client.resolve_build_id(branch, targets[0])
         )
         profiles = self._analyze_targets(
             client,
@@ -875,7 +803,7 @@ class BuildTimesInspectCommand(_BuildTimesBaseCommand):
 
     def _analyze_targets(
         self,
-        client: _ArtifactClientBridge,
+        client: ArtifactService,
         build_id: str,
         targets: Sequence[str],
         branch: str,

@@ -36,8 +36,6 @@ from commands.gerrit.services.diff_parser import (
     GerritServiceBase,
     extract_enclosing_function_from_diff_lines,
     extract_symbol_from_code_line,
-    register_ui_hook,
-    resolve_ui_hook,
 )
 from core.process import SubprocessRunner
 from lib.gerrit_api import parse_cl_identifier
@@ -438,13 +436,6 @@ def _run_sidecar_agentapi(args: list[str], project_id: str | None = None) -> dic
     )
 
 
-
-
-register_ui_hook("discover_transcript_code_questions", discover_transcript_code_questions)
-register_ui_hook("_call_local_language_server_rpc", _call_local_language_server_rpc)
-register_ui_hook("_run_sidecar_agentapi", _run_sidecar_agentapi)
-
-
 class GerritInlineQaService(GerritServiceBase):
     """Domain service for Jetski inline code Q&A threads and AI intangibles analysis."""
 
@@ -556,7 +547,7 @@ class GerritInlineQaService(GerritServiceBase):
             tracked = set(self._tracked_qa_conv_ids)
             deleted = set(self._deleted_qa_conv_ids) | set(self._analyzer_conv_ids)
             ignored = {k: set(v) for k, v in self._ignored_steps_by_conv.items()}
-        tx_items = resolve_ui_hook("discover_transcript_code_questions", discover_transcript_code_questions)(
+        tx_items = discover_transcript_code_questions(
             conversation_id=conversation_id,
             cl_numbers=cleaned or None,
             extra_conversation_ids=tracked,
@@ -576,7 +567,7 @@ class GerritInlineQaService(GerritServiceBase):
         if not parent_conv:
             return None
         try:
-            meta_res = resolve_ui_hook("_run_sidecar_agentapi", _run_sidecar_agentapi)(["get-conversation-metadata", parent_conv])
+            meta_res = _run_sidecar_agentapi(["get-conversation-metadata", parent_conv])
             pid = _extract_agentapi_project_id(meta_res)
             if pid:
                 self._cached_project_id = pid
@@ -641,13 +632,13 @@ class GerritInlineQaService(GerritServiceBase):
         """Dispatches `prompt` to `target_conv_id` or starts an isolated background conversation."""
         try:
             if target_conv_id:
-                res = resolve_ui_hook("_run_sidecar_agentapi", _run_sidecar_agentapi)(
+                res = _run_sidecar_agentapi(
                     ["send-message", target_conv_id, prompt],
                     project_id=project_id,
                 )
                 return True, target_conv_id, res
             resolved_pid = self._resolve_sidecar_project_id(project_id)
-            res = resolve_ui_hook("_run_sidecar_agentapi", _run_sidecar_agentapi)(
+            res = _run_sidecar_agentapi(
                 ["new-conversation", "--title", title, prompt],
                 project_id=resolved_pid,
             )
@@ -820,12 +811,12 @@ class GerritInlineQaService(GerritServiceBase):
         """Cancels an in-flight LS invocation and deletes or rewinds its latest turn step."""
         if not conv_id:
             return
-        resolve_ui_hook("_call_local_language_server_rpc", _call_local_language_server_rpc)(
+        _call_local_language_server_rpc(
             "CancelCascadeInvocation",
             {"cascadeId": conv_id, "killBackgroundTasks": True},
         )
         if delete_entire_conv:
-            resolve_ui_hook("_call_local_language_server_rpc", _call_local_language_server_rpc)(
+            _call_local_language_server_rpc(
                 "DeleteCascadeTrajectory",
                 {"cascadeId": conv_id},
             )
@@ -838,7 +829,7 @@ class GerritInlineQaService(GerritServiceBase):
         prev_end_step = prev_turn.get("end_step_index") if prev_turn else None
         latest_step = turns[-1].get("step_index") if turns else None
         if prev_end_step is not None:
-            resolve_ui_hook("_call_local_language_server_rpc", _call_local_language_server_rpc)(
+            _call_local_language_server_rpc(
                 "RevertToCascadeStep",
                 {
                     "cascadeId": conv_id,

@@ -27,7 +27,6 @@ from commands.source_directory import (
     get_source_directory,
 )
 from install.installer import (
-    _default_user_release_dir,
     detect_default_install_path,
     get_release_package_directory,
     install_launcher_wrapper,
@@ -37,7 +36,6 @@ from install.installer import (
 from lib.bazel import find_bazel_cmd
 from lib.output import ensure_utf8_stdio, print_result, print_status
 from lib.version import (
-    build_version_record,
     compare_versions,
     format_commit_label,
     inspect_source_version,
@@ -66,8 +64,6 @@ def _resolve_installer_hooks(source_dir: str):
     """Loads `(install_launcher_wrapper, install_skill)` from `source_dir` when present."""
     wrapper_fn = install_launcher_wrapper
     skill_fn = install_skill
-    if hasattr(wrapper_fn, "_mock_name") or hasattr(skill_fn, "_mock_name"):
-        return wrapper_fn, skill_fn
 
     source_src_dir = os.path.join(
         source_dir, "hardware", "google", "aemu", "tools", "emu-dev-cli", "src"
@@ -189,24 +185,6 @@ def _run_bazel_build(source_dir: str, verbose: bool, json_mode: bool) -> None:
         sys.exit(res.returncode)
 
 
-def _persist_updated_version(
-    release_dir: str,
-    source_dir: str,
-    source_version: dict[str, Any],
-    wrapper_fn: Any,
-) -> dict[str, Any]:
-    """Persists `version.json` unless running under an unisolated unit-test mock."""
-    should_persist = (
-        not hasattr(wrapper_fn, "_mock_name")
-        or Path(release_dir).resolve() != _default_user_release_dir().resolve()
-    )
-    if should_persist:
-        return write_installed_version(
-            release_dir, source_dir=source_dir, source_version=source_version
-        )
-    return build_version_record(source_version)
-
-
 def register_parser(subparsers):
     update_parser = subparsers.add_parser(
         "update",
@@ -312,8 +290,8 @@ def run_update_cmd(args):
     wrapper_fn(built_bin, dest_path, source_dir=source_dir)
     skill_files = skill_fn(source_dir=source_dir)
     ensure_codesearch_urls_config()
-    updated_version = _persist_updated_version(
-        release_dir, source_dir, source_version, wrapper_fn
+    updated_version = write_installed_version(
+        release_dir, source_dir=source_dir, source_version=source_version
     )
 
     commit_label = format_commit_label(updated_version)

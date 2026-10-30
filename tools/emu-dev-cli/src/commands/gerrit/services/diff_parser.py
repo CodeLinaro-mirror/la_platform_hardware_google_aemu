@@ -44,28 +44,6 @@ DEFAULT_MAX_DIFF_LINES_PER_FILE = 500
 RAW_QUEUE_CACHE_TTL_SEC = 45.0
 DIFF_BUNDLE_CACHE_MAX_ENTRIES = 128
 
-_ORIGINAL_UI_HOOKS: dict[str, Any] = {}
-
-
-def register_ui_hook(name: str, fn: Any) -> None:
-    """Registers the default implementation of a mockable UI server hook."""
-    _ORIGINAL_UI_HOOKS[name] = fn
-
-
-def resolve_ui_hook(name: str, local_val: Any) -> Any:
-    """Resolves `name`, honoring `unittest.mock.patch` on either the submodule or `ui_server`."""
-    orig = _ORIGINAL_UI_HOOKS.get(name, local_val)
-    if local_val is not orig:
-        return local_val
-    for mod_name in ("commands.gerrit.ui_server", "src.commands.gerrit.ui_server"):
-        mod = sys.modules.get(mod_name)
-        if mod is not None and hasattr(mod, name):
-            candidate = getattr(mod, name)
-            if candidate is not orig:
-                return candidate
-    return local_val
-
-
 _HIGH_RISK_PATH_RE = re.compile(
     r"(\.proto$|/include/|mutex|lock|bql|thread|async|memory|dma|bar4|vulkan|webrtc)",
     re.IGNORECASE,

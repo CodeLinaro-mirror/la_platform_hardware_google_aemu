@@ -14,20 +14,10 @@
 
 """Markdown scorecard, Gerrit commit text, and qualification report renderers for `emu-dev-cli perf`."""
 
-import sys
 from typing import Any, Dict, List, Tuple
 
 from lib.output import format_markdown_table
 from lib.perf.target_resolver import _detect_default_host
-
-
-def _get_default_host() -> str:
-    perf_runner_mod = sys.modules.get("lib.perf_runner")
-    if perf_runner_mod is not None:
-        patched = getattr(perf_runner_mod, "_detect_default_host", None)
-        if patched is not None:
-            return patched()
-    return _detect_default_host()
 
 
 def _format_vcpu_split(
@@ -584,7 +574,7 @@ def render_weekly_qualification_report(comp: Dict[str, Any]) -> str:
     broken = [r for r in comparisons if r.get("verdict") == "broken"]
     total = max(1, len(comparisons))
 
-    host_str = _get_default_host()
+    host_str = _detect_default_host()
     avd_str = c_meta.get("avd") or b_meta.get("avd") or "clean-isolated"
     suites_list = c_meta.get("suites") or b_meta.get("suites") or ["all"]
     suites_str = ", ".join(f"`{s}`" for s in suites_list)
