@@ -138,7 +138,10 @@ def main() -> None:
         handler_builder=lambda: ui_mod.make_gerrit_ui_handler(
             ui_mod.GerritUIService(default_viewer=viewer)
         ),
-        extra_paths_fn=lambda: (ui_mod.get_gerrit_ui_template_path(),),
+        extra_paths_fn=lambda: tuple(
+            ui_mod.get_gerrit_ui_template_path(variant)
+            for variant in ("classic", "polygerrit")
+        ),
     )
 
     server = ThreadingHTTPServer(("127.0.0.1", PORT), dispatcher)  # type: ignore[arg-type]

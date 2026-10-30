@@ -625,19 +625,50 @@ class GerritClient:
                 f"Verify that the target CL exists on '{self.host}' and run `gcert` to refresh SSO credentials."
             ) from exc
 
-    def get_revision_patch(self, change_id: str, revision: str = "current") -> str:
-        """Fetches and decodes the unified diff patch for a Gerrit change revision."""
+    def get_revision_patch(
+        self,
+        change_id: str,
+        revision: str = "current",
+        base: str | int | None = None,
+    ) -> str:
+        """Fetches and decodes the unified diff patch for a Gerrit change revision (or interdiff against base)."""
         encoded_id = urllib.parse.quote(str(change_id), safe="")
         encoded_rev = urllib.parse.quote(str(revision), safe="")
-        raw_patch = self._request_raw(f"/a/changes/{encoded_id}/revisions/{encoded_rev}/patch")
+        path = f"/a/changes/{encoded_id}/revisions/{encoded_rev}/patch"
+        if base is not None and str(base).strip().lower() not in ("", "0", "base", "parent"):
+            encoded_base = urllib.parse.quote(str(base).strip(), safe="")
+            path += f"?base={encoded_base}"
+        raw_patch = self._request_raw(path)
         stripped = raw_patch.strip()
         if not stripped:
+            if base is not None and str(base).strip().lower() not in ("", "0", "base", "parent"):
+                return ""
             raise RuntimeError(
                 f"Received an empty unified diff patch for Gerrit CL '{change_id}' "
                 f"(revision '{revision}') from '{self.host}'. "
                 "Verify that the CL has at least one patchset uploaded and run `gcert` before retrying."
             )
         return decode_gerrit_patch(stripped)
+
+    def get_revision_file_content(
+        self,
+        change_id: str,
+        file_path: str,
+        revision: str = "current",
+    ) -> str:
+        """Fetches and decodes the raw text content of a file in a Gerrit change revision."""
+        encoded_id = urllib.parse.quote(str(change_id), safe="")
+        encoded_rev = urllib.parse.quote(str(revision), safe="")
+        encoded_file = urllib.parse.quote(str(file_path).lstrip("/"), safe="")
+        path = f"/a/changes/{encoded_id}/revisions/{encoded_rev}/files/{encoded_file}/content"
+        raw_b64 = self._request_raw(path)
+        stripped = raw_b64.strip()
+        if not stripped:
+            return ""
+        try:
+            return base64.b64decode(stripped).decode("utf-8", errors="replace")
+        except Exception:
+            return stripped
 
     def list_open_changes(
         self,

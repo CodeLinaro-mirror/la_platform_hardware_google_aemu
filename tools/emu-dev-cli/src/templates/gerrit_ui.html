@@ -4423,6 +4423,13 @@
         onclick="event.stopPropagation(); onUpdateAvailableClick()"
         title="New Gerrit UI / sidecar changes available in hardware/google/aemu"
       ><span id="btnUpdateAvailableLabel">⬇ Update Available</span></button>
+      <button
+        id="btnSwitchToPolygerritUi"
+        type="button"
+        class="nudge-btn"
+        onclick="event.stopPropagation(); switchUiVariant('polygerrit')"
+        title="Switch to the PolyGerrit-styled UI (Dark &amp; Light themes)"
+      >🏛️ PolyGerrit UI</button>
       <button id="cliffToggleBtn" class="nudge-btn" onclick="event.stopPropagation(); toggleCliffRadar()">Show Radar ▾</button>
     </div>
   </div>
@@ -4903,6 +4910,19 @@
   const SIDEBAR_WIDTH_STORAGE_KEY = "gerrit_ui_sidebar_width_px";
   const SIDEBAR_COLLAPSED_STORAGE_KEY = "gerrit_ui_sidebar_collapsed";
   const DIFF_COLOR_SCHEME_STORAGE_KEY = "gerrit_ui_diff_color_scheme";
+
+  function switchUiVariant(variant) {
+    const url = new URL(window.location.href);
+    if (url.pathname === "/polygerrit" || url.pathname === "/classic") {
+      url.pathname = "/";
+    }
+    if (variant === "polygerrit") {
+      url.searchParams.set("ui", "polygerrit");
+    } else {
+      url.searchParams.delete("ui");
+    }
+    window.location.href = url.toString();
+  }
 
   function clampSidebarWidth(rawPx) {
     const wsEl = document.getElementById("workspaceContainer");

@@ -448,9 +448,14 @@ register_ui_hook("_run_sidecar_agentapi", _run_sidecar_agentapi)
 class GerritInlineQaService(GerritServiceBase):
     """Domain service for Jetski inline code Q&A threads and AI intangibles analysis."""
 
-    def fetch_commit_diff_bundle(self, cl_number: str | int) -> dict[str, Any]:
+    def fetch_commit_diff_bundle(
+        self,
+        cl_number: str | int,
+        patch_set: str | int | None = None,
+        base: str | int | None = None,
+    ) -> dict[str, Any]:
         """Delegates diff bundle lookup to `GerritDiffService`."""
-        return GerritDiffService.fetch_commit_diff_bundle(self, cl_number)  # type: ignore[arg-type]
+        return GerritDiffService.fetch_commit_diff_bundle(self, cl_number, patch_set=patch_set, base=base)  # type: ignore[arg-type]
 
     def _merge_tracked_qa_state(
         self,

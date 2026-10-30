@@ -36,6 +36,7 @@ from commands.gerrit.services.inline_qa_service import (
 )
 from commands.gerrit.services.queue_service import (
     GerritQueueService,
+    _enrich_change_messages,
     build_approval_slots,
     build_viewer_gerrit_query,
     enrich_change_for_ui,
@@ -44,6 +45,7 @@ from commands.gerrit.services.queue_service import (
     group_changes_into_stacks,
     is_agent_authored_or_uploaded,
     is_agent_or_bot_email,
+    is_cc_reviewer,
     is_explicit_reviewer,
     is_team_review_agent,
     parse_gerrit_timestamp,
@@ -61,6 +63,7 @@ __all__ = [
     "GerritServiceBase",
     "GerritVoteSubmitService",
     "OWNER_NOTIFY_HANDLING",
+    "_enrich_change_messages",
     "build_approval_slots",
     "build_code_followup_prompt",
     "build_code_question_prompt",
@@ -79,6 +82,7 @@ __all__ = [
     "group_changes_into_stacks",
     "is_agent_authored_or_uploaded",
     "is_agent_or_bot_email",
+    "is_cc_reviewer",
     "is_explicit_reviewer",
     "is_team_review_agent",
     "parse_code_questions_from_transcript_lines",

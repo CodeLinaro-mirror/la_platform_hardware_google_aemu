@@ -236,6 +236,85 @@ def is_explicit_reviewer(change: dict[str, Any], viewer_email: str) -> bool:
     return any((r.get("email") or "").strip().lower() == viewer for r in explicit_reviewers)
 
 
+def is_cc_reviewer(change: dict[str, Any], viewer_email: str) -> bool:
+    """Returns True if `viewer_email` is listed in `reviewers.CC`."""
+    viewer = (viewer_email or "").strip().lower()
+    if not viewer:
+        return False
+    cc_entries = (change.get("reviewers") or {}).get("CC") or []
+    return any((r.get("email") or "").strip().lower() == viewer for r in cc_entries)
+
+
+def _extract_attention_metadata(
+    change: dict[str, Any], viewer_email: str, now_dt: datetime
+) -> dict[str, Any]:
+    """Extracts PolyGerrit attention-set emails, structured details, and viewer's waiting age."""
+    viewer = (viewer_email or "").strip().lower()
+    attention_by_email: dict[str, dict[str, Any]] = {}
+    attention_details: list[dict[str, Any]] = []
+
+    for acct_info in (change.get("attention_set") or {}).values():
+        if not isinstance(acct_info, dict):
+            continue
+        acct = acct_info.get("account") or {}
+        em = (acct.get("email") or "").strip().lower()
+        acct_id = acct.get("_account_id") or acct.get("account_id") or 0
+        name = (acct.get("name") or acct.get("display_name") or "").strip()
+        short = (
+            acct.get("username")
+            or (em.split("@")[0] if em else "")
+            or name
+            or str(acct_id)
+        ).strip()
+        reason = str(acct_info.get("reason") or "").strip()
+        last_update = str(acct_info.get("last_update") or "").strip()
+        wait_display = ""
+        att_dt = parse_gerrit_timestamp(last_update)
+        if att_dt:
+            hours = max(0.0, (now_dt - att_dt).total_seconds() / 3600.0)
+            wait_display = format_relative_age(hours).removesuffix(" ago")
+
+        is_viewer = bool(
+            viewer
+            and (em == viewer or (short and short.lower() == viewer.split("@")[0]))
+        )
+        detail = {
+            "account_id": acct_id,
+            "email": em,
+            "name": name or short,
+            "short": short,
+            "reason": reason,
+            "last_update": last_update,
+            "waiting_display": wait_display,
+            "is_viewer": is_viewer,
+        }
+        attention_details.append(detail)
+        if em:
+            attention_by_email[em] = acct_info
+
+    viewer_entry = attention_by_email.get(viewer) if viewer else None
+    waiting_display = ""
+    if viewer_entry:
+        att_dt = parse_gerrit_timestamp(viewer_entry.get("last_update"))
+        if att_dt:
+            wait_hours = max(0.0, (now_dt - att_dt).total_seconds() / 3600.0)
+            waiting_display = format_relative_age(wait_hours).removesuffix(" ago")
+    elif any(d["is_viewer"] for d in attention_details):
+        matching_viewer_detail = next(d for d in attention_details if d["is_viewer"])
+        waiting_display = matching_viewer_detail.get("waiting_display", "")
+
+    # Sort details: viewer first if present, then alphabetical by short/name
+    attention_details.sort(key=lambda d: (0 if d["is_viewer"] else 1, d["short"].lower()))
+
+    return {
+        "attention_set_emails": sorted(attention_by_email.keys()),
+        "viewer_in_attention_set": (viewer_entry is not None)
+        or any(d["is_viewer"] for d in attention_details),
+        "attention_waiting_display": waiting_display,
+        "attention_set_details": attention_details,
+    }
+
+
 def build_viewer_gerrit_query(
     viewer_email: str, scope: str = "reviewer", author: str = ""
 ) -> str:
@@ -243,7 +322,12 @@ def build_viewer_gerrit_query(
     viewer = (viewer_email or "").strip().lower()
     norm_scope = (scope or "reviewer").strip().lower()
     norm_author = (author or "").strip()
-    if norm_scope == "owner" and viewer:
+    if norm_scope == "dashboard" and viewer:
+        base_q = (
+            f"status:open (owner:{viewer} OR reviewer:{viewer} "
+            f"OR cc:{viewer} OR attention:{viewer})"
+        )
+    elif norm_scope == "owner" and viewer:
         base_q = f"status:open -is:wip owner:{viewer}"
     elif norm_scope == "team" or not viewer:
         base_q = DEFAULT_EMULATOR_GERRIT_QUERY
@@ -645,6 +729,197 @@ def _compute_is_submittable(
     )
 
 
+def _enrich_submit_requirements(
+    *,
+    change: dict[str, Any],
+    human_cr2: list[dict[str, Any]],
+    required_cr2_count: int,
+    presubmit_info: dict[str, Any],
+    pv_score: int,
+    has_negative_cr: bool,
+    is_submittable: bool,
+) -> list[dict[str, Any]]:
+    """Extracts, enriches, or synthesizes submit requirements for PolyGerrit change view."""
+    raw_list = change.get("submit_requirements") or []
+    result: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+
+    for item in raw_list:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name or name in seen_names:
+            continue
+        seen_names.add(name)
+        status = str(item.get("status") or "UNSATISFIED").upper()
+        expr_result = item.get("submittability_expression_result") or {}
+        expr = str(expr_result.get("expression") or item.get("submittability_expression") or "").strip()
+        passing_atoms = [str(a) for a in (expr_result.get("passing_atoms") or [])]
+        failing_atoms = [str(a) for a in (expr_result.get("failing_atoms") or [])]
+        desc = str(item.get("description") or "").strip()
+
+        # Adjust Code-Review status if our 2-human approval rule requires more +2s or blocked by -2
+        if name == "Code-Review":
+            if has_negative_cr:
+                status = "BLOCKED"
+                if not any("-2" in a for a in failing_atoms):
+                    failing_atoms.append("Blocked by Code-Review -2")
+            elif len(human_cr2) < required_cr2_count:
+                status = "UNSATISFIED"
+                diff_needed = required_cr2_count - len(human_cr2)
+                failing_atoms.append(f"Requires {required_cr2_count} human approvals ({diff_needed} more needed)")
+            elif len(human_cr2) >= required_cr2_count and status != "BLOCKED":
+                status = "SATISFIED"
+
+        result.append({
+            "name": name,
+            "status": status,
+            "description": desc,
+            "expression": expr,
+            "passing_atoms": passing_atoms,
+            "failing_atoms": failing_atoms,
+        })
+
+    # If Code-Review was not in raw submit_requirements, synthesize it
+    if "Code-Review" not in seen_names:
+        cr_status = "BLOCKED" if has_negative_cr else ("SATISFIED" if len(human_cr2) >= required_cr2_count and required_cr2_count > 0 else "UNSATISFIED")
+        cr_passing: list[str] = [f"Code-Review +2 ({v.get('name') or v.get('short')})" for v in human_cr2]
+        cr_failing: list[str] = []
+        if has_negative_cr:
+            cr_failing.append("Blocked by Code-Review -2")
+        elif len(human_cr2) < required_cr2_count:
+            diff_needed = required_cr2_count - len(human_cr2)
+            cr_failing.append(f"Requires {required_cr2_count} human +2 approval{'s' if required_cr2_count > 1 else ''} ({diff_needed} more needed)")
+        cr_expr = "label:Code-Review=MAX AND -label:Code-Review=MIN"
+        if required_cr2_count >= 2:
+            cr_expr += f" ({required_cr2_count} human votes required)"
+        result.insert(0, {
+            "name": "Code-Review",
+            "status": cr_status,
+            "description": f"Requires {required_cr2_count} human Code-Review +2 approval{'s' if required_cr2_count > 1 else ''} and no -2 votes",
+            "expression": cr_expr,
+            "passing_atoms": cr_passing,
+            "failing_atoms": cr_failing,
+        })
+        seen_names.add("Code-Review")
+
+    # If Presubmit-Verified was not in raw submit_requirements, synthesize it
+    if "Presubmit-Verified" not in seen_names:
+        ps_status_val = presubmit_info.get("presubmit_status")
+        if ps_status_val == "passed" or pv_score >= 1 or change.get("presubmit_vetted"):
+            pv_req_status = "SATISFIED"
+        elif ps_status_val in ("running", "queued"):
+            pv_req_status = "RUNNING"
+        elif pv_score < 0 or ps_status_val == "failed":
+            pv_req_status = "BLOCKED"
+        else:
+            pv_req_status = "UNSATISFIED"
+        pv_passing: list[str] = ["Presubmit-Verified +2 (TreeHugger)"] if pv_score >= 1 else []
+        pv_failing: list[str] = []
+        if pv_req_status == "BLOCKED":
+            pv_failing.append("TreeHugger presubmit failed or scored negative")
+        elif pv_req_status == "RUNNING":
+            pv_failing.append("TreeHugger presubmit running")
+        elif pv_req_status == "UNSATISFIED":
+            pv_failing.append("Requires Presubmit-Verified +2 from TreeHugger")
+        result.append({
+            "name": "Presubmit-Verified",
+            "status": pv_req_status,
+            "description": "Presubmit verification by TreeHugger",
+            "expression": "label:Presubmit-Verified=+2",
+            "passing_atoms": pv_passing,
+            "failing_atoms": pv_failing,
+        })
+        seen_names.add("Presubmit-Verified")
+
+    # If change has a Verified label in change['labels'] and not already in requirements:
+    labels = change.get("labels") or {}
+    if "Verified" in labels and "Verified" not in seen_names:
+        v_label = labels.get("Verified") or {}
+        v_val = 0
+        v_all = v_label.get("all") or []
+        for vt in v_all:
+            val = int(vt.get("value", 0) or 0)
+            if val < 0:
+                v_val = min(v_val, val)
+            elif val > v_val and v_val >= 0:
+                v_val = val
+        if v_val >= 1:
+            v_status = "SATISFIED"
+            v_pass = ["Verified +1"]
+            v_fail: list[str] = []
+        elif v_val < 0:
+            v_status = "BLOCKED"
+            v_pass = []
+            v_fail = ["Blocked by Verified -1"]
+        else:
+            v_status = "UNSATISFIED"
+            v_pass = []
+            v_fail = ["Needs Verified +1"]
+        result.append({
+            "name": "Verified",
+            "status": v_status,
+            "description": "Requires Verified +1 approval",
+            "expression": "label:Verified=+1 AND -label:Verified=-1",
+            "passing_atoms": v_pass,
+            "failing_atoms": v_fail,
+        })
+        seen_names.add("Verified")
+
+    return result
+
+
+def _enrich_change_messages(raw_messages: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Enriches and standardizes Gerrit revision change messages for the PolyGerrit Change Log."""
+    if not raw_messages:
+        return []
+    result: list[dict[str, Any]] = []
+    for msg in raw_messages:
+        if not isinstance(msg, dict):
+            continue
+        author = msg.get("author") or {}
+        author_email = (author.get("email") or "").strip().lower()
+        author_name = (
+            author.get("name")
+            or author.get("username")
+            or (author_email.split("@")[0] if author_email else "")
+            or "Gerrit Code Review"
+        ).strip()
+        tag = str(msg.get("tag") or "").strip()
+        raw_text = str(msg.get("message") or "")
+        is_bot = (
+            is_agent_or_bot_email(author_email, author_name)
+            or tag.startswith("autogenerated:")
+            or "autogenerated:gerrit:" in tag
+            or raw_text.startswith("Uploaded patch set ")
+            or "robot" in author_name.lower()
+            or "presubmit" in author_name.lower()
+        )
+        date_str = str(msg.get("date") or "").strip()
+        ps_num = int(msg.get("_revision_number", 0) or 0)
+        first_line = ""
+        for line in raw_text.splitlines():
+            cl_line = line.strip()
+            if cl_line:
+                first_line = cl_line
+                break
+
+        result.append(
+            {
+                "id": str(msg.get("id") or ""),
+                "author_name": author_name,
+                "author_email": author_email,
+                "is_bot": is_bot,
+                "tag": tag,
+                "date": date_str,
+                "patch_set": ps_num,
+                "message": raw_text,
+                "summary": first_line[:140],
+            }
+        )
+    return result
+
+
 def enrich_change_for_ui(
     change: dict[str, Any],
     viewer_email: str,
@@ -684,8 +959,31 @@ def enrich_change_for_ui(
 
     involvement = _extract_human_involvement(change, viewer, human_cr2, now)
     reviewers_detail, ccs_detail = extract_reviewers_and_ccs(change, viewer)
+    attention_meta = _extract_attention_metadata(change, viewer, now)
+    explicit_rev_entries = (change.get("reviewers") or {}).get("REVIEWER") or []
+    viewer_is_explicit_reviewer = bool(
+        viewer
+        and any((r.get("email") or "").strip().lower() == viewer for r in explicit_rev_entries)
+    )
+    viewer_is_cc = is_cc_reviewer(change, viewer)
+    insertions = int(change.get("insertions", 0) or 0)
+    deletions = int(change.get("deletions", 0) or 0)
+    work_in_progress = bool(change.get("work_in_progress"))
+    change_status = str(change.get("status") or "NEW")
     vote_meta = _extract_autosubmit_and_viewer_votes(change, viewer)
     cur_ps = int(change.get("current_revision_number", 1) or 1)
+    known_ps_numbers: set[int] = set()
+    if cur_ps > 0:
+        known_ps_numbers.update(range(1, cur_ps + 1))
+    for r in (change.get("revisions") or {}).values():
+        num_val = r.get("_number")
+        if isinstance(num_val, int) and num_val > 0:
+            known_ps_numbers.add(num_val)
+    for msg in change.get("messages") or []:
+        num_val = msg.get("_revision_number")
+        if isinstance(num_val, int) and num_val > 0:
+            known_ps_numbers.add(num_val)
+    all_patchsets = sorted(known_ps_numbers) if known_ps_numbers else [cur_ps]
     presubmit_info = extract_presubmit_status_from_change(
         change, pv_score, vote_meta["presubmit_ready_enabled"], cur_ps
     )
@@ -778,6 +1076,17 @@ def enrich_change_for_ui(
         "project_short": project_short,
         "branch": change.get("branch", ""),
         "topic": change.get("topic", ""),
+        "status": change_status,
+        "submit_type": str(change.get("submit_type") or ""),
+        "work_in_progress": work_in_progress,
+        "insertions": insertions,
+        "deletions": deletions,
+        "attention_set_emails": attention_meta["attention_set_emails"],
+        "viewer_in_attention_set": attention_meta["viewer_in_attention_set"],
+        "attention_waiting_display": attention_meta["attention_waiting_display"],
+        "attention_set_details": attention_meta.get("attention_set_details", []),
+        "is_explicit_reviewer": viewer_is_explicit_reviewer,
+        "is_cc": viewer_is_cc,
         "subject": subject,
         "commit_message": commit_message,
         "owner_email": owner_email,
@@ -818,6 +1127,7 @@ def enrich_change_for_ui(
         "agent_vetted": agent_vetted,
         "unresolved_comment_count": unresolved_count,
         "patch_set": cur_ps,
+        "patch_sets": all_patchsets,
         "current_revision": cur_rev,
         "parent_revision": parent_sha,
         "hours_in_flight": round(hours_in_flight, 1),
@@ -843,6 +1153,16 @@ def enrich_change_for_ui(
         "aemu_map_url": build_aemu_map_commit_url(num, files_list),
         "code_search_base_url": resolve_code_search_base_url(project, change.get("branch", "")),
         "repo_label": format_repo_display_path(project),
+        "submit_requirements": _enrich_submit_requirements(
+            change=change,
+            human_cr2=human_cr2,
+            required_cr2_count=required_cr2_count,
+            presubmit_info=presubmit_info,
+            pv_score=pv_score,
+            has_negative_cr=has_negative_cr,
+            is_submittable=is_submittable,
+        ),
+        "messages": _enrich_change_messages(change.get("messages") or []),
     }
 
 
@@ -1029,9 +1349,14 @@ def _detect_capsule_owner_email() -> str:
 class GerritQueueService(GerritServiceBase):
     """Domain service for Gerrit CL queue fetching, attention-set filtering, and session state."""
 
-    def fetch_commit_diff_bundle(self, cl_number: str | int) -> dict[str, Any]:
+    def fetch_commit_diff_bundle(
+        self,
+        cl_number: str | int,
+        patch_set: str | int | None = None,
+        base: str | int | None = None,
+    ) -> dict[str, Any]:
         """Delegates diff bundle lookup to `GerritDiffService`."""
-        return GerritDiffService.fetch_commit_diff_bundle(self, cl_number)  # type: ignore[arg-type]
+        return GerritDiffService.fetch_commit_diff_bundle(self, cl_number, patch_set=patch_set, base=base)  # type: ignore[arg-type]
 
     def _load_bug_cache(self) -> dict[str, dict[str, str]]:
         """Loads cached Buganizer priority/severity metadata from disk if available."""
@@ -1243,6 +1568,13 @@ class GerritQueueService(GerritServiceBase):
 
         if not explicit_query and norm_scope == "reviewer" and viewer:
             raw_changes = [ch for ch in raw_changes if is_explicit_reviewer(ch, viewer)]
+        elif not explicit_query and norm_scope == "dashboard" and viewer:
+            raw_changes = [
+                ch
+                for ch in raw_changes
+                if not ch.get("work_in_progress")
+                or ((ch.get("owner") or {}).get("email") or "").strip().lower() == viewer
+            ]
 
         bug_lookup, has_uncached_bugs = self._resolve_queue_bug_lookup(raw_changes, fast=fast)
         now_dt = datetime.now(timezone.utc)
@@ -1296,9 +1628,9 @@ class GerritQueueService(GerritServiceBase):
         return payload
 
     def _run_background_prewarm(self, viewer: str) -> None:
-        """Warms `team`, `owner`, and `reviewer` queues and their primary diff bundles."""
+        """Warms `dashboard`, `reviewer`, `owner`, and `team` queues and primary diff bundles."""
         try:
-            for sc in ("team", "owner", "reviewer"):
+            for sc in ("dashboard", "reviewer", "owner", "team"):
                 q_payload = self.fetch_queue(
                     viewer_email=viewer, scope=sc, fast=False, use_cache=True
                 )
@@ -1393,6 +1725,16 @@ class GerritQueueService(GerritServiceBase):
             mergeable=item.get("mergeable") is not False,
             has_negative_cr=has_neg,
             gerrit_submittable=g_sub if isinstance(g_sub, bool) else None,
+        )
+        pv_score = int(item.get("presubmit_score") or 0)
+        item["submit_requirements"] = _enrich_submit_requirements(
+            change=item,
+            human_cr2=item.get("human_cr2") or [],
+            required_cr2_count=req_count,
+            presubmit_info={"presubmit_status": item.get("presubmit_status")},
+            pv_score=pv_score,
+            has_negative_cr=has_neg,
+            is_submittable=item["is_submittable"],
         )
 
     @staticmethod

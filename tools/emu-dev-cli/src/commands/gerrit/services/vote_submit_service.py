@@ -585,6 +585,77 @@ class GerritVoteSubmitService(GerritServiceBase):
             "change": updated_change,
         }
 
+    def modify_attention_set(
+        self,
+        cl_number: str | int,
+        action: str,
+        user: str | int,
+        *,
+        reason: str = "",
+        viewer_email: str | None = None,
+    ) -> dict[str, Any]:
+        """Adds or removes a user from the attention set on `cl_number` with `notify: OWNER`."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        norm_action = (action or "remove").strip().lower()
+        raw_user = str(user or "").strip()
+        if not raw_user:
+            raise ValueError("Target user account email, username, or ID is required.")
+
+        resp: Any = None
+        if norm_action == "remove":
+            enc_user = urllib.parse.quote(raw_user, safe="")
+            payload: dict[str, Any] = {
+                "notify": OWNER_NOTIFY_HANDLING,
+                "reason": reason or "Removed via AEMU Fast Gerrit",
+            }
+            try:
+                resp = self.client._request_json(
+                    f"/a/changes/{cl_id}/attention/{enc_user}/delete",
+                    method="POST",
+                    data=payload,
+                )
+            except RuntimeError as exc:
+                if "exit code 0" not in str(exc):
+                    raise
+                resp = {}
+        elif norm_action == "add":
+            resolved_user = (
+                f"{raw_user.lower()}@google.com"
+                if _SIMPLE_LDAP_RE.fullmatch(raw_user) and not raw_user.isdigit()
+                else raw_user
+            )
+            payload = {
+                "user": resolved_user,
+                "notify": OWNER_NOTIFY_HANDLING,
+                "reason": reason or "Added via AEMU Fast Gerrit",
+            }
+            resp = self.client._request_json(
+                f"/a/changes/{cl_id}/attention",
+                method="POST",
+                data=payload,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported attention-set action '{norm_action}' (expected 'add' or 'remove')."
+            )
+
+        self._invalidate_cl_caches([cl_id])
+        updated_change: dict[str, Any] | None = None
+        try:
+            updated_change = self.fetch_single_enriched_change(cl_id, viewer_email=viewer_email)
+        except Exception:
+            updated_change = None
+
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "action": norm_action,
+            "user": raw_user,
+            "notify": OWNER_NOTIFY_HANDLING,
+            "response": resp,
+            "change": updated_change,
+        }
+
     def _modify_single_reviewer_for_batch(
         self,
         cl_id: str,
@@ -945,3 +1016,157 @@ class GerritVoteSubmitService(GerritServiceBase):
             "notify": OWNER_NOTIFY_HANDLING,
         }
 
+    def rebase_change(
+        self,
+        cl_number: str | int,
+        base: str | None = None,
+        *,
+        viewer_email: str | None = None,
+    ) -> dict[str, Any]:
+        """Rebases `cl_number` via Gerrit REST API with mandatory `notify: OWNER`."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        payload: dict[str, Any] = {
+            "notify": OWNER_NOTIFY_HANDLING,
+        }
+        if base and str(base).strip():
+            payload["base"] = str(base).strip()
+
+        resp = self.client._request_json(
+            f"/a/changes/{cl_id}/rebase",
+            method="POST",
+            data=payload,
+        )
+        self._invalidate_cl_caches([cl_id])
+        updated_change: dict[str, Any] | None = None
+        try:
+            updated_change = self.fetch_single_enriched_change(cl_id, viewer_email=viewer_email)
+        except Exception:
+            updated_change = None
+
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "action": "rebase",
+            "notify": OWNER_NOTIFY_HANDLING,
+            "response": resp,
+            "change": updated_change,
+        }
+
+    def abandon_change(
+        self,
+        cl_number: str | int,
+        message: str = "",
+        *,
+        viewer_email: str | None = None,
+    ) -> dict[str, Any]:
+        """Abandons `cl_number` via Gerrit REST API with mandatory `notify: OWNER`."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        payload: dict[str, Any] = {
+            "notify": OWNER_NOTIFY_HANDLING,
+        }
+        if message and str(message).strip():
+            payload["message"] = str(message).strip()
+
+        resp = self.client._request_json(
+            f"/a/changes/{cl_id}/abandon",
+            method="POST",
+            data=payload,
+        )
+        self._invalidate_cl_caches([cl_id])
+        updated_change: dict[str, Any] | None = None
+        try:
+            updated_change = self.fetch_single_enriched_change(cl_id, viewer_email=viewer_email)
+        except Exception:
+            updated_change = None
+
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "action": "abandon",
+            "notify": OWNER_NOTIFY_HANDLING,
+            "response": resp,
+            "change": updated_change,
+        }
+
+    def restore_change(
+        self,
+        cl_number: str | int,
+        message: str = "",
+        *,
+        viewer_email: str | None = None,
+    ) -> dict[str, Any]:
+        """Restores abandoned `cl_number` via Gerrit REST API with mandatory `notify: OWNER`."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        payload: dict[str, Any] = {
+            "notify": OWNER_NOTIFY_HANDLING,
+        }
+        if message and str(message).strip():
+            payload["message"] = str(message).strip()
+
+        resp = self.client._request_json(
+            f"/a/changes/{cl_id}/restore",
+            method="POST",
+            data=payload,
+        )
+        self._invalidate_cl_caches([cl_id])
+        updated_change: dict[str, Any] | None = None
+        try:
+            updated_change = self.fetch_single_enriched_change(cl_id, viewer_email=viewer_email)
+        except Exception:
+            updated_change = None
+
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "action": "restore",
+            "notify": OWNER_NOTIFY_HANDLING,
+            "response": resp,
+            "change": updated_change,
+        }
+
+    def cherry_pick_change(
+        self,
+        cl_number: str | int,
+        destination: str,
+        message: str = "",
+        base: str | None = None,
+        revision: str | None = None,
+        *,
+        viewer_email: str | None = None,
+    ) -> dict[str, Any]:
+        """Cherry-picks `cl_number` onto `destination` branch via Gerrit REST API with mandatory `notify: OWNER`."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        dest_clean = str(destination or "").strip()
+        if not dest_clean:
+            raise ValueError(f"Cherry-pick destination branch cannot be empty for change ag/{cl_id}.")
+
+        rev_id = str(revision or "current").strip() or "current"
+        payload: dict[str, Any] = {
+            "destination": dest_clean,
+            "notify": OWNER_NOTIFY_HANDLING,
+        }
+        if message and str(message).strip():
+            payload["message"] = str(message).strip()
+        if base and str(base).strip():
+            payload["base"] = str(base).strip()
+
+        resp = self.client._request_json(
+            f"/a/changes/{cl_id}/revisions/{rev_id}/cherrypick",
+            method="POST",
+            data=payload,
+        )
+        self._invalidate_cl_caches([cl_id])
+        new_cl_id = None
+        if isinstance(resp, dict):
+            new_cl_id = resp.get("_number") or resp.get("change_id") or resp.get("id")
+
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "destination": dest_clean,
+            "action": "cherry_pick",
+            "notify": OWNER_NOTIFY_HANDLING,
+            "response": resp,
+            "new_change": resp,
+            "new_cl": new_cl_id,
+        }
