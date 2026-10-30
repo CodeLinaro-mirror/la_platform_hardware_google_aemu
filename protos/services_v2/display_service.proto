@@ -257,12 +257,16 @@ message StreamScreenshotsRequest {
 //
 // --- Orientation & Input Coordinate Alignment ---
 // `image_data` is always oriented upright to match the active logical display
-// rotation (`rotation`). In landscape (ROTATION_DEG90 / DEG270),
+// rotation (`rotation`). In landscape (`ROTATION_DEG90` / `ROTATION_DEG270`),
 // `width` and `height` reflect the rotated dimensions (e.g., width=2400, height=1080).
-// Any pixel (px, py) located in `image_data` maps directly to normalized
-// InputService Pointer coordinates via:
-//   Pointer.x = px / Screenshot.width
-//   Pointer.y = py / Screenshot.height
+// In contrast, `InputService` `Pointer.x` and `Pointer.y` are normalized `[0.0, 1.0]`
+// in the display panel's **natural (unrotated, `ROTATION_DEG0`)** coordinate frame.
+// For a pixel `(px, py)` in `image_data`, let `u = px / Screenshot.width` and
+// `v = py / Screenshot.height`, then transform by `Screenshot.rotation`:
+//   - `ROTATION_DEG0` / `ROTATION_UNSPECIFIED`: `Pointer.x = u`,       `Pointer.y = v`
+//   - `ROTATION_DEG90`  (90 deg CCW):           `Pointer.x = 1.0 - v`, `Pointer.y = u`
+//   - `ROTATION_DEG180` (180 deg):              `Pointer.x = 1.0 - u`, `Pointer.y = 1.0 - v`
+//   - `ROTATION_DEG270` (270 deg CCW / 90 CW):  `Pointer.x = v`,       `Pointer.y = 1.0 - u`
 message Screenshot {
   // Output only. Encoded image container bytes (PNG/JPEG) or raw uncompressed pixel buffer.
   bytes image_data = 1 [(google.api.field_behavior) = OUTPUT_ONLY];

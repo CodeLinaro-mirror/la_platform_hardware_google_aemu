@@ -103,7 +103,15 @@ message DeviceMetadata {
   string display_name = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
   // Output only. Hardware model identifier string matching Android Build.MODEL (e.g., "Pixel 9 Pro").
   string model_id = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
-  // Output only. Android SDK API level integer (e.g., 34, 35, 36; must be > 0).
+  // Output only. Android SDK API level integer (e.g., 24..36; must be > 0).
+  //
+  // While capability sub-messages (`input`, `display`, etc.) are authoritative for whether an RPC
+  // or hardware peripheral exists, guest Android framework behavior varies across SDK levels even
+  // on identical virtual hardware (see the API 24+ compatibility notes on `InputService` for palm
+  // cancellation, gesture-navigation edge pilfering, secondary display routing, stylus handwriting
+  // and barrel-button `KeyEvent`s, and wheel scroll resolution). Some behaviors also depend on the
+  // system image build rather than the API level alone, such as whether a touch wakes a sleeping
+  // display and whether stylus handwriting is enabled by default.
   int32 api_level = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
 
   // Output only. Guest CPU instruction set architecture (e.g., "x86_64", "arm64-v8a").
@@ -307,7 +315,10 @@ enum InputFeature {
   INPUT_FEATURE_MOUSE_POINTER = 4;
   // Rotary encoder / WearOS rotating crown axis events.
   INPUT_FEATURE_ROTARY_ENCODER = 5;
-  // Active stylus pressure, tilt, and orientation events.
+  // Active stylus and eraser contacts (`TOOL_TYPE_STYLUS`, `TOOL_TYPE_ERASER`), primary barrel
+  // button (`BUTTON_MASK_STYLUS_PRIMARY`), pressure, and `orientation_radians`. 3D `tilt_radians`
+  // is best-effort and zeroed by Android `MultiTouchInputMapper` on multi-touch panels lacking a
+  // dedicated single-touch stylus digitizer.
   INPUT_FEATURE_STYLUS = 6;
   // Directional pad (D-pad) navigation keys.
   INPUT_FEATURE_DPAD = 7;
@@ -327,9 +338,12 @@ message InputCapabilities {
   // Output only. Input peripherals and behaviours this device accepts. Events for a feature
   // absent from this list fail with FAILED_PRECONDITION.
   repeated InputFeature supported_features = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
-  // Output only. Maximum number of concurrent active touch contact points supported per display
-  // across all connected input sources (e.g., 10). Human operator sessions (source 0) have
-  // reserved slot capacity so automated sources cannot starve the human operator.
+  // Output only. Per-session `Pointer.pointer_id` bound (`[0, max_touch_point_count - 1]`, e.g.,
+  // 10 -> IDs `0..9`) and nominal multi-touch contact capacity per display. Human operator
+  // sessions (source `0` without `x-client-id`) have reserved hardware slot capacity (e.g., 2 of
+  // 11 Linux multi-touch slots reserved for source `0`, leaving 9 shared across all automated
+  // non-zero sources), so automated callers may receive `RESOURCE_EXHAUSTED` before reaching
+  // `max_touch_point_count`.
   // Meaningful only when INPUT_FEATURE_MULTI_TOUCH is present.
   int32 max_touch_point_count = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
   // Output only. True if `InputService.StreamInputActivity` may be subscribed to on this endpoint.
