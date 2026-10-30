@@ -40,12 +40,14 @@ from commands.gerrit.presubmit_targets import (
     query_presubmit_targets_via_stubby,
 )
 from commands.gerrit.services.diff_parser import (
+    AEMU_MAP_BASE_URL,
     COMMIT_TYPE_SPECS,
     DIFF_FETCH_WORKERS,
     GERRIT_MAGIC_FILES,
     GerritDiffService,
     GerritServiceBase,
     RAW_QUEUE_CACHE_TTL_SEC,
+    build_aemu_map_commit_url,
     build_code_search_file_url,
     classify_commit_type,
     classify_risk_and_load,
@@ -838,6 +840,7 @@ def enrich_change_for_ui(
         "chat_ping": chat_ping,
         "swarm_status": read_cl_swarm_status(num, current_revision=cur_rev, now_dt=now),
         "url": f"https://googleplex-android-review.git.corp.google.com/c/{project}/+/{num}",
+        "aemu_map_url": build_aemu_map_commit_url(num, files_list),
         "code_search_base_url": resolve_code_search_base_url(project, change.get("branch", "")),
         "repo_label": format_repo_display_path(project),
     }

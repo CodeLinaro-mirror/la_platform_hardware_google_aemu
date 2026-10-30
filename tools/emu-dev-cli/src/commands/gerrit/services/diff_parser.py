@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -27,7 +28,6 @@ from typing import Any
 import urllib.parse
 
 from commands.gerrit.sidecar_updater import GerritSidecarUpdater
-from core.web.assets import StaticAssetResolver, compute_asset_version
 from lib.gerrit_api import (
     DEFAULT_GERRIT_HOST,
     GerritClient,
@@ -91,6 +91,7 @@ COMMIT_TYPE_SPECS: dict[str, dict[str, str]] = {
 
 CODE_SEARCH_BASE_HOST = "https://source.corp.google.com/h"
 DEFAULT_CODE_SEARCH_GOB_HOST = "googleplex-android"
+AEMU_MAP_BASE_URL = "http://go/aemu-map"
 GERRIT_MAGIC_FILES: frozenset[str] = frozenset({
     "/COMMIT_MSG",
     "/MERGE_LIST",
@@ -209,6 +210,40 @@ def build_code_search_file_url(
     return url
 
 
+def build_aemu_map_commit_url(
+    cl_number: str | int,
+    file_paths: list[str] | tuple[str, ...] | set[str] | None = None,
+    base_url: str = AEMU_MAP_BASE_URL,
+) -> str:
+    """Builds a zero-backend `go/aemu-map?ag=<cl>&files=<comma_separated_paths>` URL."""
+    raw_cl = str(cl_number or "").strip()
+    if raw_cl.lower().startswith("ag/"):
+        raw_cl = raw_cl[3:].strip()
+    if not raw_cl:
+        return base_url
+    cleaned_files: list[str] = []
+    seen_files: set[str] = set()
+    for path in file_paths or ():
+        raw_path = (path or "").strip()
+        if not raw_path or raw_path in GERRIT_MAGIC_FILES:
+            continue
+        rel_path = raw_path.lstrip("/")
+        if not rel_path or rel_path == "dev/null" or rel_path in GERRIT_MAGIC_FILES:
+            continue
+        if f"/{rel_path}" in GERRIT_MAGIC_FILES:
+            continue
+        if rel_path not in seen_files:
+            seen_files.add(rel_path)
+            cleaned_files.append(rel_path)
+    encoded_cl = urllib.parse.quote(raw_cl, safe="")
+    if not cleaned_files:
+        return f"{base_url}?ag={encoded_cl}"
+    encoded_files = ",".join(
+        urllib.parse.quote(p, safe="/._-~") for p in cleaned_files
+    )
+    return f"{base_url}?ag={encoded_cl}&files={encoded_files}"
+
+
 def format_repo_display_path(project: str) -> str:
     """Formats a Gerrit project name into its concise repo path (e.g. `hardware/generic/goldfish`)."""
     clean = (project or "").strip().strip("/")
@@ -260,12 +295,20 @@ def _candidate_gerrit_ui_template_paths() -> list[Path]:
 
 def get_gerrit_ui_template_path() -> Path:
     """Resolves the HTML template path for `emu-dev-cli gerrit ui`."""
-    return StaticAssetResolver(_candidate_gerrit_ui_template_paths()).resolve_first_existing()
+    candidates = _candidate_gerrit_ui_template_paths()
+    for cand in candidates:
+        if cand.is_file():
+            return cand
+    return candidates[0]
 
 
 def get_gerrit_ui_template_version() -> str:
     """Returns a short SHA-256 content hash of `gerrit_ui.html` for automatic UI reload detection."""
-    return compute_asset_version(get_gerrit_ui_template_path())
+    try:
+        tpl_path = get_gerrit_ui_template_path()
+        return hashlib.sha256(tpl_path.read_bytes()).hexdigest()[:12]
+    except OSError:
+        return "0"
 
 
 

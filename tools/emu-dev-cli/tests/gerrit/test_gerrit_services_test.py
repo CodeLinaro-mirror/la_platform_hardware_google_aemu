@@ -24,7 +24,9 @@ from commands.gerrit.handlers.ui_handler import (
     render_static_gerrit_ui_html,
 )
 from commands.gerrit.services.diff_parser import (
+    AEMU_MAP_BASE_URL,
     GerritDiffService,
+    build_aemu_map_commit_url,
     build_code_search_file_url,
     classify_commit_type,
     classify_risk_and_load,
@@ -102,6 +104,29 @@ class GerritDiffServiceTest(unittest.TestCase):
         self.assertIn("src/foo_test.cc", cs_url)
         self.assertIn("l=42", cs_url)
 
+        map_url = build_aemu_map_commit_url(
+            "ag/43351736",
+            [
+                "/COMMIT_MSG",
+                "/MERGE_LIST",
+                "emulator/net/async_socket_adapter.cc",
+                "/emulator/net/async_socket_adapter.h",
+                "emulator/net/async_socket_adapter.cc",
+                "src/测试_🚀_é.cc",
+            ],
+        )
+        self.assertEqual(
+            map_url,
+            f"{AEMU_MAP_BASE_URL}?ag=43351736&files="
+            "emulator/net/async_socket_adapter.cc,"
+            "emulator/net/async_socket_adapter.h,"
+            "src/%E6%B5%8B%E8%AF%95_%F0%9F%9A%80_%C3%A9.cc",
+        )
+        self.assertEqual(
+            build_aemu_map_commit_url(43351736, ["/COMMIT_MSG", "/dev/null"]),
+            f"{AEMU_MAP_BASE_URL}?ag=43351736",
+        )
+
     def test_extract_symbol_from_code_line(self):
         self.assertEqual(
             extract_symbol_from_code_line("void HandleRequest(int fd) {"),
@@ -178,6 +203,10 @@ class GerritQueueServiceTest(unittest.TestCase):
         self.assertEqual(enriched["required_cr2_count"], 2)
         self.assertEqual(enriched["human_cr2_count"], 1)
         self.assertTrue(enriched["approved_by_viewer"])
+        self.assertEqual(
+            enriched["aemu_map_url"],
+            "http://go/aemu-map?ag=43351736&files=tools/emu-dev-cli/src/commands/gerrit/ui_server.py",
+        )
 
     def test_extract_bug_ids_from_change(self):
         change = {
@@ -354,6 +383,9 @@ class GerritUIServiceFacadeAndHandlerTest(unittest.TestCase):
 
             html = render_static_gerrit_ui_html({"items": [], "total": 0})
             self.assertIn("<!DOCTYPE html>", html)
+            self.assertIn("buildAemuMapCommitUrl", html)
+            self.assertIn("openAemuMapLink", html)
+            self.assertIn("aemu-map-pill", html)
 
 
 if __name__ == "__main__":

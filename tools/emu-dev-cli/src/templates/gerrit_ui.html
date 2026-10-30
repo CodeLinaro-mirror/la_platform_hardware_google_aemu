@@ -1907,6 +1907,31 @@
     outline: 2px solid var(--g-accent);
     outline-offset: 2px;
   }
+  .aemu-map-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #ffe08a;
+    background: rgba(242, 153, 74, 0.14);
+    border: 1px solid rgba(242, 153, 74, 0.45);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+  .aemu-map-pill:hover {
+    background: rgba(242, 153, 74, 0.26);
+    border-color: #f2c94c;
+    color: #ffffff;
+    text-decoration: none;
+  }
+  .aemu-map-pill:focus-visible {
+    outline: 2px solid #f2c94c;
+    outline-offset: 2px;
+  }
   .commit-msg-panel {
     background: #181a1e;
     border-bottom: 1px solid var(--g-border);
@@ -4665,7 +4690,10 @@
         <strong>Harness &amp; Gerrit Bridge:</strong>
         <span id="drawerStatus" style="color:var(--g-muted);">Ready · Shortcuts: [ (sidebar), j/k (next/prev), x (select CL), 1/2/0 (stage CR), p (stage PR+1), u (stage AS+1), Enter (send vote), s (Swarm)</span>
       </div>
-      <a id="openGerritLink" href="#" target="_blank" style="color:var(--g-accent);font-weight:600;text-decoration:none;">Open in Gerrit ↗</a>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <a id="openAemuMapLink" href="http://go/aemu-map" target="_blank" rel="noopener noreferrer" style="color:#f2c94c;font-weight:600;text-decoration:none;" title="Visualize active CL blast radius and call flows on go/aemu-map">🗺️ Architecture Map ↗</a>
+        <a id="openGerritLink" href="#" target="_blank" style="color:var(--g-accent);font-weight:600;text-decoration:none;">Open in Gerrit ↗</a>
+      </div>
     </div>
     <div id="diffPaneOverlay" class="pane-loading-overlay" aria-hidden="true">
       <div class="pane-loading-card">
@@ -7799,6 +7827,10 @@
     }
     const primary = commits.find(c => c.number === state.selectedClNumber) || commits[0];
     document.getElementById("openGerritLink").href = primary.url;
+    const openAemuMapEl = document.getElementById("openAemuMapLink");
+    if (openAemuMapEl) {
+      openAemuMapEl.href = buildAemuMapCommitUrl(primary, state.diffsByCl[primary.number]);
+    }
     const isBootstrap = Boolean(window.__GERRIT_UI_BOOTSTRAP__ && window.__GERRIT_UI_BOOTSTRAP__.changes);
     const pNum = Number(primary.number);
     if (!isBootstrap && !state.autoExpandedPresubmitCls.has(pNum)) {
@@ -7817,6 +7849,9 @@
         trackLoading: true,
         label: `Fetching unified diff for ${missing.map(n => "ag/" + n).join(", ")}…`,
       });
+      if (openAemuMapEl) {
+        openAemuMapEl.href = buildAemuMapCommitUrl(primary, state.diffsByCl[primary.number]);
+      }
       syncActiveActionButtons(getActiveCommitsForDiff(), false);
       renderDiffPane({ preserveScroll: Boolean(opts.preserveScroll) });
     } else {
@@ -9387,6 +9422,36 @@
     return `<a class="file-cs-link" href="${escapeHtml(csUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" title="Open ${escapeHtml(filePath)}${escapeHtml(lineHint)} in Code Search ↗">${escapeHtml(label)}<span class="file-cs-link-icon" aria-hidden="true">↗</span></a>`;
   }
 
+  const AEMU_MAP_BASE_URL = "http://go/aemu-map";
+
+  function buildAemuMapCommitUrl(c, bundle = null) {
+    if (!c || !c.number) return AEMU_MAP_BASE_URL;
+    const rawFiles = (bundle && Array.isArray(bundle.files) && bundle.files.length > 0)
+      ? bundle.files.map(f => f && f.file)
+      : (Array.isArray(c.files) ? c.files : []);
+    const cleaned = [];
+    const seen = new Set();
+    for (const item of rawFiles) {
+      const raw = String(item || "").trim();
+      if (!raw || GERRIT_MAGIC_FILES.has(raw)) continue;
+      const rel = raw.replace(/^\/+/, "");
+      if (!rel || rel === "dev/null" || GERRIT_MAGIC_FILES.has(rel) || GERRIT_MAGIC_FILES.has("/" + rel)) continue;
+      if (!seen.has(rel)) {
+        seen.add(rel);
+        cleaned.push(rel);
+      }
+    }
+    if (cleaned.length === 0 && c.aemu_map_url) {
+      return c.aemu_map_url;
+    }
+    const encodedCl = encodeURIComponent(String(c.number));
+    if (cleaned.length === 0) {
+      return `${AEMU_MAP_BASE_URL}?ag=${encodedCl}`;
+    }
+    const encodedFiles = cleaned.map(p => p.split("/").map(seg => encodeURIComponent(seg)).join("/")).join(",");
+    return `${AEMU_MAP_BASE_URL}?ag=${encodedCl}&files=${encodedFiles}`;
+  }
+
   const DIFF_COLOR_SCHEMES = [
     { id: "syntax_intraline", label: "🎨 Syntax + Word Diff" },
     { id: "intraline_focus", label: "🔍 Word Diff Only" },
@@ -10557,6 +10622,7 @@
       const aiAnalysisPanelHtml = renderCommitAiAnalysisPanelHtml(c);
 
       const gerritUrl = c.url || `https://googleplex-android-review.git.corp.google.com/c/${c.number}`;
+      const aemuMapUrl = buildAemuMapCommitUrl(c, bundle);
 
       return `<div class="commit-section">
         <div class="commit-sec-header">
@@ -10573,6 +10639,7 @@
             <span style="font-size:11.5px;color:var(--g-muted);">${escapeHtml(c.project_short)} · PS${c.patch_set}</span>
             ${renderDiffColorSchemeSelectHtml()}
             ${renderCommitNavButtonsHtml()}
+            <a class="aemu-map-pill" href="${escapeHtml(aemuMapUrl)}" target="_blank" rel="noopener noreferrer" title="Visualize ag/${c.number} blast radius, call flows, and critical paths on go/aemu-map">🗺️ Architecture Map ↗</a>
             <a class="external-gerrit-pill" href="${escapeHtml(gerritUrl)}" target="_blank" rel="noopener noreferrer" title="Open ag/${c.number} in external Gerrit in a new tab">Open in Gerrit ↗</a>
             ${renderCommitSubmitButtonHtml(c)}
             ${renderCommitHarnessActionsHtml(c)}

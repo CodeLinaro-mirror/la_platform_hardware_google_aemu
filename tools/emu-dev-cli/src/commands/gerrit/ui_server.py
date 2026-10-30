@@ -57,6 +57,7 @@ from commands.gerrit.presubmit_targets import (
     query_presubmit_targets_via_stubby,
 )
 from commands.gerrit.services.diff_parser import (
+    AEMU_MAP_BASE_URL,
     CODE_SEARCH_BASE_HOST,
     COMMIT_TYPE_SPECS,
     DEFAULT_CODE_SEARCH_GOB_HOST,
@@ -86,6 +87,7 @@ from commands.gerrit.services.diff_parser import (
     _extract_diff_git_path,
     _extract_gob_host_name,
     _resolve_googleplex_android_superproject,
+    build_aemu_map_commit_url,
     build_code_search_file_url,
     classify_commit_type,
     classify_risk_and_load,
@@ -219,6 +221,7 @@ class GerritUIService(
 
 
 __all__ = [
+    "AEMU_MAP_BASE_URL",
     "GerritDiffService",
     "GerritInlineQaService",
     "GerritQueueService",
@@ -226,6 +229,7 @@ __all__ = [
     "GerritUIService",
     "GerritVoteSubmitService",
     "OWNER_NOTIFY_HANDLING",
+    "build_aemu_map_commit_url",
     "build_approval_slots",
     "build_code_followup_prompt",
     "build_code_question_prompt",

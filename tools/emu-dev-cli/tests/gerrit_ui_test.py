@@ -42,7 +42,9 @@ from commands.gerrit.ai_analysis import (
     resolve_local_repo_root,
 )
 from commands.gerrit.ui_server import (
+    AEMU_MAP_BASE_URL,
     GerritUIService,
+    build_aemu_map_commit_url,
     build_code_search_file_url,
     build_viewer_gerrit_query,
     classify_commit_type,
@@ -4821,6 +4823,29 @@ class GerritUIHandlerSecurityTest(unittest.TestCase):
         base = self.serve(captured["handler_cls"])  # type: ignore[arg-type]
         self.assertEqual(self.request(f"{base}/api/gerrit/update-status", match.group(1))[0], 200)
         self.assertEqual(self.request(f"{base}/api/gerrit/update-status")[0], 401)
+
+    def test_aemu_map_commit_url_and_ui_integration(self) -> None:
+        url = build_aemu_map_commit_url(
+            43351736,
+            [
+                "/COMMIT_MSG",
+                "emulator/net/async_socket_adapter.cc",
+                "emulator/net/async_socket_adapter.h",
+                "src/测试_🚀_é.cc",
+            ],
+        )
+        self.assertEqual(
+            url,
+            f"{AEMU_MAP_BASE_URL}?ag=43351736&files="
+            "emulator/net/async_socket_adapter.cc,"
+            "emulator/net/async_socket_adapter.h,"
+            "src/%E6%B5%8B%E8%AF%95_%F0%9F%9A%80_%C3%A9.cc",
+        )
+        html = render_static_gerrit_ui_html()
+        self.assertIn("buildAemuMapCommitUrl", html)
+        self.assertIn("openAemuMapLink", html)
+        self.assertIn("aemu-map-pill", html)
+        self.assertIn("🗺️ Architecture Map ↗", html)
 
 
 if __name__ == "__main__":
