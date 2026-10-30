@@ -150,21 +150,19 @@ def _run_tidy_fix_single_level(
     dispatcher = AgentDispatcher()
     report_targets = resolve_report_targets(runner, target)
     if not report_targets:
-        if json_mode:
-            print_result(
-                {
-                    "status": "error",
-                    "action": "tidy fix",
-                    "target": target,
-                    "message": f"Could not resolve any actionable tidy targets for pattern '{target}'.",
-                },
-                json_mode=True,
-                is_error=True,
-            )
-        else:
-            print(
-                f"Error: Could not resolve any actionable tidy targets for pattern '{target}'."
-            )
+        msg = f"Could not resolve any actionable tidy targets for pattern '{target}'."
+        print_result(
+            {
+                "status": "error",
+                "action": "tidy fix",
+                "summary": msg,
+                "target": target,
+                "message": msg,
+                "exit_code": 1,
+            },
+            json_mode=json_mode,
+            is_error=True,
+        )
         return
     report_target = report_targets[0]
 

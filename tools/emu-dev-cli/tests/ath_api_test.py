@@ -515,6 +515,40 @@ class AthApiTest(unittest.TestCase):
         self.assertEqual(history[0].status, "FAILED")
         self.assertEqual(history[0].work_unit_id, "WU_TARGET")
 
+    @patch("lib.ath_api.execute_http_get")
+    @patch("lib.ath_api.fetch_ath_invocations")
+    @patch("lib.ath_api.get_android_build_token")
+    def test_query_test_history_does_not_fabricate_passed_on_error_pagination_failure(
+        self, mock_token, mock_fetch_invs, mock_http_get
+    ):
+        mock_token.return_value = "mock_token"
+        mock_fetch_invs.return_value = [
+            {
+                "invocationId": "I_ERR_PAGE_FAIL_测试_🚀_é",
+                "test": {"name": "android_emulator/unit_tests"},
+                "primaryBuild": {
+                    "buildId": "2002",
+                    "buildTarget": "emulator_linux_x64",
+                },
+                "timing": {"creationTimestamp": "1700000000000"},
+                "properties": [
+                    {"name": "_bazel_test_targets_total", "value": "200"},
+                    {"name": "_bazel_test_targets_failed", "value": "3"},
+                ],
+            }
+        ]
+        mock_http_get.side_effect = RuntimeError("HTTP 503 transient failure")
+        with self.assertLogs("lib.ath_api", level="WARNING") as log_ctx:
+            summary, history = query_test_history(
+                test_target="@aemu//host-common:logging_unittest",
+                target="emulator_linux_x64",
+                days=1,
+                mode="presubmit",
+            )
+        self.assertEqual(history, [])
+        self.assertEqual(summary["total_runs"], 0)
+        self.assertIn("I_ERR_PAGE_FAIL_测试_🚀_é", "\n".join(log_ctx.output))
+
     @patch("lib.resultstore_api.os.path.exists", return_value=True)
     @patch("lib.resultstore_api.subprocess.run")
     def test_query_resultstore_invocation_sponge_cli_fallback(

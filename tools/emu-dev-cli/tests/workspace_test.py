@@ -137,6 +137,49 @@ class WorkspacePathResolverTest(unittest.TestCase):
         self.assertIsNone(resolver.find_directory("non/existent/dir"))
         self.assertIsNone(resolver.find_tool_binary("non_existent_binary"))
 
+    def test_source_directory_atomic_save_backup_recovery_and_corrupt_protection(self):
+        """Verifies `source_directory` never wipes corrupt configs and recovers from `.bak`."""
+        from commands import source_directory
+        from core.errors import ExecutionError
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cfg_path = os.path.join(tmp_dir, "测试_🚀_é", "emu-dev-cli.json")
+            with patch.object(source_directory, "CONFIG_FILE_PATH", cfg_path):
+                saved = source_directory.set_source_directory(
+                    "emu-main-next", os.path.join(tmp_dir, "work_测试_🚀_é")
+                )
+                self.assertTrue(os.path.isfile(cfg_path))
+                self.assertEqual(
+                    source_directory.get_source_directory("emu-main-next"), saved
+                )
+
+                # Second save creates .bak of the valid previous config
+                source_directory.set_source_directory(
+                    "emu-main-dev", os.path.join(tmp_dir, "dev_测试_🚀_é")
+                )
+                self.assertTrue(os.path.isfile(f"{cfg_path}.bak"))
+
+                # Corrupt primary config; load_config recovers from .bak
+                Path(cfg_path).write_text("{corrupt json", encoding="utf-8")
+                recovered = source_directory.load_config(strict=True)
+                self.assertEqual(
+                    recovered["source_directories"].get("emu-main-next"), saved
+                )
+
+                # Remove .bak while primary config is still corrupt:
+                # ensure_codesearch_urls_config must NOT overwrite the corrupt file,
+                # and set_source_directory must raise CORRUPT_CONFIG_FILE.
+                os.unlink(f"{cfg_path}.bak")
+                source_directory.ensure_codesearch_urls_config()
+                self.assertEqual(
+                    Path(cfg_path).read_text(encoding="utf-8"), "{corrupt json"
+                )
+                with self.assertRaises(ExecutionError) as err_ctx:
+                    source_directory.set_source_directory("git_main", tmp_dir)
+                self.assertEqual(
+                    err_ctx.exception.error_code, "CORRUPT_CONFIG_FILE"
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

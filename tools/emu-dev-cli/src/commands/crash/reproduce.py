@@ -33,6 +33,7 @@ import sys
 
 from typing import Any, Dict, List, Optional
 
+from clients.artifact_service import _extract_selected_zip_entries
 from commands.crash.advisor import CrashAdvisorRunner
 from commands.crash.utils import (
     acquire_auth_token,
@@ -164,6 +165,34 @@ def extract_reproduce_plan(
     }
 
 
+def _resolve_emulator_archive_name(build_target: str, build_id: str) -> str:
+    """Maps an Android Build target to its platform-specific `sdk-repo-*-emulator-<bid>.zip` archive name."""
+    target_lower = (build_target or "").lower()
+    if "darwin_aarch64" in target_lower or "mac_aarch64" in target_lower:
+        platform_slug = "darwin_aarch64"
+    elif "darwin" in target_lower or "mac" in target_lower:
+        platform_slug = "darwin"
+    elif "win" in target_lower:
+        platform_slug = "windows"
+    elif "linux_aarch64" in target_lower or "linux-aarch64" in target_lower:
+        platform_slug = "linux_aarch64"
+    else:
+        platform_slug = "linux"
+    return f"sdk-repo-{platform_slug}-emulator-{build_id}.zip"
+
+
+def _resolve_emulator_binary_path(extracted_dir: Path, build_target: str) -> Path:
+    """Returns the extracted emulator binary path inside `extracted_dir`."""
+    is_windows_target = "win" in (build_target or "").lower() or os.name == "nt"
+    exe_candidate = extracted_dir / "emulator" / "emulator.exe"
+    posix_candidate = extracted_dir / "emulator" / "emulator"
+    if is_windows_target and exe_candidate.is_file():
+        return exe_candidate
+    if posix_candidate.is_file():
+        return posix_candidate
+    return exe_candidate if is_windows_target else posix_candidate
+
+
 class CrashReproduceCommand(Command[argparse.Namespace, dict[str, Any]]):
     """Command implementation for `emu-dev-cli crash reproduce`."""
 
@@ -199,6 +228,7 @@ class CrashReproduceCommand(Command[argparse.Namespace, dict[str, Any]]):
         parser.add_argument(
             "--json",
             action="store_true",
+            default=argparse.SUPPRESS,
             help="Output reproduction plan as structured JSON",
         )
         parser.add_argument(
@@ -276,19 +306,37 @@ class CrashReproduceCommand(Command[argparse.Namespace, dict[str, Any]]):
             )
 
         artifact_service = ctx.services.get(SERVICE_ARTIFACT)
-        emu_output_dir = ctx.config.cache_dir / f"emulator-{plan['build_id']}"
-        emu_bin = emu_output_dir / "extracted" / "emulator" / "emulator"
+        build_id = str(plan["build_id"])
+        build_target = str(plan["build_target"])
+        emu_output_dir = ctx.config.cache_dir / f"emulator-{build_id}"
+        extracted_dir = emu_output_dir / "extracted"
+        emu_bin = _resolve_emulator_binary_path(extracted_dir, build_target)
         if not emu_bin.is_file() and artifact_service is not None:
+            artifact_name = _resolve_emulator_archive_name(build_target, build_id)
             try:
                 if hasattr(artifact_service, "download_artifact"):
                     artifact_service.download_artifact(
-                        build_id=str(plan["build_id"]),
-                        target=str(plan["build_target"]),
-                        artifact=f"sdk-repo-linux-emulator-{plan['build_id']}.zip",
-                        dest_dir=emu_output_dir,
+                        build_id=build_id,
+                        target=build_target,
+                        artifact=artifact_name,
+                        dest_dir=extracted_dir,
+                        zip_entries=("emulator/*",),
                     )
+                    emu_bin = _resolve_emulator_binary_path(extracted_dir, build_target)
+                    if not emu_bin.is_file():
+                        for cand_zip in (extracted_dir / artifact_name, emu_output_dir / artifact_name):
+                            if cand_zip.is_file():
+                                _extract_selected_zip_entries(cand_zip, extracted_dir, ("emulator/*",))
+                                emu_bin = _resolve_emulator_binary_path(extracted_dir, build_target)
+                                break
             except Exception as exc:  # noqa: BLE001
-                logging.getLogger(__name__).debug("Failed downloading emulator binary: %s", exc)
+                logging.getLogger(__name__).warning(
+                    "Failed downloading or extracting emulator artifact '%s' for build %s (%s): %s",
+                    artifact_name,
+                    build_id,
+                    build_target,
+                    exc,
+                )
 
         launch_cmd = list(plan["reproduce_command"])
         if emu_bin.is_file() and "emulator" in launch_cmd:

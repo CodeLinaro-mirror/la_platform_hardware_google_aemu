@@ -1412,6 +1412,33 @@ class PerfStrategiesAndSessionsTest(unittest.TestCase):
                 self.assertTrue(cache_dir.startswith(fake_home))
                 self.assertTrue(os.path.isdir(cache_dir))
 
+    def test_find_emulator_pid_strictly_matches_serial_port_and_ignores_unrelated_qemu(
+        self,
+    ):
+        """Verifies `find_emulator_pid(serial)` never returns an unrelated highest-PID `qemu-system`."""
+        from lib.perf_telemetry import find_emulator_pid
+        from lib.perf.session import _cleanup_stale_netsim
+        from core.process import FakeProcessRunner
+
+        with tempfile.TemporaryDirectory() as fake_proc:
+            # PID 99999 is a developer's emulator on port 5554 (with Unicode AVD name)
+            dev_dir = os.path.join(fake_proc, "99999")
+            os.makedirs(dev_dir)
+            with open(os.path.join(dev_dir, "cmdline"), "wb") as f:
+                f.write(
+                    "/sdk/emulator/qemu-system-x86_64\x00-avd\x00dev_测试_🚀_é\x00-port\x005554\x00".encode(
+                        "utf-8"
+                    )
+                )
+            # Searching for emulator-5560 must return None, NEVER 99999
+            self.assertIsNone(find_emulator_pid("emulator-5560", proc_root=fake_proc))
+            self.assertEqual(find_emulator_pid("emulator-5554", proc_root=fake_proc), 99999)
+            self.assertEqual(find_emulator_pid(None, proc_root=fake_proc), 99999)
+
+        fake_runner = FakeProcessRunner()
+        _cleanup_stale_netsim(force=True, process_runner=fake_runner)
+        self.assertEqual(fake_runner.calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()

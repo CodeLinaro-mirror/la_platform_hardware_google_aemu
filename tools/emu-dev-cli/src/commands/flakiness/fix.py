@@ -23,6 +23,7 @@ from clients.buganizer_service import BuganizerService
 from core.command import Command, CommandResult, STATUS_ERROR, STATUS_SUCCESS
 from core.context import ExecutionContext
 from core.errors import ExecutionError, ExitCode, UsageError
+from core.process import ProcessRunner
 from lib.ath_api import SUPPORTED_TARGET_PLATFORMS
 from lib.output import format_markdown_table, print_status
 from . import options
@@ -180,29 +181,41 @@ class FlakinessFixCommand(Command[argparse.Namespace, dict[str, Any]]):
         )
         outcome = run_stress_test(ctx.process_runner, plan)
         passed = outcome.passed
+        patch_desc, patch_status, patch_applied = self._inspect_workspace_patch(
+            ctx.process_runner
+        )
         rows = [
             ["1. Bug Inspection", f"Resolved test target `{test_target}` for b/{bug_id}", "✅ OK"],
-            ["2. Workspace Patch", "Verified patch in workspace", "✅ APPLIED"],
+            ["2. Workspace Patch", patch_desc, patch_status],
             [
                 "3. Stress-Test Verification",
                 f"Executed {iterations}x Bazel test runs of `{test_target}` on {target}",
                 "✅ PASSED (0% flake)" if passed else "❌ FAILED (Flake Reproduced)",
             ],
         ]
+        uploaded = False
+        upload_ok = True
         if upload and passed:
-            rows.append(["4. Gerrit CL Submission", f"Uploaded CL for b/{bug_id}", "✅ UPLOADED"])
+            upload_desc, upload_badge, uploaded = self._upload_fix_cl(
+                ctx.process_runner, bug_id
+            )
+            rows.append(["4. Gerrit CL Submission", upload_desc, upload_badge])
+            upload_ok = uploaded
         elif upload:
             rows.append([
                 "4. Gerrit CL Submission",
                 f"Skipped CL upload due to test failure on b/{bug_id}",
                 "❌ ABORTED",
             ])
+            upload_ok = False
+        overall_ok = passed and upload_ok
         table = format_markdown_table(STEP_HEADERS, rows)
-        summary = (
-            f"Successfully fixed and verified flaky test '{test_target}' for bug b/{bug_id}"
-            if passed
-            else f"Stress-test verification failed for '{test_target}' on bug b/{bug_id}"
-        )
+        if not passed:
+            summary = f"Stress-test verification failed for '{test_target}' on bug b/{bug_id}"
+        elif upload and not uploaded:
+            summary = f"Stress-test passed for '{test_target}', but Gerrit CL upload failed for bug b/{bug_id}"
+        else:
+            summary = f"Successfully fixed and verified flaky test '{test_target}' for bug b/{bug_id}"
         default_log = "All test iterations passed." if passed else ""
         data: dict[str, Any] = {
             "summary": summary,
@@ -211,7 +224,9 @@ class FlakinessFixCommand(Command[argparse.Namespace, dict[str, Any]]):
             "iterations": iterations,
             "target": target,
             "test_passed": passed,
+            "patch_applied": patch_applied,
             "upload": upload,
+            "uploaded": uploaded,
             "markdown_table": table,
             "log_snippet": outcome.log_snippet or default_log,
         }
@@ -219,9 +234,41 @@ class FlakinessFixCommand(Command[argparse.Namespace, dict[str, Any]]):
             data=data,
             action=ACTION,
             summary=summary,
-            status=STATUS_SUCCESS if passed else STATUS_ERROR,
-            exit_code=int(ExitCode.SUCCESS) if passed else int(ExitCode.FAILURE),
+            status=STATUS_SUCCESS if overall_ok else STATUS_ERROR,
+            exit_code=int(ExitCode.SUCCESS) if overall_ok else int(ExitCode.FAILURE),
             markdown_table=table,
+        )
+
+    @staticmethod
+    def _inspect_workspace_patch(runner: ProcessRunner) -> tuple[str, str, bool]:
+        """Checks `git status --porcelain` to report honest workspace patch status."""
+        res = runner.run(["git", "status", "--porcelain"], check=False)
+        if not res.ok:
+            return ("Could not inspect git workspace status", "⚠️ UNVERIFIED", False)
+        dirty_lines = [ln for ln in (res.stdout or "").splitlines() if ln.strip()]
+        if dirty_lines:
+            return (
+                f"Detected {len(dirty_lines)} modified/staged file(s) in workspace",
+                "✅ APPLIED",
+                True,
+            )
+        return ("No uncommitted local file modifications detected", "ℹ️ CLEAN", False)
+
+    @staticmethod
+    def _upload_fix_cl(runner: ProcessRunner, bug_id: str) -> tuple[str, str, bool]:
+        """Executes `repo upload` to submit the verified fix to Gerrit."""
+        res = runner.run(
+            ["repo", "upload", "--br=.", "-y", "--no-verify"],
+            check=False,
+        )
+        if res.ok:
+            return (f"Uploaded CL for b/{bug_id}", "✅ UPLOADED", True)
+        detail = (res.stderr or res.stdout or f"exit code {res.returncode}").strip()
+        first_line = detail.splitlines()[0] if detail else f"exit code {res.returncode}"
+        return (
+            f"Failed to upload CL for b/{bug_id}: {first_line}",
+            "❌ UPLOAD FAILED",
+            False,
         )
 
     def _resolve_test_target(

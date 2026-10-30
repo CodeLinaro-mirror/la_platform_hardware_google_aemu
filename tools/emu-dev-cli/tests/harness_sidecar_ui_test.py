@@ -150,6 +150,45 @@ class HarnessSidecarSecurityTest(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_workflow_approve_returns_500_when_cli_fails_and_200_on_success(self) -> None:
+        base = self.serve(TOKEN)
+        fail_proc = mock.MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="Error: workflow state 'state_测试_🚀_é' not found\n",
+        )
+        with mock.patch.object(self.module.subprocess, "run", return_value=fail_proc):
+            status, payload = self.request(
+                f"{base}/api/workflow/approve",
+                TOKEN,
+                json.dumps({"state_id": "state_测试_🚀_é"}, ensure_ascii=False).encode("utf-8"),
+            )
+        self.assertEqual(status, 500)
+        self.assertIn("state_测试_🚀_é", payload["error"])
+        self.assertEqual(payload["exit_code"], 1)
+
+        ok_proc = mock.MagicMock(returncode=0, stdout="Approved\n", stderr="")
+        with mock.patch.object(self.module.subprocess, "run", return_value=ok_proc):
+            status_ok, payload_ok = self.request(
+                f"{base}/api/workflow/approve",
+                TOKEN,
+                json.dumps({"state_id": "state_测试_🚀_é"}, ensure_ascii=False).encode("utf-8"),
+            )
+        self.assertEqual(status_ok, 200)
+        self.assertEqual(payload_ok["status"], "approved")
+
+    def test_root_json_flag_is_not_shadowed_by_harness_subparser(self) -> None:
+        import argparse
+        from commands import harness
+
+        root_parser = argparse.ArgumentParser()
+        root_parser.add_argument("--json", action="store_true")
+        subparsers = root_parser.add_subparsers(dest="subcommand")
+        harness.register_parser(subparsers)
+
+        parsed = root_parser.parse_args(["--json", "harness", "status"])
+        self.assertTrue(parsed.json)
+
 
 class HarnessSidecarInstallTest(unittest.TestCase):
 
@@ -160,7 +199,7 @@ class HarnessSidecarInstallTest(unittest.TestCase):
             install_harness_plugin,
         )
 
-        shared = Path(__file__).resolve().parents[1] / "src" / "lib" / "web_security.py"
+        shared = Path(__file__).resolve().parents[1] / "src" / "core" / "web" / "security.py"
         with tempfile.TemporaryDirectory() as tmp:
             plugin_dir = Path(tmp) / "aemu-harness_测试"
             report = install_harness_plugin(

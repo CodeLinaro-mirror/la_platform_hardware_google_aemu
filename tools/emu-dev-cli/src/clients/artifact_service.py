@@ -35,7 +35,7 @@ import zipfile
 from core.errors import AuthError, ExecutionError, UsageError
 from core.events import ArtifactDownloaded, EventBus
 from core.process import ProcessRunner, SubprocessRunner
-from lib.oauth import OAuthTokenManager, get_quota_project, get_ssl_context
+from clients.oauth import OAuthTokenManager, get_quota_project, get_ssl_context
 
 LOGGER = logging.getLogger(__name__)
 
@@ -265,15 +265,52 @@ def _validate_non_empty(param_name: str, value: str) -> str:
     return cleaned
 
 
+def _is_executable_zip_entry(entry_name: str, unix_mode: int) -> bool:
+    """Returns True if an extracted zip entry should have executable permissions on POSIX."""
+    if unix_mode & 0o111:
+        return True
+    parts = Path(entry_name).parts
+    filename = parts[-1] if parts else ""
+    parent = parts[-2] if len(parts) >= 2 else ""
+    return (
+        parent == "bin"
+        or filename.startswith(("emulator", "qemu-", "e2fsprogs", "mksdcard"))
+        or filename.endswith(".sh")
+    )
+
+
 def _extract_selected_zip_entries(
     zip_path: Path, out_dir: Path, zip_entries: Sequence[str]
 ) -> None:
-    """Extracts the requested `zip_entries` from `zip_path` into `out_dir`."""
+    """Extracts the requested `zip_entries` (exact or glob patterns) from `zip_path` into `out_dir`."""
+    resolved_out = out_dir.resolve()
     with zipfile.ZipFile(zip_path, "r") as archive:
-        available = set(archive.namelist())
-        for entry in zip_entries:
-            if entry in available:
-                archive.extract(entry, path=str(out_dir))
+        names = archive.namelist()
+        matched: list[str] = []
+        for pattern in zip_entries:
+            for name in names:
+                if (
+                    name == pattern or fnmatch.fnmatch(name, pattern)
+                ) and name not in matched:
+                    matched.append(name)
+
+        for entry in matched:
+            target_path = (resolved_out / entry).resolve()
+            if not target_path.is_relative_to(resolved_out):
+                raise ExecutionError(
+                    f"Refusing to extract unsafe zip entry '{entry}' outside '{out_dir}'.",
+                    remediation="Ensure the archive does not contain '..' path traversal entries.",
+                    error_code="UNSAFE_ZIP_ENTRY",
+                )
+            extracted_str = archive.extract(entry, path=str(out_dir))
+            info = archive.getinfo(entry)
+            if os.name != "nt" and not info.is_dir():
+                unix_mode = (info.external_attr >> 16) & 0o777
+                if _is_executable_zip_entry(entry, unix_mode):
+                    try:
+                        os.chmod(extracted_str, unix_mode if (unix_mode & 0o111) else 0o755)
+                    except OSError:
+                        pass
 
 
 @dataclass(frozen=True)
@@ -1043,10 +1080,17 @@ class ProdArtifactService(ArtifactService):
         ]
         if branch:
             cmd.extend(["--branch", branch])
-        if zip_entries:
+        has_glob_entries = bool(
+            zip_entries and any(ch in entry for entry in zip_entries for ch in "*?[")
+        )
+        if zip_entries and not has_glob_entries:
             cmd.extend(f"--zip_entry={entry}" for entry in zip_entries)
-        dest_target = out_dir if zip_entries else (out_dir / artifact)
-        if not zip_entries:
+        dest_target = (
+            out_dir
+            if (zip_entries and not has_glob_entries)
+            else (out_dir / artifact)
+        )
+        if not zip_entries or has_glob_entries:
             dest_target.parent.mkdir(parents=True, exist_ok=True)
         cmd.extend([artifact, str(dest_target)])
         result = self._process_runner.run(
@@ -1058,6 +1102,11 @@ class ProdArtifactService(ArtifactService):
                 artifact,
                 result.returncode,
             )
+            return None
+        if zip_entries and has_glob_entries:
+            if dest_target.is_file() and dest_target.stat().st_size > 0:
+                _extract_selected_zip_entries(dest_target, out_dir, zip_entries)
+                return out_dir
             return None
         if zip_entries:
             return out_dir

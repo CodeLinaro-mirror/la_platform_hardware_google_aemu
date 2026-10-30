@@ -1,8 +1,12 @@
-import os
-import json
-import sys
 import argparse
+import json
+import logging
+import os
 from pathlib import Path
+import shutil
+import sys
+import tempfile
+from core.errors import ExecutionError
 from lib.output import print_result
 
 DEFAULT_BRANCHES = ["emu-main-dev", "emu-main-next", "git_main", "trunk-release"]
@@ -15,28 +19,110 @@ DEFAULT_CODESEARCH_URLS = {
 }
 
 
-def load_config():
+def _empty_config() -> dict:
+    """Returns a fresh default configuration dictionary."""
+    return {"source_directories": {}, "codesearch_urls": {}}
+
+
+def _normalize_config_dict(data: object) -> dict:
+    """Normalizes a parsed JSON object into the canonical config dictionary structure."""
+    if not isinstance(data, dict):
+        raise ValueError(f"Expected JSON object at root, got {type(data).__name__}")
+    normalized = dict(data)
+    if not isinstance(normalized.get("source_directories"), dict):
+        normalized["source_directories"] = {}
+    if not isinstance(normalized.get("codesearch_urls"), dict):
+        normalized["codesearch_urls"] = {}
+    return normalized
+
+
+def _read_config_file(path: str) -> dict:
+    """Reads and validates a JSON configuration file from `path`."""
+    with open(path, "r", encoding="utf-8") as f:
+        return _normalize_config_dict(json.load(f))
+
+
+def load_config(strict: bool = False) -> dict:
+    """Loads `~/.android/emu-dev-cli.json`, falling back to `.bak` on corruption.
+
+    When `strict=True`, raises `ExecutionError` if the config file is unreadable/corrupt
+    and no valid `.bak` backup is available, preventing callers from overwriting user state.
+    """
+    backup_path = f"{CONFIG_FILE_PATH}.bak"
     if not os.path.exists(CONFIG_FILE_PATH):
-        return {"source_directories": {}, "codesearch_urls": {}}
+        if os.path.exists(backup_path):
+            try:
+                return _read_config_file(backup_path)
+            except (OSError, ValueError, UnicodeDecodeError):
+                pass
+        return _empty_config()
+
     try:
-        with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if not isinstance(data, dict):
-                data = {}
-            if "source_directories" not in data or not isinstance(data["source_directories"], dict):
-                data["source_directories"] = {}
-            if "codesearch_urls" not in data or not isinstance(data["codesearch_urls"], dict):
-                data["codesearch_urls"] = {}
-            return data
-    except Exception:
-        return {"source_directories": {}, "codesearch_urls": {}}
+        return _read_config_file(CONFIG_FILE_PATH)
+    except (OSError, ValueError, UnicodeDecodeError) as exc:
+        logging.warning(
+            "Failed to parse configuration file '%s' (%s).",
+            CONFIG_FILE_PATH,
+            exc,
+        )
+        if os.path.exists(backup_path):
+            try:
+                recovered = _read_config_file(backup_path)
+                logging.warning(
+                    "Recovered configuration from backup '%s'.",
+                    backup_path,
+                )
+                return recovered
+            except (OSError, ValueError, UnicodeDecodeError) as bak_exc:
+                logging.warning(
+                    "Backup configuration '%s' is also unreadable (%s).",
+                    backup_path,
+                    bak_exc,
+                )
+        if strict:
+            raise ExecutionError(
+                f"Failed to parse configuration file '{CONFIG_FILE_PATH}': {exc}. "
+                f"Fix the JSON syntax in '{CONFIG_FILE_PATH}' or restore '{backup_path}' "
+                "before modifying configuration.",
+                error_code="CORRUPT_CONFIG_FILE",
+            ) from exc
+        return _empty_config()
 
 
-def save_config(config_data):
-    config_dir = os.path.dirname(CONFIG_FILE_PATH)
+def save_config(config_data: dict) -> None:
+    """Atomically writes `config_data` to `CONFIG_FILE_PATH` after backing up valid state."""
+    config_dir = os.path.dirname(os.path.abspath(CONFIG_FILE_PATH))
     os.makedirs(config_dir, exist_ok=True)
-    with open(CONFIG_FILE_PATH, "w", encoding="utf-8") as f:
-        json.dump(config_data, f, indent=2)
+    backup_path = f"{CONFIG_FILE_PATH}.bak"
+    if os.path.exists(CONFIG_FILE_PATH):
+        try:
+            _read_config_file(CONFIG_FILE_PATH)
+            shutil.copy2(CONFIG_FILE_PATH, backup_path)
+        except (OSError, ValueError, UnicodeDecodeError):
+            pass
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=config_dir,
+            prefix=".emu-dev-cli.",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp_file:
+            tmp_path = tmp_file.name
+            json.dump(config_data, tmp_file, indent=2, ensure_ascii=False)
+            tmp_file.flush()
+            os.fsync(tmp_file.fileno())
+        os.replace(tmp_path, CONFIG_FILE_PATH)
+    except Exception:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+        raise
 
 
 def get_source_directory(branch_name):
@@ -54,7 +140,7 @@ def get_codesearch_url_prefix(branch_name="emu-main-next"):
 
 
 def set_codesearch_url_prefix(branch_name, url_prefix):
-    config = load_config()
+    config = load_config(strict=True)
     config.setdefault("codesearch_urls", {})[branch_name] = url_prefix
     save_config(config)
     return url_prefix
@@ -63,11 +149,21 @@ def set_codesearch_url_prefix(branch_name, url_prefix):
 def ensure_codesearch_urls_config():
     """
     Ensures that the standard codesearch_urls map is written/refreshed in ~/.android/emu-dev-cli.json.
-    Called on init and update commands.
+    Called on init and update commands. Preserves corrupt files rather than wiping user config.
     """
-    config = load_config()
-    config["codesearch_urls"] = DEFAULT_CODESEARCH_URLS.copy()
-    save_config(config)
+    try:
+        config = load_config(strict=True)
+    except ExecutionError as exc:
+        logging.warning(
+            "Skipping codesearch_urls refresh to avoid overwriting corrupt config: %s",
+            exc,
+        )
+        return DEFAULT_CODESEARCH_URLS.copy()
+
+    desired_urls = DEFAULT_CODESEARCH_URLS.copy()
+    if config.get("codesearch_urls") != desired_urls or not os.path.exists(CONFIG_FILE_PATH):
+        config["codesearch_urls"] = desired_urls
+        save_config(config)
     return config["codesearch_urls"]
 
 
@@ -120,7 +216,7 @@ def find_file_in_source_directories(relative_path):
 
 
 def set_source_directory(branch_name, source_path):
-    config = load_config()
+    config = load_config(strict=True)
     abs_path = os.path.abspath(os.path.expanduser(source_path))
     config.setdefault("source_directories", {})[branch_name] = abs_path
     save_config(config)
@@ -128,7 +224,7 @@ def set_source_directory(branch_name, source_path):
 
 
 def run_first_time_setup(interactive=True):
-    config = load_config()
+    config = load_config(strict=True)
     source_dirs = config.get("source_directories", {})
     ensure_codesearch_urls_config()
 

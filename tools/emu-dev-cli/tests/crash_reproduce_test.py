@@ -353,6 +353,73 @@ class CrashReproduceTest(unittest.TestCase):
             self.assertTrue(res.ok)
             mock_runner.run.assert_called_once()
 
+    def test_root_json_flag_is_not_shadowed_by_subparser(self):
+        """Verifies `emu-dev-cli --json crash reproduce <id>` preserves `args.json == True`."""
+        from commands import crash
+
+        root_parser = argparse.ArgumentParser()
+        root_parser.add_argument("--json", action="store_true")
+        subparsers = root_parser.add_subparsers(dest="subcommand")
+        crash.register_parser(subparsers)
+
+        parsed = root_parser.parse_args(
+            ["--json", "crash", "reproduce", "05d8356e2f800000"]
+        )
+        self.assertTrue(parsed.json)
+
+    def test_run_reproduce_extracts_emulator_zip_entries_and_executes_binary_with_unicode(
+        self,
+    ):
+        """Tests that `crash reproduce` extracts `emulator/*` from the platform zip and executes the binary."""
+        metadata = {
+            "report_proto": {
+                "ReportID": "05d8356e2f800000",
+                "product": {"Name": "AndroidEmulator", "Version": "35.2.1-15950000"},
+                "os": {"Name": "Mac OS X", "Version": "15.1"},
+                "cpu": {"Architecture": "arm64"},
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            unicode_work = Path(tmp_dir) / "测试_🚀_é"
+            unicode_work.mkdir(parents=True)
+            meta_file = unicode_work / "metadata.json"
+            meta_file.write_text(json.dumps(metadata), encoding="utf-8")
+
+            ctx = ExecutionContext.for_testing(root_dir=unicode_work)
+            ctx.fake_artifact_service.seed_artifact(
+                build_id="15950000",
+                target="emulator_mac_aarch64",
+                artifact_name="sdk-repo-darwin_aarch64-emulator-15950000.zip",
+                zip_entries={
+                    "emulator/emulator": "#!/bin/sh\necho ok\n",
+                    "emulator/source.properties": "Pkg.Revision=35.2.1\n",
+                },
+            )
+            cmd = CrashReproduceCommand()
+            args = argparse.Namespace(
+                crash_id="05d8356e2f800000",
+                token=None,
+                avd="repro_测试_🚀_é",
+                lldb=False,
+                dry_run=False,
+                json=False,
+                extra_args=None,
+                work_dir=str(unicode_work),
+            )
+            res = cmd.execute(args, ctx)
+            self.assertTrue(res.ok)
+            expected_bin = (
+                unicode_work
+                / "cache"
+                / "emulator-15950000"
+                / "extracted"
+                / "emulator"
+                / "emulator"
+            )
+            self.assertTrue(expected_bin.is_file())
+            self.assertEqual(len(ctx.process_runner.calls), 1)
+            self.assertEqual(ctx.process_runner.calls[0].args[0], str(expected_bin))
+
 
 if __name__ == "__main__":
     unittest.main()

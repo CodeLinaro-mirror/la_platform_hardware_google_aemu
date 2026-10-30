@@ -24,6 +24,7 @@ import sys
 from typing import List, Optional
 
 from commands.source_directory import get_source_directory
+from core.errors import ExecutionError
 from core.process import SubprocessRunner
 from lib.bazel import BazelRunner, BuildExitCode
 from lib.output import format_markdown_table
@@ -64,11 +65,13 @@ def handle_tidy_check(args: argparse.Namespace) -> None:
             check=False,
             capture_output=True,
         )
-        if res.returncode != 0:
+        build_failed = isinstance(res.returncode, int) and res.returncode != 0
+        if build_failed:
             logging.warning("Report build failed with exit code: %s", res.returncode)
             if res.stderr:
                 logging.warning("Build logs:\n%s", res.stderr)
 
+        found_any_yaml = False
         for report_target in report_targets:
             clean_target = (
                 report_target.lstrip("@")
@@ -93,9 +96,19 @@ def handle_tidy_check(args: argparse.Namespace) -> None:
                         if cand.exists():
                             diagnostics.extend(parse_fixes_yaml(str(cand)))
                             found_yaml = True
+                            found_any_yaml = True
                             break
                     if found_yaml:
                         break
+
+        if build_failed and not found_any_yaml:
+            err_tail = (res.stderr or res.stdout or "").strip()
+            detail = f": {err_tail.splitlines()[-1]}" if err_tail else ""
+            raise ExecutionError(
+                f"Failed to build clang-tidy report for '{target}' (exit code {res.returncode}){detail}",
+                remediation=f"Verify '{target}' compiles cleanly with Bazel before running 'tidy check'.",
+                error_code="TIDY_REPORT_BUILD_FAILED",
+            )
 
     else:
         # If no target provided, attempt to load all previously built YAML reports

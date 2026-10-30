@@ -174,6 +174,45 @@ class FlakinessFixTest(unittest.TestCase):
         data = res.data
         self.assertFalse(data["test_passed"])
 
+    def test_handle_flakiness_fix_upload_failure_does_not_report_false_green(self):
+        self.ctx.fake_buganizer_service.seed_issue(
+            BuganizerIssue(
+                issue_id="123456789",
+                title="[Flaky Test] @goldfish//emulator/libs/async:loop_handoff_test",
+                component_id=1016880,
+                status="ASSIGNED",
+            )
+        )
+        # 1. Bazel stress test passes; 2. git status shows Unicode dirty file; 3. repo upload fails
+        self.ctx.fake_process_runner.queue_response(
+            returncode=0, stdout="PASSED 50/50 iterations"
+        )
+        self.ctx.fake_process_runner.queue_response(
+            returncode=0, stdout=" M emulator/libs/async/测试_🚀_é.cc\n"
+        )
+        self.ctx.fake_process_runner.queue_response(
+            returncode=1, stderr="ERROR: no branches ready for upload (测试_🚀_é)"
+        )
+        args = self.parser.parse_args(
+            [
+                "flakiness",
+                "fix",
+                "--bug",
+                "b/123456789",
+                "--iterations",
+                "50",
+                "--upload",
+            ]
+        )
+        cmd = flakiness.FlakinessFixCommand()
+        res = cmd.execute(args, self.ctx)
+        self.assertFalse(res.ok)
+        self.assertEqual(res.exit_code, 1)
+        self.assertTrue(res.data["test_passed"])
+        self.assertTrue(res.data["patch_applied"])
+        self.assertFalse(res.data["uploaded"])
+        self.assertIn("❌ UPLOAD FAILED", res.data["markdown_table"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -541,10 +541,23 @@ def is_nested_virtualization(proc_root: str = "/proc") -> bool:
     return False
 
 
+def _cmdline_matches_port(cmd_joined: str, port_str: str) -> bool:
+    """Returns True when a `qemu-system` command line targets console/adb `port_str`."""
+    return (
+        f"-port {port_str}" in cmd_joined
+        or f"-ports {port_str}," in cmd_joined
+        or f"tcp:{port_str}" in cmd_joined
+    )
+
+
 def find_emulator_pid(
     serial: Optional[str] = None, proc_root: str = "/proc"
 ) -> Optional[int]:
-    """Locates the running `qemu-system-*` host PID for an ADB serial across Linux, macOS, and Windows."""
+    """Locates the running `qemu-system-*` host PID for an ADB serial across Linux, macOS, and Windows.
+
+    When `serial` specifies a port, only processes whose command line explicitly matches that
+    port are returned; unrelated `qemu-system` instances on the host are never returned.
+    """
     port_str = None
     if serial and serial.startswith("emulator-"):
         port_str = serial.split("-", 1)[1]
@@ -572,12 +585,11 @@ def find_emulator_pid(
                     exe_base = os.path.basename(args[0])
                     if "qemu-system" in exe_base:
                         cmd_joined = " ".join(args)
-                        if port_str and (
-                            f"-port {port_str}" in cmd_joined
-                            or f"tcp:{port_str}" in cmd_joined
-                        ):
-                            return pid
-                        candidates.append((pid, cmd_joined))
+                        if port_str:
+                            if _cmdline_matches_port(cmd_joined, port_str):
+                                return pid
+                        else:
+                            candidates.append((pid, cmd_joined))
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Ignored error in find_emulator_pid: %s", exc)
                     continue
@@ -597,32 +609,37 @@ def find_emulator_pid(
                 cmdline = proc.info.get("cmdline") or []
                 cmd_joined = " ".join(cmdline)
                 if "qemu-system" in name or "qemu-system" in cmd_joined:
-                    if port_str and (
-                        f"-port {port_str}" in cmd_joined
-                        or f"tcp:{port_str}" in cmd_joined
-                    ):
-                        return int(proc.info["pid"])
-                    ps_candidates.append(int(proc.info["pid"]))
+                    if port_str:
+                        if _cmdline_matches_port(cmd_joined, port_str):
+                            return int(proc.info["pid"])
+                    else:
+                        ps_candidates.append(int(proc.info["pid"]))
             if ps_candidates:
                 return sorted(ps_candidates)[-1]
         except Exception as exc:
             logging.getLogger(__name__).debug("Ignored error in find_emulator_pid: %s", exc)
 
-    # Fallback to pgrep on macOS / non-procfs
-    try:
-        res = SubprocessRunner().run(
-            ["pgrep", "-f", "qemu-system"],
-            check=False,
+    # Fallback to pgrep on macOS / non-procfs when proc_root is not available
+    if not os.path.isdir(proc_root):
+        pgrep_pattern = (
+            f"qemu-system.*(-port[s]? {port_str}|tcp:{port_str})"
+            if port_str
+            else "qemu-system"
         )
-        pids = [
-            int(line.strip())
-            for line in res.stdout.splitlines()
-            if line.strip().isdigit()
-        ]
-        if pids:
-            return pids[-1]
-    except Exception as exc:
-        logging.getLogger(__name__).debug("Ignored error in find_emulator_pid: %s", exc)
+        try:
+            res = SubprocessRunner().run(
+                ["pgrep", "-f", pgrep_pattern],
+                check=False,
+            )
+            pids = [
+                int(line.strip())
+                for line in res.stdout.splitlines()
+                if line.strip().isdigit()
+            ]
+            if pids:
+                return pids[-1]
+        except Exception as exc:
+            logging.getLogger(__name__).debug("Ignored error in find_emulator_pid: %s", exc)
     return None
 
 

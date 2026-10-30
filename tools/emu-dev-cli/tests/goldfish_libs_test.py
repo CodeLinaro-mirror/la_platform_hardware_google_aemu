@@ -129,7 +129,10 @@ class ReusableLibsCatalogTest(unittest.TestCase):
             sidecar_dir = Path(tmp)
             shutil.copy2(PLUGIN_DIR / SIDECAR_RELATIVE_DIR / "server.py", sidecar_dir)
             # `harness install` puts a copy of the CLI's request checks next to the sidecar.
-            shutil.copy2(PLUGIN_DIR.parents[1] / "src" / "lib" / "web_security.py", sidecar_dir)
+            shutil.copy2(
+                PLUGIN_DIR.parents[1] / "src" / "core" / "web" / "security.py",
+                sidecar_dir / "web_security.py",
+            )
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr):
                 sidecar = _load_sidecar(sidecar_dir)

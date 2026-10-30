@@ -35,7 +35,7 @@ PLUGIN_EXECUTABLE_MODE: int = 0o755
 SIDECAR_LIBS_CATALOG_FILENAME: str = "libs_catalog.json"
 # The standalone AuxPane sidecar also gets a copy of the CLI's request checks.
 SIDECAR_WEB_SECURITY_RELPATH: str = "sidecars/aemu_harness_ui/web_security.py"
-_WEB_SECURITY_SRC: Path = Path(__file__).resolve().parents[2] / "lib" / "web_security.py"
+_WEB_SECURITY_SRC: Path = Path(__file__).resolve().parents[2] / "core" / "web" / "security.py"
 
 def get_default_plugin_dest_dir(
     home_dir: Optional[Union[Path, str]] = None,
