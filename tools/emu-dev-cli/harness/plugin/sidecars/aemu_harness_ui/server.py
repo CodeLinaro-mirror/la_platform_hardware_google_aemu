@@ -49,6 +49,7 @@ def _load_web_security() -> ModuleType:
     here = Path(__file__).resolve()
     candidates = [here.with_name(WEB_SECURITY_FILENAME)]
     if len(here.parents) > 4:
+        candidates.append(here.parents[4] / "src" / "core" / "web" / "security.py")
         candidates.append(here.parents[4] / "src" / "lib" / WEB_SECURITY_FILENAME)
     for candidate in candidates:
         if not candidate.is_file():
@@ -56,6 +57,7 @@ def _load_web_security() -> ModuleType:
         spec = importlib.util.spec_from_file_location("aemu_harness_web_security", candidate)
         if spec is not None and spec.loader is not None:
             module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
             spec.loader.exec_module(module)
             return module
     raise ImportError(
@@ -1008,11 +1010,38 @@ class HarnessSidecarHandler(BaseHTTPRequestHandler):
             if not state_id:
                 self._send_json(400, {"error": "Missing state_id"})
                 return
-            subprocess.run(
-                ["emu-dev-cli", "workflow", "approve", "--state", state_id],
-                check=False,
-                capture_output=True,
-            )
+            try:
+                res = subprocess.run(
+                    ["emu-dev-cli", "workflow", "approve", "--state", state_id],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+            except OSError as exc:
+                self._send_json(
+                    500,
+                    {
+                        "error": f"Failed to execute 'emu-dev-cli workflow approve --state {state_id}': {exc}",
+                        "state_id": state_id,
+                    },
+                )
+                return
+            if res.returncode != 0:
+                detail = (res.stderr or res.stdout or f"exit code {res.returncode}").strip()
+                self._send_json(
+                    500,
+                    {
+                        "error": (
+                            f"Failed to approve workflow state '{state_id}' "
+                            f"(exit code {res.returncode}): {detail}"
+                        ),
+                        "state_id": state_id,
+                        "exit_code": res.returncode,
+                    },
+                )
+                return
             self._send_json(200, {"status": "approved", "state_id": state_id})
             return
 

@@ -28,7 +28,7 @@ import statistics
 import subprocess
 import tempfile
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from core.process import ProcessRunner, SubprocessRunner
 from lib.avd import (
@@ -103,24 +103,49 @@ def _find_free_console_port(start_port: int = 5560) -> int:
     return start_port + 20
 
 
-def _try_kill_pid(pid_str: str) -> None:
-    clean_pid = pid_str.strip()
+def _try_kill_pid(pid: int | str) -> None:
+    clean_pid = str(pid).strip()
     if not clean_pid.isdigit():
         return
     try:
         os.kill(int(clean_pid), signal.SIGKILL)
     except OSError as exc:
-        logger.debug("Ignored error killing netsimd %s: %s", clean_pid, exc)
+        logger.debug("Ignored error killing session process %s: %s", clean_pid, exc)
 
 
-def _kill_orphaned_netsimd(runner: ProcessRunner) -> None:
+def _find_session_child_pids(
+    root_pids: Sequence[int], proc_root: str = "/proc"
+) -> List[int]:
+    """Finds child processes belonging to the benchmark session (`ppid`, `pgrp`, or `session` in `root_pids`)."""
+    valid_roots = {int(pid) for pid in root_pids if pid and int(pid) > 0}
+    if not valid_roots or not os.path.isdir(proc_root):
+        return []
+    matched: List[int] = []
     try:
-        res = runner.run(["pgrep", "-f", "netsimd"], check=False, timeout=3.0)
-    except Exception as exc:
-        logger.debug("Ignored error searching netsimd processes: %s", exc)
-        return
-    for pid_str in (res.stdout or "").splitlines():
-        _try_kill_pid(pid_str)
+        for entry in os.listdir(proc_root):
+            if not entry.isdigit():
+                continue
+            pid = int(entry)
+            if pid in valid_roots:
+                continue
+            stat_path = os.path.join(proc_root, entry, "stat")
+            try:
+                with open(stat_path, "r", encoding="utf-8", errors="ignore") as f:
+                    stat_line = f.read()
+                rparen = stat_line.rfind(")")
+                if rparen < 0:
+                    continue
+                fields = stat_line[rparen + 2 :].split()
+                if len(fields) < 4:
+                    continue
+                ppid, pgrp, sid = int(fields[1]), int(fields[2]), int(fields[3])
+                if ppid in valid_roots or pgrp in valid_roots or sid in valid_roots:
+                    matched.append(pid)
+            except (OSError, ValueError):
+                continue
+    except OSError as exc:
+        logger.debug("Ignored error scanning %s for session children: %s", proc_root, exc)
+    return matched
 
 
 def _read_netsim_grpc_port(ini_path: str) -> int:
@@ -151,15 +176,17 @@ def _is_local_port_listening(port: int) -> bool:
         return False
 
 
-def _clean_netsim_files_in_dir(dir_path: str, force: bool) -> None:
+def _clean_netsim_files_in_dir(dir_path: str, force: bool = False) -> None:
+    del force
+    ini_main = os.path.join(dir_path, "netsim.ini")
+    if os.path.isfile(ini_main):
+        port = _read_netsim_grpc_port(ini_main)
+        if _is_local_port_listening(port):
+            return
     for ini_name in ("netsim.ini", "netsim.ini.lock"):
         ini_path = os.path.join(dir_path, ini_name)
         if not os.path.isfile(ini_path):
             continue
-        if ini_name == "netsim.ini" and not force:
-            port = _read_netsim_grpc_port(ini_path)
-            if _is_local_port_listening(port):
-                continue
         try:
             os.remove(ini_path)
         except OSError as exc:
@@ -170,10 +197,8 @@ def _cleanup_stale_netsim(
     force: bool = False,
     process_runner: Optional[ProcessRunner] = None,
 ) -> None:
-    """Removes stale `netsim.ini` discovery files (and kills orphaned `netsimd` when `force=True`)."""
-    if force:
-        _kill_orphaned_netsimd(process_runner or SubprocessRunner())
-
+    """Removes stale `netsim.ini` discovery files whose gRPC port is no longer listening."""
+    del process_runner
     candidate_dirs = (
         os.environ.get("TMPDIR") or "",
         tempfile.gettempdir(),
@@ -223,10 +248,12 @@ def _kill_emulator_process_tree(
     adb_bin: str = "adb",
     process_runner: Optional[ProcessRunner] = None,
 ) -> None:
-    """Terminates the emulator launcher and all child QEMU/crashpad/netsimd processes."""
+    """Terminates the session's emulator launcher and its child QEMU/crashpad/netsimd processes."""
     emu_pid = find_emulator_pid(serial)
+    root_pids = [int(p) for p in (getattr(proc, "pid", None), emu_pid) if p]
+    child_pids = _find_session_child_pids(root_pids)
     try:
-        if hasattr(os, "killpg"):
+        if hasattr(os, "killpg") and getattr(proc, "pid", None):
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
     except Exception as exc:
         logger.debug("Ignored killpg error in _kill_emulator_process_tree: %s", exc)
@@ -235,12 +262,11 @@ def _kill_emulator_process_tree(
         proc.wait(timeout=5.0)
     except Exception as exc:
         logger.debug("Ignored proc.kill error in _kill_emulator_process_tree: %s", exc)
-    if emu_pid and emu_pid != proc.pid:
-        try:
-            os.kill(emu_pid, signal.SIGKILL)
-        except Exception as exc:
-            logger.debug("Ignored os.kill error in _kill_emulator_process_tree: %s", exc)
-    _cleanup_stale_netsim(force=True, process_runner=process_runner)
+    if emu_pid and emu_pid != getattr(proc, "pid", None):
+        _try_kill_pid(emu_pid)
+    for child_pid in child_pids:
+        _try_kill_pid(child_pid)
+    _cleanup_stale_netsim(force=False, process_runner=process_runner)
     _adb_cmd(
         serial,
         ["disconnect"],

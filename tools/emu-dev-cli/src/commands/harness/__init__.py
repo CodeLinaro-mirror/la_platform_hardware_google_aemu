@@ -378,7 +378,12 @@ def register_parser(subparsers: Any) -> None:
     core_parsers = _register_core_subparsers(harness_subparsers)
     swarm_p = _register_review_swarm_parser(harness_subparsers)
     for sub_p in (install_p, *core_parsers, swarm_p):
-        sub_p.add_argument("--json", action="store_true", help="Output results in machine-readable JSON format")
+        sub_p.add_argument(
+            "--json",
+            action="store_true",
+            default=argparse.SUPPRESS,
+            help="Output results in machine-readable JSON format",
+        )
 
 
 def _register_review_swarm_parser(harness_subparsers: Any) -> Any:

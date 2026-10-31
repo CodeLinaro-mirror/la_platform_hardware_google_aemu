@@ -20,28 +20,9 @@ from pathlib import Path
 import stat
 from typing import Iterable, Optional, Union
 
+from core.web.security import resolve_within_roots
+
 logger = logging.getLogger(__name__)
-
-
-def resolve_within_roots(
-    path: Union[str, Path], roots: Iterable[Union[str, Path]]
-) -> Optional[Path]:
-    """Resolves `path` (expanding `~`, `..` and symlinks) and returns it if it is inside a root.
-
-    Returns None when the resolved path is outside every root in `roots`, which blocks
-    `../` traversal and symlinks that point outside the allowed directories.
-    """
-    try:
-        resolved = Path(path).expanduser().resolve()
-    except (OSError, RuntimeError, ValueError):
-        return None
-    for root in roots:
-        try:
-            if resolved.is_relative_to(Path(root).expanduser().resolve()):
-                return resolved
-        except (OSError, RuntimeError, ValueError):
-            continue
-    return None
 
 
 def is_path_secure_user_owned(

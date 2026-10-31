@@ -35,9 +35,18 @@ from core.command import (
 from core.context import ExecutionContext
 from core.errors import EmuCliError, ExitCode, UsageError
 from core.events import StepCompleted, StepStarted
-from lib.output import ensure_utf8_stdio
 
 LOGGER = logging.getLogger(__name__)
+
+
+def ensure_utf8_stdio() -> None:
+    """Reconfigures CLI stdin/stdout/stderr to UTF-8 so non-ASCII paths never fail on Windows."""
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
 
 _REDUNDANT_TABLE_KEYS: frozenset[str] = frozenset({
     "nodes",

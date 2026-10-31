@@ -460,6 +460,30 @@ class ArchitectureRatchetTest(unittest.TestCase):
                 f"{rel} must not depend on higher-level modules {bad_imports}",
             )
 
+    def test_emu_core_library_is_hermetic_and_free_of_lib_imports(self) -> None:
+        emu_core_reports = {
+            rel: rep
+            for rel, rep in self.reports.items()
+            if rel.startswith("src/core/") or rel.startswith("src/clients/")
+        }
+        self.assertGreaterEqual(len(emu_core_reports), 15)
+        forbidden_non_hermetic = {
+            "lib",
+            "commands",
+            "targets",
+            "install",
+            "prebuilts",
+            "workflows",
+            "benchmarks",
+        }
+        for rel, rep in emu_core_reports.items():
+            bad_imports = rep.imported_modules & forbidden_non_hermetic
+            self.assertEqual(
+                bad_imports,
+                set(),
+                f"emu_core file {rel} must not import non-hermetic package(s) {bad_imports}",
+            )
+
     def test_ast_scanner_detects_synthetic_violations_with_unicode(self) -> None:
         synthetic_code = """
 import os

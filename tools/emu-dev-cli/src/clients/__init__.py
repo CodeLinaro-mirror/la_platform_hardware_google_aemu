@@ -117,6 +117,11 @@ from clients.f1_sql_client import (
     validate_sql_identifier,
     validate_sql_string,
 )
+from clients.oauth import (
+    OAuthTokenManager,
+    get_quota_project,
+    get_ssl_context,
+)
 from core.context import (
     AppConfig,
     ExecutionContext,
@@ -206,6 +211,7 @@ __all__ = [
     "MODEL_FLASH_LITE",
     "MODEL_GEMINI_NEXT",
     "MODEL_PRO",
+    "OAuthTokenManager",
     "ProcessResult",
     "ProcessRunner",
     "ProdAgentRuntimeService",
@@ -231,6 +237,8 @@ __all__ = [
     "extract_conversation_id_from_output",
     "format_review_ping_message",
     "format_sql_in_list",
+    "get_quota_project",
+    "get_ssl_context",
     "is_bot_or_agent_chat_email",
     "is_complete_rca_summary",
     "is_safe_signature_issue_match",

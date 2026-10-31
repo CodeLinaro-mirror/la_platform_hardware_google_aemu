@@ -18,15 +18,7 @@ import json
 import sys
 import unicodedata
 
-
-def ensure_utf8_stdio() -> None:
-    """Reconfigures CLI stdin/stdout/stderr to UTF-8 so non-ASCII paths never fail on Windows."""
-    for stream in (sys.stdin, sys.stdout, sys.stderr):
-        if hasattr(stream, "reconfigure"):
-            try:
-                stream.reconfigure(encoding="utf-8", errors="replace")
-            except (OSError, ValueError):
-                pass
+from core.dispatcher import ensure_utf8_stdio
 
 
 def get_display_width(s: str) -> int:
