@@ -109,6 +109,7 @@ WATCHED_GERRIT_MODULES: tuple[str, ...] = (
     "commands.gerrit.ai_analysis",
     "commands.gerrit.presubmit_targets",
     "commands.gerrit.sidecar_updater",
+    "commands.gerrit.services.context",
     "commands.gerrit.services.diff_parser",
     "commands.gerrit.services.queue_service",
     "commands.gerrit.services.vote_submit_service",

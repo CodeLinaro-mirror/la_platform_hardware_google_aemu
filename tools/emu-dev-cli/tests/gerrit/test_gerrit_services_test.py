@@ -387,6 +387,48 @@ class GerritUIServiceFacadeAndHandlerTest(unittest.TestCase):
             self.assertIn("openAemuMapLink", html)
             self.assertIn("aemu-map-pill", html)
 
+    def test_gerrit_ui_service_pure_composition_and_context_propagation(self):
+        from commands.gerrit.services import (
+            DiffService,
+            GerritWorkspaceContext,
+            InlineQaService,
+            ReviewQueueService,
+            VoteSubmitService,
+        )
+
+        self.assertEqual(GerritUIService.__bases__, (object,))
+        ctx = GerritWorkspaceContext(
+            default_viewer="tester_测试_🚀_é@google.com",
+            default_query="status:open",
+            auth_email="tester_测试_🚀_é@google.com",
+        )
+        diff_svc = DiffService(context=ctx)
+        queue_svc = ReviewQueueService(context=ctx, diff_service=diff_svc)
+        vote_svc = VoteSubmitService(context=ctx, queue_service=queue_svc)
+        qa_svc = InlineQaService(
+            context=ctx, diff_service=diff_svc, queue_service=queue_svc
+        )
+        facade = GerritUIService(
+            context=ctx,
+            diff_service=diff_svc,
+            queue_service=queue_svc,
+            vote_submit_service=vote_svc,
+            inline_qa_service=qa_svc,
+        )
+        self.assertIs(facade.context, ctx)
+        self.assertIs(facade.diff_service, diff_svc)
+        self.assertIs(facade.queue_service, queue_svc)
+        self.assertIs(facade.vote_submit_service, vote_svc)
+        self.assertIs(facade.inline_qa_service, qa_svc)
+
+        # Updating a shared context attribute on the facade propagates to all composed services
+        facade.default_viewer = "updated_测试@google.com"
+        self.assertEqual(ctx.default_viewer, "updated_测试@google.com")
+        self.assertEqual(diff_svc.default_viewer, "updated_测试@google.com")
+        self.assertEqual(queue_svc.default_viewer, "updated_测试@google.com")
+        self.assertEqual(vote_svc.default_viewer, "updated_测试@google.com")
+        self.assertEqual(qa_svc.default_viewer, "updated_测试@google.com")
+
 
 if __name__ == "__main__":
     unittest.main()

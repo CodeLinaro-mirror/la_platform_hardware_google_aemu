@@ -28,6 +28,10 @@ import time
 from typing import Any
 import urllib.parse
 
+from commands.gerrit.services.context import (
+    CONTEXT_SHARED_ATTRS,
+    GerritWorkspaceContext,
+)
 from commands.gerrit.sidecar_updater import GerritSidecarUpdater
 from core.web.assets import StaticAssetResolver
 from lib.gerrit_api import (
@@ -782,114 +786,113 @@ def extract_enclosing_function_from_diff_lines(
 class GerritServiceBase:
     """Shared state and cache primitives across Gerrit UI domain services."""
 
+    context: GerritWorkspaceContext
+
     def __init__(
         self,
         host: str = DEFAULT_GERRIT_HOST,
         default_viewer: str = "",
         default_query: str = "",
         sidecar_updater: GerritSidecarUpdater | None = None,
+        *,
+        context: GerritWorkspaceContext | None = None,
     ) -> None:
-        self.host = host.rstrip("/")
-        self.client = GerritClient(host=self.host)
-        self.sidecar_updater = sidecar_updater or GerritSidecarUpdater()
-        self._session_lock = threading.Lock()
-        self._session_approved_cls: set[int] = set()
-        self._session_votes: dict[int, dict[str, int]] = {}
-        self._session_presubmit_voted_at: dict[int, float] = {}
-        self._presubmit_targets_cache: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
-        self._raw_queue_cache: dict[str, tuple[float, list[dict[str, Any]], bool]] = {}
-        self._known_revisions_by_cl: dict[str, tuple[str, int]] = {}
-        self._diff_revision_cache: dict[tuple[str, str], dict[str, Any]] = {}
-        self._full_diff_bundle_cache: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
-        self._file_content_cache: dict[tuple[str, str, str], tuple[float, dict[str, Any]]] = {}
-        self._included_in_cache: dict[str, tuple[float, dict[str, Any]]] = {}
-        self._last_prewarm_by_viewer: dict[str, float] = {}
-        self._prewarm_in_progress = False
-        self._qa_lock = threading.Lock()
-        self._qa_threads: dict[str, dict[str, Any]] = {}
-        self._tracked_qa_conv_ids: set[str] = set()
-        self._deleted_qa_conv_ids: set[str] = set()
-        self._analyzer_conv_ids: set[str] = set()
-        self._ignored_steps_by_conv: dict[str, set[int]] = {}
-        self._cached_project_id: str = ""
-        self._next_qa_seq: int = 1
-        self._ai_analysis_lock = threading.Lock()
-        self._ai_analysis_state: dict[tuple[str, int], dict[str, Any]] = {}
-        self._ai_analysis_gen: dict[tuple[str, int], int] = {}
-        self._ai_analysis_cache_dir = (
-            Path.home() / ".cache" / "emu-dev-cli" / "gerrit-ui" / "ai_analysis"
+        if context is not None:
+            object.__setattr__(self, "context", context)
+            return
+
+        ctx = GerritWorkspaceContext(
+            host=host,
+            default_viewer="",
+            default_query=default_query,
+            sidecar_updater=sidecar_updater,
+            client=GerritClient(host=host.rstrip("/")),
         )
-        self._bug_cache_path = (
-            Path.home() / ".cache" / "emu-dev-cli" / "gerrit-ui" / "bug_metadata_cache.json"
-        )
-        self._bug_cache: dict[str, dict[str, str]] = (
+        object.__setattr__(self, "context", ctx)
+        ctx._bug_cache = (
             self._load_bug_cache() if hasattr(self, "_load_bug_cache") else {}
         )
-        self.auth_email = (
+        ctx.auth_email = (
             self._detect_auth_email() if hasattr(self, "_detect_auth_email") else ""
         )
         if hasattr(self, "_detect_viewer_email"):
             from commands.gerrit.services.queue_service import _normalize_viewer_email
 
-            self.default_viewer = (
+            ctx.default_viewer = (
                 _normalize_viewer_email(default_viewer) or self._detect_viewer_email()
             )
         else:
-            self.default_viewer = default_viewer.strip().lower()
-        self.default_query = default_query
+            ctx.default_viewer = default_viewer.strip().lower()
+
+    def __getattr__(self, name: str) -> Any:
+        if name in CONTEXT_SHARED_ATTRS:
+            ctx = object.__getattribute__(self, "__dict__").get("context")
+            if ctx is not None:
+                return getattr(ctx, name)
+        raise AttributeError(
+            f"'{type(self).__name__}' object has no attribute '{name}'"
+        )
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "context":
+            object.__setattr__(self, name, value)
+            return
+        if name in CONTEXT_SHARED_ATTRS:
+            ctx = object.__getattribute__(self, "__dict__").get("context")
+            if ctx is not None:
+                setattr(ctx, name, value)
+                return
+        object.__setattr__(self, name, value)
 
     def _detect_auth_email(self) -> str:
         """Returns the Gerrit account email that `gob-curl` authenticates as on this host."""
-        try:
-            acct = self.client._request_json("/a/accounts/self")
-            return (acct.get("email") or "").strip().lower()
-        except Exception:
-            return ""
+        return self.context.detect_auth_email()
 
     def _invalidate_cl_caches(self, cl_ids: list[str] | None = None) -> None:
         """Clears cached raw queue queries and optional full diff bundle entries after a mutation."""
-        target_ids = {str(cid).strip() for cid in (cl_ids or []) if str(cid).strip()}
-        with self._session_lock:
-            self._raw_queue_cache.clear()
-            if not target_ids:
-                return
-            stale_keys = [k for k in self._full_diff_bundle_cache if k[0] in target_ids]
-            for key in stale_keys:
-                self._full_diff_bundle_cache.pop(key, None)
-            for cid in target_ids:
-                self._included_in_cache.pop(cid, None)
+        self.context.invalidate_cl_caches(cl_ids)
 
     def _record_known_revisions(self, raw_changes: list[dict[str, Any]]) -> None:
         """Records `(current_revision, patch_set)` per CL number to accelerate diff bundle fetches."""
-        updates: dict[str, tuple[str, int]] = {}
-        for ch in raw_changes:
-            num = ch.get("_number")
-            if not num:
-                continue
-            cur_rev = str(ch.get("current_revision") or "")
-            rev_obj = ((ch.get("revisions") or {}).get(cur_rev) or {}) if cur_rev else {}
-            cur_ps = int(ch.get("current_revision_number", 0) or rev_obj.get("_number", 1) or 1)
-            updates[str(num)] = (cur_rev, max(1, cur_ps))
-        if updates:
-            with self._session_lock:
-                self._known_revisions_by_cl.update(updates)
+        self.context.record_known_revisions(raw_changes)
 
     def _get_known_revision(self, cl_id: str) -> tuple[str, int]:
         """Returns `(current_revision, patch_set)` if previously seen in a queue response."""
-        with self._session_lock:
-            return self._known_revisions_by_cl.get(cl_id, ("", 0))
-
+        return self.context.get_known_revision(cl_id)
 
 
 class GerritDiffService(GerritServiceBase):
     """Domain service for continuous multi-commit diff parsing, pure-rebase checks, and caching."""
+
+    def __init__(
+        self,
+        host: str = DEFAULT_GERRIT_HOST,
+        default_viewer: str = "",
+        default_query: str = "",
+        sidecar_updater: GerritSidecarUpdater | None = None,
+        *,
+        context: GerritWorkspaceContext | None = None,
+        inline_qa_service: Any | None = None,
+    ) -> None:
+        super().__init__(
+            host=host,
+            default_viewer=default_viewer,
+            default_query=default_query,
+            sidecar_updater=sidecar_updater,
+            context=context,
+        )
+        self._inline_qa_service = inline_qa_service
 
     def get_code_questions(
         self,
         cl_numbers: list[str | int],
         conversation_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Default no-op overridden when composed with `GerritInlineQaService`."""
+        """Delegates to the configured `inline_qa_service` collaborator when present."""
+        if self._inline_qa_service is not None:
+            return self._inline_qa_service.get_code_questions(
+                cl_numbers, conversation_id=conversation_id
+            )
         return []
 
     def _enrich_questions_with_diff_symbols(
@@ -1133,4 +1136,8 @@ class GerritDiffService(GerritServiceBase):
                 self._file_content_cache.pop(next(iter(self._file_content_cache)), None)
             self._file_content_cache[cache_key] = (time.monotonic(), res)
         return res
+
+
+DiffService = GerritDiffService
+
 

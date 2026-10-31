@@ -37,8 +37,9 @@ from commands.gerrit.services.diff_parser import (
     extract_enclosing_function_from_diff_lines,
     extract_symbol_from_code_line,
 )
+from commands.gerrit.services.queue_service import GerritQueueService
 from core.process import SubprocessRunner
-from lib.gerrit_api import parse_cl_identifier
+from lib.gerrit_api import DEFAULT_GERRIT_HOST, parse_cl_identifier
 
 _CODE_QUESTION_PROMPT_RE = re.compile(
     r"Regarding Gerrit CL `ag/(?P<cl>\d+)` in `(?P<file_path>[^`]+)` "
@@ -439,6 +440,41 @@ def _run_sidecar_agentapi(args: list[str], project_id: str | None = None) -> dic
 class GerritInlineQaService(GerritServiceBase):
     """Domain service for Jetski inline code Q&A threads and AI intangibles analysis."""
 
+    def __init__(
+        self,
+        host: str = DEFAULT_GERRIT_HOST,
+        default_viewer: str = "",
+        default_query: str = "",
+        sidecar_updater: Any | None = None,
+        *,
+        context: Any | None = None,
+        diff_service: GerritDiffService | None = None,
+        queue_service: GerritQueueService | None = None,
+    ) -> None:
+        super().__init__(
+            host=host,
+            default_viewer=default_viewer,
+            default_query=default_query,
+            sidecar_updater=sidecar_updater,
+            context=context,
+        )
+        self._diff_service = diff_service
+        self._queue_service = queue_service
+
+    def _get_diff_service(self) -> GerritDiffService:
+        if self._diff_service is None:
+            self._diff_service = GerritDiffService(
+                context=self.context, inline_qa_service=self
+            )
+        return self._diff_service
+
+    def _get_queue_service(self) -> GerritQueueService:
+        if self._queue_service is None:
+            self._queue_service = GerritQueueService(
+                context=self.context, diff_service=self._get_diff_service()
+            )
+        return self._queue_service
+
     def fetch_commit_diff_bundle(
         self,
         cl_number: str | int,
@@ -446,7 +482,17 @@ class GerritInlineQaService(GerritServiceBase):
         base: str | int | None = None,
     ) -> dict[str, Any]:
         """Delegates diff bundle lookup to `GerritDiffService`."""
-        return GerritDiffService.fetch_commit_diff_bundle(self, cl_number, patch_set=patch_set, base=base)  # type: ignore[arg-type]
+        return self._get_diff_service().fetch_commit_diff_bundle(
+            cl_number, patch_set=patch_set, base=base
+        )
+
+    def _resolve_change_patchset_and_project(
+        self, cl_id: str, patchset: int | None, project: str
+    ) -> tuple[int, str]:
+        """Delegates `(patch_set, project)` resolution to `GerritQueueService`."""
+        return self._get_queue_service()._resolve_change_patchset_and_project(
+            cl_id, patchset, project
+        )
 
     def _merge_tracked_qa_state(
         self,
@@ -1246,4 +1292,8 @@ class GerritInlineQaService(GerritServiceBase):
             force=force,
             brain_root=brain_root,
         )
+
+
+InlineQaService = GerritInlineQaService
+
 

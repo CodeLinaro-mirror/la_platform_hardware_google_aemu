@@ -109,7 +109,6 @@ SYS_PATH_MUTATION_CEILINGS: Mapping[str, int] = {
     "src/commands/harness/guardrails.py": 1,
     "src/commands/harness/terminal_title.py": 1,
     "src/commands/update_cmd.py": 1,
-    "workflows/core/yaml_runner.py": 2,
 }
 
 # Library modules under `LIBRARY_DIR_PREFIXES` must raise `EmuCliError` subclasses
@@ -620,6 +619,64 @@ def bad_helper(label: str = "测试_🚀_é") -> None:
                 subparser.get_default("func"),
                 f"Top-level subcommand '{name}' must not set legacy 'func' default",
             )
+
+    def test_phase14_gerrit_ui_composition_and_workflow_state_store_invariants(
+        self,
+    ) -> None:
+        from commands.gerrit.services import (
+            DiffService,
+            GerritWorkspaceContext,
+            InlineQaService,
+            ReviewQueueService,
+            VoteSubmitService,
+        )
+        from commands.gerrit.ui_server import GerritUIService
+        from core.web.handler import JsonRequestHandler
+        from workflows.core.state_store import WorkflowStateStore
+        from workflows.core.yaml_runner import WorkflowRegistry
+
+        # 1. GerritUIService uses pure composition instead of 4-way MRO mixin inheritance
+        self.assertEqual(GerritUIService.__bases__, (object,))
+        self.assertIsNotNone(GerritWorkspaceContext)
+        self.assertIsNotNone(DiffService)
+        self.assertIsNotNone(ReviewQueueService)
+        self.assertIsNotNone(VoteSubmitService)
+        self.assertIsNotNone(InlineQaService)
+
+        # 2. WorkflowStateStore and WorkflowRegistry exist and are wired
+        self.assertIsNotNone(WorkflowStateStore)
+        self.assertIsNotNone(WorkflowRegistry)
+
+        # 3. workflows/ui/server.py and workflows/core/yaml_runner.py do not swap sys.stdout or os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"]
+        ui_server_src = (REPO_ROOT / "workflows" / "ui" / "server.py").read_text(
+            encoding="utf-8"
+        )
+        yaml_runner_src = (
+            REPO_ROOT / "workflows" / "core" / "yaml_runner.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("sys.stdout =", ui_server_src)
+        self.assertNotIn(
+            'os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] =', ui_server_src
+        )
+        self.assertNotIn(
+            'os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] =', yaml_runner_src
+        )
+        self.assertNotIn('os.environ["PYTHONPATH"] =', yaml_runner_src)
+
+        # 4. Harness sidecar server subclasses core.web.JsonRequestHandler
+        harness_sidecar_src = (
+            REPO_ROOT
+            / "harness"
+            / "plugin"
+            / "sidecars"
+            / "aemu_harness_ui"
+            / "server.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "class HarnessSidecarHandler(JsonRequestHandler):",
+            harness_sidecar_src,
+        )
+        self.assertIsNotNone(JsonRequestHandler)
 
 
 if __name__ == "__main__":

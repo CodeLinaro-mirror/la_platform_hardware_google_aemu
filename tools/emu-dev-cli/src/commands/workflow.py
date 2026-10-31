@@ -22,6 +22,7 @@ from core.command import (
 from core.context import ExecutionContext
 from lib.output import print_result
 from workflows.core.yaml_runner import (
+    WorkflowRegistry,
     _build_subprocess_env,
     approve_workflow_session,
     get_state_base_dir,
@@ -88,10 +89,12 @@ def discover_workflow_directories() -> List[str]:
     return candidates
 
 
-def list_available_workflows() -> Dict[str, Dict[str, str]]:
-    """Discovers all available workflows and returns a dict mapping name to metadata."""
-    workflows = {}
-    for base_dir in discover_workflow_directories():
+def _scan_workflow_directories(
+    candidate_dirs: List[str],
+) -> Dict[str, Dict[str, str]]:
+    """Scans workflow directories on disk and builds the workflow catalog."""
+    workflows: Dict[str, Dict[str, str]] = {}
+    for base_dir in candidate_dirs:
         if not os.path.isdir(base_dir):
             continue
         for entry in os.listdir(base_dir):
@@ -162,6 +165,14 @@ def list_available_workflows() -> Dict[str, Dict[str, str]]:
                 }
 
     return workflows
+
+
+def list_available_workflows() -> Dict[str, Dict[str, str]]:
+    """Discovers all available workflows and returns a dict mapping name to metadata."""
+    return WorkflowRegistry.get_or_scan(
+        discover_workflow_directories(),
+        _scan_workflow_directories,
+    )
 
 
 def find_workflow_target(workflow_name: str) -> Optional[Tuple[str, str]]:

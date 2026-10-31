@@ -23,6 +23,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import time
 from typing import Any
 import urllib.parse
@@ -52,9 +53,10 @@ from commands.harness.review_swarm_status import (
     GERRIT_REVIEW_PAYLOAD_FILENAME,
     resolve_swarm_dir_for_cl,
 )
-from core.errors import EmuCliError, UsageError
+from core.errors import EmuCliError, SubprocessError, UsageError
 from core.process import ProcessResult, SubprocessRunner
 from lib.gerrit_api import (
+    DEFAULT_GERRIT_HOST,
     GERRIT_CLI_TIMEOUT_SEC,
     parse_cl_identifier,
     strip_xssi_prefix,
@@ -109,13 +111,99 @@ def _parse_gchat_dm_output(stdout_str: str) -> tuple[str, str, str]:
 class GerritVoteSubmitService(GerritServiceBase):
     """Domain service for Gerrit voting, submission, reviewer updates, and inline comments."""
 
+    def __init__(
+        self,
+        host: str = DEFAULT_GERRIT_HOST,
+        default_viewer: str = "",
+        default_query: str = "",
+        sidecar_updater: Any | None = None,
+        *,
+        context: Any | None = None,
+        queue_service: GerritQueueService | None = None,
+    ) -> None:
+        super().__init__(
+            host=host,
+            default_viewer=default_viewer,
+            default_query=default_query,
+            sidecar_updater=sidecar_updater,
+            context=context,
+        )
+        self._queue_service = queue_service
+
+    def _get_queue_service(self) -> GerritQueueService:
+        if self._queue_service is None:
+            self._queue_service = GerritQueueService(context=self.context)
+        return self._queue_service
+
     def fetch_single_enriched_change(
         self, cl_id: str, viewer_email: str | None = None
     ) -> dict[str, Any] | None:
         """Delegates enriched single-change lookup to `GerritQueueService`."""
-        return GerritQueueService.fetch_single_enriched_change(
-            self, cl_id, viewer_email=viewer_email
-        )  # type: ignore[arg-type]
+        return self._get_queue_service().fetch_single_enriched_change(
+            cl_id, viewer_email=viewer_email
+        )
+
+    def _resolve_change_patchset_and_project(
+        self, cl_id: str, patchset: int | None, project: str
+    ) -> tuple[int, str]:
+        """Delegates `(patchset, project)` resolution to `GerritQueueService`."""
+        return self._get_queue_service()._resolve_change_patchset_and_project(
+            cl_id, patchset, project
+        )
+
+    def rerun_presubmit_checks(
+        self,
+        cl_number: str | int,
+        targets: list[str] | None = None,
+        patchset: int | None = None,
+        reason: str = "",
+        bypass_cache: bool = False,
+        stage_presubmit_ready: bool = True,
+    ) -> dict[str, Any]:
+        """Triggers or schedules a rerun of TreeHugger presubmit checks for `(cl_number, patchset)`."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False, strict=True)
+        resolved_ps, resolved_proj = self._resolve_change_patchset_and_project(
+            cl_id, patchset, ""
+        )
+        norm_targets = [str(t).strip() for t in (targets or []) if str(t).strip()]
+
+        cache_key = (cl_id, resolved_ps)
+        with self._session_lock:
+            self._presubmit_targets_cache.pop(cache_key, None)
+            if cl_id.isdigit():
+                self._session_presubmit_voted_at[int(cl_id)] = time.monotonic() + 10.0
+
+        if stage_presubmit_ready:
+            msg_parts = ["[TreeHugger Rerun] Re-triggering presubmit checks"]
+            if norm_targets:
+                msg_parts.append(f"for: {', '.join(norm_targets)}")
+            if reason:
+                msg_parts.append(f"(Reason: {reason})")
+            if bypass_cache:
+                msg_parts.append("[clean_run=true]")
+            try:
+                self.cast_batch_vote(
+                    cl_numbers=[cl_id],
+                    code_review=None,
+                    presubmit_ready=True,
+                    message=" ".join(msg_parts),
+                )
+            except Exception:
+                pass
+
+        target_count = len(norm_targets) if norm_targets else "all"
+        return {
+            "ok": True,
+            "cl": cl_id,
+            "patchset": resolved_ps,
+            "project": resolved_proj,
+            "rerun_targets": norm_targets,
+            "reason": reason,
+            "bypass_cache": bypass_cache,
+            "stage_presubmit_ready": stage_presubmit_ready,
+            "status": "queued",
+            "message": f"Triggered rerun for {target_count} check(s) on ag/{cl_id} (PS{resolved_ps})",
+        }
 
     def _post_single_vote(
         self,
@@ -312,7 +400,7 @@ class GerritVoteSubmitService(GerritServiceBase):
                 check=False,
                 timeout_sec=GERRIT_CLI_TIMEOUT_SEC,
             )
-        except (subprocess.TimeoutExpired, ProcessTimeoutError):
+        except (subprocess.TimeoutExpired, SubprocessError):
             return {
                 "cl": cl_id,
                 "ok": False,
@@ -330,6 +418,16 @@ class GerritVoteSubmitService(GerritServiceBase):
                 "error": (
                     f"Failed to execute `{gob_curl}` while submitting ag/{cl_id}: {exc}. "
                     "Verify `gob-curl` installation and permissions on PATH."
+                ),
+            }
+        if res.timed_out:
+            return {
+                "cl": cl_id,
+                "ok": False,
+                "status": "TIMEOUT",
+                "error": (
+                    f"Timed out after {GERRIT_CLI_TIMEOUT_SEC}s while submitting ag/{cl_id} via `gob-curl`. "
+                    f"Check Gerrit whether ag/{cl_id} already merged and verify network/`gcert` before retrying."
                 ),
             }
         combined_out = f"{(res.stdout or '').strip()} {(res.stderr or '').strip()}".strip()
@@ -1395,4 +1493,6 @@ class GerritVoteSubmitService(GerritServiceBase):
             "action": "discard_edit",
             "response": res,
         }
+
+VoteSubmitService = GerritVoteSubmitService
 

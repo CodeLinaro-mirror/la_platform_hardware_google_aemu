@@ -1627,6 +1627,30 @@ def _detect_capsule_owner_email() -> str:
 class GerritQueueService(GerritServiceBase):
     """Domain service for Gerrit CL queue fetching, attention-set filtering, and session state."""
 
+    def __init__(
+        self,
+        host: str = DEFAULT_GERRIT_HOST,
+        default_viewer: str = "",
+        default_query: str = "",
+        sidecar_updater: Any | None = None,
+        *,
+        context: Any | None = None,
+        diff_service: GerritDiffService | None = None,
+    ) -> None:
+        super().__init__(
+            host=host,
+            default_viewer=default_viewer,
+            default_query=default_query,
+            sidecar_updater=sidecar_updater,
+            context=context,
+        )
+        self._diff_service = diff_service
+
+    def _get_diff_service(self) -> GerritDiffService:
+        if self._diff_service is None:
+            self._diff_service = GerritDiffService(context=self.context)
+        return self._diff_service
+
     def fetch_commit_diff_bundle(
         self,
         cl_number: str | int,
@@ -1634,7 +1658,9 @@ class GerritQueueService(GerritServiceBase):
         base: str | int | None = None,
     ) -> dict[str, Any]:
         """Delegates diff bundle lookup to `GerritDiffService`."""
-        return GerritDiffService.fetch_commit_diff_bundle(self, cl_number, patch_set=patch_set, base=base)  # type: ignore[arg-type]
+        return self._get_diff_service().fetch_commit_diff_bundle(
+            cl_number, patch_set=patch_set, base=base
+        )
 
     def _load_bug_cache(self) -> dict[str, dict[str, str]]:
         """Loads cached Buganizer priority/severity metadata from disk if available."""
@@ -2211,60 +2237,6 @@ class GerritQueueService(GerritServiceBase):
                 self._presubmit_targets_cache[cache_key] = (time.monotonic(), payload)
         return payload
 
-    def rerun_presubmit_checks(
-        self,
-        cl_number: str | int,
-        targets: list[str] | None = None,
-        patchset: int | None = None,
-        reason: str = "",
-        bypass_cache: bool = False,
-        stage_presubmit_ready: bool = True,
-    ) -> dict[str, Any]:
-        """Triggers or schedules a rerun of TreeHugger presubmit checks for `(cl_number, patchset)`."""
-        cl_id = parse_cl_identifier(str(cl_number), allow_head=False, strict=True)
-        resolved_ps, resolved_proj = self._resolve_change_patchset_and_project(
-            cl_id, patchset, ""
-        )
-        norm_targets = [str(t).strip() for t in (targets or []) if str(t).strip()]
-
-        cache_key = (cl_id, resolved_ps)
-        with self._session_lock:
-            self._presubmit_targets_cache.pop(cache_key, None)
-            if cl_id.isdigit():
-                self._session_presubmit_voted_at[int(cl_id)] = time.monotonic() + 10.0
-
-        if stage_presubmit_ready and hasattr(self, "cast_batch_vote"):
-            msg_parts = ["[TreeHugger Rerun] Re-triggering presubmit checks"]
-            if norm_targets:
-                msg_parts.append(f"for: {', '.join(norm_targets)}")
-            if reason:
-                msg_parts.append(f"(Reason: {reason})")
-            if bypass_cache:
-                msg_parts.append("[clean_run=true]")
-            try:
-                self.cast_batch_vote(
-                    cl_numbers=[cl_id],
-                    code_review=None,
-                    presubmit_ready=True,
-                    message=" ".join(msg_parts),
-                )
-            except Exception:
-                pass
-
-        target_count = len(norm_targets) if norm_targets else "all"
-        return {
-            "ok": True,
-            "cl": cl_id,
-            "patchset": resolved_ps,
-            "project": resolved_proj,
-            "rerun_targets": norm_targets,
-            "reason": reason,
-            "bypass_cache": bypass_cache,
-            "stage_presubmit_ready": stage_presubmit_ready,
-            "status": "queued",
-            "message": f"Triggered rerun for {target_count} check(s) on ag/{cl_id} (PS{resolved_ps})",
-        }
-
     def get_swarm_statuses(self, cl_numbers: list[str | int]) -> dict[str, dict[str, Any]]:
         """Reads live or completed Review Swarm status objects from disk for `cl_numbers`."""
         now_dt = datetime.now(timezone.utc)
@@ -2327,3 +2299,7 @@ class GerritQueueService(GerritServiceBase):
             force_discard_local=force_discard_local,
             ui_version_fn=get_gerrit_ui_template_version,
         )
+
+
+ReviewQueueService = GerritQueueService
+

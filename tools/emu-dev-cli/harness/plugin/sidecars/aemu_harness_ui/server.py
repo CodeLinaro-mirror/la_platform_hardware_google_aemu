@@ -15,7 +15,7 @@
 
 """Jetski Web AuxPane UI Sidecar for the Android Emulator Custom Agent Harness."""
 
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import ThreadingHTTPServer
 import importlib.util
 import json
 import os
@@ -25,7 +25,6 @@ import shutil
 import subprocess
 import sys
 from types import ModuleType
-import urllib.parse
 from typing import Any, Dict, List, Optional
 
 try:
@@ -38,19 +37,76 @@ PORT: int = int(os.environ.get("ANTIGRAVITY_SIDECAR_WEB_PORT", "8765"))
 UI_TOKEN: str = os.environ.get("ANTIGRAVITY_SIDECAR_UI_TOKEN", "")
 UI_TOKEN_HINT: str = "Open this panel from Jetski, which supplies ANTIGRAVITY_SIDECAR_UI_TOKEN."
 WEB_SECURITY_FILENAME: str = "web_security.py"
+CONFIGURED_SRC_DIR: str = "__EMU_DEV_CLI_SRC_DIR__"
+
+
+def _resolve_cli_src_dir() -> Optional[Path]:
+    """Locates the `emu-dev-cli/src` directory from configured or source-tree paths."""
+    candidates: List[Path] = []
+    if CONFIGURED_SRC_DIR and not CONFIGURED_SRC_DIR.startswith("__"):
+        candidates.append(Path(CONFIGURED_SRC_DIR))
+    here = Path(__file__).resolve()
+    if len(here.parents) > 4:
+        candidates.append(here.parents[4] / "src")
+    home = Path.home()
+    candidates.extend([
+        home / ".android" / "emu-dev-cli" / "lib",
+        home / ".android" / "emu-dev-cli" / "lib" / "src",
+        home / ".android" / "emu-dev-cli" / "src",
+        home / "tools" / "aemu" / "tools" / "emu-dev-cli" / "src",
+    ])
+    for cand in candidates:
+        if (cand / "core" / "web" / "__init__.py").is_file():
+            return cand
+    return None
+
+
+def _ensure_package_loaded(pkg_name: str, pkg_dir: Path) -> ModuleType:
+    """Loads a package into `sys.modules` via `importlib.util` without mutating `sys.path`."""
+    existing = sys.modules.get(pkg_name)
+    if existing is not None:
+        return existing
+    init_py = pkg_dir / "__init__.py"
+    spec = importlib.util.spec_from_file_location(
+        pkg_name,
+        init_py,
+        submodule_search_locations=[str(pkg_dir)],
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load package {pkg_name} from {pkg_dir}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[pkg_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_core_web() -> ModuleType:
+    """Imports `core.web` directly or via `importlib.util` package bootstrap."""
+    try:
+        import core.web as core_web_mod
+
+        return core_web_mod
+    except ImportError:
+        src_dir = _resolve_cli_src_dir()
+        if src_dir is None:
+            raise
+        _ensure_package_loaded("core", src_dir / "core")
+        _ensure_package_loaded("clients", src_dir / "clients")
+        return _ensure_package_loaded("core.web", src_dir / "core" / "web")
 
 
 def _load_web_security() -> ModuleType:
     """Loads the CLI's request checks without importing the CLI.
 
-    `emu-dev-cli harness install` copies `src/lib/web_security.py` next to this file.
-    When running from the source tree, the module is loaded from `src/lib` instead.
+    `emu-dev-cli harness install` copies `src/core/web/security.py` next to this file.
+    When running from the source tree, the module is loaded from `src/core/web` instead.
     """
     here = Path(__file__).resolve()
     candidates = [here.with_name(WEB_SECURITY_FILENAME)]
-    if len(here.parents) > 4:
-        candidates.append(here.parents[4] / "src" / "core" / "web" / "security.py")
-        candidates.append(here.parents[4] / "src" / "lib" / WEB_SECURITY_FILENAME)
+    src_dir = _resolve_cli_src_dir()
+    if src_dir is not None:
+        candidates.append(src_dir / "core" / "web" / "security.py")
+        candidates.append(src_dir / "lib" / WEB_SECURITY_FILENAME)
     for candidate in candidates:
         if not candidate.is_file():
             continue
@@ -66,7 +122,15 @@ def _load_web_security() -> ModuleType:
     )
 
 
+core_web = _load_core_web()
 web_security = _load_web_security()
+AgentProxy = core_web.AgentProxy
+JsonRequestHandler = core_web.JsonRequestHandler
+Router = core_web.Router
+SecurityPolicy = core_web.SecurityPolicy
+SIDECAR_PRELOAD_JS: str = core_web.SIDECAR_PRELOAD_JS
+SIDECAR_PRELOAD_SCRIPT_TAG: str = core_web.SIDECAR_PRELOAD_SCRIPT_TAG
+WebRequest = core_web.WebRequest
 
 SEMANTIC_SUBJECT_RE = re.compile(
     r"^(feat|fix|build|docs|chore|test|refactor|perf|style)(?:\(([^)]+)\))?:\s+(.+)$"
@@ -265,144 +329,6 @@ def list_workflow_sessions(conversation_id: Optional[str] = None) -> List[Dict[s
             "updated_at": str(data.get("updated_at", "")),
         })
     return sessions
-
-
-SIDECAR_PRELOAD_JS: str = """(function() {
-  const params = new URLSearchParams(window.location.search);
-  const token = params.get('token') || '';
-  const conversationId = params.get('conversationId') || '';
-
-  let currentWorkspaceUris = [];
-  let hasInitialWorkspace = false;
-  const workspaceListeners = new Set();
-  let resolveInitialWorkspace;
-  const initialWorkspacePromise = new Promise((resolve) => {
-    resolveInitialWorkspace = resolve;
-  });
-
-  window.addEventListener('message', (event) => {
-    if (event.data && event.data.type === 'theme-change') {
-      const vars = (event.data.payload && event.data.payload.cssVariables) || {};
-      for (const [key, value] of Object.entries(vars)) {
-        document.documentElement.style.setProperty(key, value);
-      }
-    } else if (event.data && event.data.type === 'workspace-change') {
-      const payload = event.data.payload || {};
-      currentWorkspaceUris = Array.isArray(payload.workspaceUris)
-        ? payload.workspaceUris.slice()
-        : [];
-      hasInitialWorkspace = true;
-      resolveInitialWorkspace();
-      for (const listener of workspaceListeners) {
-        try {
-          listener(currentWorkspaceUris.slice());
-        } catch (err) {
-          console.error('workspace-change listener failed:', err);
-        }
-      }
-    }
-  });
-
-  function secureFetch(url, options = {}) {
-    let targetUrl = url;
-    if (token && !/[?&]token=/.test(targetUrl)) {
-      const sep = targetUrl.includes('?') ? '&' : '?';
-      targetUrl = `${targetUrl}${sep}token=${encodeURIComponent(token)}`;
-    }
-    const headers = new Headers(options.headers || {});
-    headers.set('Content-Type', 'application/json');
-    if (token) {
-      headers.set('X-Sidecar-Token', token);
-    }
-    return fetch(targetUrl, Object.assign({}, options, { headers }));
-  }
-
-  const projectIdPromise = (async () => {
-    if (!conversationId) return '';
-    try {
-      const res = await secureFetch('/_sidecar/get-conversation-metadata', {
-        method: 'POST',
-        body: JSON.stringify({ conversationId })
-      });
-      if (!res.ok) return '';
-      const data = await res.json();
-      const metaEvent = (data && data.response && (data.response.conversationMetadata || data.response.conversation_metadata)) || {};
-      const meta = metaEvent.metadata || {};
-      return meta.projectId || meta.project_id || '';
-    } catch (e) {
-      return '';
-    }
-  })();
-
-  async function getWorkspaceUris() {
-    if (window.parent === window) {
-      return [];
-    }
-    await initialWorkspacePromise;
-    return currentWorkspaceUris.slice();
-  }
-
-  window.sidecar = {
-    conversationId,
-    fetch: secureFetch,
-    getWorkspaceUris,
-    onWorkspaceChange(listener) {
-      if (typeof listener !== 'function') return () => {};
-      workspaceListeners.add(listener);
-      if (hasInitialWorkspace) {
-        queueMicrotask(() => {
-          if (workspaceListeners.has(listener)) {
-            listener(currentWorkspaceUris.slice());
-          }
-        });
-      }
-      return () => { workspaceListeners.delete(listener); };
-    },
-    agent: {
-      async sendMessage(message, convId) {
-        const resolvedProjectId = await projectIdPromise;
-        const res = await secureFetch('/_sidecar/send-message', {
-          method: 'POST',
-          body: JSON.stringify({
-            conversationId: convId || conversationId,
-            message,
-            projectId: resolvedProjectId
-          })
-        });
-        if (!res.ok) throw new Error(await res.text());
-        return res.json();
-      },
-      async startConversation(message, title) {
-        const resolvedProjectId = await projectIdPromise;
-        const res = await secureFetch('/_sidecar/new-conversation', {
-          method: 'POST',
-          body: JSON.stringify({ message, title, projectId: resolvedProjectId })
-        });
-        if (!res.ok) throw new Error(await res.text());
-        return res.json();
-      },
-      async getConversationMetadata(convId) {
-        const res = await secureFetch('/_sidecar/get-conversation-metadata', {
-          method: 'POST',
-          body: JSON.stringify({ conversationId: convId || conversationId })
-        });
-        if (!res.ok) throw new Error(await res.text());
-        return res.json();
-      }
-    },
-    ui: {
-      toggleAuxPane(request) {
-        window.parent.postMessage({ type: 'toggle-aux-pane', payload: request }, '*');
-      },
-      toggleConversation(convId) {
-        window.parent.postMessage({ type: 'toggle-conversation', payload: { conversationId: convId } }, '*');
-      }
-    }
-  };
-})();
-"""
-
-SIDECAR_PRELOAD_SCRIPT_TAG: str = '<script src="/preload.js"></script>'
 
 
 def _run_sidecar_agentapi(args: List[str], project_id: Optional[str] = None) -> Dict[str, Any]:
@@ -870,182 +796,107 @@ INDEX_HTML: str = """<!DOCTYPE html>
 """
 
 
-class HarnessSidecarHandler(BaseHTTPRequestHandler):
-    """HTTP handler for the AEMU Harness Jetski Web AuxPane UI sidecar."""
+_HARNESS_ROUTER = Router()
+_HARNESS_AGENT_PROXY = AgentProxy(invoker=_run_sidecar_agentapi)
+_HARNESS_AGENT_PROXY.register_routes(_HARNESS_ROUTER)
 
-    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
-        return
 
-    def _send_rejection(self, exc: "web_security.RequestRejected") -> None:
-        self._send_json(int(exc.status), {"error": str(exc)})
+class HarnessSidecarHandler(JsonRequestHandler):
+    """HTTP handler for the AEMU Harness Jetski Web AuxPane UI sidecar (`core.web`)."""
 
-    def _require_token(self, parsed_url: urllib.parse.ParseResult) -> bool:
-        """Returns True if the request carries the UI token, else sends 401 and returns False."""
-        try:
-            web_security.require_ui_token(UI_TOKEN, self.headers, parsed_url.query, UI_TOKEN_HINT)
-        except web_security.RequestRejected as exc:
-            self._send_rejection(exc)
-            return False
-        return True
+    security_policy = SecurityPolicy(
+        expected_token="",
+        token_hint=UI_TOKEN_HINT,
+        public_get_routes=frozenset({"", "/", "/index.html", "/preload.js"}),
+        protected_get_prefixes=("/api/",),
+        enable_cors=False,
+    )
+    router = _HARNESS_ROUTER
 
-    def _read_json_body(self) -> Optional[Dict[str, Any]]:
-        """Returns the JSON object body, or None after sending the 4xx error response."""
-        try:
-            return web_security.read_json_body(self.headers, self.rfile)
-        except web_security.RequestRejected as exc:
-            self._send_rejection(exc)
-            return None
+    def _resolve_expected_token(self) -> str:
+        """Returns the configured UI token from the handler, server, or module global."""
+        if self.ui_token is not None:
+            return str(self.ui_token)
+        server_token = getattr(self.server, "ui_token", None)
+        if server_token is not None:
+            return str(server_token)
+        return UI_TOKEN
 
-    def _send_json(self, status_code: int, payload: Dict[str, Any]) -> None:
-        raw = json.dumps(payload).encode("utf-8")
-        self.send_response(status_code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Content-Length", str(len(raw)))
-        self.end_headers()
-        self.wfile.write(raw)
+    def handle_get_preload_js(self, _request: WebRequest) -> None:
+        """Serves `/preload.js`."""
+        self.send_javascript(SIDECAR_PRELOAD_JS)
 
-    def do_GET(self) -> None:  # noqa: N802
-        parsed = urllib.parse.urlparse(self.path)
-        route = parsed.path
+    def handle_get_index(self, _request: WebRequest) -> None:
+        """Serves `/` and `/index.html`."""
+        self.send_html(_render_harness_index_html())
 
-        if route == "/preload.js":
-            js = SIDECAR_PRELOAD_JS.encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/javascript; charset=utf-8")
-            self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("Content-Length", str(len(js)))
-            self.end_headers()
-            self.wfile.write(js)
+    def handle_get_state(self, request: WebRequest) -> None:
+        """Serves `GET /api/state`."""
+        conv_id = request.query_opt_str("conversationId")
+        self.send_json(
+            {
+                "ledger": load_ledger_data(conv_id),
+                "workflows": list_workflow_sessions(conv_id),
+                "libraries": SIDE_CAR_LIBS_CATALOG,
+            }
+        )
+
+    def handle_post_commit_validate(self, request: WebRequest) -> None:
+        """Serves `POST /api/commit/validate`."""
+        msg = request.body_str("message")
+        self.send_json(validate_commit_message_live(msg))
+
+    def handle_post_workflow_approve(self, request: WebRequest) -> None:
+        """Serves `POST /api/workflow/approve`."""
+        state_id = request.body_str("state_id", strip=True)
+        if not state_id:
+            self.send_json({"error": "Missing state_id"}, status=400)
             return
-
-        if route in ("/", "/index.html"):
-            body = _render_harness_index_html().encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
-
-        if route == "/api/state":
-            if not self._require_token(parsed):
-                return
-            query = urllib.parse.parse_qs(parsed.query)
-            conv_id = query.get("conversationId", [None])[0]
-            self._send_json(
-                200,
+        try:
+            res = subprocess.run(
+                ["emu-dev-cli", "workflow", "approve", "--state", state_id],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except OSError as exc:
+            self.send_json(
                 {
-                    "ledger": load_ledger_data(conv_id),
-                    "workflows": list_workflow_sessions(conv_id),
-                    "libraries": SIDE_CAR_LIBS_CATALOG,
+                    "error": f"Failed to execute 'emu-dev-cli workflow approve --state {state_id}': {exc}",
+                    "state_id": state_id,
                 },
+                status=500,
             )
             return
-
-        self._send_json(404, {"error": f"Unknown route: {route}"})
-
-    def do_POST(self) -> None:  # noqa: N802
-        parsed = urllib.parse.urlparse(self.path)
-        if not self._require_token(parsed):
+        if res.returncode != 0:
+            detail = (res.stderr or res.stdout or f"exit code {res.returncode}").strip()
+            self.send_json(
+                {
+                    "error": (
+                        f"Failed to approve workflow state '{state_id}' "
+                        f"(exit code {res.returncode}): {detail}"
+                    ),
+                    "state_id": state_id,
+                    "exit_code": res.returncode,
+                },
+                status=500,
+            )
             return
+        self.send_json({"status": "approved", "state_id": state_id})
 
-        body = self._read_json_body()
-        if body is None:
-            return
 
-        try:
-            if parsed.path == "/_sidecar/get-conversation-metadata":
-                conv_id = str(
-                    body.get("conversationId")
-                    or os.environ.get("ANTIGRAVITY_SIDECAR_CONVERSATION_ID")
-                    or os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
-                    or ""
-                ).strip()
-                if not conv_id:
-                    self._send_json(400, {"error": "Missing conversationId"})
-                    return
-                self._send_json(200, _run_sidecar_agentapi(["get-conversation-metadata", conv_id]))
-                return
-
-            if parsed.path == "/_sidecar/send-message":
-                msg = str(body.get("message") or "").strip()
-                conv_id = str(
-                    body.get("conversationId")
-                    or os.environ.get("ANTIGRAVITY_SIDECAR_CONVERSATION_ID")
-                    or os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
-                    or ""
-                ).strip()
-                if not msg or not conv_id:
-                    self._send_json(400, {"error": "Missing message or conversationId"})
-                    return
-                args = ["send-message"]
-                if body.get("title"):
-                    args.extend(["--title", str(body["title"])])
-                args.extend([conv_id, msg])
-                self._send_json(200, _run_sidecar_agentapi(args, project_id=body.get("projectId")))
-                return
-
-            if parsed.path == "/_sidecar/new-conversation":
-                msg = str(body.get("message") or "").strip()
-                args = ["new-conversation"]
-                if body.get("title"):
-                    args.extend(["--title", str(body["title"])])
-                if msg:
-                    args.append(msg)
-                self._send_json(200, _run_sidecar_agentapi(args, project_id=body.get("projectId")))
-                return
-        except Exception as exc:
-            self._send_json(500, {"error": str(exc)})
-            return
-
-        if parsed.path == "/api/commit/validate":
-            msg = str(body.get("message") or "")
-            self._send_json(200, validate_commit_message_live(msg))
-            return
-
-        if parsed.path == "/api/workflow/approve":
-            state_id = str(body.get("state_id", "")).strip()
-            if not state_id:
-                self._send_json(400, {"error": "Missing state_id"})
-                return
-            try:
-                res = subprocess.run(
-                    ["emu-dev-cli", "workflow", "approve", "--state", state_id],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                )
-            except OSError as exc:
-                self._send_json(
-                    500,
-                    {
-                        "error": f"Failed to execute 'emu-dev-cli workflow approve --state {state_id}': {exc}",
-                        "state_id": state_id,
-                    },
-                )
-                return
-            if res.returncode != 0:
-                detail = (res.stderr or res.stdout or f"exit code {res.returncode}").strip()
-                self._send_json(
-                    500,
-                    {
-                        "error": (
-                            f"Failed to approve workflow state '{state_id}' "
-                            f"(exit code {res.returncode}): {detail}"
-                        ),
-                        "state_id": state_id,
-                        "exit_code": res.returncode,
-                    },
-                )
-                return
-            self._send_json(200, {"status": "approved", "state_id": state_id})
-            return
-
-        self._send_json(404, {"error": f"Unknown POST route: {parsed.path}"})
+_HARNESS_ROUTER.add_get("/preload.js", HarnessSidecarHandler.handle_get_preload_js)
+_HARNESS_ROUTER.add_get("/", HarnessSidecarHandler.handle_get_index)
+_HARNESS_ROUTER.add_get("/index.html", HarnessSidecarHandler.handle_get_index)
+_HARNESS_ROUTER.add_get("/api/state", HarnessSidecarHandler.handle_get_state)
+_HARNESS_ROUTER.add_post(
+    "/api/commit/validate", HarnessSidecarHandler.handle_post_commit_validate
+)
+_HARNESS_ROUTER.add_post(
+    "/api/workflow/approve", HarnessSidecarHandler.handle_post_workflow_approve
+)
 
 
 def main() -> None:

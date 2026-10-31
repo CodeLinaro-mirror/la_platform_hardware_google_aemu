@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
 import argparse
+from collections.abc import Callable, Sequence
+import logging
 import os
 from pathlib import Path
 import re
@@ -21,21 +22,39 @@ import shlex
 import subprocess
 import sys
 import tempfile
-from typing import Any, Dict, List, Optional, Tuple, Union
+import threading
+from typing import Any, Dict, List, Optional, TextIO, Tuple, Union
 import uuid
 
 import yaml
+
+try:
+    from .state_store import (
+        SessionMetadata,
+        StateYamlDumper,
+        WorkflowState,
+        WorkflowStateStore,
+        get_session_lock,
+        load_state_file_atomic,
+        resolve_default_state_base_dir,
+        save_state_file_atomic,
+    )
+except ImportError:
+    from workflows.core.state_store import (
+        SessionMetadata,
+        StateYamlDumper,
+        WorkflowState,
+        WorkflowStateStore,
+        get_session_lock,
+        load_state_file_atomic,
+        resolve_default_state_base_dir,
+        save_state_file_atomic,
+    )
 
 _CORE_DIR = Path(__file__).resolve().parent
 _WORKFLOWS_DIR = _CORE_DIR.parent
 _EMU_DEV_CLI_DIR = _WORKFLOWS_DIR.parent
 _SRC_DIR = _EMU_DEV_CLI_DIR / "src"
-
-for _p in (str(_WORKFLOWS_DIR), str(_EMU_DEV_CLI_DIR), str(_SRC_DIR)):
-    if _p in sys.path:
-        sys.path.remove(_p)
-    if os.path.isdir(_p):
-        sys.path.insert(0, _p)
 
 
 def _build_subprocess_env(base_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
@@ -54,7 +73,83 @@ def _build_subprocess_env(base_env: Optional[Dict[str, str]] = None) -> Dict[str
     return env
 
 
-os.environ["PYTHONPATH"] = _build_subprocess_env().get("PYTHONPATH", "")
+class WorkflowRegistry:
+    """In-memory cache of discovered workflows with directory and file mtime invalidation."""
+
+    _lock = threading.Lock()
+    _cached_fingerprint: Optional[Tuple[Any, ...]] = None
+    _cached_workflows: Dict[str, Dict[str, str]] = {}
+
+    @classmethod
+    def compute_fingerprint(
+        cls, candidate_dirs: Sequence[Union[str, Path]]
+    ) -> Tuple[Any, ...]:
+        """Computes a structural + mtime fingerprint across `candidate_dirs`."""
+        items: List[Any] = []
+        for raw_dir in candidate_dirs:
+            d_str = str(raw_dir)
+            try:
+                dir_stat = os.stat(d_str)
+            except OSError:
+                items.append((d_str, None))
+                continue
+            sub_entries: List[Tuple[str, int, int]] = []
+            try:
+                with os.scandir(d_str) as it:
+                    for entry in it:
+                        if entry.name in ("core", "tests", "__pycache__", "ui"):
+                            continue
+                        try:
+                            if not entry.is_dir():
+                                continue
+                            e_mtime = entry.stat().st_mtime_ns
+                        except OSError:
+                            continue
+                        t_mtime = 0
+                        for fname in (
+                            "workflow.yaml",
+                            "workflow.yml",
+                            "main.py",
+                            "README.md",
+                        ):
+                            try:
+                                t_mtime = max(
+                                    t_mtime,
+                                    os.stat(os.path.join(entry.path, fname)).st_mtime_ns,
+                                )
+                            except OSError:
+                                pass
+                        sub_entries.append((entry.name, e_mtime, t_mtime))
+            except OSError:
+                pass
+            sub_entries.sort()
+            items.append((d_str, dir_stat.st_mtime_ns, tuple(sub_entries)))
+        return tuple(items)
+
+    @classmethod
+    def get_or_scan(
+        cls,
+        candidate_dirs: Sequence[Union[str, Path]],
+        scanner_fn: Callable[[Sequence[str]], Dict[str, Dict[str, str]]],
+    ) -> Dict[str, Dict[str, str]]:
+        """Returns cached workflows if `candidate_dirs` mtimes match, else invokes `scanner_fn`."""
+        norm_dirs = [str(d) for d in candidate_dirs]
+        fp = cls.compute_fingerprint(norm_dirs)
+        with cls._lock:
+            if cls._cached_fingerprint == fp:
+                return {k: dict(v) for k, v in cls._cached_workflows.items()}
+        scanned = scanner_fn(norm_dirs)
+        with cls._lock:
+            cls._cached_fingerprint = fp
+            cls._cached_workflows = {k: dict(v) for k, v in scanned.items()}
+            return {k: dict(v) for k, v in cls._cached_workflows.items()}
+
+    @classmethod
+    def clear(cls) -> None:
+        """Clears the cached workflow registry."""
+        with cls._lock:
+            cls._cached_fingerprint = None
+            cls._cached_workflows = {}
 
 
 class WorkflowError(Exception):
@@ -79,14 +174,7 @@ class WorkflowTargetNotFoundError(WorkflowError):
 
 def get_state_base_dir() -> Path:
     """Returns the base state directory for workflow runtime sessions."""
-    custom_state_dir = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
-    if custom_state_dir:
-        base = Path(custom_state_dir).expanduser().resolve()
-    else:
-        cache_home = os.environ.get("XDG_CACHE_HOME")
-        base = (Path(cache_home) if cache_home else Path.home() / ".cache") / "emu-dev-cli" / "workflows" / "state"
-    base.mkdir(parents=True, exist_ok=True, mode=0o700)
-    return base
+    return resolve_default_state_base_dir()
 
 
 def get_workflow_cache_root() -> Path:
@@ -170,30 +258,14 @@ def load_yaml(content_or_path: Union[str, Path]) -> Dict[str, Any]:
 
 
 def load_state_yaml(filepath: Union[str, Path]) -> Dict[str, Any]:
+    p = Path(filepath) if isinstance(filepath, str) else filepath
+    if isinstance(p, Path) and p.is_file():
+        return load_state_file_atomic(p)
     return load_yaml(filepath)
 
 
 def save_state_yaml(filepath: Union[str, Path], data: Dict[str, Any]) -> None:
-    path = Path(filepath)
-    parent_dir = path.parent
-    parent_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fd, tmp_file = tempfile.mkstemp(dir=str(parent_dir), prefix="state_", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            yaml.dump(
-                data,
-                f,
-                Dumper=StateYamlDumper,
-                sort_keys=False,
-                default_flow_style=False,
-            )
-        os.chmod(tmp_file, 0o600)
-        os.replace(tmp_file, path)
-        os.chmod(path, 0o600)
-    except Exception:
-        if os.path.isfile(tmp_file):
-            os.remove(tmp_file)
-        raise
+    save_state_file_atomic(filepath, data)
 
 
 def get_nested_context_val(ctx: Dict[str, Any], path: str) -> Any:
@@ -470,6 +542,8 @@ def init_workflow_session(
     args_input: Optional[Union[List[str], Dict[str, Any]]] = None,
     parent_context: Optional[Dict[str, Any]] = None,
     state_id_override: Optional[str] = None,
+    *,
+    state_base_dir: Optional[Union[str, Path]] = None,
 ) -> str:
     """Initializes a workflow session programmatically and returns its state_id."""
     path = Path(spec_path).resolve()
@@ -589,7 +663,8 @@ def init_workflow_session(
         "stuck_reason": "",
         "metadata": initial_metadata,
     }
-    state_dir = get_state_base_dir() / wf_name
+    base_dir = resolve_default_state_base_dir(state_base_dir)
+    state_dir = base_dir / wf_name
     state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     state_file = state_dir / f"STATE-{unique_id}.yaml"
     save_state_yaml(state_file, initial_state)
@@ -776,9 +851,12 @@ def approve_workflow_session(
     feedback: Optional[str] = None,
     state_base_dir: Optional[Path] = None,
     advance: bool = False,
+    *,
+    output_stream: Optional[TextIO] = None,
+    error_stream: Optional[TextIO] = None,
 ) -> Tuple[bool, str]:
     """Approves a workflow session (and any active child sub-workflow) paused at a human verification barrier."""
-    base_dir = state_base_dir or get_state_base_dir()
+    base_dir = resolve_default_state_base_dir(state_base_dir)
     target_state_file: Optional[Path] = None
     resolved_wf_name = workflow_name
 
@@ -815,6 +893,8 @@ def approve_workflow_session(
             feedback=feedback,
             state_base_dir=base_dir,
             advance=False,
+            output_stream=output_stream,
+            error_stream=error_stream,
         )
 
     approved_steps = metadata.setdefault("_approved_steps", [])
@@ -834,17 +914,13 @@ def approve_workflow_session(
         spec_path_str = metadata.get("_workflow_spec_path")
         spec_file = Path(spec_path_str) if spec_path_str and Path(spec_path_str).is_file() else resolve_workflow_file(resolved_wf_name)
         if spec_file and spec_file.is_file():
-            old_env = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
-            if state_base_dir is not None:
-                os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = str(base_dir)
-            try:
-                execute_workflow_step(spec_file, clean_id)
-            finally:
-                if state_base_dir is not None:
-                    if old_env is not None:
-                        os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = old_env
-                    else:
-                        os.environ.pop("EMU_DEV_CLI_WORKFLOW_STATE_DIR", None)
+            execute_workflow_step(
+                spec_file,
+                clean_id,
+                state_base_dir=base_dir,
+                output_stream=output_stream,
+                error_stream=error_stream,
+            )
 
     return True, f"Approved workflow '{resolved_wf_name}' (session {state_id}) at step {current_step}."
 
@@ -853,6 +929,10 @@ def execute_workflow_step(
     spec_path: Union[str, Path],
     state_arg: str,
     continuation_cmd: Optional[str] = None,
+    *,
+    state_base_dir: Optional[Union[str, Path]] = None,
+    output_stream: Optional[TextIO] = None,
+    error_stream: Optional[TextIO] = None,
 ) -> int:
     """Executes a single step of a workflow using polymorphic WorkflowStep handlers."""
     try:
@@ -866,11 +946,15 @@ def execute_workflow_step(
     path = Path(spec_path).resolve()
     spec = load_yaml(path)
     wf_name = spec.get("name", path.stem).replace("_", "-")
-    state_dir = get_state_base_dir() / wf_name
+    effective_base_dir = resolve_default_state_base_dir(state_base_dir)
+    state_dir = effective_base_dir / wf_name
 
     clean_id, state_file = resolve_state_file(state_dir, state_arg)
     if not state_file or not state_file.is_file():
-        print(f"Error: State file '{state_file}' does not exist.", file=sys.stderr)
+        print(
+            f"Error: State file '{state_file}' does not exist.",
+            file=error_stream or sys.stderr,
+        )
         return 1
 
     state_data = load_state_yaml(state_file)
@@ -918,7 +1002,10 @@ def execute_workflow_step(
     if current_step_index >= len(steps):
         state_data["state"] = "DONE"
         save_state_yaml(state_file, state_data)
-        print(f"Workflow '{wf_name}' completed successfully!")
+        print(
+            f"Workflow '{wf_name}' completed successfully!",
+            file=output_stream or sys.stdout,
+        )
         return 0
 
     exec_ctx = StepExecutionContext(
@@ -936,6 +1023,9 @@ def execute_workflow_step(
         active_continuation=active_continuation,
         context=context,
         execute_step_fn=execute_workflow_step,
+        state_base_dir=effective_base_dir if state_base_dir is not None else None,
+        output_stream=output_stream,
+        error_stream=error_stream,
     )
     step_handler = WorkflowStepFactory.create_step(steps[current_step_index])
     return step_handler.execute(exec_ctx)

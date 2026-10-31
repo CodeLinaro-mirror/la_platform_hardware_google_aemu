@@ -42,6 +42,10 @@ import subprocess
 import time
 import uuid
 
+from workflows.core.state_store import (
+    WorkflowStateStore,
+    get_session_lock,
+)
 from workflows.core.yaml_runner import (
     _parse_args_spec,
     approve_workflow_session,
@@ -898,32 +902,28 @@ def create_composed_session(
     if title and title.strip():
         init_args["_custom_title"] = title.strip()
 
-    old_env = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
-    if state_base_dir is not None:
-        os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = str(base_dir)
-    try:
-        created_id = init_workflow_session(spec_file, init_args, state_id_override=state_id)
-        # Immediately enter Step 0 so the session starts active (RUNNING or WAITING_HUMAN)
-        buf = io.StringIO()
-        old_stdout = sys.stdout
-        sys.stdout = buf
-        try:
-            execute_workflow_step(spec_file, created_id)
-            initial_prompt = buf.getvalue().strip()
-        finally:
-            sys.stdout = old_stdout
+    created_id = init_workflow_session(
+        spec_file,
+        init_args,
+        state_id_override=state_id,
+        state_base_dir=base_dir,
+    )
+    # Immediately enter Step 0 so the session starts active (RUNNING or WAITING_HUMAN)
+    buf = io.StringIO()
+    execute_workflow_step(
+        spec_file,
+        created_id,
+        state_base_dir=base_dir,
+        output_stream=buf,
+    )
+    initial_prompt = buf.getvalue().strip()
 
-        state_file = wf_state_dir / f"STATE-{created_id}.yaml"
-        if state_file.is_file() and initial_prompt:
+    state_file = wf_state_dir / f"STATE-{created_id}.yaml"
+    if state_file.is_file() and initial_prompt:
+        with get_session_lock(state_file):
             st = load_state_yaml(state_file)
             st.setdefault("metadata", {})["_last_step_prompt"] = initial_prompt
             save_state_yaml(state_file, st)
-    finally:
-        if state_base_dir is not None:
-            if old_env is not None:
-                os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = old_env
-            else:
-                os.environ.pop("EMU_DEV_CLI_WORKFLOW_STATE_DIR", None)
 
     result = {
         "workflow_name": workflow_name,
@@ -1767,9 +1767,10 @@ def launch_jetski_for_session(
                 )
                 _ACTIVE_AGENT_PROCS[state_id] = proc
                 try:
-                    st = load_state_yaml(state_file)
-                    st.setdefault("metadata", {})["_agent_pid"] = proc.pid
-                    save_state_yaml(state_file, st)
+                    with get_session_lock(state_file):
+                        st = load_state_yaml(state_file)
+                        st.setdefault("metadata", {})["_agent_pid"] = proc.pid
+                        save_state_yaml(state_file, st)
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Ignored error in _run_and_monitor: %s", exc)
                 _STARTING_AGENTS.discard(state_id)
@@ -1790,9 +1791,10 @@ def launch_jetski_for_session(
                                 )
                                 if cid and not detected_conv_id:
                                     detected_conv_id = str(cid)
-                                    st = load_state_yaml(state_file)
-                                    st.setdefault("metadata", {})["conversation_id"] = detected_conv_id
-                                    save_state_yaml(state_file, st)
+                                    with get_session_lock(state_file):
+                                        st = load_state_yaml(state_file)
+                                        st.setdefault("metadata", {})["conversation_id"] = detected_conv_id
+                                        save_state_yaml(state_file, st)
                         except Exception as exc:
                             logging.getLogger(__name__).debug("Ignored error in _run_and_monitor: %s", exc)
 
@@ -1801,9 +1803,10 @@ def launch_jetski_for_session(
                             if new_cid:
                                 detected_conv_id = new_cid
                                 try:
-                                    st = load_state_yaml(state_file)
-                                    st.setdefault("metadata", {})["conversation_id"] = detected_conv_id
-                                    save_state_yaml(state_file, st)
+                                    with get_session_lock(state_file):
+                                        st = load_state_yaml(state_file)
+                                        st.setdefault("metadata", {})["conversation_id"] = detected_conv_id
+                                        save_state_yaml(state_file, st)
                                 except Exception as exc:
                                     logging.getLogger(__name__).debug("Ignored error in _run_and_monitor: %s", exc)
 
@@ -1816,30 +1819,32 @@ def launch_jetski_for_session(
                     if new_cid:
                         detected_conv_id = new_cid
 
-                st = load_state_yaml(state_file)
-                meta = st.setdefault("metadata", {})
-                meta.pop("_agent_pid", None)
-                if detected_conv_id:
-                    meta["conversation_id"] = detected_conv_id
-                is_interrupted, _ = _inspect_transcript_interruption(detected_conv_id)
-                if is_interrupted:
-                    meta["_agent_status"] = "INTERRUPTED"
-                elif proc.returncode == 0:
-                    meta["_agent_status"] = "IDLE"
-                else:
-                    meta["_agent_status"] = f"EXITED ({proc.returncode})"
-                save_state_yaml(state_file, st)
+                with get_session_lock(state_file):
+                    st = load_state_yaml(state_file)
+                    meta = st.setdefault("metadata", {})
+                    meta.pop("_agent_pid", None)
+                    if detected_conv_id:
+                        meta["conversation_id"] = detected_conv_id
+                    is_interrupted, _ = _inspect_transcript_interruption(detected_conv_id)
+                    if is_interrupted:
+                        meta["_agent_status"] = "INTERRUPTED"
+                    elif proc.returncode == 0:
+                        meta["_agent_status"] = "IDLE"
+                    else:
+                        meta["_agent_status"] = f"EXITED ({proc.returncode})"
+                    save_state_yaml(state_file, st)
                 log_f.write(f"\n=== jetski_cli finished (exit code {proc.returncode}) ===\n")
                 log_f.flush()
         except Exception as exc:
             try:
                 with open(log_path, "a", encoding="utf-8") as log_f:
                     log_f.write(f"\n=== Error running jetski_cli: {exc} ===\n")
-                st = load_state_yaml(state_file)
-                meta = st.setdefault("metadata", {})
-                meta.pop("_agent_pid", None)
-                meta["_agent_status"] = "ERROR"
-                save_state_yaml(state_file, st)
+                with get_session_lock(state_file):
+                    st = load_state_yaml(state_file)
+                    meta = st.setdefault("metadata", {})
+                    meta.pop("_agent_pid", None)
+                    meta["_agent_status"] = "ERROR"
+                    save_state_yaml(state_file, st)
             except Exception as exc:
                 logging.getLogger(__name__).debug("Ignored error in _run_and_monitor: %s", exc)
         finally:
@@ -1861,10 +1866,11 @@ def stop_session(workflow_name: str, state_id: str, state_base_dir: Optional[Pat
         state_file = base_dir / workflow_name / f"STATE-{state_id}{ext}"
         if state_file.is_file():
             try:
-                state_data = load_state_yaml(state_file)
-                state_data["state"] = "STOPPED"
-                state_data["stuck_reason"] = "Workflow stopped by user via Web UI"
-                save_state_yaml(state_file, state_data)
+                with get_session_lock(state_file):
+                    state_data = load_state_yaml(state_file)
+                    state_data["state"] = "STOPPED"
+                    state_data["stuck_reason"] = "Workflow stopped by user via Web UI"
+                    save_state_yaml(state_file, state_data)
                 return True
             except Exception:
                 return False
@@ -1874,22 +1880,10 @@ def stop_session(workflow_name: str, state_id: str, state_base_dir: Optional[Pat
 def delete_session(workflow_name: str, state_id: str, state_base_dir: Optional[Path] = None) -> bool:
     """Permanently removes a workflow session state file."""
     base_dir = state_base_dir or get_state_base_dir()
-    deleted = False
-    for ext in (".yaml", ".yml"):
-        state_file = base_dir / workflow_name / f"STATE-{state_id}{ext}"
-        if state_file.is_file():
-            try:
-                state_file.unlink(missing_ok=True)
-                deleted = True
-            except OSError as exc:
-                logging.getLogger(__name__).debug("Ignored error in delete_session: %s", exc)
-        spec_file = base_dir / workflow_name / f"WORKFLOW-{state_id}{ext}"
-        if spec_file.is_file():
-            try:
-                spec_file.unlink(missing_ok=True)
-            except OSError as exc:
-                logging.getLogger(__name__).debug("Ignored error in delete_session: %s", exc)
-    return deleted
+    return WorkflowStateStore(base_dir).delete_session(
+        session_id=state_id,
+        workflow_name=workflow_name,
+    )
 
 
 def clear_sessions(filter_type: str, state_base_dir: Optional[Path] = None) -> Dict[str, int]:
@@ -2122,19 +2116,15 @@ class WorkflowUIHandler(JsonRequestHandler):
 
         base_dir = get_state_base_dir()
         buf = io.StringIO()
-        old_stdout = sys.stdout
-        sys.stdout = buf
-        try:
-            ok, msg = approve_workflow_session(
-                state_id=sid,
-                workflow_name=wf,
-                feedback=feedback,
-                state_base_dir=base_dir,
-                advance=True,
-            )
-            next_prompt = buf.getvalue().strip()
-        finally:
-            sys.stdout = old_stdout
+        ok, msg = approve_workflow_session(
+            state_id=sid,
+            workflow_name=wf,
+            feedback=feedback,
+            state_base_dir=base_dir,
+            advance=True,
+            output_stream=buf,
+        )
+        next_prompt = buf.getvalue().strip()
 
         if not ok:
             self.send_json({"error": msg}, status=404)
@@ -2143,9 +2133,10 @@ class WorkflowUIHandler(JsonRequestHandler):
         if wf and next_prompt:
             state_file = base_dir / wf / f"STATE-{sid}.yaml"
             if state_file.is_file():
-                st = load_state_yaml(state_file)
-                st.setdefault("metadata", {})["_last_step_prompt"] = next_prompt
-                save_state_yaml(state_file, st)
+                with get_session_lock(state_file):
+                    st = load_state_yaml(state_file)
+                    st.setdefault("metadata", {})["_last_step_prompt"] = next_prompt
+                    save_state_yaml(state_file, st)
 
         agent_resumed = False
         agent_msg = ""

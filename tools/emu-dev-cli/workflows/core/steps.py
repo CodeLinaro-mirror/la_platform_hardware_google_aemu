@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import subprocess
 import sys
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, TextIO, Union
 
 from .yaml_runner import (
     WorkflowOutputError,
@@ -67,7 +67,22 @@ class StepExecutionContext:
     iteration: int
     active_continuation: str
     context: Dict[str, Any]
-    execute_step_fn: Callable[[Union[str, Path], str, Optional[str]], int]
+    execute_step_fn: Callable[..., int]
+    state_base_dir: Optional[Path] = None
+    output_stream: Optional[TextIO] = None
+    error_stream: Optional[TextIO] = None
+
+    def write_output(self, text: str) -> None:
+        """Writes step instructions to `output_stream` (or `sys.stdout` by default)."""
+        print(text, file=self.output_stream or sys.stdout)
+
+    def write_error(self, text: str) -> None:
+        """Writes step error/diagnostic output to `error_stream` (or `sys.stderr` by default)."""
+        print(text, file=self.error_stream or sys.stderr)
+
+    def effective_state_base_dir(self) -> Path:
+        """Returns the explicit `state_base_dir` if configured, else `get_state_base_dir()`."""
+        return self.state_base_dir if self.state_base_dir is not None else get_state_base_dir()
 
     def save_state(self) -> None:
         """Persists the current workflow state dictionary to disk."""
@@ -87,7 +102,7 @@ class StepExecutionContext:
         if next_step_idx >= len(self.steps):
             self.state_data["state"] = "DONE"
             self.save_state()
-            print(f"Workflow '{self.wf_name}' completed successfully!")
+            self.write_output(f"Workflow '{self.wf_name}' completed successfully!")
             return 0
 
         next_step = WorkflowStepFactory.create_step(self.steps[next_step_idx])
@@ -116,7 +131,7 @@ class HumanVerifyStep(WorkflowStep):
         ctx.state_data["state"] = "WAITING_HUMAN"
         ctx.save_state()
         prompt = format_step_prompt(self.step_spec, ctx.context)
-        print(_format_human_verify_prompt(prompt, ctx.active_continuation, ctx.state_id))
+        ctx.write_output(_format_human_verify_prompt(prompt, ctx.active_continuation, ctx.state_id))
         return 0
 
     def execute(self, ctx: StepExecutionContext) -> int:
@@ -130,10 +145,18 @@ class SubWorkflowStep(WorkflowStep):
     """Composite workflow step that delegates execution to a child workflow."""
 
     def on_enter(self, ctx: StepExecutionContext) -> int:
-        return ctx.execute_step_fn(ctx.spec_path, ctx.state_id, ctx.active_continuation)
+        return ctx.execute_step_fn(
+            ctx.spec_path,
+            ctx.state_id,
+            ctx.active_continuation,
+            state_base_dir=ctx.state_base_dir,
+            output_stream=ctx.output_stream,
+            error_stream=ctx.error_stream,
+        )
 
     def _parse_sub_workflow_def(
         self,
+        ctx: StepExecutionContext,
     ) -> Optional[ tuple[str, Union[Dict[str, Any], List[Any]], Dict[str, Any], str] ]:
         sub_wf_def = self.step_spec["workflow"]
         if isinstance(sub_wf_def, str):
@@ -145,10 +168,9 @@ class SubWorkflowStep(WorkflowStep):
             sub_args_raw = sub_wf_def.get("args", {})
             sub_outputs = sub_wf_def.get("outputs", {})
         else:
-            print(
+            ctx.write_error(
                 f"Error: Invalid workflow step definition '{sub_wf_def}' in workflow.yaml: "
-                "expected a sub-workflow name string or a mapping with '{name, args, outputs}'.",
-                file=sys.stderr,
+                "expected a sub-workflow name string or a mapping with '{name, args, outputs}'."
             )
             return None
 
@@ -218,7 +240,10 @@ class SubWorkflowStep(WorkflowStep):
 
         child_wf_name = child_spec.get("name", child_file.stem).replace("_", "-")
         child_state_id = init_workflow_session(
-            child_file, child_args, parent_context=child_parent_ctx
+            child_file,
+            child_args,
+            parent_context=child_parent_ctx,
+            state_base_dir=ctx.state_base_dir,
         )
         sub_wf_meta = {
             "name": child_wf_name,
@@ -232,7 +257,7 @@ class SubWorkflowStep(WorkflowStep):
         return sub_wf_meta
 
     def execute(self, ctx: StepExecutionContext) -> int:
-        parsed = self._parse_sub_workflow_def()
+        parsed = self._parse_sub_workflow_def(ctx)
         if parsed is None:
             return 1
         sub_name, sub_args_raw, sub_outputs, step_custom_instr = parsed
@@ -250,10 +275,15 @@ class SubWorkflowStep(WorkflowStep):
             )
 
         child_rc = ctx.execute_step_fn(
-            child_file, child_state_id, ctx.active_continuation
+            child_file,
+            child_state_id,
+            ctx.active_continuation,
+            state_base_dir=ctx.state_base_dir,
+            output_stream=ctx.output_stream,
+            error_stream=ctx.error_stream,
         )
 
-        child_state_dir = get_state_base_dir() / child_wf_name
+        child_state_dir = ctx.effective_state_base_dir() / child_wf_name
         _, child_state_path = resolve_state_file(child_state_dir, child_state_id)
         child_state = load_state_yaml(child_state_path)
         child_status = child_state.get("state")
@@ -316,7 +346,7 @@ class PassiveStep(WorkflowStep):
     def on_enter(self, ctx: StepExecutionContext) -> int:
         ctx.state_data["state"] = "DONE"
         ctx.save_state()
-        print(format_step_prompt(self.step_spec, ctx.context))
+        ctx.write_output(format_step_prompt(self.step_spec, ctx.context))
         return 0
 
     def execute(self, ctx: StepExecutionContext) -> int:
@@ -324,7 +354,7 @@ class PassiveStep(WorkflowStep):
         ctx.state_data["stuck_reason"] = ""
         ctx.state_data["retries"] = 0
         ctx.save_state()
-        print(format_step_prompt(self.step_spec, ctx.context))
+        ctx.write_output(format_step_prompt(self.step_spec, ctx.context))
         return 0
 
 
@@ -336,7 +366,7 @@ class AtomicVerifierStep(WorkflowStep):
         if ctx.metadata.pop("_human_feedback", None) is not None:
             ctx.context.pop("_human_feedback", None)
             ctx.save_state()
-        print(format_prompt_with_suffix(prompt, ctx.active_continuation, "for next steps."))
+        ctx.write_output(format_prompt_with_suffix(prompt, ctx.active_continuation, "for next steps."))
         return 0
 
     def _run_verifier(self, ctx: StepExecutionContext) -> subprocess.CompletedProcess:
@@ -407,9 +437,8 @@ class AtomicVerifierStep(WorkflowStep):
                     f"Workflow is now STUCK (retries reached {retries})."
                 )
             prompt = interpolate(raw_prompt, ctx.context)
-            print(
-                format_prompt_with_suffix(prompt, ctx.active_continuation, "to resume."),
-                file=sys.stderr,
+            ctx.write_error(
+                format_prompt_with_suffix(prompt, ctx.active_continuation, "to resume.")
             )
             return 1
 
@@ -429,9 +458,8 @@ class AtomicVerifierStep(WorkflowStep):
                 f"(attempt {retries} of {max_retries})."
             )
         prompt = interpolate(raw_prompt, ctx.context)
-        print(
-            format_prompt_with_suffix(prompt, ctx.active_continuation, "for next steps."),
-            file=sys.stderr,
+        ctx.write_error(
+            format_prompt_with_suffix(prompt, ctx.active_continuation, "for next steps.")
         )
         return 1
 
@@ -445,7 +473,7 @@ class AtomicVerifierStep(WorkflowStep):
             if ctx.metadata.pop("_human_feedback", None) is not None:
                 ctx.context.pop("_human_feedback", None)
             ctx.save_state()
-            print(format_prompt_with_suffix(prompt, ctx.active_continuation, "for next steps."))
+            ctx.write_output(format_prompt_with_suffix(prompt, ctx.active_continuation, "for next steps."))
             return 0
 
         check_res = self._run_verifier(ctx)
@@ -484,11 +512,10 @@ class LoopStep(AtomicVerifierStep):
                 f"at step {ctx.current_step_index}: {verifier_out}"
             )
             ctx.save_state()
-            print(
+            ctx.write_error(
                 format_prompt_with_suffix(
                     ctx.state_data["stuck_reason"], ctx.active_continuation, "to resume."
-                ),
-                file=sys.stderr,
+                )
             )
             return 1
 
@@ -524,7 +551,7 @@ class LoopStep(AtomicVerifierStep):
             if loop_header
             else target_prompt
         )
-        print(
+        ctx.write_output(
             format_prompt_with_suffix(
                 combined_prompt, ctx.active_continuation, "for next steps."
             )

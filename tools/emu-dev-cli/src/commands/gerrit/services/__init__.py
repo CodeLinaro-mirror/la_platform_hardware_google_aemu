@@ -14,7 +14,12 @@
 
 """Domain services for AEMU Fast Gerrit UI (`emu-dev-cli gerrit ui`)."""
 
+from commands.gerrit.services.context import (
+    CONTEXT_SHARED_ATTRS,
+    GerritWorkspaceContext,
+)
 from commands.gerrit.services.diff_parser import (
+    DiffService,
     GerritDiffService,
     GerritServiceBase,
     build_code_search_file_url,
@@ -29,6 +34,7 @@ from commands.gerrit.services.diff_parser import (
 )
 from commands.gerrit.services.inline_qa_service import (
     GerritInlineQaService,
+    InlineQaService,
     build_code_followup_prompt,
     build_code_question_prompt,
     discover_transcript_code_questions,
@@ -36,6 +42,7 @@ from commands.gerrit.services.inline_qa_service import (
 )
 from commands.gerrit.services.queue_service import (
     GerritQueueService,
+    ReviewQueueService,
     _enrich_change_messages,
     build_approval_slots,
     build_viewer_gerrit_query,
@@ -54,15 +61,22 @@ from commands.gerrit.services.queue_service import (
 from commands.gerrit.services.vote_submit_service import (
     GerritVoteSubmitService,
     OWNER_NOTIFY_HANDLING,
+    VoteSubmitService,
 )
 
 __all__ = [
+    "CONTEXT_SHARED_ATTRS",
+    "DiffService",
     "GerritDiffService",
     "GerritInlineQaService",
     "GerritQueueService",
     "GerritServiceBase",
     "GerritVoteSubmitService",
+    "GerritWorkspaceContext",
+    "InlineQaService",
     "OWNER_NOTIFY_HANDLING",
+    "ReviewQueueService",
+    "VoteSubmitService",
     "_enrich_change_messages",
     "build_approval_slots",
     "build_code_followup_prompt",
