@@ -20,6 +20,9 @@ import "google/api/field_behavior.proto";
 //   HAL to write into. Inspect the capability before opening a stream or mutating
 //   microphone state.
 //
+//   The virtual wired headset jack is advertised separately by
+//   `AudioCapabilities.supports_wired_headset`; see `UpdateAudioState`.
+//
 //   This service is also independent of `RtcService`. RtcService carries encoded
 //   Opus audio inside a peer connection and is the right choice for human
 //   playback; AudioService delivers raw PCM and is the right choice for
@@ -42,14 +45,15 @@ service AudioService {
   //   1. Client initiates RPC with `StreamAudioStateRequest`.
   //   2. Server immediately sends the current `AudioState` snapshot as the first message.
   //   3. Server pushes subsequent `AudioState` snapshots whenever mute state, channel gain,
-  //      attached mixer inputs, or guest microphone capture activity changes.
+  //      attached mixer inputs, guest microphone capture activity, or the wired headset
+  //      changes.
   //   4. Client cancels the RPC context to unsubscribe.
   //
   // Expected gRPC status codes:
   //   - FAILED_PRECONDITION: The audio subsystem is disabled (`DeviceCapabilities.audio` is unset).
   rpc StreamAudioState(StreamAudioStateRequest) returns (stream AudioState);
 
-  // Updates virtual microphone mute state or per-channel mixer controls.
+  // Updates virtual microphone mute state, per-channel mixer controls, or the wired headset.
   //
   // Setting `microphone_muted = true` silences all microphone audio delivered to the guest OS
   // by feeding virtual-clock-paced PCM silence while keeping attached WebRTC and gRPC streams
@@ -58,16 +62,23 @@ service AudioService {
   // audio input allowed. Setting `microphone_inputs { source_id: "host" muted: true }` detaches
   // only that microphone, while WebRTC and gRPC audio injection continue.
   //
+  // Setting `wired_headset` plugs a virtual wired headset into the device, or unplugs it. The
+  // emulator signals the Linux jack switches (`SW_HEADPHONE_INSERT`, `SW_MICROPHONE_INSERT`) to
+  // the guest, as a real headset jack does. Apps observe the headset only if the system image's
+  // audio policy declares wired headset devices; see `AudioCapabilities.supports_wired_headset`.
+  //
   // Recommended client deadline: >= 500ms.
   //
   // Expected gRPC status codes:
   //   - INVALID_ARGUMENT: Empty `source_id` or out-of-range `gain` (outside [0.0, 4.0]) in
-  //     `microphone_inputs`.
+  //     `microphone_inputs`, or `wired_headset` set to `WIRED_HEADSET_UNSPECIFIED`.
   //   - NOT_FOUND: `source_id` in `microphone_inputs` does not match `"host"` or any currently
   //     attached `MicrophoneInput`.
   //   - PERMISSION_DENIED: Caller lacks write access (`ACCESS_MODE_READ_ONLY`).
-  //   - FAILED_PRECONDITION: This device has no controllable virtual microphone endpoint
-  //     (`AudioCapabilities.microphone_profile` is unset), or the audio subsystem is disabled.
+  //   - FAILED_PRECONDITION: The audio subsystem is disabled; `microphone_muted` or
+  //     `microphone_inputs` is set but this device has no controllable virtual microphone
+  //     endpoint (`AudioCapabilities.microphone_profile` is unset); or `wired_headset` is set but
+  //     `AudioCapabilities.supports_wired_headset` is false.
   rpc UpdateAudioState(UpdateAudioStateRequest) returns (AudioState);
 
   // Injects a complete, self-contained PCM audio clip into the device's microphone input
@@ -213,9 +224,14 @@ message AudioState {
   repeated MicrophoneInput microphone_inputs = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
   // Output only. Monotonic timestamp in nanoseconds (`CLOCK_MONOTONIC`) aligned with audio/video.
   int64 timestamp_nanos = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // What is plugged into the virtual wired headset jack. `WIRED_HEADSET_UNSPECIFIED` when
+  // `AudioCapabilities.supports_wired_headset` is false. Reports the jack state the emulator
+  // signals to the guest, not whether the guest's audio policy accepted the headset.
+  WiredHeadset wired_headset = 5;
 }
 
-// Request message for partially mutating virtual microphone mute state and mixer channel controls.
+// Request message for partially mutating virtual microphone mute state, mixer channel controls,
+// and the wired headset.
 //
 // Only fields explicitly set on the wire are modified; omitted fields leave current state untouched.
 message UpdateAudioStateRequest {
@@ -225,6 +241,27 @@ message UpdateAudioStateRequest {
   // Per-channel mute and gain updates keyed by `source_id`, applied in order. Use
   // `source_id: "host"` for the host machine's physical microphone.
   repeated MicrophoneInputUpdate microphone_inputs = 2;
+  // When set, plugs the given wired headset into the virtual jack, or unplugs it with
+  // `WIRED_HEADSET_DISCONNECTED`. Requires `AudioCapabilities.supports_wired_headset`.
+  optional WiredHeadset wired_headset = 3;
+}
+
+// What is plugged into the device's virtual wired headset jack.
+//
+// The emulator signals the jack to the guest through the Linux switches `SW_HEADPHONE_INSERT` and
+// `SW_MICROPHONE_INSERT`, which the guest's `WiredAccessoryManager` reads.
+enum WiredHeadset {
+  // Default unspecified value. Reported when the device has no virtual wired headset jack, and
+  // rejected with INVALID_ARGUMENT in `UpdateAudioStateRequest`.
+  WIRED_HEADSET_UNSPECIFIED = 0;
+  // Nothing is plugged into the jack.
+  WIRED_HEADSET_DISCONNECTED = 1;
+  // Headphones without a microphone (`SW_HEADPHONE_INSERT`); Android reports
+  // `AudioDeviceInfo.TYPE_WIRED_HEADPHONES`.
+  WIRED_HEADSET_WITHOUT_MICROPHONE = 2;
+  // A headset with a microphone (`SW_HEADPHONE_INSERT` and `SW_MICROPHONE_INSERT`); Android
+  // reports `AudioDeviceInfo.TYPE_WIRED_HEADSET`.
+  WIRED_HEADSET_WITH_MICROPHONE = 3;
 }
 
 // Response message for InjectAudioClip.

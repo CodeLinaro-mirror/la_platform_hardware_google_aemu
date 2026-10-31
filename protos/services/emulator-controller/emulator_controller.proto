@@ -321,7 +321,9 @@ service EmulatorController {
     // - `key_event` (KeyboardEvent): Processed as described in `sendKey`.
     // - `touch_event` (TouchEvent): Processed as described in `sendTouch`.
     // - `mouse_event` (MouseEvent): Processed as described in `sendMouse`.
-    // - `android_event` (AndroidEvent): Raw Linux `EV_*` triplet forwarded
+    // - `android_event` (AndroidEvent): Deprecated. qemu-next forwards only the
+    //   headset jack switches described in `AndroidEvent` and ignores every
+    //   other event; QEMU2 forwards the raw Linux `EV_*` triplet
     //   immediately without buffering (`EV_ABS`/`EV_KEY`/`EV_SYN`/`EV_SW` route
     //   to `virtio_input_multi_touch[display]` on `API 29+` when `VirtioTablet` /
     //   `VirtioMouse` are off, while other types — and all events on `API <= 28`
@@ -1450,7 +1452,7 @@ message InputEvent {
         KeyboardEvent key_event = 1;
         TouchEvent touch_event = 2;
         MouseEvent mouse_event = 3;
-        AndroidEvent android_event = 4;
+        AndroidEvent android_event = 4 [deprecated = true];
         PenEvent pen_event = 5;
         WheelEvent wheel_event = 6;
         MouseEvent xr_hand_event = 7;
@@ -1464,15 +1466,35 @@ message InputEvent {
     }
 };
 
-// Raw Linux `input_event` triplet (`type`, `code`, `value`) forwarded
-// immediately per call without buffering:
+// Deprecated: send `TouchEvent`, `KeyboardEvent`, or `MouseEvent`, or use
+// `android.emulation.v2.InputService`, instead. For the headset jack, use
+// `android.emulation.v2.AudioService` (`UpdateAudioStateRequest.wired_headset`).
+//
+// qemu-next keeps `AndroidEvent` only for the headset jack, as Android Studio's
+// Microphone page and Android Device Hub send it: it forwards `EV_SW`
+// `SW_HEADPHONE_INSERT` (2) and `SW_MICROPHONE_INSERT` (4) to the guest and
+// applies them together on the next `EV_SYN`. It ignores every other event and
+// logs a warning once per emulator process. The switches have a visible effect
+// only on a limited set of system images:
+// - The guest reads them only when the image sets
+//   `config_useDevInputEventForAudioJack`. Emulator phone and tablet images do;
+//   Automotive and TV images from API 35 and Wear images from API 33 don't.
+// - Apps see the headset only when the image's audio policy declares wired
+//   headset devices. Emulator images for API 24-28 do. Images for API 29 and
+//   later don't, so the guest rejects the headset: it sends no
+//   `ACTION_HEADSET_PLUG`, and `AudioManager.isWiredHeadsetOn()` stays false.
+//
+// On QEMU2, the raw Linux `input_event` triplet (`type`, `code`, `value`) is
+// forwarded immediately per call without buffering:
 // - `API 29+` (`VirtioInput` enabled, `VirtioTablet`/`VirtioMouse` disabled):
 //   `EV_ABS`, `EV_KEY`, `EV_SYN`, and `EV_SW` route to
 //   `virtio_input_multi_touch[display]` (guest kernel filters `EV_KEY` to
 //   advertised `BTN_TOOL_RUBBER`/`BTN_STYLUS`; folded Pixel Fold redirects
 //   `display` to the cover display), while `EV_REL`, `EV_MSC`, and all events
 //   when `VirtioTablet`/`VirtioMouse` are enabled route to `goldfish_events` on
-//   `display = 0`.
+//   `display = 0`. `virtio_input_multi_touch` advertises only `SW_LID`, so the
+//   guest drops `SW_HEADPHONE_INSERT` and `SW_MICROPHONE_INSERT`: QEMU2 does
+//   not deliver the headset jack on images with `VirtioInput` (API 30+).
 // - `API <= 28` (`VirtioInput` disabled): All events route to `goldfish_events`
 //   on `display = 0` (`display > 0` is ignored).
 // - `ABS_MT_TOOL_TYPE = MT_TOOL_PALM` (`0x02`): Treated as `TOOL_TYPE_FINGER` on
@@ -1480,6 +1502,8 @@ message InputEvent {
 //   `API 30` (`MotionEvent.ACTION_CANCEL`), and cancels per-pointer on `API 31+`
 //   (`FLAG_CANCELED`).
 message AndroidEvent {
+    option deprecated = true;
+
     // The type of the event. The types of the event are specified
     // by the android kernel. Some examples are:
     // EV_SYN, EV_KEY, EV_SW, etc..
