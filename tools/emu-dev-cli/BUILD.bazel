@@ -103,6 +103,22 @@ cc_binary(
     data = [":emu-dev-cli-backend"],
 )
 
+py_library(
+    name = "emu_dev_cli_testlib",
+    testonly = True,
+    srcs = glob(["tests/testlib/**/*.py"]),
+    # do not sort
+    imports = [
+        "src",
+        ".",
+        "workflows",
+        "tests",
+    ],
+    deps = [
+        ":emu_dev_cli_lib",
+    ],
+)
+
 [
     py_test(
         name = f.replace("tests/", "").replace("/", "_").replace(".py", ""),
@@ -114,11 +130,13 @@ cc_binary(
             "src",
             ".",
             "workflows",
+            "tests",
         ],
         tags = ["manual"] if "benchmark" in f else [],
         toolchains = ["@rules_nodejs//nodejs:current_node_toolchain"] if f == "tests/gerrit_ui_test.py" else [],
         deps = [
             ":emu_dev_cli_lib",
+            ":emu_dev_cli_testlib",
         ],
     )
     for f in glob([

@@ -36,6 +36,7 @@ from typing import Any, Dict, List, Optional
 from clients.artifact_service import _extract_selected_zip_entries
 from commands.crash.advisor import CrashAdvisorRunner
 from commands.crash.utils import (
+    CrashMetadata,
     acquire_auth_token,
     get_crashadvisor_sandbox_dir,
     parse_crash_id,
@@ -256,18 +257,15 @@ class CrashReproduceCommand(Command[argparse.Namespace, dict[str, Any]]):
     def execute(
         self, args: argparse.Namespace, ctx: ExecutionContext
     ) -> CommandResult[dict[str, Any]]:
-        target_id = parse_crash_id(str(args.crash_id))
+        meta = CrashMetadata.from_args(args, ctx.config.cache_dir)
+        target_id = meta.crash_id
         dry_run = bool(getattr(args, "dry_run", False))
         avd_override = getattr(args, "avd", None)
         debugger = "lldb" if getattr(args, "lldb", False) else None
         extra_args = getattr(args, "extra_args", None)
 
-        explicit_work_dir = getattr(args, "work_dir", None)
-        sandbox_path = resolve_crash_work_dir(
-            ctx.config.cache_dir, target_id, explicit_work_dir
-        )
-
-        meta_path = sandbox_path / "metadata.json"
+        sandbox_path = meta.work_dir
+        meta_path = meta.metadata_path
         if not meta_path.is_file():
             token = acquire_auth_token(getattr(args, "token", None))
             advisor_runner = CrashAdvisorRunner()
@@ -279,6 +277,7 @@ class CrashReproduceCommand(Command[argparse.Namespace, dict[str, Any]]):
                 token=token,
                 check=False,
             )
+            meta = meta.refresh()
 
         if not meta_path.is_file():
             raise ExecutionError(

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 import json
 import logging
 import os
@@ -64,6 +65,59 @@ from lib.gerrit_api import (
 
 OWNER_NOTIFY_HANDLING = "OWNER"
 GCHAT_DM_TIMEOUT_SEC = int(_GCHAT_DM_TIMEOUT_SEC_FLOAT)
+
+
+@dataclass(frozen=True)
+class ReviewBatchConfig:
+    """Typed parameter object for batch Gerrit vote, reviewer, and submit mutations."""
+
+    cl_numbers: tuple[str, ...]
+    code_review: int | None = 2
+    autosubmit: bool | int | None = False
+    presubmit_ready: bool | int | None = False
+    message: str = ""
+    action: str = "add"
+    account: str = ""
+    state: str = "REVIEWER"
+    viewer_email: str | None = None
+    notify: str = OWNER_NOTIFY_HANDLING
+
+    @classmethod
+    def from_cls(
+        cls,
+        cl_numbers: list[str | int] | tuple[str | int, ...] | "ReviewBatchConfig",
+        *,
+        code_review: int | None = 2,
+        autosubmit: bool | int | None = False,
+        presubmit_ready: bool | int | None = False,
+        message: str = "",
+        action: str = "add",
+        account: str | int = "",
+        state: str = "REVIEWER",
+        viewer_email: str | None = None,
+        deduplicate: bool = True,
+    ) -> "ReviewBatchConfig":
+        """Normalizes CL identifiers and batch options into an immutable ReviewBatchConfig."""
+        if isinstance(cl_numbers, cls):
+            return cl_numbers
+        cleaned_cls: list[str] = []
+        seen: set[str] = set()
+        for raw_cl in cl_numbers:
+            cid = parse_cl_identifier(str(raw_cl), allow_head=False)
+            if not deduplicate or cid not in seen:
+                seen.add(cid)
+                cleaned_cls.append(cid)
+        return cls(
+            cl_numbers=tuple(cleaned_cls),
+            code_review=code_review,
+            autosubmit=autosubmit,
+            presubmit_ready=presubmit_ready,
+            message=(message or "").strip(),
+            action=(action or "add").strip().lower(),
+            account=str(account or "").strip(),
+            state=(state or "REVIEWER").strip().upper(),
+            viewer_email=viewer_email,
+        )
 
 
 def _format_cli_error_text(exc: EmuCliError) -> str:
@@ -318,7 +372,7 @@ class GerritVoteSubmitService(GerritServiceBase):
 
     def cast_batch_vote(
         self,
-        cl_numbers: list[str | int],
+        cl_numbers: list[str | int] | ReviewBatchConfig,
         code_review: int | None = 2,
         autosubmit: bool | int | None = False,
         presubmit_ready: bool | int | None = False,
@@ -331,21 +385,29 @@ class GerritVoteSubmitService(GerritServiceBase):
                 "Cannot cast Gerrit vote: `gob-curl` is not installed on PATH. "
                 "Run `gcert` on a gLinux / Cloudtop machine with `gob-curl` installed."
             )
-        clean_msg = message.strip()
+        batch = ReviewBatchConfig.from_cls(
+            cl_numbers,
+            code_review=code_review,
+            autosubmit=autosubmit,
+            presubmit_ready=presubmit_ready,
+            message=message,
+            deduplicate=False,
+        )
+        clean_msg = batch.message
         labels = self._build_vote_labels(
-            code_review,
-            autosubmit,
-            presubmit_ready,
+            batch.code_review,
+            batch.autosubmit,
+            batch.presubmit_ready,
             allow_empty=bool(clean_msg),
         )
         cr_hint = int(labels.get("Code-Review", 0))
-        payload: dict[str, Any] = {"notify": OWNER_NOTIFY_HANDLING}
+        payload: dict[str, Any] = {"notify": batch.notify}
         if labels:
             payload["labels"] = labels
         if clean_msg:
             payload["message"] = clean_msg
 
-        cleaned_cls = [parse_cl_identifier(str(raw_cl), allow_head=False) for raw_cl in cl_numbers]
+        cleaned_cls = list(batch.cl_numbers)
         payload_json = json.dumps(payload)
         workers = max(1, min(DIFF_FETCH_WORKERS, len(cleaned_cls)))
         with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -463,9 +525,16 @@ class GerritVoteSubmitService(GerritServiceBase):
             )
         return {"cl": cl_id, "ok": False, "status": "ERROR", "error": err_msg}
 
-    def submit_changes(self, cl_numbers: list[str | int]) -> dict[str, Any]:
+    def submit_changes(
+        self, cl_numbers: list[str | int] | ReviewBatchConfig
+    ) -> dict[str, Any]:
         """Submits one or more submittable CLs/topics via `gob-curl` with mandatory `notify: OWNER`."""
-        if not cl_numbers:
+        raw_cls = (
+            cl_numbers.cl_numbers
+            if isinstance(cl_numbers, ReviewBatchConfig)
+            else cl_numbers
+        )
+        if not raw_cls:
             raise ValueError(
                 "Cannot submit Gerrit change: no CL numbers specified (provide `cl` or non-empty `cls`)."
             )
@@ -475,15 +544,10 @@ class GerritVoteSubmitService(GerritServiceBase):
                 "Cannot submit Gerrit change: `gob-curl` is not installed on PATH. "
                 "Run `gcert` on a gLinux / Cloudtop machine with `gob-curl` installed."
             )
-        cleaned_cls: list[str] = []
-        seen: set[str] = set()
-        for raw_cl in cl_numbers:
-            cid = parse_cl_identifier(str(raw_cl), allow_head=False)
-            if cid not in seen:
-                seen.add(cid)
-                cleaned_cls.append(cid)
+        batch = ReviewBatchConfig.from_cls(cl_numbers, deduplicate=True)
+        cleaned_cls = list(batch.cl_numbers)
 
-        payload_json = json.dumps({"notify": OWNER_NOTIFY_HANDLING})
+        payload_json = json.dumps({"notify": batch.notify})
         results: list[dict[str, Any]] = []
         for cid in cleaned_cls:
             step = self._post_single_submit(gob_curl, cid, payload_json)
@@ -782,42 +846,65 @@ class GerritVoteSubmitService(GerritServiceBase):
 
     def modify_reviewers_batch(
         self,
-        cl_numbers: list[str | int],
-        action: str,
-        account: str | int,
+        cl_numbers: list[str | int] | ReviewBatchConfig,
+        action: str = "add",
+        account: str | int = "",
         *,
         state: str = "REVIEWER",
         viewer_email: str | None = None,
     ) -> dict[str, Any]:
         """Batch adds, moves (`REVIEWER` <-> `CC`), or removes a reviewer/CC across multiple CLs with `notify: OWNER`."""
-        if not cl_numbers:
+        raw_cls = (
+            cl_numbers.cl_numbers
+            if isinstance(cl_numbers, ReviewBatchConfig)
+            else cl_numbers
+        )
+        if not raw_cls:
             raise ValueError(
                 "Cannot modify reviewers in batch: no target CL numbers provided "
                 "(pass non-empty 'cls' or 'cl')."
             )
-        norm_action = (action or "add").strip().lower()
+        raw_action = (
+            cl_numbers.action
+            if isinstance(cl_numbers, ReviewBatchConfig)
+            else action
+        )
+        norm_action = (raw_action or "add").strip().lower()
         if norm_action not in {"add", "remove"}:
             raise ValueError(
                 f"Cannot modify reviewers in batch: unsupported action '{norm_action}' "
                 "(expected 'add' or 'remove')."
             )
-        raw_acct = str(account or "").strip()
+        raw_account = (
+            cl_numbers.account
+            if isinstance(cl_numbers, ReviewBatchConfig)
+            else account
+        )
+        raw_acct = str(raw_account or "").strip()
         if not raw_acct:
             raise ValueError(
                 "Cannot modify reviewers in batch: reviewer or CC account is empty "
                 "(provide a non-empty 'account' or 'reviewer' email, LDAP, or group name)."
             )
-        cleaned_cls: list[str] = []
-        for raw_cl in cl_numbers:
-            cid = parse_cl_identifier(str(raw_cl), allow_head=False)
-            if cid not in cleaned_cls:
-                cleaned_cls.append(cid)
+        batch = ReviewBatchConfig.from_cls(
+            cl_numbers,
+            action=norm_action,
+            account=raw_acct,
+            state=state,
+            viewer_email=viewer_email,
+            deduplicate=True,
+        )
+        cleaned_cls = list(batch.cl_numbers)
         workers = max(1, min(DIFF_FETCH_WORKERS, len(cleaned_cls)))
         with ThreadPoolExecutor(max_workers=workers) as pool:
             results = list(
                 pool.map(
                     lambda cid: self._modify_single_reviewer_for_batch(
-                        cid, norm_action, raw_acct, state, viewer_email
+                        cid,
+                        batch.action,
+                        batch.account,
+                        batch.state,
+                        batch.viewer_email,
                     ),
                     cleaned_cls,
                 )

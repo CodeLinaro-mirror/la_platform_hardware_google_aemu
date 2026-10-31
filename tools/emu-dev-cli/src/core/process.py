@@ -30,6 +30,7 @@ from core.errors import (
     redact_command_args,
 )
 from core.events import EventBus, SubprocessInvoked
+from core.poller import PollOutcome, poll_until
 
 LOGGER = logging.getLogger(__name__)
 

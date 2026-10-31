@@ -20,6 +20,7 @@ import subprocess
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.poller import poll_until
 from core.process import ProcessRunner
 from lib.perf.adb import AdbDevice
 from lib.perf.catalog import DEFAULT_ADB_BIN
@@ -245,9 +246,7 @@ def wait_for_guest_and_host_settled(
     adb = adb_device or AdbDevice(
         serial, adb_bin=adb_bin, process_runner=process_runner
     )
-    start = time.perf_counter()
-    booted = False
-    while time.perf_counter() - start < timeout_sec:
+    def _check_boot_completed() -> bool:
         if proc is not None and proc.poll() is not None:
             log_tail = _read_log_tail(log_path)
             raise RuntimeError(
@@ -255,10 +254,17 @@ def wait_for_guest_and_host_settled(
                 + (f":\n{log_tail}" if log_tail else "")
                 + ". Inspect the emulator log file or verify KVM/HVF acceleration."
             )
-        if adb.getprop("sys.boot_completed", timeout=5.0) == "1":
-            booted = True
-            break
-        time.sleep(BOOT_POLL_INTERVAL_SEC)
+        return adb.getprop("sys.boot_completed", timeout=5.0) == "1"
+
+    boot_outcome = poll_until(
+        _check_boot_completed,
+        timeout_sec=timeout_sec,
+        interval_sec=BOOT_POLL_INTERVAL_SEC,
+        sleep_fn=lambda s: time.sleep(s),
+        clock_fn=lambda: time.perf_counter(),
+        clamp_sleep_to_deadline=False,
+    )
+    booted = boot_outcome.succeeded
 
     if not booted:
         raise TimeoutError(

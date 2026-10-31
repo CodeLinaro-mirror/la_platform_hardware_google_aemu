@@ -30,6 +30,7 @@ from clients.agent_runtime_service import (
     resolve_agentapi_binary,
     resolve_standalone_cli_binary,
 )
+from core.poller import poll_until
 from core.process import ProcessRunner, SubprocessRunner
 
 logger = logging.getLogger(__name__)
@@ -164,31 +165,42 @@ class AgentDispatcher:
 
             # Poll for completion
             start_time = time.time()
-            elapsed = 0.0
-            agent_completed = False
 
-            while elapsed < wait_timeout:
+            def _check_rca_complete() -> bool:
                 if rca_summary_path.exists():
                     text = rca_summary_path.read_text(
                         encoding="utf-8", errors="replace"
                     )
                     if is_complete_rca_summary(text):
+                        elapsed_now = time.time() - start_time
                         logger.info(
                             "Subagent completed RCA investigation for %s in %.1fs",
                             record.test_identifier,
-                            elapsed,
+                            elapsed_now,
                         )
                         sys.stderr.write(
-                            f"\n✅ Subagent completed RCA investigation in {elapsed:.1f}s!\n"
+                            f"\n✅ Subagent completed RCA investigation in {elapsed_now:.1f}s!\n"
                         )
-                        agent_completed = True
-                        break
-                time.sleep(poll_interval)
-                elapsed = time.time() - start_time
+                        return True
+                return False
+
+            def _on_poll(_attempts: int, _elapsed: float) -> None:
+                elapsed_now = time.time() - start_time
                 sys.stderr.write(
-                    f"⏳ Polling subagent progress ({elapsed:.0f}s / {wait_timeout:.0f}s)... (Analysis can take up to 10 minutes)\r"
+                    f"⏳ Polling subagent progress ({elapsed_now:.0f}s / {wait_timeout:.0f}s)... (Analysis can take up to 10 minutes)\r"
                 )
                 sys.stderr.flush()
+
+            outcome = poll_until(
+                _check_rca_complete,
+                timeout_sec=wait_timeout,
+                interval_sec=poll_interval,
+                sleep_fn=lambda s: time.sleep(s),
+                clock_fn=lambda: time.time(),
+                clamp_sleep_to_deadline=False,
+                on_poll_fn=_on_poll,
+            )
+            agent_completed = outcome.succeeded
             sys.stderr.write("\n")
 
             if not agent_completed:

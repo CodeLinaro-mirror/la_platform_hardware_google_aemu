@@ -13,132 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Verifier for create-commit workflow.
+"""Delegation shim to `workflows.common.git_commit.verifier_cli` (`--mode=verify-commit`)."""
 
-Verifies that a new commit has been created and that its message adheres to
-Gerrit guidelines and workflow requirements:
-- No 'Tag=' or 'CONV='
-- 'Bug: ' line (number or N/A)
-- 'Test: ' line (test command or N/A)
-"""
-
-import argparse
-import os
-from pathlib import Path
-import sys
-
-from workflows.common.git_commit import (
-    get_commit_message,
-    get_head_commit_hash,
-    messages_match,
-    validate_commit_message,
+from workflows.common.git_commit.verifier_cli import (
+    run_cli_entrypoint,
+    verify_commit,
 )
 
-
-def verify_commit(
-    base_commit: str = "",
-    proposed_file: str = "",
-    msg: str = "",
-    cwd: str = None,
-) -> int:
-    """Verifies that a new commit exists and satisfies all commit message rules."""
-    # If direct message is not supplied, inspect the git repository
-    if not msg:
-        current_head = get_head_commit_hash(cwd=cwd)
-        if current_head == "EMPTY":
-            print(
-                "Error: No commit found in repository. Please ensure a commit has been created.",
-                file=sys.stderr,
-            )
-            return 1
-
-        if base_commit and base_commit != "EMPTY" and current_head == base_commit:
-            print(
-                f"Error: No new commit has been created. Current HEAD matches base commit {base_commit}.",
-                file=sys.stderr,
-            )
-            return 1
-
-        try:
-            msg = get_commit_message("HEAD", cwd=cwd)
-        except Exception as e:
-            print(f"Error reading commit message: {e}", file=sys.stderr)
-            return 1
-
-    errors = validate_commit_message(msg)
-    if errors:
-        for err in errors:
-            print(f"Error: {err}", file=sys.stderr)
-        return 1
-
-    if proposed_file:
-        try:
-            proposed_path = Path(proposed_file)
-            if not proposed_path.is_file():
-                print(f"Error: Proposed message file '{proposed_file}' does not exist.", file=sys.stderr)
-                return 1
-            proposed_text = proposed_path.read_text(encoding="utf-8")
-            if not messages_match(msg, proposed_text, allow_added_change_id=True):
-                print(
-                    f"Error: Commit message in Git does not match verified message in '{proposed_file}'.",
-                    file=sys.stderr,
-                )
-                return 1
-        except Exception as e:
-            print(f"Error reading proposed message file '{proposed_file}': {e}", file=sys.stderr)
-            return 1
-
-    print("Commit verification passed.")
-    return 0
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Verify that a newly created commit satisfies Gerrit standards and verification rules."
-    )
-    parser.add_argument(
-        "base_commit",
-        nargs="?",
-        default="",
-        help="Commit hash of HEAD prior to creating the new commit.",
-    )
-    parser.add_argument(
-        "--proposed-file",
-        default="",
-        help="Path to verified proposed commit message file to match against Git commit.",
-    )
-    parser.add_argument(
-        "--msg",
-        default="",
-        help="Direct commit message content to verify (for unit testing).",
-    )
-    parser.add_argument(
-        "--msg-file",
-        default="",
-        help="Path to file containing commit message to verify (for testing).",
-    )
-    parser.add_argument(
-        "--cwd",
-        default=None,
-        help="Working directory for git operations.",
-    )
-    args = parser.parse_args()
-
-    message = args.msg
-    if args.msg_file:
-        try:
-            message = Path(args.msg_file).read_text(encoding="utf-8")
-        except Exception as e:
-            print(f"Error reading message file '{args.msg_file}': {e}", file=sys.stderr)
-            return 1
-
-    return verify_commit(
-        base_commit=args.base_commit,
-        proposed_file=args.proposed_file,
-        msg=message,
-        cwd=args.cwd,
-    )
-
+__all__ = ["verify_commit"]
 
 if __name__ == "__main__":
-    sys.exit(main())
+    run_cli_entrypoint(["--mode=verify-commit"])

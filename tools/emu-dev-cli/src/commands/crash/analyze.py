@@ -25,6 +25,7 @@ from commands.crash.autofix import CrashAutofixCommand
 from commands.crash.file_bug import CrashFileBugCommand
 from commands.crash.find_bug import CrashFindBugCommand
 from commands.crash.utils import (
+    CrashMetadata,
     acquire_auth_token,
     is_path_secure_user_owned,
     parse_crash_id,
@@ -108,13 +109,13 @@ class CrashAnalyzeCommand(Command[argparse.Namespace, dict[str, Any]]):
             return CrashAutofixCommand().execute(args, ctx)
 
         find_result = CrashFindBugCommand().execute(args, ctx)
-        crash_id = parse_crash_id(str(args.crash_id))
-        explicit_work_dir = getattr(args, "work_dir", None)
-        work_dir = resolve_crash_work_dir(
-            ctx.config.cache_dir, crash_id, explicit_work_dir
+        meta = CrashMetadata.from_args(
+            args, ctx.config.cache_dir, resolve_token=True
         )
+        crash_id = meta.crash_id
+        work_dir = meta.work_dir
 
-        token = acquire_auth_token(getattr(args, "token", None))
+        token = meta.token
         is_auto_run = bool(getattr(args, "auto_run", False))
 
         flags: list[str] = []

@@ -21,7 +21,6 @@ import argparse
 from datetime import timedelta
 import json
 from pathlib import Path
-import subprocess
 import sys
 from typing import Any
 
@@ -29,6 +28,7 @@ _CUR_DIR = Path(__file__).resolve().parent
 _TOOL_ROOT = _CUR_DIR.parent.parent
 _SRC_DIR = _TOOL_ROOT / "src"
 
+from core.git import GitService, ProdGitService  # noqa: E402
 from lib.gerrit_api import (  # noqa: E402
     DEFAULT_GERRIT_HOST,
     GerritClient,
@@ -36,26 +36,30 @@ from lib.gerrit_api import (  # noqa: E402
     render_comments_markdown,
     upload_cl,
 )
+from workflows.common.git_commit.verifier_cli import (  # noqa: E402
+    CHECK_CLEAN_TREE,
+    VerifierContext,
+    run_check_strategies,
+)
 
 
-def _check_clean_working_tree(repo_path: Path) -> str | None:
+def _check_clean_working_tree(
+    repo_path: Path, *, git_service: GitService | None = None
+) -> str | None:
     """Returns an error message if `repo_path` has uncommitted changes to tracked files."""
     if not (repo_path / ".git").exists():
         return None
-    res = subprocess.run(
-        ["git", "status", "--porcelain", "--untracked-files=no"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-        cwd=str(repo_path),
-        timeout=30,
+    git = git_service or ProdGitService()
+    errors = run_check_strategies(
+        [CHECK_CLEAN_TREE],
+        VerifierContext(
+            cwd=str(repo_path), include_untracked=False, git_service=git
+        ),
     )
-    if res.returncode == 0 and res.stdout.strip():
+    if errors:
         return (
             f"Repository '{repo_path}' has uncommitted changes:\n"
-            f"{res.stdout.strip()}\n"
+            f"{errors[0]}\n"
             "Please amend all changes into the commit before uploading."
         )
     return None

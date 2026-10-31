@@ -81,20 +81,13 @@ RAW_SUBPROCESS_CEILINGS: Mapping[str, int] = {
     "src/lib/bazel.py": 5,
     "src/lib/corp_sso.py": 3,
     "src/lib/emulator.py": 2,
-    "src/lib/gerrit_api.py": 6,
-    "src/lib/git_transaction.py": 6,
+    "src/lib/gerrit_api.py": 1,
     "src/lib/mesh.py": 3,
-    "src/lib/path_utils.py": 1,
     "src/lib/perf_telemetry.py": 2,
     "src/lib/screencast.py": 1,
-    "src/lib/tidy_utils.py": 2,
     "workflows/address_review/verify_fixes.py": 1,
-    "workflows/address_review/verify_upload_and_resolve.py": 1,
-    "workflows/amend_commit/verify_amend.py": 1,
-    "workflows/common/git_commit/commit_verifier.py": 7,
     "workflows/core/steps.py": 1,
     "workflows/core/yaml_runner.py": 1,
-    "workflows/create_commit/get_base_commit.py": 1,
     "workflows/test_driven_bug_fixer/verify_compile.py": 1,
     "workflows/ui/server.py": 2,
 }
@@ -124,19 +117,13 @@ ALL_EXIT_CEILINGS: Mapping[str, int] = {
     "workflows/address_review/prepare_review_batch.py": 1,
     "workflows/address_review/verify_fixes.py": 1,
     "workflows/address_review/verify_upload_and_resolve.py": 1,
-    "workflows/amend_commit/setup_msg_files.py": 1,
-    "workflows/amend_commit/verify_amend.py": 1,
-    "workflows/amend_commit/verify_proposed_msg.py": 1,
     "workflows/analyze_build_times/verify_report.py": 1,
     "workflows/bug_to_markdown/verify_bug_markdown.py": 2,
+    "workflows/common/git_commit/verifier_cli.py": 1,
     "workflows/compare_perf/prepare_perf_batch.py": 1,
     "workflows/compare_perf/verify_perf_report.py": 1,
     "workflows/compare_perf/verify_perf_run.py": 1,
     "workflows/core/yaml_runner.py": 2,
-    "workflows/create_commit/get_base_commit.py": 1,
-    "workflows/create_commit/setup_msg_files.py": 1,
-    "workflows/create_commit/verify_commit.py": 1,
-    "workflows/create_commit/verify_proposed_msg.py": 1,
     "workflows/hello_world_joke_rating/verify_joke_rating.py": 2,
     "workflows/test_driven_bug_fixer/detect_env.py": 1,
     "workflows/test_driven_bug_fixer/verify_compile.py": 1,
@@ -677,6 +664,66 @@ def bad_helper(label: str = "测试_🚀_é") -> None:
             harness_sidecar_src,
         )
         self.assertIsNotNone(JsonRequestHandler)
+
+    def test_phase15_dry_verifiers_git_service_poller_parameter_objects_and_testlib(
+        self,
+    ) -> None:
+        from clients.git_service import FakeGitService, GitService, ProdGitService
+        from commands.crash.list_crashes import CrashQuery
+        from commands.crash.utils import CrashMetadata
+        from commands.gerrit.services.vote_submit_service import ReviewBatchConfig
+        from core.poller import PollOutcome, poll_until
+        from lib.tidy_engine import RefactoringConfig
+        from testlib import TempGitRepo, WorkflowTestCase, make_fake_change
+        from workflows.common.git_commit.verifier_cli import (
+            ChangeIdPresentCheckStrategy,
+            CleanTreeCheckStrategy,
+            FooterValidCheckStrategy,
+            STRATEGY_REGISTRY,
+            run_check_strategies,
+        )
+
+        # 1. Unified verifier runner & strategies
+        self.assertEqual(
+            set(STRATEGY_REGISTRY),
+            {"clean_tree", "change_id_present", "footer_valid"},
+        )
+        self.assertIsNotNone(CleanTreeCheckStrategy)
+        self.assertIsNotNone(ChangeIdPresentCheckStrategy)
+        self.assertIsNotNone(FooterValidCheckStrategy)
+        self.assertIsNotNone(run_check_strategies)
+
+        # 2. GitService & FakeGitService
+        self.assertIsNotNone(GitService)
+        self.assertIsNotNone(ProdGitService)
+        self.assertIsNotNone(FakeGitService)
+
+        # 3. Shared poller
+        self.assertIsNotNone(PollOutcome)
+        self.assertIsNotNone(poll_until)
+
+        # 4. Parameter Objects
+        self.assertIsNotNone(CrashQuery)
+        self.assertIsNotNone(CrashMetadata)
+        self.assertIsNotNone(ReviewBatchConfig)
+        self.assertIsNotNone(RefactoringConfig)
+
+        # 5. Consolidated testlib & retired duplicate review workflow tests
+        self.assertIsNotNone(WorkflowTestCase)
+        self.assertIsNotNone(TempGitRepo)
+        self.assertIsNotNone(make_fake_change)
+        self.assertTrue((REPO_ROOT / "tests" / "review_workflows_test.py").is_file())
+        for retired_test in (
+            "tests/review_constants_workflow_test.py",
+            "tests/review_control_flow_workflow_test.py",
+            "tests/review_duplication_workflow_test.py",
+            "tests/review_modularity_workflow_test.py",
+            "tests/review_unicode_workflow_test.py",
+        ):
+            self.assertFalse(
+                (REPO_ROOT / retired_test).exists(),
+                f"Consolidated test file {retired_test} must not be reintroduced",
+            )
 
 
 if __name__ == "__main__":

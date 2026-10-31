@@ -28,9 +28,9 @@ from commands.crash.fix_checker import (
     format_agent_version_guardrail_prompt,
 )
 from commands.crash.utils import (
+    CrashMetadata,
     acquire_auth_token,
     parse_crash_id,
-    resolve_crash_work_dir,
 )
 from commands.source_directory import get_source_directory
 from core.command import Command, CommandResult
@@ -97,16 +97,13 @@ class CrashAutofixCommand(Command[argparse.Namespace, dict[str, Any]]):
     def execute(
         self, args: argparse.Namespace, ctx: ExecutionContext
     ) -> CommandResult[dict[str, Any]]:
-        target_id = parse_crash_id(str(args.crash_id))
+        meta = CrashMetadata.from_args(args, ctx.config.cache_dir)
+        target_id = meta.crash_id
         dry_run = bool(getattr(args, "dry_run", False))
         force = bool(getattr(args, "force", False))
 
-        explicit_work_dir = getattr(args, "work_dir", None)
-        sandbox_path = resolve_crash_work_dir(
-            ctx.config.cache_dir, target_id, explicit_work_dir
-        )
-
-        rca_path = sandbox_path / "rca_summary.md"
+        sandbox_path = meta.work_dir
+        rca_path = meta.rca_path
         if not rca_path.is_file():
             token = acquire_auth_token(getattr(args, "token", None))
             advisor_runner = CrashAdvisorRunner()
@@ -118,6 +115,7 @@ class CrashAutofixCommand(Command[argparse.Namespace, dict[str, Any]]):
                 token=token,
                 check=False,
             )
+            meta = meta.refresh()
 
         if not rca_path.is_file():
             raise ExecutionError(

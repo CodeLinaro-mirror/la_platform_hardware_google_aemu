@@ -31,7 +31,11 @@ from lib.level1_engine import Level1RefactoringEngine
 from lib.output import print_result, print_status
 from lib.target_resolver import resolve_dependent_targets, resolve_report_targets
 import lib.tidy_engine
-from lib.tidy_engine import GitNativeRefactoringEngine, finalize_transaction
+from lib.tidy_engine import (
+    GitNativeRefactoringEngine,
+    RefactoringConfig,
+    finalize_transaction,
+)
 import lib.tidy_runner
 from lib.tidy_parser import normalize_tidy_level
 
@@ -39,14 +43,15 @@ logger = logging.getLogger(__name__)
 
 
 def _run_tidy_fix_single_level(
-    args: argparse.Namespace, emit_json_result: bool = True
+    args: argparse.Namespace | RefactoringConfig, emit_json_result: bool = True
 ) -> CommandResult:
     """Runs closed-loop automated remediation supporting Level 1 and Levels 2-4 transactions."""
-    json_mode = getattr(args, "json", False)
+    cfg = RefactoringConfig.from_namespace(args, emit_json_result=emit_json_result)
+    json_mode = cfg.json_mode
     source_dir = get_source_directory("emu-main-next") or os.getcwd()
-    target = getattr(args, "target_flag", None) or getattr(args, "target", None)
-    level = normalize_tidy_level(getattr(args, "level", 1))
-    continue_tx = getattr(args, "continue_tx", False)
+    target = cfg.target or None
+    level = normalize_tidy_level(cfg.level)
+    continue_tx = cfg.continue_tx
 
     # 1. Handle --abort
     if getattr(args, "abort", False):
@@ -148,13 +153,13 @@ def _run_tidy_fix_single_level(
             )
         tx = GitTransactionContext(workspace_root=Path(source_dir), target=target)
 
-    test_target = getattr(args, "test", None)
-    model = getattr(args, "model", "auto")
-    dry_run = getattr(args, "dry_run", False)
-    force = getattr(args, "force", False)
-    upload = getattr(args, "upload", False)
-    bug_id = getattr(args, "bug", None)
-    checks = getattr(args, "checks", None)
+    test_target = cfg.test_target
+    model = cfg.model
+    dry_run = cfg.dry_run
+    force = cfg.force
+    upload = cfg.upload
+    bug_id = cfg.bug_id
+    checks = cfg.checks
 
     runner = BazelRunner(source_dir=source_dir)
     oracle = CompilerOracle(runner=runner)
@@ -175,6 +180,11 @@ def _run_tidy_fix_single_level(
             is_error=True,
         )
     report_target = report_targets[0]
+    cfg = cfg.with_updates(
+        target=target,
+        report_target=report_target,
+        level=level,
+    )
 
     # =========================================================================
     # LEVEL 1: Deterministic Native AST Fixes

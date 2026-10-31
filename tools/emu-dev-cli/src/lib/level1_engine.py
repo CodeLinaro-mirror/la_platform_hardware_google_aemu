@@ -25,7 +25,7 @@ from lib.compiler_oracle import CompilerOracle
 from lib.git_transaction import GitTransactionContext, resolve_git_repo_for_target
 from lib.refactoring.base_engine import BaseRefactoringEngine
 import lib.tidy_engine
-from lib.tidy_engine import finalize_transaction
+from lib.tidy_engine import RefactoringConfig, finalize_transaction
 import lib.tidy_runner
 
 logger = logging.getLogger(__name__)
@@ -69,9 +69,9 @@ class Level1RefactoringEngine(BaseRefactoringEngine):
 
     def run_level1_remediation(
         self,
-        target: str,
-        report_target: str,
-        tx: GitTransactionContext,
+        target: str | RefactoringConfig,
+        report_target: str = "",
+        tx: Optional[GitTransactionContext] = None,
         test_target: Optional[str] = None,
         checks: Optional[str] = None,
         model: str = "auto",
@@ -80,8 +80,23 @@ class Level1RefactoringEngine(BaseRefactoringEngine):
         continue_tx: bool = False,
         bug_id: Optional[str] = None,
         upload: bool = False,
+        *,
+        config: Optional[RefactoringConfig] = None,
     ) -> bool:
         """Executes Level 1 remediation loop."""
+        cfg = config or (target if isinstance(target, RefactoringConfig) else None)
+        if cfg is not None:
+            target = cfg.target
+            report_target = report_target or cfg.report_target
+            test_target = test_target if test_target is not None else cfg.test_target
+            checks = checks if checks is not None else cfg.checks
+            model = cfg.model
+            dry_run = cfg.dry_run
+            force = cfg.force
+            continue_tx = cfg.continue_tx
+            bug_id = bug_id if bug_id is not None else cfg.bug_id
+            upload = cfg.upload
+        assert tx is not None, "GitTransactionContext `tx` is required for run_level1_remediation"
         if not force and not tx.is_tree_clean():
             logger.error(
                 "Error: Uncommitted changes detected in repository. Commit or stash them, or use --force."

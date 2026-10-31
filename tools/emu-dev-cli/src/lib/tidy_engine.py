@@ -25,7 +25,7 @@ from lib.compiler_oracle import CompilerOracle
 from lib.git_transaction import GitTransactionContext, resolve_git_repo_for_target
 from lib.refactoring.base_engine import BaseRefactoringEngine
 import lib.tidy_runner
-from lib.tidy_types import TidyDiagnostic
+from lib.tidy_types import RefactoringConfig, TidyDiagnostic
 
 # Submodule imports
 from lib.tidy_utils import (
@@ -61,18 +61,37 @@ class GitNativeRefactoringEngine(BaseRefactoringEngine):
 
     def run_refactoring_loop(
         self,
-        target: str,
-        compilation_targets: List[str],
-        level_diags: List[TidyDiagnostic],
-        tx: GitTransactionContext,
-        level: int,
-        model: str,
-        report_target: str,
+        target: str | RefactoringConfig,
+        compilation_targets: Optional[List[str]] = None,
+        level_diags: Optional[List[TidyDiagnostic]] = None,
+        tx: Optional[GitTransactionContext] = None,
+        level: int = 2,
+        model: str = "auto",
+        report_target: str = "",
         test_target: Optional[str] = None,
         checks: Optional[str] = None,
         force: bool = False,
+        *,
+        config: Optional[RefactoringConfig] = None,
     ) -> None:
         """Executes the loop iterating over all diagnostics, checking them with the compiler and agent."""
+        cfg = config or (target if isinstance(target, RefactoringConfig) else None)
+        if cfg is not None:
+            target = cfg.target
+            compilation_targets = list(
+                compilation_targets
+                if compilation_targets is not None
+                else cfg.compilation_targets
+            )
+            level = cfg.level
+            model = cfg.model
+            report_target = report_target or cfg.report_target
+            test_target = test_target if test_target is not None else cfg.test_target
+            checks = checks if checks is not None else cfg.checks
+            force = force or cfg.force
+        compilation_targets = list(compilation_targets or [])
+        level_diags = list(level_diags or [])
+        assert tx is not None, "GitTransactionContext `tx` is required for run_refactoring_loop"
         repo_dir = self.resolve_repo_dir(target)
 
         def _loop_body() -> None:
@@ -214,4 +233,4 @@ class GitNativeRefactoringEngine(BaseRefactoringEngine):
         self.execute_with_transaction_guard(tx, _loop_body)
 
 
-__all__ = ["GitNativeRefactoringEngine", "finalize_transaction"]
+__all__ = ["GitNativeRefactoringEngine", "RefactoringConfig", "finalize_transaction"]

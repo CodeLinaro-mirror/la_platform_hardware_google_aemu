@@ -26,10 +26,10 @@ from commands.crash.advisor import (
 )
 from commands.crash.fix_checker import (
     evaluate_crash_fix_status,
-    extract_crash_version_info,
 )
 from commands.crash.link_bug import search_crash_annotations
 from commands.crash.utils import (
+    CrashMetadata,
     acquire_auth_token,
     extract_top_fault_frame,
     parse_crash_id,
@@ -48,6 +48,42 @@ from core.errors import CommandValidationError
 logger = logging.getLogger(__name__)
 
 CLOSED_STATUSES = {"FIXED", "VERIFIED", "OBSOLETE", "CLOSED", "DONE"}
+
+
+def _append_search_candidates(
+    issues: list[Any],
+    *,
+    confidence: str,
+    seen_ids: set[str],
+    candidates: list[dict[str, Any]],
+) -> None:
+    """Appends deduplicated Buganizer search results to `candidates`."""
+    for iss in issues:
+        iss_id = (
+            getattr(iss, "issue_id", None)
+            or getattr(iss, "id", None)
+            or (iss.get("issueId") if isinstance(iss, dict) else str(iss))
+        )
+        if iss_id in seen_ids:
+            continue
+        seen_ids.add(iss_id)
+        status_upper = (
+            getattr(iss, "status", None)
+            or (iss.get("status") if isinstance(iss, dict) else "UNKNOWN")
+        ).upper()
+        candidates.append(
+            {
+                "issue_id": iss_id,
+                "status": status_upper,
+                "title": getattr(iss, "title", None)
+                or (iss.get("title") if isinstance(iss, dict) else "Untitled"),
+                "assignee": getattr(iss, "assignee", None)
+                or (iss.get("assignee") if isinstance(iss, dict) else "Unassigned"),
+                "is_fixed": status_upper in CLOSED_STATUSES,
+                "confidence": confidence,
+                "url": f"https://b.corp.google.com/issues/{iss_id}",
+            }
+        )
 
 
 class CrashFindBugCommand(Command[argparse.Namespace, dict[str, Any]]):
@@ -115,18 +151,20 @@ class CrashFindBugCommand(Command[argparse.Namespace, dict[str, Any]]):
     def execute(
         self, args: argparse.Namespace, ctx: ExecutionContext
     ) -> CommandResult[dict[str, Any]]:
-        crash_id = parse_crash_id(str(args.crash_id))
+        meta = CrashMetadata.from_args(
+            args,
+            ctx.config.cache_dir,
+            extract_top_fault_frame_fn=extract_top_fault_frame,
+        )
+        crash_id = meta.crash_id
         component_id = int(getattr(args, "component_id", 29601))
         buganizer = ctx.services.get(SERVICE_BUGANIZER)
         f1_client = ctx.services.get(SERVICE_F1_SQL)
         runner = ctx.services.get(SERVICE_PROCESS_RUNNER)
 
-        explicit_work_dir = getattr(args, "work_dir", None)
-        work_dir = resolve_crash_work_dir(
-            ctx.config.cache_dir, crash_id, explicit_work_dir
-        )
-        meta_path = work_dir / "metadata.json"
-        txt_dump = work_dir / "crashreport.txt"
+        work_dir = meta.work_dir
+        meta_path = meta.metadata_path
+        txt_dump = meta.crashreport_path
 
         if not txt_dump.is_file() or not meta_path.is_file():
             token = acquire_auth_token(getattr(args, "token", None))
@@ -139,32 +177,15 @@ class CrashFindBugCommand(Command[argparse.Namespace, dict[str, Any]]):
                 token=token,
                 check=False,
             )
+            meta = meta.refresh(
+                signature_override=getattr(args, "signature", None),
+                extract_top_fault_frame_fn=extract_top_fault_frame,
+            )
 
-        meta_json: dict[str, Any] = {}
-        if meta_path.is_file():
-            try:
-                parsed_meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                if isinstance(parsed_meta, dict):
-                    meta_json = parsed_meta
-            except (OSError, ValueError):
-                meta_json = {}
-
-        vinfo = extract_crash_version_info(meta_json)
-        build_id = str(vinfo.get("build_id") or "unknown")
-        version_str = str(vinfo.get("version_str") or build_id)
-
-        proto = meta_json.get("report_proto", meta_json)
-        if not isinstance(proto, dict):
-            proto = {}
-        stable_sig = (
-            str(getattr(args, "signature", None) or "").strip()
-            or str(
-                proto.get("stableSignature")
-                or proto.get("stable_signature")
-                or meta_json.get("stable_signature")
-                or ""
-            ).strip()
-        )
+        meta_json = meta.raw_metadata
+        build_id = meta.build_id
+        version_str = meta.version_str
+        stable_sig = meta.stable_signature
         if not stable_sig and f1_client is not None:
             from commands.crash.link_bug import resolve_signature_from_report_id
 
@@ -176,15 +197,8 @@ class CrashFindBugCommand(Command[argparse.Namespace, dict[str, Any]]):
         if not stable_sig:
             stable_sig = "Unknown"
 
-        top_func: str | None = None
-        top_file: str | None = None
-        if txt_dump.is_file():
-            try:
-                top_func, top_file = extract_top_fault_frame(
-                    txt_dump.read_text(encoding="utf-8")
-                )
-            except OSError:
-                top_func, top_file = None, None
+        top_func = meta.top_fault_function
+        top_file = meta.top_fault_file
 
         candidates: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
@@ -235,45 +249,23 @@ class CrashFindBugCommand(Command[argparse.Namespace, dict[str, Any]]):
                 sig_issues = buganizer.search_issues(
                     f'componentid:{component_id} "{stable_sig}"', limit=10
                 )
-                for iss in sig_issues:
-                    iss_id = getattr(iss, "issue_id", None) or getattr(iss, "id", None) or (iss.get("issueId") if isinstance(iss, dict) else str(iss))
-                    if iss_id in seen_ids:
-                        continue
-                    seen_ids.add(iss_id)
-                    status_upper = (getattr(iss, "status", None) or (iss.get("status") if isinstance(iss, dict) else "UNKNOWN")).upper()
-                    candidates.append(
-                        {
-                            "issue_id": iss_id,
-                            "status": status_upper,
-                            "title": getattr(iss, "title", None) or (iss.get("title") if isinstance(iss, dict) else "Untitled"),
-                            "assignee": getattr(iss, "assignee", None) or (iss.get("assignee") if isinstance(iss, dict) else "Unassigned"),
-                            "is_fixed": status_upper in CLOSED_STATUSES,
-                            "confidence": "HIGH (Signature Match)",
-                            "url": f"https://b.corp.google.com/issues/{iss_id}",
-                        }
-                    )
+                _append_search_candidates(
+                    sig_issues,
+                    confidence="HIGH (Signature Match)",
+                    seen_ids=seen_ids,
+                    candidates=candidates,
+                )
 
         if top_func and buganizer and hasattr(buganizer, "search_issues"):
             func_issues = buganizer.search_issues(
                 f'componentid:{component_id} "{top_func}"', limit=10
             )
-            for iss in func_issues:
-                iss_id = getattr(iss, "issue_id", None) or getattr(iss, "id", None) or (iss.get("issueId") if isinstance(iss, dict) else str(iss))
-                if iss_id in seen_ids:
-                    continue
-                seen_ids.add(iss_id)
-                status_upper = (getattr(iss, "status", None) or (iss.get("status") if isinstance(iss, dict) else "UNKNOWN")).upper()
-                candidates.append(
-                    {
-                        "issue_id": iss_id,
-                        "status": status_upper,
-                        "title": getattr(iss, "title", None) or (iss.get("title") if isinstance(iss, dict) else "Untitled"),
-                        "assignee": getattr(iss, "assignee", None) or (iss.get("assignee") if isinstance(iss, dict) else "Unassigned"),
-                        "is_fixed": status_upper in CLOSED_STATUSES,
-                        "confidence": "MEDIUM (Top Stack Frame Function)",
-                        "url": f"https://b.corp.google.com/issues/{iss_id}",
-                    }
-                )
+            _append_search_candidates(
+                func_issues,
+                confidence="MEDIUM (Top Stack Frame Function)",
+                seen_ids=seen_ids,
+                candidates=candidates,
+            )
 
         local_src_dir = ctx.config.get_source_directory(
             "emu-main-next"

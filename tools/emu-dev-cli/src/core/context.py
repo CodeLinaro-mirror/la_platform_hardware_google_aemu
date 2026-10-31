@@ -29,6 +29,7 @@ from typing import Any, TYPE_CHECKING, TypeVar
 
 from core.errors import ExecutionError, UsageError
 from core.events import EventBus
+from core.git import FakeGitService, GitService, ProdGitService
 from core.process import FakeProcessRunner, ProcessRunner, SubprocessRunner
 
 if TYPE_CHECKING:
@@ -62,6 +63,7 @@ SERVICE_F1_SQL = "f1_sql_client"
 SERVICE_BUGANIZER = "buganizer_service"
 SERVICE_AGENT_RUNTIME = "agent_runtime_service"
 SERVICE_CHAT = "chat_service"
+SERVICE_GIT = "git_service"
 
 HOST_LINUX_X64 = "linux-x64"
 HOST_MAC_ARM64 = "mac-arm64"
@@ -415,6 +417,10 @@ class ProdServiceFactory(ServiceFactory):
             SERVICE_CHAT,
             _build_prod_chat_service,
         )
+        container.register_factory(
+            SERVICE_GIT,
+            lambda c: ProdGitService(c.resolve(SERVICE_PROCESS_RUNNER)),
+        )
         for name, factory in self._extra_factories.items():
             container.register_factory(name, factory)
         return container
@@ -433,6 +439,7 @@ class FakeServiceFactory(ServiceFactory):
         buganizer_service: FakeBuganizerService | None = None,
         agent_runtime_service: FakeAgentRuntimeService | None = None,
         chat_service: FakeChatNotificationService | None = None,
+        git_service: FakeGitService | None = None,
         services: Mapping[str, Any] | None = None,
         factories: Mapping[str, ServiceBuilder] | None = None,
     ) -> None:
@@ -455,6 +462,9 @@ class FakeServiceFactory(ServiceFactory):
             agent_runtime_service or FakeAgentRuntimeService()
         )
         self._chat_service = chat_service or FakeChatNotificationService()
+        self._git_service = git_service or FakeGitService(
+            process_runner=self._process_runner
+        )
         self._services = dict(services or {})
         self._factories = dict(factories or {})
 
@@ -493,6 +503,11 @@ class FakeServiceFactory(ServiceFactory):
         """Returns the hermetic FakeChatNotificationService instance."""
         return self._chat_service
 
+    @property
+    def git_service(self) -> FakeGitService:
+        """Returns the hermetic FakeGitService instance."""
+        return self._git_service
+
     def create_container(self, config: AppConfig) -> ServiceContainer:
         del config
         container = ServiceContainer()
@@ -505,6 +520,7 @@ class FakeServiceFactory(ServiceFactory):
             SERVICE_AGENT_RUNTIME, self._agent_runtime_service
         )
         container.register_instance(SERVICE_CHAT, self._chat_service)
+        container.register_instance(SERVICE_GIT, self._git_service)
         for name, instance in self._services.items():
             container.register_instance(name, instance)
         for name, factory in self._factories.items():
@@ -634,6 +650,11 @@ class ExecutionContext:
         return self._services.resolve(SERVICE_CHAT)
 
     @property
+    def git_service(self) -> GitService:
+        """Resolves and returns the GitService."""
+        return self._services.resolve(SERVICE_GIT)
+
+    @property
     def fake_process_runner(self) -> FakeProcessRunner:
         """Returns the ProcessRunner typed as FakeProcessRunner for test assertions."""
         return _require_fake_service(self.process_runner, FakeProcessRunner)
@@ -676,6 +697,11 @@ class ExecutionContext:
         return _require_fake_service(
             self.chat_service, FakeChatNotificationService
         )
+
+    @property
+    def fake_git_service(self) -> FakeGitService:
+        """Returns the GitService typed as FakeGitService for test assertions."""
+        return _require_fake_service(self.git_service, FakeGitService)
 
     def with_flags(
         self,

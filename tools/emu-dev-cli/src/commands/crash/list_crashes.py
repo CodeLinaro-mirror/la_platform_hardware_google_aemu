@@ -21,9 +21,10 @@ reflected immediately without waiting for the hourly F1 annotations table refres
 """
 
 import argparse
+from dataclasses import dataclass
 import os
 import sys
-from typing import Any
+from typing import Any, Optional
 
 from clients.f1_sql_client import (
     ProdF1SqlClient,
@@ -57,6 +58,75 @@ DEFAULT_INCLUDE_MODULES = (
 )
 DEFAULT_EXCLUDE_MODULES = r"Qt6|libandroid-emu|adb|netsimd"
 DEFAULT_LIMIT = 50
+
+
+@dataclass(frozen=True)
+class CrashQuery:
+    """Immutable parameter object for `crash list-crashes` F1 SQL queries."""
+
+    hours: int = DEFAULT_HOURS
+    version_regex: str = DEFAULT_VERSION_REGEX
+    exclude_modules: str = DEFAULT_EXCLUDE_MODULES
+    include_modules: str = DEFAULT_INCLUDE_MODULES
+    unassigned_only: bool = False
+    raw: bool = False
+    limit: int = DEFAULT_LIMIT
+    product_name: str = DEFAULT_PRODUCT_NAME
+    accounting_group: Optional[str] = None
+    print_sql: bool = False
+    json_mode: bool = False
+
+    @classmethod
+    def from_namespace(
+        cls,
+        args: argparse.Namespace,
+        *,
+        json_mode: bool = False,
+    ) -> "CrashQuery":
+        """Constructs a `CrashQuery` from an `argparse.Namespace`."""
+        days = getattr(args, "days", None)
+        hours = (
+            int(days) * 24
+            if days is not None
+            else int(getattr(args, "hours", DEFAULT_HOURS))
+        )
+        return cls(
+            hours=hours,
+            version_regex=str(
+                getattr(
+                    args,
+                    "version_regex",
+                    getattr(args, "version", DEFAULT_VERSION_REGEX),
+                )
+            ),
+            exclude_modules=str(
+                getattr(
+                    args,
+                    "exclude_modules",
+                    getattr(args, "exclude", DEFAULT_EXCLUDE_MODULES),
+                )
+            ),
+            include_modules=str(
+                getattr(
+                    args,
+                    "include_modules",
+                    getattr(args, "include", DEFAULT_INCLUDE_MODULES),
+                )
+            ),
+            unassigned_only=bool(getattr(args, "unassigned_only", False)),
+            raw=bool(getattr(args, "raw", False)),
+            limit=int(getattr(args, "limit", DEFAULT_LIMIT)),
+            product_name=str(
+                getattr(
+                    args,
+                    "product_name",
+                    getattr(args, "product", DEFAULT_PRODUCT_NAME),
+                )
+            ),
+            accounting_group=getattr(args, "accounting_group", None),
+            print_sql=bool(getattr(args, "print_sql", False)),
+            json_mode=bool(json_mode or getattr(args, "json", False)),
+        )
 
 
 def extract_build_ids_from_versions(versions: list[str]) -> list[str]:
@@ -128,7 +198,7 @@ def _stack_preview_sql_expr(alias: str = "c", max_frames: int = 14) -> str:
 
 
 def build_f1_crashes_query(
-    hours: int = DEFAULT_HOURS,
+    hours: int | CrashQuery = DEFAULT_HOURS,
     version_regex: str = DEFAULT_VERSION_REGEX,
     exclude_modules: str = DEFAULT_EXCLUDE_MODULES,
     include_modules: str = DEFAULT_INCLUDE_MODULES,
@@ -136,25 +206,29 @@ def build_f1_crashes_query(
     raw: bool = False,
     limit: int = DEFAULT_LIMIT,
     product_name: str = DEFAULT_PRODUCT_NAME,
+    *,
+    query: Optional[CrashQuery] = None,
 ) -> str:
     """Constructs the F1 SQL query against `crash.prod.latest` and `crash_annotations.prod.latest`.
 
-    Args:
-        hours: Lookback window in hours.
-        version_regex: RE2 regex matching `product.Version` (default: `0\\.0\\.1-|37`).
-        exclude_modules: RE2 regex of non-qemu-next module `CodeFile` substrings to exclude.
-        include_modules: RE2 regex of required emulator module `CodeFile` substrings to include.
-        unassigned_only: If True, filters out signatures with existing `BugInfo` in F1.
-        raw: If True, returns ungrouped individual crash reports instead of grouping by signature.
-        limit: Maximum number of rows to return.
-        product_name: Crash product name (default: 'AndroidEmulator').
-
-    Returns:
-        SQL query string.
-
-    Raises:
-        ValueError: If SQL string/regex parameters contain single quotes.
+    Accepts either a `CrashQuery` parameter object (via `hours` or `query=`) or
+    individual keyword parameters.
     """
+    active_query = query if query is not None else (
+        hours if isinstance(hours, CrashQuery) else None
+    )
+    if active_query is not None:
+        hours_val = active_query.hours
+        version_regex = active_query.version_regex
+        exclude_modules = active_query.exclude_modules
+        include_modules = active_query.include_modules
+        unassigned_only = active_query.unassigned_only
+        raw = active_query.raw
+        limit = active_query.limit
+        product_name = active_query.product_name
+    else:
+        hours_val = int(hours)
+
     for param_name, param_val in (
         ("product_name", product_name),
         ("version_regex", version_regex),
@@ -190,7 +264,7 @@ def build_f1_crashes_query(
             "  )"
         )
     where_clauses.append(
-        f"c.upload_time >= UNIX_MILLIS(TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {int(hours)} HOUR))"
+        f"c.upload_time >= UNIX_MILLIS(TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {int(hours_val)} HOUR))"
     )
     if unassigned_only:
         where_clauses.append("(a.BugInfo IS NULL OR ARRAY_LENGTH(a.BugInfo) = 0)")
@@ -500,75 +574,45 @@ class CrashListCrashesCommand(Command[argparse.Namespace, dict[str, Any]]):
             else int(getattr(args, "hours", DEFAULT_HOURS))
         )
 
-    def validate(self, args: argparse.Namespace, ctx: ExecutionContext) -> None:
-        del ctx
-        hours = self._resolve_hours(args)
-        if hours <= 0:
+    def validate(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CrashQuery:
+        query = CrashQuery.from_namespace(
+            args, json_mode=ctx.config.json_mode
+        )
+        if query.hours <= 0:
             raise UsageError(
-                f"Lookback window must be positive (got {hours} hours).",
+                f"Lookback window must be positive (got {query.hours} hours).",
                 remediation="Pass a positive integer to --hours or --days.",
             )
-        limit = int(getattr(args, "limit", DEFAULT_LIMIT))
-        if limit <= 0:
+        if query.limit <= 0:
             raise UsageError(
-                f"Result limit must be positive (got {limit}).",
+                f"Result limit must be positive (got {query.limit}).",
                 remediation="Pass a positive integer to --limit (e.g. --limit 50).",
             )
         try:
-            build_f1_crashes_query(
-                hours=hours,
-                version_regex=str(
-                    getattr(args, "version_regex", DEFAULT_VERSION_REGEX)
-                ),
-                exclude_modules=str(
-                    getattr(args, "exclude_modules", DEFAULT_EXCLUDE_MODULES)
-                ),
-                include_modules=str(
-                    getattr(args, "include_modules", DEFAULT_INCLUDE_MODULES)
-                ),
-                unassigned_only=bool(getattr(args, "unassigned_only", False)),
-                raw=bool(getattr(args, "raw", False)),
-                limit=limit,
-            )
+            build_f1_crashes_query(query)
         except ValueError as exc:
             raise UsageError(
                 f"Invalid SQL filter parameter for 'crash list-crashes': {exc}",
                 remediation="Remove single quotes from --version-regex, --include-modules, and --exclude-modules.",
             ) from exc
-        return args
+        return query
 
     def execute(
-        self, args: argparse.Namespace, ctx: ExecutionContext
+        self,
+        args: CrashQuery | argparse.Namespace,
+        ctx: ExecutionContext,
     ) -> CommandResult[dict[str, Any]]:
-        hours = self._resolve_hours(args)
-        version_regex = str(
-            getattr(args, "version_regex", DEFAULT_VERSION_REGEX)
+        query = (
+            args
+            if isinstance(args, CrashQuery)
+            else self.validate(args, ctx)
         )
-        exclude_modules = str(
-            getattr(args, "exclude_modules", DEFAULT_EXCLUDE_MODULES)
-        )
-        include_modules = str(
-            getattr(args, "include_modules", DEFAULT_INCLUDE_MODULES)
-        )
-        unassigned_only = bool(getattr(args, "unassigned_only", False))
-        raw = bool(getattr(args, "raw", False))
-        limit = int(getattr(args, "limit", DEFAULT_LIMIT))
-        accounting_group = getattr(args, "accounting_group", None)
+        sql = build_f1_crashes_query(query)
 
-        sql = build_f1_crashes_query(
-            hours=hours,
-            version_regex=version_regex,
-            exclude_modules=exclude_modules,
-            include_modules=include_modules,
-            unassigned_only=unassigned_only,
-            raw=raw,
-            limit=limit,
-        )
-
-        if getattr(args, "print_sql", False):
-            json_mode = bool(
-                ctx.config.json_mode or getattr(args, "json", False)
-            )
+        if query.print_sql:
+            json_mode = bool(ctx.config.json_mode or query.json_mode)
             if not json_mode:
                 print(sql.strip())
             return CommandResult(
@@ -583,12 +627,12 @@ class CrashListCrashesCommand(Command[argparse.Namespace, dict[str, Any]]):
         if hasattr(f1_client, "query_csv"):
             raw_rows = f1_client.query_csv(
                 sql,
-                accounting_group=accounting_group,
+                accounting_group=query.accounting_group,
             )
         else:
             raw_rows = f1_client.execute_sql(
                 sql,
-                accounting_group=accounting_group,
+                accounting_group=query.accounting_group,
             )
         csv_rows = _normalize_sql_rows_to_str(raw_rows)
 
@@ -602,26 +646,26 @@ class CrashListCrashesCommand(Command[argparse.Namespace, dict[str, Any]]):
         crashes = merge_and_normalize_rows(
             csv_rows=csv_rows,
             live_annotations=live_annotations,
-            raw=raw,
-            unassigned_only=unassigned_only,
+            raw=query.raw,
+            unassigned_only=query.unassigned_only,
         )
 
         payload: dict[str, Any] = {
             "status": "success",
             "action": "crash list-crashes",
-            "hours": hours,
-            "version_regex": version_regex,
-            "exclude_modules": exclude_modules,
-            "include_modules": include_modules,
-            "unassigned_only": unassigned_only,
-            "raw": raw,
+            "hours": query.hours,
+            "version_regex": query.version_regex,
+            "exclude_modules": query.exclude_modules,
+            "include_modules": query.include_modules,
+            "unassigned_only": query.unassigned_only,
+            "raw": query.raw,
             "count": len(crashes),
             "crashes": crashes,
         }
         return CommandResult(
             data=payload,
             action="crash list-crashes",
-            summary=f"Found {len(crashes)} crash cluster(s) in the last {hours} hours.",
+            summary=f"Found {len(crashes)} crash cluster(s) in the last {query.hours} hours.",
         )
 
 

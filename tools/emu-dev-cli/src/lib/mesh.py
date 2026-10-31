@@ -23,6 +23,7 @@ import subprocess
 import time
 from typing import Any, Dict, List, Optional
 
+from core.poller import poll_until
 from core.process import SubprocessRunner
 
 
@@ -255,7 +256,7 @@ def wait_for_mesh_ready(
     pending = set(serials)
     booted_nodes = {}
 
-    while pending and (time.time() - start_time) < timeout:
+    def _poll_mesh_nodes() -> bool:
         for serial in list(pending):
             if check_device_boot_completed(serial, adb_path=adb_bin):
                 screen_ok = False
@@ -267,9 +268,16 @@ def wait_for_mesh_ready(
                     "screen_unlocked": screen_ok if unlock else None,
                 }
                 pending.remove(serial)
+        return not pending
 
-        if pending:
-            time.sleep(poll_interval)
+    poll_until(
+        _poll_mesh_nodes,
+        timeout_sec=timeout,
+        interval_sec=poll_interval,
+        sleep_fn=lambda s: time.sleep(s),
+        clock_fn=lambda: time.time(),
+        clamp_sleep_to_deadline=False,
+    )
 
     elapsed = round(time.time() - start_time, 2)
     all_ready = len(pending) == 0

@@ -61,6 +61,7 @@ from commands.gerrit.services.queue_service import (
 from commands.gerrit.services.vote_submit_service import (
     GerritVoteSubmitService,
     OWNER_NOTIFY_HANDLING,
+    ReviewBatchConfig,
     VoteSubmitService,
 )
 
@@ -75,6 +76,7 @@ __all__ = [
     "GerritWorkspaceContext",
     "InlineQaService",
     "OWNER_NOTIFY_HANDLING",
+    "ReviewBatchConfig",
     "ReviewQueueService",
     "VoteSubmitService",
     "_enrich_change_messages",

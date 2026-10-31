@@ -43,6 +43,8 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
+from core.git import GitService, ProdGitService
+from core.poller import poll_until
 from core.process import ProcessRunner, SubprocessRunner
 from lib.oauth import OAuthTokenManager, get_ssl_context
 from lib.workspace import WorkspacePathResolver
@@ -239,27 +241,14 @@ def _resolve_head_change_id(
     """Extracts the `Change-Id: I...` footer from the local `HEAD` commit."""
     work_dir = str(Path(cwd).resolve()) if cwd else None
     try:
-        if runner is not None:
-            res = runner.run(
-                ["git", "log", "-1", "--format=%B", "HEAD"],
-                cwd=work_dir,
-                check=True,
-                timeout_sec=GERRIT_CLI_TIMEOUT_SEC,
-            )
-            stdout_text = res.stdout
-        else:
-            res = subprocess.run(
-                ["git", "log", "-1", "--format=%B", "HEAD"],
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=True,
-                cwd=work_dir,
-                timeout=GERRIT_CLI_TIMEOUT_SEC,
-            )
-            stdout_text = res.stdout
+        proc_runner = runner or SubprocessRunner()
+        res = proc_runner.run(
+            ["git", "log", "-1", "--format=%B", "HEAD"],
+            cwd=work_dir,
+            check=True,
+            timeout_sec=GERRIT_CLI_TIMEOUT_SEC,
+        )
+        stdout_text = res.stdout
     except Exception as exc:
         stderr = (getattr(exc, "stderr", None) or "").strip()
         detail = f"{exc}: {stderr}" if stderr else str(exc)
@@ -970,26 +959,28 @@ class GerritClient:
         @return Dictionary containing `status` (`'new_comments'`, `'approved'`, `'presubmit_failed'`, `'ai_review_clean'`, or `'timeout'`), `new_threads`, and `detail`.
         """
         known = set(known_comment_ids or set())
-        start_ts = clock_fn()
-        deadline = start_ts + max(0.0, timeout.total_seconds())
+        timeout_sec = max(0.0, timeout.total_seconds())
         interval_sec = max(1.0, poll_interval.total_seconds())
 
         last_detail: dict[str, Any] = {}
-        while True:
+        last_unresolved: list[GerritCommentThread] = []
+
+        def _check_review_state() -> dict[str, Any] | None:
+            nonlocal last_detail, last_unresolved
             last_detail = self.get_change_detail(change_id)
-            unresolved_threads = self.get_comment_threads(
+            last_unresolved = self.get_comment_threads(
                 change_id, include_resolved=False
             )
             new_threads = [
                 t
-                for t in unresolved_threads
+                for t in last_unresolved
                 if t.leaf_id not in known and t.root_id not in known
             ]
             if new_threads:
                 return {
                     "status": "new_comments",
                     "new_threads": new_threads,
-                    "unresolved_threads": unresolved_threads,
+                    "unresolved_threads": last_unresolved,
                     "detail": last_detail,
                 }
 
@@ -999,7 +990,7 @@ class GerritClient:
                 return {
                     "status": "presubmit_failed",
                     "new_threads": [],
-                    "unresolved_threads": unresolved_threads,
+                    "unresolved_threads": last_unresolved,
                     "detail": last_detail,
                 }
 
@@ -1009,7 +1000,7 @@ class GerritClient:
             cr_score = _extract_label_score(labels.get("Code-Review"))
             if (
                 cr_score >= 2
-                and not unresolved_threads
+                and not last_unresolved
                 and (not require_presubmit or pv_score >= 1)
                 and (not wait_for_ai or wait_for_approval or ai_done)
             ):
@@ -1021,24 +1012,30 @@ class GerritClient:
                 }
 
             if wait_for_ai and not wait_for_approval:
-                if ai_done and not unresolved_threads:
+                if ai_done and not last_unresolved:
                     return {
                         "status": "ai_review_clean",
                         "new_threads": [],
                         "unresolved_threads": [],
                         "detail": last_detail,
                     }
+            return None
 
-            now = clock_fn()
-            if now >= deadline:
-                return {
-                    "status": "timeout",
-                    "new_threads": [],
-                    "unresolved_threads": unresolved_threads,
-                    "detail": last_detail,
-                }
-
-            sleep_fn(min(interval_sec, max(0.0, deadline - now)))
+        outcome = poll_until(
+            _check_review_state,
+            timeout_sec=timeout_sec,
+            interval_sec=interval_sec,
+            sleep_fn=sleep_fn,
+            clock_fn=clock_fn,
+        )
+        if outcome.succeeded and outcome.value is not None:
+            return outcome.value
+        return {
+            "status": "timeout",
+            "new_threads": [],
+            "unresolved_threads": last_unresolved,
+            "detail": last_detail,
+        }
 
     def wait_for_presubmit_verified(
         self,
@@ -1060,42 +1057,49 @@ class GerritClient:
         @param clock_fn Injectable monotonic clock callable for deterministic testing.
         @return Dictionary containing `status` (`'verified'`, `'presubmit_failed'`, or `'timeout'`), `presubmit_score`, `polls`, and `detail`.
         """
-        start_ts = clock_fn()
-        deadline = start_ts + max(0.0, timeout.total_seconds())
+        timeout_sec = max(0.0, timeout.total_seconds())
         interval_sec = max(1.0, poll_interval.total_seconds())
         polls = 0
         last_detail: dict[str, Any] = {}
+        last_pv_score = 0
 
-        while True:
+        def _check_presubmit() -> dict[str, Any] | None:
+            nonlocal polls, last_detail, last_pv_score
             polls += 1
             last_detail = self.get_change_detail(change_id)
             labels = last_detail.get("labels") or {}
-            pv_score = extract_label_score(labels.get("Presubmit-Verified"))
-            if pv_score >= required_score:
+            last_pv_score = extract_label_score(labels.get("Presubmit-Verified"))
+            if last_pv_score >= required_score:
                 return {
                     "status": "verified",
-                    "presubmit_score": pv_score,
+                    "presubmit_score": last_pv_score,
                     "polls": polls,
                     "detail": last_detail,
                 }
-            if pv_score < 0:
+            if last_pv_score < 0:
                 return {
                     "status": "presubmit_failed",
-                    "presubmit_score": pv_score,
+                    "presubmit_score": last_pv_score,
                     "polls": polls,
                     "detail": last_detail,
                 }
+            return None
 
-            now = clock_fn()
-            if now >= deadline:
-                return {
-                    "status": "timeout",
-                    "presubmit_score": pv_score,
-                    "polls": polls,
-                    "detail": last_detail,
-                }
-
-            sleep_fn(min(interval_sec, max(0.0, deadline - now)))
+        outcome = poll_until(
+            _check_presubmit,
+            timeout_sec=timeout_sec,
+            interval_sec=interval_sec,
+            sleep_fn=sleep_fn,
+            clock_fn=clock_fn,
+        )
+        if outcome.succeeded and outcome.value is not None:
+            return outcome.value
+        return {
+            "status": "timeout",
+            "presubmit_score": last_pv_score,
+            "polls": outcome.attempts,
+            "detail": last_detail,
+        }
 
 
 def extract_label_score(label_info: dict[str, Any] | None) -> int:
@@ -1501,6 +1505,8 @@ def fetch_and_checkout_cl(
     change_detail: dict[str, Any],
     repo_path: Path,
     mode: str = "auto",
+    *,
+    git_service: GitService | None = None,
 ) -> dict[str, Any]:
     """Ensures the target CL's latest revision is present in `repo_path`.
 
@@ -1518,19 +1524,10 @@ def fetch_and_checkout_cl(
         shard = str(cl_num)[-2:].zfill(2)
         fetch_ref = f"refs/changes/{shard}/{cl_num}/{rev_obj['_number']}"
 
-    # Check current HEAD commit message for matching Change-Id
-    runner = SubprocessRunner()
+    git = git_service or ProdGitService(default_cwd=repo_path)
     try:
-        head_msg = runner.run(
-            ["git", "log", "-1", "--format=%B", "HEAD"],
-            check=True,
-            cwd=str(repo_path),
-        ).stdout
-        head_sha = runner.run(
-            ["git", "rev-parse", "HEAD"],
-            check=True,
-            cwd=str(repo_path),
-        ).stdout.strip()
+        head_msg = git.commit_message("HEAD", cwd=repo_path)
+        head_sha = git.head_sha(cwd=repo_path, check=True)
         if change_id and change_id in head_msg and mode == "auto":
             return {
                 "status": "success",
@@ -1546,12 +1543,10 @@ def fetch_and_checkout_cl(
     if not fetch_ref:
         raise RuntimeError(f"Could not determine Gerrit fetch ref for CL {cl_num}.")
 
-    remote = _detect_git_remote(repo_path, change_detail.get("project", ""))
-    fetch_res = runner.run(
-        ["git", "fetch", remote, fetch_ref],
-        check=False,
-        cwd=str(repo_path),
+    remote = _detect_git_remote(
+        repo_path, change_detail.get("project", ""), git_service=git
     )
+    fetch_res = git.fetch(remote, fetch_ref, cwd=repo_path, check=False)
     if fetch_res.returncode != 0:
         raise RuntimeError(
             f"git fetch {remote} {fetch_ref} failed in '{repo_path}': {fetch_res.stderr.strip()}"
@@ -1559,21 +1554,11 @@ def fetch_and_checkout_cl(
 
     effective_mode = "cherry-pick" if mode in ("auto", "cherry-pick") else "checkout"
     if effective_mode == "cherry-pick":
-        cp_res = runner.run(
-            ["git", "cherry-pick", "FETCH_HEAD"],
-            check=False,
-            cwd=str(repo_path),
-        )
+        cp_res = git.cherry_pick("FETCH_HEAD", cwd=repo_path, check=False)
         if cp_res.returncode != 0:
-            runner.run(
-                ["git", "cherry-pick", "--abort"],
-                check=False,
-                cwd=str(repo_path),
-            )
-            co_res = runner.run(
-                ["git", "checkout", "-B", f"review-{cl_num}", "FETCH_HEAD"],
-                check=False,
-                cwd=str(repo_path),
+            git.abort_cherry_pick(cwd=repo_path)
+            co_res = git.checkout_branch(
+                f"review-{cl_num}", "FETCH_HEAD", cwd=repo_path, check=False
             )
             if co_res.returncode != 0:
                 raise RuntimeError(
@@ -1581,21 +1566,15 @@ def fetch_and_checkout_cl(
                 )
             effective_mode = "checkout"
     else:
-        co_res = runner.run(
-            ["git", "checkout", "-B", f"review-{cl_num}", "FETCH_HEAD"],
-            check=False,
-            cwd=str(repo_path),
+        co_res = git.checkout_branch(
+            f"review-{cl_num}", "FETCH_HEAD", cwd=repo_path, check=False
         )
         if co_res.returncode != 0:
             raise RuntimeError(
                 f"git checkout FETCH_HEAD failed in '{repo_path}': {co_res.stderr.strip()}"
             )
 
-    new_head = runner.run(
-        ["git", "rev-parse", "HEAD"],
-        check=True,
-        cwd=str(repo_path),
-    ).stdout.strip()
+    new_head = git.head_sha(cwd=repo_path, check=True)
     return {
         "status": "success",
         "action": effective_mode,
@@ -1606,14 +1585,16 @@ def fetch_and_checkout_cl(
     }
 
 
-def _detect_git_remote(repo_path: Path, project_name: str) -> str:
+def _detect_git_remote(
+    repo_path: Path,
+    project_name: str,
+    *,
+    git_service: GitService | None = None,
+) -> str:
     """Resolves the Git remote name ('goog' or 'origin') or full Gerrit URL for fetching refs."""
+    git = git_service or ProdGitService(default_cwd=repo_path)
     try:
-        remotes = SubprocessRunner().run(
-            ["git", "remote"],
-            check=True,
-            cwd=str(repo_path),
-        ).stdout.splitlines()
+        remotes = git.remotes(cwd=repo_path)
         for preferred in ("goog", "aosp", "origin"):
             if preferred in remotes:
                 return preferred
@@ -1627,27 +1608,21 @@ def _detect_git_remote(repo_path: Path, project_name: str) -> str:
 def upload_cl(
     repo_path: Path,
     presubmit: bool = True,
+    *,
+    git_service: GitService | None = None,
+    process_runner: ProcessRunner | None = None,
 ) -> dict[str, Any]:
     """Configures `push.negotiate=false` and uploads the current branch via `repo upload`."""
-    SubprocessRunner().run(
-        ["git", "config", "push.negotiate", "false"],
-        check=False,
-        cwd=str(repo_path),
+    git = git_service or ProdGitService(process_runner, default_cwd=repo_path)
+    runner = process_runner or (
+        git.process_runner if isinstance(git, ProdGitService) else SubprocessRunner()
     )
+    git.set_config("push.negotiate", "false", cwd=repo_path, check=False)
     cmd = ["repo", "upload", ".", "--cbr", "-y", "-o", "nokeycheck", "-o", "notify=OWNER"]
     if presubmit:
         cmd.extend(["--label", "Presubmit-Ready+1"])
 
-    res = subprocess.run(
-        cmd,
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-        cwd=str(repo_path),
-    )
+    res = runner.run(cmd, check=False, cwd=str(repo_path))
     combined = (res.stdout or "") + "\n" + (res.stderr or "")
     if res.returncode != 0:
         upstream_match = re.search(
@@ -1655,39 +1630,16 @@ def upload_cl(
         )
         if upstream_match:
             upstream_ref = upstream_match.group(1).strip()
-            subprocess.run(
-                ["git", "branch", "--set-upstream-to", upstream_ref],
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
+            git.run_git(
+                ["branch", "--set-upstream-to", upstream_ref],
+                cwd=repo_path,
                 check=False,
-                cwd=str(repo_path),
             )
-            res = subprocess.run(
-                cmd,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=False,
-                cwd=str(repo_path),
-            )
+            res = runner.run(cmd, check=False, cwd=str(repo_path))
             combined = (res.stdout or "") + "\n" + (res.stderr or "")
 
     if res.returncode != 0 and "--no-verify" in combined and "--no-verify" not in cmd:
-        res = subprocess.run(
-            [*cmd, "--no-verify"],
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            cwd=str(repo_path),
-        )
+        res = runner.run([*cmd, "--no-verify"], check=False, cwd=str(repo_path))
         combined = (res.stdout or "") + "\n" + (res.stderr or "")
 
     if res.returncode != 0:

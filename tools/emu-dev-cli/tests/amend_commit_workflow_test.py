@@ -28,6 +28,7 @@ _SRC_DIR = os.path.join(_EMU_DEV_CLI_DIR, "src")
 
 
 from commands.workflow import find_workflow_target, list_available_workflows
+from testlib.workflows import WorkflowTestCase
 from workflows.common.git_commit import (
     extract_change_id,
     get_head_commit_hash,
@@ -39,16 +40,10 @@ from workflows.core.yaml_runner import (
 )
 
 
-class TestAmendCommitWorkflowIntegration(unittest.TestCase):
+class TestAmendCommitWorkflowIntegration(WorkflowTestCase):
 
     def setUp(self):
-        target = find_workflow_target("amend-commit")
-        self.assertIsNotNone(target, "amend-commit workflow target not found")
-        self.target_type, self.workflow_yaml = target
-        self.assertEqual(self.target_type, "yaml")
-        self.assertTrue(os.path.isfile(self.workflow_yaml))
-
-        self.workflow_dir = os.path.dirname(self.workflow_yaml)
+        self.setup_workflow("amend-commit")
         self.verifier_py = os.path.join(self.workflow_dir, "verify_amend.py")
         self.verify_proposed_msg_py = os.path.join(self.workflow_dir, "verify_proposed_msg.py")
         self.setup_msg_files_py = os.path.join(self.workflow_dir, "setup_msg_files.py")
@@ -57,49 +52,13 @@ class TestAmendCommitWorkflowIntegration(unittest.TestCase):
         self.assertTrue(os.path.isfile(self.setup_msg_files_py))
 
     def test_workflow_discovery(self):
-        workflows = list_available_workflows()
-        self.assertIn("amend-commit", workflows)
-        wf = workflows["amend-commit"]
-        self.assertEqual(wf["name"], "amend-commit")
-        self.assertEqual(wf["target_type"], "yaml")
-        self.assertTrue(os.path.isfile(wf["target_path"]))
+        self.assert_workflow_discovery("amend-commit")
 
     def test_no_git_commands_in_instructions(self):
-        local_yaml = os.path.join(_WORKFLOWS_DIR, "amend_commit", "workflow.yaml")
-        spec = load_yaml(local_yaml)
-        disallowed_commands = [
-            r"\bgit\s+commit\b",
-            r"\bgit\s+add\b",
-            r"\bgit\s+push\b",
-            r"\bgit\s+checkout\b",
-            r"\bgit\s+diff\b",
-            r"\bgit\s+status\b",
-            r"\bgit\s+rebase\b",
-            r"\bgit\s+reset\b",
-        ]
-
-        for step in spec.get("steps", []):
-            for field in ("prompt", "error_prompt", "stuck_prompt", "stuck_reason"):
-                val = step.get(field, "")
-                if isinstance(val, list):
-                    text = " ".join(val)
-                else:
-                    text = str(val or "")
-                for pattern in disallowed_commands:
-                    self.assertIsNone(
-                        re.search(pattern, text, re.IGNORECASE),
-                        f"Found forbidden git command matching '{pattern}' in step {step.get('step')} field '{field}': {text}",
-                    )
+        self.assert_no_git_commands_in_instructions()
 
     def test_semantic_commit_rules_in_workflow_prompt(self):
-        local_yaml = os.path.join(_WORKFLOWS_DIR, "amend_commit", "workflow.yaml")
-        spec = load_yaml(local_yaml)
-        step0_prompt = spec["steps"][0]["prompt"]
-        self.assertIn("<type>[optional scope]: <description>", step0_prompt)
-        self.assertIn("50 characters", step0_prompt)
-        self.assertIn("feat, fix, build, docs, chore, test, refactor, perf, style", step0_prompt)
-        self.assertIn("imperative mood", step0_prompt)
-        self.assertIn("BREAKING CHANGE:", step0_prompt)
+        self.assert_semantic_commit_rules_in_prompt()
 
     def test_change_id_extraction_and_validation(self):
         cid = "Iabcdef0123456789abcdef0123456789abcdef01"

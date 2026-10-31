@@ -35,6 +35,7 @@ from commands.crash.link_bug import (
     update_crash_annotation,
 )
 from commands.crash.utils import (
+    CrashMetadata,
     acquire_auth_token,
     parse_crash_id,
     resolve_crash_work_dir,
@@ -54,124 +55,16 @@ logger = logging.getLogger(__name__)
 
 def _extract_signature_from_sandbox(sandbox_dir: str) -> str:
     """Extracts stable_signature from `<sandbox_dir>/metadata.json` if present."""
-    metadata_path = Path(sandbox_dir) / "metadata.json"
-    if not metadata_path.exists():
-        return ""
-    try:
-        meta_data = json.loads(metadata_path.read_text(encoding="utf-8"))
-        report_proto = meta_data.get("report_proto", meta_data)
-        return (
-            report_proto.get("stableSignature")
-            or report_proto.get("stable_signature")
-            or ""
-        ).strip()
-    except (OSError, ValueError, TypeError):
-        return ""
+    return CrashMetadata.from_work_dir("", Path(sandbox_dir)).stable_signature
 
 
 def _extract_crash_info_from_sandbox(
     sandbox_dir: str, rca_content: str = ""
 ) -> dict[str, Any]:
     """Extracts crash metadata (version, os, build_id, custom_keys, crash_location) from sandbox or RCA."""
-    info: dict[str, Any] = {
-        "os": [],
-        "versions": [],
-        "build_ids": [],
-        "crash_location": "",
-        "custom_keys": {},
-    }
-    metadata_path = Path(sandbox_dir) / "metadata.json"
-    if metadata_path.exists():
-        try:
-            meta_data = json.loads(metadata_path.read_text(encoding="utf-8"))
-            if not isinstance(meta_data, dict):
-                meta_data = {}
-            proto = (
-                meta_data.get("report_proto")
-                if isinstance(meta_data, dict)
-                else {}
-            ) or meta_data
-            if not isinstance(proto, dict):
-                proto = {}
-            prod = proto.get("product", {}) if isinstance(proto, dict) else {}
-            raw_ver = (
-                prod.get("version") if isinstance(prod, dict) else None
-            ) or meta_data.get("version") or meta_data.get("versions") or proto.get("versions") or ""
-            if isinstance(raw_ver, list):
-                info["versions"].extend([str(v).strip() for v in raw_ver if v])
-            elif raw_ver:
-                info["versions"].append(str(raw_ver).strip())
-
-            raw_os = (
-                proto.get("operatingSystem")
-                or meta_data.get("os_name")
-                or meta_data.get("os")
-                or ""
-            )
-            if isinstance(raw_os, list):
-                for item in raw_os:
-                    val = item.get("name") if isinstance(item, dict) else item
-                    name = str(val or "").strip()
-                    if name and name not in info["os"]:
-                        info["os"].append(name)
-            elif isinstance(raw_os, dict):
-                os_name = str(raw_os.get("name") or "").strip()
-                if os_name and os_name not in info["os"]:
-                    info["os"].append(os_name)
-            else:
-                os_name = str(raw_os or "").strip()
-                if os_name and os_name not in info["os"]:
-                    info["os"].append(os_name)
-
-            raw_bid = meta_data.get("build_id") or meta_data.get("build_ids") or proto.get("buildIds") or ""
-            if isinstance(raw_bid, list):
-                info["build_ids"].extend([str(b).strip() for b in raw_bid if b])
-            elif raw_bid:
-                info["build_ids"].append(str(raw_bid).strip())
-
-            loc = meta_data.get("crash_location") or proto.get("crashLocation") or ""
-            if loc:
-                info["crash_location"] = str(loc).strip()
-
-            for raw_keys in (proto.get("customKeys"), meta_data.get("custom_keys")):
-                if isinstance(raw_keys, list):
-                    for item in raw_keys:
-                        if isinstance(item, dict) and "key" in item:
-                            val = item.get("value")
-                            info["custom_keys"][str(item["key"])] = str(val if val is not None else "")
-                elif isinstance(raw_keys, dict):
-                    for k, v in raw_keys.items():
-                        info["custom_keys"][str(k)] = str(v if v is not None else "")
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("Failed parsing %s: %s", metadata_path, exc)
-
-    if rca_content:
-        if not info["versions"]:
-            m_ver = re.search(
-                r"(?:Version|Build Version)[:\s*]+`?([0-9]+\.[0-9]+[^\s`\)]*)`?",
-                rca_content,
-                re.IGNORECASE,
-            )
-            if m_ver:
-                info["versions"].append(m_ver.group(1))
-        if not info["os"]:
-            m_os = re.search(
-                r"(?:Host OS|Operating System)[:\s*]+`?([^`\n]+)`?",
-                rca_content,
-                re.IGNORECASE,
-            )
-            if m_os:
-                info["os"].append(m_os.group(1).strip())
-        if not info["build_ids"]:
-            m_bid = re.search(
-                r"(?:Build ID|Build IDs)[:\s*]+`?([0-9]{7,})`?",
-                rca_content,
-                re.IGNORECASE,
-            )
-            if m_bid:
-                info["build_ids"].append(m_bid.group(1))
-
-    return info
+    return CrashMetadata.from_work_dir(
+        "", Path(sandbox_dir), rca_content=rca_content
+    ).to_sandbox_info_dict()
 
 
 def _build_default_bug_title(
@@ -315,12 +208,12 @@ class CrashFileBugCommand(Command[argparse.Namespace, dict[str, Any]]):
     def execute(
         self, args: argparse.Namespace, ctx: ExecutionContext
     ) -> CommandResult[dict[str, Any]]:
-        raw_crash_arg = str(args.crash_id).strip()
-        crash_id = parse_crash_id(raw_crash_arg)
-        explicit_work_dir = getattr(args, "work_dir", None)
-        work_dir = resolve_crash_work_dir(
-            ctx.config.cache_dir, crash_id, explicit_work_dir
+        meta = CrashMetadata.from_args(
+            args, ctx.config.cache_dir, resolve_token=True
         )
+        raw_crash_arg = meta.raw_crash_arg
+        crash_id = meta.crash_id
+        work_dir = meta.work_dir
         sandbox_dir = str(work_dir)
 
         buganizer = ctx.services.get(SERVICE_BUGANIZER)
@@ -328,7 +221,7 @@ class CrashFileBugCommand(Command[argparse.Namespace, dict[str, Any]]):
         runner = ctx.services.get(SERVICE_PROCESS_RUNNER)
         qa = bool(getattr(args, "qa", False))
         no_link_crash = bool(getattr(args, "no_link_crash", False))
-        token = acquire_auth_token(getattr(args, "token", None))
+        token = meta.token
 
         from_rca = getattr(args, "from_rca", None)
         if from_rca:

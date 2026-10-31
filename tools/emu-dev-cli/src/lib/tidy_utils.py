@@ -15,13 +15,13 @@
 import re
 from pathlib import Path
 from typing import Optional, Tuple, List
-import subprocess
 
-from core.process import SubprocessRunner
+from core.git import GitService, ProdGitService
+from core.process import ProcessRunner, SubprocessRunner
 from lib.bazel import BazelRunner
 from lib.git_transaction import GitTransactionContext
 from lib.path_utils import normalize_build_path
-from lib.tidy_types import TidyDiagnostic
+from lib.tidy_types import RefactoringConfig, TidyDiagnostic
 
 
 def _apply_seed_declaration_rename(
@@ -130,13 +130,20 @@ def _extract_rename_symbols(diagnostic: TidyDiagnostic) -> Tuple[str, str]:
     return old_name, new_name
 
 
-def _run_clang_format(repo_dir: Path) -> None:
+def _run_clang_format(
+    repo_dir: Path,
+    *,
+    git_service: Optional[GitService] = None,
+    process_runner: Optional[ProcessRunner] = None,
+) -> None:
     try:
-        res = SubprocessRunner().run(
-            ["git", "status", "--porcelain"],
-            cwd=repo_dir,
-            check=True,
+        git = git_service or ProdGitService(process_runner)
+        runner = process_runner or (
+            git.process_runner
+            if isinstance(git, ProdGitService)
+            else SubprocessRunner()
         )
+        res = git.run_git(["status", "--porcelain"], cwd=repo_dir, check=True)
         files_to_format = []
         for line in res.stdout.splitlines():
             if len(line) > 3:
@@ -145,8 +152,10 @@ def _run_clang_format(repo_dir: Path) -> None:
                     files_to_format.append(file_path)
 
         if files_to_format:
-            subprocess.run(
-                ["clang-format", "-i"] + files_to_format, cwd=repo_dir, check=True
+            runner.run(
+                ["clang-format", "-i"] + files_to_format,
+                cwd=repo_dir,
+                check=True,
             )
             print(
                 f"  [Style] Cleaned {len(files_to_format)} touched files with clang-format"
@@ -157,14 +166,24 @@ def _run_clang_format(repo_dir: Path) -> None:
 
 def finalize_transaction(
     tx: GitTransactionContext,
-    target: str,
-    level: int,
-    bug_id: Optional[str],
-    test_target: Optional[str],
-    upload: bool,
+    target: str | RefactoringConfig,
+    level: int = 1,
+    bug_id: Optional[str] = None,
+    test_target: Optional[str] = None,
+    upload: bool = False,
     checks: Optional[str] = None,
+    *,
+    process_runner: Optional[ProcessRunner] = None,
 ) -> str:
     """Squashes all verified transaction step commits into a single atomic changelist."""
+    if isinstance(target, RefactoringConfig):
+        cfg = target
+        target = cfg.target
+        level = cfg.level
+        bug_id = cfg.bug_id
+        test_target = cfg.test_target
+        upload = cfg.upload
+        checks = cfg.checks
     module_name = target.split("//")[-1].split(":")[0].replace("/", "_")
     if checks:
         commit_msg = f"style({module_name}): Fix clang-tidy {checks}\n\n"
@@ -189,7 +208,8 @@ def finalize_transaction(
 
     if upload:
         print("\n🚀 Uploading change to Gerrit...")
-        subprocess.run(["repo", "upload", ".", "--cbr", "-y"], check=True)
+        runner = process_runner or SubprocessRunner()
+        runner.run(["repo", "upload", ".", "--cbr", "-y"], check=True)
         print("🚀 Successfully uploaded change to Gerrit!")
     else:
         print("✨ Working tree is clean and ready for review.")

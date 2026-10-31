@@ -49,8 +49,10 @@ from commands.gerrit.services.queue_service import (
 from commands.gerrit.services.vote_submit_service import (
     GerritVoteSubmitService,
     OWNER_NOTIFY_HANDLING,
+    ReviewBatchConfig,
 )
 from commands.gerrit.ui_server import GerritUIService
+from testlib.gerrit_fakes import make_fake_change
 
 
 class GerritDiffServiceTest(unittest.TestCase):
@@ -151,53 +153,7 @@ class GerritQueueServiceTest(unittest.TestCase):
         self.assertFalse(is_agent_or_bot_email("jansene@google.com"))
 
         now = datetime(2026, 10, 28, 22, 0, 0, tzinfo=timezone.utc)
-        change_obj = {
-            "_number": 43351736,
-            "change_id": "I1234567890abcdef1234567890abcdef12345678",
-            "project": "platform/hardware/google/aemu",
-            "branch": "studio-main",
-            "subject": "refactor(gerrit): Decompose UI monolith 测试_🚀_é",
-            "created": "2026-10-28 12:00:00.000000000",
-            "updated": "2026-10-28 21:00:00.000000000",
-            "insertions": 50,
-            "deletions": 20,
-            "unresolved_comment_count": 0,
-            "current_revision": "rev_a",
-            "current_revision_number": 1,
-            "owner": {
-                "email": "groupagent-android-emulator-heavy@google.com",
-                "name": "Archie",
-            },
-            "revisions": {
-                "rev_a": {
-                    "_number": 1,
-                    "files": {"tools/emu-dev-cli/src/commands/gerrit/ui_server.py": {}},
-                    "commit": {"parents": [{"commit": "rev_base"}]},
-                }
-            },
-            "reviewers": {
-                "REVIEWER": [
-                    {"email": "jansene@google.com", "name": "Erwin Jansen"},
-                    {"email": "joshuaduong@google.com", "name": "Joshua Duong"},
-                ]
-            },
-            "labels": {
-                "Code-Review": {
-                    "all": [
-                        {
-                            "email": "jansene@google.com",
-                            "name": "Erwin Jansen",
-                            "value": 2,
-                        },
-                        {
-                            "email": "groupagent-android-emulator-heavy@google.com",
-                            "name": "Archie",
-                            "value": 1,
-                        },
-                    ]
-                }
-            },
-        }
+        change_obj = make_fake_change(43351736)
         enriched = enrich_change_for_ui(change_obj, "jansene@google.com", now_dt=now)
         self.assertTrue(enriched["is_agent_cl"])
         self.assertEqual(enriched["required_cr2_count"], 2)
