@@ -82,7 +82,7 @@ class FetchBuildTest(unittest.TestCase):
                 "--host", "mac-arm64",
                 "--output-dir", tmpdir,
             ])
-            args.func(args)
+            args._command_instance.execute(args)
 
             mock_check_auth.assert_called_once()
             mock_latest_bid.assert_called_once_with("emu-main-next", "emulator_mac_aarch64")
@@ -139,7 +139,7 @@ class FetchBuildTest(unittest.TestCase):
                 "--host", "mac-arm64",
                 "--output-dir", tmpdir,
             ])
-            args.func(args)
+            args._command_instance.execute(args)
 
             mock_latest_bid.assert_called_once_with("emu-main-dev", "emulator-mac_aarch64_gfxstream")
             res = mock_print_result.call_args[0][0]
@@ -187,7 +187,7 @@ class FetchBuildTest(unittest.TestCase):
                 "--host", "mac-arm64",
                 "--output-dir", tmpdir,
             ])
-            args.func(args)
+            args._command_instance.execute(args)
 
             mock_download.assert_called_once()
             res = mock_print_result.call_args[0][0]
@@ -215,7 +215,7 @@ class FetchBuildTest(unittest.TestCase):
             "--branch", "emu-main-next",
             "--host", "mac-arm64",
         ])
-        args.func(args)
+        args._command_instance.execute(args)
 
         mock_download.assert_not_called()
         mock_print_result.assert_called_once()
@@ -261,7 +261,7 @@ class FetchBuildTest(unittest.TestCase):
                 "--skip-auth-check",
                 "--output-dir", tmpdir,
             ])
-            args.func(args)
+            args._command_instance.execute(args)
 
             mock_check_auth.assert_not_called()
             mock_latest_bid.assert_called_once()
@@ -280,7 +280,7 @@ class FetchBuildTest(unittest.TestCase):
         }
 
         args = self.parser.parse_args(["fetch-build", "check-auth"])
-        args.func(args)
+        args._command_instance.execute(args)
 
         mock_print_result.assert_called_once()
         self.assertFalse(mock_print_result.call_args[1].get("is_error", False))
@@ -301,7 +301,7 @@ class FetchBuildTest(unittest.TestCase):
         }
 
         args = self.parser.parse_args(["fetch-build", "check-auth"])
-        args.func(args)
+        args._command_instance.execute(args)
 
         mock_print_result.assert_called_once()
         self.assertTrue(mock_print_result.call_args[1].get("is_error", False))

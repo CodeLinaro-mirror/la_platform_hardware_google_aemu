@@ -56,16 +56,15 @@ _resolver = WorkspacePathResolver("emu-main-next")
 
 
 def ensure_crashadvisor_imports() -> Dict[str, Any]:
-    """Script-friendly loader: prints the error and exits when CrashAdvisor is missing.
+    """Ensures CrashAdvisor modules can be imported and returns them.
 
     Returns:
         Dictionary mapping CrashAdvisor module names ('api', 'buganizer', 'client', etc.) to imported modules.
+
+    Raises:
+        ExecutionError: If the CrashAdvisor checkout or its modules cannot be found.
     """
-    try:
-        return load_crashadvisor_modules()
-    except ExecutionError as exc:
-        sys.stderr.write(f"❌ ERROR: {exc.format_human()}\n")
-        sys.exit(1)
+    return load_crashadvisor_modules()
 
 
 def load_crashadvisor_modules() -> Dict[str, Any]:

@@ -681,11 +681,10 @@ class TerminalTitleHookLifecycleTest(unittest.TestCase):
         with (
             mock.patch.dict(os.environ, {"EMU_DEV_CLI_HARNESS_DIR": str(self.harness_dir)}),
             mock.patch("sys.stdout", io.StringIO()),
-            self.assertRaises(SystemExit) as exit_ctx,
         ):
-            run_harness_clear(argparse.Namespace(conversation=CONVERSATION_ID, json=True))
+            res = run_harness_clear(argparse.Namespace(conversation=CONVERSATION_ID, json=True))
 
-        self.assertEqual(exit_ctx.exception.code, 0)
+        self.assertEqual(res.get("status"), "success")
         self.assertFalse(state_path.exists())
 
     def test_non_shell_ticker_launch_inherits_console_without_resource_warning(self) -> None:

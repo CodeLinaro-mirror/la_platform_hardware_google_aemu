@@ -24,6 +24,7 @@ import sys
 from typing import List, Optional
 
 from commands.source_directory import get_source_directory
+from core.command import CommandResult, META_KEY_ALREADY_RENDERED
 from core.errors import ExecutionError
 from core.process import SubprocessRunner
 from lib.bazel import BazelRunner, BuildExitCode
@@ -36,7 +37,7 @@ from lib.target_resolver import resolve_report_targets
 _resolve_report_targets = resolve_report_targets
 
 
-def handle_tidy_check(args: argparse.Namespace) -> None:
+def handle_tidy_check(args: argparse.Namespace) -> CommandResult:
     """Scans and checks clang-tidy diagnostics for a given target, file, or git diff."""
     target = getattr(args, "target_flag", None) or getattr(args, "target", None)
     filter_diff = getattr(args, "diff", False)
@@ -50,7 +51,11 @@ def handle_tidy_check(args: argparse.Namespace) -> None:
             "Error: Must specify either a positional target, --diff, or --file",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return CommandResult.failure(
+            "Must specify either a positional target, --diff, or --file",
+            action="tidy check",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     source_dir = get_source_directory("emu-main-next") or os.getcwd()
     runner = BazelRunner(source_dir=source_dir)
@@ -166,13 +171,19 @@ def handle_tidy_check(args: argparse.Namespace) -> None:
                 {"target": target, "total": len(data), "diagnostics": data}, indent=2
             )
         )
-        return
+        return CommandResult.success(
+            action="tidy check",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     if not diagnostics:
         print(
             f"\n✨ Target is clean! Zero clang-tidy diagnostics found for Level {level}."
         )
-        return
+        return CommandResult.success(
+            action="tidy check",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     headers = ["Level", "Check Name", "Location", "Message"]
     rows = []
@@ -189,3 +200,7 @@ def handle_tidy_check(args: argparse.Namespace) -> None:
 
     print(f"\n### Clang-Tidy Diagnostics (Level {level}) - {len(diagnostics)} found\n")
     print(format_markdown_table(headers, rows))
+    return CommandResult.success(
+        action="tidy check",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )

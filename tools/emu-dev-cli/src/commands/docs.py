@@ -20,7 +20,15 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
+from core.command import (
+    Command,
+    CommandGroup,
+    CommandResult,
+    META_KEY_ALREADY_RENDERED,
+)
+from core.context import ExecutionContext
 from lib.output import print_result
 
 from commands.source_directory import (
@@ -879,66 +887,75 @@ def lint_wiki_documents(
     }
 
 
-def register_parser(subparsers):
-    docs_parser = subparsers.add_parser(
-        "docs",
-        help="Access, search, and lint the Android Emulator codebase wiki and documentation",
-    )
-    docs_parser.add_argument(
-        "--codesearch-url",
-        "--cs-url",
-        "--url",
-        dest="codesearch_url",
-        action="store_true",
-        help="Outputs the Code Search web URL instead of local file path",
-    )
-    docs_parser.set_defaults(func=lambda args: docs_parser.print_help() or sys.exit(0))
+class DocsIndexCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Lists all indexed ARCHITECTURE.md, DESIGN.md, AGENTS.md, and operational playbooks."""
 
-    docs_subparsers = docs_parser.add_subparsers(
-        dest="docs_cmd", help="Available wiki actions and doc targets"
-    )
+    name = "index"
+    help = "List all indexed ARCHITECTURE.md, DESIGN.md, AGENTS.md, and operational playbooks"
 
-    # 1. index subcommand
-    index_parser = docs_subparsers.add_parser(
-        "index",
-        help="List all indexed ARCHITECTURE.md, DESIGN.md, AGENTS.md, and operational playbooks",
-    )
-    index_parser.add_argument(
-        "--category",
-        choices=["all", "architecture", "design", "agents", "playbook"],
-        default="all",
-        help="Filter by document category",
-    )
-    index_parser.set_defaults(func=run_docs_index)
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--category",
+            choices=["all", "architecture", "design", "agents", "playbook"],
+            default="all",
+            help="Filter by document category",
+        )
 
-    # 2. search subcommand
-    search_parser = docs_subparsers.add_parser(
-        "search",
-        help="Search across all ARCHITECTURE.md, DESIGN.md, AGENTS.md, and operational playbooks",
-    )
-    search_parser.add_argument(
-        "query",
-        nargs="+",
-        help="Search query terms (e.g. 'VideoRecorder', 'push.negotiate', 'RenderThread')",
-    )
-    search_parser.set_defaults(func=run_docs_search)
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_docs_index(args)
 
-    # 3. lint subcommand
-    lint_parser = docs_subparsers.add_parser(
-        "lint",
-        help="Audit ARCHITECTURE.md, DESIGN.md, and AGENTS.md files for stale locations, moved Bazel targets, broken links, and unrouted AGENTS.md files",
-    )
-    lint_parser.add_argument(
-        "--fix",
-        action="store_true",
-        help="Automatically fix stale **Location:** headers in-place",
-    )
-    lint_parser.set_defaults(func=run_docs_lint)
 
-    # 4. Named doc targets
-    for target_name in DOC_TARGETS:
-        sub_parser = docs_subparsers.add_parser(target_name)
-        sub_parser.add_argument(
+class DocsSearchCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Searches across all ARCHITECTURE.md, DESIGN.md, AGENTS.md, and operational playbooks."""
+
+    name = "search"
+    help = "Search across all ARCHITECTURE.md, DESIGN.md, AGENTS.md, and operational playbooks"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "query",
+            nargs="+",
+            help="Search query terms (e.g. 'VideoRecorder', 'push.negotiate', 'RenderThread')",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_docs_search(args)
+
+
+class DocsLintCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Audits ARCHITECTURE.md, DESIGN.md, and AGENTS.md files for stale locations and broken links."""
+
+    name = "lint"
+    help = "Audit ARCHITECTURE.md, DESIGN.md, and AGENTS.md files for stale locations, moved Bazel targets, broken links, and unrouted AGENTS.md files"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--fix",
+            action="store_true",
+            help="Automatically fix stale **Location:** headers in-place",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_docs_lint(args)
+
+
+class DocsTargetCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Resolves a named documentation or playbook target."""
+
+    def __init__(self, target_name: str) -> None:
+        self.name = target_name
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
             "--codesearch-url",
             "--cs-url",
             "--url",
@@ -947,12 +964,44 @@ def register_parser(subparsers):
             default=argparse.SUPPRESS,
             help="Outputs the Code Search web URL instead of local file path",
         )
-        sub_parser.set_defaults(
-            func=lambda args, name=target_name: run_doc_target(name, args)
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_doc_target(self.name, args)
+
+
+class DocsCommand(CommandGroup):
+    """Parent command group for `emu-dev-cli docs`."""
+
+    name = "docs"
+    help = "Access, search, and lint the Android Emulator codebase wiki and documentation"
+    subcommand_dest = "docs_cmd"
+    subcommands = (
+        DocsIndexCommand(),
+        DocsSearchCommand(),
+        DocsLintCommand(),
+        *(DocsTargetCommand(target_name) for target_name in DOC_TARGETS),
+    )
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--codesearch-url",
+            "--cs-url",
+            "--url",
+            dest="codesearch_url",
+            action="store_true",
+            help="Outputs the Code Search web URL instead of local file path",
         )
+        super().configure_parser(parser)
 
 
-def run_docs_index(args):
+def register_parser(subparsers):
+    return DocsCommand().register(subparsers)
+
+
+def run_docs_index(args) -> CommandResult[dict[str, Any]]:
     json_mode = getattr(args, "json", False)
     category = getattr(args, "category", "all")
     docs_list = discover_wiki_documents()
@@ -960,7 +1009,7 @@ def run_docs_index(args):
         docs_list = [d for d in docs_list if d["category"] == category]
 
     if json_mode:
-        print_result(
+        return print_result(
             {
                 "status": "success",
                 "action": "docs index",
@@ -969,22 +1018,26 @@ def run_docs_index(args):
             },
             json_mode=True,
         )
-        return
 
     print(f"Indexed {len(docs_list)} codebase wiki document(s):\n")
     for doc in docs_list:
         role_str = f" ({doc['role']})" if doc["role"] else ""
         print(f"  [{doc['category'].upper()}] {doc['relative_path']}")
         print(f"      {doc['title']}{role_str}")
+    return CommandResult.success(
+        {"count": len(docs_list), "documents": docs_list},
+        action="docs index",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
-def run_docs_search(args):
+def run_docs_search(args) -> CommandResult[dict[str, Any]]:
     json_mode = getattr(args, "json", False)
     query_str = " ".join(args.query)
     results = search_wiki_documents(query_str)
 
     if json_mode:
-        print_result(
+        return print_result(
             {
                 "status": "success",
                 "action": "docs search",
@@ -994,11 +1047,14 @@ def run_docs_search(args):
             },
             json_mode=True,
         )
-        return
 
     if not results:
         print(f"No wiki documents matched query: '{query_str}'")
-        return
+        return CommandResult.success(
+            {"query": query_str, "count": 0, "results": []},
+            action="docs search",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     print(f"Found {len(results)} wiki document(s) matching '{query_str}':\n")
     for r in results:
@@ -1011,16 +1067,21 @@ def run_docs_search(args):
         for snip in r.get("snippets", []):
             print(f"      > {snip}")
         print()
+    return CommandResult.success(
+        {"query": query_str, "count": len(results), "results": results},
+        action="docs search",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
-def run_docs_lint(args):
+def run_docs_lint(args) -> CommandResult[dict[str, Any]]:
     json_mode = getattr(args, "json", False)
     fix = getattr(args, "fix", False)
     report = lint_wiki_documents(fix=fix)
     issues = report["issues"]
 
     if json_mode:
-        print_result(
+        return print_result(
             {
                 "status": "success" if not issues else "error",
                 "action": "docs lint",
@@ -1032,9 +1093,6 @@ def run_docs_lint(args):
             json_mode=True,
             is_error=bool(issues),
         )
-        if issues:
-            sys.exit(1)
-        return
 
     if report["fixed_files"]:
         print(f"Fixed {len(report['fixed_files'])} file(s):")
@@ -1045,21 +1103,30 @@ def run_docs_lint(args):
         print(
             f"✓ Wiki lint passed: {report['files_checked']} ARCHITECTURE.md/DESIGN.md/AGENTS.md file(s) verified with 0 issues."
         )
-        return
+        return CommandResult.success(
+            report,
+            action="docs lint",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     print(
         f"✗ Wiki lint found {len(issues)} issue(s) across {report['files_checked']} checked file(s):\n"
     )
     for issue in issues:
         print(f"  • [{issue['kind']}] {issue['file']}: {issue['message']}")
-    sys.exit(1)
+    return CommandResult.failure(
+        f"Wiki lint found {len(issues)} issue(s)",
+        data=report,
+        action="docs lint",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
-def run_doc_target(target_name, args):
+def run_doc_target(target_name, args) -> CommandResult[dict[str, Any]]:
     json_mode = getattr(args, "json", False)
     target_info = DOC_TARGETS.get(target_name)
     if not target_info:
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": f"docs {target_name}",
@@ -1069,7 +1136,6 @@ def run_doc_target(target_name, args):
             json_mode=json_mode,
             is_error=True,
         )
-        sys.exit(1)
 
     branch, rel_path = target_info
     use_cs_url = getattr(args, "codesearch_url", False)
@@ -1078,7 +1144,7 @@ def run_doc_target(target_name, args):
     cs_url = build_codesearch_url(rel_path, branch_name=branch)
 
     if json_mode:
-        print_result(
+        return print_result(
             {
                 "status": "success",
                 "action": f"docs {target_name}",
@@ -1089,20 +1155,29 @@ def run_doc_target(target_name, args):
             },
             json_mode=True,
         )
+    if use_cs_url or not full_doc_path:
+        if not full_doc_path and not use_cs_url:
+            sys.stderr.write(
+                f"⚠️ Local file not found ('{rel_path}'). Falling back to Code Search URL:\n"
+            )
+        print(cs_url)
     else:
-        if use_cs_url or not full_doc_path:
-            if not full_doc_path and not use_cs_url:
-                sys.stderr.write(
-                    f"⚠️ Local file not found ('{rel_path}'). Falling back to Code Search URL:\n"
-                )
-            print(cs_url)
-        else:
-            print(full_doc_path)
+        print(full_doc_path)
+    return CommandResult.success(
+        {
+            "branch": branch,
+            "doc_path": full_doc_path,
+            "codesearch_url": cs_url,
+            "exists_locally": bool(full_doc_path),
+        },
+        action=f"docs {target_name}",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
 def run_cts_verifier_automation_docs(args):
-    run_doc_target("cts-verifier-automation", args)
+    return run_doc_target("cts-verifier-automation", args)
 
 
 def run_emu_dev_cli_development_docs(args):
-    run_doc_target("emu-dev-cli-development", args)
+    return run_doc_target("emu-dev-cli-development", args)

@@ -14,6 +14,7 @@
 
 """Self-update command (`emu-dev-cli update`) with git version comparison."""
 
+import argparse
 import importlib.util
 import logging
 import os
@@ -26,6 +27,8 @@ from commands.source_directory import (
     ensure_codesearch_urls_config,
     get_source_directory,
 )
+from core.command import Command, CommandResult
+from core.context import ExecutionContext
 from install.installer import (
     detect_default_install_path,
     get_release_package_directory,
@@ -117,8 +120,10 @@ def _resolve_update_source_dir() -> str | None:
     return None
 
 
-def _run_bazel_build(source_dir: str, verbose: bool, json_mode: bool) -> None:
-    """Compiles emu-dev-cli and companion crash tools via Bazel, exiting on failure."""
+def _run_bazel_build(
+    source_dir: str, verbose: bool, json_mode: bool
+) -> CommandResult | None:
+    """Compiles emu-dev-cli and companion crash tools via Bazel."""
     bazel_cmd = find_bazel_cmd(source_dir)
     print_status(
         f"🔨 Building {BAZEL_TARGET}, {ADVISOR_BAZEL_TARGET}, and "
@@ -146,7 +151,7 @@ def _run_bazel_build(source_dir: str, verbose: bool, json_mode: bool) -> None:
                 check=False,
             )
     except (OSError, subprocess.SubprocessError) as exc:
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "update",
@@ -160,14 +165,13 @@ def _run_bazel_build(source_dir: str, verbose: bool, json_mode: bool) -> None:
             json_mode=json_mode,
             is_error=True,
         )
-        sys.exit(1)
 
     if res.returncode != 0:
         err_msg = (
             getattr(res, "stderr", None)
             or f"Bazel build exited with code {res.returncode}"
         )
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "update",
@@ -182,30 +186,41 @@ def _run_bazel_build(source_dir: str, verbose: bool, json_mode: bool) -> None:
             json_mode=json_mode,
             is_error=True,
         )
-        sys.exit(res.returncode)
+    return None
+
+
+class UpdateCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Rebuilds emu-dev-cli from local emu-main-next source directory and re-installs."""
+
+    name = "update"
+    help = "Rebuild emu-dev-cli from local emu-main-next source directory and re-install executable"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--path",
+            type=str,
+            default=None,
+            help="Destination executable path override",
+        )
+        parser.add_argument(
+            "-f",
+            "--force",
+            action="store_true",
+            help="Rebuild and re-install even when emu-dev-cli is already up to date",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_update_cmd(args)
 
 
 def register_parser(subparsers):
-    update_parser = subparsers.add_parser(
-        "update",
-        help="Rebuild emu-dev-cli from local emu-main-next source directory and re-install executable",
-    )
-    update_parser.add_argument(
-        "--path",
-        type=str,
-        default=None,
-        help="Destination executable path override",
-    )
-    update_parser.add_argument(
-        "-f",
-        "--force",
-        action="store_true",
-        help="Rebuild and re-install even when emu-dev-cli is already up to date",
-    )
-    update_parser.set_defaults(func=run_update_cmd)
+    return UpdateCommand().register(subparsers)
 
 
-def run_update_cmd(args):
+def run_update_cmd(args) -> CommandResult[dict[str, Any]]:
     ensure_utf8_stdio()
     json_mode = getattr(args, "json", False)
     verbose = getattr(args, "verbose", False)
@@ -214,7 +229,7 @@ def run_update_cmd(args):
 
     source_dir = _resolve_update_source_dir()
     if not source_dir:
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "update",
@@ -227,7 +242,6 @@ def run_update_cmd(args):
             json_mode=json_mode,
             is_error=True,
         )
-        sys.exit(1)
 
     release_dir = get_release_package_directory(dest_path)
     installed_version = read_installed_version(release_dir)
@@ -238,7 +252,7 @@ def run_update_cmd(args):
         print_status(f"ℹ️ No update was needed: {reason}.", json_mode=json_mode)
         if not force:
             print_status("Use --force to rebuild anyway.", json_mode=json_mode)
-            print_result(
+            return print_result(
                 {
                     "status": "success",
                     "action": "update",
@@ -260,11 +274,13 @@ def run_update_cmd(args):
     else:
         print_status(f"ℹ️ Update is needed: {reason}.", json_mode=json_mode)
 
-    _run_bazel_build(source_dir, verbose=verbose, json_mode=json_mode)
+    build_err = _run_bazel_build(source_dir, verbose=verbose, json_mode=json_mode)
+    if build_err is not None:
+        return build_err
 
     built_bin = resolve_built_artifact(source_dir, BAZEL_TARGET, "emu-dev-cli")
     if not built_bin or not os.path.exists(built_bin):
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "update",
@@ -280,7 +296,6 @@ def run_update_cmd(args):
             json_mode=json_mode,
             is_error=True,
         )
-        sys.exit(1)
 
     print_status(
         f"📦 Re-installing compiled emu-dev-cli release package from {built_bin}...",
@@ -299,7 +314,7 @@ def run_update_cmd(args):
         f"✅ emu-dev-cli updated to {commit_label}.",
         json_mode=json_mode,
     )
-    print_result(
+    return print_result(
         {
             "status": "success",
             "action": "update",

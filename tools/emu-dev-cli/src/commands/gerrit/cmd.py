@@ -30,7 +30,14 @@ from commands.gerrit.ping_for_review import (
     PingArgs,
     PingResult,
 )
-from core.command import bind_command
+from core.command import (
+    Command,
+    CommandGroup,
+    CommandResult,
+    META_KEY_ALREADY_RENDERED,
+    bind_command,
+)
+from core.context import ExecutionContext
 from lib.gerrit_api import (
     DEFAULT_GERRIT_HOST,
     GerritClient,
@@ -57,23 +64,23 @@ def _print_error(msg: str) -> None:
     print(f"ERROR: {msg}", file=sys.stderr)
 
 
-def _fail(msg: str, json_mode: bool = False) -> None:
+def _fail(msg: str, json_mode: bool = False) -> CommandResult:
     if json_mode:
         _print_json({"status": "error", "error": msg})
     else:
         _print_error(msg)
-    sys.exit(1)
+    return CommandResult.failure(
+        msg,
+        action="gerrit",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
 def _resolve_cl_or_exit(
     cl_arg: str | None, repo_dir: str | Path = ".", json_mode: bool = False
 ) -> str:
     """Resolves a CL identifier from CLI argument or local HEAD commit."""
-    try:
-        return parse_cl_identifier(cl_arg, cwd=repo_dir)
-    except ValueError as exc:
-        _fail(str(exc), json_mode=json_mode)
-        return ""
+    return parse_cl_identifier(cl_arg, cwd=repo_dir)
 
 
 def find_sessions_for_cl(
@@ -139,8 +146,9 @@ def find_sessions_for_cl(
     return matches
 
 
-def handle_gerrit_list(args: argparse.Namespace) -> None:
+def handle_gerrit_list(args: argparse.Namespace) -> CommandResult:
     """Lists open Gerrit CLs owned by the user."""
+    json_mode = getattr(args, "json", False)
     client = GerritClient(host=args.host)
     try:
         changes = client.list_open_changes(
@@ -150,13 +158,9 @@ def handle_gerrit_list(args: argparse.Namespace) -> None:
             limit=args.limit,
         )
     except Exception as exc:
-        if getattr(args, "json", False):
-            _print_json({"status": "error", "error": str(exc)})
-        else:
-            _print_error(str(exc))
-        sys.exit(1)
+        return _fail(str(exc), json_mode=json_mode)
 
-    if getattr(args, "json", False):
+    if json_mode:
         _print_json(
             {
                 "status": "success",
@@ -164,11 +168,17 @@ def handle_gerrit_list(args: argparse.Namespace) -> None:
                 "changes": changes,
             }
         )
-        return
+        return CommandResult.success(
+            action="gerrit list",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     if not changes:
         print("No matching open Gerrit CLs found.")
-        return
+        return CommandResult.success(
+            action="gerrit list",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     print(f"# Open Gerrit Changes ({len(changes)})\n")
     rows: list[list[str]] = []
@@ -202,12 +212,19 @@ def handle_gerrit_list(args: argparse.Namespace) -> None:
             rows=rows,
         )
     )
+    return CommandResult.success(
+        action="gerrit list",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
-def handle_gerrit_comments(args: argparse.Namespace) -> None:
+def handle_gerrit_comments(args: argparse.Namespace) -> CommandResult:
     """Fetches and formats review comment threads for a CL."""
     json_mode = getattr(args, "json", False)
-    ident = _resolve_cl_or_exit(args.cl, args.repo, json_mode=json_mode)
+    try:
+        ident = _resolve_cl_or_exit(args.cl, args.repo, json_mode=json_mode)
+    except ValueError as exc:
+        return _fail(str(exc), json_mode=json_mode)
     client = GerritClient(host=args.host)
     try:
         change = client.get_change_detail(ident)
@@ -216,7 +233,7 @@ def handle_gerrit_comments(args: argparse.Namespace) -> None:
             include_resolved=args.all_threads,
         )
     except Exception as exc:
-        _fail(str(exc), json_mode=json_mode)
+        return _fail(str(exc), json_mode=json_mode)
 
     repo_root = resolve_project_repo_path(
         change.get("project", ""), workspace_root=args.repo
@@ -233,7 +250,10 @@ def handle_gerrit_comments(args: argparse.Namespace) -> None:
                 "threads": [t.to_dict() for t in threads],
             }
         )
-        return
+        return CommandResult.success(
+            action="gerrit comments",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     markdown = render_comments_markdown(
         change,
@@ -248,12 +268,19 @@ def handle_gerrit_comments(args: argparse.Namespace) -> None:
         print(f"Wrote review dossier to {out_path}")
     else:
         print(markdown)
+    return CommandResult.success(
+        action="gerrit comments",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
-def handle_gerrit_checkout(args: argparse.Namespace) -> None:
+def handle_gerrit_checkout(args: argparse.Namespace) -> CommandResult:
     """Fetches and checks out the latest patchset of a CL."""
     json_mode = getattr(args, "json", False)
-    ident = _resolve_cl_or_exit(args.cl, args.repo, json_mode=json_mode)
+    try:
+        ident = _resolve_cl_or_exit(args.cl, args.repo, json_mode=json_mode)
+    except ValueError as exc:
+        return _fail(str(exc), json_mode=json_mode)
     client = GerritClient(host=args.host)
     try:
         change = client.get_change_detail(ident)
@@ -266,7 +293,7 @@ def handle_gerrit_checkout(args: argparse.Namespace) -> None:
             mode=args.mode,
         )
     except Exception as exc:
-        _fail(str(exc), json_mode=json_mode)
+        return _fail(str(exc), json_mode=json_mode)
 
     if json_mode:
         _print_json({"status": "success", **result})
@@ -275,15 +302,19 @@ def handle_gerrit_checkout(args: argparse.Namespace) -> None:
             f"Checked out CL {change.get('_number', ident)} "
             f"({result['action']}) in {result['repo_path']}"
         )
+    return CommandResult.success(
+        action="gerrit checkout",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
-def handle_gerrit_reply(args: argparse.Namespace) -> None:
+def handle_gerrit_reply(args: argparse.Namespace) -> CommandResult:
     """Stages or publishes Gerrit comment replies and resolution states."""
     json_mode = getattr(args, "json", False)
     if args.from_queue:
         q_path = Path(args.from_queue)
         if not q_path.is_file():
-            _fail(f"Queue file not found: {q_path}", json_mode=json_mode)
+            return _fail(f"Queue file not found: {q_path}", json_mode=json_mode)
         q_data = json.loads(q_path.read_text(encoding="utf-8"))
         client = GerritClient(host=args.host)
         published_total = 0
@@ -329,18 +360,24 @@ def handle_gerrit_reply(args: argparse.Namespace) -> None:
             )
         else:
             print(f"Published {published_total} reply(s) from {q_path}")
-        return
+        return CommandResult.success(
+            action="gerrit reply",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
-    ident = _resolve_cl_or_exit(args.cl, args.repo, json_mode=json_mode)
+    try:
+        ident = _resolve_cl_or_exit(args.cl, args.repo, json_mode=json_mode)
+    except ValueError as exc:
+        return _fail(str(exc), json_mode=json_mode)
     if args.stage_only:
         if not args.queue_file or not args.comment_id or not args.message:
-            _fail(
+            return _fail(
                 "--stage-only requires --queue-file, --comment-id, and --message.",
                 json_mode=json_mode,
             )
         q_path = Path(args.queue_file)
         if not q_path.is_file():
-            _fail(f"Queue file not found: {q_path}", json_mode=json_mode)
+            return _fail(f"Queue file not found: {q_path}", json_mode=json_mode)
         q_data = json.loads(q_path.read_text(encoding="utf-8"))
         matched = False
         for cl_entry in q_data.get("cls") or []:
@@ -357,7 +394,7 @@ def handle_gerrit_reply(args: argparse.Namespace) -> None:
                     thread["resolve"] = not args.unresolve
                     matched = True
         if not matched:
-            _fail(
+            return _fail(
                 f"Comment ID {args.comment_id} not found for CL {ident} in {q_path}",
                 json_mode=json_mode,
             )
@@ -373,7 +410,10 @@ def handle_gerrit_reply(args: argparse.Namespace) -> None:
             )
         else:
             print(f"Staged reply for comment {args.comment_id} on CL {ident}")
-        return
+        return CommandResult.success(
+            action="gerrit reply",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     client = GerritClient(host=args.host)
     replies_to_post: list[GerritReplyInput] = []
@@ -385,7 +425,7 @@ def handle_gerrit_reply(args: argparse.Namespace) -> None:
                 target_thread = thread
                 break
         if target_thread is None:
-            _fail(
+            return _fail(
                 f"Comment ID {args.comment_id} not found on CL {ident}",
                 json_mode=json_mode,
             )
@@ -404,7 +444,7 @@ def handle_gerrit_reply(args: argparse.Namespace) -> None:
         replies_to_post,
         top_message=None if args.comment_id else (args.message or None),
     )
-    if getattr(args, "json", False):
+    if json_mode:
         _print_json(
             {
                 "status": "success",
@@ -414,32 +454,40 @@ def handle_gerrit_reply(args: argparse.Namespace) -> None:
         )
     else:
         print(f"Posted review reply to CL {ident}")
+    return CommandResult.success(
+        action="gerrit reply",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
-def handle_gerrit_upload(args: argparse.Namespace) -> None:
+def handle_gerrit_upload(args: argparse.Namespace) -> CommandResult:
     """Uploads current branch to Gerrit via repo upload."""
+    json_mode = getattr(args, "json", False)
     try:
         result = upload_cl(
             Path(args.repo).resolve(),
             presubmit=not args.no_presubmit,
         )
     except Exception as exc:
-        if getattr(args, "json", False):
-            _print_json({"status": "error", "error": str(exc)})
-        else:
-            _print_error(str(exc))
-        sys.exit(1)
+        return _fail(str(exc), json_mode=json_mode)
 
-    if getattr(args, "json", False):
+    if json_mode:
         _print_json({"status": "success", **result})
     else:
         print(f"Uploaded patchset from {result['repo_path']}")
+    return CommandResult.success(
+        action="gerrit upload",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
-def handle_gerrit_wait(args: argparse.Namespace) -> None:
+def handle_gerrit_wait(args: argparse.Namespace) -> CommandResult:
     """Polls Gerrit for new review feedback or approval."""
     json_mode = getattr(args, "json", False)
-    ident = _resolve_cl_or_exit(args.cl, args.repo, json_mode=json_mode)
+    try:
+        ident = _resolve_cl_or_exit(args.cl, args.repo, json_mode=json_mode)
+    except ValueError as exc:
+        return _fail(str(exc), json_mode=json_mode)
     client = GerritClient(host=args.host)
     try:
         baseline_ps = args.baseline_patchset
@@ -459,7 +507,7 @@ def handle_gerrit_wait(args: argparse.Namespace) -> None:
             require_presubmit=args.require_presubmit,
         )
     except Exception as exc:
-        _fail(str(exc), json_mode=json_mode)
+        return _fail(str(exc), json_mode=json_mode)
 
     unresolved = outcome.get("unresolved_threads") or []
     detail = outcome.get("detail") or {}
@@ -475,33 +523,39 @@ def handle_gerrit_wait(args: argparse.Namespace) -> None:
                 "unresolved_threads": [t.to_dict() for t in unresolved],
             }
         )
-        return
+        return CommandResult.success(
+            action="gerrit wait",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     print(
         f"CL {cl_num} (PS {baseline_ps}) wait result: "
         f"{outcome['status']} (unresolved={len(unresolved)})"
     )
+    return CommandResult.success(
+        action="gerrit wait",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
-def handle_gerrit_resume(args: argparse.Namespace) -> None:
+def handle_gerrit_resume(args: argparse.Namespace) -> CommandResult:
     """Resumes an `address-review` workflow session and wakes its Jetski conversation."""
     json_mode = getattr(args, "json", False)
     state_id = args.state
     workflow_name = "address-review"
     ident = ""
     if not state_id:
-        ident = _resolve_cl_or_exit(args.cl, args.repo, json_mode=json_mode)
+        try:
+            ident = _resolve_cl_or_exit(args.cl, args.repo, json_mode=json_mode)
+        except ValueError as exc:
+            return _fail(str(exc), json_mode=json_mode)
         sessions = find_sessions_for_cl(ident, workflow_name=workflow_name)
         if not sessions:
             msg = (
                 f"No existing address-review workflow session found for CL {ident}. "
                 f"Start one with: emu-dev-cli workflow address-review init --cl {ident}"
             )
-            if getattr(args, "json", False):
-                _print_json({"status": "error", "error": msg})
-            else:
-                _print_error(msg)
-            sys.exit(1)
+            return _fail(msg, json_mode=json_mode)
         state_id = sessions[0]["state_id"]
         workflow_name = sessions[0].get("workflow_name", workflow_name)
 
@@ -517,13 +571,9 @@ def handle_gerrit_resume(args: argparse.Namespace) -> None:
         wake_conversation=not args.no_wake,
     )
     if not ok:
-        if getattr(args, "json", False):
-            _print_json({"status": "error", "error": msg})
-        else:
-            _print_error(msg)
-        sys.exit(1)
+        return _fail(msg, json_mode=json_mode)
 
-    if getattr(args, "json", False):
+    if json_mode:
         _print_json({"status": "success", "message": msg, **info})
     else:
         print(
@@ -531,275 +581,359 @@ def handle_gerrit_resume(args: argparse.Namespace) -> None:
             f"(conversation={info.get('conversation_id') or 'none'}, "
             f"wake_status={info.get('wake_status', 'none')})"
         )
+    return CommandResult.success(
+        action="gerrit resume",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
+
+
+class GerritListCommand(Command[argparse.Namespace, Any]):
+    """Lists open Gerrit CLs owned by the user."""
+
+    name = "list"
+    help_text = "List open Gerrit CLs"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--owner", default="self", help="CL owner (default: self)"
+        )
+        parser.add_argument(
+            "--project", default=None, help="Optional Gerrit project filter"
+        )
+        parser.add_argument(
+            "--unresolved-only",
+            action="store_true",
+            help="Only show CLs that have unresolved review comments",
+        )
+        parser.add_argument(
+            "--limit",
+            type=int,
+            default=50,
+            help="Maximum CLs to fetch (default: 50)",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext | None = None
+    ) -> CommandResult:
+        return handle_gerrit_list(args)
+
+
+class GerritCommentsCommand(Command[argparse.Namespace, Any]):
+    """Fetches and formats review comment threads for a CL."""
+
+    name = "comments"
+    help_text = "Fetch and format comment threads for a CL"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "cl",
+            nargs="?",
+            default="HEAD",
+            help="CL number, Change-Id, Gerrit URL, or HEAD (default: HEAD)",
+        )
+        parser.add_argument(
+            "--repo",
+            default=".",
+            help="Local Git workspace root (default: current directory)",
+        )
+        parser.add_argument(
+            "--all-threads",
+            action="store_true",
+            help="Include resolved threads in addition to unresolved threads",
+        )
+        parser.add_argument(
+            "--context-lines",
+            type=int,
+            default=5,
+            help="Number of local source lines to include around each comment",
+        )
+        parser.add_argument(
+            "--output",
+            default=None,
+            help="Optional file path to write the Markdown dossier to",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext | None = None
+    ) -> CommandResult:
+        return handle_gerrit_comments(args)
+
+
+class GerritCheckoutCommand(Command[argparse.Namespace, Any]):
+    """Fetches and checks out the latest patchset of a CL."""
+
+    name = "checkout"
+    help_text = "Fetch and checkout the latest patchset of a CL"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("cl", help="CL number, Change-Id, or Gerrit URL")
+        parser.add_argument(
+            "--repo",
+            default=".",
+            help="Local Git workspace root (default: current directory)",
+        )
+        parser.add_argument(
+            "--mode",
+            choices=["auto", "cherry-pick", "checkout"],
+            default="auto",
+            help="Checkout mode (default: auto)",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext | None = None
+    ) -> CommandResult:
+        return handle_gerrit_checkout(args)
+
+
+class GerritReplyCommand(Command[argparse.Namespace, Any]):
+    """Stages or publishes Gerrit comment replies and marks threads resolved."""
+
+    name = "reply"
+    help_text = (
+        "Stage or publish Gerrit comment replies and mark threads resolved"
+    )
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "cl",
+            nargs="?",
+            default="HEAD",
+            help="CL number, Change-Id, Gerrit URL, or HEAD",
+        )
+        parser.add_argument(
+            "--repo", default=".", help="Local Git repository path"
+        )
+        parser.add_argument(
+            "--comment-id",
+            default=None,
+            help="Target Gerrit comment ID (root or leaf ID)",
+        )
+        parser.add_argument(
+            "--message",
+            default=None,
+            help="Reply message text (or top-level review summary)",
+        )
+        parser.add_argument(
+            "--resolve",
+            action="store_true",
+            default=True,
+            help="Mark the comment thread resolved (default: True)",
+        )
+        parser.add_argument(
+            "--unresolve",
+            action="store_true",
+            help="Leave the comment thread unresolved instead of marking it resolved",
+        )
+        parser.add_argument(
+            "--stage-only",
+            action="store_true",
+            help="Stage the reply in --queue-file without posting to Gerrit yet",
+        )
+        parser.add_argument(
+            "--queue-file",
+            default=None,
+            help="Path to the workflow queue JSON file when using --stage-only",
+        )
+        parser.add_argument(
+            "--from-queue",
+            default=None,
+            help="Publish all staged replies from the specified workflow queue JSON file",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext | None = None
+    ) -> CommandResult:
+        return handle_gerrit_reply(args)
+
+
+class GerritUploadCommand(Command[argparse.Namespace, Any]):
+    """Uploads current branch to Gerrit via repo upload."""
+
+    name = "upload"
+    help_text = "Upload current branch to Gerrit via repo upload"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--repo", default=".", help="Local Git repository path (default: .)"
+        )
+        parser.add_argument(
+            "--no-presubmit",
+            action="store_true",
+            help="Omit --label Presubmit-Ready+1 when uploading",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext | None = None
+    ) -> CommandResult:
+        return handle_gerrit_upload(args)
+
+
+class GerritWaitCommand(Command[argparse.Namespace, Any]):
+    """Polls Gerrit for new review comments or approval."""
+
+    name = "wait"
+    help_text = "Poll Gerrit for new review comments or approval"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "cl",
+            nargs="?",
+            default="HEAD",
+            help="CL number, Change-Id, Gerrit URL, or HEAD",
+        )
+        parser.add_argument(
+            "--repo", default=".", help="Local Git repository path"
+        )
+        parser.add_argument(
+            "--timeout",
+            type=int,
+            default=300,
+            help="Maximum seconds to poll Gerrit (default: 300)",
+        )
+        parser.add_argument(
+            "--poll-interval",
+            type=int,
+            default=15,
+            help="Seconds between poll requests (default: 15)",
+        )
+        parser.add_argument(
+            "--baseline-patchset",
+            type=int,
+            default=None,
+            help="Patchset number to watch for AI reviewer completion",
+        )
+        parser.add_argument(
+            "--require-cr2",
+            action="store_true",
+            help="Wait until Code-Review+2 is granted",
+        )
+        parser.add_argument(
+            "--require-presubmit",
+            action="store_true",
+            help="Wait until Presubmit-Verified+1/+2 is granted",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext | None = None
+    ) -> CommandResult:
+        return handle_gerrit_wait(args)
+
+
+class GerritResumeCommand(Command[argparse.Namespace, Any]):
+    """Resumes an address-review workflow session and wakes its Jetski conversation."""
+
+    name = "resume"
+    help_text = "Resume an address-review workflow session and wake its Jetski conversation"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "cl",
+            nargs="?",
+            default="HEAD",
+            help="CL number, Change-Id, Gerrit URL, or HEAD",
+        )
+        parser.add_argument(
+            "--repo", default=".", help="Local Git repository path"
+        )
+        parser.add_argument(
+            "--state",
+            default=None,
+            help="Explicit workflow state ID to resume",
+        )
+        parser.add_argument(
+            "--prompt",
+            default=None,
+            help="Custom wakeup prompt to send to the Jetski conversation",
+        )
+        parser.add_argument(
+            "--no-wake",
+            action="store_true",
+            help="Reset workflow state without sending a message to Jetski",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext | None = None
+    ) -> CommandResult:
+        return handle_gerrit_resume(args)
+
+
+class GerritUiCommand(Command[argparse.Namespace, Any]):
+    """Launches the fast multi-commit & agent-aware Gerrit web UI."""
+
+    name = "ui"
+    help_text = "Launch the fast multi-commit & agent-aware Gerrit web UI"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--port",
+            type=int,
+            default=8085,
+            help="Local TCP port for the Gerrit UI server (default: 8085)",
+        )
+        parser.add_argument(
+            "--host-addr",
+            default="127.0.0.1",
+            help="Local address to bind the HTTP server to (default: 127.0.0.1)",
+        )
+        parser.add_argument(
+            "--viewer",
+            default="",
+            help="Reviewer email perspective (default: auto-detected from git/Gerrit)",
+        )
+        parser.add_argument(
+            "--query",
+            default="",
+            help="Custom Gerrit search query (default: open CLs across emulator repos)",
+        )
+        parser.add_argument(
+            "--no-browser",
+            action="store_true",
+            help="Do not automatically open the browser when starting the server",
+        )
+        parser.add_argument(
+            "--export-static",
+            default=None,
+            help="Export a pre-populated static HTML snapshot to the specified file path",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext | None = None
+    ) -> CommandResult:
+        return handle_gerrit_ui(args)
+
+
+class GerritCommand(CommandGroup):
+    """Top-level command group for Gerrit CL inspection and automation."""
+
+    name = "gerrit"
+    help_text = "Inspect, checkout, reply to, wait on, and resume Gerrit CL reviews"
+    subcommand_dest = "gerrit_command"
+    subcommands = [
+        GerritListCommand(),
+        GerritCommentsCommand(),
+        GerritCheckoutCommand(),
+        GerritReplyCommand(),
+        GerritUploadCommand(),
+        GerritWaitCommand(),
+        GerritResumeCommand(),
+        GerritUiCommand(),
+        GerritPingForReviewCommand(),
+    ]
+
+    def configure_group_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--host",
+            default=DEFAULT_GERRIT_HOST,
+            help=f"Gerrit host URL (default: {DEFAULT_GERRIT_HOST})",
+        )
 
 
 def register_parser(subparsers: Any) -> argparse.ArgumentParser:
     """Registers the `gerrit` subcommand and its sub-parsers."""
-    gerrit_parser = subparsers.add_parser(
-        "gerrit",
-        help="Inspect, checkout, reply to, wait on, and resume Gerrit CL reviews",
-    )
-    gerrit_parser.add_argument(
-        "--host",
-        default=DEFAULT_GERRIT_HOST,
-        help=f"Gerrit host URL (default: {DEFAULT_GERRIT_HOST})",
-    )
-    gerrit_sub = gerrit_parser.add_subparsers(
-        dest="gerrit_command", help="Gerrit review actions"
-    )
-
-    list_p = gerrit_sub.add_parser("list", help="List open Gerrit CLs")
-    list_p.add_argument(
-        "--owner", default="self", help="CL owner (default: self)"
-    )
-    list_p.add_argument(
-        "--project", default=None, help="Optional Gerrit project filter"
-    )
-    list_p.add_argument(
-        "--unresolved-only",
-        action="store_true",
-        help="Only show CLs that have unresolved review comments",
-    )
-    list_p.add_argument(
-        "--limit", type=int, default=50, help="Maximum CLs to fetch (default: 50)"
-    )
-    list_p.set_defaults(func=handle_gerrit_list)
-
-    comments_p = gerrit_sub.add_parser(
-        "comments", help="Fetch and format comment threads for a CL"
-    )
-    comments_p.add_argument(
-        "cl",
-        nargs="?",
-        default="HEAD",
-        help="CL number, Change-Id, Gerrit URL, or HEAD (default: HEAD)",
-    )
-    comments_p.add_argument(
-        "--repo",
-        default=".",
-        help="Local Git workspace root (default: current directory)",
-    )
-    comments_p.add_argument(
-        "--all-threads",
-        action="store_true",
-        help="Include resolved threads in addition to unresolved threads",
-    )
-    comments_p.add_argument(
-        "--context-lines",
-        type=int,
-        default=5,
-        help="Number of local source lines to include around each comment",
-    )
-    comments_p.add_argument(
-        "--output",
-        default=None,
-        help="Optional file path to write the Markdown dossier to",
-    )
-    comments_p.set_defaults(func=handle_gerrit_comments)
-
-    checkout_p = gerrit_sub.add_parser(
-        "checkout", help="Fetch and checkout the latest patchset of a CL"
-    )
-    checkout_p.add_argument(
-        "cl", help="CL number, Change-Id, or Gerrit URL"
-    )
-    checkout_p.add_argument(
-        "--repo",
-        default=".",
-        help="Local Git workspace root (default: current directory)",
-    )
-    checkout_p.add_argument(
-        "--mode",
-        choices=["auto", "cherry-pick", "checkout"],
-        default="auto",
-        help="Checkout mode (default: auto)",
-    )
-    checkout_p.set_defaults(func=handle_gerrit_checkout)
-
-    reply_p = gerrit_sub.add_parser(
-        "reply",
-        help="Stage or publish Gerrit comment replies and mark threads resolved",
-    )
-    reply_p.add_argument(
-        "cl",
-        nargs="?",
-        default="HEAD",
-        help="CL number, Change-Id, Gerrit URL, or HEAD",
-    )
-    reply_p.add_argument(
-        "--repo", default=".", help="Local Git repository path"
-    )
-    reply_p.add_argument(
-        "--comment-id",
-        default=None,
-        help="Target Gerrit comment ID (root or leaf ID)",
-    )
-    reply_p.add_argument(
-        "--message",
-        default=None,
-        help="Reply message text (or top-level review summary)",
-    )
-    reply_p.add_argument(
-        "--resolve",
-        action="store_true",
-        default=True,
-        help="Mark the comment thread resolved (default: True)",
-    )
-    reply_p.add_argument(
-        "--unresolve",
-        action="store_true",
-        help="Leave the comment thread unresolved instead of marking it resolved",
-    )
-    reply_p.add_argument(
-        "--stage-only",
-        action="store_true",
-        help="Stage the reply in --queue-file without posting to Gerrit yet",
-    )
-    reply_p.add_argument(
-        "--queue-file",
-        default=None,
-        help="Path to the workflow queue JSON file when using --stage-only",
-    )
-    reply_p.add_argument(
-        "--from-queue",
-        default=None,
-        help="Publish all staged replies from the specified workflow queue JSON file",
-    )
-    reply_p.set_defaults(func=handle_gerrit_reply)
-
-    upload_p = gerrit_sub.add_parser(
-        "upload", help="Upload current branch to Gerrit via repo upload"
-    )
-    upload_p.add_argument(
-        "--repo", default=".", help="Local Git repository path (default: .)"
-    )
-    upload_p.add_argument(
-        "--no-presubmit",
-        action="store_true",
-        help="Omit --label Presubmit-Ready+1 when uploading",
-    )
-    upload_p.set_defaults(func=handle_gerrit_upload)
-
-    wait_p = gerrit_sub.add_parser(
-        "wait", help="Poll Gerrit for new review comments or approval"
-    )
-    wait_p.add_argument(
-        "cl",
-        nargs="?",
-        default="HEAD",
-        help="CL number, Change-Id, Gerrit URL, or HEAD",
-    )
-    wait_p.add_argument(
-        "--repo", default=".", help="Local Git repository path"
-    )
-    wait_p.add_argument(
-        "--timeout",
-        type=int,
-        default=300,
-        help="Maximum seconds to poll Gerrit (default: 300)",
-    )
-    wait_p.add_argument(
-        "--poll-interval",
-        type=int,
-        default=15,
-        help="Seconds between poll requests (default: 15)",
-    )
-    wait_p.add_argument(
-        "--baseline-patchset",
-        type=int,
-        default=None,
-        help="Patchset number to watch for AI reviewer completion",
-    )
-    wait_p.add_argument(
-        "--require-cr2",
-        action="store_true",
-        help="Wait until Code-Review+2 is granted",
-    )
-    wait_p.add_argument(
-        "--require-presubmit",
-        action="store_true",
-        help="Wait until Presubmit-Verified+1/+2 is granted",
-    )
-    wait_p.set_defaults(func=handle_gerrit_wait)
-
-    resume_p = gerrit_sub.add_parser(
-        "resume",
-        help="Resume an address-review workflow session and wake its Jetski conversation",
-    )
-    resume_p.add_argument(
-        "cl",
-        nargs="?",
-        default="HEAD",
-        help="CL number, Change-Id, Gerrit URL, or HEAD",
-    )
-    resume_p.add_argument(
-        "--repo", default=".", help="Local Git repository path"
-    )
-    resume_p.add_argument(
-        "--state",
-        default=None,
-        help="Explicit workflow state ID to resume",
-    )
-    resume_p.add_argument(
-        "--prompt",
-        default=None,
-        help="Custom wakeup prompt to send to the Jetski conversation",
-    )
-    resume_p.add_argument(
-        "--no-wake",
-        action="store_true",
-        help="Reset workflow state without sending a message to Jetski",
-    )
-    resume_p.set_defaults(func=handle_gerrit_resume)
-
-    ui_p = gerrit_sub.add_parser(
-        "ui",
-        help="Launch the fast multi-commit & agent-aware Gerrit web UI",
-    )
-    ui_p.add_argument(
-        "--port",
-        type=int,
-        default=8085,
-        help="Local TCP port for the Gerrit UI server (default: 8085)",
-    )
-    ui_p.add_argument(
-        "--host-addr",
-        default="127.0.0.1",
-        help="Local address to bind the HTTP server to (default: 127.0.0.1)",
-    )
-    ui_p.add_argument(
-        "--viewer",
-        default="",
-        help="Reviewer email perspective (default: auto-detected from git/Gerrit)",
-    )
-    ui_p.add_argument(
-        "--query",
-        default="",
-        help="Custom Gerrit search query (default: open CLs across emulator repos)",
-    )
-    ui_p.add_argument(
-        "--no-browser",
-        action="store_true",
-        help="Do not automatically open the browser when starting the server",
-    )
-    ui_p.add_argument(
-        "--export-static",
-        default=None,
-        help="Export a pre-populated static HTML snapshot to the specified file path",
-    )
-    ui_p.set_defaults(func=handle_gerrit_ui)
-
-    ping_cmd = GerritPingForReviewCommand()
-    ping_p = gerrit_sub.add_parser(
-        ping_cmd.name,
-        help=ping_cmd.help_text,
-    )
-    bind_command(ping_p, ping_cmd)
-
-    return gerrit_parser
+    return GerritCommand().register(subparsers)
 
 
-def handle_gerrit_ui(args: argparse.Namespace) -> None:
+def handle_gerrit_ui(args: argparse.Namespace) -> CommandResult:
     """Starts the fast multi-commit Gerrit web UI or exports a static snapshot."""
     from commands.gerrit.ui_server import serve_gerrit_ui
 
@@ -811,4 +945,8 @@ def handle_gerrit_ui(args: argparse.Namespace) -> None:
         query=args.query,
         open_browser=not args.no_browser,
         export_static_path=args.export_static,
+    )
+    return CommandResult.success(
+        action="gerrit ui",
+        metadata={META_KEY_ALREADY_RENDERED: True},
     )

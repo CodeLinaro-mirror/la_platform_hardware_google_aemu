@@ -113,11 +113,8 @@ SYS_PATH_MUTATION_CEILINGS: Mapping[str, int] = {
 }
 
 # Library modules under `LIBRARY_DIR_PREFIXES` must raise `EmuCliError` subclasses
-# rather than terminating the process. Only `src/lib/output.py` is permitted as the
-# legacy CLI output exit adapter.
-LIBRARY_EXIT_CEILINGS: Mapping[str, int] = {
-    "src/lib/output.py": 2,
-}
+# or return `CommandResult` rather than terminating the process.
+LIBRARY_EXIT_CEILINGS: Mapping[str, int] = {}
 
 # Per-file ratchet ceilings for `sys.exit()` / `exit()` / `quit()` / `os._exit()`
 # across all non-test files in `tools/emu-dev-cli`.
@@ -125,21 +122,6 @@ ALL_EXIT_CEILINGS: Mapping[str, int] = {
     "install.py": 2,
     "perf_probe/build_apk.py": 1,
     "src/__main__.py": 4,
-    "src/commands/crash/advisor.py": 1,
-    "src/commands/create.py": 4,
-    "src/commands/docs.py": 4,
-    "src/commands/gerrit/cmd.py": 5,
-    "src/commands/init_cmd.py": 1,
-    "src/commands/launch.py": 8,
-    "src/commands/mesh.py": 4,
-    "src/commands/perf/__init__.py": 1,
-    "src/commands/source_directory.py": 2,
-    "src/commands/tidy/add_cmd.py": 2,
-    "src/commands/tidy/check_cmd.py": 1,
-    "src/commands/tidy/fix_cmd.py": 4,
-    "src/commands/update_cmd.py": 4,
-    "src/commands/workflow.py": 8,
-    "src/lib/output.py": 2,
     "workflows/address_review/prepare_review_batch.py": 1,
     "workflows/address_review/verify_fixes.py": 1,
     "workflows/address_review/verify_upload_and_resolve.py": 1,
@@ -548,6 +530,96 @@ def bad_helper(label: str = "测试_🚀_é") -> None:
                     text,
                     f"Production file {rel} must not probe private fake attribute '_auth_status'",
                 )
+
+    def test_all_cli_subcommands_inherit_from_command_or_command_group(self) -> None:
+        import argparse
+        from commands import (
+            build_times,
+            crash,
+            create,
+            cts,
+            docs,
+            fetch_build,
+            flakiness,
+            gerrit,
+            harness,
+            init_cmd,
+            launch,
+            mesh,
+            perf,
+            sbom,
+            screencast,
+            source_directory,
+            tidy,
+            update_cmd,
+            update_prebuilt,
+            workflow,
+        )
+        from core.command import COMMAND_INSTANCE_ATTR, Command
+        from install import installer
+
+        # 1. Verify zero legacy `set_defaults(func=...)` calls exist in src/
+        legacy_func_bindings: list[str] = []
+        for path in iter_non_test_python_files(REPO_ROOT):
+            rel = path.relative_to(REPO_ROOT).as_posix()
+            if not rel.startswith("src/"):
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=rel)
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "set_defaults"
+                ):
+                    for kw in node.keywords:
+                        if kw.arg == "func":
+                            legacy_func_bindings.append(f"{rel}:L{node.lineno}")
+        self.assertEqual(
+            legacy_func_bindings,
+            [],
+            f"All CLI subparsers in src/ must bind Command/CommandGroup instead of set_defaults(func=...): {legacy_func_bindings}",
+        )
+
+        # 2. Verify 100% of registered subparsers bind Command/CommandGroup instances
+        parser = argparse.ArgumentParser(prog="emu-dev-cli")
+        subparsers = parser.add_subparsers(dest="subcommand")
+        for mod in (
+            build_times,
+            crash,
+            create,
+            cts,
+            docs,
+            flakiness,
+            gerrit,
+            harness,
+            init_cmd,
+            installer,
+            launch,
+            mesh,
+            perf,
+            sbom,
+            screencast,
+            source_directory,
+            tidy,
+            update_cmd,
+            workflow,
+        ):
+            mod.register_parser(subparsers)
+        fetch_build.register_parser(subparsers, "linux-x86_64")
+        update_prebuilt.register_parser(subparsers, "linux-x86_64")
+
+        self.assertGreaterEqual(len(subparsers.choices), 21)
+        for name, subparser in sorted(subparsers.choices.items()):
+            cmd_inst = subparser.get_default(COMMAND_INSTANCE_ATTR)
+            self.assertIsInstance(
+                cmd_inst,
+                Command,
+                f"Top-level subcommand '{name}' must bind a Command/CommandGroup instance",
+            )
+            self.assertIsNone(
+                subparser.get_default("func"),
+                f"Top-level subcommand '{name}' must not set legacy 'func' default",
+            )
 
 
 if __name__ == "__main__":

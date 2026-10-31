@@ -12,13 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import glob
 import logging
 import os
 import platform
 import re
 import shutil
-from typing import Optional
+from typing import Any, Optional
 import zipfile
 
 from clients.artifact_service import (
@@ -27,6 +28,13 @@ from clients.artifact_service import (
     ProdArtifactService,
     check_authentication_status,
 )
+from core.command import (
+    Command,
+    CommandResult,
+    META_KEY_ALREADY_RENDERED,
+    bind_command,
+)
+from core.context import ExecutionContext
 from core.process import ProcessRunner, SubprocessRunner
 from lib.output import print_result
 
@@ -54,6 +62,30 @@ def detect_default_arch():
     if machine in ("x86_64", "amd64"):
         return "x86_64"
     return "arm64"
+
+
+class FetchSystemImageCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Fetches Android System Image artifacts from Android Build."""
+
+    name = "system-image"
+    help = "Fetch Android System Image artifacts"
+
+    def __init__(self, parser: Optional[argparse.ArgumentParser] = None) -> None:
+        self._parser = parser
+
+    def execute(
+        self, args: argparse.Namespace, ctx: Optional[ExecutionContext] = None
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        if not getattr(args, "build_id", None) and not getattr(args, "latest", False):
+            if self._parser is not None:
+                self._parser.print_help()
+            return CommandResult.success(
+                {},
+                action="fetch-build system-image",
+                metadata={META_KEY_ALREADY_RENDERED: True},
+            )
+        return run_system_image_fetch(args)
 
 
 def register_parser(subparser, default_host):
@@ -119,14 +151,8 @@ def register_parser(subparser, default_host):
         action="store_true",
         help="Skip preflight authentication readiness check"
     )
-
-    def handler(args):
-        if not args.build_id and not args.latest:
-            parser.print_help()
-            return
-        run_system_image_fetch(args)
-
-    parser.set_defaults(func=handler)
+    bind_command(parser, FetchSystemImageCommand(parser=parser))
+    return parser
 
 
 def run_system_image_fetch(
@@ -134,7 +160,7 @@ def run_system_image_fetch(
     *,
     artifact_service: Optional[ArtifactService] = None,
     runner: Optional[ProcessRunner] = None,
-):
+) -> CommandResult[dict[str, Any]]:
     host = args.host.lower()
     arch = args.arch.lower()
     build_id = getattr(args, "build_id", None)
@@ -159,8 +185,7 @@ def run_system_image_fetch(
             if auth_status.get("file_path"):
                 res_data["auth_file"] = auth_status["file_path"]
                 res_data["file_exists"] = auth_status["file_exists"]
-            print_result(res_data, json_mode=json_mode, is_error=True)
-            return
+            return print_result(res_data, json_mode=json_mode, is_error=True)
 
     fetch_tool = FETCH_ARTIFACT_BIN if os.path.exists(FETCH_ARTIFACT_BIN) else shutil.which("fetch_artifact")
 
@@ -239,7 +264,7 @@ def run_system_image_fetch(
 
     if not successful_target:
         desc = f"latest on branch {branch}" if is_latest else f"build {build_id}"
-        print_result({
+        return print_result({
             "status": "error",
             "action": "fetch-build system-image",
             "summary": f"Failed to fetch system-image artifact under targets {candidate_targets} for {desc}",
@@ -306,4 +331,4 @@ def run_system_image_fetch(
     if extracted_dir:
         result_data["extracted_directory"] = extracted_dir
 
-    print_result(result_data, json_mode=json_mode)
+    return print_result(result_data, json_mode=json_mode)

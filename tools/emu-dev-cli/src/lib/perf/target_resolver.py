@@ -507,7 +507,7 @@ def _resolve_ab_build_target(
         json=True,
     )
     logger.info("Fetching emulator build '%s' from go/ab...", spec)
-    emu_target.run_emulator_fetch(fetch_args)
+    emu_target.run_emulator_fetch(fetch_args, render_output=False)
 
     if build_id:
         search_dirs = [

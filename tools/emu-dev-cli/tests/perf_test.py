@@ -346,7 +346,7 @@ class PerfTelemetryAndInsightsTest(unittest.TestCase):
         args = parser.parse_args(["perf", "list"])
         buf = io.StringIO()
         with patch("sys.stdout", buf):
-            args.func(args)
+            args._command_instance.execute(args)
         out = buf.getvalue()
         self.assertIn("Built-in Emulator Performance Suites", out)
         self.assertIn("adb-tmpfs", out)
