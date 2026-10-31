@@ -163,4 +163,83 @@ describe('InputChannel (TDD)', () => {
     expect(ev1.pointer?.action).toBe(PointerAction.POINTER_ACTION_DOWN);
     expect(ev2.pointer?.action).toBe(PointerAction.POINTER_ACTION_UP);
   });
+
+  it('defaults pressure to 0 on POINTER_ACTION_UP, CANCEL, and HOVER when omitted so contacts release', () => {
+    inputChannel.attach(mockChannel as any);
+    mockChannel.simulateOpen();
+
+    for (const action of [
+      PointerAction.POINTER_ACTION_UP,
+      PointerAction.POINTER_ACTION_CANCEL,
+      PointerAction.POINTER_ACTION_HOVER_ENTER,
+      PointerAction.POINTER_ACTION_HOVER_MOVE,
+      PointerAction.POINTER_ACTION_HOVER_EXIT,
+    ]) {
+      inputChannel.sendPointer({
+        displayId: 0,
+        pointerId: 2,
+        action,
+        x: 0.4,
+        y: 0.6,
+      });
+    }
+
+    expect(mockChannel.sentData.length).toBe(5);
+    for (const raw of mockChannel.sentData) {
+      const decoded = inputChannel.decodeEvent(raw);
+      const ptr = decoded.pointer?.pointers?.[0];
+      expect(ptr).toBeDefined();
+      expect(ptr?.pressure ?? 0).toBe(0);
+    }
+  });
+
+  it('preserves per-pointer pressure for multi-finger partial lift on MOVE and UP', () => {
+    inputChannel.attach(mockChannel as any);
+    mockChannel.simulateOpen();
+
+    // Multi-finger MOVE lifting pointer 0 (pressure: 0) while pointer 1 keeps moving (omitted -> 1.0)
+    inputChannel.sendPointer({
+      displayId: 0,
+      action: PointerAction.POINTER_ACTION_MOVE,
+      pointers: [
+        { pointerId: 0, x: 0.2, y: 0.3, pressure: 0 },
+        { pointerId: 1, x: 0.7, y: 0.8 },
+      ],
+    });
+
+    // Multi-finger UP lifting pointer 0 (omitted -> 0) while pointer 1 stays held (pressure: 0.75)
+    inputChannel.sendPointer({
+      displayId: 0,
+      action: PointerAction.POINTER_ACTION_UP,
+      pointers: [
+        { pointerId: 0, x: 0.2, y: 0.3 },
+        { pointerId: 1, x: 0.7, y: 0.8, pressure: 0.75 },
+      ],
+    });
+
+    expect(mockChannel.sentData.length).toBe(2);
+    const moveDecoded = inputChannel.decodeEvent(mockChannel.sentData[0]);
+    expect(moveDecoded.pointer?.pointers?.[0]?.pressure).toBe(0);
+    expect(moveDecoded.pointer?.pointers?.[1]?.pressure).toBeCloseTo(1.0);
+
+    const upDecoded = inputChannel.decodeEvent(mockChannel.sentData[1]);
+    expect(upDecoded.pointer?.pointers?.[0]?.pressure ?? 0).toBe(0);
+    expect(upDecoded.pointer?.pointers?.[1]?.pressure).toBeCloseTo(0.75);
+  });
+
+  it('preserves empty pointers array for wildcard POINTER_ACTION_CANCEL and HOVER_EXIT', () => {
+    inputChannel.attach(mockChannel as any);
+    mockChannel.simulateOpen();
+
+    inputChannel.sendPointer({
+      displayId: 0,
+      action: PointerAction.POINTER_ACTION_CANCEL,
+      pointers: [],
+    });
+
+    expect(mockChannel.sentData.length).toBe(1);
+    const decoded = inputChannel.decodeEvent(mockChannel.sentData[0]);
+    expect(decoded.pointer?.action).toBe(PointerAction.POINTER_ACTION_CANCEL);
+    expect(decoded.pointer?.pointers?.length ?? 0).toBe(0);
+  });
 });
