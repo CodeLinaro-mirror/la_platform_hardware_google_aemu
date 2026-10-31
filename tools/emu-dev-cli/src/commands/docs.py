@@ -30,6 +30,7 @@ from core.command import (
 )
 from core.context import ExecutionContext
 from lib.output import print_result
+from lib.workspace import BAZEL_REPO_DIRS
 
 from commands.source_directory import (
     build_codesearch_url,
@@ -98,6 +99,9 @@ _REPO_SUBPATHS = (
     "hardware/google/aemu",
     "external/qemu",
 )
+
+# Bazel repository aliases whose labels the lint checks, using BAZEL_REPO_DIRS.
+_LINTED_REPO_ALIASES = ("@goldfish//", "@aemu//", "@qemu//")
 
 _TITLE_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 _ROLE_RE = re.compile(r"\*\*Role:\*\*\s*(.+)$", re.MULTILINE)
@@ -561,21 +565,17 @@ def _resolve_bazel_pkg_dir(
     if "..." in label or "*" in label or "<" in label or ">" in label:
         return None
 
-    if label.startswith("@goldfish//"):
-        repo_root = workspace_root / "hardware" / "generic" / "goldfish"
-        if not repo_root.is_dir():
-            repo_root = doc_repo_root
-        rem = label[len("@goldfish//") :]
-    elif label.startswith("@aemu//"):
-        repo_root = workspace_root / "hardware" / "google" / "aemu"
-        if not repo_root.is_dir():
-            repo_root = doc_repo_root
-        rem = label[len("@aemu//") :]
-    elif label.startswith("@qemu//"):
-        repo_root = workspace_root / "external" / "qemu"
-        if not repo_root.is_dir():
-            repo_root = doc_repo_root
-        rem = label[len("@qemu//") :]
+    alias = next((a for a in _LINTED_REPO_ALIASES if label.startswith(a)), None)
+    if alias is not None:
+        repo_root = next(
+            (
+                workspace_root / repo_dir
+                for repo_dir in BAZEL_REPO_DIRS[alias]
+                if (workspace_root / repo_dir).is_dir()
+            ),
+            doc_repo_root,
+        )
+        rem = label[len(alias) :]
     elif label.startswith("//"):
         rem = label[2:]
         pkg_candidate = rem.split(":", 1)[0].strip("/")
@@ -616,6 +616,18 @@ def _bazel_target_exists_in_build_file(target_name: str, build_text: str) -> boo
             ):
                 return True
     return False
+
+
+def _bazel_label_target_exists(target_name: str, build_text: str, pkg_dir: Path) -> bool:
+    """Returns True if target_name is declared in build_text or is a file in pkg_dir.
+
+    A label can name a source file of the package, such as `defs.bzl` in a
+    `load()` label, instead of a rule.
+    """
+    return (
+        _bazel_target_exists_in_build_file(target_name, build_text)
+        or (pkg_dir / target_name).is_file()
+    )
 
 
 def _is_goldfish_repo(repo_root: Path, file_path: Path) -> bool:
@@ -773,7 +785,7 @@ def lint_wiki_documents(
                     build_text = build_file.read_text(encoding="utf-8")
                 except OSError:
                     build_text = ""
-                if not _bazel_target_exists_in_build_file(target_name, build_text):
+                if not _bazel_label_target_exists(target_name, build_text, pkg_dir):
                     rel_bf = (
                         build_file.relative_to(workspace_root)
                         if build_file.is_relative_to(workspace_root)
@@ -783,7 +795,10 @@ def lint_wiki_documents(
                         {
                             "file": doc["relative_path"],
                             "kind": "missing_bazel_target",
-                            "message": f"Bazel target `{label}` not found in `{rel_bf}`",
+                            "message": (
+                                f"Bazel target `{label}` is neither declared in "
+                                f"`{rel_bf}` nor a file in `{rel_bf.parent}`"
+                            ),
                             "label": label,
                         }
                     )
