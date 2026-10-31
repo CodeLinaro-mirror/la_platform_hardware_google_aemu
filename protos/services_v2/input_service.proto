@@ -111,7 +111,8 @@ service InputService {
   //     exceeds `InputCapabilities.max_batch_duration_ms`, an event is missing its payload,
   //     `display_id` is negative/unknown/inactive, `pointer_id` is outside
   //     `[0, InputCapabilities.max_touch_point_count - 1]`, floating-point fields are non-finite
-  //     (`NaN`/`Inf`), or `KeyEvent.key_identifier` or `AxisEvent.axis` is unset/unrecognized.
+  //     (`NaN`/`Inf`), `KeyEvent.key_identifier` or `AxisEvent.axis` is unset/unrecognized, or
+  //     `TextEvent.text` contains a character other than printable ASCII, `\n`, or `\t`.
   //   - FAILED_PRECONDITION: An event uses an input capability absent from
   //     `InputCapabilities.supported_features`, or `POINTER_ACTION_DOWN` targets a
   //     `(display_id, pointer_id)` already held in the caller's session (`POINTER_ACTION_MOVE`,
@@ -143,8 +144,9 @@ service InputService {
   //
   // Expected gRPC status codes:
   //   - INVALID_ARGUMENT: Negative `timestamp_nanos`, missing `event` payload, invalid/inactive
-  //     `display_id`, out-of-range `pointer_id`, non-finite float fields, or unset/unrecognized
-  //     `KeyEvent.key_identifier` or `AxisEvent.axis`.
+  //     `display_id`, out-of-range `pointer_id`, non-finite float fields, unset/unrecognized
+  //     `KeyEvent.key_identifier` or `AxisEvent.axis`, or a `TextEvent.text` character other than
+  //     printable ASCII, `\n`, or `\t`.
   //   - FAILED_PRECONDITION: Event uses a capability absent from
   //     `InputCapabilities.supported_features`, or `POINTER_ACTION_DOWN` targets a pointer already
   //     held in this stream's session.
@@ -335,7 +337,7 @@ message InputEvent {
     KeyEvent key = 3;
     // Rotary dial, automotive knob, or steering wheel axis event.
     AxisEvent axis = 4;
-    // ASCII-only text typed as synthesized key presses (other characters are dropped).
+    // Printable ASCII, `\n`, and `\t` typed as key presses; any other character rejects the event.
     TextEvent text = 5;
   }
 }
@@ -525,18 +527,21 @@ message AxisEvent {
 //
 // Requires `INPUT_FEATURE_KEYBOARD`.
 //
-// ASCII ONLY: Only printable ASCII characters (`[0x20, 0x7f)`), `\n` (Enter), and `\t` (Tab) are
-// supported. Every other character, including non-ASCII UTF-8 code points (such as `é`, `€`, CJK
-// characters, or emoji) and other control characters (such as `\r` and `\b`), is dropped: it
-// produces no key presses and no error, while the remaining characters are still typed.
+// ASCII ONLY: `text` may contain only printable ASCII characters (`[0x20, 0x7f)`), `\n` (Enter),
+// and `\t` (Tab). Any other character, including non-ASCII UTF-8 code points (such as `é`, `€`,
+// CJK characters, or emoji) and other control characters (such as `\r` and `\b`), rejects the
+// whole event, so no part of its text is typed. `SendInputEvents` and `StreamInputEvents` fail
+// with `INVALID_ARGUMENT`, naming the first such character and its index. The WebRTC `"input_v2"`
+// data channel cannot report errors, so it drops the event. Convert Windows `\r\n` line endings
+// to `\n` before sending.
 //
 // This is key-event synthesis rather than a direct Android `InputConnection` IME commit: each
 // character is produced by US English (QWERTY) key presses, with Shift pressed as needed, so the
 // characters appear as intended only while the guest's physical keyboard layout is English (US),
 // the emulator default.
 message TextEvent {
-  // Text to type. Only printable ASCII characters, `\n`, and `\t` are typed; all other characters
-  // are dropped.
+  // Text to type: printable ASCII characters, `\n`, and `\t` only. Any other character rejects the
+  // event (see `TextEvent`).
   string text = 1;
 }
 
