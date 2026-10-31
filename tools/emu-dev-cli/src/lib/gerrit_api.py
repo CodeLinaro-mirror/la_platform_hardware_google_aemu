@@ -95,6 +95,11 @@ class GerritCommentMessage:
     unresolved: bool
     is_ai: bool = False
     commit_id: str = ""
+    is_robot: bool = False
+    robot_id: str = ""
+    robot_run_id: str = ""
+    url: str = ""
+    fix_suggestions: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -114,6 +119,11 @@ class GerritCommentThread:
     author_name: str
     author_email: str
     updated: str
+    is_robot: bool = False
+    robot_id: str = ""
+    robot_run_id: str = ""
+    url: str = ""
+    fix_suggestions: list[dict[str, Any]] = field(default_factory=list)
     messages: list[GerritCommentMessage] = field(default_factory=list)
 
     @property
@@ -654,16 +664,21 @@ class GerritClient:
         change_id: str,
         file_path: str,
         revision: str = "current",
+        decode_utf8: bool = True,
+        parent: bool = False,
     ) -> str:
-        """Fetches and decodes the raw text content of a file in a Gerrit change revision."""
+        """Fetches and decodes the raw text content or returns base64 for a file in a Gerrit change revision."""
         encoded_id = urllib.parse.quote(str(change_id), safe="")
         encoded_rev = urllib.parse.quote(str(revision), safe="")
         encoded_file = urllib.parse.quote(str(file_path).lstrip("/"), safe="")
-        path = f"/a/changes/{encoded_id}/revisions/{encoded_rev}/files/{encoded_file}/content"
+        query = "?parent=1" if parent else ""
+        path = f"/a/changes/{encoded_id}/revisions/{encoded_rev}/files/{encoded_file}/content{query}"
         raw_b64 = self._request_raw(path)
         stripped = raw_b64.strip()
         if not stripped:
             return ""
+        if not decode_utf8:
+            return stripped
         try:
             return base64.b64decode(stripped).decode("utf-8", errors="replace")
         except Exception:
@@ -744,6 +759,94 @@ class GerritClient:
                 f"on '{self.host}'. Verify that the CL exists and run `gcert` before retrying."
             )
         return data
+
+    def get_included_in(
+        self,
+        change_id: str | int,
+    ) -> dict[str, Any]:
+        """Retrieves the branches and tags in which a change is included via `GET /changes/{id}/in`."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        endpoint = f"/changes/{encoded_id}/in"
+        res = self._request_json(endpoint, method="GET")
+        if not isinstance(res, dict):
+            return {"branches": [], "tags": [], "external": {}}
+        return {
+            "branches": list(res.get("branches") or []),
+            "tags": list(res.get("tags") or []),
+            "external": dict(res.get("external") or {}),
+        }
+
+    def get_change_edit(
+        self,
+        change_id: str | int,
+    ) -> dict[str, Any] | None:
+        """Retrieves active change edit details via `GET /changes/{id}/edit`, or None if no edit exists."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        endpoint = f"/changes/{encoded_id}/edit"
+        try:
+            res = self._request_json(endpoint, method="GET")
+            return res if isinstance(res, dict) and res else None
+        except Exception:
+            return None
+
+    def save_change_edit_file(
+        self,
+        change_id: str | int,
+        file_path: str,
+        content: str | bytes,
+    ) -> dict[str, Any]:
+        """Saves file content to a change edit via `PUT /changes/{id}/edit/{file_path}`."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        encoded_file = urllib.parse.quote(file_path.strip(), safe="")
+        endpoint = f"/a/changes/{encoded_id}/edit/{encoded_file}"
+        if isinstance(content, str):
+            content_bytes = content.encode("utf-8")
+        else:
+            content_bytes = content
+        b64_content = base64.b64encode(content_bytes).decode("ascii")
+        payload = {"binary_content": b64_content}
+        raw_res = self._request_raw(endpoint, method="PUT", data=payload)
+        return {
+            "status": "ok",
+            "change_id": str(change_id),
+            "file_path": file_path,
+            "bytes": len(content_bytes),
+            "response": raw_res,
+        }
+
+    def publish_change_edit(
+        self,
+        change_id: str | int,
+        *,
+        notify: str = "OWNER",
+    ) -> dict[str, Any]:
+        """Publishes the change edit as a new patchset via `POST /changes/{id}/edit:publish` with mandatory notify: OWNER."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        endpoint = f"/a/changes/{encoded_id}/edit:publish"
+        payload = {"notify": notify or "OWNER"}
+        raw_res = self._request_raw(endpoint, method="POST", data=payload)
+        return {
+            "status": "ok",
+            "change_id": str(change_id),
+            "action": "publish_edit",
+            "notify": notify or "OWNER",
+            "response": raw_res,
+        }
+
+    def discard_change_edit(
+        self,
+        change_id: str | int,
+    ) -> dict[str, Any]:
+        """Discards the active change edit via `DELETE /changes/{id}/edit`."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        endpoint = f"/a/changes/{encoded_id}/edit"
+        raw_res = self._request_raw(endpoint, method="DELETE")
+        return {
+            "status": "ok",
+            "change_id": str(change_id),
+            "action": "discard_edit",
+            "response": raw_res,
+        }
 
     def get_comment_threads(
         self,
@@ -1052,6 +1155,24 @@ def _is_ai_comment(raw: dict[str, Any]) -> bool:
     ).lower()
 
 
+def _is_robot_comment(raw: dict[str, Any]) -> bool:
+    """Returns True if the raw comment originates from a robot/CI linter tool."""
+    if bool(raw.get("is_robot")):
+        return True
+    if bool(raw.get("robot_id")):
+        return True
+    tag = str(raw.get("tag", "")).lower()
+    if "autogenerated~" in tag or "robot" in tag or "presubmit" in tag:
+        return True
+    author = raw.get("author") or {}
+    name = str(author.get("name", "")).lower()
+    email = str(author.get("email", "")).lower()
+    for tok in ("robot", "treehugger", "automerger", "-presubmit", "crystalball", "tricorder", "clang-tidy"):
+        if tok in name or tok in email:
+            return True
+    return bool(raw.get("fix_suggestions"))
+
+
 def _build_threads_for_file(
     file_path: str,
     raw_comments: list[dict[str, Any]],
@@ -1117,10 +1238,29 @@ def _build_threads_for_file(
 
         msg_items: list[GerritCommentMessage] = []
         any_ai = False
+        any_robot = False
+        root_robot_id = str(root_obj.get("robot_id") or leaf_obj.get("robot_id") or "")
+        root_robot_run = str(root_obj.get("robot_run_id") or leaf_obj.get("robot_run_id") or "")
+        root_url = str(root_obj.get("url") or leaf_obj.get("url") or "")
+        root_fix_suggestions = root_obj.get("fix_suggestions") or leaf_obj.get("fix_suggestions") or []
         for item in chain_objs:
             author = item.get("author") or {}
             item_ai = _is_ai_comment(item)
+            item_robot = _is_robot_comment(item)
             any_ai = any_ai or item_ai
+            any_robot = any_robot or item_robot
+            item_robot_id = str(item.get("robot_id") or "")
+            item_robot_run_id = str(item.get("robot_run_id") or "")
+            item_url = str(item.get("url") or "")
+            item_fix_suggs = item.get("fix_suggestions") or []
+            if item_robot and not root_robot_id:
+                root_robot_id = item_robot_id or str(author.get("name") or "Robot")
+            if item_robot and not root_robot_run:
+                root_robot_run = item_robot_run_id
+            if item_robot and not root_url:
+                root_url = item_url
+            if item_fix_suggs and not root_fix_suggestions:
+                root_fix_suggestions = item_fix_suggs
             msg_items.append(
                 GerritCommentMessage(
                     comment_id=str(item.get("id", "")),
@@ -1132,6 +1272,11 @@ def _build_threads_for_file(
                     unresolved=bool(item.get("unresolved", False)),
                     is_ai=item_ai,
                     commit_id=str(item.get("commit_id", "")),
+                    is_robot=item_robot,
+                    robot_id=item_robot_id or (root_robot_id if item_robot else ""),
+                    robot_run_id=item_robot_run_id or (root_robot_run if item_robot else ""),
+                    url=item_url or (root_url if item_robot else ""),
+                    fix_suggestions=item_fix_suggs if isinstance(item_fix_suggs, list) else [],
                 )
             )
 
@@ -1153,6 +1298,11 @@ def _build_threads_for_file(
                 ),
                 author_email=str(root_author.get("email") or ""),
                 updated=str(leaf_obj.get("updated") or root_obj.get("updated") or ""),
+                is_robot=any_robot,
+                robot_id=root_robot_id or (str(root_author.get("name") or "Robot") if any_robot else ""),
+                robot_run_id=root_robot_run,
+                url=root_url,
+                fix_suggestions=root_fix_suggestions if isinstance(root_fix_suggestions, list) else [],
                 messages=msg_items,
             )
         )

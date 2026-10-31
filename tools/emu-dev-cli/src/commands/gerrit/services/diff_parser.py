@@ -19,6 +19,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -518,6 +519,49 @@ def extract_commit_message_from_patch(raw_diff: str) -> str:
 
 
 
+IMAGE_MIME_TYPES_BY_EXT: dict[str, str] = {
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+    ".bmp": "image/bmp",
+    ".avif": "image/avif",
+    ".tiff": "image/tiff",
+    ".tif": "image/tiff",
+}
+
+IMAGE_FILE_EXTENSIONS: frozenset[str] = frozenset(IMAGE_MIME_TYPES_BY_EXT)
+
+BINARY_FILE_EXTENSIONS: frozenset[str] = frozenset({
+    ".pdf", ".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar",
+    ".jar", ".apk", ".aab", ".aar", ".dex", ".class", ".pyc",
+    ".so", ".dll", ".dylib", ".exe", ".bin", ".dat", ".o", ".a", ".lib",
+    ".wasm", ".ttf", ".otf", ".woff", ".woff2",
+    ".mp3", ".mp4", ".wav", ".ogg", ".webm", ".mov", ".avi",
+    ".pb", ".sqlite", ".db",
+})
+
+INCLUDED_IN_CACHE_TTL_SEC = 60.0
+
+
+def is_image_path(path: str) -> bool:
+    ext = os.path.splitext(str(path).strip().lower())[1]
+    return ext in IMAGE_FILE_EXTENSIONS
+
+
+def is_binary_path(path: str) -> bool:
+    ext = os.path.splitext(str(path).strip().lower())[1]
+    return ext in BINARY_FILE_EXTENSIONS or ext in IMAGE_FILE_EXTENSIONS
+
+
+def get_image_mime_type(file_path: str) -> str:
+    ext = os.path.splitext(str(file_path).strip().lower())[1]
+    return IMAGE_MIME_TYPES_BY_EXT.get(ext, "application/octet-stream")
+
+
 def parse_unified_diff_files(
     raw_diff: str,
     max_lines_per_file: int = DEFAULT_MAX_DIFF_LINES_PER_FILE,
@@ -531,13 +575,16 @@ def parse_unified_diff_files(
 
     for line in raw_diff.splitlines():
         if line.startswith("diff --git "):
+            raw_path = _extract_diff_git_path(line)
             current_file = {
-                "file": _extract_diff_git_path(line),
+                "file": raw_path,
                 "lines": [],
                 "additions": 0,
                 "deletions": 0,
                 "truncated": False,
                 "status": "M",
+                "is_binary": is_binary_path(raw_path),
+                "is_image": is_image_path(raw_path),
             }
             files.append(current_file)
             continue
@@ -547,6 +594,8 @@ def parse_unified_diff_files(
             cand = unquote_git_diff_path(line[4:])
             if cand and cand != "/dev/null":
                 current_file["file"] = cand
+                current_file["is_binary"] = is_binary_path(cand)
+                current_file["is_image"] = is_image_path(cand)
             elif cand == "/dev/null":
                 current_file["status"] = "D"
             continue
@@ -569,6 +618,10 @@ def parse_unified_diff_files(
         if line.startswith("index "):
             continue
         if line.startswith(("rename from ", "similarity index ", "Binary files ")):
+            if line.startswith("Binary files "):
+                current_file["is_binary"] = True
+                if is_image_path(current_file["file"]):
+                    current_file["is_image"] = True
             if len(current_file["lines"]) < max_lines_per_file:
                 current_file["lines"].append({"type": "hunk", "old": "", "new": "", "text": line})
             continue
@@ -598,11 +651,18 @@ def parse_unified_diff_files(
             old_ln += 1
             new_ln += 1
 
-    if owner_approvals is not None:
-        for f in files:
-            fpath = f.get("file", "")
-            if fpath in owner_approvals:
-                f["owner_status"] = owner_approvals[fpath]
+    for f in files:
+        fpath = f.get("file", "")
+        if is_image_path(fpath):
+            f["is_image"] = True
+            f["is_binary"] = True
+        elif is_binary_path(fpath):
+            f["is_binary"] = True
+        else:
+            f.setdefault("is_binary", False)
+            f.setdefault("is_image", False)
+        if owner_approvals is not None and fpath in owner_approvals:
+            f["owner_status"] = owner_approvals[fpath]
 
     return files
 
@@ -742,6 +802,7 @@ class GerritServiceBase:
         self._diff_revision_cache: dict[tuple[str, str], dict[str, Any]] = {}
         self._full_diff_bundle_cache: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
         self._file_content_cache: dict[tuple[str, str, str], tuple[float, dict[str, Any]]] = {}
+        self._included_in_cache: dict[str, tuple[float, dict[str, Any]]] = {}
         self._last_prewarm_by_viewer: dict[str, float] = {}
         self._prewarm_in_progress = False
         self._qa_lock = threading.Lock()
@@ -795,6 +856,8 @@ class GerritServiceBase:
             stale_keys = [k for k in self._full_diff_bundle_cache if k[0] in target_ids]
             for key in stale_keys:
                 self._full_diff_bundle_cache.pop(key, None)
+            for cid in target_ids:
+                self._included_in_cache.pop(cid, None)
 
     def _record_known_revisions(self, raw_changes: list[dict[str, Any]]) -> None:
         """Records `(current_revision, patch_set)` per CL number to accelerate diff bundle fetches."""
@@ -897,7 +960,7 @@ class GerritDiffService(GerritServiceBase):
 
         with ThreadPoolExecutor(max_workers=DIFF_BUNDLE_SUBTASK_WORKERS) as pool:
             threads_fut = pool.submit(
-                lambda: [t.to_dict() for t in self.client.get_comment_threads(cl_id, include_resolved=False)]
+                lambda: [t.to_dict() for t in self.client.get_comment_threads(cl_id, include_resolved=True)]
             )
             qa_fut = pool.submit(self.get_code_questions, [cl_id])
             if cached_rev_data is not None:
@@ -989,6 +1052,7 @@ class GerritDiffService(GerritServiceBase):
             "is_pure_rebase": rev_data["is_pure_rebase"],
             "files": rev_data["files"],
             "unresolved_threads": threads,
+            "comment_threads": threads,
             "code_questions": code_questions,
         }
         with self._session_lock:
@@ -1011,25 +1075,44 @@ class GerritDiffService(GerritServiceBase):
         cl_number: str | int,
         file_path: str,
         patch_set: str | int | None = None,
+        parent: bool = False,
     ) -> dict[str, Any]:
-        """Fetches raw file content and split lines for a file in a Gerrit change revision."""
+        """Fetches raw file content, split lines, or base64 data for a file in a Gerrit change revision."""
         cl_id = str(cl_number).strip()
         path_clean = str(file_path).strip().lstrip("/")
         known_rev, known_ps = self._get_known_revision(cl_id)
         target_ps_str = str(patch_set).strip() if patch_set is not None else ""
-        target_rev = target_ps_str if target_ps_str and target_ps_str != "current" else (known_rev or "current")
-        target_ps_num = int(target_ps_str) if target_ps_str.isdigit() else (known_ps or 1)
+        is_parent = parent or (target_ps_str in ("0", "base", "parent"))
+        target_rev = target_ps_str if target_ps_str and target_ps_str not in ("0", "base", "parent", "current") else (known_rev or "current")
+        target_ps_num = int(target_ps_str) if (target_ps_str.isdigit() and target_ps_str != "0") else (known_ps or 1)
 
-        cache_key = (cl_id, str(target_rev), path_clean)
+        cache_key = (cl_id, str(target_rev), path_clean, is_parent)
         with self._session_lock:
             cached = self._file_content_cache.get(cache_key)
         if cached is not None and (time.monotonic() - cached[0]) < RAW_QUEUE_CACHE_TTL_SEC:
             return dict(cached[1])
 
+        is_img = is_image_path(path_clean)
+        is_bin = is_img or is_binary_path(path_clean)
+        raw_b64 = ""
+        content = ""
         try:
-            content = self.client.get_revision_file_content(cl_id, path_clean, revision=target_rev)
+            if is_img or is_bin:
+                raw_b64 = self.client.get_revision_file_content(
+                    cl_id, path_clean, revision=target_rev, decode_utf8=False, parent=is_parent
+                )
+                if not is_img:
+                    content = raw_b64
+            else:
+                content = self.client.get_revision_file_content(
+                    cl_id, path_clean, revision=target_rev, parent=is_parent
+                )
         except Exception:
+            raw_b64 = ""
             content = ""
+
+        mime_type = get_image_mime_type(path_clean) if is_img else "application/octet-stream"
+        data_url = f"data:{mime_type};base64,{raw_b64}" if (is_img and raw_b64) else ""
 
         res = {
             "status": "ok",
@@ -1037,7 +1120,13 @@ class GerritDiffService(GerritServiceBase):
             "patch_set": target_ps_num,
             "file": path_clean,
             "content": content,
-            "lines": content.splitlines(),
+            "lines": content.splitlines() if not is_img else [],
+            "is_image": is_img,
+            "is_binary": is_bin,
+            "mime_type": mime_type,
+            "b64_content": raw_b64,
+            "data_url": data_url,
+            "is_parent": is_parent,
         }
         with self._session_lock:
             if len(self._file_content_cache) >= DIFF_BUNDLE_CACHE_MAX_ENTRIES:

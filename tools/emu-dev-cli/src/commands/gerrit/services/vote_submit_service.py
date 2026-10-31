@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -1008,6 +1009,7 @@ class GerritVoteSubmitService(GerritServiceBase):
         self,
         cl_number: str | int,
         base: str | None = None,
+        allow_conflicts: bool = False,
         *,
         viewer_email: str | None = None,
     ) -> dict[str, Any]:
@@ -1018,6 +1020,8 @@ class GerritVoteSubmitService(GerritServiceBase):
         }
         if base and str(base).strip():
             payload["base"] = str(base).strip()
+        if allow_conflicts:
+            payload["allow_conflicts"] = True
 
         resp = self.client._request_json(
             f"/a/changes/{cl_id}/rebase",
@@ -1034,6 +1038,8 @@ class GerritVoteSubmitService(GerritServiceBase):
         return {
             "status": "ok",
             "cl": cl_id,
+            "base": base,
+            "allow_conflicts": bool(allow_conflicts),
             "action": "rebase",
             "notify": OWNER_NOTIFY_HANDLING,
             "response": resp,
@@ -1119,6 +1125,8 @@ class GerritVoteSubmitService(GerritServiceBase):
         message: str = "",
         base: str | None = None,
         revision: str | None = None,
+        allow_conflicts: bool = False,
+        keep_reviewers: bool = False,
         *,
         viewer_email: str | None = None,
     ) -> dict[str, Any]:
@@ -1137,6 +1145,10 @@ class GerritVoteSubmitService(GerritServiceBase):
             payload["message"] = str(message).strip()
         if base and str(base).strip():
             payload["base"] = str(base).strip()
+        if allow_conflicts:
+            payload["allow_conflicts"] = True
+        if keep_reviewers:
+            payload["keep_reviewers"] = True
 
         resp = self.client._request_json(
             f"/a/changes/{cl_id}/revisions/{rev_id}/cherrypick",
@@ -1152,9 +1164,235 @@ class GerritVoteSubmitService(GerritServiceBase):
             "status": "ok",
             "cl": cl_id,
             "destination": dest_clean,
+            "allow_conflicts": bool(allow_conflicts),
+            "keep_reviewers": bool(keep_reviewers),
             "action": "cherry_pick",
             "notify": OWNER_NOTIFY_HANDLING,
             "response": resp,
             "new_change": resp,
             "new_cl": new_cl_id,
         }
+
+    def create_follow_up_change(
+        self,
+        cl_number: str | int,
+        branch: str,
+        subject: str,
+        base_change: str | None = None,
+        topic: str | None = None,
+        is_private: bool = False,
+        work_in_progress: bool = False,
+        *,
+        viewer_email: str | None = None,
+    ) -> dict[str, Any]:
+        """Creates a follow-up change stacked on `cl_number` via Gerrit REST API with mandatory `notify: OWNER`."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        branch_clean = str(branch or "").strip()
+        if not branch_clean:
+            raise ValueError(f"Follow-up destination branch cannot be empty for change ag/{cl_id}.")
+        subject_clean = str(subject or "").strip()
+        if not subject_clean:
+            raise ValueError(f"Follow-up commit subject/message cannot be empty for change ag/{cl_id}.")
+
+        project = ""
+        try:
+            detail = self.client.get_change_detail(cl_id)
+            if isinstance(detail, dict):
+                project = str(detail.get("project") or "").strip()
+        except Exception:
+            project = ""
+
+        payload: dict[str, Any] = {
+            "branch": branch_clean,
+            "subject": subject_clean,
+            "notify": OWNER_NOTIFY_HANDLING,
+        }
+        if project:
+            payload["project"] = project
+        base_clean = str(base_change if base_change is not None else cl_id).strip()
+        if base_clean:
+            if base_clean.startswith("ag/"):
+                base_clean = base_clean[3:]
+            payload["base_change"] = base_clean
+        if topic and str(topic).strip():
+            payload["topic"] = str(topic).strip()
+        if is_private:
+            payload["is_private"] = True
+        if work_in_progress:
+            payload["work_in_progress"] = True
+
+        resp = self.client._request_json(
+            "/a/changes/",
+            method="POST",
+            data=payload,
+        )
+        self._invalidate_cl_caches([cl_id])
+        new_cl_id = None
+        new_cl_num = None
+        if isinstance(resp, dict):
+            new_cl_id = resp.get("change_id") or resp.get("id")
+            new_cl_num = resp.get("_number")
+
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "branch": branch_clean,
+            "subject": subject_clean,
+            "action": "follow_up",
+            "notify": OWNER_NOTIFY_HANDLING,
+            "response": resp,
+            "new_change": resp,
+            "new_cl": new_cl_num or new_cl_id,
+            "new_cl_number": new_cl_num,
+            "new_change_id": new_cl_id,
+        }
+
+    def get_included_in(
+        self,
+        cl_number: str | int,
+        *,
+        force_refresh: bool = False,
+    ) -> dict[str, Any]:
+        """Retrieves branches and tags in which `cl_number` is included, with TTL caching."""
+        from commands.gerrit.services.diff_parser import (
+            DIFF_BUNDLE_CACHE_MAX_ENTRIES,
+            INCLUDED_IN_CACHE_TTL_SEC,
+        )
+
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        cache_key = str(cl_id)
+        now = time.monotonic()
+        with self._session_lock:
+            cache = getattr(self, "_included_in_cache", None)
+            if cache is None:
+                cache = {}
+                self._included_in_cache = cache
+            cached_entry = None if force_refresh else cache.get(cache_key)
+        if cached_entry is not None and (now - cached_entry[0]) < INCLUDED_IN_CACHE_TTL_SEC:
+            return dict(cached_entry[1])
+
+        change_status = ""
+        subject = ""
+        try:
+            detail = self.client.get_change_detail(cl_id)
+            if isinstance(detail, dict):
+                change_status = str(detail.get("status") or "")
+                subject = str(detail.get("subject") or "")
+        except Exception:
+            pass
+
+        try:
+            res = self.client.get_included_in(cl_id)
+            branches = list(res.get("branches") or [])
+            tags = list(res.get("tags") or [])
+            external = dict(res.get("external") or {})
+            result: dict[str, Any] = {
+                "status": "ok",
+                "cl": cl_id,
+                "change_status": change_status,
+                "subject": subject,
+                "branches": branches,
+                "tags": tags,
+                "external": external,
+            }
+            with self._session_lock:
+                if len(self._included_in_cache) >= DIFF_BUNDLE_CACHE_MAX_ENTRIES:
+                    self._included_in_cache.pop(next(iter(self._included_in_cache)), None)
+                self._included_in_cache[cache_key] = (time.monotonic(), result)
+            return dict(result)
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Failed to fetch included-in for ag/%s: %s", cl_id, exc)
+            return {
+                "status": "error",
+                "cl": cl_id,
+                "change_status": change_status,
+                "subject": subject,
+                "branches": [],
+                "tags": [],
+                "external": {},
+                "error": str(exc),
+            }
+
+    def get_change_edit(
+        self,
+        cl_number: str | int,
+    ) -> dict[str, Any]:
+        """Checks if a change edit exists for `cl_number` via Gerrit REST API."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        try:
+            edit = self.client.get_change_edit(cl_id)
+            return {
+                "status": "ok",
+                "cl": cl_id,
+                "has_edit": bool(edit is not None),
+                "edit": edit or {},
+            }
+        except Exception as exc:
+            return {
+                "status": "ok",
+                "cl": cl_id,
+                "has_edit": False,
+                "edit": {},
+                "warning": str(exc),
+            }
+
+    def save_change_edit(
+        self,
+        cl_number: str | int,
+        file_path: str,
+        content: str,
+        *,
+        viewer_email: str | None = None,
+    ) -> dict[str, Any]:
+        """Saves file modifications to the Gerrit change edit for `cl_number`."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        file_clean = str(file_path or "").strip()
+        if not file_clean:
+            raise ValueError(f"File path cannot be empty for change ag/{cl_id} edit.")
+        res = self.client.save_change_edit_file(cl_id, file_clean, content)
+        self._invalidate_cl_caches([cl_id])
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "file_path": file_clean,
+            "bytes": len(content.encode("utf-8")),
+            "action": "save_edit",
+            "response": res,
+        }
+
+    def publish_change_edit(
+        self,
+        cl_number: str | int,
+        *,
+        notify: str = OWNER_NOTIFY_HANDLING,
+        viewer_email: str | None = None,
+    ) -> dict[str, Any]:
+        """Publishes the change edit as a new patchset via Gerrit REST API with mandatory `notify: OWNER`."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        res = self.client.publish_change_edit(cl_id, notify=notify or OWNER_NOTIFY_HANDLING)
+        self._invalidate_cl_caches([cl_id])
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "action": "publish_edit",
+            "notify": OWNER_NOTIFY_HANDLING,
+            "response": res,
+        }
+
+    def discard_change_edit(
+        self,
+        cl_number: str | int,
+        *,
+        viewer_email: str | None = None,
+    ) -> dict[str, Any]:
+        """Discards the active change edit for `cl_number`."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        res = self.client.discard_change_edit(cl_id)
+        self._invalidate_cl_caches([cl_id])
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "action": "discard_edit",
+            "response": res,
+        }
+

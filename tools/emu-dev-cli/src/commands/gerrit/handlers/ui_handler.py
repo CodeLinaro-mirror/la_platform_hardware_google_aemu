@@ -167,13 +167,18 @@ class _GerritRouteEndpoints:
         cl = req.query_str("cl", strip=True)
         file_path = req.query_str("file", strip=True)
         ps = req.query_opt_str("ps")
+        parent_val = req.query_opt_str("parent")
+        is_parent = parent_val in ("1", "true") or ps in ("0", "base", "parent")
         if not cl or not file_path:
             handler.send_json(
                 {"error": "Missing required 'cl' or 'file' query parameter"},
                 status=400,
             )
             return
-        res = self._service.fetch_file_content(cl, file_path, patch_set=ps)
+        if is_parent:
+            res = self._service.fetch_file_content(cl, file_path, patch_set=ps, parent=True)
+        else:
+            res = self._service.fetch_file_content(cl, file_path, patch_set=ps)
         res["ui_version"] = get_gerrit_ui_template_version()
         handler.send_json(res)
 
@@ -216,6 +221,59 @@ class _GerritRouteEndpoints:
                 force_refresh=req.query_flag("refresh"),
             )
         )
+
+    def post_checks_rerun(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        cl_num = str(body.get("cl", "")).strip()
+        if not cl_num:
+            handler.send_json(
+                {"ok": False, "error": "Missing required `cl` parameter for checks rerun."},
+                status=400,
+            )
+            return
+        raw_targets = body.get("targets")
+        if isinstance(raw_targets, str):
+            targets = [t.strip() for t in raw_targets.split(",") if t.strip()]
+        elif isinstance(raw_targets, list):
+            targets = [str(t).strip() for t in raw_targets if str(t).strip()]
+        else:
+            single = str(body.get("target") or "").strip()
+            targets = [single] if single else []
+
+        res = self._service.rerun_presubmit_checks(
+            cl_number=cl_num,
+            targets=targets,
+            patchset=req.body_int("ps", "patchset"),
+            reason=str(body.get("reason", "")).strip(),
+            bypass_cache=bool(body.get("bypass_cache", False)),
+            stage_presubmit_ready=bool(body.get("stage_presubmit_ready", True)),
+        )
+        handler.send_json(res, status=200 if res.get("ok", True) else 400)
+
+    def get_included_in(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        cl_num = req.query_str("cl", strip=True)
+        if not cl_num:
+            handler.send_json(
+                {"error": "Missing required `cl` query parameter for `/api/gerrit/included-in`."},
+                status=400,
+            )
+            return
+        force_refresh = req.query_flag("refresh", "force")
+        res = self._service.get_included_in(cl_num, force_refresh=force_refresh)
+        res["ui_version"] = get_gerrit_ui_template_version()
+        handler.send_json(res)
+
+    def get_change_edit(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        cl_num = req.query_str("cl", strip=True)
+        if not cl_num:
+            handler.send_json(
+                {"error": "Missing required `cl` query parameter for `/api/gerrit/edit`."},
+                status=400,
+            )
+            return
+        res = self._service.get_change_edit(cl_num)
+        res["ui_version"] = get_gerrit_ui_template_version()
+        handler.send_json(res)
 
     def get_ai_analysis(self, handler: JsonRequestHandler, req: WebRequest) -> None:
         cl_num = req.query_str("cl", strip=True)
@@ -264,13 +322,14 @@ class _GerritRouteEndpoints:
 
     def post_rebase(self, handler: JsonRequestHandler, req: WebRequest) -> None:
         body = req.body
-        handler.send_json(
-            self._service.rebase_change(
-                cl_number=body.get("cl", ""),
-                base=req.body_opt_str("base"),
-                viewer_email=req.body_opt_str("viewer"),
-            )
-        )
+        kwargs: dict[str, Any] = {
+            "cl_number": body.get("cl", ""),
+            "base": req.body_opt_str("base"),
+            "viewer_email": req.body_opt_str("viewer"),
+        }
+        if "allow_conflicts" in body:
+            kwargs["allow_conflicts"] = _coerce_vote_flag(body.get("allow_conflicts", False))
+        handler.send_json(self._service.rebase_change(**kwargs))
 
     def post_abandon(self, handler: JsonRequestHandler, req: WebRequest) -> None:
         body = req.body
@@ -301,13 +360,106 @@ class _GerritRouteEndpoints:
                 status=400,
             )
             return
+        kwargs: dict[str, Any] = {
+            "cl_number": body.get("cl", ""),
+            "destination": dest,
+            "message": str(body.get("message") or ""),
+            "base": req.body_opt_str("base"),
+            "revision": req.body_opt_str("revision"),
+            "viewer_email": req.body_opt_str("viewer"),
+        }
+        if "allow_conflicts" in body:
+            kwargs["allow_conflicts"] = _coerce_vote_flag(body.get("allow_conflicts", False))
+        if "keep_reviewers" in body:
+            kwargs["keep_reviewers"] = bool(body.get("keep_reviewers", False))
+        handler.send_json(self._service.cherry_pick_change(**kwargs))
+
+    def post_follow_up(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        branch = req.body_str("branch", "destination", strip=True)
+        if not branch:
+            handler.send_json(
+                {"status": "error", "error": "Destination branch is required for follow-up change."},
+                status=400,
+            )
+            return
+        subject = req.body_str("subject", "message", strip=True)
+        if not subject:
+            handler.send_json(
+                {"status": "error", "error": "Subject / commit message is required for follow-up change."},
+                status=400,
+            )
+            return
         handler.send_json(
-            self._service.cherry_pick_change(
+            self._service.create_follow_up_change(
                 cl_number=body.get("cl", ""),
-                destination=dest,
-                message=str(body.get("message") or ""),
-                base=req.body_opt_str("base"),
-                revision=req.body_opt_str("revision"),
+                branch=branch,
+                subject=subject,
+                base_change=req.body_opt_str("base_change", "base"),
+                topic=req.body_opt_str("topic"),
+                is_private=bool(body.get("is_private") or body.get("private")),
+                work_in_progress=bool(body.get("work_in_progress") or body.get("wip")),
+                viewer_email=req.body_opt_str("viewer"),
+            )
+        )
+
+    def post_save_change_edit(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        cl_num = req.body_str("cl", strip=True)
+        if not cl_num:
+            handler.send_json(
+                {"status": "error", "error": "CL number is required for saving change edit."},
+                status=400,
+            )
+            return
+        file_path = req.body_str("file", "file_path", strip=True)
+        if not file_path:
+            handler.send_json(
+                {"status": "error", "error": "File path is required for saving change edit."},
+                status=400,
+            )
+            return
+        content = body.get("content", "")
+        if not isinstance(content, str):
+            content = str(content or "")
+        handler.send_json(
+            self._service.save_change_edit(
+                cl_number=cl_num,
+                file_path=file_path,
+                content=content,
+                viewer_email=req.body_opt_str("viewer"),
+            )
+        )
+
+    def post_publish_change_edit(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        cl_num = req.body_str("cl", strip=True)
+        if not cl_num:
+            handler.send_json(
+                {"status": "error", "error": "CL number is required for publishing change edit."},
+                status=400,
+            )
+            return
+        handler.send_json(
+            self._service.publish_change_edit(
+                cl_number=cl_num,
+                notify=req.body_opt_str("notify") or "OWNER",
+                viewer_email=req.body_opt_str("viewer"),
+            )
+        )
+
+    def post_discard_change_edit(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        cl_num = req.body_str("cl", strip=True)
+        if not cl_num:
+            handler.send_json(
+                {"status": "error", "error": "CL number is required for discarding change edit."},
+                status=400,
+            )
+            return
+        handler.send_json(
+            self._service.discard_change_edit(
+                cl_number=cl_num,
                 viewer_email=req.body_opt_str("viewer"),
             )
         )
@@ -466,15 +618,22 @@ def _build_gerrit_router(service: Any, agent_proxy: AgentProxy) -> Router:
     router.add_get("/api/gerrit/code-questions", endpoints.get_code_questions)
     router.add_get("/api/gerrit/suggest-reviewers", endpoints.get_suggest_reviewers)
     router.add_get("/api/gerrit/presubmit-targets", endpoints.get_presubmit_targets)
+    router.add_get(["/api/gerrit/included-in", "/api/gerrit/included_in"], endpoints.get_included_in)
+    router.add_get(["/api/gerrit/edit", "/api/gerrit/change-edit"], endpoints.get_change_edit)
     router.add_get("/api/gerrit/ai-analysis", endpoints.get_ai_analysis)
     router.add_get("/api/gerrit/update-status", endpoints.get_update_status)
 
     router.add_post("/api/gerrit/vote", endpoints.post_vote)
+    router.add_post(["/api/gerrit/checks/rerun", "/api/gerrit/checks-rerun"], endpoints.post_checks_rerun)
     router.add_post("/api/gerrit/submit", endpoints.post_submit)
     router.add_post("/api/gerrit/rebase", endpoints.post_rebase)
     router.add_post("/api/gerrit/abandon", endpoints.post_abandon)
     router.add_post("/api/gerrit/restore", endpoints.post_restore)
     router.add_post(["/api/gerrit/cherry_pick", "/api/gerrit/cherry-pick"], endpoints.post_cherry_pick)
+    router.add_post(["/api/gerrit/follow_up", "/api/gerrit/follow-up", "/api/gerrit/create_change"], endpoints.post_follow_up)
+    router.add_post(["/api/gerrit/edit-file", "/api/gerrit/save-edit"], endpoints.post_save_change_edit)
+    router.add_post("/api/gerrit/publish-edit", endpoints.post_publish_change_edit)
+    router.add_post("/api/gerrit/discard-edit", endpoints.post_discard_change_edit)
     router.add_post("/api/gerrit/assign-reviewer", endpoints.post_assign_reviewer)
     router.add_post("/api/gerrit/reviewer", endpoints.post_reviewer)
     router.add_post("/api/gerrit/attention", endpoints.post_attention)

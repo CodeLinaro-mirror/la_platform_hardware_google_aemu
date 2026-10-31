@@ -240,6 +240,175 @@ def is_cc_reviewer(change: dict[str, Any], viewer_email: str) -> bool:
     return any((r.get("email") or "").strip().lower() == viewer for r in cc_entries)
 
 
+_ATTENTION_TRANSITION_RE = re.compile(
+    r"(Added to|Removed from) attention set:\s*([^\n\r]+)"
+)
+_ANGLE_EMAIL_RE = re.compile(r"<([^>]+)>")
+_REASON_HEADER_PREFIXES: tuple[str, ...] = (
+    "Patch Set",
+    "Added to",
+    "Removed from",
+)
+
+
+def _format_attention_relative_date(date_str: str, now_dt: datetime) -> str:
+    """Formats a Gerrit timestamp string into a relative age display label."""
+    parsed_dt = parse_gerrit_timestamp(date_str)
+    if not parsed_dt:
+        return "recently"
+    hours = max(0.0, (now_dt - parsed_dt).total_seconds() / 3600.0)
+    relative = format_relative_age(hours).removesuffix(" ago") + " ago"
+    return relative or "recently"
+
+
+def _format_account_actor(account: Any, fallback_name: str) -> tuple[str, str]:
+    """Returns `(actor_email, actor_name)` for a Gerrit account dictionary."""
+    acct = account if isinstance(account, dict) else {}
+    actor_email = (acct.get("email") or "").strip().lower()
+    email_short = actor_email.split("@")[0] if actor_email else ""
+    actor_name = (
+        acct.get("name") or acct.get("username") or email_short or fallback_name
+    ).strip()
+    return actor_email, actor_name
+
+
+def _parse_attention_target(target_raw: str) -> tuple[str, str]:
+    """Parses a Gerrit message attention target string into `(email, display_name)`."""
+    em_match = _ANGLE_EMAIL_RE.search(target_raw)
+    if em_match:
+        target_email = em_match.group(1).strip().lower()
+        target_name = target_raw[: em_match.start()].strip() or target_email
+        return target_email, target_name
+    if "@" in target_raw:
+        target_email = target_raw.lower()
+        return target_email, target_email.split("@")[0]
+    return "", target_raw
+
+
+def _extract_transition_reason(
+    raw_text: str, start_pos: int, end_pos: int, op: str
+) -> str:
+    """Extracts human-readable reason text following an attention set transition line."""
+    snippet = raw_text[start_pos:end_pos].strip()
+    if snippet and not snippet.startswith(_REASON_HEADER_PREFIXES):
+        reason = snippet.split("\n\n")[0].strip()
+        if reason:
+            return reason
+    return "Added to attention set" if op == "add" else "Removed from attention set"
+
+
+def _extract_message_attention_transitions(
+    msg: dict[str, Any],
+    idx: int,
+    now_dt: datetime,
+    seen_keys: set[tuple[str, str, str]],
+) -> list[dict[str, Any]]:
+    """Extracts attention set transition entries from a single Gerrit change message."""
+    raw_text = str(msg.get("message") or "")
+    matches = list(_ATTENTION_TRANSITION_RE.finditer(raw_text))
+    if not matches:
+        return []
+
+    author_email, author_name = _format_account_actor(
+        msg.get("author"), "Gerrit Code Review"
+    )
+    date_str = str(msg.get("date") or "").strip()
+    ps_num = int(msg.get("_revision_number", 0) or 0)
+    msg_id = str(msg.get("id") or f"msg-{idx}")
+    relative_date = _format_attention_relative_date(date_str, now_dt)
+
+    entries: list[dict[str, Any]] = []
+    for m_idx, match in enumerate(matches):
+        op = "add" if match.group(1).startswith("Added") else "remove"
+        target_email, target_name = _parse_attention_target(match.group(2).strip())
+        dedup_key = (op, target_email or target_name.lower(), date_str)
+        if dedup_key in seen_keys:
+            continue
+        seen_keys.add(dedup_key)
+
+        end_pos = matches[m_idx + 1].start() if m_idx + 1 < len(matches) else len(raw_text)
+        entries.append(
+            {
+                "id": f"{msg_id}-{m_idx}",
+                "account_id": 0,
+                "email": target_email,
+                "name": target_name,
+                "operation": op,
+                "actor_name": author_name,
+                "actor_email": author_email,
+                "reason": _extract_transition_reason(raw_text, match.end(), end_pos, op),
+                "date": date_str,
+                "patch_set": ps_num,
+                "relative_date": relative_date,
+            }
+        )
+    return entries
+
+
+def _build_active_attention_entry(
+    acct_info: dict[str, Any],
+    patch_set: int,
+    now_dt: datetime,
+    seen_keys: set[tuple[str, str, str]],
+) -> dict[str, Any] | None:
+    """Builds an attention history entry for a currently active attention-set member."""
+    acct = acct_info.get("account") or {}
+    em = (acct.get("email") or "").strip().lower()
+    acct_id = acct.get("_account_id") or acct.get("account_id") or 0
+    name = (acct.get("name") or acct.get("display_name") or "").strip()
+    email_short = em.split("@")[0] if em else ""
+    short = (acct.get("username") or email_short or name or str(acct_id)).strip()
+    last_update = str(acct_info.get("last_update") or "").strip()
+
+    dedup_key = ("add", em or short.lower(), last_update)
+    if dedup_key in seen_keys:
+        return None
+    seen_keys.add(dedup_key)
+
+    actor_email, actor_name = _format_account_actor(
+        acct_info.get("reason_account"), "Gerrit"
+    )
+    reason = str(acct_info.get("reason") or "").strip() or "Attention requested"
+    return {
+        "id": f"current-{acct_id or em or short}",
+        "account_id": acct_id,
+        "email": em,
+        "name": name or short,
+        "operation": "add",
+        "actor_name": actor_name,
+        "actor_email": actor_email,
+        "reason": reason,
+        "date": last_update,
+        "patch_set": patch_set,
+        "relative_date": _format_attention_relative_date(last_update, now_dt),
+    }
+
+
+def _extract_attention_set_history(
+    change: dict[str, Any], now_dt: datetime
+) -> list[dict[str, Any]]:
+    """Extracts chronological attention set transitions for the PolyGerrit Attention Set Log."""
+    history: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str, str, str]] = set()
+
+    for idx, msg in enumerate(change.get("messages") or []):
+        if isinstance(msg, dict):
+            history.extend(
+                _extract_message_attention_transitions(msg, idx, now_dt, seen_keys)
+            )
+
+    current_ps = int(change.get("current_revision_number", 1) or 1)
+    for acct_info in (change.get("attention_set") or {}).values():
+        if not isinstance(acct_info, dict):
+            continue
+        entry = _build_active_attention_entry(acct_info, current_ps, now_dt, seen_keys)
+        if entry is not None:
+            history.append(entry)
+
+    history.sort(key=lambda x: str(x.get("date") or ""), reverse=True)
+    return history
+
+
 def _extract_attention_metadata(
     change: dict[str, Any], viewer_email: str, now_dt: datetime
 ) -> dict[str, Any]:
@@ -301,12 +470,15 @@ def _extract_attention_metadata(
     # Sort details: viewer first if present, then alphabetical by short/name
     attention_details.sort(key=lambda d: (0 if d["is_viewer"] else 1, d["short"].lower()))
 
+    history_entries = _extract_attention_set_history(change, now_dt)
+
     return {
         "attention_set_emails": sorted(attention_by_email.keys()),
         "viewer_in_attention_set": (viewer_entry is not None)
         or any(d["is_viewer"] for d in attention_details),
         "attention_waiting_display": waiting_display,
         "attention_set_details": attention_details,
+        "attention_set_history": history_entries,
     }
 
 
@@ -753,6 +925,16 @@ def _enrich_submit_requirements(
         failing_atoms = [str(a) for a in (expr_result.get("failing_atoms") or [])]
         desc = str(item.get("description") or "").strip()
 
+        app_res = item.get("applicability_expression_result") or {}
+        app_expr = str(app_res.get("expression") or item.get("applicability_expression") or "").strip()
+        app_passing = [str(a) for a in (app_res.get("passing_atoms") or [])]
+        app_failing = [str(a) for a in (app_res.get("failing_atoms") or [])]
+
+        ovr_res = item.get("override_expression_result") or {}
+        ovr_expr = str(ovr_res.get("expression") or item.get("override_expression") or "").strip()
+        ovr_passing = [str(a) for a in (ovr_res.get("passing_atoms") or [])]
+        ovr_failing = [str(a) for a in (ovr_res.get("failing_atoms") or [])]
+
         # Adjust Code-Review status if our 2-human approval rule requires more +2s or blocked by -2
         if name == "Code-Review":
             if has_negative_cr:
@@ -773,6 +955,12 @@ def _enrich_submit_requirements(
             "expression": expr,
             "passing_atoms": passing_atoms,
             "failing_atoms": failing_atoms,
+            "applicability_expression": app_expr,
+            "applicability_passing_atoms": app_passing,
+            "applicability_failing_atoms": app_failing,
+            "override_expression": ovr_expr,
+            "override_passing_atoms": ovr_passing,
+            "override_failing_atoms": ovr_failing,
         })
 
     # If Code-Review was not in raw submit_requirements, synthesize it
@@ -795,6 +983,12 @@ def _enrich_submit_requirements(
             "expression": cr_expr,
             "passing_atoms": cr_passing,
             "failing_atoms": cr_failing,
+            "applicability_expression": "",
+            "applicability_passing_atoms": [],
+            "applicability_failing_atoms": [],
+            "override_expression": "",
+            "override_passing_atoms": [],
+            "override_failing_atoms": [],
         })
         seen_names.add("Code-Review")
 
@@ -824,6 +1018,12 @@ def _enrich_submit_requirements(
             "expression": "label:Presubmit-Verified=+2",
             "passing_atoms": pv_passing,
             "failing_atoms": pv_failing,
+            "applicability_expression": "",
+            "applicability_passing_atoms": [],
+            "applicability_failing_atoms": [],
+            "override_expression": "",
+            "override_passing_atoms": [],
+            "override_failing_atoms": [],
         })
         seen_names.add("Presubmit-Verified")
 
@@ -858,6 +1058,12 @@ def _enrich_submit_requirements(
             "expression": "label:Verified=+1 AND -label:Verified=-1",
             "passing_atoms": v_pass,
             "failing_atoms": v_fail,
+            "applicability_expression": "",
+            "applicability_passing_atoms": [],
+            "applicability_failing_atoms": [],
+            "override_expression": "",
+            "override_passing_atoms": [],
+            "override_failing_atoms": [],
         })
         seen_names.add("Verified")
 
@@ -913,6 +1119,50 @@ def _enrich_change_messages(raw_messages: list[dict[str, Any]] | None) -> list[d
             }
         )
     return result
+
+
+def _extract_patchset_details(
+    change: dict[str, Any], all_patchsets: list[int]
+) -> list[dict[str, Any]]:
+    """Builds structured patchset metadata (description, uploader, timestamp, SHA) per patchset."""
+    revs_by_num = {
+        r["_number"]: r
+        for r in (change.get("revisions") or {}).values()
+        if isinstance(r, dict) and isinstance(r.get("_number"), int) and r["_number"] > 0
+    }
+    msg_desc_by_ps: dict[int, str] = {}
+    for msg in change.get("messages") or []:
+        if not isinstance(msg, dict):
+            continue
+        num_val = msg.get("_revision_number")
+        if not (isinstance(num_val, int) and num_val > 0 and num_val not in msg_desc_by_ps):
+            continue
+        raw_text = (msg.get("message") or "").strip()
+        if raw_text:
+            msg_desc_by_ps[num_val] = raw_text
+
+    patchset_details: list[dict[str, Any]] = []
+    for ps in all_patchsets:
+        r = revs_by_num.get(ps) or {}
+        r_commit = (r.get("commit") or {}) if isinstance(r, dict) else {}
+        desc = str(r.get("description") or "").strip()
+        if not desc and isinstance(r_commit, dict):
+            desc = str(r_commit.get("subject") or "").strip()
+        if not desc:
+            raw_msg = msg_desc_by_ps.get(ps, "")
+            if ("Uploaded patch set" in raw_msg or raw_msg.startswith("Patch Set ")) and ":" in raw_msg:
+                desc = raw_msg.split(":", 1)[1].strip().partition("\n")[0]
+
+        uploader_info = (r.get("uploader") or {}) if isinstance(r, dict) else {}
+        u_name = str(uploader_info.get("name") or uploader_info.get("email") or "").strip()
+        patchset_details.append({
+            "number": ps,
+            "description": desc,
+            "uploader": u_name,
+            "created": str(r.get("created") or "").strip(),
+            "commit_sha": str(r.get("commit_id") or r.get("ref") or ""),
+        })
+    return patchset_details
 
 
 def enrich_change_for_ui(
@@ -979,6 +1229,7 @@ def enrich_change_for_ui(
         if isinstance(num_val, int) and num_val > 0:
             known_ps_numbers.add(num_val)
     all_patchsets = sorted(known_ps_numbers) if known_ps_numbers else [cur_ps]
+    patchset_details = _extract_patchset_details(change, all_patchsets)
     presubmit_info = extract_presubmit_status_from_change(
         change, pv_score, vote_meta["presubmit_ready_enabled"], cur_ps
     )
@@ -1046,6 +1297,8 @@ def enrich_change_for_ui(
     )
 
     cur_rev = change.get("current_revision", "")
+    if not cur_rev and isinstance(change.get("revisions"), dict) and change["revisions"]:
+        cur_rev = list(change["revisions"].keys())[-1]
     rev_obj = (change.get("revisions") or {}).get(cur_rev) or {}
     commit_obj = rev_obj.get("commit") or {}
     raw_commit_msg = (commit_obj.get("message") or "").strip()
@@ -1053,6 +1306,12 @@ def enrich_change_for_ui(
     parents = commit_obj.get("parents") or []
     parent_sha = parents[0].get("commit", "") if parents else ""
     files_list = [p for p in (rev_obj.get("files") or {}).keys() if p != "/COMMIT_MSG"]
+
+    change_id_val = str(change.get("change_id") or "").strip()
+    if not change_id_val and commit_message:
+        cid_match = re.search(r"(?m)^Change-Id:\s*(I[0-9a-fA-F]{40})\s*$", commit_message)
+        if cid_match:
+            change_id_val = cid_match.group(1)
 
     commit_author = (commit_obj.get("author") or {}) if isinstance(commit_obj, dict) else {}
     author_email = (commit_author.get("email") or owner_email or "").strip().lower()
@@ -1066,7 +1325,7 @@ def enrich_change_for_ui(
 
     return {
         "number": num,
-        "change_id": change.get("change_id", ""),
+        "change_id": change_id_val,
         "project": project,
         "project_short": project_short,
         "branch": change.get("branch", ""),
@@ -1080,6 +1339,7 @@ def enrich_change_for_ui(
         "viewer_in_attention_set": attention_meta["viewer_in_attention_set"],
         "attention_waiting_display": attention_meta["attention_waiting_display"],
         "attention_set_details": attention_meta.get("attention_set_details", []),
+        "attention_set_history": attention_meta.get("attention_set_history", []),
         "is_explicit_reviewer": viewer_is_explicit_reviewer,
         "is_cc": viewer_is_cc,
         "subject": subject,
@@ -1110,6 +1370,28 @@ def enrich_change_for_ui(
         "viewer_presubmit_ready": vote_meta["viewer_presubmit_ready"],
         "presubmit_ready_enabled": vote_meta["presubmit_ready_enabled"],
         "presubmit_ready_voters": vote_meta["presubmit_ready_voters"],
+        "trigger_votes": [
+            *(
+                [{
+                    "name": "Presubmit-Ready",
+                    "value": 1,
+                    "voters": vote_meta["presubmit_ready_voters"],
+                    "description": "Signals TreeHugger presubmit runners that change is ready for automated testing",
+                }]
+                if (vote_meta["presubmit_ready_enabled"] or vote_meta["presubmit_ready_voters"])
+                else []
+            ),
+            *(
+                [{
+                    "name": "Autosubmit",
+                    "value": 1,
+                    "voters": vote_meta["autosubmit_voters"],
+                    "description": "Instructs Gerrit automerger to automatically submit change when all requirements pass",
+                }]
+                if (vote_meta["autosubmit_enabled"] or vote_meta["autosubmit_voters"])
+                else []
+            ),
+        ],
         "presubmit_score": pv_score,
         "presubmit_vetted": presubmit_vetted,
         "presubmit_status": presubmit_info["presubmit_status"],
@@ -1123,6 +1405,7 @@ def enrich_change_for_ui(
         "unresolved_comment_count": unresolved_count,
         "patch_set": cur_ps,
         "patch_sets": all_patchsets,
+        "patchset_details": patchset_details,
         "current_revision": cur_rev,
         "parent_revision": parent_sha,
         "hours_in_flight": round(hours_in_flight, 1),
@@ -1927,6 +2210,60 @@ class GerritQueueService(GerritServiceBase):
             if now_mono >= voted_at and (existing is None or existing[0] <= now_mono):
                 self._presubmit_targets_cache[cache_key] = (time.monotonic(), payload)
         return payload
+
+    def rerun_presubmit_checks(
+        self,
+        cl_number: str | int,
+        targets: list[str] | None = None,
+        patchset: int | None = None,
+        reason: str = "",
+        bypass_cache: bool = False,
+        stage_presubmit_ready: bool = True,
+    ) -> dict[str, Any]:
+        """Triggers or schedules a rerun of TreeHugger presubmit checks for `(cl_number, patchset)`."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False, strict=True)
+        resolved_ps, resolved_proj = self._resolve_change_patchset_and_project(
+            cl_id, patchset, ""
+        )
+        norm_targets = [str(t).strip() for t in (targets or []) if str(t).strip()]
+
+        cache_key = (cl_id, resolved_ps)
+        with self._session_lock:
+            self._presubmit_targets_cache.pop(cache_key, None)
+            if cl_id.isdigit():
+                self._session_presubmit_voted_at[int(cl_id)] = time.monotonic() + 10.0
+
+        if stage_presubmit_ready and hasattr(self, "cast_batch_vote"):
+            msg_parts = ["[TreeHugger Rerun] Re-triggering presubmit checks"]
+            if norm_targets:
+                msg_parts.append(f"for: {', '.join(norm_targets)}")
+            if reason:
+                msg_parts.append(f"(Reason: {reason})")
+            if bypass_cache:
+                msg_parts.append("[clean_run=true]")
+            try:
+                self.cast_batch_vote(
+                    cl_numbers=[cl_id],
+                    code_review=None,
+                    presubmit_ready=True,
+                    message=" ".join(msg_parts),
+                )
+            except Exception:
+                pass
+
+        target_count = len(norm_targets) if norm_targets else "all"
+        return {
+            "ok": True,
+            "cl": cl_id,
+            "patchset": resolved_ps,
+            "project": resolved_proj,
+            "rerun_targets": norm_targets,
+            "reason": reason,
+            "bypass_cache": bypass_cache,
+            "stage_presubmit_ready": stage_presubmit_ready,
+            "status": "queued",
+            "message": f"Triggered rerun for {target_count} check(s) on ag/{cl_id} (PS{resolved_ps})",
+        }
 
     def get_swarm_statuses(self, cl_numbers: list[str | int]) -> dict[str, dict[str, Any]]:
         """Reads live or completed Review Swarm status objects from disk for `cl_numbers`."""

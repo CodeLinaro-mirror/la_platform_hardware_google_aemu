@@ -88,6 +88,38 @@ def _authed_get(url: str) -> urllib.request.Request:
     return urllib.request.Request(url, headers=_AUTH_HEADERS)
 
 
+def _resolve_node_bin(test_case: unittest.TestCase | None = None) -> str | None:
+    """Resolves the hermetic Bazel Node binary (or host `node` when run outside Bazel).
+
+    When running under Bazel (`TEST_SRCDIR` set), fails loudly instead of allowing
+    JavaScript unit tests to silently skip.
+    """
+    node_env = os.environ.get("NODE_BIN", "").strip()
+    test_srcdir = os.environ.get("TEST_SRCDIR", "").strip()
+    if node_env:
+        candidates = [node_env]
+        if test_srcdir:
+            rel = node_env[len("external/") :] if node_env.startswith("external/") else node_env
+            candidates.insert(0, os.path.join(test_srcdir, rel))
+            candidates.append(os.path.join(test_srcdir, "_main", node_env))
+        for cand in candidates:
+            if os.path.isfile(cand):
+                return os.path.abspath(cand)
+        if test_case is not None:
+            test_case.fail(
+                f"Failed to resolve hermetic Node binary from NODE_BIN={node_env!r} "
+                f"(TEST_SRCDIR={test_srcdir!r}). Configure toolchains/data with "
+                "`@rules_nodejs//nodejs:current_node_toolchain` in tools/emu-dev-cli/BUILD.bazel."
+            )
+    found = shutil.which("node") or ("/usr/bin/node" if os.path.exists("/usr/bin/node") else None)
+    if not found and test_srcdir and test_case is not None:
+        test_case.fail(
+            "Node binary missing inside Bazel test sandbox; JS tests must not silently skip. "
+            "Ensure `NODE_BIN` is set from `@rules_nodejs//nodejs:current_node_toolchain`."
+        )
+    return found
+
+
 class GerritUIServerTest(unittest.TestCase):
     """Tests approval slot calculation, vetted gates, Cliff Radar, risk scoring, and stack grouping."""
 
@@ -434,7 +466,7 @@ class GerritUIServerTest(unittest.TestCase):
                 httpd.shutdown()
                 httpd.server_close()
 
-        node_bin = shutil.which("node")
+        node_bin = _resolve_node_bin(self)
         if node_bin:
             scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", empty_html, flags=re.S)
             self.assertTrue(scripts)
@@ -2155,7 +2187,7 @@ setImmediate(() => {
         self.assertIn("function reprojectQueuePayloadForViewer(", html)
         self.assertIn("function hydrateFullQueueInBackground(", html)
         self.assertIn("sidebar-hydrating-pill", html)
-        node_bin = shutil.which("node")
+        node_bin = _resolve_node_bin(self)
         if node_bin:
             scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, flags=re.S)
             self.assertTrue(scripts)
@@ -3325,7 +3357,7 @@ setImmediate(() => {
         self.assertIn("Open in Gerrit ↗", html)
 
         # 3. Execute inline UI script in Node V8 to verify in-app radar selection across gates/filters.
-        node_bin = shutil.which("node")
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
         scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, flags=re.S)
@@ -4180,7 +4212,7 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
         self.assertIn('for="commentReplyInput-${safeId}"', html)
         self.assertIn('for="commentReplyResolved-${safeId}"', html)
 
-        node_bin = shutil.which("node")
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
         script_blocks = re.findall(r"<script[^>]*>(.*?)</script>", html, flags=re.S)
@@ -4541,7 +4573,7 @@ document.getElementById("commentReplyInput-srv-thread-101-0").value = "Switched 
         ):
             self.assertIn(expected, html)
 
-        node_bin = shutil.which("node") or (
+        node_bin = _resolve_node_bin(self) or (
             "/usr/bin/node" if Path("/usr/bin/node").is_file() else None
         )
         if not node_bin:
@@ -4758,9 +4790,7 @@ console.log("DIFF_COLOR_SCHEMES_OK");
             httpd.shutdown()
             httpd.server_close()
 
-        node_bin = shutil.which("node") or (
-            "/usr/bin/node" if os.path.exists("/usr/bin/node") else None
-        )
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
         scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", pg_html, flags=re.S)
@@ -4773,6 +4803,7 @@ console.log("DIFF_COLOR_SCHEMES_OK");
             "initApp();",
         ):
             js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         harness_js = (
             """
@@ -5025,9 +5056,7 @@ console.log("POLYGERRIT_UI_FORK_OK");
         ):
             self.assertIn(marker, pg_html)
 
-        node_bin = shutil.which("node") or (
-            "/usr/bin/node" if os.path.exists("/usr/bin/node") else None
-        )
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
         scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", pg_html, flags=re.S)
@@ -5040,6 +5069,7 @@ console.log("POLYGERRIT_UI_FORK_OK");
             "initApp();",
         ):
             js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         harness_js = (
             """
@@ -5389,9 +5419,7 @@ console.log("POLYGERRIT_DASHBOARD_UX_OK");
         ):
             self.assertIn(required_marker, pg_html)
 
-        node_bin = shutil.which("node") or (
-            "/usr/bin/node" if os.path.exists("/usr/bin/node") else None
-        )
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
 
@@ -5405,6 +5433,7 @@ console.log("POLYGERRIT_DASHBOARD_UX_OK");
             "initApp();",
         ):
             js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         harness_js = (
             """
@@ -5769,9 +5798,7 @@ console.log("POLYGERRIT_CHANGE_VIEW_HEADER_OK");
                 msg=f"Expected token '{expected_token}' to be present in PolyGerrit UI template",
             )
 
-        node_bin = shutil.which("node") or (
-            "/usr/bin/node" if os.path.exists("/usr/bin/node") else None
-        )
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
 
@@ -5785,6 +5812,7 @@ console.log("POLYGERRIT_CHANGE_VIEW_HEADER_OK");
             "initApp();",
         ):
             js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         harness_js = (
             """
@@ -6080,6 +6108,21 @@ console.log("POLYGERRIT_FILE_LIST_AND_REVIEWED_OK");
             "expandAllPgMessages",
             "collapseAllPgMessages",
             "applyPgMessageFilters",
+            "pg-msg-search-wrap",
+            "pgMsgFilterSearch",
+            "pgMsgFilterAuthor",
+            "pgMsgFilterCommentsOnly",
+            "btnPgClearMsgFilters",
+            "pg-btn-copy-msg-link",
+            "pg-msg-comments-badge",
+            "onPgMessageSearchInput",
+            "clearPgMessageSearch",
+            "onPgMessageAuthorFilterChange",
+            "togglePgMessageCommentsOnly",
+            "clearAllPgMessageFilters",
+            "copyPgMessageLink",
+            "isPgMessageWithComments",
+            "highlightPgSearchText",
         ):
             self.assertIn(
                 expected_token,
@@ -6087,9 +6130,7 @@ console.log("POLYGERRIT_FILE_LIST_AND_REVIEWED_OK");
                 msg=f"Expected token '{expected_token}' in PolyGerrit HTML template",
             )
 
-        node_bin = shutil.which("node") or (
-            "/usr/bin/node" if os.path.exists("/usr/bin/node") else None
-        )
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
 
@@ -6103,6 +6144,7 @@ console.log("POLYGERRIT_FILE_LIST_AND_REVIEWED_OK");
             "initApp();",
         ):
             js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         harness_js = (
             """
@@ -6116,6 +6158,8 @@ function makeMockEl() {
     checked: false,
     disabled: false,
     title: "",
+    dataset: {},
+    _attrs: {},
     style: { display: "", setProperty() {} },
     classList: {
       _set: new Set(),
@@ -6135,8 +6179,9 @@ function makeMockEl() {
     querySelector() { return null; },
     querySelectorAll() { return []; },
     scrollIntoView() {},
-    setAttribute() {},
-    getAttribute() { return ""; }
+    focus() {},
+    setAttribute(k, v) { this._attrs[k] = String(v); },
+    getAttribute(k) { return this._attrs[k] != null ? this._attrs[k] : ""; }
   };
 }
 globalThis.localStorage = {
@@ -6202,6 +6247,17 @@ assert.match(sectionHtml, /Treehugger Robot/);
 assert.match(sectionHtml, /Automated/);
 assert.match(sectionHtml, /PS 1/);
 
+// Verify new PolyGerrit Change Log controls in section HTML:
+assert.match(sectionHtml, /id="pgMsgFilterSearch-43330005"/);
+assert.match(sectionHtml, /id="btnPgMsgSearchClear-43330005"/);
+assert.match(sectionHtml, /id="pgMsgFilterAuthor-43330005"/);
+assert.match(sectionHtml, /id="pgMsgFilterCommentsOnly-43330005"/);
+assert.match(sectionHtml, /id="btnPgClearMsgFilters-43330005"/);
+assert.match(sectionHtml, /class="pg-btn-copy-msg-link"/);
+assert.match(sectionHtml, /class="pg-msg-comments-badge"/);
+assert.match(sectionHtml, /💬 Review/);
+assert.match(sectionHtml, /Human Reviewers Only/);
+
 // Verify vote chip and blockquote formatting in message body:
 const formattedMsg = formatPgMessageContentHtml(sampleCl.messages[1].message);
 assert.match(formattedMsg, /class="pg-vote-chip vote-cr2"/);
@@ -6214,6 +6270,22 @@ assert.match(formattedMsg, /quote line/);
 assert.equal(getPgAuthorInitials("Reviewer 测试_🚀_é"), "R测");
 assert.equal(getPgAuthorInitials("Treehugger Robot"), "TR");
 
+// Verify isPgMessageWithComments helper:
+assert.equal(isPgMessageWithComments(sampleCl.messages[0]), true); // Presubmit-Verified+1
+assert.equal(isPgMessageWithComments(sampleCl.messages[1]), true); // Code-Review+2 & quote
+assert.equal(isPgMessageWithComments({ is_bot: true, tag: "autogenerated:gerrit:newPatchSet", message: "Uploaded patch set 2." }), false);
+assert.equal(isPgMessageWithComments({ is_bot: false, message: "Human review notes" }), true);
+
+// Verify highlightPgSearchText helper (Unicode & HTML tag safe):
+assert.equal(
+  highlightPgSearchText("Hello 测试_🚀_é world", "测试_🚀_é"),
+  'Hello <mark class="pg-msg-search-highlight">测试_🚀_é</mark> world'
+);
+assert.equal(
+  highlightPgSearchText('<p class="alert">Warning: test</p>', "test"),
+  '<p class="alert">Warning: <mark class="pg-msg-search-highlight">test</mark></p>'
+);
+
 // 2. Test relative date formatting:
 const relNow = formatPgRelativeDate(new Date().toISOString());
 assert.match(relNow, /just now|m ago/);
@@ -6223,6 +6295,104 @@ const emptySectionHtml = renderPgChangeLogSectionHtml({ number: 99999, messages:
 assert.match(emptySectionHtml, /id="pgChangeLog-99999"/);
 assert.match(emptySectionHtml, /0 messages/);
 assert.match(emptySectionHtml, /No messages recorded for this change/);
+
+// 4. Test DOM interactive message filters:
+function makeMockCard(idx, ps, isBot, author, hasComments, tag, text, summary) {
+  const card = makeMockEl();
+  card.id = `pgMsg-43330005-${idx}`;
+  card.setAttribute("data-msg-idx", idx);
+  card.setAttribute("data-msg-id", `m${idx}`);
+  card.setAttribute("data-ps", ps);
+  card.setAttribute("data-is-bot", isBot ? "1" : "0");
+  card.setAttribute("data-author", author);
+  card.setAttribute("data-has-comments", hasComments ? "1" : "0");
+  card.setAttribute("data-tag", tag);
+  const bodyEl = makeMockEl();
+  bodyEl.textContent = text;
+  bodyEl.innerHTML = text;
+  const snippetEl = makeMockEl();
+  snippetEl.textContent = summary;
+  snippetEl.innerHTML = summary;
+  card.querySelector = function(sel) {
+    if (sel.includes("pg-message-body")) return bodyEl;
+    if (sel.includes("pg-msg-summary-snippet")) return snippetEl;
+    return null;
+  };
+  return card;
+}
+
+const mockSection = document.getElementById("pgChangeLog-43330005");
+const mockCards = [
+  makeMockCard(0, 1, true, "Treehugger Robot", true, "autogenerated:gerrit:newPatchSet", "Uploaded patch set 1. Presubmit-Verified+1", "Uploaded patch set 1."),
+  makeMockCard(1, 1, false, "Reviewer 测试_🚀_é", true, "", "Looks great to me! Code-Review+2", "Looks great to me!"),
+  makeMockCard(2, 2, true, "Dev Bot", false, "autogenerated:gerrit:newPatchSet", "Uploaded patch set 2.", "Uploaded patch set 2.")
+];
+const mockBadge = makeMockEl();
+mockSection.querySelectorAll = function(sel) {
+  if (sel.includes("pg-message-card")) return mockCards;
+  return [];
+};
+mockSection.querySelector = function(sel) {
+  if (sel.includes("pg-change-log-count-badge")) return mockBadge;
+  return null;
+};
+
+// Initial state unfiltered:
+document.getElementById("pgMsgFilterAuto-43330005").checked = true;
+document.getElementById("pgMsgFilterPs-43330005").value = "all";
+document.getElementById("pgMsgFilterAuthor-43330005").value = "all";
+document.getElementById("pgMsgFilterCommentsOnly-43330005").checked = false;
+document.getElementById("pgMsgFilterSearch-43330005").value = "";
+applyPgMessageFilters(43330005);
+assert.equal(mockBadge.textContent, "3 messages");
+assert.equal(mockCards.filter(c => !c.classList.contains("is-hidden")).length, 3);
+
+// Search query filter with Unicode:
+document.getElementById("pgMsgFilterSearch-43330005").value = "测试_🚀_é";
+applyPgMessageFilters(43330005);
+assert.equal(mockBadge.textContent, "Showing 1 of 3 messages");
+assert.equal(mockCards[1].classList.contains("is-hidden"), false);
+assert.equal(mockCards[0].classList.contains("is-hidden"), true);
+assert.equal(mockCards[2].classList.contains("is-hidden"), true);
+assert.equal(document.getElementById("btnPgClearMsgFilters-43330005").style.display, "inline-flex");
+
+// Clear search filter:
+clearPgMessageSearch(43330005);
+assert.equal(document.getElementById("pgMsgFilterSearch-43330005").value, "");
+assert.equal(mockCards.filter(c => !c.classList.contains("is-hidden")).length, 3);
+
+// Author dropdown filter (human only):
+document.getElementById("pgMsgFilterAuthor-43330005").value = "human";
+applyPgMessageFilters(43330005);
+assert.equal(mockCards.filter(c => !c.classList.contains("is-hidden")).length, 1);
+assert.equal(mockCards[1].classList.contains("is-hidden"), false);
+
+// Comments-only filter:
+document.getElementById("pgMsgFilterAuthor-43330005").value = "all";
+document.getElementById("pgMsgFilterCommentsOnly-43330005").checked = true;
+applyPgMessageFilters(43330005);
+assert.equal(mockCards.filter(c => !c.classList.contains("is-hidden")).length, 2);
+assert.equal(mockCards[2].classList.contains("is-hidden"), true);
+
+// Reset all filters:
+clearAllPgMessageFilters(43330005);
+assert.equal(document.getElementById("pgMsgFilterCommentsOnly-43330005").checked, false);
+assert.equal(document.getElementById("pgMsgFilterAuthor-43330005").value, "all");
+assert.equal(document.getElementById("btnPgClearMsgFilters-43330005").style.display, "none");
+assert.equal(mockCards.filter(c => !c.classList.contains("is-hidden")).length, 3);
+assert.equal(mockBadge.textContent, "3 messages");
+
+// Copy message link:
+copyPgMessageLink(null, 43330005, 1, "m1");
+
+// Auto-expansion from hash anchor:
+globalThis.window.location = { hash: "#message-m1", pathname: "/c/43330005", origin: "http://localhost:8080" };
+globalThis.document.querySelector = function(sel) {
+  if (sel.includes("m1")) return mockCards[1];
+  return null;
+};
+checkPgMessageHashAnchor();
+assert.equal(mockCards[1].classList.contains("pg-msg-expanded"), true);
 
 console.log("POLYGERRIT_CHANGE_LOG_MESSAGES_OK");
 """
@@ -6277,20 +6447,20 @@ console.log("POLYGERRIT_CHANGE_LOG_MESSAGES_OK");
         from commands.gerrit.ui_server import render_static_gerrit_ui_html
         from lib.gerrit_api import GerritClient
 
-        # 1. Verify enrich_change_for_ui extracts patch_sets array including Unicode meta
+        # 1. Verify enrich_change_for_ui extracts patch_sets and patchset_details with Unicode meta
         sample_change = {
             "_number": 43330006,
             "change_id": "I43330006",
             "project": "platform/hardware/google/aemu",
-            "branch": "master",
+            "branch": "goog/studio-main",
             "subject": "feat(gerrit): Test patchset comparison 测试_🚀_é",
             "status": "NEW",
             "current_revision": "rev3",
             "current_revision_number": 3,
             "revisions": {
-                "rev1": {"_number": 1},
-                "rev2": {"_number": 2},
-                "rev3": {"_number": 3},
+                "rev1": {"_number": 1, "description": "Initial setup", "uploader": {"name": "Alice 测试"}},
+                "rev2": {"_number": 2, "description": "Address review comments 🚀", "uploader": {"name": "Bob"}},
+                "rev3": {"_number": 3, "description": "Fix lint and format é", "uploader": {"name": "Charlie"}},
             },
             "messages": [
                 {"_revision_number": 1, "message": "PS 1"},
@@ -6302,6 +6472,13 @@ console.log("POLYGERRIT_CHANGE_LOG_MESSAGES_OK");
         self.assertIn("patch_sets", en)
         self.assertEqual(en["patch_sets"], [1, 2, 3])
         self.assertEqual(en["patch_set"], 3)
+        self.assertIn("patchset_details", en)
+        self.assertEqual(len(en["patchset_details"]), 3)
+        self.assertEqual(en["patchset_details"][0]["number"], 1)
+        self.assertEqual(en["patchset_details"][0]["description"], "Initial setup")
+        self.assertEqual(en["patchset_details"][0]["uploader"], "Alice 测试")
+        self.assertEqual(en["patchset_details"][1]["description"], "Address review comments 🚀")
+        self.assertEqual(en["patchset_details"][2]["description"], "Fix lint and format é")
 
         # 2. Verify GerritClient.get_revision_patch supports base parameter
         mock_client = MagicMock(spec=GerritClient)
@@ -6335,11 +6512,29 @@ console.log("POLYGERRIT_CHANGE_LOG_MESSAGES_OK");
             "pg-ps-select-group",
             "pg-ps-select",
             "pg-ps-separator",
+            "pg-ps-steppers",
+            "pg-btn-ps-step",
+            "pg-btn-reset-interdiff",
+            "pg-btn-toggle-interdiff-prev",
+            "pg-btn-patch-range-toggle",
+            "pg-patch-range-popover",
+            "pg-patch-range-preset-chip",
+            "pg-patch-range-table",
+            "pg-interdiff-banner",
+            "pg-btn-interdiff-banner-reset",
+            "pg-ps-desc-chip",
             "pg-interdiff-badge",
             "pg-chunk-focused-flash",
             "renderPgPatchsetSelectorHtml",
+            "renderPgPatchRangePopoverHtml",
+            "renderPgInterdiffBannerHtml",
+            "togglePgPatchRangeMenu",
+            "closePgPatchRangeMenu",
+            "togglePgDiffPreviousPatchset",
             "onPgPatchsetComparisonChanged",
             "selectPgPatchsetComparison",
+            "stepPgPatchset",
+            "resetPgPatchsetComparisonToBase",
             "navigatePgDiffChunk",
         ):
             self.assertIn(
@@ -6348,9 +6543,7 @@ console.log("POLYGERRIT_CHANGE_LOG_MESSAGES_OK");
                 msg=f"Expected token '{expected_token}' in PolyGerrit HTML template",
             )
 
-        node_bin = shutil.which("node") or (
-            "/usr/bin/node" if os.path.exists("/usr/bin/node") else None
-        )
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
 
@@ -6364,6 +6557,7 @@ console.log("POLYGERRIT_CHANGE_LOG_MESSAGES_OK");
             "initApp();",
         ):
             js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         harness_js = (
             """
@@ -6429,30 +6623,100 @@ globalThis.document = {
 // 1. Test renderPgPatchsetSelectorHtml for Base vs PS 3
 const sampleCl = {
   number: 43330006,
+  branch: "goog/studio-main",
   patch_set: 3,
-  patch_sets: [1, 2, 3]
+  patch_sets: [1, 2, 3],
+  patchset_details: [
+    { number: 1, description: "Initial setup", uploader: "Alice 测试" },
+    { number: 2, description: "Address review comments 🚀", uploader: "Bob" },
+    { number: 3, description: "Fix lint and format é", uploader: "Charlie" }
+  ]
 };
 const baseSelectorHtml = renderPgPatchsetSelectorHtml(sampleCl, { patch_set: 3, base_patch_set: "base" });
 assert.match(baseSelectorHtml, /class="pg-patchset-selector-wrap"/);
 assert.match(baseSelectorHtml, /Diff:/);
 assert.match(baseSelectorHtml, /id="pgBasePsSelect-43330006"/);
 assert.match(baseSelectorHtml, /id="pgTargetPsSelect-43330006"/);
+assert.match(baseSelectorHtml, /Base \\(goog\\/studio-main\\)/);
 assert.match(baseSelectorHtml, /value="base"[^>]*selected/);
-assert.match(baseSelectorHtml, /Patchset 3 \\(latest\\)/);
+assert.match(baseSelectorHtml, /id="btnPrevPs-43330006"/);
+assert.match(baseSelectorHtml, /id="btnNextPs-43330006"/);
+assert.match(baseSelectorHtml, /Patchset 3: Fix lint and format é \(latest\)/);
+assert.match(baseSelectorHtml, /id="pgPsDescChip-43330006"/);
+assert.match(baseSelectorHtml, /Fix lint and format é/);
+assert.match(baseSelectorHtml, /id="btnToggleInterdiffPrev-43330006"/);
+assert.match(baseSelectorHtml, /⚡ vs PS 2/);
+assert.match(baseSelectorHtml, /id="btnPatchRangeMenu-43330006"/);
+assert.match(baseSelectorHtml, /▾ Revisions/);
+assert.match(baseSelectorHtml, /id="pgPatchRangePopover-43330006"/);
+assert.match(baseSelectorHtml, /Base → Latest \(PS 3\)/);
+assert.match(baseSelectorHtml, /PS 2 → PS 3 \(Latest Interdiff\)/);
+assert.match(baseSelectorHtml, /Alice 测试/);
+assert.match(baseSelectorHtml, /Address review comments 🚀/);
 
 // 2. Test renderPgPatchsetSelectorHtml for Interdiff (PS 1 vs PS 3)
 const interdiffHtml = renderPgPatchsetSelectorHtml(sampleCl, { patch_set: 3, base_patch_set: "1" });
 assert.match(interdiffHtml, /class="pg-interdiff-badge"/);
-assert.match(interdiffHtml, /Interdiff \\(PS 1 → PS 3\\)/);
+assert.match(interdiffHtml, /Interdiff \(PS 1 → PS 3\)/);
+assert.match(interdiffHtml, /id="btnResetInterdiff-43330006"/);
+assert.match(interdiffHtml, /✕ vs Base/);
 
-// 3. Test navigatePgDiffChunk function exists and executes safely
+// 3. Test renderPgInterdiffBannerHtml
+const noBannerHtml = renderPgInterdiffBannerHtml(sampleCl, { patch_set: 3, base_patch_set: "base", files: [] });
+assert.equal(noBannerHtml, "");
+
+const bannerHtml = renderPgInterdiffBannerHtml(sampleCl, {
+  patch_set: 3,
+  base_patch_set: "1",
+  files: [{ file: "file1.cc" }, { file: "file2.cc" }]
+});
+assert.match(bannerHtml, /id="pgInterdiffBanner-43330006"/);
+assert.match(bannerHtml, /⚡ Interdiff/);
+assert.match(bannerHtml, /Comparing <strong>Patchset 1<\/strong> → <strong>Patchset 3<\/strong>/);
+assert.match(bannerHtml, /2 files modified between patchsets/);
+assert.match(bannerHtml, /class="pg-btn-interdiff-banner-reset"/);
+assert.match(bannerHtml, /View full change vs Base \(b\)/);
+
+// 4. Test navigatePgDiffChunk function exists and executes safely
 assert.equal(typeof navigatePgDiffChunk, "function");
 navigatePgDiffChunk("next");
 navigatePgDiffChunk("prev");
 
-// 4. Test selectPgPatchsetComparison function exists
+// 5. Test selectPgPatchsetComparison, stepPgPatchset, resetPgPatchsetComparisonToBase, togglePgDiffPreviousPatchset
 assert.equal(typeof selectPgPatchsetComparison, "function");
 assert.equal(typeof onPgPatchsetComparisonChanged, "function");
+assert.equal(typeof stepPgPatchset, "function");
+assert.equal(typeof resetPgPatchsetComparisonToBase, "function");
+assert.equal(typeof togglePgDiffPreviousPatchset, "function");
+assert.equal(typeof togglePgPatchRangeMenu, "function");
+assert.equal(typeof closePgPatchRangeMenu, "function");
+
+state.changes = [sampleCl];
+state.selectedClNumber = 43330006;
+stepPgPatchset(43330006, -1);
+resetPgPatchsetComparisonToBase(43330006);
+togglePgPatchRangeMenu(43330006);
+assert.equal(state.patchRangeMenuCl, 43330006);
+closePgPatchRangeMenu();
+assert.equal(state.patchRangeMenuCl, null);
+togglePgDiffPreviousPatchset(43330006);
+
+// 6. Test shortcut 'b' registration in PG_KEYBOARD_SHORTCUTS
+let bShortcutFound = false;
+let shiftBCount = 0;
+for (const grp of PG_KEYBOARD_SHORTCUTS) {
+  for (const sc of grp.shortcuts) {
+    if (sc.keys.length === 1 && sc.keys[0] === "b") {
+      bShortcutFound = true;
+      assert.match(sc.description, /Toggle diff comparison/);
+    }
+    if (sc.keys.length === 2 && sc.keys[0] === "Shift" && sc.keys[1] === "B") {
+      shiftBCount += 1;
+    }
+  }
+}
+assert.ok(bShortcutFound, "Shortcut 'b' must be registered in PG_KEYBOARD_SHORTCUTS");
+assert.equal(shiftBCount, 1, "Shift+B should appear exactly once in cheatsheet (for attention set history)");
 
 console.log("POLYGERRIT_PATCHSET_SELECTOR_OK");
 """
@@ -6573,9 +6837,7 @@ console.log("POLYGERRIT_PATCHSET_SELECTOR_OK");
         self.assertEqual(reply_res["status"], "ok")
         self.assertFalse(reply_res["unresolved"])
 
-        node_bin = shutil.which("node") or (
-            "/usr/bin/node" if os.path.exists("/usr/bin/node") else None
-        )
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
 
@@ -6589,6 +6851,7 @@ console.log("POLYGERRIT_PATCHSET_SELECTOR_OK");
             "initApp();",
         ):
             js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         harness_js = (
             """
@@ -6937,9 +7200,7 @@ console.log("POLYGERRIT_DRAFT_COMMENTS_REPLY_OK");
             )
 
         # 3. Headless Node/VM DOM harness testing
-        node_bin = shutil.which("node") or (
-            "/usr/bin/node" if os.path.exists("/usr/bin/node") else None
-        )
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
 
@@ -6953,6 +7214,7 @@ console.log("POLYGERRIT_DRAFT_COMMENTS_REPLY_OK");
             "initApp();",
         ):
             js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         harness_js = (
             """
@@ -7061,6 +7323,8 @@ const testCl = {
 };
 
 state.changes = [testCl];
+state.stacks = [{ id: "s1", commits: [testCl] }];
+state.checkedClNumbers = new Set();
 state.selectedClNumber = testClNum;
 
 // 1. Check summary calculation
@@ -7202,9 +7466,7 @@ vm.runInContext(scriptCode, context);
             )
 
         # 2. Headless Node/VM DOM harness testing
-        node_bin = shutil.which("node") or (
-            "/usr/bin/node" if os.path.exists("/usr/bin/node") else None
-        )
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
 
@@ -7218,6 +7480,7 @@ vm.runInContext(scriptCode, context);
             "initApp();",
         ):
             js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         harness_js = (
             """
@@ -7553,9 +7816,7 @@ vm.runInContext(scriptCode, context);
             )
 
         # 4. Headless Node/VM DOM harness testing
-        node_bin = shutil.which("node") or (
-            "/usr/bin/node" if os.path.exists("/usr/bin/node") else None
-        )
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
 
@@ -7569,6 +7830,7 @@ vm.runInContext(scriptCode, context);
             "initApp();",
         ):
             js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         harness_js = (
             """
@@ -7893,9 +8155,7 @@ console.log("POLYGERRIT_ATTENTION_SET_OK");
         self.assertIn("computePgDownloadCommands", html)
 
         # 5. Headless Node/VM DOM harness verification
-        node_bin = shutil.which("node") or (
-            "/usr/bin/node" if os.path.exists("/usr/bin/node") else None
-        )
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
 
@@ -8343,6 +8603,57 @@ class GerritUIHandlerSecurityTest(unittest.TestCase):
         )
         self.assertEqual(st, 400)
 
+        # /api/gerrit/follow-up
+        service.create_follow_up_change.return_value = {
+            "status": "ok",
+            "cl": "43330008",
+            "branch": "goog/studio-main",
+            "subject": "Follow-up fix 测试_🚀_é",
+            "new_cl_number": 43330100,
+        }
+        st, _ = self.request(
+            f"{base}/api/gerrit/follow-up",
+            "secret-token",
+            json.dumps({
+                "cl": 43330008,
+                "branch": "goog/studio-main",
+                "subject": "Follow-up fix 测试_🚀_é",
+                "base_change": "43330008",
+                "topic": "emu-topic",
+                "is_private": False,
+                "work_in_progress": True,
+            }).encode("utf-8"),
+            headers,
+        )
+        self.assertEqual(st, 200)
+        service.create_follow_up_change.assert_called_once_with(
+            cl_number=43330008,
+            branch="goog/studio-main",
+            subject="Follow-up fix 测试_🚀_é",
+            base_change="43330008",
+            topic="emu-topic",
+            is_private=False,
+            work_in_progress=True,
+            viewer_email=None,
+        )
+
+        # /api/gerrit/follow-up with missing branch or subject returns 400
+        st, _ = self.request(
+            f"{base}/api/gerrit/follow-up",
+            "secret-token",
+            json.dumps({"cl": 43330008, "branch": "", "subject": "Something"}).encode("utf-8"),
+            headers,
+        )
+        self.assertEqual(st, 400)
+        st, _ = self.request(
+            f"{base}/api/gerrit/follow-up",
+            "secret-token",
+            json.dumps({"cl": 43330008, "branch": "master", "subject": ""}).encode("utf-8"),
+            headers,
+        )
+        self.assertEqual(st, 400)
+
+
     def test_file_content_client_service_and_endpoint(self) -> None:
         from lib.gerrit_api import GerritClient
         from commands.gerrit.services.diff_parser import GerritDiffService
@@ -8456,9 +8767,7 @@ class GerritUIHandlerSecurityTest(unittest.TestCase):
         self.assertIn('e.key === "v"', html)
 
         # 3. Headless Node/VM DOM harness verification when node is present
-        node_bin = shutil.which("node") or (
-            "/usr/bin/node" if os.path.exists("/usr/bin/node") else None
-        )
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
 
@@ -8625,12 +8934,18 @@ console.log("POLYGERRIT_DIFF_VIEW_MODE_AND_SIDE_BY_SIDE_OK");
 """
         )
 
-        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as tf:
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
             tf.write(harness_js)
             tf_path = tf.name
         try:
             res = subprocess.run(
-                [node_bin, tf_path], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
             )
             self.assertEqual(
                 res.returncode,
@@ -8652,13 +8967,38 @@ console.log("POLYGERRIT_DIFF_VIEW_MODE_AND_SIDE_BY_SIDE_OK");
 
         # 1. Verify static HTML tokens and CSS classes for continuous stack review
         self.assertIn("pg-stack-review-banner", html)
+        self.assertIn("pg-stack-review-banner-top", html)
+        self.assertIn("pg-stack-review-banner-bottom", html)
         self.assertIn("pg-stack-review-badge", html)
         self.assertIn("pg-stack-review-title", html)
         self.assertIn("pg-stack-review-stats", html)
+        self.assertIn("pg-stack-progress-block", html)
+        self.assertIn("pg-stack-progress-labels", html)
+        self.assertIn("pg-stack-progress-text", html)
+        self.assertIn("pg-stack-complete-badge", html)
+        self.assertIn("pg-stack-progress-track", html)
+        self.assertIn("pg-stack-progress-fill", html)
+        self.assertIn("pg-stack-stepper-wrap", html)
+        self.assertIn("pg-btn-stepper-nav", html)
+        self.assertIn("btnStackPrevCommit", html)
+        self.assertIn("btnStackNextCommit", html)
+        self.assertIn("btnStackMarkAllReviewed", html)
+        self.assertIn("btnStackToggleCollapseAll", html)
+        self.assertIn("btnStackBatchApproveAll", html)
+        self.assertIn("pg-btn-stack-approve", html)
         self.assertIn("pg-stack-stepper", html)
         self.assertIn("pg-stack-step-pill", html)
+        self.assertIn("pg-step-rev-icon", html)
         self.assertIn("pg-stack-commit-seq-bar", html)
         self.assertIn("pg-stack-commit-seq-pill", html)
+        self.assertIn("pg-stack-commit-seq-left", html)
+        self.assertIn("pg-stack-commit-seq-right", html)
+        self.assertIn("pg-btn-stack-commit-toggle", html)
+        self.assertIn("pg-btn-stack-reviewed", html)
+        self.assertIn("pg-stack-collapsed-summary", html)
+        self.assertIn("pg-stack-seq-nav", html)
+        self.assertIn("pg-btn-stack-nav", html)
+        self.assertIn("pg-stack-commit-body", html)
         self.assertIn("pg-stack-commit-jump-top", html)
         self.assertIn("btnToggleContinuousStack", html)
         self.assertIn("pg-btn-stack-mode", html)
@@ -8673,15 +9013,49 @@ console.log("POLYGERRIT_DIFF_VIEW_MODE_AND_SIDE_BY_SIDE_OK");
         self.assertIn("renderPgContinuousStackBannerHtml", html)
         self.assertIn("renderPgStackCommitSequenceBarHtml", html)
         self.assertIn("CONTINUOUS_STACK_DIFF_STORAGE_KEY", html)
+        self.assertIn("REVIEWED_STACK_COMMITS_STORAGE_KEY", html)
+        self.assertIn("isPgStackCommitReviewed", html)
+        self.assertIn("togglePgStackCommitReviewed", html)
+        self.assertIn("markAllStackCommitsReviewed", html)
+        self.assertIn("resetStackCommitsReviewed", html)
+        self.assertIn("togglePgStackCommitCollapse", html)
+        self.assertIn("toggleAllStackCommitsCollapse", html)
+        self.assertIn("goToNextStackCommit", html)
+        self.assertIn("goToPrevStackCommit", html)
+        self.assertIn("approveStackForBatchEdit", html)
+        self.assertIn("pg-rel-tabs", html)
+        self.assertIn("pg-rel-tab", html)
+        self.assertIn("pg-rel-count", html)
+        self.assertIn("btnCopyRelatedCls-", html)
+        self.assertIn("pg-btn-subtle-rel", html)
+        self.assertIn("pg-rel-topic-bar", html)
+        self.assertIn("pg-rel-topic-name", html)
+        self.assertIn("pg-rel-tree-col", html)
+        self.assertIn("pg-rel-tree-line", html)
+        self.assertIn("pg-rel-node-dot", html)
+        self.assertIn("pg-rel-cl-num", html)
+        self.assertIn("pg-rel-branch-badge", html)
+        self.assertIn("getPgBranchDisplay", html)
+        self.assertIn("getPgProjectDisplay", html)
+        self.assertIn("getPgTopicPeers", html)
+        self.assertIn("getPgRelatedChangesTab", html)
+        self.assertIn("setPgRelatedChangesTab", html)
+        self.assertIn("togglePgRelatedChangesTab", html)
+        self.assertIn("applyPgTopicFilter", html)
+        self.assertIn("copyPgTopic", html)
+        self.assertIn("copyPgRelatedCls", html)
+        self.assertIn("renderPgRelVoteChip", html)
+        self.assertIn("renderPgRelStatusTag", html)
 
-        # 2. Verify keyboard shortcut cheatsheet includes 'Shift+S' for Continuous Stack review
+        # 2. Verify keyboard shortcut cheatsheet includes 'Shift+S', 'Shift+[', 'Shift+]', 'Shift+Enter'
         self.assertIn("Toggle Continuous Stack / Whole Stack review", html)
+        self.assertIn("Jump to previous commit in stack (Whole Stack mode)", html)
+        self.assertIn("Jump to next commit in stack (Whole Stack mode)", html)
+        self.assertIn("Toggle active stack commit reviewed (Whole Stack mode)", html)
         self.assertIn('e.key === "S"', html)
 
         # 3. Headless Node/VM DOM harness verification when node is present
-        node_bin = shutil.which("node") or (
-            "/usr/bin/node" if os.path.exists("/usr/bin/node") else None
-        )
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
 
@@ -8781,13 +9155,16 @@ global.fetch = async () => ({ ok: true, json: async () => ({}) });
             + js_body
             + """
 
-// 1. Setup mock multi-commit relation chain stack with Unicode
+// 1. Setup mock multi-commit relation chain stack with Unicode and cross-branch metadata
 const unicodeStackTitle = "Feature: 测试_🚀_é Stack Review";
 const mockCommits = [
   {
     number: 43330001,
     subject: "Base commit 1/3: Add core model",
     patch_set: 2,
+    branch: "refs/heads/emu-main-next",
+    project: "platform/hardware/generic/goldfish",
+    status: "MERGED",
     mergeable: true,
     work_in_progress: false,
     owner_name: "Alice",
@@ -8796,6 +9173,9 @@ const mockCommits = [
     number: 43330002,
     subject: "Stacked commit 2/3: Implement 测试_🚀_é API",
     patch_set: 1,
+    branch: "refs/heads/emu-36.1-release",
+    project: "platform/hardware/google/aemu",
+    topic: "vulkan_测试_🚀_é",
     mergeable: true,
     work_in_progress: false,
     owner_name: "Bob",
@@ -8804,11 +9184,25 @@ const mockCommits = [
     number: 43330003,
     subject: "Tip commit 3/3: Add Unicode integration tests",
     patch_set: 3,
+    branch: "refs/heads/emu-main-next",
+    project: "platform/hardware/generic/goldfish",
     mergeable: true,
     work_in_progress: false,
     owner_name: "Charlie",
   }
 ];
+
+const topicPeer = {
+  number: 43330099,
+  subject: "Standalone peer in same topic 测试_🚀_é",
+  patch_set: 1,
+  branch: "refs/heads/master",
+  project: "platform/external/qemu",
+  topic: "vulkan_测试_🚀_é",
+  mergeable: true,
+  work_in_progress: false,
+  owner_name: "Dave"
+};
 
 const mockStack = {
   stack_id: "stack-rel-chain-123",
@@ -8817,7 +9211,7 @@ const mockStack = {
 };
 
 state.stacks = [mockStack];
-state.changes = [...mockCommits];
+state.changes = [...mockCommits, topicPeer];
 state.selectedStackId = "stack-rel-chain-123";
 state.selectedClNumber = 43330002;
 
@@ -8831,13 +9225,58 @@ const foundById = findPgStackForClOrId(null, "stack-rel-chain-123");
 assert.notEqual(foundById, null);
 assert.equal(foundById.commits.length, 3);
 
-// 3. Verify renderPgRelationChainHtml
+// 3. Verify renderPgRelationChainHtml & Related Changes features
+assert.equal(getPgBranchDisplay("refs/heads/emu-main-next"), "emu-main-next");
+assert.equal(getPgProjectDisplay("platform/hardware/generic/goldfish"), "goldfish");
+
+const topicPeers = getPgTopicPeers(mockCommits[1]);
+assert.equal(topicPeers.length, 2);
+assert.equal(topicPeers[0].number, 43330002);
+assert.equal(topicPeers[1].number, 43330099);
+
 const relChainHtml = renderPgRelationChainHtml(mockCommits[1]);
 assert.equal(relChainHtml.includes("Relation chain (3)"), true);
 assert.equal(relChainHtml.includes("btnToggleContinuousStack"), true);
 assert.equal(relChainHtml.includes("Whole Stack"), true);
 assert.equal(relChainHtml.includes("Base commit 1/3"), true);
 assert.equal(relChainHtml.includes("测试_🚀_é"), true);
+assert.equal(relChainHtml.includes("btnRelTabChain-43330002"), true);
+assert.equal(relChainHtml.includes("btnRelTabTopic-43330002"), true);
+assert.equal(relChainHtml.includes("MERGED"), true);
+assert.equal(relChainHtml.includes("dot-merged"), true);
+assert.equal(relChainHtml.includes("pg-rel-tree-col"), true);
+assert.equal(relChainHtml.includes("pg-rel-tree-line"), true);
+assert.equal(relChainHtml.includes("is-cross-branch"), true);
+assert.equal(relChainHtml.includes("ag/43330001"), true);
+assert.equal(relChainHtml.includes("btnCopyRelatedCls-43330002"), true);
+
+// Verify switching to "topic" tab
+setPgRelatedChangesTab(43330002, "topic");
+assert.equal(getPgRelatedChangesTab(43330002), "topic");
+const topicTabHtml = renderPgRelationChainHtml(mockCommits[1]);
+assert.equal(topicTabHtml.includes("Same topic (2)"), true);
+assert.equal(topicTabHtml.includes("vulkan_测试_🚀_é"), true);
+assert.equal(topicTabHtml.includes("btnFilterTopic-43330002"), true);
+assert.equal(topicTabHtml.includes("btnCopyTopic-43330002"), true);
+assert.equal(topicTabHtml.includes("Standalone peer in same topic"), true);
+assert.equal(topicTabHtml.includes("ag/43330099"), true);
+
+// Verify toggling back to "chain" tab
+togglePgRelatedChangesTab(43330002);
+assert.equal(getPgRelatedChangesTab(43330002), "chain");
+
+// Verify single commit CL with topic renders Same Topic aside
+const soloCl = { number: 43330099, subject: "Standalone peer", topic: "vulkan_测试_🚀_é" };
+const soloHtml = renderPgRelationChainHtml(soloCl);
+assert.notEqual(soloHtml, "");
+assert.equal(soloHtml.includes("Same topic (2)"), true);
+
+// Verify topic filter application
+applyPgTopicFilter("vulkan_测试_🚀_é");
+assert.equal(state.searchQuery, 'topic:"vulkan_测试_🚀_é"');
+copyPgTopic("vulkan_测试_🚀_é");
+copyPgRelatedCls(43330002, "chain");
+copyPgRelatedCls(43330002, "topic");
 
 // 4. Verify Continuous Stack Diff mode toggle
 assert.equal(state.continuousStackDiff, false);
@@ -8876,12 +9315,22 @@ assert.equal(bannerHtml.includes("ag/43330001"), true);
 assert.equal(bannerHtml.includes("ag/43330002"), true);
 assert.equal(bannerHtml.includes("ag/43330003"), true);
 assert.equal(bannerHtml.includes("btnStackBatchSelectAll"), true);
+assert.equal(bannerHtml.includes("btnStackBatchApproveAll"), true);
+assert.equal(bannerHtml.includes("btnStackToggleCollapseAll"), true);
+assert.equal(bannerHtml.includes("btnStackPrevCommit"), true);
+assert.equal(bannerHtml.includes("btnStackNextCommit"), true);
+assert.equal(bannerHtml.includes("btnStackMarkAllReviewed"), true);
+assert.equal(bannerHtml.includes("pgStackProgressText"), true);
+assert.equal(bannerHtml.includes("pgStackProgressFill"), true);
 assert.equal(bannerHtml.includes("btnExitContinuousStack"), true);
 
 // 6. Verify renderPgStackCommitSequenceBarHtml
 const seqBarHtml = renderPgStackCommitSequenceBarHtml(mockCommits[0], 0, 3, mockStack);
 assert.equal(seqBarHtml.includes("Commit 1 of 3"), true);
 assert.equal(seqBarHtml.includes("ag/43330001"), true);
+assert.equal(seqBarHtml.includes("btnToggleStackCommitCollapse-43330001"), true);
+assert.equal(seqBarHtml.includes("btnToggleStackCommitReviewed-43330001"), true);
+assert.equal(seqBarHtml.includes("pg-btn-stack-nav"), true);
 assert.equal(seqBarHtml.includes("Top of Stack"), true);
 
 // 7. Verify selectStackForBatchEdit
@@ -8892,23 +9341,79 @@ assert.equal(state.checkedClNumbers.has(43330001), true);
 assert.equal(state.checkedClNumbers.has(43330002), true);
 assert.equal(state.checkedClNumbers.has(43330003), true);
 
-// 8. Verify Shift+S shortcut is registered in cheatsheet
+// 8. Verify stack review progress and checkpoints
+assert.equal(isPgStackCommitReviewed(43330001), false);
+togglePgStackCommitReviewed(43330001);
+assert.equal(isPgStackCommitReviewed(43330001), true);
+assert.equal(mockLocalStorage["gerrit_ui_pg_reviewed_stack_commits"].includes("43330001"), true);
+
+markAllStackCommitsReviewed("stack-rel-chain-123");
+assert.equal(isPgStackCommitReviewed(43330001), true);
+assert.equal(isPgStackCommitReviewed(43330002), true);
+assert.equal(isPgStackCommitReviewed(43330003), true);
+
+resetStackCommitsReviewed("stack-rel-chain-123");
+assert.equal(isPgStackCommitReviewed(43330001), false);
+assert.equal(isPgStackCommitReviewed(43330002), false);
+
+// 9. Verify commit collapse in whole stack mode
+assert.equal(state.collapsedStackCommits.has(43330002), false);
+togglePgStackCommitCollapse(43330002);
+assert.equal(state.collapsedStackCommits.has(43330002), true);
+toggleAllStackCommitsCollapse();
+assert.equal(state.collapsedStackCommits.has(43330001), true);
+assert.equal(state.collapsedStackCommits.has(43330003), true);
+
+// 10. Verify sequential stack navigation
+state.selectedClNumber = 43330001;
+goToNextStackCommit();
+assert.equal(state.selectedClNumber, 43330002);
+goToNextStackCommit();
+assert.equal(state.selectedClNumber, 43330003);
+goToPrevStackCommit();
+assert.equal(state.selectedClNumber, 43330002);
+
+// 11. Verify approveStackForBatchEdit
+state.checkedClNumbers.clear();
+approveStackForBatchEdit("stack-rel-chain-123");
+assert.equal(state.checkedClNumbers.size, 3);
+assert.equal(state.batchVoteState.code_review, 2);
+
+// 12. Verify Shift+S, Shift+[, Shift+], Shift+Enter shortcuts are registered in cheatsheet
 const shortcutsSection = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "Navigation & Dashboard");
 assert.notEqual(shortcutsSection, undefined);
 const shiftSDef = shortcutsSection.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("S"));
 assert.notEqual(shiftSDef, undefined);
 assert.equal(shiftSDef.description.includes("Continuous Stack"), true);
 
+const shiftPrevDef = shortcutsSection.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("["));
+assert.notEqual(shiftPrevDef, undefined);
+assert.equal(shiftPrevDef.description.includes("previous commit in stack"), true);
+
+const shiftNextDef = shortcutsSection.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("]"));
+assert.notEqual(shiftNextDef, undefined);
+assert.equal(shiftNextDef.description.includes("next commit in stack"), true);
+
+const shiftEnterDef = shortcutsSection.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("Enter"));
+assert.notEqual(shiftEnterDef, undefined);
+assert.equal(shiftEnterDef.description.includes("active stack commit reviewed"), true);
+
 console.log("POLYGERRIT_CONTINUOUS_STACK_DIFF_AND_RELATION_CHAIN_OK");
 """
         )
 
-        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as tf:
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
             tf.write(harness_js)
             tf_path = tf.name
         try:
             res = subprocess.run(
-                [node_bin, tf_path], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
             )
             self.assertEqual(
                 res.returncode,
@@ -8947,9 +9452,7 @@ console.log("POLYGERRIT_CONTINUOUS_STACK_DIFF_AND_RELATION_CHAIN_OK");
         self.assertIn('e.key === "X"', html)
 
         # 3. Headless Node/VM DOM harness verification when node is present
-        node_bin = shutil.which("node") or (
-            "/usr/bin/node" if os.path.exists("/usr/bin/node") else None
-        )
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
 
@@ -9182,12 +9685,18 @@ console.log("POLYGERRIT_DIFF_CONTEXT_EXPANSION_OK");
 """
         )
 
-        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as tf:
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
             tf.write(harness_js)
             tf_path = tf.name
         try:
             res = subprocess.run(
-                [node_bin, tf_path], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
             )
             self.assertEqual(
                 res.returncode,
@@ -9214,6 +9723,16 @@ console.log("POLYGERRIT_DIFF_CONTEXT_EXPANSION_OK");
         self.assertIn("pgDiffPrefContext", html)
         self.assertIn("pgDiffPrefTabWidth", html)
         self.assertIn("pgDiffPrefFontSize", html)
+        self.assertIn("pgDiffPrefColorScheme", html)
+        self.assertIn("pgDiffPrefThemePreview", html)
+        self.assertIn("pg-pref-theme-preview", html)
+        self.assertIn("pg-preview-chip", html)
+        self.assertIn("monokai", html)
+        self.assertIn("solarized_dark", html)
+        self.assertIn("solarized_light", html)
+        self.assertIn("github_light", html)
+        self.assertIn("onPgDiffPrefColorSchemeChange", html)
+        self.assertIn("updatePgThemePreview", html)
         self.assertIn("pgDiffPrefIgnoreWhitespace", html)
         self.assertIn("pgDiffPrefWrapLines", html)
         self.assertIn("pgDiffPrefSyntaxHighlight", html)
@@ -9238,9 +9757,7 @@ console.log("POLYGERRIT_DIFF_CONTEXT_EXPANSION_OK");
         self.assertIn('e.key === ","', html)
 
         # 3. Headless Node/VM DOM harness verification when node is present
-        node_bin = shutil.which("node") or (
-            "/usr/bin/node" if os.path.exists("/usr/bin/node") else None
-        )
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
 
@@ -9303,11 +9820,14 @@ const domMap = {
   pgDiffPrefContext: makeMockEl("select"),
   pgDiffPrefTabWidth: makeMockEl("select"),
   pgDiffPrefFontSize: makeMockEl("select"),
+  pgDiffPrefColorScheme: makeMockEl("select"),
+  pgDiffPrefThemePreview: makeMockEl("div"),
   pgDiffPrefIgnoreWhitespace: makeMockEl("select"),
   pgDiffPrefWrapLines: makeMockEl("input"),
   pgDiffPrefSyntaxHighlight: makeMockEl("input"),
   pgDiffPrefShowLineNumbers: makeMockEl("input"),
   btnSaveDiffPreferences: makeMockEl("button"),
+  diffColorSchemeSelect: makeMockEl("select"),
 };
 
 const mockLocalStorage = {};
@@ -9365,6 +9885,7 @@ assert.equal(defPrefs.ignoreWhitespace, "none");
 assert.equal(defPrefs.syntaxHighlighting, true);
 assert.equal(defPrefs.showLineNumbers, true);
 assert.equal(defPrefs.fontSize, 12);
+assert.equal(defPrefs.colorScheme, "polygerrit_native");
 
 // 2. Verify renderPgDiffPreferencesButtonHtml produces authentic button
 const btnHtml = renderPgDiffPreferencesButtonHtml();
@@ -9380,6 +9901,8 @@ assert.equal(domMap.pgDiffPreferencesBackdrop.classList.contains("open"), true);
 assert.equal(domMap.pgDiffPreferencesBackdrop.getAttribute("aria-hidden"), "false");
 assert.equal(domMap.pgDiffPrefContext.value, "10");
 assert.equal(domMap.pgDiffPrefTabWidth.value, "4");
+assert.equal(domMap.pgDiffPrefColorScheme.value, "polygerrit_native");
+assert.equal(domMap.pgDiffPrefThemePreview.getAttribute("data-preview-scheme"), "polygerrit_native");
 assert.equal(domMap.pgDiffPrefWrapLines.checked, true);
 
 closePgDiffPreferencesDialog();
@@ -9392,7 +9915,7 @@ assert.equal(state.diffPreferencesDialogOpen, true);
 togglePgDiffPreferencesDialog();
 assert.equal(state.diffPreferencesDialogOpen, false);
 
-// 4. Test setting custom preferences and applying to DOM
+// 4. Test setting custom preferences (including colorScheme) and applying to DOM
 setPgDiffPreferences({
   context: 25,
   tabWidth: 2,
@@ -9400,7 +9923,8 @@ setPgDiffPreferences({
   ignoreWhitespace: "changes",
   syntaxHighlighting: false,
   showLineNumbers: false,
-  fontSize: 14
+  fontSize: 14,
+  colorScheme: "monokai"
 }, true, false);
 
 const updatedPrefs = getPgDiffPreferences();
@@ -9411,11 +9935,18 @@ assert.equal(updatedPrefs.ignoreWhitespace, "changes");
 assert.equal(updatedPrefs.syntaxHighlighting, false);
 assert.equal(updatedPrefs.showLineNumbers, false);
 assert.equal(updatedPrefs.fontSize, 14);
+assert.equal(updatedPrefs.colorScheme, "monokai");
+assert.equal(state.diffColorScheme, "monokai");
+assert.equal(domMap.diffColorSchemeSelect.value, "monokai");
+assert.equal(domMap.pgDiffPrefColorScheme.value, "monokai");
+assert.equal(domMap.pgDiffPrefThemePreview.getAttribute("data-preview-scheme"), "monokai");
 
 // Verify localStorage persistence
 const stored = JSON.parse(mockLocalStorage[DIFF_PREFS_STORAGE_KEY]);
 assert.equal(stored.tabWidth, 2);
 assert.equal(stored.context, 25);
+assert.equal(stored.colorScheme, "monokai");
+assert.equal(mockLocalStorage[DIFF_COLOR_SCHEME_STORAGE_KEY], "monokai");
 
 // Verify DOM styling flags
 assert.equal(domMap.diffScroll.classList.contains("pg-diff-no-wrap"), true);
@@ -9424,6 +9955,22 @@ assert.equal(domMap.diffScroll.classList.contains("pg-diff-no-syntax"), true);
 assert.equal(domMap.diffScroll.classList.contains("pg-diff-ignore-ws"), true);
 assert.equal(global.document.documentElement.style["--pg-diff-tab-size"], "2");
 assert.equal(global.document.documentElement.style["--pg-diff-font-size"], "14px");
+
+// Test switching to solarized_dark and solarized_light
+setDiffColorScheme("solarized_dark", false);
+assert.equal(state.diffColorScheme, "solarized_dark");
+assert.equal(getPgDiffPreferences().colorScheme, "solarized_dark");
+assert.equal(domMap.pgDiffPrefThemePreview.getAttribute("data-preview-scheme"), "solarized_dark");
+
+setDiffColorScheme("solarized_light", false);
+assert.equal(state.diffColorScheme, "solarized_light");
+assert.equal(getPgDiffPreferences().colorScheme, "solarized_light");
+assert.equal(domMap.pgDiffPrefThemePreview.getAttribute("data-preview-scheme"), "solarized_light");
+
+setDiffColorScheme("github_light", false);
+assert.equal(state.diffColorScheme, "github_light");
+assert.equal(getPgDiffPreferences().colorScheme, "github_light");
+assert.equal(domMap.pgDiffPrefThemePreview.getAttribute("data-preview-scheme"), "github_light");
 
 // 5. Test isWhitespaceDiffOnly helper with Unicode test strings (测试_🚀_é)
 assert.equal(isWhitespaceDiffOnly("  void RunTask();  ", "    void RunTask();"), true);
@@ -9448,7 +9995,7 @@ const sbsWsHtml = renderFileDiffSideBySideHtml(
   1,
   "src/unicode_测试_🚀_é.cc",
   [],
-  "syntax_intraline",
+  "monokai",
   { id: "cpp", badge: "C++" },
   {},
   4
@@ -9462,7 +10009,7 @@ const uniWsHtml = renderFileDiffUnifiedHtml(
   1,
   "src/unicode_测试_🚀_é.cc",
   [],
-  "syntax_intraline",
+  "solarized_dark",
   { id: "cpp", badge: "C++" },
   {},
   4
@@ -9470,7 +10017,7 @@ const uniWsHtml = renderFileDiffUnifiedHtml(
 assert.equal(uniWsHtml.includes("pg-ws-ignored"), true);
 assert.equal(uniWsHtml.includes("测试_🚀_é"), true);
 
-// 7. Verify resetPgDiffPreferencesToDefaults restores everything
+// 7. Verify resetPgDiffPreferencesToDefaults restores everything including theme
 resetPgDiffPreferencesToDefaults();
 const resetPrefs = getPgDiffPreferences();
 assert.equal(resetPrefs.context, 10);
@@ -9480,6 +10027,10 @@ assert.equal(resetPrefs.ignoreWhitespace, "none");
 assert.equal(resetPrefs.syntaxHighlighting, true);
 assert.equal(resetPrefs.showLineNumbers, true);
 assert.equal(resetPrefs.fontSize, 12);
+assert.equal(resetPrefs.colorScheme, "polygerrit_native");
+assert.equal(state.diffColorScheme, "polygerrit_native");
+assert.equal(domMap.pgDiffPrefColorScheme.value, "polygerrit_native");
+assert.equal(domMap.pgDiffPrefThemePreview.getAttribute("data-preview-scheme"), "polygerrit_native");
 assert.equal(domMap.diffScroll.classList.contains("pg-diff-wrap-lines"), true);
 assert.equal(domMap.diffScroll.classList.contains("pg-diff-no-wrap"), false);
 assert.equal(domMap.diffScroll.classList.contains("pg-diff-hide-ln"), false);
@@ -9495,12 +10046,18 @@ console.log("POLYGERRIT_DIFF_PREFERENCES_OK");
 """
         )
 
-        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as tf:
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
             tf.write(harness_js)
             tf_path = tf.name
         try:
             res = subprocess.run(
-                [node_bin, tf_path], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
             )
             self.assertEqual(
                 res.returncode,
@@ -9529,6 +10086,16 @@ console.log("POLYGERRIT_DIFF_PREFERENCES_OK");
         self.assertIn("pg-file-filter-clear-btn", html)
         self.assertIn("pg-file-list-filter-chips", html)
         self.assertIn("pg-file-filter-chip", html)
+        self.assertIn("pg-hide-reviewed-toggle-wrap", html)
+        self.assertIn("pg-hide-reviewed-cb", html)
+        self.assertIn("pg-file-match-highlight", html)
+        self.assertIn("function isPgFuzzySubsequence", html)
+        self.assertIn("function highlightPgFilePathMatch", html)
+        self.assertIn("function getPgHideReviewedPreference", html)
+        self.assertIn("function setPgHideReviewedPreference", html)
+        self.assertIn("function isPgHideReviewedActive", html)
+        self.assertIn("function setPgHideReviewed", html)
+        self.assertIn("function togglePgHideReviewed", html)
         self.assertIn("function getPgFileQueryFilter", html)
         self.assertIn("function setPgFileQueryFilter", html)
         self.assertIn("function matchesPgFileFilter", html)
@@ -9538,11 +10105,10 @@ console.log("POLYGERRIT_DIFF_PREFERENCES_OK");
         self.assertIn("function onPgFileFilterKeyDown", html)
         self.assertIn("function applyPgFileFiltersToDom", html)
         self.assertIn("Focus file list filter input", html)
+        self.assertIn("Toggle hide / show reviewed files", html)
 
         # 2. Headless Node/VM DOM harness verification
-        node_bin = shutil.which("node") or (
-            "/usr/bin/node" if os.path.exists("/usr/bin/node") else None
-        )
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
 
@@ -9722,16 +10288,84 @@ const filterShortcut = navShortcuts.shortcuts.find(s => s.keys.includes("Shift")
 assert.notEqual(filterShortcut, undefined);
 assert.equal(filterShortcut.description.includes("filter input"), true);
 
+// 9. Verify isPgFuzzySubsequence & highlightPgFilePathMatch
+assert.equal(isPgFuzzySubsequence("guipoly", "gerrit_ui_polygerrit.html"), true);
+assert.equal(isPgFuzzySubsequence("edc", "tools/emu-dev-cli"), true);
+assert.equal(isPgFuzzySubsequence("tstfix", "tests/fixtures/测试_🚀_é.cc"), true);
+assert.equal(isPgFuzzySubsequence("xyz", "tests/fixtures/test.cc"), false);
+
+const hl1 = highlightPgFilePathMatch("foo/bar.cc", "bar");
+assert.equal(hl1.includes('<mark class="pg-file-match-highlight">bar</mark>'), true);
+
+const hlFuzzy = highlightPgFilePathMatch("gerrit_ui_polygerrit.html", "guipoly");
+assert.equal(hlFuzzy.includes('<mark class="pg-file-match-highlight">'), true);
+
+const hlUni = highlightPgFilePathMatch("emulator/libs/file/测试_🚀_é.cc", "测试 🚀");
+assert.equal(hlUni.includes('<mark class="pg-file-match-highlight">测试</mark>'), true);
+assert.equal(hlUni.includes('<mark class="pg-file-match-highlight">🚀</mark>'), true);
+
+// 10. Verify rich query qualifiers in matchesPgFileFilter
+assert.equal(matchesPgFileFilter("foo/test_runner.py", "test py"), true);
+assert.equal(matchesPgFileFilter("foo/test_mock.py", "test -mock"), false);
+assert.equal(matchesPgFileFilter("foo/test.py", "ext:py"), true);
+assert.equal(matchesPgFileFilter("foo/test.py", "ext:cc"), false);
+assert.equal(matchesPgFileFilter("foo/test.py", ".py"), true);
+assert.equal(matchesPgFileFilter("foo/test.py", "is:reviewed", { isReviewed: true }), true);
+assert.equal(matchesPgFileFilter("foo/test.py", "is:reviewed", { isReviewed: false }), false);
+assert.equal(matchesPgFileFilter("foo/test.py", "is:unreviewed", { isReviewed: false }), true);
+assert.equal(matchesPgFileFilter("foo/test.py", "status:m", { status: "M" }), true);
+assert.equal(matchesPgFileFilter("foo/test.py", "status:a", { status: "M" }), false);
+assert.equal(matchesPgFileFilter("foo/test.py", "has:unresolved", { hasUnresolved: true }), true);
+assert.equal(matchesPgFileFilter("foo/test.py", "missing:owner", { isOwnerMissing: true }), true);
+assert.equal(matchesPgFileFilter("gerrit_ui_polygerrit.html", "guipoly"), true);
+
+// 11. Verify Hide Reviewed toggle & persistence
+assert.equal(isPgHideReviewedActive(43330003), false);
+setPgFileReviewed(43330003, 1, "emulator/libs/file/测试_🚀_é.cc", true);
+assert.equal(isPgFileReviewed(43330003, 1, "emulator/libs/file/测试_🚀_é.cc"), true);
+
+togglePgHideReviewed(43330003, true);
+assert.equal(isPgHideReviewedActive(43330003), true);
+assert.equal(window.localStorage.getItem("gerrit_ui_pg_hide_reviewed"), "true");
+
+const hideRevHtml = renderPgFileListHtml(clSample, testBundle);
+assert.equal(hideRevHtml.includes('id="pgHideReviewedCb-43330003"'), true);
+assert.equal(hideRevHtml.includes('checked'), true);
+assert.equal(hideRevHtml.includes("Hide reviewed (1 hidden)"), true);
+assert.equal(hideRevHtml.includes("unapproved.cc"), true);
+assert.equal(hideRevHtml.includes("测试_🚀_é.cc"), false); // Reviewed file hidden!
+
+const visibleWhenHidden = getPgVisibleFileList(43330003);
+assert.deepEqual(visibleWhenHidden, ["unapproved.cc"]);
+
+// Toggle hide reviewed off
+togglePgHideReviewed(43330003, false);
+assert.equal(isPgHideReviewedActive(43330003), false);
+const allVisibleHtml = renderPgFileListHtml(clSample, testBundle);
+assert.equal(allVisibleHtml.includes("emulator/libs/file/测试_🚀_é.cc"), true);
+assert.equal(allVisibleHtml.includes("unapproved.cc"), true);
+
+// Verify 'h' shortcut in PG_KEYBOARD_SHORTCUTS
+const hideShortcut = navShortcuts.shortcuts.find(s => s.keys.includes("h"));
+assert.notEqual(hideShortcut, undefined);
+assert.equal(hideShortcut.description.includes("reviewed files"), true);
+
 console.log("POLYGERRIT_FILE_LIST_FILTER_OK");
 """
         )
 
-        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as tf:
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
             tf.write(harness_js)
             tf_path = tf.name
         try:
             res = subprocess.run(
-                [node_bin, tf_path], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
             )
             self.assertEqual(
                 res.returncode,
@@ -9797,9 +10431,7 @@ console.log("POLYGERRIT_FILE_LIST_FILTER_OK");
         self.assertIn("Toggle show only files missing code owner approval", html)
 
         # 3. Headless Node/VM DOM harness verification
-        node_bin = shutil.which("node") or (
-            "/usr/bin/node" if os.path.exists("/usr/bin/node") else None
-        )
+        node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
 
@@ -10030,12 +10662,18 @@ console.log("POLYGERRIT_CODE_OWNERS_OK");
 """
         )
 
-        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as tf:
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
             tf.write(harness_js)
             tf_path = tf.name
         try:
             res = subprocess.run(
-                [node_bin, tf_path], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
             )
             self.assertEqual(
                 res.returncode,
@@ -10046,6 +10684,10065 @@ console.log("POLYGERRIT_CODE_OWNERS_OK");
         finally:
             if os.path.exists(tf_path):
                 os.remove(tf_path)
+
+    def test_polygerrit_resolved_comments_toggle_and_unresolved_stepper(self):
+        """Verifies PolyGerrit Show/Hide Resolved comments toggle and Unresolved comment thread stepper."""
+        from commands.gerrit.services.diff_parser import (
+            GerritDiffService,
+            get_gerrit_ui_template_path,
+        )
+
+        # 1. Verify GerritDiffService passes include_resolved=True to get_comment_threads
+        mock_client = MagicMock()
+        mock_client._request_raw = MagicMock(return_value=b")]}'\n")
+        mock_client.get_comment_threads = MagicMock(return_value=[])
+        mock_client.get_change_detail = MagicMock(return_value={"current_revision_number": 1})
+        with patch("commands.gerrit.services.diff_parser.GerritClient"):
+            service = GerritDiffService()
+        service.client = mock_client
+        with patch.object(service, "get_code_questions", return_value=[]), patch.object(
+            service.client, "get_revision_patch", return_value="diff --git a/test.cc b/test.cc\n"
+        ):
+            bundle = service.fetch_commit_diff_bundle(43330008, patch_set=1)
+            mock_client.get_comment_threads.assert_called_with("43330008", include_resolved=True)
+            self.assertIn("unresolved_threads", bundle)
+            self.assertIn("comment_threads", bundle)
+
+        # 2. Verify static HTML tokens and CSS classes in template
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
+        html = tpl_path.read_text(encoding="utf-8")
+
+        self.assertIn("pg-hide-resolved", html)
+        self.assertIn("pg-unresolved-stepper-wrap", html)
+        self.assertIn("pg-unresolved-stepper-arrows", html)
+        self.assertIn("pg-btn-thread-step", html)
+        self.assertIn("pg-btn-toggle-resolved", html)
+        self.assertIn("pg-unresolved-focused-flash", html)
+        self.assertIn("function navigatePgUnresolvedThread", html)
+        self.assertIn("function isPgShowResolvedCommentsEnabled", html)
+        self.assertIn("function setPgShowResolvedCommentsEnabled", html)
+        self.assertIn("function togglePgShowResolvedComments", html)
+        self.assertIn("function applyPgShowResolvedCommentsToDom", html)
+        self.assertIn("data-unresolved", html)
+        self.assertIn("Next unresolved comment thread", html)
+        self.assertIn("Previous unresolved comment thread", html)
+        self.assertIn("Toggle show / hide resolved comments", html)
+
+        # 3. Headless Node/VM DOM harness verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+        self.assertTrue(scripts)
+        js_body = (
+            scripts[-1]
+            .replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+            .replace("\n  initApp();", "\n  // initApp();")
+        )
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    disabled: false,
+    checked: false,
+    offsetTop: 100,
+    style: {},
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+        } else if (force) {
+          classes.add(c);
+        } else {
+          classes.delete(c);
+        }
+      },
+      contains(c) { return classes.has(c); }
+    },
+    getAttribute(k) { return attrs[k] || null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    querySelectorAll: (sel) => [],
+    querySelector: (sel) => null,
+    closest: (sel) => null,
+    addEventListener() {},
+    scrollIntoView() {},
+    focus() {},
+    select() {}
+  };
+}
+
+const storageMap = {};
+global.window = {
+  location: { search: "" },
+  localStorage: {
+    getItem(k) { return storageMap[k] || null; },
+    setItem(k, v) { storageMap[k] = String(v); },
+    removeItem(k) { delete storageMap[k]; }
+  },
+  addEventListener() {},
+  removeEventListener() {}
+};
+global.localStorage = global.window.localStorage;
+
+let toastMsg = "";
+global.showToast = function(msg) { toastMsg = String(msg); };
+
+const domElements = {};
+global.document = {
+  getElementById(id) {
+    if (id === "file-diff-list") return null;
+    if (!domElements[id]) {
+      domElements[id] = makeMockEl("div");
+      domElements[id].id = id;
+    }
+    return domElements[id];
+  },
+  querySelector(sel) {
+    if (sel && sel.includes(".pg-change-view")) {
+      return document.getElementById("mockChangeView");
+    }
+    return null;
+  },
+  querySelectorAll(sel) {
+    return [];
+  },
+  documentElement: makeMockEl("html"),
+  body: makeMockEl("body"),
+  addEventListener() {},
+  removeEventListener() {}
+};
+
+"""
+            + js_body
+            + """
+
+showToast = function(msg) { toastMsg = String(msg); };
+
+// 1. Test isPgShowResolvedCommentsEnabled & setPgShowResolvedCommentsEnabled
+assert.equal(isPgShowResolvedCommentsEnabled(), true, "Should default to true");
+setPgShowResolvedCommentsEnabled(false);
+assert.equal(isPgShowResolvedCommentsEnabled(), false);
+assert.equal(global.localStorage.getItem("gerrit_ui_pg_show_resolved_comments"), "false");
+setPgShowResolvedCommentsEnabled(true);
+assert.equal(isPgShowResolvedCommentsEnabled(), true);
+
+// 2. Test togglePgShowResolvedComments & applyPgShowResolvedCommentsToDom
+const mockChangeView = document.getElementById("mockChangeView");
+mockChangeView.classList.add("pg-change-view");
+
+const toggleBtn = document.getElementById("btnToggleResolvedComments-43330009");
+toggleBtn.setAttribute("data-resolved-count", "3");
+
+setPgShowResolvedCommentsEnabled(true);
+togglePgShowResolvedComments(43330009);
+assert.equal(isPgShowResolvedCommentsEnabled(), false);
+assert.equal(mockChangeView.classList.contains("pg-hide-resolved"), true);
+assert.equal(toggleBtn.textContent.includes("Show resolved (3)"), true);
+assert.equal(toggleBtn.classList.contains("is-hiding-resolved"), true);
+
+togglePgShowResolvedComments(43330009);
+assert.equal(isPgShowResolvedCommentsEnabled(), true);
+assert.equal(mockChangeView.classList.contains("pg-hide-resolved"), false);
+assert.equal(toggleBtn.textContent.includes("Hide resolved (3)"), true);
+assert.equal(toggleBtn.classList.contains("is-hiding-resolved"), false);
+
+// 3. Test navigatePgUnresolvedThread with Unicode path and collapsed elements
+const parentDiffBlock = makeMockEl("div");
+parentDiffBlock.classList.add("pg-file-diff-block", "is-collapsed");
+parentDiffBlock.setAttribute("data-file", "emulator/libs/file/测试_🚀_é.cc");
+const toggleIcon = makeMockEl("span");
+toggleIcon.textContent = "▶";
+parentDiffBlock.querySelector = (sel) => sel.includes("file-toggle-btn") ? toggleIcon : null;
+
+const unresCard = makeMockEl("div");
+unresCard.classList.add("diff-inline-comment", "collapsed");
+unresCard.setAttribute("data-inline-id", "thread-1");
+unresCard.setAttribute("data-unresolved", "true");
+const authorTitle = makeMockEl("span");
+authorTitle.classList.add("diff-inline-head-title");
+authorTitle.textContent = "💬 Reviewer (Alice)";
+const collapseBtn = makeMockEl("button");
+collapseBtn.textContent = "Show ▾";
+unresCard.querySelector = (sel) => {
+  if (sel.includes("diff-inline-head-title")) return authorTitle;
+  if (sel.includes("inline-collapse-btn")) return collapseBtn;
+  return null;
+};
+unresCard.closest = (sel) => sel.includes("pg-file-diff-block") ? parentDiffBlock : null;
+
+let scrolledIntoView = false;
+unresCard.scrollIntoView = () => { scrolledIntoView = true; };
+
+mockChangeView.querySelectorAll = (sel) => {
+  if (sel.includes("diff-inline-comment")) {
+    return [unresCard];
+  }
+  return [];
+};
+
+navigatePgUnresolvedThread("next");
+assert.equal(scrolledIntoView, true, "Should have smoothly scrolled into view");
+assert.equal(parentDiffBlock.classList.contains("is-collapsed"), false, "Collapsed parent diff block should auto-expand");
+assert.equal(toggleIcon.textContent, "▼");
+assert.equal(unresCard.classList.contains("collapsed"), false, "Collapsed comment should auto-uncollapse");
+assert.equal(collapseBtn.textContent, "Collapse");
+assert.equal(unresCard.classList.contains("pg-unresolved-focused-flash"), true, "Should receive flash highlight class");
+assert.equal(toastMsg.includes("Unresolved thread 1 of 1"), true);
+assert.equal(toastMsg.includes("Reviewer (Alice)"), true);
+
+// 4. Verify shortcuts in PG_KEYBOARD_SHORTCUTS
+const navShortcuts = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "File List & Diff Navigation");
+assert.notEqual(navShortcuts, undefined);
+
+const nextUnresShortcut = navShortcuts.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("N"));
+assert.notEqual(nextUnresShortcut, undefined);
+assert.equal(nextUnresShortcut.description.includes("Next unresolved comment thread"), true);
+
+const prevUnresShortcut = navShortcuts.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("P"));
+assert.notEqual(prevUnresShortcut, undefined);
+assert.equal(prevUnresShortcut.description.includes("Previous unresolved comment thread"), true);
+
+const toggleResolvedShortcut = navShortcuts.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("R"));
+assert.notEqual(toggleResolvedShortcut, undefined);
+assert.equal(toggleResolvedShortcut.description.includes("Toggle show / hide resolved comments"), true);
+
+console.log("POLYGERRIT_RESOLVED_COMMENTS_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
+            tf.write(harness_js)
+            tf_path = tf.name
+        try:
+            res = subprocess.run(
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Node execution failed with {res.stderr}\nScript:\n{harness_js[:1000]}",
+            )
+            self.assertIn("POLYGERRIT_RESOLVED_COMMENTS_OK", res.stdout)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
+    def test_polygerrit_diff_find_bar_and_search(self):
+        """Verifies PolyGerrit In-Diff Find Bar, keyword/regex highlighting, and match stepping."""
+        from commands.gerrit.services.diff_parser import get_gerrit_ui_template_path
+
+        # 1. Verify static HTML tokens and CSS classes in template
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
+        html = tpl_path.read_text(encoding="utf-8")
+
+        self.assertIn("pg-diff-find-bar", html)
+        self.assertIn("pg-btn-diff-find", html)
+        self.assertIn("pg-diff-find-input", html)
+        self.assertIn("pg-diff-find-counter", html)
+        self.assertIn("pg-btn-find-nav", html)
+        self.assertIn("pg-find-opt-btn", html)
+        self.assertIn("pg-diff-find-match", html)
+        self.assertIn("pg-diff-find-match-active", html)
+        self.assertIn("pg-find-focused-pulse", html)
+        self.assertIn("function renderPgDiffFindButtonHtml", html)
+        self.assertIn("function renderPgDiffFindBarHtml", html)
+        self.assertIn("function openPgDiffFindBar", html)
+        self.assertIn("function closePgDiffFindBar", html)
+        self.assertIn("function togglePgDiffFindBar", html)
+        self.assertIn("function onPgDiffFindInputChanged", html)
+        self.assertIn("function onPgDiffFindInputKeyDown", html)
+        self.assertIn("function togglePgDiffFindOption", html)
+        self.assertIn("function stepPgDiffFindMatch", html)
+        self.assertIn("function executePgDiffSearch", html)
+        self.assertIn("function focusPgDiffFindMatch", html)
+        self.assertIn("function clearPgDiffFindHighlights", html)
+        self.assertIn("Find in diff (text or /regex/)", html)
+        self.assertIn("Find text or regex across diff lines", html)
+
+        # 2. Headless Node/VM DOM harness verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+        self.assertTrue(scripts)
+        js_body = (
+            scripts[-1]
+            .replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+            .replace("\n  initApp();", "\n  // initApp();")
+        )
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockNode(type, val = "") {
+  return {
+    nodeType: type,
+    nodeValue: val,
+    textContent: val,
+    parentNode: null,
+    childNodes: [],
+    appendChild(child) {
+      child.parentNode = this;
+      this.childNodes.push(child);
+      return child;
+    },
+    replaceChild(newChild, oldChild) {
+      const idx = this.childNodes.indexOf(oldChild);
+      if (idx !== -1) {
+        if (newChild.nodeType === "fragment") {
+          this.childNodes.splice(idx, 1, ...newChild.childNodes);
+          newChild.childNodes.forEach(c => c.parentNode = this);
+        } else {
+          newChild.parentNode = this;
+          this.childNodes[idx] = newChild;
+        }
+      }
+      return oldChild;
+    },
+    normalize() {
+      const merged = [];
+      let currentText = null;
+      for (const c of this.childNodes) {
+        if (c.nodeType === 3) {
+          if (!currentText) {
+            currentText = c;
+            merged.push(c);
+          } else {
+            currentText.nodeValue += c.nodeValue;
+            currentText.textContent = currentText.nodeValue;
+          }
+        } else {
+          currentText = null;
+          merged.push(c);
+        }
+      }
+      this.childNodes = merged;
+    }
+  };
+}
+
+function makeMockEl(tagName = "div") {
+  const node = makeMockNode(1);
+  node.tagName = tagName.toUpperCase();
+  node.value = "";
+  node.disabled = false;
+  node.checked = false;
+  node.style = {};
+  const classes = new Set();
+  Object.defineProperty(node, "className", {
+    get() { return Array.from(classes).join(" "); },
+    set(v) {
+      classes.clear();
+      String(v || "").split(/\\s+/).filter(Boolean).forEach(c => classes.add(c));
+    }
+  });
+  node.classList = {
+    add(...cs) { cs.forEach(c => classes.add(c)); },
+    remove(...cs) { cs.forEach(c => classes.delete(c)); },
+    toggle(c, force) {
+      if (force === undefined) {
+        if (classes.has(c)) classes.delete(c); else classes.add(c);
+      } else if (force) {
+        classes.add(c);
+      } else {
+        classes.delete(c);
+      }
+    },
+    contains(c) { return classes.has(c); }
+  };
+  const attrs = {};
+  node.getAttribute = (k) => attrs[k] || null;
+  node.setAttribute = (k, v) => { attrs[k] = String(v); };
+  node.closest = () => null;
+  node.scrollIntoView = () => {};
+  node.focus = () => {};
+  node.select = () => {};
+  node.addEventListener = () => {};
+  node.removeEventListener = () => {};
+  node.querySelectorAll = (sel) => [];
+  node.querySelector = (sel) => null;
+  return node;
+}
+
+const storageMap = {};
+global.window = {
+  location: { search: "" },
+  localStorage: {
+    getItem(k) { return storageMap[k] || null; },
+    setItem(k, v) { storageMap[k] = String(v); },
+    removeItem(k) { delete storageMap[k]; }
+  },
+  addEventListener() {},
+  removeEventListener() {}
+};
+global.localStorage = global.window.localStorage;
+
+let toastMsg = "";
+global.showToast = function(msg) { toastMsg = String(msg); };
+
+const domElements = {};
+global.document = {
+  createTextNode(val) {
+    return makeMockNode(3, val);
+  },
+  createElement(tag) {
+    return makeMockEl(tag);
+  },
+  createDocumentFragment() {
+    const frag = makeMockNode("fragment");
+    return frag;
+  },
+  getElementById(id) {
+    if (id === "file-diff-list") return null;
+    if (!domElements[id]) {
+      domElements[id] = makeMockEl("div");
+      domElements[id].id = id;
+    }
+    return domElements[id];
+  },
+  querySelector(sel) {
+    if (sel && sel.includes(".pg-change-view")) {
+      return document.getElementById("mockChangeView");
+    }
+    if (sel && sel.includes(".pg-files-container")) {
+      return document.getElementById("mockFilesContainer");
+    }
+    return null;
+  },
+  querySelectorAll(sel) {
+    return [];
+  },
+  documentElement: makeMockEl("html"),
+  body: makeMockEl("body"),
+  addEventListener() {},
+  removeEventListener() {}
+};
+
+"""
+            + js_body
+            + """
+
+showToast = function(msg) { toastMsg = String(msg); };
+
+// 1. Verify renderPgDiffFindButtonHtml and renderPgDiffFindBarHtml
+const btnHtml = renderPgDiffFindButtonHtml(43330010);
+assert.equal(btnHtml.includes('id="btnDiffFind-43330010"'), true);
+assert.equal(btnHtml.includes('Find in Diff'), true);
+
+const barHtml = renderPgDiffFindBarHtml(43330010);
+assert.equal(barHtml.includes('id="pgDiffFindBar-43330010"'), true);
+assert.equal(barHtml.includes('id="pgDiffFindInput-43330010"'), true);
+assert.equal(barHtml.includes('id="pgDiffFindCounter-43330010"'), true);
+assert.equal(barHtml.includes('id="btnDiffFindPrev-43330010"'), true);
+assert.equal(barHtml.includes('id="btnDiffFindNext-43330010"'), true);
+assert.equal(barHtml.includes('id="btnDiffFindOptCase-43330010"'), true);
+assert.equal(barHtml.includes('id="btnDiffFindOptWord-43330010"'), true);
+assert.equal(barHtml.includes('id="btnDiffFindOptRegex-43330010"'), true);
+
+// 2. Test openPgDiffFindBar and togglePgDiffFindBar
+const findBarEl = document.getElementById("pgDiffFindBar-43330010");
+const findInputEl = document.getElementById("pgDiffFindInput-43330010");
+const findBtnEl = document.getElementById("btnDiffFind-43330010");
+let inputFocused = false;
+let inputSelected = false;
+findInputEl.focus = () => { inputFocused = true; };
+findInputEl.select = () => { inputSelected = true; };
+
+openPgDiffFindBar(43330010);
+assert.equal(state.diffFind.isOpen, true);
+assert.equal(state.diffFind.cl, 43330010);
+assert.equal(findBarEl.style.display, "");
+assert.equal(findBtnEl.classList.contains("is-active"), true);
+assert.equal(inputFocused, true);
+assert.equal(inputSelected, true);
+
+closePgDiffFindBar(43330010);
+assert.equal(state.diffFind.isOpen, false);
+assert.equal(findBarEl.style.display, "none");
+assert.equal(findBtnEl.classList.contains("is-active"), false);
+
+togglePgDiffFindBar(43330010);
+assert.equal(state.diffFind.isOpen, true);
+
+// 3. Test togglePgDiffFindOption and persistence
+togglePgDiffFindOption("case", 43330010);
+assert.equal(state.diffFind.caseSensitive, true);
+assert.equal(toastMsg.includes("Match case: ON"), true);
+const savedOptions1 = JSON.parse(global.localStorage.getItem(PG_DIFF_FIND_OPTIONS_STORAGE_KEY));
+assert.equal(savedOptions1.caseSensitive, true);
+
+togglePgDiffFindOption("word", 43330010);
+assert.equal(state.diffFind.wholeWord, true);
+assert.equal(toastMsg.includes("Match whole word: ON"), true);
+
+togglePgDiffFindOption("regex", 43330010);
+assert.equal(state.diffFind.isRegex, true);
+assert.equal(toastMsg.includes("Use regex: ON"), true);
+
+// Reset options
+togglePgDiffFindOption("case", 43330010);
+togglePgDiffFindOption("word", 43330010);
+togglePgDiffFindOption("regex", 43330010);
+assert.equal(state.diffFind.caseSensitive, false);
+assert.equal(state.diffFind.wholeWord, false);
+assert.equal(state.diffFind.isRegex, false);
+
+// 4. Test executePgDiffSearch with Unicode code lines and auto-expanding collapsed file block
+const filesContainer = document.getElementById("mockFilesContainer");
+filesContainer.classList.add("pg-files-container");
+
+const fileBlock1 = makeMockEl("div");
+fileBlock1.classList.add("pg-file-diff-block");
+fileBlock1.setAttribute("data-file", "src/foo.cc");
+
+const codeLine1 = makeMockEl("div");
+codeLine1.classList.add("code-line");
+const codeText1 = makeMockEl("span");
+codeText1.classList.add("code-text");
+const t1 = document.createTextNode("+ void RunBenchmark_测试_🚀_é();");
+codeText1.appendChild(t1);
+codeLine1.appendChild(codeText1);
+fileBlock1.appendChild(codeLine1);
+
+const fileBlock2 = makeMockEl("div");
+fileBlock2.classList.add("pg-file-diff-block", "is-collapsed");
+fileBlock2.setAttribute("data-file", "emulator/libs/file/测试_🚀_é.cc");
+fileBlock2.setAttribute("data-ps", "1");
+const chevron2 = makeMockEl("span");
+chevron2.classList.add("pg-file-chevron");
+chevron2.textContent = "▶";
+const codeTable2 = makeMockEl("div");
+codeTable2.classList.add("code-table");
+codeTable2.style.display = "none";
+fileBlock2.appendChild(chevron2);
+fileBlock2.appendChild(codeTable2);
+fileBlock2.querySelector = (sel) => {
+  if (sel.includes("pg-file-chevron")) return chevron2;
+  if (sel.includes("code-table")) return codeTable2;
+  return null;
+};
+
+const codeLine2 = makeMockEl("div");
+codeLine2.classList.add("code-line");
+const codeText2 = makeMockEl("span");
+codeText2.classList.add("code-text");
+const t2 = document.createTextNode('+ const char* kUnicode = "测试_🚀_é";');
+codeText2.appendChild(t2);
+codeLine2.appendChild(codeText2);
+codeTable2.appendChild(codeLine2);
+fileBlock2.appendChild(codeLine2);
+
+codeText1.closest = (sel) => sel.includes("code-line") ? codeLine1 : (sel.includes("pg-file-diff-block") ? fileBlock1 : null);
+codeLine1.closest = (sel) => sel.includes("pg-file-diff-block") ? fileBlock1 : null;
+codeText2.closest = (sel) => sel.includes("code-line") ? codeLine2 : (sel.includes("pg-file-diff-block") ? fileBlock2 : null);
+codeLine2.closest = (sel) => sel.includes("pg-file-diff-block") ? fileBlock2 : null;
+
+filesContainer.querySelectorAll = (sel) => {
+  if (sel.includes("code-text") || sel.includes("code-side-cell") || sel.includes("code-search-link")) {
+    return [codeText1, codeText2];
+  }
+  if (sel.includes("mark.pg-diff-find-match")) {
+    const marks = [];
+    [codeText1, codeText2].forEach(ct => {
+      ct.childNodes.forEach(c => {
+        if (c.classList && c.classList.contains("pg-diff-find-match")) marks.push(c);
+      });
+    });
+    return marks;
+  }
+  return [];
+};
+
+state.diffFind.query = "测试_🚀_é";
+executePgDiffSearch(43330010);
+
+const counterEl = document.getElementById("pgDiffFindCounter-43330010");
+assert.equal(state.diffFind.matches.length, 2, "Should have found 2 matches");
+assert.equal(counterEl.textContent, "1 of 2");
+
+const match1 = state.diffFind.matches[0];
+assert.equal(match1.textContent, "测试_🚀_é");
+assert.equal(match1.classList.contains("pg-diff-find-match-active"), true);
+match1.closest = (sel) => sel.includes("code-line") ? codeLine1 : (sel.includes("pg-file-diff-block") ? fileBlock1 : null);
+
+const match2 = state.diffFind.matches[1];
+assert.equal(match2.textContent, "测试_🚀_é");
+match2.closest = (sel) => sel.includes("code-line") ? codeLine2 : (sel.includes("pg-file-diff-block") ? fileBlock2 : null);
+
+let scrolledMatch2 = false;
+match2.scrollIntoView = () => { scrolledMatch2 = true; };
+stepPgDiffFindMatch("next", 43330010);
+
+assert.equal(state.diffFind.activeMatchIndex, 1);
+assert.equal(counterEl.textContent, "2 of 2");
+assert.equal(match2.classList.contains("pg-diff-find-match-active"), true);
+assert.equal(scrolledMatch2, true, "Should have scrolled active match into view");
+assert.equal(fileBlock2.classList.contains("is-collapsed"), false, "Collapsed file block should be automatically expanded upon jumping to match");
+assert.equal(chevron2.textContent, "▼");
+assert.equal(codeTable2.style.display, "");
+
+stepPgDiffFindMatch("prev", 43330010);
+assert.equal(state.diffFind.activeMatchIndex, 0);
+assert.equal(counterEl.textContent, "1 of 2");
+
+// 5. Test clearPgDiffFindHighlights
+clearPgDiffFindHighlights(filesContainer);
+assert.equal(state.diffFind.matches.length, 0);
+assert.equal(codeText1.childNodes[0].nodeType, 3);
+assert.equal(codeText1.childNodes[0].nodeValue, "+ void RunBenchmark_测试_🚀_é();");
+
+// 6. Verify shortcut in PG_KEYBOARD_SHORTCUTS
+const navShortcuts = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "File List & Diff Navigation");
+assert.notEqual(navShortcuts, undefined);
+const ctrlFShortcut = navShortcuts.shortcuts.find(s => s.keys.includes("Ctrl") && s.keys.includes("F"));
+assert.notEqual(ctrlFShortcut, undefined);
+assert.equal(ctrlFShortcut.description.includes("Find text or regex across diff lines"), true);
+
+console.log("POLYGERRIT_DIFF_FIND_BAR_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
+            tf.write(harness_js)
+            tf_path = tf.name
+        try:
+            res = subprocess.run(
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Node execution failed with {res.stderr}\nScript:\n{harness_js[:1000]}",
+            )
+            self.assertIn("POLYGERRIT_DIFF_FIND_BAR_OK", res.stdout)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
+    def test_polygerrit_diff_file_jump_menu_and_stepper(self):
+        """Verifies PolyGerrit Diff File Jump Menu, stepper buttons, search filtering, and active file sync."""
+        from commands.gerrit.services.diff_parser import get_gerrit_ui_template_path
+
+        # 1. Verify static HTML tokens and CSS classes in template
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
+        html = tpl_path.read_text(encoding="utf-8")
+
+        self.assertIn("pg-file-jump-group", html)
+        self.assertIn("pg-btn-file-jump", html)
+        self.assertIn("pg-btn-file-step", html)
+        self.assertIn("pg-btn-file-prev", html)
+        self.assertIn("pg-btn-file-next", html)
+        self.assertIn("pg-btn-file-up", html)
+        self.assertIn("pg-file-jump-dropdown", html)
+        self.assertIn("pg-file-jump-search-wrap", html)
+        self.assertIn("pg-file-jump-filter", html)
+        self.assertIn("pg-file-jump-item", html)
+        self.assertIn("function renderPgFileJumpMenuHtml", html)
+        self.assertIn("function openPgFileJumpMenu", html)
+        self.assertIn("function closePgFileJumpMenu", html)
+        self.assertIn("function togglePgFileJumpMenu", html)
+        self.assertIn("function selectPgFileJumpItem", html)
+        self.assertIn("function selectPgFileJumpCommitMsg", html)
+        self.assertIn("function onPgFileJumpItemClick", html)
+        self.assertIn("function onPgFileJumpFilterInput", html)
+        self.assertIn("function clearPgFileJumpFilter", html)
+        self.assertIn("function onPgFileJumpFilterKeyDown", html)
+        self.assertIn("function scrollToPgFileList", html)
+        self.assertIn("function updatePgActiveFile", html)
+        self.assertIn("function syncPgActiveFileFromScroll", html)
+        self.assertIn("Jump to file selector / dropdown", html)
+
+        # 2. Headless Node/VM DOM harness verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+        self.assertTrue(scripts)
+        js_body = (
+            scripts[-1]
+            .replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+            .replace("\n  initApp();", "\n  // initApp();")
+        )
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockElement(tag = "div", id = "") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  return {
+    tagName: tag.toUpperCase(),
+    id,
+    style: {},
+    classList: {
+      add: (...cls) => cls.forEach(c => classes.add(c)),
+      remove: (...cls) => cls.forEach(c => classes.delete(c)),
+      toggle: (c, force) => {
+        if (force === undefined) {
+          if (classes.has(c)) { classes.delete(c); return false; }
+          else { classes.add(c); return true; }
+        }
+        if (force) classes.add(c); else classes.delete(c);
+        return force;
+      },
+      contains: (c) => classes.has(c)
+    },
+    getAttribute: (attr) => attrs[attr] || null,
+    setAttribute: (attr, val) => { attrs[attr] = String(val); },
+    removeAttribute: (attr) => { delete attrs[attr]; },
+    focus() { this._focused = true; },
+    select() { this._selected = true; },
+    scrollIntoView() { this._scrolled = true; },
+    addEventListener() {},
+    removeEventListener() {},
+    textContent: "",
+    value: "",
+    appendChild(c) { children.push(c); c.parentNode = this; return c; },
+    querySelectorAll(sel) {
+      const results = [];
+      function recurse(node) {
+        for (const ch of (node.childNodes || [])) {
+          if (sel.includes("pg-file-jump-item") && ch.classList && ch.classList.contains("pg-file-jump-item")) {
+            results.push(ch);
+          }
+          recurse(ch);
+        }
+      }
+      recurse(this);
+      return results;
+    },
+    querySelector(sel) {
+      const all = this.querySelectorAll(sel);
+      return all.length ? all[0] : null;
+    }
+  };
+}
+
+const mockDoc = {
+  elementsById: new Map(),
+  getElementById(id) {
+    if (!this.elementsById.has(id)) {
+      this.elementsById.set(id, makeMockElement("div", id));
+    }
+    return this.elementsById.get(id);
+  },
+  querySelector(sel) {
+    return makeMockElement("div", "sel-match");
+  },
+  querySelectorAll(sel) {
+    return [makeMockElement("div", "sel-match-1")];
+  },
+  addEventListener() {},
+  removeEventListener() {},
+  body: makeMockElement("body"),
+  documentElement: makeMockElement("html")
+};
+
+global.document = mockDoc;
+global.window = {
+  document: mockDoc,
+  localStorage: {
+    _data: {},
+    getItem(k) { return this._data[k] || null; },
+    setItem(k, v) { this._data[k] = String(v); },
+    removeItem(k) { delete this._data[k]; }
+  },
+  addEventListener() {},
+  removeEventListener() {},
+  innerWidth: 1200,
+  innerHeight: 800
+};
+global.localStorage = global.window.localStorage;
+
+"""
+            + js_body
+            + """
+
+// 1. Verify state initialization
+assert.notEqual(state.fileJump, undefined);
+assert.equal(state.fileJump.isOpen, false);
+assert.notEqual(state.activeFileByCl, undefined);
+
+// 2. Set up test change with Unicode path
+const testCl = {
+  number: 43330015,
+  patch_set: 3,
+  patch_sets: [1, 2, 3],
+  subject: "feat(gerrit): Test Unicode File Jump"
+};
+
+const testBundle = {
+  cl: 43330015,
+  patch_set: 3,
+  files: [
+    { file: "emulator/libs/file/测试_🚀_é.cc", status: "M", additions: 15, deletions: 3 },
+    { file: "src/utils.h", status: "A", additions: 42, deletions: 0 }
+  ]
+};
+
+state.changes = [testCl];
+state.diffsByCl = { 43330015: testBundle };
+state.selectedClNumber = 43330015;
+
+// 3. Test renderPgFileJumpMenuHtml
+const menuHtml = renderPgFileJumpMenuHtml(testCl, testBundle);
+assert.equal(menuHtml.includes('id="pgFileJumpGroup-43330015"'), true);
+assert.equal(menuHtml.includes('id="btnPrevFile-43330015"'), true);
+assert.equal(menuHtml.includes('id="btnNextFile-43330015"'), true);
+assert.equal(menuHtml.includes('id="btnFileJump-43330015"'), true);
+assert.equal(menuHtml.includes('id="btnUpToFileList-43330015"'), true);
+assert.equal(menuHtml.includes('id="pgFileJumpDropdown-43330015"'), true);
+assert.equal(menuHtml.includes('id="pgFileJumpFilter-43330015"'), true);
+assert.equal(menuHtml.includes('/COMMIT_MSG'), true);
+assert.equal(menuHtml.includes('测试_🚀_é.cc'), true);
+assert.equal(menuHtml.includes('src/utils.h'), true);
+
+// 4. Test openPgFileJumpMenu & closePgFileJumpMenu
+const dropdownEl = mockDoc.getElementById("pgFileJumpDropdown-43330015");
+const btnJumpEl = mockDoc.getElementById("btnFileJump-43330015");
+const filterInputEl = mockDoc.getElementById("pgFileJumpFilter-43330015");
+const labelEl = mockDoc.getElementById("pgFileJumpLabel-43330015");
+
+openPgFileJumpMenu(43330015);
+assert.equal(state.fileJump.isOpen, true);
+assert.equal(state.fileJump.cl, 43330015);
+assert.equal(dropdownEl.style.display, "");
+assert.equal(btnJumpEl.classList.contains("is-active"), true);
+assert.equal(btnJumpEl.getAttribute("aria-expanded"), "true");
+assert.equal(filterInputEl._focused, true);
+
+closePgFileJumpMenu(43330015);
+assert.equal(state.fileJump.isOpen, false);
+assert.equal(dropdownEl.style.display, "none");
+assert.equal(btnJumpEl.classList.contains("is-active"), false);
+assert.equal(btnJumpEl.getAttribute("aria-expanded"), "false");
+
+// 5. Test togglePgFileJumpMenu
+togglePgFileJumpMenu(43330015);
+assert.equal(state.fileJump.isOpen, true);
+togglePgFileJumpMenu(43330015);
+assert.equal(state.fileJump.isOpen, false);
+
+// 6. Test onPgFileJumpFilterInput with Unicode query
+const itemCommitMsg = makeMockElement("div", "item-commit");
+itemCommitMsg.classList.add("pg-file-jump-item");
+itemCommitMsg.setAttribute("data-file", "/COMMIT_MSG");
+
+const itemUnicode = makeMockElement("div", "item-unicode");
+itemUnicode.classList.add("pg-file-jump-item");
+itemUnicode.setAttribute("data-file", "emulator/libs/file/测试_🚀_é.cc");
+
+const itemHeader = makeMockElement("div", "item-header");
+itemHeader.classList.add("pg-file-jump-item");
+itemHeader.setAttribute("data-file", "src/utils.h");
+
+dropdownEl.childNodes = [itemCommitMsg, itemUnicode, itemHeader];
+
+onPgFileJumpFilterInput(43330015, "测试");
+assert.equal(state.fileJump.filter, "测试");
+assert.equal(itemUnicode.style.display, "");
+assert.equal(itemHeader.style.display, "none");
+assert.equal(itemCommitMsg.style.display, "none");
+
+clearPgFileJumpFilter(43330015);
+assert.equal(state.fileJump.filter, "");
+assert.equal(itemUnicode.style.display, "");
+assert.equal(itemHeader.style.display, "");
+assert.equal(itemCommitMsg.style.display, "");
+
+// 7. Test selectPgFileJumpItem updates active file and label
+let scrolledTarget = "";
+scrollToFileDiff = (cl, ps, file) => { scrolledTarget = file; };
+selectPgFileJumpItem(43330015, 3, "emulator/libs/file/测试_🚀_é.cc");
+
+assert.equal(state.fileJump.isOpen, false);
+assert.equal(state.activeFileByCl[43330015], "emulator/libs/file/测试_🚀_é.cc");
+assert.equal(scrolledTarget, "emulator/libs/file/测试_🚀_é.cc");
+assert.equal(labelEl.textContent, "[M] 测试_🚀_é.cc (1 of 2)");
+
+// 8. Test selectPgFileJumpCommitMsg
+let scrolledCommitMsg = false;
+scrollToCommitMessageBox = (cl) => { scrolledCommitMsg = true; };
+selectPgFileJumpCommitMsg(43330015);
+
+assert.equal(state.activeFileByCl[43330015], "/COMMIT_MSG");
+assert.equal(scrolledCommitMsg, true);
+assert.equal(labelEl.textContent, "📄 /COMMIT_MSG");
+
+// 9. Verify Shift+J shortcut in PG_KEYBOARD_SHORTCUTS
+const navShortcuts = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "File List & Diff Navigation");
+assert.notEqual(navShortcuts, undefined);
+const shiftJShortcut = navShortcuts.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("J"));
+assert.notEqual(shiftJShortcut, undefined);
+assert.equal(shiftJShortcut.description.includes("Jump to file selector / dropdown"), true);
+
+console.log("POLYGERRIT_DIFF_FILE_JUMP_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
+            tf.write(harness_js)
+            tf_path = tf.name
+        try:
+            res = subprocess.run(
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Node execution failed with {res.stderr}\nScript:\n{harness_js[:1000]}",
+            )
+            self.assertIn("POLYGERRIT_DIFF_FILE_JUMP_OK", res.stdout)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
+    def test_polygerrit_follow_up_change_dialog_and_workflow(self) -> None:
+        from commands.gerrit.services.vote_submit_service import GerritVoteSubmitService
+        from lib.gerrit_api import GerritClient
+
+        # 1. Backend: verify create_follow_up_change with branch, subject, Unicode, notify: OWNER, base_change, topic, etc.
+        client = MagicMock(spec=GerritClient)
+        client._request_json.return_value = {
+            "id": "emu-test~studio-main~I1234567890abcdef",
+            "change_id": "I1234567890abcdef",
+            "_number": 43330105,
+            "project": "platform/hardware/google/aemu",
+            "branch": "goog/studio-main",
+            "subject": "feat(gerrit): Follow-up polish 测试_🚀_é",
+            "status": "NEW",
+        }
+        client.get_change_detail.return_value = {
+            "project": "platform/hardware/google/aemu",
+            "branch": "goog/studio-main",
+        }
+        with patch("commands.gerrit.services.diff_parser.GerritClient"):
+            service = GerritVoteSubmitService(host="https://android-review.googlesource.com")
+        service.client = client
+
+        res_fu = service.create_follow_up_change(
+            cl_number=43330008,
+            branch="goog/studio-main",
+            subject="feat(gerrit): Follow-up polish 测试_🚀_é",
+            base_change="43330008",
+            topic="emu-topic-followup",
+            is_private=True,
+            work_in_progress=True,
+            viewer_email="tester@google.com",
+        )
+        self.assertEqual(res_fu["status"], "ok")
+        self.assertEqual(res_fu["action"], "follow_up")
+        self.assertEqual(res_fu["notify"], "OWNER")
+        self.assertEqual(res_fu["new_cl_number"], 43330105)
+        service.client._request_json.assert_called_with(
+            "/a/changes/",
+            method="POST",
+            data={
+                "project": "platform/hardware/google/aemu",
+                "branch": "goog/studio-main",
+                "subject": "feat(gerrit): Follow-up polish 测试_🚀_é",
+                "notify": "OWNER",
+                "base_change": "43330008",
+                "topic": "emu-topic-followup",
+                "is_private": True,
+                "work_in_progress": True,
+            },
+        )
+
+        # Validation errors for empty branch or subject
+        with self.assertRaises(ValueError):
+            service.create_follow_up_change(cl_number=43330008, branch="", subject="Valid subject")
+        with self.assertRaises(ValueError):
+            service.create_follow_up_change(cl_number=43330008, branch="master", subject="")
+
+        # 2. Template: verify static tokens and DOM structure in polygerrit.html
+        html = render_static_gerrit_ui_html(
+            initial_payload={"viewer": "tester@google.com"},
+            variant="polygerrit",
+        )
+        self.assertIn("id=\"pgFollowUpBackdrop\"", html)
+        self.assertIn("id=\"pgFollowUpTitle\"", html)
+        self.assertIn("id=\"pgFollowUpSubtitle\"", html)
+        self.assertIn("id=\"pgFollowUpBranchInput\"", html)
+        self.assertIn("id=\"pgFollowUpBaseInput\"", html)
+        self.assertIn("id=\"pgFollowUpTopicInput\"", html)
+        self.assertIn("id=\"pgFollowUpMessageInput\"", html)
+        self.assertIn("id=\"pgFollowUpWipCheckbox\"", html)
+        self.assertIn("id=\"pgFollowUpPrivateCheckbox\"", html)
+        self.assertIn("id=\"btnConfirmFollowUp\"", html)
+        self.assertIn("pg-btn-followup", html)
+        self.assertIn("openPgFollowUpDialog", html)
+        self.assertIn("closePgFollowUpDialog", html)
+        self.assertIn("executePgFollowUp", html)
+        self.assertIn("setPgFollowUpBranch", html)
+
+        # 3. Headless Node/VM DOM harness verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+        self.assertTrue(scripts)
+        js_body = (
+            scripts[-1]
+            .replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+            .replace("\n  initApp();", "\n  // initApp();")
+        )
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    disabled: false,
+    checked: false,
+    style: {},
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+        } else if (force) {
+          classes.add(c);
+        } else {
+          classes.delete(c);
+        }
+      },
+      contains(c) { return classes.has(c); }
+    },
+    getAttribute(k) { return attrs[k] || null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    appendChild(c) { children.push(c); },
+    querySelectorAll(sel) { return []; },
+    querySelector(sel) { return null; },
+    addEventListener() {},
+    focus() {},
+    select() {},
+    setSelectionRange() {}
+  };
+}
+
+globalThis.document = {
+  body: makeMockEl("body"),
+  getElementById(id) {
+    if (!this._elements) this._elements = {};
+    if (!this._elements[id]) {
+      this._elements[id] = makeMockEl("div");
+      this._elements[id].id = id;
+    }
+    return this._elements[id];
+  },
+  querySelector(sel) { return null; },
+  querySelectorAll(sel) { return []; },
+  createElement(tag) { return makeMockEl(tag); },
+  addEventListener() {}
+};
+globalThis.window = {
+  location: { search: "" },
+  addEventListener() {},
+  innerWidth: 1440
+};
+"""
+            + js_body
+            + """
+state.viewer = "tester@google.com";
+const sampleCl = {
+  number: 43330018,
+  patch_set: 3,
+  project: "platform/hardware/google/aemu",
+  branch: "goog/studio-main",
+  topic: "unicode-stack-测试_🚀_é",
+  subject: "feat(core): Polish emulator engine 测试_🚀_é",
+  host: "https://android-review.googlesource.com",
+  status: "NEW",
+  is_abandoned: false,
+  mergeable: true,
+  work_in_progress: false
+};
+state.changes = [sampleCl];
+state.selectedClNumber = 43330018;
+
+// 1. Verify renderPgHeaderActionButtonsHtml renders Follow-Up button with shortcut hint
+const btnsHtml = renderPgHeaderActionButtonsHtml(sampleCl);
+assert.match(btnsHtml, /openPgFollowUpDialog\\(43330018\\)/);
+assert.match(btnsHtml, /class="btn pg-btn-header-action pg-btn-followup"/);
+assert.match(btnsHtml, /Shortcut: Shift\\+U/);
+
+// 2. Verify openPgFollowUpDialog lifecycle and prefilled values
+openPgFollowUpDialog(43330018);
+assert.equal(state.followUpDialogOpen, true);
+assert.equal(state.followUpDialogCl, 43330018);
+
+const backdrop = document.getElementById("pgFollowUpBackdrop");
+assert.equal(backdrop.classList.contains("open"), true);
+assert.equal(backdrop.getAttribute("aria-hidden"), "false");
+
+const branchInp = document.getElementById("pgFollowUpBranchInput");
+const baseInp = document.getElementById("pgFollowUpBaseInput");
+const topicInp = document.getElementById("pgFollowUpTopicInput");
+const msgInp = document.getElementById("pgFollowUpMessageInput");
+const wipCb = document.getElementById("pgFollowUpWipCheckbox");
+const privCb = document.getElementById("pgFollowUpPrivateCheckbox");
+
+assert.equal(branchInp.value, "goog/studio-main");
+assert.equal(baseInp.value, "ag/43330018");
+assert.equal(topicInp.value, "unicode-stack-测试_🚀_é");
+assert.match(msgInp.value, /Follow-up: feat\\(core\\): Polish emulator engine 测试_🚀_é/);
+assert.equal(wipCb.checked, false);
+assert.equal(privCb.checked, false);
+
+// 3. Verify setPgFollowUpBranch helper
+setPgFollowUpBranch("sys-img-dev");
+assert.equal(branchInp.value, "sys-img-dev");
+
+// 4. Verify executePgFollowUp calls backend sidecarFetch
+let fetchCalled = false;
+let fetchPayload = null;
+sidecarFetch = async (url, opts) => {
+  fetchCalled = true;
+  fetchPayload = JSON.parse(opts.body);
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      status: "ok",
+      cl: 43330018,
+      new_cl_number: 43330199,
+      new_change: { _number: 43330199, change_id: "I999999" }
+    })
+  };
+};
+
+let toastMsg = "";
+showToast = (msg) => { toastMsg = msg; };
+
+(async () => {
+wipCb.checked = true;
+await executePgFollowUp();
+
+assert.equal(fetchCalled, true);
+assert.equal(fetchPayload.cl, 43330018);
+assert.equal(fetchPayload.branch, "sys-img-dev");
+assert.equal(fetchPayload.work_in_progress, true);
+assert.equal(state.followUpDialogOpen, false);
+assert.match(toastMsg, /Created follow-up change stacked on ag\\/43330018! New change: ag\\/43330199/);
+
+// 5. Verify closePgFollowUpDialog
+openPgFollowUpDialog(43330018);
+assert.equal(state.followUpDialogOpen, true);
+closePgFollowUpDialog();
+assert.equal(state.followUpDialogOpen, false);
+assert.equal(backdrop.classList.contains("open"), false);
+assert.equal(backdrop.getAttribute("aria-hidden"), "true");
+
+// 6. Verify Shift+U in PG_KEYBOARD_SHORTCUTS
+const navGroup = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "Navigation & Dashboard");
+assert.notEqual(navGroup, undefined);
+const followUpShortcut = navGroup.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("U"));
+assert.notEqual(followUpShortcut, undefined);
+assert.equal(followUpShortcut.description.includes("follow-up"), true);
+
+console.log("POLYGERRIT_FOLLOW_UP_DIALOG_OK");
+})().catch(err => {
+  console.error(err);
+  process.exit(1);
+});
+"""
+        )
+
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
+            tf.write(harness_js)
+            tf_path = tf.name
+        try:
+            res = subprocess.run(
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Node execution failed with {res.stderr}\nScript:\n{harness_js[:1000]}",
+            )
+            self.assertIn("POLYGERRIT_FOLLOW_UP_DIALOG_OK", res.stdout)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
+    def test_polygerrit_checks_tab_and_ci_runs(self) -> None:
+        """Verifies authentic PolyGerrit Checks Tab (<gr-checks-view>) and TreeHugger runs."""
+        from commands.gerrit.handlers.ui_handler import render_static_gerrit_ui_html
+
+        html = render_static_gerrit_ui_html(
+            initial_payload={"viewer": "tester@google.com"},
+            variant="polygerrit",
+        )
+
+        # 1. Static template token checks
+        self.assertIn("pg-checks-tab-badge", html)
+        self.assertIn("pgTabChecks", html)
+        self.assertIn("pgChecksTabPane", html)
+        self.assertIn("pgChecksControls", html)
+        self.assertIn("pg-file-checks-chip", html)
+        self.assertIn("pg-dir-checks-chip", html)
+        self.assertIn("pg-checks-summary-chips", html)
+        self.assertIn("pg-checks-summary-chip", html)
+        self.assertIn("getPgFileChecksStatus", html)
+        self.assertIn("formatPgTargetShortName", html)
+        self.assertIn("renderPgFileChecksChipHtml", html)
+        self.assertIn("onPgFileChecksChipClick", html)
+        self.assertIn("selectPgChecksStatusFilter", html)
+        self.assertIn("pg-checks-view", html)
+        self.assertIn("pg-checks-banner", html)
+        self.assertIn("pg-checks-grid", html)
+        self.assertIn("pg-checks-runs-col", html)
+        self.assertIn("pg-checks-detail-col", html)
+        self.assertIn("pgChecksSearchInput", html)
+        self.assertIn("pgChecksKindTabs", html)
+        self.assertIn("pg-checks-kind-tab", html)
+        self.assertIn("setPgChecksKindFilter", html)
+        self.assertIn("btnCheckBuganizer", html)
+        self.assertIn("openPgCheckBuganizer", html)
+        self.assertIn("btnCheckCopyDiag", html)
+        self.assertIn("copyPgCheckDiagnostics", html)
+        self.assertIn("btnToggleCheckLog", html)
+        self.assertIn("togglePgCheckLogDrawer", html)
+        self.assertIn("pgChecksLogDrawer", html)
+        self.assertIn("pgChecksLogBody", html)
+        self.assertIn("pgCheckLogFilterInput", html)
+        self.assertIn("onPgCheckLogSearchInput", html)
+        self.assertIn("clearPgCheckLogSearch", html)
+        self.assertIn("copyPgCheckLog", html)
+        self.assertIn("downloadPgCheckLog", html)
+        self.assertIn("navigatePgCheckRun", html)
+        self.assertIn("generatePgCheckRunLogLines", html)
+        self.assertIn("selectPgChangeTab", html)
+        self.assertIn("togglePgChangeTab", html)
+        self.assertIn("selectPgCheckRunByIndex", html)
+        self.assertIn("onPgChecksSearchInput", html)
+        self.assertIn("clearPgChecksSearch", html)
+        self.assertIn("btnCheckRerun", html)
+        self.assertIn("openPgChecksRerunModal", html)
+        self.assertIn("pgChecksRerunBackdrop", html)
+        self.assertIn("btnConfirmChecksRerun", html)
+        self.assertIn("pg-btn-rerun-failed", html)
+        self.assertIn("pg-btn-run-rerun", html)
+        self.assertIn("pg-checks-rerun-dialog", html)
+        self.assertIn("setPgChecksRerunMode", html)
+        self.assertIn("confirmPgChecksRerun", html)
+        self.assertIn("triggerPgSingleCheckRerun", html)
+        self.assertIn("Shift", html)
+        self.assertIn("Toggle between Files and Checks tab", html)
+
+        # 2. Node/VM DOM harness verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+        self.assertTrue(scripts)
+        js_body = (
+            scripts[-1]
+            .replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+            .replace("\n  initApp();", "\n  // initApp();")
+        )
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    innerHTML: "",
+    disabled: false,
+    checked: false,
+    style: {},
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+        } else if (force) {
+          classes.add(c);
+        } else {
+          classes.delete(c);
+        }
+      },
+      contains(c) { return classes.has(c); }
+    },
+    getAttribute(k) { return attrs[k] || null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    appendChild(c) { children.push(c); },
+    querySelectorAll(sel) { return []; },
+    querySelector(sel) { return null; },
+    addEventListener() {},
+    focus() {},
+    select() {},
+    setSelectionRange() {},
+    scrollIntoView() {},
+    click() { globalThis.__lastClickedEl = this; }
+  };
+}
+
+globalThis.document = {
+  body: makeMockEl("body"),
+  getElementById(id) {
+    if (!this._elements) this._elements = {};
+    if (!this._elements[id]) {
+      this._elements[id] = makeMockEl("div");
+      this._elements[id].id = id;
+    }
+    return this._elements[id];
+  },
+  querySelector(sel) { return null; },
+  querySelectorAll(sel) { return []; },
+  createElement(tag) { return makeMockEl(tag); },
+  addEventListener(event, fn) {
+    if (event === "keydown") globalThis.__docKeydownListener = fn;
+  }
+};
+globalThis.window = {
+  location: { search: "" },
+  addEventListener() {},
+  innerWidth: 1440,
+  open(url, target, features) {
+    globalThis.__lastOpenedUrl = url;
+  }
+};
+globalThis.navigator = {
+  clipboard: {
+    writeText(text) {
+      globalThis.__lastCopiedText = text;
+      return Promise.resolve();
+    }
+  }
+};
+globalThis.URL = {
+  createObjectURL(blob) { return "blob:mock-url"; }
+};
+globalThis.Blob = function(parts, opts) {
+  this.parts = parts;
+  this.opts = opts;
+};
+"""
+            + js_body
+            + """
+const testClNum = 43330025;
+const testCl = {
+  number: testClNum,
+  patch_set: 3,
+  project: "platform/hardware/google/aemu",
+  branch: "goog/studio-main",
+  subject: "feat(checks): Test TreeHugger runs 测试_🚀_é",
+  presubmit_status: "failed",
+  presubmit_score: -1,
+  presubmit_vetted: false,
+  viewer_presubmit_ready: true,
+  presubmit_ready_voters: ["alice@google.com"],
+  unresolved_comment_count: 0
+};
+state.changes = [testCl];
+state.stacks = [{ id: "s1", commits: [testCl] }];
+state.checkedClNumbers = new Set();
+state.selectedClNumber = testClNum;
+state.diffsByCl = { [testClNum]: { patch_set: 3, files: [], unresolved_threads: [] } };
+
+// Mock Presubmit Targets data with non-ASCII Unicode test data
+const sampleTargets = [
+  {
+    name: "goldfish_presubmit_测试_🚀_é",
+    kind: "TEST",
+    status: "failed",
+    raw_status: "FAILED",
+    duration_display: "3m 42s",
+    artifact_id: "ants-inv-998811",
+    subtitle: "Test failures detected in qemu-next unit tests",
+    url: "https://sponge.corp.google.com/inv-998811",
+    secondary_url: "https://android-build.corp.google.com/builds/998811/logs",
+    blocking_level: "BLOCKING"
+  },
+  {
+    name: "aemu_bazel_build",
+    kind: "BUILD",
+    status: "passed",
+    raw_status: "SUCCESS",
+    duration_display: "1m 15s",
+    artifact_id: "ants-inv-998812",
+    subtitle: "Build completed successfully",
+    url: "https://sponge.corp.google.com/inv-998812",
+    blocking_level: "BLOCKING"
+  },
+  {
+    name: "clang_tidy_analyzer",
+    kind: "CHECK",
+    status: "running",
+    raw_status: "RUNNING",
+    duration_display: "45s",
+    artifact_id: "ants-inv-998813",
+    subtitle: "Static analysis in progress",
+    url: "https://sponge.corp.google.com/inv-998813",
+    blocking_level: "WARN"
+  }
+];
+
+state.presubmitTargetsByCl[testClNum] = {
+  loading: false,
+  error: "",
+  data: {
+    status: "ok",
+    patch_set: 3,
+    run_status: "failed",
+    counts: { total: 3, failed: 1, warning: 0, running: 1, queued: 0, passed: 1, cached: 0 },
+    targets: sampleTargets
+  }
+};
+
+// 1. Verify renderPgChecksTabButtonHtml
+const btnHtml = renderPgChecksTabButtonHtml(testCl, "files");
+assert.ok(btnHtml.includes("pgTabChecks-43330025"));
+assert.ok(btnHtml.includes("st-failed"));
+assert.ok(btnHtml.includes("✕ 1"));
+assert.ok(btnHtml.includes("selectPgChangeTab(43330025, 'checks')"));
+
+// 2. Set up DOM container and verify selectPgChangeTab('checks')
+const filesPane = document.getElementById("pgFilesTabPane-43330025");
+const checksPane = document.getElementById("pgChecksTabPane-43330025");
+filesPane.style.display = "block";
+checksPane.style.display = "none";
+
+selectPgChangeTab(testClNum, "checks");
+
+assert.equal(state.activeChangeTabByCl[testClNum], "checks");
+assert.equal(filesPane.style.display, "none");
+assert.equal(checksPane.style.display, "block");
+assert.ok(checksPane.classList.contains("is-active"));
+
+// Verify checks view contents inside checksPane
+assert.ok(checksPane.innerHTML.includes("pg-checks-view"));
+assert.ok(checksPane.innerHTML.includes("pg-checks-banner"));
+assert.ok(checksPane.innerHTML.includes("1 of 3 checks failed"));
+assert.ok(checksPane.innerHTML.includes("goldfish_presubmit_测试_🚀_é"));
+assert.ok(checksPane.innerHTML.includes("aemu_bazel_build"));
+assert.ok(checksPane.innerHTML.includes("clang_tidy_analyzer"));
+assert.ok(checksPane.innerHTML.includes("Failure Diagnostics"));
+
+// 3. Verify Kind Filter chips & counts
+assert.ok(checksPane.innerHTML.includes("pgChecksKindTabs-43330025"));
+assert.ok(checksPane.innerHTML.includes("All (3)"));
+assert.ok(checksPane.innerHTML.includes("Build (1)"));
+assert.ok(checksPane.innerHTML.includes("Test (1)"));
+assert.ok(checksPane.innerHTML.includes("Preflight (1)"));
+
+// Filter by Kind 'test'
+setPgChecksKindFilter(testClNum, "test");
+assert.equal(state.checksKindFilterByCl[testClNum], "test");
+assert.ok(checksPane.innerHTML.includes("goldfish_presubmit_测试_🚀_é"));
+assert.ok(!checksPane.innerHTML.includes("aemu_bazel_build"));
+
+// Filter by Kind 'build'
+setPgChecksKindFilter(testClNum, "build");
+assert.equal(state.checksKindFilterByCl[testClNum], "build");
+assert.ok(checksPane.innerHTML.includes("aemu_bazel_build"));
+assert.ok(!checksPane.innerHTML.includes("goldfish_presubmit_测试_🚀_é"));
+
+// Reset Kind filter to 'all'
+setPgChecksKindFilter(testClNum, "all");
+assert.equal(state.checksKindFilterByCl[testClNum], "all");
+assert.ok(checksPane.innerHTML.includes("goldfish_presubmit_测试_🚀_é"));
+assert.ok(checksPane.innerHTML.includes("aemu_bazel_build"));
+
+// 4. Verify Buganizer and Diagnostics Integration
+assert.ok(checksPane.innerHTML.includes("btnCheckBuganizer-43330025"));
+assert.ok(checksPane.innerHTML.includes("btnCheckCopyDiag-43330025"));
+
+openPgCheckBuganizer(testClNum, "goldfish_presubmit_测试_🚀_é");
+assert.ok(globalThis.__lastOpenedUrl.startsWith("https://b.corp.google.com/issues/new?"));
+assert.ok(globalThis.__lastOpenedUrl.includes("component=192706"));
+assert.ok(globalThis.__lastOpenedUrl.includes("goldfish_presubmit"));
+
+copyPgCheckDiagnostics(testClNum, "goldfish_presubmit_测试_🚀_é");
+assert.ok(globalThis.__lastCopiedText.includes("TreeHugger Check Diagnostic"));
+assert.ok(globalThis.__lastCopiedText.includes("goldfish_presubmit_测试_🚀_é"));
+assert.ok(globalThis.__lastCopiedText.includes("FAILED"));
+
+// 5. Verify Run Log Drawer & Terminal
+assert.ok(checksPane.innerHTML.includes("btnToggleCheckLog-43330025"));
+assert.ok(checksPane.innerHTML.includes("pgChecksLogDrawer-43330025"));
+
+// Open log drawer
+togglePgCheckLogDrawer(testClNum, "goldfish_presubmit_测试_🚀_é");
+assert.equal(state.checkLogOpenByCl[testClNum], true);
+assert.ok(checksPane.innerHTML.includes("is-open"));
+assert.ok(checksPane.innerHTML.includes("pg-checks-log-terminal"));
+assert.ok(checksPane.innerHTML.includes("TreeHugger Presubmit Execution"));
+assert.ok(checksPane.innerHTML.includes("goldfish_presubmit_测试_🚀_é"));
+assert.ok(checksPane.innerHTML.includes("Failure detected: Test failures detected in qemu-next unit tests"));
+
+// Search/filter within log
+onPgCheckLogSearchInput(testClNum, "Failure detected");
+assert.equal(state.checkLogSearchByCl[testClNum], "Failure detected");
+assert.ok(checksPane.innerHTML.includes("Failure detected"));
+
+clearPgCheckLogSearch(testClNum);
+assert.equal(state.checkLogSearchByCl[testClNum], "");
+
+// Copy and download log
+copyPgCheckLog(testClNum, "goldfish_presubmit_测试_🚀_é");
+assert.ok(globalThis.__lastCopiedText.includes("=== Android Build / TreeHugger Presubmit Execution ==="));
+assert.ok(globalThis.__lastCopiedText.includes("goldfish_presubmit_测试_🚀_é"));
+
+downloadPgCheckLog(testClNum, "goldfish_presubmit_测试_🚀_é");
+assert.ok(globalThis.__lastClickedEl);
+
+// 6. Verify navigatePgCheckRun (next / prev)
+selectPgCheckRunByIndex(testClNum, 0);
+assert.equal(state.selectedCheckRunByCl[testClNum], "goldfish_presubmit_测试_🚀_é");
+navigatePgCheckRun(testClNum, "next");
+assert.equal(state.selectedCheckRunByCl[testClNum], "aemu_bazel_build");
+navigatePgCheckRun(testClNum, "prev");
+assert.equal(state.selectedCheckRunByCl[testClNum], "goldfish_presubmit_测试_🚀_é");
+
+// 7. Verify selectPgCheckRunByIndex selection
+selectPgCheckRunByIndex(testClNum, 1); // aemu_bazel_build
+assert.equal(state.selectedCheckRunByCl[testClNum], "aemu_bazel_build");
+assert.ok(checksPane.innerHTML.includes("Check Passed"));
+
+// 8. Verify onPgChecksSearchInput text filtering with Unicode
+onPgChecksSearchInput(testClNum, "测试_🚀_é");
+assert.equal(state.checksSearchQueryByCl[testClNum], "测试_🚀_é");
+assert.ok(checksPane.innerHTML.includes("goldfish_presubmit_测试_🚀_é"));
+assert.ok(!checksPane.innerHTML.includes("aemu_bazel_build"));
+
+clearPgChecksSearch(testClNum);
+assert.equal(state.checksSearchQueryByCl[testClNum], "");
+assert.ok(checksPane.innerHTML.includes("aemu_bazel_build"));
+
+// 9. Verify togglePgChangeTab switches back to 'files'
+togglePgChangeTab(testClNum);
+assert.equal(state.activeChangeTabByCl[testClNum], "files");
+assert.equal(filesPane.style.display, "block");
+assert.equal(checksPane.style.display, "none");
+
+// 10. Verify getExpandedActivePresubmitCls includes active checks tab
+state.activeChangeTabByCl[testClNum] = "checks";
+sampleTargets[0].status = "running";
+state.presubmitTargetsByCl[testClNum].data.run_status = "running";
+const activeNums = getExpandedActivePresubmitCls();
+assert.ok(activeNums.includes(testClNum));
+
+// 11. Verify Shift+K and l in PG_KEYBOARD_SHORTCUTS
+const navGroup = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "Navigation & Dashboard");
+assert.notEqual(navGroup, undefined);
+const checksShortcut = navGroup.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("K"));
+assert.notEqual(checksShortcut, undefined);
+assert.ok(checksShortcut.description.includes("Checks tab"));
+
+const logShortcut = navGroup.shortcuts.find(s => s.keys.includes("l"));
+assert.notEqual(logShortcut, undefined);
+assert.ok(logShortcut.description.includes("Run Log"));
+
+// 12. Verify Checks Rerun Modal and Action lifecycle
+assert.equal(typeof openPgChecksRerunModal, "function");
+assert.equal(typeof closePgChecksRerunModal, "function");
+assert.equal(typeof confirmPgChecksRerun, "function");
+assert.equal(typeof triggerPgSingleCheckRerun, "function");
+
+// A. Open modal for failing target with non-ASCII Unicode
+openPgChecksRerunModal(testClNum, { target: "goldfish_presubmit_测试_🚀_é" });
+const rerunBackdrop = document.getElementById("pgChecksRerunBackdrop");
+assert.ok(rerunBackdrop.classList.contains("is-open"));
+assert.equal(_pgChecksRerunState.targetName, "goldfish_presubmit_测试_🚀_é");
+assert.equal(_pgChecksRerunState.mode, "selected");
+const rerunTitle = document.getElementById("pgChecksRerunTitle");
+assert.equal(rerunTitle.textContent, "Rerun Presubmit Checks");
+const rerunSub = document.getElementById("pgChecksRerunSubtitle");
+assert.ok(rerunSub.textContent.includes("43330025"));
+assert.ok(rerunSub.textContent.includes("Patchset 3"));
+const rerunBody = document.getElementById("pgChecksRerunBody");
+assert.ok(rerunBody.innerHTML.includes("goldfish_presubmit_测试_🚀_é"));
+
+// B. Change mode to 'failed' and 'all'
+setPgChecksRerunMode("failed");
+assert.equal(_pgChecksRerunState.mode, "failed");
+const footerStats = document.getElementById("pgChecksRerunFooterStats");
+assert.ok(footerStats.textContent.includes("1 target"));
+
+setPgChecksRerunMode("all");
+assert.equal(_pgChecksRerunState.mode, "all");
+assert.ok(footerStats.textContent.includes("3 targets"));
+
+// C. Change mode to 'custom' and toggle targets
+setPgChecksRerunMode("custom");
+assert.equal(_pgChecksRerunState.mode, "custom");
+const customList = document.getElementById("pgRerunCustomList");
+assert.ok(customList);
+assert.ok(rerunBody.innerHTML.includes("goldfish_presubmit_测试_🚀_é"));
+selectAllPgChecksRerunTargets(false);
+assert.equal(_pgChecksRerunState.selectedTargets.size, 0);
+togglePgChecksRerunTarget("goldfish_presubmit_测试_🚀_é");
+assert.equal(_pgChecksRerunState.selectedTargets.size, 1);
+assert.ok(_pgChecksRerunState.selectedTargets.has("goldfish_presubmit_测试_🚀_é"));
+selectAllPgChecksRerunTargets(true);
+assert.equal(_pgChecksRerunState.selectedTargets.size, 3);
+
+// D. Execute rerun with reason notes and bypass cache
+_pgChecksRerunState.mode = "selected";
+_pgChecksRerunState.targetName = "goldfish_presubmit_测试_🚀_é";
+_pgChecksRerunState.reason = "Flake reproduction on fresh host worker 测试_🚀_é";
+_pgChecksRerunState.bypassCache = true;
+confirmPgChecksRerun();
+
+// Verify optimistic update on target
+const targetObj = sampleTargets.find(t => t.name === "goldfish_presubmit_测试_🚀_é");
+assert.equal(targetObj.status, "queued");
+assert.equal(targetObj.raw_status, "QUEUED (RERUN)");
+assert.equal(targetObj.waiting_on_build, true);
+assert.equal(targetObj.duration_display, "0s");
+assert.ok(rerunBackdrop.classList.contains("is-open") === false);
+
+// Verify console run log drawer contains rerun log lines
+const logLines = generatePgCheckRunLogLines(testCl, targetObj, getClPresubmitDisplay(testCl));
+const rerunLogLine = logLines.find(l => l.text.includes("[RERUN] Manual rerun initiated"));
+assert.notEqual(rerunLogLine, undefined);
+assert.ok(rerunLogLine.text.includes("Flake reproduction"));
+assert.ok(rerunLogLine.text.includes("bypass_cache=true"));
+
+// E. Verify triggerPgSingleCheckRerun 1-click execution
+triggerPgSingleCheckRerun(testClNum, "aemu_bazel_build");
+const bazelTarget = sampleTargets.find(t => t.name === "aemu_bazel_build");
+assert.equal(bazelTarget.status, "queued");
+assert.equal(bazelTarget.raw_status, "QUEUED (RERUN)");
+
+// F. Verify keyboard shortcut 'r' in Checks tab opens rerun modal
+state.activeChangeTabByCl[testClNum] = "checks";
+state.selectedClNumber = testClNum;
+state.checkedClNumbers = new Set();
+const rKeyEvent = { key: "r", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, target: makeMockEl("div"), preventDefault() {} };
+if (typeof globalThis.__docKeydownListener === "function") {
+  globalThis.__docKeydownListener(rKeyEvent);
+  assert.ok(rerunBackdrop.classList.contains("is-open"));
+  const escKeyEvent = { key: "Escape", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, target: makeMockEl("div"), preventDefault() {} };
+  globalThis.__docKeydownListener(escKeyEvent);
+  assert.ok(!rerunBackdrop.classList.contains("is-open"));
+}
+
+// G. Verify 'r' shortcut in PG_KEYBOARD_SHORTCUTS
+const rerunShortcut = navGroup.shortcuts.find(s => s.keys.includes("r"));
+assert.notEqual(rerunShortcut, undefined);
+assert.ok(rerunShortcut.description.includes("Rerun"));
+
+// H. Verify File List Checks Status Pills, Short Name Formatting & PolyGerrit Checks Summary (<gr-checks-summary>)
+sampleTargets[0].status = "failed";
+sampleTargets[0].raw_status = "FAILED";
+sampleTargets[1].status = "passed";
+sampleTargets[1].raw_status = "SUCCESS";
+sampleTargets[2].status = "running";
+sampleTargets[2].raw_status = "RUNNING";
+state.presubmitTargetsByCl[testClNum].data.counts = { total: 3, failed: 1, warning: 0, running: 1, queued: 0, passed: 1, cached: 0 };
+state.presubmitTargetsByCl[testClNum].data.run_status = "failed";
+
+const testFile1 = "goldfish/file/file_测试_🚀_é.cc";
+const testFile2 = "aemu/tools/builder.py";
+const testFile3 = "docs/readme.md";
+
+// 1. Verify getPgFileChecksStatus matches targets to files by name/stem/dir
+const chk1 = getPgFileChecksStatus(testCl, testFile1);
+assert.equal(chk1.hasChecks, true);
+assert.equal(chk1.status, "failed");
+assert.equal(chk1.targetName, "goldfish_presubmit_测试_🚀_é");
+assert.equal(chk1.failedCount, 1);
+
+const chk2 = getPgFileChecksStatus(testCl, testFile2);
+assert.equal(chk2.hasChecks, true);
+assert.equal(chk2.status, "passed");
+assert.equal(chk2.targetName, "aemu_bazel_build");
+
+const chk3 = getPgFileChecksStatus(testCl, testFile3);
+assert.equal(chk3.hasChecks, false);
+
+// 2. Verify formatPgTargetShortName
+assert.equal(formatPgTargetShortName("@aemu//tools:builder"), "builder");
+assert.equal(formatPgTargetShortName("aemu_bazel_build"), "aemu_bazel_build");
+assert.ok(formatPgTargetShortName("goldfish_presubmit_测试_🚀_é").length <= 22);
+
+// 3. Verify renderPgFileChecksChipHtml
+const chipHtml1 = renderPgFileChecksChipHtml(testCl, testFile1);
+assert.ok(chipHtml1.includes("pg-file-checks-chip"));
+assert.ok(chipHtml1.includes("st-failed"));
+assert.ok(chipHtml1.includes("✕"));
+assert.ok(chipHtml1.includes("onPgFileChecksChipClick"));
+assert.ok(chipHtml1.includes("goldfish_presubmit_测试_🚀_é"));
+
+const chipHtml2 = renderPgFileChecksChipHtml(testCl, testFile2);
+assert.ok(chipHtml2.includes("pg-file-checks-chip"));
+assert.ok(chipHtml2.includes("st-passed"));
+assert.ok(chipHtml2.includes("✓"));
+
+const chipHtml3 = renderPgFileChecksChipHtml(testCl, testFile3);
+assert.equal(chipHtml3, "");
+
+// 4. Verify PolyGerrit Checks Summary in Change Header (<gr-checks-summary>)
+const summaryRowHtml = renderCommitPresubmitRowHtml(testCl);
+assert.ok(summaryRowHtml.includes("pg-checks-summary-chips"));
+assert.ok(summaryRowHtml.includes("chip-failed"));
+assert.ok(summaryRowHtml.includes("1 failed"));
+assert.ok(summaryRowHtml.includes("chip-running"));
+assert.ok(summaryRowHtml.includes("1 running"));
+assert.ok(summaryRowHtml.includes("chip-passed"));
+assert.ok(summaryRowHtml.includes("1 passed"));
+assert.ok(summaryRowHtml.includes("selectPgChecksStatusFilter"));
+assert.ok(summaryRowHtml.includes("↻ Rerun failed"));
+
+// 5. Verify selectPgChecksStatusFilter switches tab to 'checks' and applies filter
+selectPgChecksStatusFilter(testClNum, "failed");
+assert.equal(state.activeChangeTabByCl[testClNum], "checks");
+assert.equal(state.presubmitTargetFilterByCl[testClNum], "failed");
+
+// 6. Verify onPgFileChecksChipClick jumps to check run in Checks tab
+onPgFileChecksChipClick(null, testClNum, testFile1, "goldfish_presubmit_测试_🚀_é");
+assert.equal(state.activeChangeTabByCl[testClNum], "checks");
+assert.equal(state.selectedCheckRunByCl[testClNum], "goldfish_presubmit_测试_🚀_é");
+
+// 7. Verify File List Table with Checks Chips
+const bundleWithFiles = {
+  patch_set: 3,
+  files: [
+    { file: testFile1, status: "M", additions: 15, deletions: 4 },
+    { file: testFile2, status: "A", additions: 40, deletions: 0 },
+    { file: testFile3, status: "M", additions: 2, deletions: 1 },
+  ],
+  unresolved_threads: []
+};
+state.diffsByCl[testClNum] = bundleWithFiles;
+const fileListHtml = renderPgFileListHtml(testCl, bundleWithFiles);
+assert.ok(fileListHtml.includes("pg-file-checks-chip"));
+assert.ok(fileListHtml.includes("st-failed"));
+assert.ok(fileListHtml.includes("st-passed"));
+
+// 8. Verify Directory Tree view with Checks Chips and Directory aggregate
+const treeFileListHtml = renderPgTreeRowsHtml(testCl, bundleWithFiles.files, new Set(), 3);
+assert.ok(treeFileListHtml.includes("pg-file-checks-chip"));
+assert.ok(treeFileListHtml.includes("pg-dir-checks-chip"));
+assert.ok(treeFileListHtml.includes("st-failed"));
+
+// 9. Verify matchesPgFileFilter with checks qualifiers
+assert.equal(matchesPgFileFilter(testFile1, "checks:failed", { hasFailedChecks: true, checksStatus: "failed" }), true);
+assert.equal(matchesPgFileFilter(testFile2, "checks:failed", { hasPassedChecks: true, checksStatus: "passed" }), false);
+assert.equal(matchesPgFileFilter(testFile2, "checks:passed", { hasPassedChecks: true, checksStatus: "passed" }), true);
+assert.equal(matchesPgFileFilter(testFile3, "has:checks", { hasChecks: false }), false);
+assert.equal(matchesPgFileFilter(testFile1, "has:checks", { hasChecks: true }), true);
+
+console.log("POLYGERRIT_CHECKS_TAB_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
+            tf.write(harness_js)
+            tf_path = tf.name
+        try:
+            res = subprocess.run(
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Node execution failed with {res.stderr}\nScript:\n{harness_js[:1000]}",
+            )
+            self.assertIn("POLYGERRIT_CHECKS_TAB_OK", res.stdout)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
+        # 3. Backend service and REST API verification for checks rerun
+        from commands.gerrit.services.queue_service import GerritQueueService
+        from commands.gerrit.handlers.ui_handler import _GerritRouteEndpoints, WebRequest
+        from unittest.mock import MagicMock
+
+        mock_svc = MagicMock(spec=GerritQueueService)
+        mock_svc.rerun_presubmit_checks.return_value = {
+            "ok": True,
+            "cl": "43330025",
+            "patchset": 3,
+            "rerun_targets": ["goldfish_presubmit_测试_🚀_é"],
+            "reason": "Retrying flaky test",
+            "bypass_cache": True,
+            "stage_presubmit_ready": True,
+            "status": "queued",
+            "message": "Triggered rerun for 1 check(s) on ag/43330025 (PS3)",
+        }
+        endpoints = _GerritRouteEndpoints(mock_svc)
+        req = WebRequest(
+            method="POST",
+            path="/api/gerrit/checks/rerun",
+            body={
+                "cl": "43330025",
+                "target": "goldfish_presubmit_测试_🚀_é",
+                "ps": 3,
+                "reason": "Retrying flaky test",
+                "bypass_cache": True,
+                "stage_presubmit_ready": True,
+            },
+        )
+        mock_handler = MagicMock()
+        endpoints.post_checks_rerun(mock_handler, req)
+        mock_handler.send_json.assert_called_once()
+        resp_payload = mock_handler.send_json.call_args[0][0]
+        self.assertTrue(resp_payload["ok"])
+        self.assertEqual(resp_payload["cl"], "43330025")
+        self.assertIn("goldfish_presubmit_测试_🚀_é", resp_payload["rerun_targets"])
+
+    def test_polygerrit_image_viewer_and_binary_file_diff(self) -> None:
+        """Verifies authentic PolyGerrit Image Viewer (<gr-image-viewer>) and binary file diffs."""
+        import base64
+        import os
+        import re
+        import shutil
+        import subprocess
+        import tempfile
+        from unittest.mock import patch
+
+        from commands.gerrit.handlers.ui_handler import render_static_gerrit_ui_html
+        from commands.gerrit.services.diff_parser import (
+            GerritDiffService,
+            get_image_mime_type,
+            is_binary_path,
+            is_image_path,
+            parse_unified_diff_files,
+        )
+        from lib.gerrit_api import GerritClient
+
+        # 1. Test image and binary path detection with Unicode
+        unicode_img = "images/icons/logo_测试_🚀_é.png"
+        unicode_webp = "res/drawable/banner_测试_🚀_é.webp"
+        unicode_bin = "binaries/native_payload_测试_🚀_é.so"
+        code_file = "src/emulator/main.cc"
+
+        self.assertTrue(is_image_path(unicode_img))
+        self.assertTrue(is_image_path(unicode_webp))
+        self.assertFalse(is_image_path(unicode_bin))
+        self.assertFalse(is_image_path(code_file))
+
+        self.assertTrue(is_binary_path(unicode_bin))
+        self.assertTrue(is_binary_path(unicode_img))
+        self.assertFalse(is_binary_path(code_file))
+
+        self.assertEqual(get_image_mime_type(unicode_img), "image/png")
+        self.assertEqual(get_image_mime_type(unicode_webp), "image/webp")
+        self.assertEqual(get_image_mime_type("file.svg"), "image/svg+xml")
+        self.assertEqual(get_image_mime_type(unicode_bin), "application/octet-stream")
+
+        # 2. Test parse_unified_diff_files with image and binary diffs
+        sample_diff = (
+            "diff --git a/images/icons/logo_测试_🚀_é.png b/images/icons/logo_测试_🚀_é.png\n"
+            "index 1111111..2222222 100644\n"
+            "Binary files a/images/icons/logo_测试_🚀_é.png and b/images/icons/logo_测试_🚀_é.png differ\n"
+            "diff --git a/binaries/native_payload_测试_🚀_é.so b/binaries/native_payload_测试_🚀_é.so\n"
+            "new file mode 100755\n"
+            "index 0000000..3333333\n"
+            "Binary files /dev/null and b/binaries/native_payload_测试_🚀_é.so differ\n"
+            "diff --git a/src/main.cc b/src/main.cc\n"
+            "index 4444444..5555555 100644\n"
+            "--- a/src/main.cc\n"
+            "+++ b/src/main.cc\n"
+            "@@ -1,3 +1,3 @@\n"
+            "-old line\n"
+            "+new line 测试_🚀_é\n"
+        )
+        parsed_files = parse_unified_diff_files(sample_diff)
+        self.assertEqual(len(parsed_files), 3)
+
+        img_file = parsed_files[0]
+        self.assertEqual(img_file["file"], "images/icons/logo_测试_🚀_é.png")
+        self.assertTrue(img_file["is_image"])
+        self.assertTrue(img_file["is_binary"])
+        self.assertEqual(img_file["status"], "M")
+
+        bin_file = parsed_files[1]
+        self.assertEqual(bin_file["file"], "binaries/native_payload_测试_🚀_é.so")
+        self.assertFalse(img_file == bin_file)
+        self.assertFalse(bin_file["is_image"])
+        self.assertTrue(bin_file["is_binary"])
+        self.assertEqual(bin_file["status"], "A")
+
+        code_f = parsed_files[2]
+        self.assertFalse(code_f["is_image"])
+        self.assertFalse(code_f["is_binary"])
+
+        # 3. Test GerritDiffService.fetch_file_content with parent=True for image
+        client = GerritClient(host="https://android-review.googlesource.com")
+        raw_png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        with patch.object(client, "get_revision_file_content", return_value=raw_png_b64) as mock_get_content:
+            diff_svc = GerritDiffService()
+            diff_svc.client = client
+            res_target = diff_svc.fetch_file_content("43330030", unicode_img, patch_set=2, parent=False)
+            self.assertEqual(res_target["status"], "ok")
+            self.assertTrue(res_target["is_image"])
+            self.assertTrue(res_target["is_binary"])
+            self.assertEqual(res_target["mime_type"], "image/png")
+            self.assertEqual(res_target["data_url"], f"data:image/png;base64,{raw_png_b64}")
+            self.assertFalse(res_target["is_parent"])
+            mock_get_content.assert_called_with("43330030", unicode_img, revision="2", decode_utf8=False, parent=False)
+
+            res_base = diff_svc.fetch_file_content("43330030", unicode_img, patch_set=2, parent=True)
+            self.assertEqual(res_base["status"], "ok")
+            self.assertTrue(res_base["is_image"])
+            self.assertTrue(res_base["is_parent"])
+            mock_get_content.assert_called_with("43330030", unicode_img, revision="2", decode_utf8=False, parent=True)
+
+        # 4. Static HTML template tokens
+        html = render_static_gerrit_ui_html(
+            initial_payload={"viewer": "tester@google.com"},
+            variant="polygerrit",
+        )
+        self.assertIn("pg-image-viewer", html)
+        self.assertIn("pg-image-viewer-toolbar", html)
+        self.assertIn("pg-image-mode-group", html)
+        self.assertIn("pg-image-mode-btn", html)
+        self.assertIn("pg-image-zoom-group", html)
+        self.assertIn("pg-image-zoom-btn", html)
+        self.assertIn("pg-image-bg-group", html)
+        self.assertIn("pg-image-bg-btn", html)
+        self.assertIn("pg-image-format-badge", html)
+        self.assertIn("pg-checkerboard-bg", html)
+        self.assertIn("pg-image-2up-grid", html)
+        self.assertIn("pg-image-swipe-wrap", html)
+        self.assertIn("pg-image-onion-wrap", html)
+        self.assertIn("pg-image-preset-group", html)
+        self.assertIn("pg-image-preset-btn", html)
+        self.assertIn("pg-btn-image-blink", html)
+        self.assertIn("pg-binary-file-card", html)
+        self.assertIn("pg-btn-binary-download", html)
+        self.assertIn("setPgImageDiffMode", html)
+        self.assertIn("setPgImageZoom", html)
+        self.assertIn("setPgImageBackground", html)
+        self.assertIn("cyclePgImageBackground", html)
+        self.assertIn("togglePgImageBlink", html)
+        self.assertIn("stopPgImageBlink", html)
+        self.assertIn("flipPgImageSides", html)
+        self.assertIn("onPgImageSwipeInput", html)
+        self.assertIn("onPgImageOnionInput", html)
+        self.assertIn("onPgImageSwipePointerDown", html)
+        self.assertIn("onPgImageOnionPointerDown", html)
+        self.assertIn("cyclePgImageDiffMode", html)
+        self.assertIn("downloadPgBinaryFile", html)
+        self.assertIn("data-zoom=\"400\"", html)
+        self.assertIn("Shift", html)
+        self.assertIn("Cycle image diff mode", html)
+        self.assertIn("Flip image sides / toggle blink comparator", html)
+
+        # 5. Node/VM DOM harness verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+        self.assertTrue(scripts)
+        js_body = (
+            scripts[-1]
+            .replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+            .replace("\n  initApp();", "\n  // initApp();")
+        )
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    disabled: false,
+    checked: false,
+    style: {},
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+        } else if (force) {
+          classes.add(c);
+        } else {
+          classes.delete(c);
+        }
+      },
+      contains(c) { return classes.has(c); }
+    },
+    getAttribute(k) { return attrs[k] || null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    appendChild(c) { children.push(c); },
+    querySelectorAll(sel) {
+      return children.filter(c => c.tagName.toLowerCase() === sel.toLowerCase());
+    },
+    querySelector(sel) {
+      return children.find(c => c.tagName.toLowerCase() === sel.toLowerCase()) || null;
+    },
+    addEventListener() {},
+    focus() {},
+    select() {},
+    setSelectionRange() {},
+    scrollIntoView() {},
+    getBoundingClientRect() { return { left: 50, top: 100, width: 300, height: 200 }; },
+    setPointerCapture() {},
+    releasePointerCapture() {}
+  };
+}
+
+globalThis.document = {
+  body: makeMockEl("body"),
+  getElementById(id) {
+    if (!this._elements) this._elements = {};
+    if (!this._elements[id]) {
+      this._elements[id] = makeMockEl("div");
+      this._elements[id].id = id;
+    }
+    return this._elements[id];
+  },
+  querySelector(sel) { return null; },
+  querySelectorAll(sel) { return []; },
+  createElement(tag) { return makeMockEl(tag); },
+  addEventListener() {}
+};
+globalThis.window = {
+  location: { search: "" },
+  addEventListener() {},
+  innerWidth: 1440
+};
+"""
+            + js_body
+            + """
+const testClNum = 43330030;
+const testFile = "images/icons/logo_测试_🚀_é.png";
+const testBinFile = "binaries/native_payload_测试_🚀_é.so";
+const fileId = "images_icons_logo_______png";
+const binFileId = "binaries_native_payload_______so";
+
+// 1. Verify extension and file type predicates
+assert.equal(isPgImageFile(testFile), true);
+assert.equal(isPgImageFile("icon.webp"), true);
+assert.equal(isPgImageFile("diagram.svg"), true);
+assert.equal(isPgImageFile("test.cc"), false);
+
+assert.equal(isPgBinaryFile(testBinFile), true);
+assert.equal(isPgBinaryFile(testFile), true);
+assert.equal(isPgBinaryFile("test.cc"), false);
+
+assert.equal(getPgImageFormat(testFile), "PNG");
+assert.equal(getPgImageFormat("icon.webp"), "WEBP");
+
+// 2. Verify renderPgImageViewerHtml
+const imgFileObj = {
+  file: testFile,
+  status: "M",
+  is_image: true,
+  is_binary: true,
+  additions: 0,
+  deletions: 0,
+  lines: []
+};
+const viewerHtml = renderPgImageViewerHtml(imgFileObj, testClNum, 2, testFile, fileId, "M", false);
+assert.ok(viewerHtml.includes("pg-image-viewer"));
+assert.ok(viewerHtml.includes('data-mode="2-up"'));
+assert.ok(viewerHtml.includes('data-mode="swipe"'));
+assert.ok(viewerHtml.includes('data-mode="onion"'));
+assert.ok(viewerHtml.includes('data-zoom="fit"'));
+assert.ok(viewerHtml.includes('data-zoom="400"'));
+assert.ok(viewerHtml.includes("pg-image-bg-group"));
+assert.ok(viewerHtml.includes('data-bg="checkerboard"'));
+assert.ok(viewerHtml.includes('data-bg="white"'));
+assert.ok(viewerHtml.includes('data-bg="dark"'));
+assert.ok(viewerHtml.includes("PNG"));
+assert.ok(viewerHtml.includes("pg-checkerboard-bg"));
+assert.ok(viewerHtml.includes("pg-image-2up-grid"));
+assert.ok(viewerHtml.includes("pg-image-swipe-wrap"));
+assert.ok(viewerHtml.includes("pg-image-onion-wrap"));
+assert.ok(viewerHtml.includes("pg-image-preset-group"));
+assert.ok(viewerHtml.includes("btnImageBlink-"));
+assert.ok(viewerHtml.includes("onPgImageSwipePointerDown"));
+assert.ok(viewerHtml.includes("onPgImageOnionPointerDown"));
+
+// 3. Verify renderPgBinaryFileHtml
+const binFileObj = {
+  file: testBinFile,
+  status: "A",
+  is_image: false,
+  is_binary: true,
+  additions: 0,
+  deletions: 0,
+  lines: []
+};
+const binCardHtml = renderPgBinaryFileHtml(binFileObj, testClNum, 2, testBinFile, binFileId, "A", false);
+assert.ok(binCardHtml.includes("pg-binary-file-card"));
+assert.ok(binCardHtml.includes("Binary file (Added)"));
+assert.ok(binCardHtml.includes("Download File (Patchset 2)"));
+
+// 4. Verify setPgImageDiffMode & setPgImageZoom & backgrounds
+setPgImageDiffMode(testClNum, fileId, "swipe");
+const vp = document.getElementById(`pgImageViewport-${testClNum}-${fileId}`);
+assert.ok(vp.classList.contains("mode-swipe"));
+const swipeWrap = document.getElementById(`pgImageSwipe-${testClNum}-${fileId}`);
+assert.equal(swipeWrap.style.display, "flex");
+
+setPgImageDiffMode(testClNum, fileId, "onion");
+assert.ok(vp.classList.contains("mode-onion"));
+const onionWrap = document.getElementById(`pgImageOnion-${testClNum}-${fileId}`);
+assert.equal(onionWrap.style.display, "flex");
+
+setPgImageZoom(testClNum, fileId, "200");
+assert.ok(vp.classList.contains("zoom-200"));
+setPgImageZoom(testClNum, fileId, "400");
+assert.ok(vp.classList.contains("zoom-400"));
+
+setPgImageBackground(testClNum, fileId, "white");
+assert.ok(vp.classList.contains("bg-white"));
+setPgImageBackground(testClNum, fileId, "dark");
+assert.ok(vp.classList.contains("bg-dark"));
+cyclePgImageBackground(testClNum, fileId);
+assert.ok(vp.classList.contains("bg-checkerboard"));
+
+// 5. Verify onPgImageSwipeInput & onPgImageOnionInput & interactive pointer scrubbing
+onPgImageSwipeInput(testClNum, fileId, 65);
+const clip = document.getElementById(`pgImageSwipeClip-${testClNum}-${fileId}`);
+assert.ok(clip.style.clipPath.includes("65%"));
+const swipeVal = document.getElementById(`pgImageSwipeVal-${testClNum}-${fileId}`);
+assert.equal(swipeVal.textContent, "65%");
+
+onPgImageOnionInput(testClNum, fileId, 40);
+const onionTarget = document.getElementById(`pgImgOnionTarget-${testClNum}-${fileId}`);
+assert.equal(onionTarget.style.opacity, "0.4");
+const onionVal = document.getElementById(`pgImageOnionVal-${testClNum}-${fileId}`);
+assert.equal(onionVal.textContent, "40%");
+
+// Interactive pointer drag on swipe stage
+onPgImageSwipePointerDown({ pointerId: 1, clientX: 200, preventDefault() {} }, testClNum, fileId);
+assert.ok(clip.style.clipPath.includes("%"));
+onPgImageSwipePointerUp({ pointerId: 1 }, testClNum, fileId);
+
+// Interactive pointer drag on onion stage
+onPgImageOnionPointerDown({ pointerId: 2, clientX: 250, preventDefault() {} }, testClNum, fileId);
+assert.ok(onionTarget.style.opacity);
+onPgImageOnionPointerUp({ pointerId: 2 }, testClNum, fileId);
+
+// Blink comparator and flip controls
+togglePgImageBlink(testClNum, fileId);
+const blinkBtn = document.getElementById(`btnImageBlink-${testClNum}-${fileId}`);
+assert.ok(blinkBtn.classList.contains("is-blinking"));
+stopPgImageBlink(testClNum, fileId);
+assert.ok(!blinkBtn.classList.contains("is-blinking"));
+
+flipPgImageSides(testClNum, fileId);
+assert.ok(onionTarget.style.opacity === "1" || onionTarget.style.opacity === "0");
+
+// Dimensions metadata rendering
+const baseImg = document.getElementById(`pgImgBase-${testClNum}-${fileId}`);
+const targetImg = document.getElementById(`pgImgTarget-${testClNum}-${fileId}`);
+baseImg.naturalWidth = 128;
+baseImg.naturalHeight = 128;
+targetImg.naturalWidth = 256;
+targetImg.naturalHeight = 256;
+onPgImageLoaded(testClNum, fileId, "base");
+onPgImageLoaded(testClNum, fileId, "target");
+const dimPill = document.getElementById(`pgImageDimPill-${testClNum}-${fileId}`);
+assert.ok(dimPill.innerHTML.includes("128×128 → 256×256"));
+
+// 6. Verify renderFileDiffBlock for image vs binary vs text
+const renderedImgBlock = renderFileDiffBlock(imgFileObj, testClNum, 2, true);
+assert.ok(renderedImgBlock.includes('data-is-image="true"'));
+assert.ok(renderedImgBlock.includes("pg-image-viewer"));
+assert.ok(renderedImgBlock.includes("Image comparison · 2-up, Swipe, and Onion skin modes"));
+
+const renderedBinBlock = renderFileDiffBlock(binFileObj, testClNum, 2, true);
+assert.ok(renderedBinBlock.includes('data-is-binary="true"'));
+assert.ok(renderedBinBlock.includes("pg-binary-file-card"));
+
+// 7. Verify Shift+M & Space in PG_KEYBOARD_SHORTCUTS
+const diffGroup = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "File List & Diff Navigation");
+assert.notEqual(diffGroup, undefined);
+const imgShortcut = diffGroup.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("M"));
+assert.notEqual(imgShortcut, undefined);
+assert.ok(imgShortcut.description.includes("image diff mode"));
+
+const spaceShortcut = diffGroup.shortcuts.find(s => s.keys.includes("Space"));
+assert.notEqual(spaceShortcut, undefined);
+assert.ok(spaceShortcut.description.includes("Flip image sides") || spaceShortcut.description.includes("blink comparator"));
+
+console.log("POLYGERRIT_IMAGE_VIEWER_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
+            tf.write(harness_js)
+            tf_path = tf.name
+        try:
+            res = subprocess.run(
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Node execution failed with {res.stderr}\nScript:\n{harness_js[:1000]}",
+            )
+            self.assertIn("POLYGERRIT_IMAGE_VIEWER_OK", res.stdout)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
+    def test_polygerrit_file_list_size_badges_and_column_sorting(self):
+        """Verifies PolyGerrit file list size badges (XS/S/M/L/XL), visual delta bars,
+
+        and column sorting (path, delta, comments, owners, status, reviewed) in gr-file-list.
+        """
+        from commands.gerrit.services.diff_parser import (
+            get_gerrit_ui_template_path,
+        )
+
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
+        html = tpl_path.read_text(encoding="utf-8")
+
+        # 1. Verify static HTML tokens and CSS classes
+        self.assertIn("pg-file-list-sort-controls", html)
+        self.assertIn("pg-sort-label", html)
+        self.assertIn("pg-file-sort-select", html)
+        self.assertIn("pg-btn-reset-sort", html)
+        self.assertIn("is-sortable", html)
+        self.assertIn("pg-sort-arrow", html)
+        self.assertIn("pg-delta-cell-wrap", html)
+        self.assertIn("pg-file-size-badge", html)
+        self.assertIn("size-xs", html)
+        self.assertIn("size-s", html)
+        self.assertIn("size-m", html)
+        self.assertIn("size-l", html)
+        self.assertIn("size-xl", html)
+        self.assertIn("pg-delta-bar", html)
+        self.assertIn("pg-delta-bar-add", html)
+        self.assertIn("pg-delta-bar-del", html)
+
+        self.assertIn("function getPgFileSizeInfo", html)
+        self.assertIn("function renderPgFileSizeBadgeHtml", html)
+        self.assertIn("function renderPgFileDeltaBarHtml", html)
+        self.assertIn("function getPgFileSort", html)
+        self.assertIn("function setPgFileSort", html)
+        self.assertIn("function getPgSortedFileList", html)
+        self.assertIn("function togglePgFileSort", html)
+        self.assertIn("function resetPgFileSort", html)
+        self.assertIn("function onPgFileSortSelectChange", html)
+        self.assertIn("function cyclePgFileSort", html)
+
+        # 2. Headless Node/VM DOM harness verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+        self.assertTrue(scripts)
+        js_body = (
+            scripts[-1]
+            .replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+            .replace("\n  initApp();", "\n  // initApp();")
+        )
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    disabled: false,
+    checked: false,
+    style: {},
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+        } else if (force) {
+          classes.add(c);
+        } else {
+          classes.delete(c);
+        }
+      },
+      contains(c) { return classes.has(c); }
+    },
+    getAttribute(k) { return attrs[k] || null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    appendChild(c) { children.push(c); },
+    querySelectorAll(sel) {
+      return children.filter(c => c.tagName.toLowerCase() === sel.toLowerCase());
+    },
+    querySelector(sel) {
+      return children.find(c => c.tagName.toLowerCase() === sel.toLowerCase()) || null;
+    },
+    addEventListener() {},
+    focus() {},
+    select() {},
+    setSelectionRange() {},
+    scrollIntoView() {},
+    getBoundingClientRect() { return { left: 50, top: 100, width: 300, height: 200 }; },
+    setPointerCapture() {},
+    releasePointerCapture() {}
+  };
+}
+
+globalThis.document = {
+  body: makeMockEl("body"),
+  getElementById(id) {
+    if (!this._elements) this._elements = {};
+    if (!this._elements[id]) {
+      this._elements[id] = makeMockEl("div");
+      this._elements[id].id = id;
+    }
+    return this._elements[id];
+  },
+  querySelector(sel) { return null; },
+  querySelectorAll(sel) { return []; },
+  createElement(tag) { return makeMockEl(tag); },
+  addEventListener() {}
+};
+globalThis.window = {
+  location: { search: "" },
+  addEventListener() {},
+  innerWidth: 1440
+};
+"""
+            + js_body
+            + """
+const testClNum = 43330035;
+
+// Sample file list with diverse sizes, statuses, and non-ASCII Unicode paths
+const testFiles = [
+  { file: "emulator/libs/file/测试_🚀_é.cc", additions: 500, deletions: 120, status: "M" },
+  { file: "src/common/tiny_é.h", additions: 3, deletions: 0, status: "A" },
+  { file: "docs/large_refactor.md", additions: 1500, deletions: 200, status: "M" },
+  { file: "src/ui/small_test.cc", additions: 20, deletions: 5, status: "M" },
+  { file: "old/deleted_helper.cc", additions: 0, deletions: 80, status: "D" },
+  { file: "res/empty_file.bin", additions: 0, deletions: 0, status: "A", is_binary: true }
+];
+
+const mockChange = {
+  number: testClNum,
+  patch_set: 1,
+  files: testFiles
+};
+
+// 1. Verify getPgFileSizeInfo size categories
+const szTiny = getPgFileSizeInfo(testFiles[1]); // 3 lines
+assert.equal(szTiny.category, "XS");
+assert.ok(szTiny.label.includes("Extra small"));
+
+const szSmall = getPgFileSizeInfo(testFiles[3]); // 25 lines
+assert.equal(szSmall.category, "S");
+assert.ok(szSmall.label.includes("Small"));
+
+const szMed = getPgFileSizeInfo(testFiles[4]); // 80 lines
+assert.equal(szMed.category, "M");
+assert.ok(szMed.label.includes("Medium"));
+
+const szLarge = getPgFileSizeInfo(testFiles[0]); // 620 lines
+assert.equal(szLarge.category, "L");
+assert.ok(szLarge.label.includes("Large"));
+
+const szXl = getPgFileSizeInfo(testFiles[2]); // 1700 lines
+assert.equal(szXl.category, "XL");
+assert.ok(szXl.label.includes("Extra large"));
+
+const szEmpty = getPgFileSizeInfo(testFiles[5]); // 0 lines
+assert.equal(szEmpty.category, "");
+assert.ok(szEmpty.label.includes("No line modifications"));
+
+// 2. Verify renderPgFileSizeBadgeHtml
+const badgeTiny = renderPgFileSizeBadgeHtml(testFiles[1]);
+assert.ok(badgeTiny.includes("pg-file-size-badge"));
+assert.ok(badgeTiny.includes("size-xs"));
+assert.ok(badgeTiny.includes(">XS<"));
+
+const badgeXl = renderPgFileSizeBadgeHtml(testFiles[2]);
+assert.ok(badgeXl.includes("size-xl"));
+assert.ok(badgeXl.includes(">XL<"));
+
+const badgeNone = renderPgFileSizeBadgeHtml(testFiles[5]);
+assert.ok(badgeNone.includes("size-none"));
+assert.ok(badgeNone.includes(">—<"));
+
+// 3. Verify renderPgFileDeltaBarHtml
+const deltaBarL = renderPgFileDeltaBarHtml(testFiles[0]); // 500 add, 120 del = 81% add, 19% del
+assert.ok(deltaBarL.includes("pg-delta-bar"));
+assert.ok(deltaBarL.includes("pg-delta-bar-add"));
+assert.ok(deltaBarL.includes("width: 81%;"));
+assert.ok(deltaBarL.includes("width: 19%;"));
+
+const deltaBarEmpty = renderPgFileDeltaBarHtml(testFiles[5]);
+assert.ok(deltaBarEmpty.includes("is-empty"));
+
+// 4. Verify getPgFileSort and setPgFileSort defaults
+const defaultSort = getPgFileSort(testClNum);
+assert.equal(defaultSort.col, "path");
+assert.equal(defaultSort.dir, "asc");
+
+setPgFileSort(testClNum, "delta", "desc");
+const updatedSort = getPgFileSort(testClNum);
+assert.equal(updatedSort.col, "delta");
+assert.equal(updatedSort.dir, "desc");
+
+// 5. Verify getPgSortedFileList
+// A. Sort by Delta descending (Largest first)
+const sortedByDeltaDesc = getPgSortedFileList(mockChange, testFiles);
+assert.equal(sortedByDeltaDesc[0].file, "docs/large_refactor.md"); // 1700 lines
+assert.equal(sortedByDeltaDesc[1].file, "emulator/libs/file/测试_🚀_é.cc"); // 620 lines
+assert.equal(sortedByDeltaDesc[2].file, "old/deleted_helper.cc"); // 80 lines
+assert.equal(sortedByDeltaDesc[3].file, "src/ui/small_test.cc"); // 25 lines
+assert.equal(sortedByDeltaDesc[4].file, "src/common/tiny_é.h"); // 3 lines
+assert.equal(sortedByDeltaDesc[5].file, "res/empty_file.bin"); // 0 lines
+
+// B. Sort by Delta ascending (Smallest first)
+setPgFileSort(testClNum, "delta", "asc");
+const sortedByDeltaAsc = getPgSortedFileList(mockChange, testFiles);
+assert.equal(sortedByDeltaAsc[0].file, "res/empty_file.bin");
+assert.equal(sortedByDeltaAsc[1].file, "src/common/tiny_é.h");
+assert.equal(sortedByDeltaAsc[5].file, "docs/large_refactor.md");
+
+// C. Sort by Path ascending (Alphabetical)
+setPgFileSort(testClNum, "path", "asc");
+const sortedByPathAsc = getPgSortedFileList(mockChange, testFiles);
+assert.equal(sortedByPathAsc[0].file, "docs/large_refactor.md");
+assert.equal(sortedByPathAsc[1].file, "emulator/libs/file/测试_🚀_é.cc");
+assert.equal(sortedByPathAsc[2].file, "old/deleted_helper.cc");
+
+// D. Sort by Status ascending (A -> M -> R -> D)
+setPgFileSort(testClNum, "status", "asc");
+const sortedByStatusAsc = getPgSortedFileList(mockChange, testFiles);
+// Status "A" files first (tiny_é.h, empty_file.bin)
+assert.equal(getPgFileStatus(sortedByStatusAsc[0]), "A");
+assert.equal(getPgFileStatus(sortedByStatusAsc[1]), "A");
+// Status "D" file last
+assert.equal(getPgFileStatus(sortedByStatusAsc[5]), "D");
+
+// 6. Verify togglePgFileSort
+setPgFileSort(testClNum, "path", "asc");
+togglePgFileSort(testClNum, "path"); // should flip to desc
+assert.equal(getPgFileSort(testClNum).dir, "desc");
+
+togglePgFileSort(testClNum, "path"); // should flip back to asc
+assert.equal(getPgFileSort(testClNum).dir, "asc");
+
+// Switching to delta defaults to desc
+togglePgFileSort(testClNum, "delta");
+assert.equal(getPgFileSort(testClNum).col, "delta");
+assert.equal(getPgFileSort(testClNum).dir, "desc");
+
+// 7. Verify resetPgFileSort
+resetPgFileSort(testClNum);
+assert.equal(getPgFileSort(testClNum).col, "path");
+assert.equal(getPgFileSort(testClNum).dir, "asc");
+
+// 8. Verify cyclePgFileSort
+cyclePgFileSort(testClNum); // from path:asc -> delta:desc
+assert.equal(getPgFileSort(testClNum).col, "delta");
+assert.equal(getPgFileSort(testClNum).dir, "desc");
+
+// 9. Verify renderPgFileListHtml output structure
+const bundle = { files: testFiles, patch_set: 1 };
+const htmlOut = renderPgFileListHtml(mockChange, bundle);
+
+assert.ok(htmlOut.includes("pg-file-list-sort-controls"));
+assert.ok(htmlOut.includes("pg-file-sort-select"));
+assert.ok(htmlOut.includes('th class="col-delta is-sortable'));
+assert.ok(htmlOut.includes('th class="col-path is-sortable'));
+assert.ok(htmlOut.includes("pg-delta-cell-wrap"));
+assert.ok(htmlOut.includes("size-l"));
+assert.ok(htmlOut.includes("emulator/libs/file/测试_🚀_é.cc"));
+assert.ok(htmlOut.includes("size-msg")); // Commit Message row
+
+// 10. Verify Shift+T shortcut registration
+const diffNavGroup = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "File List & Diff Navigation");
+assert.notEqual(diffNavGroup, undefined);
+const sortShortcut = diffNavGroup.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("T"));
+assert.notEqual(sortShortcut, undefined);
+assert.ok(sortShortcut.description.includes("file list sorting"));
+
+console.log("POLYGERRIT_FILE_LIST_SORTING_AND_SIZE_BADGES_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
+            tf.write(harness_js)
+            tf_path = tf.name
+        try:
+            res = subprocess.run(
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Node execution failed with {res.stderr}\nScript:\n{harness_js[:1000]}",
+            )
+            self.assertIn("POLYGERRIT_FILE_LIST_SORTING_AND_SIZE_BADGES_OK", res.stdout)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
+    def test_polygerrit_included_in_dialog_and_service(self) -> None:
+        from commands.gerrit.services.vote_submit_service import GerritVoteSubmitService
+        from lib.gerrit_api import GerritClient
+
+        # 1. Backend: verify GerritClient.get_included_in
+        client = MagicMock(spec=GerritClient)
+        client._request_json.return_value = {
+            "branches": ["goog/studio-main", "release/测试_🚀_é", "master"],
+            "tags": ["v1.0.0", "tag_测试_🚀_é"],
+            "external": {},
+        }
+        res_raw = GerritClient.get_included_in(client, 43330055)
+        self.assertEqual(res_raw["branches"], ["goog/studio-main", "release/测试_🚀_é", "master"])
+        self.assertEqual(res_raw["tags"], ["v1.0.0", "tag_测试_🚀_é"])
+        client._request_json.assert_called_with("/changes/43330055/in", method="GET")
+
+        # 2. Backend: verify GerritVoteSubmitService.get_included_in with detail, caching, force_refresh, and error handling
+        with patch("commands.gerrit.services.diff_parser.GerritClient"):
+            service = GerritVoteSubmitService(host="https://android-review.googlesource.com")
+        client.get_change_detail.return_value = {
+            "status": "MERGED",
+            "subject": "feat(gerrit): Included In polish 测试_🚀_é",
+        }
+        client.get_included_in.return_value = {
+            "branches": ["goog/studio-main", "release/测试_🚀_é"],
+            "tags": ["v1.0.0", "tag_测试_🚀_é"],
+            "external": {},
+        }
+        service.client = client
+
+        # First call fetches from client and populates cache
+        res_svc = service.get_included_in(43330055)
+        self.assertEqual(res_svc["status"], "ok")
+        self.assertEqual(res_svc["change_status"], "MERGED")
+        self.assertEqual(res_svc["subject"], "feat(gerrit): Included In polish 测试_🚀_é")
+        self.assertEqual(res_svc["branches"], ["goog/studio-main", "release/测试_🚀_é"])
+        self.assertEqual(res_svc["tags"], ["v1.0.0", "tag_测试_🚀_é"])
+        self.assertEqual(client.get_included_in.call_count, 1)
+
+        # Second call returns from cache
+        res_cached = service.get_included_in(43330055)
+        self.assertEqual(res_cached["branches"], ["goog/studio-main", "release/测试_🚀_é"])
+        self.assertEqual(client.get_included_in.call_count, 1)
+
+        # Force refresh bypasses cache
+        res_refreshed = service.get_included_in(43330055, force_refresh=True)
+        self.assertEqual(res_refreshed["branches"], ["goog/studio-main", "release/测试_🚀_é"])
+        self.assertEqual(client.get_included_in.call_count, 2)
+
+        # Error handling returns error status
+        client.get_included_in.side_effect = RuntimeError("Gerrit server timeout")
+        res_err = service.get_included_in(43330099, force_refresh=True)
+        self.assertEqual(res_err["status"], "error")
+        self.assertEqual(res_err["branches"], [])
+        self.assertEqual(res_err["tags"], [])
+        self.assertIn("Gerrit server timeout", res_err["error"])
+
+        # 3. Backend: verify /api/gerrit/included-in endpoint validation
+        from commands.gerrit.handlers.ui_handler import _GerritRouteEndpoints
+        mock_handler = MagicMock()
+        mock_req = MagicMock()
+        mock_req.query_str.return_value = ""  # Missing cl param
+        endpoints = _GerritRouteEndpoints(service=service)
+        endpoints.get_included_in(mock_handler, mock_req)
+        mock_handler.send_json.assert_called_with(
+            {"error": "Missing required `cl` query parameter for `/api/gerrit/included-in`."},
+            status=400,
+        )
+
+        # 4. Template: verify static tokens and DOM structure in polygerrit.html
+        html = render_static_gerrit_ui_html(
+            initial_payload={"viewer": "tester@google.com"},
+            variant="polygerrit",
+        )
+        self.assertIn("id=\"pgIncludedInBackdrop\"", html)
+        self.assertIn("id=\"pgIncludedInTitle\"", html)
+        self.assertIn("id=\"pgIncludedInSubtitle\"", html)
+        self.assertIn("id=\"pgIncludedInFilterInput\"", html)
+        self.assertIn("id=\"btnIncludedInClearFilter\"", html)
+        self.assertIn("id=\"pgIncludedInStatusBadge\"", html)
+        self.assertIn("id=\"pgIncludedInBranchesSection\"", html)
+        self.assertIn("id=\"pgIncludedInTagsSection\"", html)
+        self.assertIn("id=\"btnRefreshIncludedIn\"", html)
+        self.assertIn("pg-btn-included-in", html)
+        self.assertIn("openPgIncludedInDialog", html)
+        self.assertIn("closePgIncludedInDialog", html)
+        self.assertIn("loadPgIncludedInData", html)
+        self.assertIn("refreshPgIncludedIn", html)
+        self.assertIn("copyPgIncludedItem", html)
+        self.assertIn("renderPgIncludedInDom", html)
+
+        # 5. Headless Node/VM DOM harness verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+        self.assertTrue(scripts)
+        js_body = (
+            scripts[-1]
+            .replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+            .replace("\n  initApp();", "\n  // initApp();")
+        )
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    innerHTML: "",
+    disabled: false,
+    checked: false,
+    style: {},
+    classList: {
+      add(...cls) { cls.forEach(c => classes.add(c)); },
+      remove(...cls) { cls.forEach(c => classes.delete(c)); },
+      contains(c) { return classes.has(c); },
+      toggle(c, force) {
+        if (force === true) { classes.add(c); return true; }
+        if (force === false) { classes.delete(c); return false; }
+        if (classes.has(c)) { classes.delete(c); return false; }
+        classes.add(c); return true;
+      }
+    },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    getAttribute(k) { return attrs[k] || null; },
+    removeAttribute(k) { delete attrs[k]; },
+    focus() {},
+    select() {},
+    addEventListener() {},
+    removeEventListener() {}
+  };
+}
+
+const mockElements = {
+  toast: makeMockEl("div"),
+  pgIncludedInBackdrop: makeMockEl("div"),
+  pgIncludedInSubtitle: makeMockEl("div"),
+  pgIncludedInFilterInput: makeMockEl("input"),
+  btnIncludedInClearFilter: makeMockEl("button"),
+  pgIncludedInStatusBadge: makeMockEl("div"),
+  pgIncludedInLoading: makeMockEl("div"),
+  pgIncludedInError: makeMockEl("div"),
+  pgIncludedInErrorMsg: makeMockEl("div"),
+  pgIncludedInContent: makeMockEl("div"),
+  pgIncludedInBranchesSection: makeMockEl("div"),
+  pgIncludedInBranchesCount: makeMockEl("span"),
+  pgIncludedInBranchesList: makeMockEl("div"),
+  pgIncludedInTagsSection: makeMockEl("div"),
+  pgIncludedInTagsCount: makeMockEl("span"),
+  pgIncludedInTagsList: makeMockEl("div"),
+  pgIncludedInExternalSection: makeMockEl("div"),
+  pgIncludedInExternalCount: makeMockEl("span"),
+  pgIncludedInExternalList: makeMockEl("div"),
+  pgIncludedInEmptyState: makeMockEl("div"),
+  btnRefreshIncludedIn: makeMockEl("button")
+};
+
+globalThis.document = {
+  getElementById(id) {
+    if (!mockElements[id]) {
+      mockElements[id] = makeMockEl();
+    }
+    return mockElements[id];
+  },
+  querySelector(sel) { return null; },
+  querySelectorAll(sel) { return []; },
+  createElement(tag) { return makeMockEl(tag); },
+  addEventListener() {}
+};
+globalThis.window = {
+  location: { search: "" },
+  addEventListener() {},
+  innerWidth: 1440
+};
+Object.defineProperty(globalThis, "navigator", {
+  value: {
+    clipboard: {
+      writeText(txt) { globalThis.__copiedText = txt; }
+    }
+  },
+  configurable: true,
+  writable: true
+});
+"""
+            + js_body
+            + """
+const testClNum = 43330055;
+state.changes = [
+  {
+    number: testClNum,
+    patch_set: 2,
+    status: "MERGED",
+    subject: "feat(gerrit): Included In polish 测试_🚀_é"
+  }
+];
+
+// 1. Verify openPgIncludedInDialog initializes state and DOM
+openPgIncludedInDialog(testClNum);
+assert.equal(state.includedInDialogOpen, true);
+assert.equal(state.includedInDialogCl, testClNum);
+assert.ok(mockElements.pgIncludedInBackdrop.classList.contains("open"));
+assert.ok(mockElements.pgIncludedInSubtitle.textContent.includes("ag/43330055"));
+assert.ok(mockElements.pgIncludedInSubtitle.textContent.includes("测试_🚀_é"));
+assert.ok(mockElements.pgIncludedInStatusBadge.innerHTML.includes("status-merged"));
+assert.ok(mockElements.pgIncludedInStatusBadge.innerHTML.includes("Merged"));
+
+// 2. Set mock included-in data with Unicode branches and tags
+state.includedInData = {
+  cl: testClNum,
+  change_status: "MERGED",
+  branches: ["goog/studio-main", "release/测试_🚀_é", "master"],
+  tags: ["v1.0.0", "tag_测试_🚀_é"],
+  external: {}
+};
+
+// 3. Render DOM and verify counts and markup
+renderPgIncludedInDom();
+assert.equal(mockElements.pgIncludedInBranchesCount.textContent, "3");
+assert.equal(mockElements.pgIncludedInTagsCount.textContent, "2");
+assert.ok(mockElements.pgIncludedInBranchesList.innerHTML.includes("goog/studio-main"));
+assert.ok(mockElements.pgIncludedInBranchesList.innerHTML.includes("release/测试_🚀_é"));
+assert.ok(mockElements.pgIncludedInTagsList.innerHTML.includes("tag_测试_🚀_é"));
+assert.equal(mockElements.pgIncludedInEmptyState.style.display, "none");
+
+// 4. Test interactive search filter
+onPgIncludedInFilterInput("测试");
+assert.equal(mockElements.pgIncludedInBranchesCount.textContent, "1");
+assert.equal(mockElements.pgIncludedInTagsCount.textContent, "1");
+assert.ok(mockElements.pgIncludedInBranchesList.innerHTML.includes("release/测试_🚀_é"));
+assert.ok(!mockElements.pgIncludedInBranchesList.innerHTML.includes("master"));
+assert.equal(mockElements.btnIncludedInClearFilter.style.display, "inline-flex");
+
+// Filter with no match
+onPgIncludedInFilterInput("nonexistent_branch_xyz");
+assert.equal(mockElements.pgIncludedInBranchesCount.textContent, "0");
+assert.equal(mockElements.pgIncludedInTagsCount.textContent, "0");
+assert.equal(mockElements.pgIncludedInEmptyState.style.display, "block");
+assert.ok(mockElements.pgIncludedInEmptyState.innerHTML.includes("nonexistent_branch_xyz"));
+
+// 5. Clear filter
+clearPgIncludedInFilter();
+assert.equal(mockElements.pgIncludedInBranchesCount.textContent, "3");
+assert.equal(mockElements.pgIncludedInTagsCount.textContent, "2");
+assert.equal(mockElements.btnIncludedInClearFilter.style.display, "none");
+
+// 6. Test copy action
+copyPgIncludedItem("release/测试_🚀_é", "branch");
+assert.equal(globalThis.__copiedText, "release/测试_🚀_é");
+assert.ok(mockElements.toast.textContent.includes("Copied branch"));
+
+// 7. Verify close dialog
+closePgIncludedInDialog();
+assert.equal(state.includedInDialogOpen, false);
+assert.equal(state.includedInDialogCl, null);
+assert.ok(!mockElements.pgIncludedInBackdrop.classList.contains("open"));
+
+// 8. Verify Shift+G shortcut registration
+const navGroup = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "Navigation & Dashboard");
+assert.notEqual(navGroup, undefined);
+const includedInShortcut = navGroup.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("G"));
+assert.notEqual(includedInShortcut, undefined);
+assert.ok(includedInShortcut.description.includes("Included In"));
+
+console.log("POLYGERRIT_INCLUDED_IN_DIALOG_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
+            tf.write(harness_js)
+            tf_path = tf.name
+        try:
+            res = subprocess.run(
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Node execution failed with {res.stderr}\nScript:\n{harness_js[:1000]}",
+            )
+            self.assertIn("POLYGERRIT_INCLUDED_IN_DIALOG_OK", res.stdout)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
+    def test_polygerrit_copy_links_menu_and_metadata_inspection(self) -> None:
+        """Verifies authentic PolyGerrit Copy Links dropdown (<gr-copy-links>) and metadata sidebar Change-Id / Commit rows."""
+        from commands.gerrit.services.queue_service import enrich_change_for_ui
+
+        # 1. Backend: verify enrich_change_for_ui extracts explicit and parsed Change-Id, plus current_revision
+        explicit_change = {
+            "_number": 43330055,
+            "project": "platform/hardware/google/aemu",
+            "branch": "goog/studio-main",
+            "subject": "feat(gerrit): Copy links and references 测试_🚀_é",
+            "change_id": "I5878dfe8363ab28c8a8a4d711eb459f0d0694bed",
+            "current_revision": "55dc974e8e6890a2275e88053cc9a2dc8e2db91f",
+            "revisions": {
+                "55dc974e8e6890a2275e88053cc9a2dc8e2db91f": {
+                    "commit": {"message": "feat(gerrit): Copy links\n\nChange-Id: I5878dfe8363ab28c8a8a4d711eb459f0d0694bed\n"}
+                }
+            },
+        }
+        res_explicit = enrich_change_for_ui(explicit_change, "tester@google.com")
+        self.assertEqual(res_explicit["change_id"], "I5878dfe8363ab28c8a8a4d711eb459f0d0694bed")
+        self.assertEqual(res_explicit["current_revision"], "55dc974e8e6890a2275e88053cc9a2dc8e2db91f")
+
+        # Fallback parsing Change-Id from commit_message when change_id field is omitted
+        fallback_change = {
+            "_number": 43330056,
+            "project": "platform/hardware/google/aemu",
+            "branch": "goog/studio-main",
+            "subject": "feat(gerrit): Regex parsed change id 测试_🚀_é",
+            "revisions": {
+                "aabbccddeeff00112233445566778899aabbccdd": {
+                    "commit": {"message": "Subject\n\nBody explanation.\n\nBug: N/A\nChange-Id: I9999999999999999999999999999999999999999\n"}
+                }
+            },
+        }
+        res_fallback = enrich_change_for_ui(fallback_change, "tester@google.com")
+        self.assertEqual(res_fallback["change_id"], "I9999999999999999999999999999999999999999")
+        self.assertEqual(res_fallback["current_revision"], "aabbccddeeff00112233445566778899aabbccdd")
+
+        # 2. Template: verify static tokens and DOM structure in polygerrit.html
+        html = render_static_gerrit_ui_html(
+            initial_payload={"viewer": "tester@google.com"},
+            variant="polygerrit",
+        )
+        self.assertIn("pg-copy-links-wrap", html)
+        self.assertIn("pg-btn-copy-links", html)
+        self.assertIn("pg-copy-links-dropdown", html)
+        self.assertIn("pg-copy-links-header", html)
+        self.assertIn("pg-copy-links-title", html)
+        self.assertIn("pg-btn-copy-pill", html)
+        self.assertIn("pg-copy-footer-link", html)
+        self.assertIn("pg-meta-val-copyable", html)
+        self.assertIn("pg-meta-change-id-row", html)
+        self.assertIn("pg-meta-commit-row", html)
+        self.assertIn("getPgChangeReferenceInfo", html)
+        self.assertIn("renderPgCopyLinksMenuHtml", html)
+        self.assertIn("renderPgCopyLinksMenuDom", html)
+        self.assertIn("openPgCopyLinksMenu", html)
+        self.assertIn("closePgCopyLinksMenu", html)
+        self.assertIn("togglePgCopyLinksMenu", html)
+        self.assertIn("copyPgMetaField", html)
+
+        # 3. Headless Node/VM DOM harness verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+        self.assertTrue(scripts)
+        js_body = (
+            scripts[-1]
+            .replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+            .replace("\n  initApp();", "\n  // initApp();")
+        )
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  return {
+    tagName: tagName.toUpperCase(),
+    id: "",
+    value: "",
+    textContent: "",
+    innerHTML: "",
+    disabled: false,
+    checked: false,
+    style: {},
+    classList: {
+      add(...cls) { cls.forEach(c => classes.add(c)); },
+      remove(...cls) { cls.forEach(c => classes.delete(c)); },
+      contains(c) { return classes.has(c); },
+      toggle(c, force) {
+        if (force === true) { classes.add(c); return true; }
+        if (force === false) { classes.delete(c); return false; }
+        if (classes.has(c)) { classes.delete(c); return false; }
+        classes.add(c); return true;
+      }
+    },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    getAttribute(k) { return attrs[k] || null; },
+    removeAttribute(k) { delete attrs[k]; },
+    focus() {},
+    select() {},
+    addEventListener() {},
+    removeEventListener() {}
+  };
+}
+
+const mockElements = {
+  toast: makeMockEl("div"),
+};
+
+globalThis.document = {
+  getElementById(id) {
+    if (!mockElements[id]) {
+      mockElements[id] = makeMockEl();
+    }
+    return mockElements[id];
+  },
+  querySelector(sel) { return null; },
+  querySelectorAll(sel) { return []; },
+  createElement(tag) { return makeMockEl(tag); },
+  addEventListener() {}
+};
+
+globalThis.window = {
+  location: { search: "" },
+  addEventListener() {},
+  innerWidth: 1440
+};
+
+let writtenClipboardText = "";
+Object.defineProperty(globalThis, "navigator", {
+  value: {
+    clipboard: {
+      writeText(txt) {
+        writtenClipboardText = String(txt);
+        return Promise.resolve();
+      }
+    }
+  },
+  configurable: true,
+  writable: true
+});
+
+let lastToastMessage = "";
+globalThis.showToast = function(msg) {
+  lastToastMessage = String(msg);
+};
+
+"""
+            + js_body
+            + """
+
+lastToastMessage = "";
+const origShowToast = showToast;
+showToast = function(msg) {
+  lastToastMessage = String(msg);
+  origShowToast(msg);
+};
+
+// Setup mock change with Unicode subject
+const mockChange = {
+  number: 43330055,
+  change_id: "I5878dfe8363ab28c8a8a4d711eb459f0d0694bed",
+  current_revision: "55dc974e8e6890a2275e88053cc9a2dc8e2db91f",
+  subject: "feat: Unicode references 测试_🚀_é",
+  project: "platform/hardware/google/aemu",
+  branch: "goog/studio-main",
+  patch_set: 3,
+  url: "https://android-review.googlesource.com/c/platform/hardware/google/aemu/+/43330055"
+};
+state.changes = [mockChange];
+state.diffsByCl = { 43330055: { patch_set: 3, commit_sha: "55dc974e8e6890a2275e88053cc9a2dc8e2db91f", files: [] } };
+
+// 1. Verify getPgChangeReferenceInfo
+const info = getPgChangeReferenceInfo(mockChange);
+assert.equal(info.changeId, "I5878dfe8363ab28c8a8a4d711eb459f0d0694bed");
+assert.equal(info.commitSha, "55dc974e8e6890a2275e88053cc9a2dc8e2db91f");
+assert.equal(info.commitShaShort, "55dc974e");
+assert.equal(info.shortlink, "ag/43330055");
+assert.ok(info.titleAndUrl.includes("ag/43330055: feat: Unicode references 测试_🚀_é"));
+assert.equal(info.markdown, "[ag/43330055: feat: Unicode references 测试_🚀_é](https://android-review.googlesource.com/c/platform/hardware/google/aemu/+/43330055)");
+assert.ok(info.gitilesUrl.includes("55dc974e8e6890a2275e88053cc9a2dc8e2db91f"));
+assert.ok(info.codeSearchUrl.includes("I5878dfe8363ab28c8a8a4d711eb459f0d0694bed"));
+
+// 2. Verify renderPgCopyLinksMenuHtml markup
+const menuHtml = renderPgCopyLinksMenuHtml(mockChange);
+assert.ok(menuHtml.includes('id="pgCopyLinksWrap-43330055"'));
+assert.ok(menuHtml.includes('id="btnCopyLinks-43330055"'));
+assert.ok(menuHtml.includes('id="pgCopyLinksDropdown-43330055"'));
+assert.ok(menuHtml.includes('data-key="change_id"'));
+assert.ok(menuHtml.includes('data-key="commit"'));
+assert.ok(menuHtml.includes('data-key="shortlink"'));
+assert.ok(menuHtml.includes('data-key="url"'));
+assert.ok(menuHtml.includes('data-key="title_url"'));
+assert.ok(menuHtml.includes('data-key="markdown"'));
+assert.ok(menuHtml.includes("Gitiles ↗"));
+assert.ok(menuHtml.includes("Code Search ↗"));
+
+// 3. Verify copy links menu lifecycle
+assert.equal(state.copyLinksMenu.isOpen, false);
+openPgCopyLinksMenu(43330055);
+assert.equal(state.copyLinksMenu.isOpen, true);
+assert.equal(state.copyLinksMenu.cl, 43330055);
+
+togglePgCopyLinksMenu(43330055);
+assert.equal(state.copyLinksMenu.isOpen, false);
+
+togglePgCopyLinksMenu(43330055);
+assert.equal(state.copyLinksMenu.isOpen, true);
+
+closePgCopyLinksMenu();
+assert.equal(state.copyLinksMenu.isOpen, false);
+
+// 4. Verify copyPgMetaField copying and button feedback
+const testBtn = makeMockEl("button");
+testBtn.textContent = "📋 Copy";
+
+copyPgMetaField(43330055, "change_id", testBtn);
+assert.equal(writtenClipboardText, "I5878dfe8363ab28c8a8a4d711eb459f0d0694bed");
+assert.ok(lastToastMessage.includes("Change-Id"));
+assert.equal(testBtn.classList.contains("is-copied"), true);
+
+copyPgMetaField(43330055, "commit");
+assert.equal(writtenClipboardText, "55dc974e8e6890a2275e88053cc9a2dc8e2db91f");
+assert.ok(lastToastMessage.includes("Commit SHA"));
+
+copyPgMetaField(43330055, "markdown");
+assert.equal(writtenClipboardText, "[ag/43330055: feat: Unicode references 测试_🚀_é](https://android-review.googlesource.com/c/platform/hardware/google/aemu/+/43330055)");
+assert.ok(lastToastMessage.includes("Markdown link"));
+
+copyPgChangeTitle(43330055);
+assert.ok(writtenClipboardText.includes("ag/43330055: feat: Unicode references 测试_🚀_é"));
+
+// 5. Verify metadata sidebar rendering
+const metaHtml = renderCommitReviewersPanelHtml(mockChange, false);
+assert.ok(metaHtml.includes("pg-meta-change-id-row"));
+assert.ok(metaHtml.includes("pg-meta-commit-row"));
+assert.ok(metaHtml.includes("I5878dfe83…") || metaHtml.includes("I5878dfe8363ab28c8a8a4d711eb459f0d0694bed"));
+assert.ok(metaHtml.includes("55dc974e"));
+
+// 6. Verify Shift+L keyboard shortcut registered
+const navGroup = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "Navigation & Dashboard");
+assert.ok(navGroup);
+const copyShortcut = navGroup.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("L"));
+assert.ok(copyShortcut, "Shift+L shortcut must be registered in PG_KEYBOARD_SHORTCUTS");
+assert.ok(copyShortcut.description.includes("Copy links and references"));
+
+console.log("POLYGERRIT_COPY_LINKS_AND_METADATA_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
+            tf.write(harness_js)
+            tf_path = tf.name
+        try:
+            res = subprocess.run(
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                msg=f"Node execution failed with {tf_path}:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}",
+            )
+            self.assertIn("POLYGERRIT_COPY_LINKS_AND_METADATA_OK", res.stdout)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
+    def test_polygerrit_file_list_mark_all_reviewed(self):
+        """Verifies PolyGerrit file list Mark All Reviewed master checkbox, bulk action button,
+
+        and Shift+V keyboard shortcut in gr-file-list.
+        """
+        from commands.gerrit.services.diff_parser import (
+            get_gerrit_ui_template_path,
+        )
+
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
+        html = tpl_path.read_text(encoding="utf-8")
+
+        # 1. Verify static HTML tokens and CSS classes
+        self.assertIn("pg-master-reviewed-cb", html)
+        self.assertIn("pg-master-reviewed-label", html)
+        self.assertIn("pg-th-reviewed-content", html)
+        self.assertIn("pg-btn-mark-all-reviewed", html)
+        self.assertIn("btnMarkAllReviewed-", html)
+
+        self.assertIn("function markAllPgFilesReviewed", html)
+        self.assertIn("function togglePgMarkAllReviewed", html)
+        self.assertIn("function onPgMasterReviewedCheckboxChanged", html)
+        self.assertIn("function onPgReviewedHeaderClick", html)
+        self.assertIn("function syncPgMasterReviewedCheckbox", html)
+        self.assertIn("function syncPgMarkAllReviewedButton", html)
+
+        # 2. Headless Node/VM DOM harness verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+        self.assertTrue(scripts)
+        js_body = (
+            scripts[-1]
+            .replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+            .replace("\n  initApp();", "\n  // initApp();")
+        )
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    disabled: false,
+    checked: false,
+    indeterminate: false,
+    style: {},
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+        } else if (force) {
+          classes.add(c);
+        } else {
+          classes.delete(c);
+        }
+      },
+      contains(c) { return classes.has(c); }
+    },
+    getAttribute(k) { return attrs[k] || null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    appendChild(c) { children.push(c); return c; },
+    insertBefore(c, ref) { children.push(c); return c; },
+    removeChild(c) {
+      const idx = children.indexOf(c);
+      if (idx !== -1) children.splice(idx, 1);
+      return c;
+    },
+    remove() {
+      if (this.parentNode && this.parentNode.removeChild) {
+        this.parentNode.removeChild(this);
+      }
+    },
+    querySelectorAll(sel) {
+      return children.filter(c => c.tagName.toLowerCase() === sel.toLowerCase());
+    },
+    querySelector(sel) {
+      return children.find(c => c.tagName.toLowerCase() === sel.toLowerCase()) || null;
+    },
+    addEventListener() {},
+    focus() {},
+    select() {},
+    setSelectionRange() {},
+    scrollIntoView() {},
+    getBoundingClientRect() { return { left: 50, top: 100, width: 300, height: 200 }; },
+    setPointerCapture() {},
+    releasePointerCapture() {}
+  };
+}
+
+let lastToastMessage = "";
+globalThis.showToast = (msg) => { lastToastMessage = String(msg); };
+
+const domElements = new Map();
+const allInputs = [];
+const allRows = [];
+const allBlocks = [];
+const allJumpItems = [];
+
+globalThis.document = {
+  body: makeMockEl("body"),
+  getElementById(id) {
+    if (!domElements.has(id)) {
+      const el = makeMockEl("div");
+      el.id = id;
+      domElements.set(id, el);
+    }
+    return domElements.get(id);
+  },
+  querySelector(sel) {
+    return null;
+  },
+  querySelectorAll(sel) {
+    if (sel.includes("input[data-cl=")) {
+      return allInputs;
+    }
+    if (sel.includes(".pg-file-row[data-file=")) {
+      return allRows;
+    }
+    if (sel.includes(".pg-file-diff-block[data-cl=")) {
+      return allBlocks;
+    }
+    if (sel.includes(".pg-file-jump-item[data-file=")) {
+      return allJumpItems;
+    }
+    return [];
+  },
+  createElement(tag) { return makeMockEl(tag); },
+  addEventListener() {}
+};
+
+const storage = {};
+globalThis.navigator = {
+  clipboard: {
+    writeText() {}
+  }
+};
+globalThis.window = {
+  location: { search: "" },
+  addEventListener() {},
+  innerWidth: 1440,
+  localStorage: {
+    getItem(k) { return Object.prototype.hasOwnProperty.call(storage, k) ? storage[k] : null; },
+    setItem(k, v) { storage[k] = String(v); },
+    removeItem(k) { delete storage[k]; }
+  }
+};
+"""
+            + js_body
+            + """
+lastToastMessage = "";
+const origShowToast = showToast;
+showToast = function(msg) {
+  lastToastMessage = String(msg);
+  origShowToast(msg);
+};
+
+const testClNum = 43330045;
+const testPs = 1;
+
+// Sample file list with Unicode paths
+const testFiles = [
+  { file: "emulator/libs/file/测试_🚀_é.cc", additions: 15, deletions: 2, status: "M" },
+  { file: "src/utils/unicode_helper_é.h", additions: 30, deletions: 0, status: "A" },
+  { file: "docs/review_guidelines.md", additions: 5, deletions: 1, status: "M" }
+];
+
+const mockChange = {
+  number: testClNum,
+  patch_set: testPs,
+  branch: "goog/studio-main",
+  subject: "feat: Unicode review test 测试_🚀_é",
+  files: testFiles
+};
+
+state.changes = [mockChange];
+state.diffsByCl = {
+  [testClNum]: {
+    patch_set: testPs,
+    files: testFiles
+  }
+};
+state.selectedClNumber = testClNum;
+
+// Initialize mock DOM elements for controls
+const masterCb = makeMockEl("input");
+masterCb.id = `pgMasterReviewedCb-${testClNum}`;
+masterCb.setAttribute("data-cl", String(testClNum));
+masterCb.setAttribute("data-ps", String(testPs));
+domElements.set(`pgMasterReviewedCb-${testClNum}`, masterCb);
+
+const markAllBtn = makeMockEl("button");
+markAllBtn.id = `btnMarkAllReviewed-${testClNum}`;
+domElements.set(`btnMarkAllReviewed-${testClNum}`, markAllBtn);
+
+const summaryBadge = makeMockEl("span");
+summaryBadge.id = `pgReviewedSummary-${testClNum}`;
+domElements.set(`pgReviewedSummary-${testClNum}`, summaryBadge);
+
+// 1. Initial State: 0 files reviewed
+syncPgReviewedSummary(testClNum, testPs);
+assert.equal(masterCb.checked, false);
+assert.equal(masterCb.indeterminate, false);
+assert.equal(markAllBtn.textContent, "✓ Mark all reviewed");
+assert.equal(markAllBtn.classList.contains("is-all-reviewed"), false);
+assert.equal(summaryBadge.textContent, "0 / 3 reviewed");
+assert.equal(summaryBadge.classList.contains("all-reviewed"), false);
+
+// 2. Mark All as Reviewed
+markAllPgFilesReviewed(testClNum, testPs, true);
+const revSet = getPgReviewedSet(testClNum, testPs);
+assert.equal(revSet.size, 3);
+assert.ok(revSet.has("emulator/libs/file/测试_🚀_é.cc"));
+assert.ok(revSet.has("src/utils/unicode_helper_é.h"));
+assert.ok(revSet.has("docs/review_guidelines.md"));
+
+assert.equal(masterCb.checked, true);
+assert.equal(masterCb.indeterminate, false);
+assert.equal(markAllBtn.textContent, "✕ Mark all unreviewed");
+assert.equal(markAllBtn.classList.contains("is-all-reviewed"), true);
+assert.equal(summaryBadge.textContent, "All 3 files reviewed ✓");
+assert.equal(summaryBadge.classList.contains("all-reviewed"), true);
+assert.ok(lastToastMessage.includes("Marked all 3 files as reviewed"));
+
+// 3. Partial Review: uncheck 1 file
+setPgFileReviewed(testClNum, testPs, "docs/review_guidelines.md", false);
+assert.equal(revSet.size, 2);
+assert.equal(masterCb.checked, false);
+assert.equal(masterCb.indeterminate, true);
+assert.equal(markAllBtn.textContent, "✓ Mark all reviewed");
+assert.equal(markAllBtn.classList.contains("is-all-reviewed"), false);
+assert.equal(summaryBadge.textContent, "2 / 3 reviewed");
+assert.equal(summaryBadge.classList.contains("all-reviewed"), false);
+
+// 4. Toggle Mark All when partially reviewed -> reviews remaining
+togglePgMarkAllReviewed(testClNum);
+assert.equal(revSet.size, 3);
+assert.equal(masterCb.checked, true);
+assert.equal(masterCb.indeterminate, false);
+assert.equal(markAllBtn.textContent, "✕ Mark all unreviewed");
+assert.equal(summaryBadge.textContent, "All 3 files reviewed ✓");
+
+// 5. Toggle Mark All when all reviewed -> unreviews all
+togglePgMarkAllReviewed(testClNum);
+assert.equal(revSet.size, 0);
+assert.equal(masterCb.checked, false);
+assert.equal(masterCb.indeterminate, false);
+assert.equal(markAllBtn.textContent, "✓ Mark all reviewed");
+assert.equal(summaryBadge.textContent, "0 / 3 reviewed");
+assert.ok(lastToastMessage.includes("Marked all files as unreviewed"));
+
+// 6. Master Checkbox onchange event
+masterCb.checked = true;
+onPgMasterReviewedCheckboxChanged(masterCb);
+assert.equal(revSet.size, 3);
+assert.equal(masterCb.checked, true);
+
+masterCb.checked = false;
+onPgMasterReviewedCheckboxChanged(masterCb);
+assert.equal(revSet.size, 0);
+assert.equal(masterCb.checked, false);
+
+// 7. Filter-Aware Mark Reviewed
+state.pgFileQueryFilterByCl = { [testClNum]: "测试" };
+markAllPgFilesReviewed(testClNum, testPs, true, true);
+assert.equal(revSet.size, 1);
+assert.ok(revSet.has("emulator/libs/file/测试_🚀_é.cc"));
+assert.equal(revSet.has("src/utils/unicode_helper_é.h"), false);
+assert.equal(revSet.has("docs/review_guidelines.md"), false);
+assert.equal(markAllBtn.textContent, "✕ Unmark filtered (1)");
+assert.equal(summaryBadge.textContent, "1 / 1 filtered reviewed");
+assert.ok(lastToastMessage.includes("Marked 1 filtered files as reviewed"));
+
+// Reset filter
+state.pgFileQueryFilterByCl[testClNum] = "";
+syncPgReviewedSummary(testClNum, testPs);
+
+// 8. Header click sorting vs checkbox propagation
+assert.equal(getPgFileSort(testClNum).col, "path");
+
+// Click inside label -> no sort
+onPgReviewedHeaderClick({
+  target: {
+    closest(sel) { return sel === ".pg-master-reviewed-label" ? {} : null; }
+  }
+}, testClNum);
+assert.equal(getPgFileSort(testClNum).col, "path", "Clicking master checkbox label must not trigger column sort");
+
+// Click outside label -> triggers sort
+onPgReviewedHeaderClick({
+  target: {
+    closest(sel) { return null; }
+  }
+}, testClNum);
+assert.equal(getPgFileSort(testClNum).col, "reviewed", "Clicking reviewed header text must trigger sort by reviewed");
+
+// 9. Verify Shift+V keyboard shortcut registered
+const fileGroup = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "File List & Diff Navigation");
+assert.ok(fileGroup);
+const markAllShortcut = fileGroup.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("V"));
+assert.ok(markAllShortcut, "Shift+V shortcut must be registered in PG_KEYBOARD_SHORTCUTS");
+assert.ok(markAllShortcut.description.includes("mark all files"));
+
+console.log("POLYGERRIT_MARK_ALL_REVIEWED_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
+            tf.write(harness_js)
+            tf_path = tf.name
+        try:
+            res = subprocess.run(
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                msg=f"Node execution failed with {tf_path}:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}",
+            )
+            self.assertIn("POLYGERRIT_MARK_ALL_REVIEWED_OK", res.stdout)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
+    def test_polygerrit_expand_collapse_all_comments(self):
+        """Verifies PolyGerrit Expand / Collapse All Comments toggle button,
+
+        file list row comment badges, and Shift+E keyboard shortcut.
+        """
+        from commands.gerrit.services.diff_parser import (
+            get_gerrit_ui_template_path,
+        )
+
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
+        html = tpl_path.read_text(encoding="utf-8")
+
+        # 1. Verify static HTML tokens and CSS classes
+        self.assertIn("pg-btn-toggle-all-comments", html)
+        self.assertIn("btnToggleAllCommentsCollapse-", html)
+        self.assertIn("is-all-collapsed", html)
+        self.assertIn("pg-file-comments-badge is-clickable", html)
+
+        self.assertIn("function areAllPgCommentsCollapsed", html)
+        self.assertIn("function togglePgAllCommentsCollapse", html)
+        self.assertIn("function syncPgAllCommentsCollapseButton", html)
+        self.assertIn("function onPgFileCommentsClick", html)
+
+        # 2. Headless Node/VM DOM harness verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+        self.assertTrue(scripts)
+        js_body = (
+            scripts[-1]
+            .replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+            .replace("\n  initApp();", "\n  // initApp();")
+        )
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    innerHTML: "",
+    title: "",
+    disabled: false,
+    checked: false,
+    indeterminate: false,
+    style: {},
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+        } else if (force) {
+          classes.add(c);
+        } else {
+          classes.delete(c);
+        }
+      },
+      contains(c) { return classes.has(c); }
+    },
+    getAttribute(k) { return attrs[k] || null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    appendChild(c) { children.push(c); c.parentNode = this; return c; },
+    insertBefore(c, ref) { children.push(c); c.parentNode = this; return c; },
+    removeChild(c) {
+      const idx = children.indexOf(c);
+      if (idx !== -1) children.splice(idx, 1);
+      return c;
+    },
+    remove() {
+      if (this.parentNode && this.parentNode.removeChild) {
+        this.parentNode.removeChild(this);
+      }
+    },
+    querySelectorAll(sel) {
+      const res = [];
+      function recurse(el) {
+        if (!el || !el.children) return;
+        for (const ch of el.children) {
+          if (matchesSel(ch, sel)) res.push(ch);
+          recurse(ch);
+        }
+      }
+      recurse(this);
+      return res;
+    },
+    querySelector(sel) {
+      function findFirst(el) {
+        if (!el || !el.children) return null;
+        for (const ch of el.children) {
+          if (matchesSel(ch, sel)) return ch;
+          const sub = findFirst(ch);
+          if (sub) return sub;
+        }
+        return null;
+      }
+      return findFirst(this);
+    },
+    addEventListener() {},
+    focus() {},
+    select() {},
+    setSelectionRange() {},
+    scrollIntoView() {},
+    children
+  };
+}
+
+function matchesSel(el, sel) {
+  if (!el || !sel) return false;
+  if (sel.startsWith(".")) {
+    const cls = sel.slice(1).split(/[. :\\[#]/)[0];
+    return el.classList && el.classList.contains(cls);
+  }
+  if (sel.startsWith("#")) {
+    return el.id === sel.slice(1).split(/[. :\\[]/)[0];
+  }
+  return (el.tagName && el.tagName.toLowerCase() === sel.toLowerCase());
+}
+
+let lastToastMessage = "";
+globalThis.showToast = (msg) => { lastToastMessage = String(msg); };
+
+const domElements = new Map();
+let mockChangeView = null;
+let fileBlock1 = null;
+
+globalThis.document = {
+  body: makeMockEl("body"),
+  getElementById(id) {
+    if (!domElements.has(id)) {
+      const el = makeMockEl("div");
+      el.id = id;
+      domElements.set(id, el);
+    }
+    return domElements.get(id);
+  },
+  querySelector(sel) {
+    if (sel.includes("pg-change-view")) return mockChangeView;
+    if (sel.includes("pg-file-diff-block")) return fileBlock1;
+    if (sel.includes("#commitMsgPanel-")) {
+      const m = sel.match(/commitMsgPanel-(\\d+)/);
+      if (m) return domElements.get(m[0]);
+    }
+    return mockChangeView ? mockChangeView.querySelector(sel) : null;
+  },
+  querySelectorAll(sel) {
+    if (mockChangeView) return mockChangeView.querySelectorAll(sel);
+    return [];
+  },
+  createElement(tag) { return makeMockEl(tag); },
+  addEventListener() {}
+};
+
+const storage = {};
+globalThis.navigator = {
+  clipboard: {
+    writeText() {}
+  }
+};
+globalThis.window = {
+  location: { search: "" },
+  addEventListener() {},
+  innerWidth: 1440,
+  localStorage: {
+    getItem(k) { return Object.prototype.hasOwnProperty.call(storage, k) ? storage[k] : null; },
+    setItem(k, v) { storage[k] = String(v); },
+    removeItem(k) { delete storage[k]; }
+  }
+};
+"""
+            + js_body
+            + """
+lastToastMessage = "";
+const origShowToast = showToast;
+showToast = function(msg) {
+  lastToastMessage = String(msg);
+  origShowToast(msg);
+};
+
+const testClNum = 43330088;
+const testPs = 2;
+
+const unicodeFilePath = "emulator/libs/file/测试_🚀_é.cc";
+const testThreads = [
+  {
+    _ui_item_id: `srv-thread-${testClNum}-0`,
+    file_path: unicodeFilePath,
+    line: 42,
+    author_name: "Alice 测试",
+    latest_message: "Please add bounds check here 🚀",
+    unresolved: true
+  },
+  {
+    _ui_item_id: `srv-thread-${testClNum}-1`,
+    file_path: "/COMMIT_MSG",
+    line: 5,
+    author_name: "Bob Reviewer",
+    latest_message: "Subject line looks great!",
+    unresolved: false
+  }
+];
+
+state.changes = [{
+  number: testClNum,
+  patch_set: testPs,
+  branch: "goog/studio-main",
+  subject: "feat: Unicode comment review 测试_🚀_é"
+}];
+state.diffsByCl = {
+  [testClNum]: {
+    patch_set: testPs,
+    files: [{ file: unicodeFilePath, additions: 10, deletions: 1, status: "M" }],
+    unresolved_threads: testThreads
+  }
+};
+state.selectedClNumber = testClNum;
+
+// Construct mock DOM tree for change view
+mockChangeView = makeMockEl("div");
+mockChangeView.classList.add("pg-change-view");
+mockChangeView.setAttribute("data-cl", String(testClNum));
+
+// Toggle button
+const toggleBtn = makeMockEl("button");
+toggleBtn.id = `btnToggleAllCommentsCollapse-${testClNum}`;
+domElements.set(`btnToggleAllCommentsCollapse-${testClNum}`, toggleBtn);
+mockChangeView.appendChild(toggleBtn);
+
+// File diff block 1
+fileBlock1 = makeMockEl("div");
+fileBlock1.classList.add("pg-file-diff-block");
+fileBlock1.setAttribute("data-cl", String(testClNum));
+fileBlock1.setAttribute("data-file", unicodeFilePath);
+mockChangeView.appendChild(fileBlock1);
+
+// Comment card 1
+const card1 = makeMockEl("div");
+card1.classList.add("diff-inline-comment");
+card1.setAttribute("data-inline-id", `srv-thread-${testClNum}-0`);
+const btn1 = makeMockEl("button");
+btn1.classList.add("inline-collapse-btn");
+btn1.textContent = "Hide ▴";
+card1.appendChild(btn1);
+fileBlock1.appendChild(card1);
+domElements.set(`inlineItem-srv-thread-${testClNum}-0`, card1);
+
+// Comment card 2
+const card2 = makeMockEl("div");
+card2.classList.add("diff-inline-comment");
+card2.setAttribute("data-inline-id", `srv-thread-${testClNum}-1`);
+const btn2 = makeMockEl("button");
+btn2.classList.add("inline-collapse-btn");
+btn2.textContent = "Hide ▴";
+card2.appendChild(btn2);
+mockChangeView.appendChild(card2);
+domElements.set(`inlineItem-srv-thread-${testClNum}-1`, card2);
+
+// 1. Initial state: both expanded
+assert.equal(areAllPgCommentsCollapsed(testClNum), false);
+syncPgAllCommentsCollapseButton(testClNum);
+assert.ok(toggleBtn.innerHTML.includes("Collapse all"));
+assert.equal(toggleBtn.classList.contains("is-all-collapsed"), false);
+
+// 2. Click Toggle -> Collapses All
+togglePgAllCommentsCollapse(testClNum);
+assert.equal(card1.classList.contains("collapsed"), true);
+assert.equal(card2.classList.contains("collapsed"), true);
+assert.equal(btn1.textContent, "Show ▾");
+assert.equal(btn2.textContent, "Show ▾");
+assert.equal(areAllPgCommentsCollapsed(testClNum), true);
+assert.ok(toggleBtn.innerHTML.includes("Expand all"));
+assert.equal(toggleBtn.classList.contains("is-all-collapsed"), true);
+assert.ok(lastToastMessage.includes("Collapsed all 2 comments (Shift+E)"));
+
+// 3. Click Toggle again -> Expands All
+togglePgAllCommentsCollapse(testClNum);
+assert.equal(card1.classList.contains("collapsed"), false);
+assert.equal(card2.classList.contains("collapsed"), false);
+assert.equal(btn1.textContent, "Hide ▴");
+assert.equal(btn2.textContent, "Hide ▴");
+assert.equal(areAllPgCommentsCollapsed(testClNum), false);
+assert.ok(toggleBtn.innerHTML.includes("Collapse all"));
+assert.equal(toggleBtn.classList.contains("is-all-collapsed"), false);
+assert.ok(lastToastMessage.includes("Expanded all 2 comments (Shift+E)"));
+
+// 4. Toggle individual comment via toggleInlineItemCollapse -> updates button state
+toggleInlineItemCollapse(testClNum, `srv-thread-${testClNum}-0`);
+assert.equal(card1.classList.contains("collapsed"), true);
+assert.equal(btn1.textContent, "Show ▾");
+// Partial collapse: not all collapsed
+assert.equal(areAllPgCommentsCollapsed(testClNum), false);
+assert.ok(toggleBtn.innerHTML.includes("Collapse all"));
+
+// Collapse card2 as well -> now all collapsed
+toggleInlineItemCollapse(testClNum, `srv-thread-${testClNum}-1`);
+assert.equal(card2.classList.contains("collapsed"), true);
+assert.equal(areAllPgCommentsCollapsed(testClNum), true);
+assert.ok(toggleBtn.innerHTML.includes("Expand all"));
+assert.equal(toggleBtn.classList.contains("is-all-collapsed"), true);
+
+// 5. Verify onPgFileCommentsClick jumps to comment and uncollapses
+onPgFileCommentsClick(null, testClNum, unicodeFilePath);
+assert.equal(card1.classList.contains("collapsed"), false, "onPgFileCommentsClick must uncollapse comment");
+assert.ok(lastToastMessage.includes("Jumped to comment in 测试_🚀_é.cc"));
+
+// 6. Verify Shift+E keyboard shortcut registered
+const fileGroup = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "File List & Diff Navigation");
+assert.ok(fileGroup);
+const expandShortcut = fileGroup.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("E"));
+assert.ok(expandShortcut, "Shift+E shortcut must be registered in PG_KEYBOARD_SHORTCUTS");
+assert.ok(expandShortcut.description.includes("Expand / collapse all comment threads"));
+
+console.log("POLYGERRIT_EXPAND_COLLAPSE_ALL_COMMENTS_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
+            tf.write(harness_js)
+            tf_path = tf.name
+        try:
+            res = subprocess.run(
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                msg=f"Node execution failed with {tf_path}:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}",
+            )
+            self.assertIn("POLYGERRIT_EXPAND_COLLAPSE_ALL_COMMENTS_OK", res.stdout)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
+    def test_polygerrit_collapsible_commit_message_box_and_preview(self):
+        """Verifies PolyGerrit collapsible commit message box (<gr-commit-info>),
+
+        multi-line preview clamping with gradient fade overlay, expand/collapse toggles,
+        Copy button feedback, and keyboard shortcut 'z'.
+        """
+        from commands.gerrit.services.diff_parser import (
+            get_gerrit_ui_template_path,
+        )
+
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
+        html = tpl_path.read_text(encoding="utf-8")
+
+        # 1. Verify static HTML tokens and CSS classes
+        self.assertIn("commit-msg-panel", html)
+        self.assertIn("commit-msg-bar", html)
+        self.assertIn("commit-msg-fade-overlay", html)
+        self.assertIn("commit-msg-expand-wrap", html)
+        self.assertIn("commit-msg-expand-bar", html)
+        self.assertIn("btnCommitMsgExpand-", html)
+        self.assertIn("btnCopyCommitMsg-", html)
+        self.assertIn("commitMsgBox-", html)
+        self.assertIn("COMMIT_MSG_PREVIEW_LINE_LIMIT", html)
+
+        self.assertIn("function getCommitMessageTotalLines", html)
+        self.assertIn("function isCommitMsgCollapsed", html)
+        self.assertIn("function isCommitMsgExpanded", html)
+        self.assertIn("function uncollapseCommitMessage", html)
+        self.assertIn("function toggleCommitMessage", html)
+        self.assertIn("function toggleCommitMessageExpand", html)
+        self.assertIn("function togglePgCommitMessage", html)
+        self.assertIn("function copyCommitMessage", html)
+        self.assertIn("function scrollToCommitMessageBox", html)
+
+        # 2. Headless Node/VM DOM harness verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+        self.assertTrue(scripts)
+        js_body = (
+            scripts[-1]
+            .replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+            .replace("\n  initApp();", "\n  // initApp();")
+        )
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    innerHTML: "",
+    title: "",
+    disabled: false,
+    checked: false,
+    indeterminate: false,
+    style: {},
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+        } else if (force) {
+          classes.add(c);
+        } else {
+          classes.delete(c);
+        }
+      },
+      contains(c) { return classes.has(c); }
+    },
+    getAttribute(k) { return attrs[k] || null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    appendChild(c) { children.push(c); c.parentNode = this; return c; },
+    insertBefore(c, ref) { children.push(c); c.parentNode = this; return c; },
+    removeChild(c) {
+      const idx = children.indexOf(c);
+      if (idx !== -1) children.splice(idx, 1);
+      return c;
+    },
+    remove() {
+      if (this.parentNode && this.parentNode.removeChild) {
+        this.parentNode.removeChild(this);
+      }
+    },
+    querySelectorAll(sel) {
+      const res = [];
+      function recurse(el) {
+        if (!el || !el.children) return;
+        for (const ch of el.children) {
+          if (matchesSel(ch, sel)) res.push(ch);
+          recurse(ch);
+        }
+      }
+      recurse(this);
+      return res;
+    },
+    querySelector(sel) {
+      function findFirst(el) {
+        if (!el || !el.children) return null;
+        for (const ch of el.children) {
+          if (matchesSel(ch, sel)) return ch;
+          const sub = findFirst(ch);
+          if (sub) return sub;
+        }
+        return null;
+      }
+      return findFirst(this);
+    },
+    addEventListener() {},
+    focus() {},
+    select() {},
+    setSelectionRange() {},
+    scrollIntoView() {},
+    children
+  };
+}
+
+function matchesSel(el, sel) {
+  if (!el || !sel) return false;
+  if (sel.startsWith(".")) {
+    const cls = sel.slice(1).split(/[. :\\[#]/)[0];
+    return el.classList && el.classList.contains(cls);
+  }
+  if (sel.startsWith("#")) {
+    return el.id === sel.slice(1).split(/[. :\\[]/)[0];
+  }
+  return (el.tagName && el.tagName.toLowerCase() === sel.toLowerCase());
+}
+
+let lastToastMessage = "";
+globalThis.showToast = (msg) => { lastToastMessage = String(msg); };
+
+const domElements = new Map();
+let mockChangeView = null;
+
+globalThis.document = {
+  body: makeMockEl("body"),
+  getElementById(id) {
+    if (!domElements.has(id)) {
+      const el = makeMockEl("div");
+      el.id = id;
+      domElements.set(id, el);
+    }
+    return domElements.get(id);
+  },
+  querySelector(sel) {
+    if (sel.includes("#commitMsgPanel-")) {
+      const m = sel.match(/commitMsgPanel-(\\d+)/);
+      if (m) return domElements.get(m[0]);
+    }
+    if (sel.includes("pg-change-view")) return mockChangeView;
+    return mockChangeView ? mockChangeView.querySelector(sel) : null;
+  },
+  querySelectorAll(sel) {
+    if (mockChangeView) return mockChangeView.querySelectorAll(sel);
+    return [];
+  },
+  createElement(tag) { return makeMockEl(tag); },
+  addEventListener() {}
+};
+
+const storage = {};
+globalThis.navigator = {
+  clipboard: {
+    writeText() {}
+  }
+};
+globalThis.window = {
+  location: { search: "" },
+  addEventListener() {},
+  innerWidth: 1440,
+  localStorage: {
+    getItem(k) { return Object.prototype.hasOwnProperty.call(storage, k) ? storage[k] : null; },
+    setItem(k, v) { storage[k] = String(v); },
+    removeItem(k) { delete storage[k]; }
+  }
+};
+"""
+            + js_body
+            + """
+lastToastMessage = "";
+const origShowToast = showToast;
+showToast = function(msg) {
+  lastToastMessage = String(msg);
+  origShowToast(msg);
+};
+
+const testClNum = 43330099;
+const unicodeSubject = "feat(gerrit): Support Unicode commit preview 测试_🚀_é";
+const longCommitMsgLines = [
+  unicodeSubject,
+  "",
+  "Detailed explanation of the new feature.",
+  "Line 4: First paragraph explanation.",
+  "Line 5: Second paragraph explanation.",
+  "Line 6: Third paragraph explanation.",
+  "Line 7: Fourth paragraph explanation.",
+  "Line 8: Fifth paragraph explanation.",
+  "Line 9: Sixth paragraph explanation.",
+  "Line 10: Seventh paragraph explanation.",
+  "Line 11: Eighth paragraph explanation.",
+  "Line 12: Ninth paragraph explanation.",
+  "Line 13: Tenth paragraph explanation.",
+  "Line 14: Eleventh paragraph explanation.",
+  "",
+  "Bug: 12345678",
+  "Test: bazel test //emulator/libs/file:test_测试_🚀_é",
+  "Change-Id: I1234567890123456789012345678901234567890"
+];
+const fullCommitMsg = longCommitMsgLines.join("\\n");
+const totalLines = longCommitMsgLines.length; // 18 lines > 12
+
+// 1. Verify getCommitMessageTotalLines
+assert.strictEqual(getCommitMessageTotalLines(fullCommitMsg), 18);
+assert.strictEqual(getCommitMessageTotalLines(""), 0);
+
+// 2. Setup mock change and diff bundle
+const mockChange = {
+  number: testClNum,
+  subject: unicodeSubject,
+  commit_message: fullCommitMsg,
+  patch_set: 1
+};
+const mockBundle = {
+  commit_msg: fullCommitMsg,
+  files: []
+};
+state.changes = [mockChange];
+state.diffsByCl[testClNum] = mockBundle;
+state.selectedClNumber = testClNum;
+
+// 3. Render commit message panel HTML
+const panelHtml = renderCommitMessagePanelHtml(mockChange, mockBundle);
+assert.ok(panelHtml.includes(`id="commitMsgPanel-${testClNum}"`));
+assert.ok(panelHtml.includes(`id="commitMsgBox-${testClNum}"`));
+assert.ok(panelHtml.includes('class="commit-msg-panel'));
+assert.ok(panelHtml.includes('is-preview'));
+assert.ok(panelHtml.includes('data-lines="18"'));
+assert.ok(panelHtml.includes("commit-msg-fade-overlay"));
+assert.ok(panelHtml.includes(`id="btnCommitMsgExpand-${testClNum}"`));
+assert.ok(panelHtml.includes("Show all 18 lines (z)"));
+assert.ok(panelHtml.includes(`id="btnCopyCommitMsg-${testClNum}"`));
+assert.ok(panelHtml.includes(`id="commitMsgToggleBtn-${testClNum}"`));
+assert.ok(panelHtml.includes("· 18 lines"));
+assert.ok(panelHtml.includes("测试_🚀_é"));
+
+// 4. Setup mock DOM elements for interaction testing
+const panelEl = makeMockEl("div");
+panelEl.id = `commitMsgPanel-${testClNum}`;
+panelEl.setAttribute("data-lines", "18");
+panelEl.classList.add("commit-msg-panel", "is-preview");
+domElements.set(panelEl.id, panelEl);
+
+const toggleBtnEl = makeMockEl("button");
+toggleBtnEl.id = `commitMsgToggleBtn-${testClNum}`;
+toggleBtnEl.textContent = "Hide ▴";
+domElements.set(toggleBtnEl.id, toggleBtnEl);
+
+const expandBtnEl = makeMockEl("button");
+expandBtnEl.id = `btnCommitMsgExpand-${testClNum}`;
+const expandIconEl = makeMockEl("span");
+expandIconEl.classList.add("commit-msg-expand-icon");
+expandIconEl.textContent = "▾";
+expandBtnEl.appendChild(expandIconEl);
+const expandTextEl = makeMockEl("span");
+expandTextEl.id = `btnCommitMsgExpandText-${testClNum}`;
+expandTextEl.textContent = "Show all 18 lines (z)";
+expandBtnEl.appendChild(expandTextEl);
+domElements.set(expandBtnEl.id, expandBtnEl);
+domElements.set(expandTextEl.id, expandTextEl);
+
+const copyBtnEl = makeMockEl("button");
+copyBtnEl.id = `btnCopyCommitMsg-${testClNum}`;
+copyBtnEl.innerHTML = "📋 Copy";
+domElements.set(copyBtnEl.id, copyBtnEl);
+
+// 5. Test toggleCommitMessage (header hide/show)
+assert.strictEqual(isCommitMsgCollapsed(testClNum), false);
+toggleCommitMessage(testClNum);
+assert.strictEqual(isCommitMsgCollapsed(testClNum), true);
+assert.ok(panelEl.classList.contains("collapsed"));
+assert.strictEqual(toggleBtnEl.textContent, "Show ▾");
+
+toggleCommitMessage(testClNum);
+assert.strictEqual(isCommitMsgCollapsed(testClNum), false);
+assert.strictEqual(panelEl.classList.contains("collapsed"), false);
+assert.strictEqual(toggleBtnEl.textContent, "Hide ▴");
+
+// 6. Test toggleCommitMessageExpand (preview <-> full)
+assert.strictEqual(isCommitMsgExpanded(testClNum), false);
+toggleCommitMessageExpand(testClNum);
+assert.strictEqual(isCommitMsgExpanded(testClNum), true);
+assert.ok(panelEl.classList.contains("is-expanded"));
+assert.strictEqual(panelEl.classList.contains("is-preview"), false);
+assert.strictEqual(expandTextEl.textContent, "Show less (z)");
+assert.ok(lastToastMessage.includes("Expanded commit message"));
+
+toggleCommitMessageExpand(testClNum);
+assert.strictEqual(isCommitMsgExpanded(testClNum), false);
+assert.ok(panelEl.classList.contains("is-preview"));
+assert.strictEqual(panelEl.classList.contains("is-expanded"), false);
+assert.strictEqual(expandTextEl.textContent, "Show all 18 lines (z)");
+assert.ok(lastToastMessage.includes("Collapsed commit message to preview"));
+
+// 7. Test togglePgCommitMessage (shortcut 'z')
+togglePgCommitMessage(testClNum);
+assert.strictEqual(isCommitMsgExpanded(testClNum), true);
+togglePgCommitMessage(testClNum);
+assert.strictEqual(isCommitMsgExpanded(testClNum), false);
+
+// 8. Test uncollapseCommitMessage with expandFull
+state.collapsedCommitMsgs.add(testClNum);
+panelEl.classList.add("collapsed");
+toggleBtnEl.textContent = "Show ▾";
+uncollapseCommitMessage(testClNum, true);
+assert.strictEqual(isCommitMsgCollapsed(testClNum), false);
+assert.strictEqual(isCommitMsgExpanded(testClNum), true);
+assert.strictEqual(panelEl.classList.contains("collapsed"), false);
+assert.ok(panelEl.classList.contains("is-expanded"));
+
+// 9. Test copyCommitMessage feedback
+copyCommitMessage(testClNum, copyBtnEl);
+assert.strictEqual(copyBtnEl.innerHTML, "✓ Copied");
+assert.ok(copyBtnEl.classList.contains("is-copied"));
+assert.ok(lastToastMessage.includes("Copied full commit message"));
+
+// 10. Test scrollToCommitMessageBox
+let scrollCalled = false;
+panelEl.scrollIntoView = () => { scrollCalled = true; };
+scrollToCommitMessageBox(testClNum);
+assert.ok(scrollCalled, "scrollToCommitMessageBox must call scrollIntoView");
+assert.strictEqual(state.activeFileByCl[testClNum], "/COMMIT_MSG");
+
+// 11. Verify 'z' shortcut registration in PG_KEYBOARD_SHORTCUTS
+const diffGroup = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "File List & Diff Navigation");
+assert.ok(diffGroup);
+const zShortcut = diffGroup.shortcuts.find(s => s.keys.includes("z") && s.keys.length === 1);
+assert.ok(zShortcut, "'z' shortcut must be registered in PG_KEYBOARD_SHORTCUTS");
+assert.ok(zShortcut.description.toLowerCase().includes("commit message"));
+
+console.log("POLYGERRIT_COMMIT_MSG_BOX_AND_PREVIEW_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
+            tf.write(harness_js)
+            tf_path = tf.name
+        try:
+            res = subprocess.run(
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                msg=f"Node execution failed with {tf_path}:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}",
+            )
+            self.assertIn("POLYGERRIT_COMMIT_MSG_BOX_AND_PREVIEW_OK", res.stdout)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
+    def test_polygerrit_draft_comments_discard_all_and_bulk_actions(self):
+        """Verifies PolyGerrit draft comments bulk discard controls (<gr-reply-dialog>),
+
+        rich draft card snippet preview & edit actions, interactive drafts summary chip
+        (<gr-comments-summary>), and keyboard shortcut 'Shift+D'.
+        """
+        from commands.gerrit.services.diff_parser import (
+            get_gerrit_ui_template_path,
+        )
+
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
+        html = tpl_path.read_text(encoding="utf-8")
+
+        # 1. Verify static HTML tokens and CSS classes
+        self.assertIn("pg-btn-discard-all-drafts", html)
+        self.assertIn("btnDiscardAllDrafts-", html)
+        self.assertIn("btnDiscardAllDraftsFooter", html)
+        self.assertIn("pg-btn-discard-drafts", html)
+        self.assertIn("pg-reply-draft-actions", html)
+        self.assertIn("pg-reply-draft-edit", html)
+        self.assertIn("pgReplyDraftEdit-", html)
+        self.assertIn("pg-reply-draft-snippet", html)
+        self.assertIn("pg-drafts-summary-chip", html)
+        self.assertIn("pgDraftsSummaryChip-", html)
+
+        self.assertIn("function discardAllReplyDialogDrafts", html)
+        self.assertIn("function editReplyDialogDraft", html)
+        self.assertIn("function renderPgDraftsSummaryChipHtml", html)
+        self.assertIn("function syncPgDraftsSummaryChip", html)
+        self.assertIn("function navigatePgDraftComment", html)
+
+        # 2. Headless Node/VM DOM harness verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+        self.assertTrue(scripts)
+        js_body = (
+            scripts[-1]
+            .replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+            .replace("\n  initApp();", "\n  // initApp();")
+        )
+        for boot_call in (
+            "loadSidebarLayoutPrefs();",
+            "initWorkspaceSplitter();",
+            "initDiffCodeSelectionListeners();",
+            "initApp();",
+        ):
+            js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  const el = {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    innerHTML: "",
+    title: "",
+    disabled: false,
+    checked: false,
+    indeterminate: false,
+    offsetTop: 100,
+    style: { display: "" },
+    addEventListener() {},
+    removeEventListener() {},
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+          return classes.has(c);
+        }
+        if (force) classes.add(c); else classes.delete(c);
+        return Boolean(force);
+      },
+      contains(c) { return classes.has(c); }
+    },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    getAttribute(k) { return Object.prototype.hasOwnProperty.call(attrs, k) ? attrs[k] : null; },
+    removeAttribute(k) { delete attrs[k]; },
+    scrollIntoView() {},
+    remove() {
+      if (el.parentNode && Array.isArray(el.parentNode.children)) {
+        const idx = el.parentNode.children.indexOf(el);
+        if (idx !== -1) el.parentNode.children.splice(idx, 1);
+      }
+    },
+    appendChild(child) {
+      children.push(child);
+      child.parentNode = el;
+      return child;
+    },
+    closest(sel) {
+      if (sel.includes("diff-inline-comment") && classes.has("diff-inline-comment")) return el;
+      if (sel.includes("pg-file-diff-block") && classes.has("pg-file-diff-block")) return el;
+      return el.parentNode && typeof el.parentNode.closest === "function" ? el.parentNode.closest(sel) : null;
+    },
+    querySelector(sel) {
+      if (sel.includes(".inline-collapse-btn")) {
+        return children.find(c => c.classList && c.classList.contains("inline-collapse-btn")) || null;
+      }
+      return null;
+    },
+    querySelectorAll(sel) {
+      const matched = [];
+      function walk(node) {
+        if (!node || !node.children) return;
+        node.children.forEach(c => {
+          if (c.classList) {
+            if (sel.includes("draft-item") && c.classList.contains("draft-item")) matched.push(c);
+            else if (sel.includes("diff-inline-saved-reply-draft") && c.classList.contains("diff-inline-saved-reply-draft")) matched.push(c);
+            else if (sel.includes("diff-inline-comment") && c.classList.contains("diff-inline-comment")) matched.push(c);
+          }
+          walk(c);
+        });
+      }
+      walk(el);
+      return matched;
+    },
+    children
+  };
+  return el;
+}
+
+const domElements = new Map();
+const mockChangeView = makeMockEl("div");
+mockChangeView.classList.add("pg-change-view");
+
+globalThis.document = {
+  getElementById(id) {
+    if (!domElements.has(id)) {
+      const el = makeMockEl("div");
+      el.id = id;
+      domElements.set(id, el);
+    }
+    return domElements.get(id);
+  },
+  querySelector(sel) {
+    if (sel.includes("pg-change-view")) return mockChangeView;
+    return mockChangeView ? mockChangeView.querySelector(sel) : null;
+  },
+  querySelectorAll(sel) {
+    if (mockChangeView) return mockChangeView.querySelectorAll(sel);
+    return [];
+  },
+  createElement(tag) { return makeMockEl(tag); },
+  addEventListener() {}
+};
+
+const storage = {};
+globalThis.navigator = {
+  clipboard: {
+    writeText() {}
+  }
+};
+globalThis.window = {
+  location: { search: "" },
+  addEventListener() {},
+  innerWidth: 1440,
+  confirm() { return true; },
+  localStorage: {
+    getItem(k) { return Object.prototype.hasOwnProperty.call(storage, k) ? storage[k] : null; },
+    setItem(k, v) { storage[k] = String(v); },
+    removeItem(k) { delete storage[k]; }
+  }
+};
+"""
+            + js_body
+            + """
+lastToastMessage = "";
+const origShowToast = showToast;
+showToast = function(msg) {
+  lastToastMessage = String(msg);
+  origShowToast(msg);
+};
+
+const testClNum = 43330101;
+state.selectedClNumber = testClNum;
+state.changes = [{
+  number: testClNum,
+  patch_set: 3,
+  subject: "feat(gerrit): Test PolyGerrit bulk drafts 测试_🚀_é",
+  viewer_cr_vote: 0
+}];
+state.inlineCommentsByCl[testClNum] = [];
+state.openReplyByItemId = {};
+
+// 1. Initially no drafts: chip is hidden, list empty
+assert.strictEqual(getPendingDraftsForCl(testClNum).length, 0);
+const emptyChipHtml = renderPgDraftsSummaryChipHtml(testClNum);
+assert.ok(emptyChipHtml.includes('class="pg-drafts-summary-chip is-hidden"'));
+assert.ok(emptyChipHtml.includes('style="display:none;"'));
+
+const emptyListHtml = renderPgReplyDraftsListHtml(testClNum, []);
+assert.ok(emptyListHtml.includes("pg-reply-drafts-empty"));
+
+// 2. Add an unsent inline code comment draft with code snippet and Unicode content
+state.inlineCommentsByCl[testClNum].push({
+  id: "draft-item-unicode-test",
+  kind: "draft",
+  draft_mode: "comment",
+  file_path: "emulator/libs/file/测试_🚀_é.cc",
+  line: 88,
+  code_snippet: 'const char* greeting = "Hello 测试_🚀_é";',
+  message: "Verify UTF-8 encoding for Unicode file path and snippet: 测试_🚀_é",
+  unresolved: true
+});
+
+const draftsAfter1 = getPendingDraftsForCl(testClNum);
+assert.strictEqual(draftsAfter1.length, 1);
+assert.strictEqual(draftsAfter1[0].file_path, "emulator/libs/file/测试_🚀_é.cc");
+assert.ok(draftsAfter1[0].code_snippet.includes("Hello 测试_🚀_é"));
+
+// 3. Render draft list HTML: verify snippet preview, edit button, and discard button
+const draftsListHtml = renderPgReplyDraftsListHtml(testClNum, draftsAfter1);
+assert.ok(draftsListHtml.includes('class="pg-reply-draft-card"'));
+assert.ok(draftsListHtml.includes("emulator/libs/file/测试_🚀_é.cc:88"));
+assert.ok(draftsListHtml.includes('class="pg-reply-draft-snippet"'));
+assert.ok(draftsListHtml.includes("const char* greeting"));
+assert.ok(draftsListHtml.includes('class="pg-reply-draft-edit"'));
+assert.ok(draftsListHtml.includes("editReplyDialogDraft"));
+assert.ok(draftsListHtml.includes('class="pg-reply-draft-discard"'));
+assert.ok(draftsListHtml.includes("discardReplyDialogDraft"));
+
+// 4. Test renderPgDraftsSummaryChipHtml and syncPgDraftsSummaryChip
+const activeChipHtml = renderPgDraftsSummaryChipHtml(testClNum);
+assert.ok(activeChipHtml.includes("has-drafts"));
+assert.ok(activeChipHtml.includes("1 draft"));
+
+const chipEl = makeMockEl("button");
+chipEl.id = `pgDraftsSummaryChip-${testClNum}`;
+domElements.set(chipEl.id, chipEl);
+syncPgDraftsSummaryChip(testClNum);
+assert.strictEqual(chipEl.style.display, "inline-flex");
+assert.ok(chipEl.classList.contains("has-drafts"));
+assert.ok(chipEl.innerHTML.includes("1 draft"));
+
+// 5. Test syncReplyDraftsSectionDom: verifies header and footer discard buttons
+const sectionEl = makeMockEl("div");
+sectionEl.id = `pgReplyDraftsSection-${testClNum}`;
+domElements.set(sectionEl.id, sectionEl);
+
+const listEl = makeMockEl("div");
+listEl.id = `pgReplyDraftsList-${testClNum}`;
+domElements.set(listEl.id, listEl);
+
+const countEl = makeMockEl("span");
+countEl.id = `pgReplyDraftsCount-${testClNum}`;
+domElements.set(countEl.id, countEl);
+
+const footerDiscardBtn = makeMockEl("button");
+footerDiscardBtn.id = "btnDiscardAllDraftsFooter";
+domElements.set(footerDiscardBtn.id, footerDiscardBtn);
+
+syncReplyDraftsSectionDom(testClNum);
+assert.strictEqual(sectionEl.style.display, "block");
+assert.strictEqual(countEl.textContent, "1");
+assert.strictEqual(footerDiscardBtn.style.display, "inline-block");
+assert.ok(footerDiscardBtn.textContent.includes("Discard Draft"));
+
+// 6. Add second draft (open thread reply composer draft)
+state.inlineCommentsByCl[testClNum].push({
+  id: "srv-thread-202",
+  kind: "comment",
+  file_path: "emulator/libs/file/测试_🚀_é.cc",
+  line: 95,
+  unresolved: true,
+  message: "Original reviewer question"
+});
+state.openReplyByItemId["srv-thread-202"] = {
+  draft: "Ack - addressed in PS4 测试_🚀_é",
+  unresolved: false,
+  isSavedDraft: true
+};
+
+const draftsAfter2 = getPendingDraftsForCl(testClNum);
+assert.strictEqual(draftsAfter2.length, 2);
+
+syncReplyDraftsSectionDom(testClNum);
+assert.strictEqual(countEl.textContent, "2");
+assert.strictEqual(footerDiscardBtn.textContent, "Discard All Drafts (2)");
+
+// 7. Test editReplyDialogDraft: closes reply dialog and uncollapses target block
+let composerOpened = false;
+openInlineReplyComposer = function(cl, id) {
+  if (id === "srv-thread-202") composerOpened = true;
+};
+state.replyDialogOpen = true;
+editReplyDialogDraft(testClNum, "srv-thread-202", "reply");
+assert.strictEqual(state.replyDialogOpen, false, "editReplyDialogDraft must close reply dialog");
+assert.strictEqual(composerOpened, true, "editReplyDialogDraft must trigger reply composer");
+
+// 8. Test discardAllReplyDialogDrafts
+discardAllReplyDialogDrafts(testClNum, true);
+assert.strictEqual(getPendingDraftsForCl(testClNum).length, 0);
+assert.strictEqual(state.inlineCommentsByCl[testClNum].filter(x => x.kind === "draft").length, 0);
+assert.strictEqual(Object.keys(state.openReplyByItemId).length, 0);
+assert.strictEqual(sectionEl.style.display, "none");
+assert.strictEqual(footerDiscardBtn.style.display, "none");
+assert.strictEqual(chipEl.style.display, "none");
+assert.ok(lastToastMessage.includes("Discarded all 2 draft comments"));
+
+// 9. Verify 'Shift+D' shortcut registration in PG_KEYBOARD_SHORTCUTS
+const navGroup = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "File List & Diff Navigation");
+assert.ok(navGroup);
+const shiftDShortcut = navGroup.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("D"));
+assert.ok(shiftDShortcut, "'Shift+D' must be registered in PG_KEYBOARD_SHORTCUTS");
+assert.ok(shiftDShortcut.description.toLowerCase().includes("draft"));
+
+console.log("POLYGERRIT_DRAFT_COMMENTS_BULK_ACTIONS_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
+            tf.write(harness_js)
+            tf_path = tf.name
+        try:
+            res = subprocess.run(
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                msg=f"Node execution failed with {tf_path}:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}",
+            )
+            self.assertIn("POLYGERRIT_DRAFT_COMMENTS_BULK_ACTIONS_OK", res.stdout)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
+    def test_polygerrit_robot_comments_and_fix_suggestions(self):
+        """Verifies PolyGerrit robot comments (<gr-robot-comment>), suggested fixes
+
+        (<gr-fix-suggestions>), interactive robot summary chip, show/hide filtering,
+        file list badges, and keyboard shortcut 'Shift+W'.
+        """
+        from lib.gerrit_api import (
+            GerritCommentMessage,
+            GerritCommentThread,
+            _build_threads_for_file,
+            _is_robot_comment,
+        )
+        from commands.gerrit.services.diff_parser import (
+            get_gerrit_ui_template_path,
+        )
+
+        # 1. Python library unit tests for robot comment detection and thread construction
+        raw_robot_comment = {
+            "id": "robot-c1",
+            "author": {"name": "clang-tidy", "email": "clang-tidy@google.com"},
+            "patch_set": 2,
+            "line": 42,
+            "message": "Use absl::string_view instead of std::string in 测试_🚀_é",
+            "unresolved": True,
+            "robot_id": "clang-tidy",
+            "robot_run_id": "run-456",
+            "url": "https://ci.android.com/sponge/run-456",
+            "fix_suggestions": [
+                {
+                    "description": "Replace with absl::string_view 测试_🚀_é",
+                    "replacements": [
+                        {
+                            "path": "emulator/libs/file/测试_🚀_é.cc",
+                            "replacement": "absl::string_view",
+                        }
+                    ],
+                }
+            ],
+        }
+        self.assertTrue(_is_robot_comment(raw_robot_comment))
+        self.assertFalse(_is_robot_comment({"author": {"name": "Alice"}}))
+
+        threads = _build_threads_for_file(
+            file_path="emulator/libs/file/测试_🚀_é.cc",
+            raw_comments=[raw_robot_comment],
+            include_resolved=True,
+        )
+        self.assertEqual(len(threads), 1)
+        t = threads[0]
+        self.assertTrue(t.is_robot)
+        self.assertEqual(t.robot_id, "clang-tidy")
+        self.assertEqual(t.robot_run_id, "run-456")
+        self.assertEqual(t.url, "https://ci.android.com/sponge/run-456")
+        self.assertEqual(len(t.fix_suggestions), 1)
+        self.assertIn("测试_🚀_é", t.fix_suggestions[0]["description"])
+        t_dict = t.to_dict()
+        self.assertTrue(t_dict["is_robot"])
+        self.assertEqual(t_dict["robot_id"], "clang-tidy")
+        self.assertEqual(t_dict["robot_run_id"], "run-456")
+        self.assertEqual(t_dict["url"], "https://ci.android.com/sponge/run-456")
+
+        # 2. Verify static HTML tokens and CSS classes
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
+        html = tpl_path.read_text(encoding="utf-8")
+
+        self.assertIn(".diff-inline-comment.is-robot", html)
+        self.assertIn(".pg-hide-robot-comments", html)
+        self.assertIn("pg-robot-badge", html)
+        self.assertIn("pg-robot-run-pill", html)
+        self.assertIn("pg-robot-link", html)
+        self.assertIn("pg-fix-suggestion-card", html)
+        self.assertIn("pg-fix-suggestion-header", html)
+        self.assertIn("pg-fix-snippet", html)
+        self.assertIn("pg-robot-comments-chip", html)
+        self.assertIn("pgRobotCommentsChip-", html)
+        self.assertIn("pg-btn-toggle-robot", html)
+        self.assertIn("btnToggleRobotComments-", html)
+        self.assertIn("pg-file-robot-badge", html)
+        self.assertIn("pg-robot-focused-flash", html)
+
+        self.assertIn("function isPgRobotComment", html)
+        self.assertIn("function renderPgFixSuggestionsHtml", html)
+        self.assertIn("function copyPgFixCode", html)
+        self.assertIn("function applyPgFixToReply", html)
+        self.assertIn("function isPgShowRobotCommentsEnabled", html)
+        self.assertIn("function setPgShowRobotCommentsEnabled", html)
+        self.assertIn("function togglePgShowRobotComments", html)
+        self.assertIn("function applyPgShowRobotCommentsToDom", html)
+        self.assertIn("function syncPgRobotCommentsToggleBtn", html)
+        self.assertIn("function countPgRobotComments", html)
+        self.assertIn("function renderPgRobotCommentsChipHtml", html)
+        self.assertIn("function navigatePgRobotComment", html)
+        self.assertIn("function onPgFileRobotCommentsClick", html)
+
+        # 3. Headless Node/VM DOM harness verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+        self.assertTrue(scripts)
+        js_body = (
+            scripts[-1]
+            .replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+            .replace("\n  initApp();", "\n  // initApp();")
+        )
+        for boot_call in (
+            "loadSidebarLayoutPrefs();",
+            "initWorkspaceSplitter();",
+            "initDiffCodeSelectionListeners();",
+            "initApp();",
+        ):
+            js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  const el = {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    innerHTML: "",
+    title: "",
+    disabled: false,
+    checked: false,
+    style: {},
+    classList: {
+      add: (...cls) => cls.forEach(c => classes.add(c)),
+      remove: (...cls) => cls.forEach(c => classes.delete(c)),
+      toggle: (c, force) => {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c);
+          else classes.add(c);
+        } else if (force) classes.add(c);
+        else classes.delete(c);
+        return classes.has(c);
+      },
+      contains: c => classes.has(c)
+    },
+    getAttribute: k => attrs[k] !== undefined ? attrs[k] : null,
+    setAttribute: (k, v) => { attrs[k] = String(v); },
+    hasAttribute: k => Object.prototype.hasOwnProperty.call(attrs, k),
+    removeAttribute: k => { delete attrs[k]; },
+    querySelector: sel => {
+      if (sel.startsWith(".")) {
+        const clsName = sel.slice(1);
+        return children.find(c => c.classList && c.classList.contains(clsName)) || null;
+      }
+      return null;
+    },
+    querySelectorAll: sel => {
+      const out = [];
+      const walk = node => {
+        if (!node) return;
+        if (sel.includes("is-robot") && node.classList && node.classList.contains("is-robot")) {
+          out.push(node);
+        } else if (sel.includes("diff-inline-comment") && node.classList && node.classList.contains("diff-inline-comment")) {
+          out.push(node);
+        }
+        if (Array.isArray(node.children)) {
+          node.children.forEach(walk);
+        }
+      };
+      children.forEach(walk);
+      return out;
+    },
+    closest: sel => {
+      if (sel.includes("pg-file-diff-block") && el.parentDiff) return el.parentDiff;
+      if (sel.includes("pg-change-view") && el.parentChangeView) return el.parentChangeView;
+      return null;
+    },
+    scrollIntoView: () => { el.scrolled = true; },
+    focus: () => { el.focused = true; },
+    children
+  };
+  return el;
+}
+
+const mockElements = new Map();
+const mockLocalStorage = new Map();
+
+global.window = {
+  innerHeight: 800,
+  innerWidth: 1200,
+  location: { search: "" },
+  addEventListener() {},
+  removeEventListener() {},
+  localStorage: {
+    getItem: k => mockLocalStorage.has(k) ? mockLocalStorage.get(k) : null,
+    setItem: (k, v) => mockLocalStorage.set(k, String(v)),
+    removeItem: k => mockLocalStorage.delete(k),
+  }
+};
+global.localStorage = global.window.localStorage;
+global.navigator = {
+  clipboard: {
+    writeText() {}
+  }
+};
+global.document = {
+  getElementById: id => mockElements.get(id) || null,
+  querySelector: sel => {
+    if (sel.includes("pg-change-view")) {
+      return mockElements.get("mockChangeView") || null;
+    }
+    return null;
+  },
+  querySelectorAll: sel => [],
+  createElement: tag => makeMockEl(tag),
+  addEventListener() {},
+  removeEventListener() {}
+};
+global.showToast = msg => { global.lastToast = msg; };
+
+"""
+            + js_body
+            + """
+
+// 1. Verify robot comment detection
+const humanComment = {
+  id: "c-human",
+  author_name: "Alice",
+  message: "Looks good!",
+  unresolved: false
+};
+const robotComment = {
+  id: "c-robot-1",
+  author_name: "TreeHugger",
+  robot_id: "clang-tidy",
+  robot_run_id: "run-99",
+  url: "https://sponge.corp.google.com/run-99",
+  message: "Consider using absl::string_view in 测试_🚀_é",
+  unresolved: true,
+  is_robot: true,
+  fix_suggestions: [
+    {
+      description: "Replace with absl::string_view 测试_🚀_é",
+      replacements: [{ path: "emulator/libs/file/测试_🚀_é.cc", replacement: "absl::string_view" }]
+    }
+  ]
+};
+
+assert.strictEqual(isPgRobotComment(humanComment), false, "Human comment should not be marked robot");
+assert.strictEqual(isPgRobotComment(robotComment), true, "Robot comment must be detected as robot");
+assert.strictEqual(isPgRobotComment({ author_name: "Automerger Robot" }), true, "Automerger should be detected as robot");
+
+// 2. Verify Fix Suggestions rendering
+const fixHtml = renderPgFixSuggestionsHtml(robotComment.fix_suggestions, "safe-1", 43330055);
+assert.ok(fixHtml.includes("pg-fix-suggestion-card"), "Must contain pg-fix-suggestion-card");
+assert.ok(fixHtml.includes("Suggested Fix:"), "Must contain Suggested Fix label");
+assert.ok(fixHtml.includes("测试_🚀_é"), "Must preserve Unicode in fix description");
+assert.ok(fixHtml.includes("absl::string_view"), "Must contain replacement code snippet");
+assert.ok(fixHtml.includes("pg-btn-copy-fix"), "Must have Copy Fix button");
+assert.ok(fixHtml.includes("pg-btn-apply-fix"), "Must have Apply Fix button");
+
+// 3. Verify inline comment card rendering with robot styling
+const cardHtml = renderInlineCommentCardHtml(43330055, robotComment);
+assert.ok(cardHtml.includes("is-robot"), "Must contain is-robot CSS class");
+assert.ok(cardHtml.includes('data-is-robot="1"'), "Must contain data-is-robot attribute");
+assert.ok(cardHtml.includes('data-robot-id="clang-tidy"'), "Must contain data-robot-id attribute");
+assert.ok(cardHtml.includes("🤖 clang-tidy"), "Must render robot header badge");
+assert.ok(cardHtml.includes("Run #run-99"), "Must render robot run pill");
+assert.ok(cardHtml.includes("https://sponge.corp.google.com/run-99"), "Must render link to run");
+assert.ok(cardHtml.includes("pg-fix-suggestion-card"), "Must embed fix suggestions card");
+
+// 4. Verify robot comments chip rendering and counting
+const mockBundle = {
+  unresolved_threads: [robotComment, humanComment]
+};
+const count = countPgRobotComments(43330055, mockBundle);
+assert.strictEqual(count, 1, "Must count exactly 1 robot comment");
+const chipHtml = renderPgRobotCommentsChipHtml(43330055, mockBundle);
+assert.ok(chipHtml.includes("pg-robot-comments-chip"), "Must render robot comments chip");
+assert.ok(chipHtml.includes("1 robot"), "Must display correct robot comment count in chip");
+assert.ok(chipHtml.includes("navigatePgRobotComment"), "Chip must trigger navigatePgRobotComment on click");
+
+// 5. Verify show / hide robot comments toggle and DOM sync
+const mockChangeView = makeMockEl("div");
+mockChangeView.classList.add("pg-change-view");
+mockElements.set("mockChangeView", mockChangeView);
+const mockToggleBtn = makeMockEl("button");
+mockToggleBtn.setAttribute("data-robot-count", "1");
+mockElements.set("btnToggleRobotComments-43330055", mockToggleBtn);
+
+assert.strictEqual(isPgShowRobotCommentsEnabled(), true, "Robot comments default to enabled");
+togglePgShowRobotComments(43330055);
+assert.strictEqual(isPgShowRobotCommentsEnabled(), false, "Must toggle to disabled");
+assert.ok(mockChangeView.classList.contains("pg-hide-robot-comments"), "Must add pg-hide-robot-comments class");
+assert.ok(mockToggleBtn.classList.contains("is-hiding-robot"), "Toggle button must reflect hiding state");
+assert.ok(mockToggleBtn.textContent.includes("Show robot (1)"), "Toggle button text must update to Show robot");
+
+togglePgShowRobotComments(43330055);
+assert.strictEqual(isPgShowRobotCommentsEnabled(), true, "Must toggle back to enabled");
+assert.ok(!mockChangeView.classList.contains("pg-hide-robot-comments"), "Must remove pg-hide-robot-comments class");
+
+// 6. Verify keyboard shortcut Shift+W registration
+const fileGroup = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "File List & Diff Navigation");
+assert.ok(fileGroup, "File List & Diff Navigation group must exist");
+const robotShortcut = fileGroup.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("W"));
+assert.ok(robotShortcut, "Must register Shift+W shortcut for toggling robot comments");
+
+console.log("POLYGERRIT_ROBOT_COMMENTS_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
+            tf.write(harness_js)
+            tf_path = tf.name
+        try:
+            res = subprocess.run(
+                [node_bin, tf_path],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                msg=f"Node execution failed with {tf_path}:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}",
+            )
+            self.assertIn("POLYGERRIT_ROBOT_COMMENTS_OK", res.stdout)
+        finally:
+            if os.path.exists(tf_path):
+                os.remove(tf_path)
+
+    @staticmethod
+    def _assert_js_syntax_balance_and_top_level_tdz(js_source: str, label: str = "script") -> None:
+        """Hermetic pure-Python checker for balanced JS delimiters and top-level TDZ ordering.
+
+        Runs inside the Bazel sandbox without requiring a `node` binary on PATH.
+        """
+        regex_start_keywords = frozenset({
+            "return",
+            "throw",
+            "case",
+            "delete",
+            "void",
+            "typeof",
+            "instanceof",
+            "in",
+            "of",
+            "new",
+            "yield",
+            "await",
+            "else",
+            "do",
+        })
+        cond_paren_keywords = frozenset({"if", "while", "for", "with"})
+        decl_keywords = frozenset({"const", "let", "class"})
+        matching_open = {")": "(", "]": "[", "}": "{"}
+
+        n = len(js_source)
+        i = 0
+        line = 1
+        stack: list[tuple[str, int, bool]] = []
+        can_start_regex = True
+        prev_word = ""
+        prev_token = ""
+        expecting_top_decl_ident = False
+        top_level_decls: dict[str, int] = {}
+        top_level_reads: list[tuple[str, int]] = []
+        in_top_level_arrow = False
+
+        def scan_template_segment(idx: int, cur_line: int) -> tuple[int, int, str]:
+            start_line = cur_line
+            while idx < n:
+                ch_inner = js_source[idx]
+                if ch_inner == "\n":
+                    cur_line += 1
+                    idx += 1
+                elif ch_inner == "\\":
+                    if idx + 1 < n and js_source[idx + 1] == "\n":
+                        cur_line += 1
+                    idx += 2
+                elif ch_inner == "`":
+                    return idx + 1, cur_line, "END"
+                elif ch_inner == "$" and idx + 1 < n and js_source[idx + 1] == "{":
+                    return idx + 2, cur_line, "EXPR"
+                else:
+                    idx += 1
+            raise AssertionError(
+                f"{label}: Unterminated template literal starting at line {start_line}"
+            )
+
+        while i < n:
+            ch = js_source[i]
+            if ch == "\n":
+                line += 1
+                i += 1
+                if not stack:
+                    expecting_top_decl_ident = False
+                    in_top_level_arrow = False
+                continue
+            if ch in " \t\r\f\v":
+                i += 1
+                continue
+            if ch == "/" and i + 1 < n and js_source[i + 1] == "/":
+                nl = js_source.find("\n", i + 2)
+                if nl == -1:
+                    break
+                i = nl
+                continue
+            if ch == "/" and i + 1 < n and js_source[i + 1] == "*":
+                start_line = line
+                end = js_source.find("*/", i + 2)
+                if end == -1:
+                    raise AssertionError(
+                        f"{label}: Unterminated block comment at line {start_line}"
+                    )
+                line += js_source.count("\n", i + 2, end)
+                i = end + 2
+                continue
+            if ch in ("'", '"'):
+                quote = ch
+                start_line = line
+                i += 1
+                while i < n:
+                    c = js_source[i]
+                    if c == "\\":
+                        if i + 1 < n and js_source[i + 1] == "\n":
+                            line += 1
+                        i += 2
+                        continue
+                    if c == "\n":
+                        raise AssertionError(
+                            f"{label}: Unterminated {quote} string literal at line {start_line}"
+                        )
+                    if c == quote:
+                        i += 1
+                        break
+                    i += 1
+                else:
+                    raise AssertionError(
+                        f"{label}: Unterminated {quote} string literal at line {start_line}"
+                    )
+                can_start_regex = False
+                prev_word = ""
+                prev_token = "STR"
+                expecting_top_decl_ident = False
+                continue
+            if ch == "`":
+                i, line, outcome = scan_template_segment(i + 1, line)
+                expecting_top_decl_ident = False
+                if outcome == "EXPR":
+                    stack.append(("${", line, False))
+                    can_start_regex = True
+                    prev_word = ""
+                    prev_token = "${"
+                else:
+                    can_start_regex = False
+                    prev_word = ""
+                    prev_token = "TPL"
+                continue
+            if ch == "/":
+                if can_start_regex:
+                    start_line = line
+                    i += 1
+                    in_charset = False
+                    while i < n:
+                        c = js_source[i]
+                        if c == "\\":
+                            if i + 1 < n and js_source[i + 1] == "\n":
+                                raise AssertionError(
+                                    f"{label}: Newline inside regex literal at line {start_line}"
+                                )
+                            i += 2
+                            continue
+                        if c == "\n":
+                            raise AssertionError(
+                                f"{label}: Unterminated regex literal at line {start_line}"
+                            )
+                        if c == "[":
+                            in_charset = True
+                        elif c == "]" and in_charset:
+                            in_charset = False
+                        elif c == "/" and not in_charset:
+                            i += 1
+                            while i < n and js_source[i].isalpha():
+                                i += 1
+                            break
+                        i += 1
+                    else:
+                        raise AssertionError(
+                            f"{label}: Unterminated regex literal at line {start_line}"
+                        )
+                    can_start_regex = False
+                    prev_word = ""
+                    prev_token = "REGEX"
+                    expecting_top_decl_ident = False
+                    continue
+                i += 2 if (i + 1 < n and js_source[i + 1] == "=") else 1
+                can_start_regex = True
+                prev_word = ""
+                prev_token = "/"
+                expecting_top_decl_ident = False
+                continue
+            if ch.isalpha() or ch in ("_", "$") or ord(ch) >= 128:
+                start = i
+                i += 1
+                while i < n and (
+                    js_source[i].isalnum()
+                    or js_source[i] in ("_", "$")
+                    or ord(js_source[i]) >= 128
+                ):
+                    i += 1
+                word = js_source[start:i]
+                if not stack:
+                    if expecting_top_decl_ident:
+                        top_level_decls.setdefault(word, line)
+                        expecting_top_decl_ident = False
+                    elif word in decl_keywords and prev_token not in (".", "?."):
+                        expecting_top_decl_ident = True
+                    elif (
+                        prev_token not in (".", "?.")
+                        and not in_top_level_arrow
+                        and word not in decl_keywords
+                    ):
+                        top_level_reads.append((word, line))
+                can_start_regex = (prev_token not in (".", "?.")) and (
+                    word in regex_start_keywords
+                )
+                prev_word = word if prev_token not in (".", "?.") else ""
+                prev_token = "IDENT"
+                continue
+            if ch.isdigit():
+                i += 1
+                while i < n and (js_source[i].isalnum() or js_source[i] in (".", "_")):
+                    i += 1
+                can_start_regex = False
+                prev_word = ""
+                prev_token = "NUM"
+                expecting_top_decl_ident = False
+                continue
+            if ch == "=" and i + 1 < n and js_source[i + 1] == ">":
+                i += 2
+                if not stack:
+                    in_top_level_arrow = True
+                can_start_regex = True
+                prev_word = ""
+                prev_token = "=>"
+                expecting_top_decl_ident = False
+                continue
+            if (
+                ch == "?"
+                and i + 1 < n
+                and js_source[i + 1] == "."
+                and not (i + 2 < n and js_source[i + 2].isdigit())
+            ):
+                i += 2
+                can_start_regex = False
+                prev_word = ""
+                prev_token = "?."
+                expecting_top_decl_ident = False
+                continue
+            if ch in ("+", "-") and i + 1 < n and js_source[i + 1] == ch:
+                op = ch * 2
+                i += 2
+                was_value = not can_start_regex
+                can_start_regex = not was_value
+                prev_word = ""
+                prev_token = op
+                expecting_top_decl_ident = False
+                continue
+            if ch in ("(", "[", "{"):
+                is_cond = ch == "(" and prev_word in cond_paren_keywords
+                stack.append((ch, line, is_cond))
+                i += 1
+                can_start_regex = True
+                prev_word = ""
+                prev_token = ch
+                expecting_top_decl_ident = False
+                continue
+            if ch in (")", "]", "}"):
+                if not stack:
+                    raise AssertionError(
+                        f"{label}: Unexpected closing '{ch}' at line {line} "
+                        "with empty delimiter stack"
+                    )
+                open_tok, open_line, is_cond = stack.pop()
+                if ch == "}" and open_tok == "${":
+                    i, line, outcome = scan_template_segment(i + 1, line)
+                    if outcome == "EXPR":
+                        stack.append(("${", line, False))
+                        can_start_regex = True
+                        prev_word = ""
+                        prev_token = "${"
+                    else:
+                        can_start_regex = False
+                        prev_word = ""
+                        prev_token = "TPL"
+                    continue
+                expected_open = matching_open[ch]
+                if open_tok != expected_open:
+                    raise AssertionError(
+                        f"{label}: Mismatched closing '{ch}' at line {line} "
+                        f"(expected close for '{open_tok}' opened at line {open_line})"
+                    )
+                i += 1
+                if ch == ")":
+                    can_start_regex = is_cond
+                elif ch == "}":
+                    can_start_regex = True
+                else:
+                    can_start_regex = False
+                prev_word = ""
+                prev_token = ch
+                continue
+            if ch == ";":
+                i += 1
+                can_start_regex = True
+                prev_word = ""
+                prev_token = ";"
+                if not stack:
+                    expecting_top_decl_ident = False
+                    in_top_level_arrow = False
+                continue
+            if ch == ".":
+                i += 1
+                can_start_regex = False
+                prev_word = ""
+                prev_token = "."
+                expecting_top_decl_ident = False
+                continue
+            i += 1
+            can_start_regex = True
+            prev_word = ""
+            prev_token = ch
+            expecting_top_decl_ident = False
+
+        if stack:
+            open_tok, open_line, _ = stack[-1]
+            raise AssertionError(
+                f"{label}: Unclosed '{open_tok}' opened at line {open_line} "
+                f"(stack depth {len(stack)})"
+            )
+
+        for ident, read_line in top_level_reads:
+            decl_line = top_level_decls.get(ident)
+            if decl_line is not None and read_line < decl_line:
+                raise AssertionError(
+                    f"{label}: Top-level TDZ ReferenceError: '{ident}' read at line "
+                    f"{read_line} before top-level declaration at line {decl_line}"
+                )
+
+    def test_templates_hermetic_js_delimiter_balance_and_tdz_order(self) -> None:
+        """Pure-Python guard verifying classic & PolyGerrit JS blocks without requiring Node."""
+        for variant in ("classic", "polygerrit"):
+            html = render_static_gerrit_ui_html(
+                initial_payload={"viewer": "tester@google.com", "subject": "测试_🚀_é"},
+                variant=variant,
+            )
+            scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+            self.assertGreaterEqual(len(scripts), 1, f"Expected inline script in {variant}")
+            for idx, script in enumerate(scripts):
+                self._assert_js_syntax_balance_and_top_level_tdz(
+                    script, label=f"{variant}[{idx}]"
+                )
+
+        # Verify the checker catches nested template literals + Unicode cleanly when balanced:
+        self._assert_js_syntax_balance_and_top_level_tdz(
+            'const label_测试_🚀_é = `row-${items.map(x => `${x.id}`).join(",")}`;',
+            label="valid_unicode_template",
+        )
+        # Regression 1: stray closing brace `}` after a function body (commit 5ef3039b)
+        with self.assertRaisesRegex(AssertionError, r"Unexpected closing '\}'"):
+            self._assert_js_syntax_balance_and_top_level_tdz(
+                "function renderPgFileListHtml() {\n  return '<div>测试_🚀_é</div>';\n}\n}\n",
+                label="stray_brace",
+            )
+        # Regression 2: top-level `window.X = X` before `const X = ...` TDZ (commit 32ac5041)
+        with self.assertRaisesRegex(AssertionError, r"Top-level TDZ ReferenceError: 'PG_IMAGE_EXTENSIONS'"):
+            self._assert_js_syntax_balance_and_top_level_tdz(
+                "window.PG_IMAGE_EXTENSIONS = PG_IMAGE_EXTENSIONS;\n"
+                'const PG_IMAGE_EXTENSIONS = new Set(["png"]);\n',
+                label="tdz_order",
+            )
+
+    def test_templates_hermetic_node_v8_syntax_and_initapp_boot_smoke(self) -> None:
+        """Runs V8 `node --check` and full `initApp()` boot evaluation on both UI variants."""
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        bootstrap_payload = {
+            "viewer": "joshuaduong@google.com",
+            "host": "https://android-review.googlesource.com",
+            "changes": [
+                {
+                    "number": 43339999,
+                    "change_id": "I9999999999999999999999999999999999999999",
+                    "project": "platform/hardware/google/aemu",
+                    "branch": "goog/studio-main",
+                    "subject": "feat(gerrit): Boot smoke 测试_🚀_é",
+                    "status": "NEW",
+                    "patch_set": 1,
+                    "patch_sets": [1],
+                    "insertions": 8,
+                    "deletions": 2,
+                    "owner_email": "joshuaduong@google.com",
+                    "owner_name": "Joshua Duong",
+                    "attention_on_viewer": True,
+                }
+            ],
+            "stacks": [],
+        }
+
+        for variant in ("classic", "polygerrit"):
+            html = render_static_gerrit_ui_html(
+                initial_payload=bootstrap_payload,
+                variant=variant,
+            )
+            scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+            self.assertGreaterEqual(len(scripts), 1, f"Expected inline script in {variant}")
+            combined_js = "\n".join(scripts)
+
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_js = Path(tmp_dir) / f"{variant}_syntax_测试_🚀_é.js"
+                tmp_js.write_text(combined_js, encoding="utf-8")
+                syntax_proc = subprocess.run(
+                    [node_bin, "--check", str(tmp_js)],
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=15,
+                    check=False,
+                )
+                self.assertEqual(
+                    syntax_proc.returncode,
+                    0,
+                    f"V8 `node --check` failed for variant={variant!r}:\n{syntax_proc.stderr}",
+                )
+
+                boot_js = Path(tmp_dir) / f"{variant}_boot_测试_🚀_é.js"
+                boot_harness = (
+                    """
+const storage = {};
+function makeEl(id = "") {
+  const classes = new Set();
+  const attrs = {};
+  const el = {
+    id,
+    tagName: "DIV",
+    nodeType: 1,
+    value: "",
+    textContent: "",
+    innerHTML: "",
+    disabled: false,
+    checked: false,
+    clientWidth: 1440,
+    clientHeight: 900,
+    scrollTop: 0,
+    style: { setProperty() {}, removeProperty() {}, display: "" },
+    dataset: {},
+    childNodes: [],
+    children: [],
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) { classes.delete(c); return false; }
+          classes.add(c); return true;
+        }
+        if (force) classes.add(c); else classes.delete(c);
+        return Boolean(force);
+      },
+      contains(c) { return classes.has(c); }
+    },
+    getAttribute(k) { return Object.prototype.hasOwnProperty.call(attrs, k) ? attrs[k] : null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    removeAttribute(k) { delete attrs[k]; },
+    addEventListener() {},
+    removeEventListener() {},
+    appendChild(c) { this.childNodes.push(c); return c; },
+    removeChild(c) { return c; },
+    insertBefore(c) { this.childNodes.push(c); return c; },
+    replaceChildren() { this.childNodes = []; },
+    contains() { return false; },
+    closest() { return null; },
+    matches() { return false; },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    getBoundingClientRect() { return { left: 0, top: 0, right: 1440, bottom: 900, width: 1440, height: 900 }; },
+    focus() {},
+    blur() {},
+    select() {},
+    scrollIntoView() {},
+    scrollTo() {}
+  };
+  Object.defineProperty(el, "className", {
+    get() { return Array.from(classes).join(" "); },
+    set(v) {
+      classes.clear();
+      String(v || "").split(/\\s+/).filter(Boolean).forEach(c => classes.add(c));
+    }
+  });
+  return el;
+}
+const els = new Map();
+const doc = {
+  getElementById(id) {
+    if (!els.has(id)) els.set(id, makeEl(id));
+    return els.get(id);
+  },
+  createElement(tag) { const e = makeEl(); e.tagName = String(tag).toUpperCase(); return e; },
+  createTextNode(txt) { return { nodeType: 3, nodeValue: String(txt), textContent: String(txt) }; },
+  createDocumentFragment() { return makeEl("fragment"); },
+  querySelector() { return null; },
+  querySelectorAll() { return []; },
+  addEventListener() {},
+  removeEventListener() {},
+  getSelection() { return { toString() { return ""; }, rangeCount: 0 }; },
+  documentElement: makeEl("html"),
+  body: makeEl("body"),
+  activeElement: null,
+  hidden: false
+};
+const localStorageMock = {
+  getItem(k) { return Object.prototype.hasOwnProperty.call(storage, k) ? storage[k] : null; },
+  setItem(k, v) { storage[k] = String(v); },
+  removeItem(k) { delete storage[k]; }
+};
+globalThis.document = doc;
+globalThis.localStorage = localStorageMock;
+globalThis.sessionStorage = localStorageMock;
+globalThis.location = {
+  search: "?ui="""
+                    + variant
+                    + """&token=test-tok",
+  href: "http://127.0.0.1/?ui="""
+                    + variant
+                    + """&token=test-tok",
+  pathname: "/",
+  hash: "",
+  origin: "http://127.0.0.1"
+};
+globalThis.history = { replaceState() {}, pushState() {} };
+globalThis.window = globalThis;
+globalThis.addEventListener = () => {};
+globalThis.removeEventListener = () => {};
+globalThis.dispatchEvent = () => true;
+globalThis.scrollTo = () => {};
+globalThis.open = () => null;
+globalThis.getComputedStyle = () => ({ getPropertyValue() { return ""; } });
+globalThis.innerWidth = 1440;
+globalThis.innerHeight = 900;
+globalThis.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+globalThis.requestAnimationFrame = () => 1;
+globalThis.cancelAnimationFrame = () => {};
+globalThis.setInterval = () => 1;
+globalThis.clearInterval = () => {};
+globalThis.setTimeout = () => 1;
+globalThis.clearTimeout = () => {};
+globalThis.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} };
+globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
+globalThis.MutationObserver = class { observe() {} disconnect() {} };
+globalThis.fetch = async () => ({
+  ok: true,
+  status: 200,
+  headers: { get() { return "application/json"; } },
+  json: async () => ({ viewer: "joshuaduong@google.com", changes: [], stacks: [], files: [] }),
+  text: async () => "{}"
+});
+Object.defineProperty(globalThis, "navigator", {
+  value: { clipboard: { writeText: async () => {} }, userAgent: "HermeticNodeBootTest" },
+  configurable: true,
+  writable: true
+});
+let unhandledErr = null;
+process.on("unhandledRejection", (err) => { unhandledErr = err; });
+process.on("uncaughtException", (err) => { console.error(err); process.exit(1); });
+"""
+                    + combined_js
+                    + """
+Promise.resolve().then(() => Promise.resolve()).then(() => {
+  if (unhandledErr) {
+    console.error("Unhandled boot rejection:", unhandledErr);
+    process.exit(1);
+  }
+  if (typeof renderSidebar !== "function" && typeof renderApp !== "function" && typeof initApp !== "function") {
+    console.error("Expected app bootstrap functions to be defined");
+    process.exit(1);
+  }
+  console.log("V8_BOOT_OK:"""
+                    + variant
+                    + """");
+});
+"""
+                )
+                boot_js.write_text(boot_harness, encoding="utf-8")
+                boot_proc = subprocess.run(
+                    [node_bin, str(boot_js)],
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=15,
+                    check=False,
+                )
+                self.assertEqual(
+                    boot_proc.returncode,
+                    0,
+                    f"V8 full `initApp()` boot crashed for variant={variant!r}:\n"
+                    f"STDERR:\n{boot_proc.stderr}\nSTDOUT:\n{boot_proc.stdout}",
+                )
+                self.assertIn(f"V8_BOOT_OK:{variant}", boot_proc.stdout)
+
+    def test_polygerrit_file_list_tree_view_and_directory_grouping(self):
+        """Verifies PolyGerrit file list Tree View mode (<gr-file-list> tree vs flat),
+
+        directory grouping, collapsible folder rows, indented tree branch connectors,
+        directory reviewed status aggregation, and keyboard shortcut 'y'.
+        """
+        import os
+        import re
+        import subprocess
+        import tempfile
+        from commands.gerrit.services.diff_parser import (
+            get_gerrit_ui_template_path,
+        )
+
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
+        html = tpl_path.read_text(encoding="utf-8")
+
+        # 1. Verify static HTML tokens and CSS classes
+        self.assertIn("pg-file-view-mode-toggle", html)
+        self.assertIn("pg-view-mode-label", html)
+        self.assertIn("pg-segmented-ctrl", html)
+        self.assertIn("pg-btn-view-mode", html)
+        self.assertIn("btnFileModeFlat-", html)
+        self.assertIn("btnFileModeTree-", html)
+        self.assertIn("pg-btn-toggle-dirs", html)
+        self.assertIn("btnToggleAllDirs-", html)
+        self.assertIn("pg-dir-row", html)
+        self.assertIn("pg-dir-toggle-btn", html)
+        self.assertIn("pg-dir-chevron", html)
+        self.assertIn("pg-dir-path-wrap", html)
+        self.assertIn("pg-dir-icon", html)
+        self.assertIn("pg-dir-name", html)
+        self.assertIn("pg-dir-count-pill", html)
+        self.assertIn("pg-dir-reviewed-label", html)
+        self.assertIn("pg-dir-reviewed-cb", html)
+        self.assertIn("pg-dir-reviewed-text", html)
+        self.assertIn("pg-tree-file-row", html)
+        self.assertIn("pg-tree-path-wrap", html)
+        self.assertIn("pg-tree-connector", html)
+        self.assertIn("pg-tree-file-link", html)
+        self.assertIn("pg-tree-file-name", html)
+
+        self.assertIn("function getPgFileTreeMode", html)
+        self.assertIn("function setPgFileTreeMode", html)
+        self.assertIn("function togglePgFileTreeMode", html)
+        self.assertIn("function getPgCollapsedDirs", html)
+        self.assertIn("function togglePgDirCollapse", html)
+        self.assertIn("function areAllPgDirsCollapsed", html)
+        self.assertIn("function toggleAllPgDirsCollapse", html)
+        self.assertIn("function syncPgToggleAllDirsButton", html)
+        self.assertIn("function syncPgDirReviewedCheckbox", html)
+        self.assertIn("function onPgDirReviewedCheckboxChanged", html)
+        self.assertIn("function groupPgFilesByDirectory", html)
+        self.assertIn("function renderPgDirRowHtml", html)
+        self.assertIn("function renderPgTreeFileRowHtml", html)
+        self.assertIn("function renderPgTreeRowsHtml", html)
+
+        # 2. Verify keyboard shortcut 'y' is registered
+        self.assertIn('{ keys: ["y"], description: "Toggle file list mode (Tree view / Flat list)" }', html)
+
+        # 3. Headless Node/VM DOM harness verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+        self.assertTrue(scripts)
+        js_body = (
+            scripts[-1]
+            .replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+            .replace("\n  initApp();", "\n  // initApp();")
+        )
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    disabled: false,
+    checked: false,
+    style: {},
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+        } else if (force) {
+          classes.add(c);
+        } else {
+          classes.delete(c);
+        }
+      },
+      contains(c) { return classes.has(c); }
+    },
+    getAttribute(k) { return attrs[k] || null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    appendChild(c) { children.push(c); },
+    querySelectorAll(sel) {
+      return children.filter(c => c.tagName.toLowerCase() === sel.toLowerCase());
+    },
+    querySelector(sel) {
+      return children.find(c => c.tagName.toLowerCase() === sel.toLowerCase()) || null;
+    },
+    addEventListener() {},
+    focus() {},
+    select() {},
+    setSelectionRange() {},
+    scrollIntoView() {},
+    getBoundingClientRect() { return { left: 50, top: 100, width: 300, height: 200 }; },
+    setPointerCapture() {},
+    releasePointerCapture() {}
+  };
+}
+
+globalThis.document = {
+  body: makeMockEl("body"),
+  getElementById(id) {
+    if (!this._elements) this._elements = {};
+    if (!this._elements[id]) {
+      this._elements[id] = makeMockEl("div");
+      this._elements[id].id = id;
+    }
+    return this._elements[id];
+  },
+  querySelector(sel) { return null; },
+  querySelectorAll(sel) { return []; },
+  createElement(tag) { return makeMockEl(tag); },
+  addEventListener() {}
+};
+globalThis.window = {
+  location: { search: "" },
+  addEventListener() {},
+  innerWidth: 1440
+};
+"""
+            + js_body
+            + """
+const testClNum = 43330035;
+
+// Sample file list with multiple directory depths and non-ASCII Unicode filenames
+const testFiles = [
+  { file: "emulator/libs/file/测试_🚀_é.cc", additions: 50, deletions: 10, status: "M" },
+  { file: "emulator/libs/file/file.h", additions: 15, deletions: 0, status: "M" },
+  { file: "tools/emu-dev-cli/src/main.py", additions: 120, deletions: 30, status: "M" },
+  { file: "README.md", additions: 5, deletions: 2, status: "M" }
+];
+
+const mockChange = {
+  number: testClNum,
+  patch_set: 1,
+  branch: "goog/studio-main",
+  subject: "feat: Directory tree view 测试_🚀_é"
+};
+
+const mockBundle = {
+  patch_set: 1,
+  files: testFiles
+};
+
+state.changes = [mockChange];
+state.diffsByCl = { [testClNum]: mockBundle };
+state.selectedClNumber = testClNum;
+
+// 1. Verify default view mode is flat
+assert.strictEqual(getPgFileTreeMode(testClNum), false, "Default file list mode should be flat");
+
+// 2. Verify setting and toggling view mode
+setPgFileTreeMode(testClNum, true);
+assert.strictEqual(getPgFileTreeMode(testClNum), true, "getPgFileTreeMode should return true after setPgFileTreeMode(true)");
+
+togglePgFileTreeMode(testClNum);
+assert.strictEqual(getPgFileTreeMode(testClNum), false, "togglePgFileTreeMode should toggle true -> false");
+
+setPgFileTreeMode(testClNum, true);
+assert.strictEqual(getPgFileTreeMode(testClNum), true, "setPgFileTreeMode(true) restored");
+
+// 3. Verify directory grouping function with non-ASCII Unicode paths
+const revSet = new Set(["emulator/libs/file/file.h"]);
+const dirGroups = groupPgFilesByDirectory(testFiles, revSet, mockChange);
+assert.strictEqual(dirGroups.length, 3, "Should group testFiles into 3 directories: emulator/libs/file/, tools/emu-dev-cli/src/, and root");
+
+const fileDir = dirGroups.find(d => d.dir === "emulator/libs/file/");
+assert.ok(fileDir, "Directory emulator/libs/file/ should exist");
+assert.strictEqual(fileDir.files.length, 2, "emulator/libs/file/ should contain 2 files");
+assert.strictEqual(fileDir.additions, 65, "Total additions in emulator/libs/file/ should be 50 + 15 = 65");
+assert.strictEqual(fileDir.deletions, 10, "Total deletions in emulator/libs/file/ should be 10");
+assert.strictEqual(fileDir.reviewedCount, 1, "Reviewed count in emulator/libs/file/ should be 1");
+
+const unicodeFile = fileDir.files.find(f => f.file.includes("测试_🚀_é"));
+assert.ok(unicodeFile, "Unicode file should exist in directory");
+assert.strictEqual(unicodeFile.basename, "测试_🚀_é.cc", "Basename should correctly parse non-ASCII Unicode filename");
+
+const rootDir = dirGroups.find(d => d.dir === "");
+assert.ok(rootDir, "Root directory (no slash) should exist");
+assert.strictEqual(rootDir.files[0].basename, "README.md", "Root file basename should be README.md");
+
+// 4. Verify directory row and tree row HTML rendering
+const collapsedSet = getPgCollapsedDirs(testClNum);
+const dirRowHtml = renderPgDirRowHtml(mockChange, fileDir, 1, false, revSet);
+assert.ok(dirRowHtml.includes('class="pg-dir-row'), "Directory row should have class pg-dir-row");
+assert.ok(dirRowHtml.includes('data-dir="emulator/libs/file/"'), "Directory row should have data-dir attribute");
+assert.ok(dirRowHtml.includes("📁"), "Directory row should have folder icon 📁");
+assert.ok(dirRowHtml.includes("emulator/libs/file/"), "Directory row should show directory name");
+assert.ok(dirRowHtml.includes("2 files"), "Directory row should show file count pill '2 files'");
+assert.ok(dirRowHtml.includes("+65"), "Directory row should show aggregated +65 delta");
+assert.ok(dirRowHtml.includes("-10"), "Directory row should show aggregated -10 delta");
+assert.ok(dirRowHtml.includes("1/2"), "Directory row should show reviewed progress '1/2'");
+
+const treeRowHtml = renderPgTreeFileRowHtml(mockChange, unicodeFile, false, 1, revSet, false, false);
+assert.ok(treeRowHtml.includes('class="pg-file-row pg-tree-file-row'), "Tree file row should have pg-tree-file-row class");
+assert.ok(treeRowHtml.includes('data-dir="emulator/libs/file/"'), "Tree file row should have data-dir attribute");
+assert.ok(treeRowHtml.includes("├─"), "Tree file row should have branch connector ├─ for non-last file");
+assert.ok(treeRowHtml.includes("测试_🚀_é.cc"), "Tree file row should render non-ASCII Unicode basename");
+
+const lastFile = fileDir.files[1];
+const lastTreeRowHtml = renderPgTreeFileRowHtml(mockChange, lastFile, true, 1, revSet, false, false);
+assert.ok(lastTreeRowHtml.includes("└─"), "Last tree file row should have terminal branch connector └─");
+
+// 5. Verify renderPgFileListHtml contains Tree/Flat toggle buttons and tree rows
+const treeFileListHtml = renderPgFileListHtml(mockChange, mockBundle);
+assert.ok(treeFileListHtml.includes("pg-file-view-mode-toggle"), "File list should contain view mode toggle");
+assert.ok(treeFileListHtml.includes("btnFileModeFlat-43330035"), "File list should contain flat mode button");
+assert.ok(treeFileListHtml.includes("btnFileModeTree-43330035"), "File list should contain tree mode button");
+assert.ok(treeFileListHtml.includes("btnToggleAllDirs-43330035"), "Tree mode should render collapse/expand all dirs button");
+assert.ok(treeFileListHtml.includes('data-dir="emulator/libs/file/"'), "Tree mode should render directory rows");
+
+// 6. Verify flat mode rendering when isTree is false
+setPgFileTreeMode(testClNum, false);
+const flatFileListHtml = renderPgFileListHtml(mockChange, mockBundle);
+assert.ok(flatFileListHtml.includes("btnFileModeFlat-43330035"), "Flat mode should contain flat mode button");
+assert.ok(!flatFileListHtml.includes("pg-dir-row"), "Flat mode should NOT render directory header rows");
+assert.ok(!flatFileListHtml.includes("btnToggleAllDirs-"), "Flat mode should NOT render collapse all dirs button");
+
+// 7. Verify directory collapse logic
+setPgFileTreeMode(testClNum, true);
+assert.strictEqual(collapsedSet.has("emulator/libs/file/"), false, "Directory initially not in collapsed set");
+togglePgDirCollapse(testClNum, "emulator/libs/file/");
+assert.strictEqual(collapsedSet.has("emulator/libs/file/"), true, "togglePgDirCollapse should add directory to collapsed set");
+togglePgDirCollapse(testClNum, "emulator/libs/file/");
+assert.strictEqual(collapsedSet.has("emulator/libs/file/"), false, "togglePgDirCollapse should remove directory from collapsed set");
+
+console.log("POLY_GERRIT_TREE_VIEW_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", encoding="utf-8", delete=False
+        ) as f:
+            f.write(harness_js)
+            script_path = f.name
+
+        try:
+            res = subprocess.run(
+                [node_bin, script_path],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Headless Node harness failed for PolyGerrit file list tree view:\nSTDERR:\n{res.stderr}\nSTDOUT:\n{res.stdout}",
+            )
+            self.assertIn("POLY_GERRIT_TREE_VIEW_OK", res.stdout)
+        finally:
+            if os.path.exists(script_path):
+                os.remove(script_path)
+
+    def test_polygerrit_attention_set_hovercards_and_popover_management(self) -> None:
+        """Verifies authentic PolyGerrit Attention Set hovercards, Add Collaborator popover, and Shift+Q."""
+        import os
+        import re
+        import subprocess
+        import tempfile
+        from commands.gerrit.ui_server import render_static_gerrit_ui_html
+
+        pg_html = render_static_gerrit_ui_html(
+            initial_payload={"viewer": "tester@google.com", "subject": "测试_🚀_é"},
+            variant="polygerrit",
+        )
+
+        # 1. Template token assertions for CSS classes and JS functions
+        for token in (
+            "pg-attention-hovercard",
+            "pg-attn-hover-status",
+            "pg-attn-hover-reason-box",
+            "pg-btn-card-remove-attn",
+            "pg-btn-card-reply-attn",
+            "pg-btn-copy-email",
+            "pg-btn-add-attention",
+            "pg-add-attention-popover",
+            "pg-add-attn-candidate-chip",
+            "pg-add-attn-input",
+            "pg-add-attn-reason-input",
+            "pg-btn-confirm-add-attn",
+            "pg-msg-attn-tag",
+            "getPgAttentionEligibleCandidates",
+            "renderPgAddAttentionPopoverContentHtml",
+            "togglePgAddAttentionPopover",
+            "closePgAddAttentionPopover",
+            "selectPgAddAttentionCandidate",
+            "submitPgAddAttentionForm",
+            "ensurePgAttentionHovercardEl",
+            "positionPgAttentionHovercard",
+            "showPgAttentionHovercard",
+            "hidePgAttentionHovercard",
+            "togglePgAttentionHovercard",
+            "copyPgHovercardEmail",
+            "onPgCardRemoveAttentionClick",
+            "onPgCardReplyAttentionClick",
+        ):
+            self.assertIn(
+                token,
+                pg_html,
+                msg=f"Expected token '{token}' in PolyGerrit template",
+            )
+
+        # 2. Verify Shift+Q keyboard shortcut in cheatsheet
+        self.assertIn("Shift", pg_html)
+        self.assertIn("Manage attention set", pg_html)
+
+        # 3. Headless Node/VM DOM harness testing
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", pg_html, flags=re.S)
+        self.assertTrue(scripts)
+        js_body = scripts[-1]
+        for boot_call in (
+            "loadSidebarLayoutPrefs();",
+            "initWorkspaceSplitter();",
+            "initDiffCodeSelectionListeners();",
+            "initApp();",
+        ):
+            js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+const mockLocalStorage = {};
+function makeMockEl(tagName = "div") {
+  const el = {
+    tagName: tagName.toUpperCase(),
+    style: {},
+    classList: {
+      _classes: new Set(),
+      add(c) { this._classes.add(c); },
+      remove(c) { this._classes.delete(c); },
+      contains(c) { return this._classes.has(c); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (this.contains(c)) { this.remove(c); return false; }
+          else { this.add(c); return true; }
+        }
+        if (force) { this.add(c); return true; }
+        else { this.remove(c); return false; }
+      }
+    },
+    value: "",
+    textContent: "",
+    innerHTML: "",
+    focus() { el._focused = true; },
+    select() { el._selected = true; },
+    dataset: {},
+    children: [],
+    _attrs: new Map(),
+    setAttribute(k, v) { this._attrs.set(k, String(v)); },
+    getAttribute(k) { return this._attrs.get(k) || null; },
+    removeAttribute(k) { this._attrs.delete(k); },
+    hasAttribute(k) { return this._attrs.has(k); },
+    click() {},
+    scrollIntoView() {},
+    addEventListener() {},
+    removeEventListener() {},
+    contains(child) { return false; },
+    closest(selector) { return null; },
+    getBoundingClientRect() {
+      return { top: 100, bottom: 122, left: 200, right: 320, width: 120, height: 22 };
+    },
+    querySelector(selector) { return null; },
+    querySelectorAll(selector) { return []; }
+  };
+  return el;
+}
+
+const mockDocEls = new Map();
+global.document = {
+  addEventListener() {},
+  removeEventListener() {},
+  getElementById(id) {
+    if (!mockDocEls.has(id)) {
+      const el = makeMockEl("div");
+      el.id = id;
+      mockDocEls.set(id, el);
+    }
+    return mockDocEls.get(id);
+  },
+  createElement(tag) { return makeMockEl(tag); },
+  querySelector(sel) { return null; },
+  querySelectorAll(sel) { return []; },
+  body: makeMockEl("body"),
+  addEventListener() {},
+  removeEventListener() {},
+};
+global.window = {
+  document: global.document,
+  localStorage: {
+    getItem(k) { return mockLocalStorage[k] || null; },
+    setItem(k, v) { mockLocalStorage[k] = String(v); },
+    removeItem(k) { delete mockLocalStorage[k]; }
+  },
+  innerWidth: 1280,
+  innerHeight: 800,
+  addEventListener() {},
+  removeEventListener() {},
+};
+global.navigator = {
+  clipboard: {
+    writeText: async (text) => {}
+  }
+};
+global.escapeHtml = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+global.showToast = (msg) => {};
+global.sidecarFetch = async () => ({ ok: true, json: async () => ({ status: "ok" }) });
+
+"""
+            + js_body
+            + """
+
+// 1. Verify getPgAttentionEligibleCandidates identifies non-attention reviewers and owner
+const testClNum = 43330040;
+const mockChange = {
+  number: testClNum,
+  change_id: "I4040404040404040404040404040404040404040",
+  subject: "feat(gerrit): Polish attention set with Unicode 测试_🚀_é",
+  owner: { name: "Author 测试_🚀_é", email: "author_unicode@google.com" },
+  owner_name: "Author 测试_🚀_é",
+  owner_email: "author_unicode@google.com",
+  reviewers: [
+    { short: "rev_unicode", name: "Reviewer 测试_🚀_é", email: "rev_unicode@google.com", in_attention_set: true },
+    { short: "reviewer_two", name: "Reviewer Two", email: "rev2@google.com", in_attention_set: false, is_reviewer: true }
+  ],
+  ccs: [
+    { short: "cc_user", name: "CC User", email: "cc@google.com", in_attention_set: false }
+  ],
+  attention_set_emails: ["rev_unicode@google.com"],
+  attention_set_details: [
+    {
+      account_id: 1001,
+      email: "rev_unicode@google.com",
+      name: "Reviewer 测试_🚀_é",
+      short: "rev_unicode",
+      reason: "Waiting on review 测试_🚀_é",
+      waiting_display: "2h",
+      last_update: "2026-10-31 00:00:00",
+      is_viewer: false
+    }
+  ]
+};
+state.changes = [mockChange];
+state.selectedClNumber = testClNum;
+
+const candidates = getPgAttentionEligibleCandidates(mockChange);
+assert.ok(Array.isArray(candidates), "Eligible candidates should be an array");
+// rev_unicode should be excluded since already in attention set
+assert.ok(!candidates.some(c => c.email === "rev_unicode@google.com"), "In-attention user should not be in candidates");
+// reviewer_two and cc_user should be included
+assert.ok(candidates.some(c => c.email === "rev2@google.com"), "Reviewer two should be an eligible candidate");
+assert.ok(candidates.some(c => c.email === "cc@google.com"), "CC user should be an eligible candidate");
+
+// 2. Verify renderPgAddAttentionPopoverContentHtml
+const popoverContent = renderPgAddAttentionPopoverContentHtml(mockChange);
+assert.ok(popoverContent.includes("pg-add-attn-title"), "Popover should contain title");
+assert.ok(popoverContent.includes("⚡ Add to Attention Set"), "Popover title text should match");
+assert.ok(popoverContent.includes(`pgAddAttentionUserInput-${testClNum}`), "Popover should contain user input");
+assert.ok(popoverContent.includes(`pgAddAttentionReasonInput-${testClNum}`), "Popover should contain reason input");
+assert.ok(popoverContent.includes(`btnConfirmAddAttention-${testClNum}`), "Popover should contain confirm button");
+assert.ok(popoverContent.includes("pg-add-attn-candidate-chip"), "Popover should contain candidate quick chips");
+assert.ok(popoverContent.includes("rev2@google.com"), "Popover should list rev2 in candidate chip");
+
+// 3. Verify renderPgAttentionSetRowHtml
+const attnRowHtml = renderPgAttentionSetRowHtml(mockChange);
+assert.ok(attnRowHtml.includes(`pgAttentionRow-${testClNum}`), "Attention row should render with ID");
+assert.ok(attnRowHtml.includes("pg-attention-chip"), "Attention row should render chips");
+assert.ok(attnRowHtml.includes("Reviewer 测试_🚀_é"), "Attention chip should render Unicode display name");
+assert.ok(attnRowHtml.includes("showPgAttentionHovercard"), "Attention chip should have showPgAttentionHovercard trigger");
+assert.ok(attnRowHtml.includes("togglePgAttentionHovercard"), "Attention chip should have togglePgAttentionHovercard trigger");
+assert.ok(attnRowHtml.includes(`btnAddAttention-${testClNum}`), "Attention row should render + Add button");
+assert.ok(attnRowHtml.includes(`pgAddAttentionPopover-${testClNum}`), "Attention row should include popover container");
+
+// 4. Verify candidate selection helper
+const mockUserInp = makeMockEl("input");
+mockUserInp.id = `pgAddAttentionUserInput-${testClNum}`;
+mockDocEls.set(mockUserInp.id, mockUserInp);
+const mockReasonInp = makeMockEl("input");
+mockReasonInp.id = `pgAddAttentionReasonInput-${testClNum}`;
+mockDocEls.set(mockReasonInp.id, mockReasonInp);
+
+selectPgAddAttentionCandidate(testClNum, "rev2@google.com", "Reviewer Two");
+assert.strictEqual(mockUserInp.value, "rev2@google.com", "selectPgAddAttentionCandidate should set user input value");
+assert.strictEqual(mockReasonInp._focused, true, "selectPgAddAttentionCandidate should focus reason input");
+
+// 5. Verify Change Log renders attention badge
+const mockMsgWithAttn = {
+  author_name: "Gerrit Code Review",
+  is_bot: true,
+  message: "Patch Set 1: Added to attention set: rev_unicode@google.com",
+  date: "2026-10-31 01:00:00"
+};
+const changeLogHtml = renderPgChangeLogSectionHtml({
+  number: testClNum,
+  messages: [mockMsgWithAttn]
+});
+assert.ok(changeLogHtml.includes("pg-msg-attn-tag"), "Change Log message should render pg-msg-attn-tag");
+assert.ok(changeLogHtml.includes("⚡ Attention"), "Change Log message should render Attention pill text");
+
+// 6. Verify Shift+Q keyboard shortcut registration
+const navGroup = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "Navigation & Dashboard");
+assert.ok(navGroup, "Navigation & Dashboard group should exist");
+const shiftQ = navGroup.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("Q"));
+assert.ok(shiftQ, "Shift+Q should be registered in shortcuts list");
+assert.ok(shiftQ.description.includes("attention set"), "Shift+Q description should explain attention set management");
+
+console.log("POLY_GERRIT_ATTENTION_SET_POLISH_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", encoding="utf-8", delete=False
+        ) as f:
+            f.write(harness_js)
+            script_path = f.name
+
+        try:
+            res = subprocess.run(
+                [node_bin, script_path],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Headless Node harness failed for PolyGerrit attention set polish:\nSTDERR:\n{res.stderr}\nSTDOUT:\n{res.stdout}",
+            )
+            self.assertIn("POLY_GERRIT_ATTENTION_SET_POLISH_OK", res.stdout)
+        finally:
+            if os.path.exists(script_path):
+                os.remove(script_path)
+
+    def test_polygerrit_in_browser_file_editor_and_change_edits(self) -> None:
+        """Verifies authentic PolyGerrit In-Browser File Editor, Change Edit REST endpoints, and shortcut e."""
+        import base64
+        import os
+        import re
+        import subprocess
+        import tempfile
+        from unittest.mock import MagicMock, patch
+        from lib.gerrit_api import GerritClient
+        from commands.gerrit.services.vote_submit_service import GerritVoteSubmitService
+        from commands.gerrit.handlers.ui_handler import make_gerrit_ui_handler
+        from commands.gerrit.ui_server import render_static_gerrit_ui_html
+
+        # 1. Backend GerritClient methods
+        mock_client = MagicMock(spec=GerritClient)
+        mock_client.save_change_edit_file = MagicMock(return_value={"status": "ok", "change_id": "43330099", "file_path": "test.cc", "bytes": 10})
+        mock_client.publish_change_edit = MagicMock(return_value={"status": "ok", "change_id": "43330099", "action": "publish_edit", "notify": "OWNER"})
+        mock_client.discard_change_edit = MagicMock(return_value={"status": "ok", "change_id": "43330099", "action": "discard_edit"})
+        mock_client.get_change_edit = MagicMock(return_value={"commit": {"commit": "edit123"}, "base_revision": "ps1"})
+
+        real_client = GerritClient(host="https://android-review.googlesource.com")
+        real_client._request_raw = MagicMock(return_value="{}")
+        real_client._request_json = MagicMock(return_value={"commit": {"commit": "edit123"}})
+
+        # Test real_client.save_change_edit_file with Unicode
+        save_res = real_client.save_change_edit_file("43330099", "emulator/libs/file/测试_🚀_é.cc", "int val = 42;\n")
+        self.assertEqual(save_res["status"], "ok")
+        self.assertEqual(save_res["change_id"], "43330099")
+        self.assertEqual(save_res["file_path"], "emulator/libs/file/测试_🚀_é.cc")
+        real_client._request_raw.assert_called_once()
+        call_args = real_client._request_raw.call_args
+        self.assertIn("/a/changes/43330099/edit/", call_args[0][0])
+        self.assertEqual(call_args[1]["method"], "PUT")
+        self.assertIn("binary_content", call_args[1]["data"])
+        decoded_content = base64.b64decode(call_args[1]["data"]["binary_content"]).decode("utf-8")
+        self.assertEqual(decoded_content, "int val = 42;\n")
+
+        # Test real_client.publish_change_edit with mandatory notify: OWNER
+        real_client._request_raw.reset_mock()
+        pub_res = real_client.publish_change_edit("43330099")
+        self.assertEqual(pub_res["status"], "ok")
+        self.assertEqual(pub_res["notify"], "OWNER")
+        real_client._request_raw.assert_called_once()
+        pub_call = real_client._request_raw.call_args
+        self.assertIn("/a/changes/43330099/edit:publish", pub_call[0][0])
+        self.assertEqual(pub_call[1]["method"], "POST")
+        self.assertEqual(pub_call[1]["data"]["notify"], "OWNER")
+
+        # Test real_client.discard_change_edit
+        real_client._request_raw.reset_mock()
+        disc_res = real_client.discard_change_edit("43330099")
+        self.assertEqual(disc_res["status"], "ok")
+        real_client._request_raw.assert_called_once()
+        disc_call = real_client._request_raw.call_args
+        self.assertIn("/a/changes/43330099/edit", disc_call[0][0])
+        self.assertEqual(disc_call[1]["method"], "DELETE")
+
+        # Test real_client.get_change_edit
+        edit_res = real_client.get_change_edit("43330099")
+        self.assertIsNotNone(edit_res)
+        self.assertEqual(edit_res["commit"]["commit"], "edit123")
+
+        # 2. GerritVoteSubmitService integration
+        with patch("commands.gerrit.services.diff_parser.GerritClient"):
+            svc = GerritVoteSubmitService(host="https://android-review.googlesource.com")
+        svc.client = mock_client
+        svc_save = svc.save_change_edit(43330099, "test.cc", "code")
+        self.assertEqual(svc_save["status"], "ok")
+        mock_client.save_change_edit_file.assert_called_once()
+
+        svc_pub = svc.publish_change_edit(43330099)
+        self.assertEqual(svc_pub["status"], "ok")
+        self.assertEqual(svc_pub["notify"], "OWNER")
+        mock_client.publish_change_edit.assert_called_once()
+
+        svc_disc = svc.discard_change_edit(43330099)
+        self.assertEqual(svc_disc["status"], "ok")
+        mock_client.discard_change_edit.assert_called_once()
+
+        svc_get = svc.get_change_edit(43330099)
+        self.assertEqual(svc_get["status"], "ok")
+        self.assertTrue(svc_get["has_edit"])
+
+        # Error cases
+        with self.assertRaises(ValueError):
+            svc.save_change_edit(43330099, "", "code")
+
+        # 3. HTTP handler validations
+        handler_cls = make_gerrit_ui_handler(svc, ui_token="test-token")
+        self.assertIsNotNone(handler_cls)
+
+        # 4. Template token assertions for CSS classes and JS functions
+        pg_html = render_static_gerrit_ui_html(
+            initial_payload={"viewer": "tester@google.com", "subject": "测试_🚀_é"},
+            variant="polygerrit",
+        )
+        for token in (
+            "pgFileEditorBackdrop",
+            "pg-file-editor-dialog",
+            "pgEditorTextarea",
+            "pgEditorGutter",
+            "pgEditorDirtyBadge",
+            "pgEditorSavedBadge",
+            "pg-edit-in-progress-badge",
+            "pg-file-edit-btn",
+            "pg-btn-edit-file",
+            "pg-btn-edit-mode",
+            "pg-btn-publish-edit",
+            "pg-btn-discard-edit",
+            "btnPublishEdit-",
+            "btnDiscardEdit-",
+            "btnHeaderEdit-",
+            "openPgFileEditor",
+            "closePgFileEditorDialog",
+            "onPgFileEditorBackdropClick",
+            "onPgFileEditClick",
+            "onPgEditorInput",
+            "onPgEditorScroll",
+            "onPgEditorCursorMove",
+            "updatePgEditorGutter",
+            "updatePgEditorMetrics",
+            "togglePgEditorWrap",
+            "cyclePgEditorTabSize",
+            "onPgEditorKeyDown",
+            "saveActiveFileEdit",
+            "saveAndPublishActiveFileEdit",
+            "publishActiveChangeEdit",
+            "discardActiveChangeEdit",
+            "updatePgHeaderActionsDom",
+        ):
+            self.assertIn(token, pg_html, msg=f"Expected token '{token}' in PolyGerrit template")
+
+        # Verify e keyboard shortcut in cheatsheet
+        self.assertIn("Edit active file in browser", pg_html)
+
+        # 5. Headless Node/VM DOM harness testing
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", pg_html, flags=re.S)
+        self.assertTrue(scripts)
+        js_body = scripts[-1]
+        for boot_call in (
+            "loadSidebarLayoutPrefs();",
+            "initWorkspaceSplitter();",
+            "initDiffCodeSelectionListeners();",
+            "initApp();",
+        ):
+            js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+
+        harness_js = (
+            r"""
+const assert = require("node:assert/strict");
+const mockLocalStorage = {};
+function makeMockEl(tagName = "div") {
+  const el = {
+    tagName: tagName.toUpperCase(),
+    style: {},
+    classList: {
+      _classes: new Set(),
+      add(c) { this._classes.add(c); },
+      remove(c) { this._classes.delete(c); },
+      contains(c) { return this._classes.has(c); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (this.contains(c)) { this.remove(c); return false; }
+          else { this.add(c); return true; }
+        }
+        if (force) { this.add(c); return true; }
+        else { this.remove(c); return false; }
+      }
+    },
+    value: "",
+    textContent: "",
+    innerHTML: "",
+    focus() { el._focused = true; },
+    select() { el._selected = true; },
+    setSelectionRange(s, e) { el.selectionStart = s; el.selectionEnd = e; },
+    selectionStart: 0,
+    selectionEnd: 0,
+    dataset: {},
+    children: [],
+    _attrs: new Map(),
+    setAttribute(k, v) { this._attrs.set(k, String(v)); },
+    getAttribute(k) { return this._attrs.get(k) || null; },
+    removeAttribute(k) { this._attrs.delete(k); },
+    hasAttribute(k) { return this._attrs.has(k); },
+    click() {},
+    scrollIntoView() {},
+    addEventListener() {},
+    removeEventListener() {},
+    contains(child) { return false; },
+    closest(selector) { return null; },
+    getBoundingClientRect() {
+      return { top: 100, bottom: 122, left: 200, right: 320, width: 120, height: 22 };
+    },
+    querySelector(selector) { return null; },
+    querySelectorAll(selector) { return []; }
+  };
+  return el;
+}
+
+const mockDocEls = new Map();
+global.document = {
+  addEventListener() {},
+  removeEventListener() {},
+  getElementById(id) {
+    if (!mockDocEls.has(id)) {
+      const el = makeMockEl("div");
+      el.id = id;
+      mockDocEls.set(id, el);
+    }
+    return mockDocEls.get(id);
+  },
+  querySelector(sel) {
+    if (sel === ".pg-change-view") {
+      const cv = makeMockEl("div");
+      cv.classList.add("pg-change-view");
+      return cv;
+    }
+    return makeMockEl("div");
+  },
+  querySelectorAll(sel) { return []; },
+  createElement(tag) { return makeMockEl(tag); },
+  documentElement: { setAttribute() {}, style: {} },
+  body: makeMockEl("body"),
+  execCommand(cmd, showUi, val) {}
+};
+
+global.window = {
+  location: { search: "?token=mock-tok" },
+  localStorage: {
+    getItem(k) { return mockLocalStorage[k] || null; },
+    setItem(k, v) { mockLocalStorage[k] = String(v); },
+    removeItem(k) { delete mockLocalStorage[k]; }
+  },
+  addEventListener() {},
+  removeEventListener() {},
+  confirm(msg) { return true; },
+  setTimeout(fn, ms) { fn(); return 1; },
+  clearTimeout() {},
+  Blob: class { constructor(parts) { this.size = (parts[0] || "").length; } }
+};
+
+global.fetch = async (url, opts) => {
+  if (url.includes("/api/gerrit/file-content")) {
+    return {
+      ok: true,
+      json: async () => ({ status: "ok", content: "int foo = 1;\nint bar = 2;\n" })
+    };
+  }
+  if (url.includes("/api/gerrit/edit-file")) {
+    return {
+      ok: true,
+      json: async () => ({ status: "ok", action: "save_edit" })
+    };
+  }
+  if (url.includes("/api/gerrit/publish-edit")) {
+    return {
+      ok: true,
+      json: async () => ({ status: "ok", action: "publish_edit" })
+    };
+  }
+  if (url.includes("/api/gerrit/discard-edit")) {
+    return {
+      ok: true,
+      json: async () => ({ status: "ok", action: "discard_edit" })
+    };
+  }
+  return { ok: true, json: async () => ({}) };
+};
+
+"""
+            + js_body
+            + r"""
+
+const testClNum = 43330088;
+const testUnicodeFile = "emulator/libs/file/测试_🚀_é.cc";
+
+// 1. Verify renderPgFileListHtml renders Edit button for files
+const mockChange = {
+  number: testClNum,
+  subject: "Test Unicode Change 测试_🚀_é",
+  patch_set: 1,
+  status: "NEW"
+};
+const mockBundle = {
+  cl: testClNum,
+  patch_set: 1,
+  files: [
+    { file: testUnicodeFile, status: "M", additions: 5, deletions: 2 }
+  ]
+};
+
+state.changes = [mockChange];
+state.selectedClNumber = testClNum;
+state.diffBundleByCl = { [testClNum]: mockBundle };
+
+const fileListHtml = renderPgFileListHtml(mockChange, mockBundle);
+assert.ok(fileListHtml.includes("pg-file-edit-btn"), "File list table should render pg-file-edit-btn");
+assert.ok(fileListHtml.includes("onPgFileEditClick"), "File list table should wire onPgFileEditClick");
+assert.ok(fileListHtml.includes("测试_🚀_é.cc"), "File list table should include Unicode file name");
+
+// 2. Verify renderPgHeaderActionButtonsHtml renders Edit button and edit in-progress controls
+state.activeEditsByCl = {};
+const headerActionsIdle = renderPgHeaderActionButtonsHtml(mockChange);
+assert.ok(headerActionsIdle.includes("pg-btn-edit-mode"), "Header actions should render Edit button");
+assert.ok(!headerActionsIdle.includes("pg-edit-in-progress-badge"), "Header actions should not show in-progress badge when idle");
+assert.ok(!headerActionsIdle.includes("Publish Edit"), "Header actions should not show Publish Edit when idle");
+
+state.activeEditsByCl[testClNum] = true;
+const headerActionsActive = renderPgHeaderActionButtonsHtml(mockChange);
+assert.ok(headerActionsActive.includes("pg-edit-in-progress-badge"), "Header actions should show in-progress badge when edit active");
+assert.ok(headerActionsActive.includes("pg-btn-publish-edit"), "Header actions should show Publish Edit button");
+assert.ok(headerActionsActive.includes("pg-btn-discard-edit"), "Header actions should show Discard Edit button");
+
+// 3. Test openPgFileEditor lifecycle
+state.activeEditsByCl[testClNum] = false;
+openPgFileEditor(testClNum, testUnicodeFile, 1);
+assert.strictEqual(state.fileEditorOpen, true, "state.fileEditorOpen should be true");
+assert.strictEqual(state.fileEditorState.cl, testClNum, "fileEditorState.cl should match");
+assert.strictEqual(state.fileEditorState.file, testUnicodeFile, "fileEditorState.file should match");
+
+const backdrop = document.getElementById("pgFileEditorBackdrop");
+assert.ok(backdrop.classList.contains("open"), "Backdrop should have open class");
+
+const titleEl = document.getElementById("pgEditorTitle");
+assert.ok(titleEl.textContent.includes("测试_🚀_é.cc"), "Title should display Unicode file name");
+
+// 4. Test editor input and gutter computation
+const textarea = document.getElementById("pgEditorTextarea");
+textarea.value = "line 1\nline 2\nline 3\nline 4\n";
+onPgEditorInput(textarea);
+assert.strictEqual(state.fileEditorState.isDirty, true, "Editing text should mark fileEditorState as dirty");
+
+const gutter = document.getElementById("pgEditorGutter");
+assert.ok(gutter.textContent.includes("1\n2\n3\n4\n5"), "Gutter should contain 5 line numbers");
+
+// 5. Test tab size and wrap toggling
+state.fileEditorState.wrap = false;
+togglePgEditorWrap();
+assert.strictEqual(state.fileEditorState.wrap, true, "Wrap should toggle to true");
+assert.ok(textarea.classList.contains("is-wrapped"), "Textarea should receive is-wrapped class");
+
+state.fileEditorState.tabSize = 4;
+cyclePgEditorTabSize();
+assert.strictEqual(state.fileEditorState.tabSize, 8, "Tab size should cycle from 4 to 8");
+
+(async () => {
+  // 6. Test saveActiveFileEdit
+  await saveActiveFileEdit();
+  assert.strictEqual(state.fileEditorState.isDirty, false, "saveActiveFileEdit should reset isDirty");
+  assert.strictEqual(state.activeEditsByCl[testClNum], true, "activeEditsByCl should be true after save");
+
+  // 7. Test publishActiveChangeEdit
+  await publishActiveChangeEdit(testClNum);
+  assert.strictEqual(state.activeEditsByCl[testClNum], false, "publishActiveChangeEdit should clear active edit");
+  assert.strictEqual(state.fileEditorOpen, false, "publishActiveChangeEdit should close editor dialog");
+
+  // 8. Verify e keyboard shortcut registration
+  const navGroup = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "File List & Diff Navigation");
+  assert.ok(navGroup, "File List & Diff Navigation group should exist");
+  const eShortcut = navGroup.shortcuts.find(s => s.keys.length === 1 && s.keys[0] === "e");
+  assert.ok(eShortcut, "e shortcut should be registered in shortcuts list");
+  assert.ok(eShortcut.description.includes("Edit active file in browser"), "e shortcut description should explain in-browser editor");
+
+  console.log("POLY_GERRIT_IN_BROWSER_FILE_EDITOR_OK");
+})().catch(err => {
+  console.error(err);
+  process.exit(1);
+});
+"""
+        )
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", encoding="utf-8", delete=False
+        ) as f:
+            f.write(harness_js)
+            script_path = f.name
+
+        try:
+            res = subprocess.run(
+                [node_bin, script_path],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Headless Node harness failed for PolyGerrit in-browser file editor:\nSTDERR:\n{res.stderr}\nSTDOUT:\n{res.stdout}",
+            )
+            self.assertIn("POLY_GERRIT_IN_BROWSER_FILE_EDITOR_OK", res.stdout)
+        finally:
+            if os.path.exists(script_path):
+                os.remove(script_path)
+
+    def test_polygerrit_file_list_comments_markers_and_unresolved_draft_counts(self):
+        """Verify PolyGerrit file list comment markers, unresolved and draft counts, directory aggregation, and Shift+H filter."""
+        pg_template_path = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "src",
+            "templates",
+            "gerrit_ui_polygerrit.html",
+        )
+        with open(pg_template_path, "r", encoding="utf-8") as f:
+            pg_html = f.read()
+
+        # 1. Static HTML and CSS class tokens
+        static_tokens = [
+            "pg-file-comments-cell",
+            "pg-file-draft-badge",
+            "pg-file-drafts-badge",
+            "pg-file-unresolved-badge",
+            "pg-file-resolved-badge",
+            "pg-file-resolved-pill",
+            "pg-comments-filter-btn",
+            "btnFilterComments-",
+            "function getPendingDraftsForFile",
+            "function getPgFileCommentStats",
+            "function renderPgFileCommentsBadgesHtml",
+            "function onPgFileUnresolvedCommentsClick",
+            "function onPgFileDraftCommentsClick",
+            "function isPgCommentsFilterActive",
+            "function togglePgCommentsFilter",
+        ]
+        for token in static_tokens:
+            self.assertIn(token, pg_html, msg=f"Expected token '{token}' in PolyGerrit template")
+
+        # Verify Shift+H keyboard shortcut description in template
+        self.assertIn("Toggle filter files with unresolved comments or drafts", pg_html)
+
+        # 2. Headless Node/VM DOM harness testing
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", pg_html, flags=re.S)
+        self.assertTrue(scripts)
+        js_body = scripts[-1]
+        for boot_call in (
+            "loadSidebarLayoutPrefs();",
+            "initWorkspaceSplitter();",
+            "initDiffCodeSelectionListeners();",
+            "initApp();",
+        ):
+            js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+
+        harness_js = (
+            r"""
+const assert = require("node:assert/strict");
+const mockLocalStorage = {};
+function makeMockEl(tagName = "div") {
+  const el = {
+    tagName: tagName.toUpperCase(),
+    style: {},
+    classList: {
+      _classes: new Set(),
+      add(c) { this._classes.add(c); },
+      remove(c) { this._classes.delete(c); },
+      contains(c) { return this._classes.has(c); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (this.contains(c)) { this.remove(c); return false; }
+          else { this.add(c); return true; }
+        }
+        if (force) { this.add(c); return true; }
+        else { this.remove(c); return false; }
+      }
+    },
+    value: "",
+    textContent: "",
+    innerHTML: "",
+    focus() { el._focused = true; },
+    select() { el._selected = true; },
+    dataset: {},
+    children: [],
+    _attrs: new Map(),
+    setAttribute(k, v) { this._attrs.set(k, String(v)); },
+    getAttribute(k) { return this._attrs.get(k) || null; },
+    removeAttribute(k) { this._attrs.delete(k); },
+    hasAttribute(k) { return this._attrs.has(k); },
+    click() {},
+    scrollIntoView() {},
+    addEventListener() {},
+    removeEventListener() {},
+    contains(child) { return false; },
+    closest(selector) { return null; },
+    getBoundingClientRect() {
+      return { top: 100, bottom: 122, left: 200, right: 320, width: 120, height: 22 };
+    },
+    querySelector(selector) { return null; },
+    querySelectorAll(selector) { return []; }
+  };
+  return el;
+}
+
+const mockDocEls = new Map();
+global.document = {
+  addEventListener() {},
+  removeEventListener() {},
+  getElementById(id) {
+    if (!mockDocEls.has(id)) {
+      const el = makeMockEl("div");
+      el.id = id;
+      mockDocEls.set(id, el);
+    }
+    return mockDocEls.get(id);
+  },
+  querySelector(sel) {
+    if (sel === ".pg-change-view") {
+      const cv = makeMockEl("div");
+      cv.classList.add("pg-change-view");
+      return cv;
+    }
+    return makeMockEl("div");
+  },
+  querySelectorAll(sel) { return []; },
+  createElement(tag) { return makeMockEl(tag); },
+  documentElement: { setAttribute() {}, style: {} },
+  body: makeMockEl("body"),
+  execCommand(cmd, showUi, val) {}
+};
+
+global.window = {
+  location: { search: "?token=mock-tok" },
+  localStorage: {
+    getItem(k) { return mockLocalStorage[k] || null; },
+    setItem(k, v) { mockLocalStorage[k] = String(v); },
+    removeItem(k) { delete mockLocalStorage[k]; }
+  },
+  addEventListener() {},
+  removeEventListener() {},
+  confirm(msg) { return true; },
+  setTimeout(fn, ms) { fn(); return 1; },
+  clearTimeout() {},
+  setInterval(fn, ms) { return 1; },
+  clearInterval() {},
+  showToast(msg) {}
+};
+
+global.navigator = { clipboard: { writeText: async () => {} } };
+global.fetch = async () => ({ ok: true, json: async () => ({}) });
+
+"""
+            + js_body
+            + r"""
+
+const testClNum = 43330099;
+const testUnicodeFile = "emulator/libs/file/测试_🚀_é.cc";
+const testResolvedFile = "emulator/libs/file/resolved.cc";
+const testUnresFile = "emulator/libs/file/unres.cc";
+const testRobotFile = "emulator/libs/file/robot.cc";
+
+// Setup state
+state.selectedClNumber = testClNum;
+state.diffsByCl = state.diffsByCl || {};
+state.inlineCommentsByCl = state.inlineCommentsByCl || {};
+
+// Configure test comments
+state.diffsByCl[testClNum] = {
+  cl: testClNum,
+  patch_set: 1,
+  unresolved_threads: [
+    // 1 unresolved comment in testUnresFile
+    {
+      file_path: testUnresFile,
+      line: 12,
+      unresolved: true,
+      comments: [
+        { id: "c1", author_name: "reviewer@google.com", message: "Needs fix", unresolved: true }
+      ]
+    },
+    // 2 resolved comments in testResolvedFile
+    {
+      file_path: testResolvedFile,
+      line: 25,
+      unresolved: false,
+      comments: [
+        { id: "c2", author_name: "reviewer@google.com", message: "Resolved note 1", unresolved: false }
+      ]
+    },
+    {
+      file_path: testResolvedFile,
+      line: 30,
+      unresolved: false,
+      comments: [
+        { id: "c3", author_name: "reviewer@google.com", message: "Resolved note 2", unresolved: false }
+      ]
+    },
+    // 1 robot comment in testRobotFile
+    {
+      file_path: testRobotFile,
+      line: 45,
+      unresolved: true,
+      is_robot: true,
+      robot_id: "clang-tidy",
+      comments: [
+        { id: "c4", author_name: "Treehugger Bot", message: "Linter error", is_robot: true, robot_id: "clang-tidy", unresolved: true }
+      ]
+    }
+  ]
+};
+
+// 1 draft comment in testUnicodeFile
+state.inlineCommentsByCl[testClNum] = [
+  {
+    id: "draft-1",
+    kind: "draft",
+    file_path: testUnicodeFile,
+    line: 5,
+    message: "Draft question on 测试_🚀_é",
+    unresolved: true
+  }
+];
+
+// 1. Verify getPendingDraftsForFile
+const unicodeDrafts = getPendingDraftsForFile(testClNum, testUnicodeFile);
+assert.strictEqual(unicodeDrafts.length, 1, "getPendingDraftsForFile should return 1 draft for unicode file");
+assert.strictEqual(unicodeDrafts[0].file_path, testUnicodeFile, "Draft file path should match");
+
+// 2. Verify getPgFileCommentStats
+const statsUnicode = getPgFileCommentStats(testClNum, testUnicodeFile);
+assert.strictEqual(statsUnicode.draftCount, 1, "Unicode file should have 1 draft");
+assert.strictEqual(statsUnicode.hasDrafts, true, "Unicode file hasDrafts should be true");
+
+const statsUnres = getPgFileCommentStats(testClNum, testUnresFile);
+assert.strictEqual(statsUnres.unresolvedCount, 1, "Unres file should have 1 unresolved comment");
+assert.strictEqual(statsUnres.hasUnresolved, true, "Unres file hasUnresolved should be true");
+
+const statsResolved = getPgFileCommentStats(testClNum, testResolvedFile);
+assert.strictEqual(statsResolved.resolvedCount, 2, "Resolved file should have 2 resolved comments");
+assert.strictEqual(statsResolved.unresolvedCount, 0, "Resolved file should have 0 unresolved comments");
+assert.strictEqual(statsResolved.hasUnresolved, false, "Resolved file hasUnresolved should be false");
+
+const statsRobot = getPgFileCommentStats(testClNum, testRobotFile);
+assert.strictEqual(statsRobot.robotCount, 1, "Robot file should have 1 robot comment");
+assert.strictEqual(statsRobot.hasRobot, true, "Robot file hasRobot should be true");
+
+// 3. Verify renderPgFileCommentsBadgesHtml output
+const mockChange = { number: testClNum, patch_set: 1 };
+
+const htmlUnicode = renderPgFileCommentsBadgesHtml(mockChange, testUnicodeFile);
+assert.ok(htmlUnicode.includes("pg-file-draft-badge"), "Unicode file HTML should have pg-file-draft-badge");
+assert.ok(htmlUnicode.includes("1 draft"), "Unicode file HTML should render '1 draft'");
+assert.ok(htmlUnicode.includes("onPgFileDraftCommentsClick"), "Draft badge should call onPgFileDraftCommentsClick");
+
+const htmlUnres = renderPgFileCommentsBadgesHtml(mockChange, testUnresFile);
+assert.ok(htmlUnres.includes("pg-file-unresolved-badge"), "Unres file HTML should have pg-file-unresolved-badge");
+assert.ok(htmlUnres.includes("1 unresolved"), "Unres file HTML should render '1 unresolved'");
+assert.ok(htmlUnres.includes("onPgFileUnresolvedCommentsClick"), "Unresolved badge should call onPgFileUnresolvedCommentsClick");
+
+const htmlResolved = renderPgFileCommentsBadgesHtml(mockChange, testResolvedFile);
+assert.ok(htmlResolved.includes("pg-file-resolved-badge"), "Resolved file HTML should have pg-file-resolved-badge");
+assert.ok(htmlResolved.includes("2 resolved"), "Resolved file HTML should render '2 resolved'");
+
+const htmlRobot = renderPgFileCommentsBadgesHtml(mockChange, testRobotFile);
+assert.ok(htmlRobot.includes("pg-file-robot-badge"), "Robot file HTML should have pg-file-robot-badge");
+assert.ok(htmlRobot.includes("1"), "Robot file HTML should render robot count 1");
+
+// 4. Verify directory grouping aggregation (groupPgFilesByDirectory)
+const testFiles = [
+  { file: testUnicodeFile, additions: 10, deletions: 2 },
+  { file: testUnresFile, additions: 5, deletions: 1 },
+  { file: testResolvedFile, additions: 3, deletions: 0 },
+  { file: testRobotFile, additions: 1, deletions: 1 }
+];
+const revSet = new Set();
+const dirGroups = groupPgFilesByDirectory(testFiles, revSet, mockChange);
+assert.strictEqual(dirGroups.length, 1, "All test files share 'emulator/libs/file/' directory");
+const dirEntry = dirGroups[0];
+assert.strictEqual(dirEntry.draftCount, 1, "Directory entry should aggregate 1 draft");
+assert.strictEqual(dirEntry.unresolvedCount, 1, "Directory entry should aggregate 1 unresolved comment");
+assert.strictEqual(dirEntry.resolvedCount, 2, "Directory entry should aggregate 2 resolved comments");
+assert.strictEqual(dirEntry.robotCount, 1, "Directory entry should aggregate 1 robot comment");
+
+// 5. Verify renderPgDirRowHtml includes directory badges
+const dirRowHtml = renderPgDirRowHtml(mockChange, dirEntry, 1, false, revSet);
+assert.ok(dirRowHtml.includes("pg-dir-draft-badge"), "Dir row HTML should include pg-dir-draft-badge");
+assert.ok(dirRowHtml.includes("pg-dir-unresolved-badge"), "Dir row HTML should include pg-dir-unresolved-badge");
+
+// 6. Verify togglePgCommentsFilter
+assert.strictEqual(isPgCommentsFilterActive(testClNum), false, "Comments filter should initially be false");
+togglePgCommentsFilter(testClNum);
+assert.strictEqual(isPgCommentsFilterActive(testClNum), true, "togglePgCommentsFilter should activate filter");
+togglePgCommentsFilter(testClNum);
+assert.strictEqual(isPgCommentsFilterActive(testClNum), false, "togglePgCommentsFilter should deactivate filter on second call");
+
+// 7. Verify Shift+H shortcut registration in PG_KEYBOARD_SHORTCUTS
+const navGroup = PG_KEYBOARD_SHORTCUTS.find(g => g.group === "File List & Diff Navigation");
+assert.ok(navGroup, "File List & Diff Navigation group should exist");
+const hShortcut = navGroup.shortcuts.find(s => s.keys.includes("Shift") && s.keys.includes("H"));
+assert.ok(hShortcut, "Shift+H shortcut should be registered");
+assert.ok(hShortcut.description.includes("unresolved comments"), "Shift+H description should explain comments filter");
+
+console.log("POLY_GERRIT_FILE_LIST_COMMENTS_MARKERS_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", encoding="utf-8", delete=False
+        ) as f:
+            f.write(harness_js)
+            script_path = f.name
+
+        try:
+            res = subprocess.run(
+                [node_bin, script_path],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Headless Node harness failed for PolyGerrit file list comment markers:\nSTDERR:\n{res.stderr}\nSTDOUT:\n{res.stdout}",
+            )
+            self.assertIn("POLY_GERRIT_FILE_LIST_COMMENTS_MARKERS_OK", res.stdout)
+        finally:
+            if os.path.exists(script_path):
+                os.remove(script_path)
+
+    def test_polygerrit_diff_toolbar_quick_preferences_and_shortcuts(self):
+        """Verifies PolyGerrit Diff View Word Wrap, Tab Size, and Whitespace Quick-Preferences Toolbar Controls with Keyboard Shortcut w."""
+        from commands.gerrit.services.diff_parser import get_gerrit_ui_template_path
+
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
+        html = tpl_path.read_text(encoding="utf-8")
+
+        # 1. Verify static HTML tokens and CSS classes for quick preferences toolbar
+        self.assertIn("pg-btn-diff-wrap", html)
+        self.assertIn("btnToggleDiffWrap", html)
+        self.assertIn("pg-diff-wrap-icon", html)
+        self.assertIn("pg-diff-wrap-label", html)
+        self.assertIn("pg-diff-tab-size-select", html)
+        self.assertIn("pgDiffTabSizeSelect", html)
+        self.assertIn("pg-diff-ws-select", html)
+        self.assertIn("pgDiffWsSelect", html)
+        self.assertIn("renderPgDiffWrapButtonHtml", html)
+        self.assertIn("renderPgDiffTabSizeSelectHtml", html)
+        self.assertIn("renderPgDiffWhitespaceSelectHtml", html)
+        self.assertIn("togglePgDiffWordWrap", html)
+        self.assertIn("setPgDiffTabWidth", html)
+        self.assertIn("cyclePgDiffTabWidth", html)
+        self.assertIn("setPgDiffIgnoreWhitespace", html)
+        self.assertIn("syncPgDiffToolbarPreferences", html)
+
+        # 2. Verify dark and light theme CSS tokens
+        self.assertIn('.pg-btn-diff-wrap.is-active', html)
+        self.assertIn('[data-pg-theme="light"] .pg-btn-diff-wrap', html)
+
+        # 3. Verify cheatsheet and keydown registration for keyboard shortcut w
+        self.assertIn("Toggle diff word wrap (Wrap lines)", html)
+        self.assertIn('(e.key === "w" || e.key === "W") && !e.shiftKey', html)
+
+        # 4. Headless Node/VM DOM harness verification when node is present
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+        self.assertTrue(scripts)
+        js_body = (
+            scripts[-1]
+            .replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+            .replace("\n  initApp();", "\n  // initApp();")
+        )
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    disabled: false,
+    checked: false,
+    title: "",
+    id: "",
+    style: {
+      setProperty(k, v) { this[k] = v; },
+      getPropertyValue(k) { return this[k] || ""; }
+    },
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+        } else if (force) {
+          classes.add(c);
+        } else {
+          classes.delete(c);
+        }
+      },
+      contains(c) { return classes.has(c); }
+    },
+    getAttribute(k) { return attrs[k] || null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    appendChild(c) { children.push(c); },
+    querySelectorAll(sel) { return []; },
+    querySelector(sel) { return null; },
+    addEventListener() {},
+    scrollIntoView() {},
+    scrollTo() {},
+    focus() {},
+    select() {}
+  };
+}
+
+const diffScroll = makeMockEl("div");
+diffScroll.id = "diffScroll";
+
+const wrapBtn = makeMockEl("button");
+wrapBtn.id = "btnToggleDiffWrap-43330088";
+wrapBtn.classList.add("pg-btn-diff-wrap");
+const wrapLabel = makeMockEl("span");
+wrapLabel.classList.add("pg-diff-wrap-label");
+wrapLabel.textContent = "Wrap: ON";
+wrapBtn.appendChild(wrapLabel);
+wrapBtn.querySelector = sel => sel === ".pg-diff-wrap-label" ? wrapLabel : null;
+
+const tabSel = makeMockEl("select");
+tabSel.id = "pgDiffTabSizeSelect-43330088";
+tabSel.classList.add("pg-diff-tab-size-select");
+tabSel.value = "4";
+
+const wsSel = makeMockEl("select");
+wsSel.id = "pgDiffWsSelect-43330088";
+wsSel.classList.add("pg-diff-ws-select");
+wsSel.value = "none";
+
+const dlgWrap = makeMockEl("input");
+dlgWrap.id = "pgDiffPrefWrapLines";
+dlgWrap.checked = true;
+
+const dlgTab = makeMockEl("select");
+dlgTab.id = "pgDiffPrefTabWidth";
+dlgTab.value = "4";
+
+const dlgWs = makeMockEl("select");
+dlgWs.id = "pgDiffPrefIgnoreWhitespace";
+dlgWs.value = "none";
+
+const domMap = {
+  diffScroll,
+  "btnToggleDiffWrap-43330088": wrapBtn,
+  "pgDiffTabSizeSelect-43330088": tabSel,
+  "pgDiffWsSelect-43330088": wsSel,
+  pgDiffPrefWrapLines: dlgWrap,
+  pgDiffPrefTabWidth: dlgTab,
+  pgDiffPrefIgnoreWhitespace: dlgWs
+};
+
+const mockLocalStorage = {};
+
+global.window = {
+  location: { href: "http://localhost:8080/?ui=polygerrit", search: "?ui=polygerrit" },
+  localStorage: {
+    getItem: k => mockLocalStorage[k] || null,
+    setItem: (k, v) => { mockLocalStorage[k] = String(v); },
+    removeItem: k => { delete mockLocalStorage[k]; }
+  },
+  innerWidth: 1400,
+  addEventListener() {},
+  removeEventListener() {}
+};
+
+const rootStyleProps = {};
+global.document = {
+  getElementById: id => {
+    if (domMap[id]) return domMap[id];
+    const el = makeMockEl("div");
+    el.id = id;
+    return el;
+  },
+  querySelectorAll: sel => {
+    if (sel === ".pg-btn-diff-wrap") return [wrapBtn];
+    if (sel === ".pg-diff-tab-size-select") return [tabSel];
+    if (sel === ".pg-diff-ws-select") return [wsSel];
+    return [];
+  },
+  querySelector: () => null,
+  createElement: tag => makeMockEl(tag),
+  addEventListener() {},
+  documentElement: {
+    style: {
+      setProperty(k, v) { rootStyleProps[k] = String(v); },
+      getPropertyValue(k) { return rootStyleProps[k] || ""; }
+    },
+    setAttribute() {},
+    classList: { add() {}, remove() {}, contains: () => false }
+  }
+};
+global.navigator = { clipboard: { writeText: async () => {} } };
+
+"""
+            + js_body
+            + """
+
+// 1. Verify rendering functions generate valid markup
+const clNum = 43330088;
+const wrapMarkup = renderPgDiffWrapButtonHtml(clNum);
+assert.ok(wrapMarkup.includes("btnToggleDiffWrap-43330088"), "Wrap button markup must contain CL id");
+assert.ok(wrapMarkup.includes("pg-btn-diff-wrap"), "Wrap button markup must include class");
+assert.ok(wrapMarkup.includes("Wrap: ON"), "Default wrap button markup should indicate Wrap: ON");
+assert.ok(wrapMarkup.includes('aria-pressed="true"'), "Default wrap button should have aria-pressed true");
+
+// Unicode CL / label safety
+const unicodeWrapMarkup = renderPgDiffWrapButtonHtml("测试_🚀_é");
+assert.ok(unicodeWrapMarkup.includes("btnToggleDiffWrap-测试_🚀_é"), "Wrap button markup should safely support Unicode CL identifiers");
+
+const tabMarkup = renderPgDiffTabSizeSelectHtml(clNum);
+assert.ok(tabMarkup.includes("pgDiffTabSizeSelect-43330088"), "Tab size select markup must contain CL id");
+assert.ok(tabMarkup.includes("pg-diff-tab-size-select"), "Tab size select markup must include class");
+assert.ok(tabMarkup.includes('<option value="2"'), "Tab size select must have option 2");
+assert.ok(tabMarkup.includes('<option value="4" selected'), "Tab size select default must be 4");
+assert.ok(tabMarkup.includes('<option value="8"'), "Tab size select must have option 8");
+
+const wsMarkup = renderPgDiffWhitespaceSelectHtml(clNum);
+assert.ok(wsMarkup.includes("pgDiffWsSelect-43330088"), "WS select markup must contain CL id");
+assert.ok(wsMarkup.includes("pg-diff-ws-select"), "WS select markup must include class");
+assert.ok(wsMarkup.includes('<option value="none" selected>WS: Show</option>'), "WS select must default to none");
+assert.ok(wsMarkup.includes('<option value="leading">WS: Ignore leading</option>'), "WS select must support leading");
+assert.ok(wsMarkup.includes('<option value="all">WS: Ignore all</option>'), "WS select must support all");
+
+// 2. Verify togglePgDiffWordWrap and synchronized state
+assert.equal(getPgDiffPreferences().wrapLines, true, "Initial wrapLines preference should be true");
+
+const toggledOff = togglePgDiffWordWrap(false);
+assert.equal(toggledOff, false, "togglePgDiffWordWrap should return false when toggling off");
+assert.equal(getPgDiffPreferences().wrapLines, false, "Preferences wrapLines should now be false");
+assert.equal(wrapLabel.textContent, "Wrap: OFF", "Wrap button label should update to Wrap: OFF");
+assert.equal(wrapBtn.classList.contains("is-active"), false, "Wrap button should not have is-active when OFF");
+assert.equal(wrapBtn.getAttribute("aria-pressed"), "false", "Wrap button aria-pressed should be false");
+assert.equal(dlgWrap.checked, false, "Dialog wrap checkbox should sync to unchecked");
+assert.ok(diffScroll.classList.contains("pg-diff-no-wrap"), "diffScroll should have pg-diff-no-wrap class");
+
+const toggledOn = togglePgDiffWordWrap(false);
+assert.equal(toggledOn, true, "togglePgDiffWordWrap should return true when toggling back on");
+assert.equal(getPgDiffPreferences().wrapLines, true, "Preferences wrapLines should now be true");
+assert.equal(wrapLabel.textContent, "Wrap: ON", "Wrap button label should update to Wrap: ON");
+assert.equal(wrapBtn.classList.contains("is-active"), true, "Wrap button should have is-active when ON");
+assert.equal(wrapBtn.getAttribute("aria-pressed"), "true", "Wrap button aria-pressed should be true");
+assert.equal(dlgWrap.checked, true, "Dialog wrap checkbox should sync to checked");
+assert.ok(diffScroll.classList.contains("pg-diff-wrap-lines"), "diffScroll should have pg-diff-wrap-lines class");
+
+// 3. Verify setPgDiffTabWidth & cyclePgDiffTabWidth
+const newTab = setPgDiffTabWidth(8, false);
+assert.equal(newTab, 8, "setPgDiffTabWidth should return 8");
+assert.equal(getPgDiffPreferences().tabWidth, 8, "Preferences tabWidth should be 8");
+assert.equal(tabSel.value, "8", "Toolbar tab select value should sync to 8");
+assert.equal(dlgTab.value, "8", "Dialog tab select value should sync to 8");
+assert.equal(rootStyleProps["--pg-diff-tab-size"], "8", "--pg-diff-tab-size CSS variable should be 8");
+
+const cycledTab = cyclePgDiffTabWidth(false);
+assert.equal(cycledTab, 2, "cyclePgDiffTabWidth should cycle from 8 to 2");
+assert.equal(getPgDiffPreferences().tabWidth, 2, "Preferences tabWidth should be 2");
+assert.equal(tabSel.value, "2", "Toolbar tab select value should sync to 2");
+assert.equal(rootStyleProps["--pg-diff-tab-size"], "2", "--pg-diff-tab-size CSS variable should be 2");
+
+// 4. Verify setPgDiffIgnoreWhitespace
+const newWs = setPgDiffIgnoreWhitespace("all", false);
+assert.equal(newWs, "all", "setPgDiffIgnoreWhitespace should return all");
+assert.equal(getPgDiffPreferences().ignoreWhitespace, "all", "Preferences ignoreWhitespace should be all");
+assert.equal(wsSel.value, "all", "Toolbar ws select value should sync to all");
+assert.equal(dlgWs.value, "all", "Dialog ws select value should sync to all");
+assert.ok(diffScroll.classList.contains("pg-diff-ignore-ws"), "diffScroll should have pg-diff-ignore-ws class");
+
+// 5. Verify keyboard shortcut w registration
+const wShortcut = PG_KEYBOARD_SHORTCUTS
+  .flatMap(g => g.shortcuts)
+  .find(s => s.keys.includes("w"));
+assert.ok(wShortcut, "w shortcut must be registered in PG_KEYBOARD_SHORTCUTS");
+assert.ok(wShortcut.description.toLowerCase().includes("word wrap"), "w shortcut description should mention word wrap");
+
+console.log("POLY_GERRIT_DIFF_TOOLBAR_PREFERENCES_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", encoding="utf-8", delete=False
+        ) as f:
+            f.write(harness_js)
+            script_path = f.name
+
+        try:
+            res = subprocess.run(
+                [node_bin, script_path],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Headless Node harness failed for PolyGerrit diff toolbar preferences:\nSTDERR:\n{res.stderr}\nSTDOUT:\n{res.stdout}",
+            )
+            self.assertIn("POLY_GERRIT_DIFF_TOOLBAR_PREFERENCES_OK", res.stdout)
+        finally:
+            if os.path.exists(script_path):
+                os.remove(script_path)
+
+    def test_polygerrit_attention_set_reason_history_stream(self) -> None:
+        """Verifies authentic PolyGerrit Attention Set reason history stream, log dialog, and Shift+B."""
+        import os
+        import re
+        import subprocess
+        import tempfile
+        from datetime import datetime, timezone
+        from commands.gerrit.services.queue_service import (
+            _extract_attention_set_history,
+            _extract_attention_metadata,
+        )
+        from commands.gerrit.services.diff_parser import get_gerrit_ui_template_path
+
+        now_dt = datetime(2026, 10, 31, 4, 0, 0, tzinfo=timezone.utc)
+        mock_change = {
+            "current_revision_number": 2,
+            "messages": [
+                {
+                    "id": "msg-100",
+                    "author": {"name": "Senior Reviewer", "email": "reviewer@google.com"},
+                    "date": "2026-10-31 03:00:00.000000000",
+                    "_revision_number": 2,
+                    "message": (
+                        "Patch Set 2:\n\n"
+                        "Added to attention set: 测试_🚀_é <test_unicode@google.com>\n\n"
+                        "Please verify the Unicode file I/O changes.\n\n"
+                        "Removed from attention set: Alice Smith <alice@google.com>"
+                    ),
+                },
+                {
+                    "id": "msg-101",
+                    "author": {"name": "Gerrit Code Review"},
+                    "tag": "autogenerated:gerrit:set-attention",
+                    "date": "2026-10-31 02:00:00.000000000",
+                    "_revision_number": 1,
+                    "message": "Added to attention set: Bob Jones <bob@google.com>",
+                },
+            ],
+            "attention_set": {
+                "active-1": {
+                    "account": {"account_id": 9999, "name": "Charlie", "email": "charlie@google.com"},
+                    "last_update": "2026-10-31 03:30:00.000000000",
+                    "reason": "Reviewer turn pending",
+                    "reason_account": {"name": "Author", "email": "author@google.com"},
+                }
+            },
+        }
+
+        # 1. Test backend extraction
+        history = _extract_attention_set_history(mock_change, now_dt)
+        self.assertGreaterEqual(len(history), 3)
+
+        # Check unicode entry
+        unicode_item = next((h for h in history if "测试_🚀_é" in h["name"]), None)
+        self.assertIsNotNone(unicode_item, "Should extract Unicode target name")
+        self.assertEqual(unicode_item["email"], "test_unicode@google.com")
+        self.assertEqual(unicode_item["operation"], "add")
+        self.assertEqual(unicode_item["actor_name"], "Senior Reviewer")
+        self.assertEqual(unicode_item["reason"], "Please verify the Unicode file I/O changes.")
+        self.assertEqual(unicode_item["patch_set"], 2)
+
+        # Check remove transition
+        remove_item = next((h for h in history if h["operation"] == "remove"), None)
+        self.assertIsNotNone(remove_item)
+        self.assertEqual(remove_item["name"], "Alice Smith")
+        self.assertEqual(remove_item["email"], "alice@google.com")
+
+        # Check active attention fallback
+        active_item = next((h for h in history if h["email"] == "charlie@google.com"), None)
+        self.assertIsNotNone(active_item)
+        self.assertEqual(active_item["reason"], "Reviewer turn pending")
+
+        # Verify integration in _extract_attention_metadata
+        meta = _extract_attention_metadata(mock_change, "test_unicode@google.com", now_dt)
+        self.assertIn("attention_set_history", meta)
+        self.assertEqual(len(meta["attention_set_history"]), len(history))
+
+        # 2. Template token assertions for static HTML & CSS classes
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists())
+        html = tpl_path.read_text(encoding="utf-8")
+
+        for token in (
+            "pgAttentionHistoryBackdrop",
+            "pg-attention-history-dialog",
+            "pgAttnHistSearchInput",
+            "pgAttnHistUserSelect",
+            "pg-attn-op-filter",
+            "pgAttnHistStreamContainer",
+            "pgAttnHistCountPill",
+            "btnAttentionHistory-",
+            "pg-btn-attention-history",
+            "pg-btn-card-attn-history",
+            "pg-attn-hist-card",
+            "pg-attn-pill-add",
+            "pg-attn-pill-remove",
+            "pg-attn-hist-reason",
+            "getPgAttentionSetHistory",
+            "renderPgAttentionHistoryStream",
+            "openPgAttentionHistoryDialog",
+            "closePgAttentionHistoryDialog",
+            "togglePgAttentionHistoryDialog",
+            "setPgAttentionHistoryOpFilter",
+            "onPgAttentionHistoryFilterInput",
+            "clearPgAttentionHistoryFilter",
+            "onPgAttentionHistoryUserSelect",
+        ):
+            self.assertIn(token, html, msg=f"Expected token '{token}' in PolyGerrit template")
+
+        # Verify Shift+B shortcut in cheatsheet
+        self.assertIn("Shift", html)
+        self.assertIn("Inspect attention set reason history log", html)
+
+        # 3. Headless Node/VM DOM harness testing
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, flags=re.S)
+        self.assertTrue(scripts)
+        js_body = scripts[-1]
+        for boot_call in (
+            "loadSidebarLayoutPrefs();",
+            "initWorkspaceSplitter();",
+            "initDiffCodeSelectionListeners();",
+            "initApp();",
+        ):
+            js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    disabled: false,
+    checked: false,
+    title: "",
+    id: "",
+    innerHTML: "",
+    style: {
+      display: "",
+      setProperty(k, v) { this[k] = v; },
+      getPropertyValue(k) { return this[k] || ""; }
+    },
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+        } else if (force) {
+          classes.add(c);
+        } else {
+          classes.delete(c);
+        }
+      },
+      contains(c) { return classes.has(c); }
+    },
+    getAttribute(k) { return attrs[k] || null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    appendChild(c) { children.push(c); },
+    querySelectorAll(sel) { return []; },
+    querySelector(sel) { return null; },
+    addEventListener() {},
+    scrollIntoView() {},
+    scrollTo() {},
+    focus() {},
+    select() {}
+  };
+}
+
+const backdrop = makeMockEl("div");
+backdrop.id = "pgAttentionHistoryBackdrop";
+
+const subEl = makeMockEl("div");
+subEl.id = "pgAttentionHistorySubtitle";
+
+const searchInp = makeMockEl("input");
+searchInp.id = "pgAttnHistSearchInput";
+
+const clearBtn = makeMockEl("button");
+clearBtn.id = "btnClearAttnHistFilter";
+
+const userSelect = makeMockEl("select");
+userSelect.id = "pgAttnHistUserSelect";
+userSelect.options = [{ value: "" }];
+
+const streamContainer = makeMockEl("div");
+streamContainer.id = "pgAttnHistStreamContainer";
+
+const countPill = makeMockEl("span");
+countPill.id = "pgAttnHistCountPill";
+
+const opBtnAll = makeMockEl("button");
+opBtnAll.dataset = { op: "all" };
+opBtnAll.classList.add("is-active", "pg-segmented-btn");
+
+const opBtnAdd = makeMockEl("button");
+opBtnAdd.dataset = { op: "add" };
+opBtnAdd.classList.add("pg-segmented-btn");
+
+const opBtnRemove = makeMockEl("button");
+opBtnRemove.dataset = { op: "remove" };
+opBtnRemove.classList.add("pg-segmented-btn");
+
+const domMap = {
+  pgAttentionHistoryBackdrop: backdrop,
+  pgAttentionHistorySubtitle: subEl,
+  pgAttnHistSearchInput: searchInp,
+  btnClearAttnHistFilter: clearBtn,
+  pgAttnHistUserSelect: userSelect,
+  pgAttnHistStreamContainer: streamContainer,
+  pgAttnHistCountPill: countPill
+};
+
+const mockLocalStorage = {};
+
+global.window = {
+  location: { href: "http://localhost:8080/?ui=polygerrit", search: "?ui=polygerrit" },
+  localStorage: {
+    getItem: k => mockLocalStorage[k] || null,
+    setItem: (k, v) => { mockLocalStorage[k] = String(v); },
+    removeItem: k => { delete mockLocalStorage[k]; }
+  },
+  innerWidth: 1400,
+  addEventListener() {},
+  removeEventListener() {}
+};
+
+global.document = {
+  getElementById: id => {
+    if (domMap[id]) return domMap[id];
+    const el = makeMockEl("div");
+    el.id = id;
+    return el;
+  },
+  querySelectorAll: sel => {
+    if (sel.includes("pg-attn-op-filter")) {
+      return [opBtnAll, opBtnAdd, opBtnRemove];
+    }
+    return [];
+  },
+  querySelector: () => null,
+  createElement: tag => makeMockEl(tag),
+  addEventListener() {},
+  documentElement: {
+    style: { setProperty() {}, getPropertyValue: () => "" },
+    setAttribute() {},
+    classList: { add() {}, remove() {}, contains: () => false }
+  }
+};
+global.navigator = { clipboard: { writeText: async () => {} } };
+
+"""
+            + js_body
+            + """
+
+// 1. Verify getPgAttentionSetHistory
+const testChange = {
+  number: 43330088,
+  subject: "Fix Unicode and fast review",
+  patch_set: 2,
+  attention_set_history: [
+    {
+      id: "h1",
+      name: "测试_🚀_é",
+      email: "test_unicode@google.com",
+      operation: "add",
+      actor_name: "Lead Reviewer",
+      actor_email: "lead@google.com",
+      reason: "Please verify Unicode file path handling",
+      date: "2026-10-31 03:00:00.000000000",
+      patch_set: 2,
+      relative_date: "1 hour ago"
+    },
+    {
+      id: "h2",
+      name: "Bob Jones",
+      email: "bob@google.com",
+      operation: "remove",
+      actor_name: "Author",
+      actor_email: "author@google.com",
+      reason: "Author resolved comments",
+      date: "2026-10-31 02:00:00.000000000",
+      patch_set: 1,
+      relative_date: "2 hours ago"
+    }
+  ]
+};
+
+state.changes = [testChange];
+state.selectedClNumber = 43330088;
+
+const hist = getPgAttentionSetHistory(testChange);
+assert.equal(hist.length, 2, "getPgAttentionSetHistory should return 2 items");
+assert.equal(hist[0].name, "测试_🚀_é", "Should preserve Unicode name");
+
+// 2. Open Attention Set History Dialog
+openPgAttentionHistoryDialog(43330088);
+assert.equal(state.attentionHistoryDialogOpen, true, "Dialog state should be open");
+assert.equal(state.attentionHistoryCl, 43330088, "Dialog target CL should match");
+assert.ok(backdrop.classList.contains("open"), "Backdrop should have .open class");
+assert.equal(backdrop.getAttribute("aria-hidden"), "false", "aria-hidden should be false");
+assert.ok(subEl.textContent.includes("43330088"), "Subtitle should include CL number");
+
+// 3. Stream rendering assertions
+assert.ok(streamContainer.innerHTML.includes("测试_🚀_é"), "Stream should render Unicode target name");
+assert.ok(streamContainer.innerHTML.includes("test_unicode@google.com"), "Stream should render target email");
+assert.ok(streamContainer.innerHTML.includes("⚡ Added"), "Stream should render Added pill");
+assert.ok(streamContainer.innerHTML.includes("✕ Removed"), "Stream should render Removed pill");
+assert.ok(streamContainer.innerHTML.includes("Please verify Unicode file path handling"), "Stream should render reason");
+assert.ok(streamContainer.innerHTML.includes("Lead Reviewer"), "Stream should render actor name");
+assert.ok(countPill.textContent.includes("Showing 2 of 2"), "Count pill should display 2 of 2");
+
+// 4. Operation filtering (Add only / Remove only)
+setPgAttentionHistoryOpFilter("add");
+assert.equal(state.attentionHistoryFilterOp, "add", "Filter op should be set to add");
+assert.ok(streamContainer.innerHTML.includes("测试_🚀_é"), "Stream should include add item");
+assert.ok(!streamContainer.innerHTML.includes("Bob Jones"), "Stream should not include remove item when filtered to add");
+assert.ok(countPill.textContent.includes("Showing 1 of 2"), "Count pill should display 1 of 2");
+
+setPgAttentionHistoryOpFilter("remove");
+assert.equal(state.attentionHistoryFilterOp, "remove", "Filter op should be set to remove");
+assert.ok(streamContainer.innerHTML.includes("Bob Jones"), "Stream should include remove item");
+assert.ok(!streamContainer.innerHTML.includes("测试_🚀_é"), "Stream should not include add item when filtered to remove");
+
+setPgAttentionHistoryOpFilter("all");
+assert.ok(streamContainer.innerHTML.includes("测试_🚀_é"), "All should restore both items");
+assert.ok(streamContainer.innerHTML.includes("Bob Jones"), "All should restore both items");
+
+// 5. Query search filtering
+onPgAttentionHistoryFilterInput({ target: { value: "Unicode" } });
+assert.equal(state.attentionHistoryFilterQuery, "Unicode");
+assert.ok(streamContainer.innerHTML.includes("测试_🚀_é"), "Matching search item should be shown");
+assert.ok(!streamContainer.innerHTML.includes("Bob Jones"), "Non-matching item should be hidden");
+
+clearPgAttentionHistoryFilter();
+assert.equal(state.attentionHistoryFilterQuery, "");
+assert.ok(streamContainer.innerHTML.includes("Bob Jones"), "Clearing search should restore Bob Jones");
+
+// 6. Close and Toggle dialog
+closePgAttentionHistoryDialog();
+assert.equal(state.attentionHistoryDialogOpen, false, "Dialog should be closed");
+assert.ok(!backdrop.classList.contains("open"), "Backdrop should remove .open class");
+
+togglePgAttentionHistoryDialog(43330088);
+assert.equal(state.attentionHistoryDialogOpen, true, "Toggle should reopen dialog");
+togglePgAttentionHistoryDialog(43330088);
+assert.equal(state.attentionHistoryDialogOpen, false, "Toggle should reclose dialog");
+
+// 7. Shortcut Shift+B registration
+const shiftBShortcut = PG_KEYBOARD_SHORTCUTS
+  .flatMap(g => g.shortcuts)
+  .find(s => s.keys.includes("Shift") && s.keys.includes("B"));
+assert.ok(shiftBShortcut, "Shift+B shortcut must be registered in PG_KEYBOARD_SHORTCUTS");
+assert.ok(shiftBShortcut.description.toLowerCase().includes("attention"), "Shortcut description should mention attention");
+
+console.log("POLY_GERRIT_ATTENTION_HISTORY_STREAM_OK");
+"""
+        )
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", encoding="utf-8", delete=False
+        ) as f:
+            f.write(harness_js)
+            script_path = f.name
+
+        try:
+            res = subprocess.run(
+                [node_bin, script_path],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Headless Node harness failed for PolyGerrit attention set history:\nSTDERR:\n{res.stderr}\nSTDOUT:\n{res.stdout}",
+            )
+            self.assertIn("POLY_GERRIT_ATTENTION_HISTORY_STREAM_OK", res.stdout)
+        finally:
+            if os.path.exists(script_path):
+                os.remove(script_path)
+
+    def test_polygerrit_rebase_and_cherry_pick_dialogs_and_conflict_handling(self) -> None:
+        """Verifies authentic PolyGerrit Rebase and Cherry-Pick dialogs, relation chain parent detection, and conflict handling."""
+        import tempfile
+        import subprocess
+        from unittest.mock import MagicMock, patch
+        from commands.gerrit.services.vote_submit_service import GerritVoteSubmitService
+        from commands.gerrit.services.diff_parser import get_gerrit_ui_template_path
+
+        # 1. Backend Service: rebase_change with allow_conflicts and custom base
+        with patch("commands.gerrit.services.diff_parser.GerritClient"):
+            service = GerritVoteSubmitService(host="https://android-review.googlesource.com")
+        service.client = MagicMock()
+        service.client._request_json.return_value = {"_number": 43330008, "status": "NEW"}
+        service.fetch_single_enriched_change = MagicMock(return_value={"number": 43330008, "status": "NEW"})
+
+        res_rebase = service.rebase_change(cl_number=43330008, base="43330001", allow_conflicts=True, viewer_email="tester@google.com")
+        self.assertEqual(res_rebase["status"], "ok")
+        self.assertEqual(res_rebase["action"], "rebase")
+        self.assertEqual(res_rebase["base"], "43330001")
+        self.assertTrue(res_rebase["allow_conflicts"])
+        service.client._request_json.assert_called_with(
+            "/a/changes/43330008/rebase",
+            method="POST",
+            data={"notify": "OWNER", "base": "43330001", "allow_conflicts": True},
+        )
+
+        # 2. Backend Service: cherry_pick_change with destination, base, allow_conflicts, keep_reviewers, and Unicode
+        res_cp = service.cherry_pick_change(
+            cl_number=43330008,
+            destination="goog/studio-main",
+            message="feat(cherry): Unicode cherry-pick 测试_🚀_é",
+            base="43330001",
+            allow_conflicts=True,
+            keep_reviewers=True,
+            viewer_email="tester@google.com",
+        )
+        self.assertEqual(res_cp["status"], "ok")
+        self.assertEqual(res_cp["action"], "cherry_pick")
+        self.assertEqual(res_cp["destination"], "goog/studio-main")
+        self.assertTrue(res_cp["allow_conflicts"])
+        self.assertTrue(res_cp["keep_reviewers"])
+        service.client._request_json.assert_called_with(
+            "/a/changes/43330008/revisions/current/cherrypick",
+            method="POST",
+            data={
+                "destination": "goog/studio-main",
+                "notify": "OWNER",
+                "message": "feat(cherry): Unicode cherry-pick 测试_🚀_é",
+                "base": "43330001",
+                "allow_conflicts": True,
+                "keep_reviewers": True,
+            },
+        )
+
+        # 3. Static Template: verify DOM tokens and CSS classes
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists())
+        html = tpl_path.read_text(encoding="utf-8")
+
+        for token in (
+            "pg-rebase-conflict-alert",
+            "pgRebaseConflictBanner",
+            "pgRebaseChainParentOption",
+            "pgRebaseChainParentLabel",
+            "pgRebaseAllowConflicts",
+            "pg-cherry-pick-conflict-alert",
+            "pgCherryPickConflictBanner",
+            "pgCherryPickSourceTag",
+            "pgCherryPickAllowConflicts",
+            "pgCherryPickKeepReviewers",
+            "pg-action-checkbox-row",
+            "openPgRebaseDialog",
+            "closePgRebaseDialog",
+            "executePgRebase",
+            "onPgRebaseTypeChange",
+            "openPgCherryPickDialog",
+            "closePgCherryPickDialog",
+            "setPgCherryPickBranch",
+            "executePgCherryPick",
+        ):
+            self.assertIn(token, html, msg=f"Expected token '{token}' in PolyGerrit template")
+
+        # 4. Headless Node/VM DOM Harness: verify dialog open, relation chain parent detection, and execution
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, flags=re.S)
+        self.assertTrue(scripts)
+        js_body = scripts[-1]
+        for boot_call in (
+            "loadSidebarLayoutPrefs();",
+            "initWorkspaceSplitter();",
+            "initDiffCodeSelectionListeners();",
+            "initApp();",
+        ):
+            js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    disabled: false,
+    checked: false,
+    title: "",
+    id: "",
+    innerHTML: "",
+    style: {
+      display: "",
+      setProperty(k, v) { this[k] = v; },
+      getPropertyValue(k) { return this[k] || ""; }
+    },
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+        } else if (force) {
+          classes.add(c);
+        } else {
+          classes.delete(c);
+        }
+      },
+      contains(c) { return classes.has(c); }
+    },
+    getAttribute(k) { return attrs[k] || null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    appendChild(c) { children.push(c); },
+    querySelectorAll(sel) { return []; },
+    querySelector(sel) { return null; },
+    addEventListener() {},
+    scrollIntoView() {},
+    scrollTo() {},
+    focus() { this._focused = true; },
+    select() {}
+  };
+}
+
+const rebaseBackdrop = makeMockEl("div");
+rebaseBackdrop.id = "pgRebaseBackdrop";
+const rebaseSubEl = makeMockEl("div");
+rebaseSubEl.id = "pgRebaseSubtitle";
+const rebaseBranchEl = makeMockEl("code");
+rebaseBranchEl.id = "pgRebaseBranchName";
+const customInp = makeMockEl("input");
+customInp.id = "pgRebaseCustomBaseInput";
+const chainOption = makeMockEl("label");
+chainOption.id = "pgRebaseChainParentOption";
+const chainLabel = makeMockEl("span");
+chainLabel.id = "pgRebaseChainParentLabel";
+const rebaseConflictBanner = makeMockEl("div");
+rebaseConflictBanner.id = "pgRebaseConflictBanner";
+const rebaseAllowConflicts = makeMockEl("input");
+rebaseAllowConflicts.id = "pgRebaseAllowConflicts";
+const rebaseBtn = makeMockEl("button");
+rebaseBtn.id = "btnConfirmRebase";
+
+const parentRadio = makeMockEl("input");
+parentRadio.value = "parent";
+parentRadio.checked = true;
+const chainRadio = makeMockEl("input");
+chainRadio.value = "chain_parent";
+chainRadio.checked = false;
+const customRadio = makeMockEl("input");
+customRadio.value = "custom";
+customRadio.checked = false;
+
+const cpBackdrop = makeMockEl("div");
+cpBackdrop.id = "pgCherryPickBackdrop";
+const cpSubEl = makeMockEl("div");
+cpSubEl.id = "pgCherryPickSubtitle";
+const cpBranchInp = makeMockEl("input");
+cpBranchInp.id = "pgCherryPickBranchInput";
+const cpBaseInp = makeMockEl("input");
+cpBaseInp.id = "pgCherryPickBaseInput";
+const cpMsgInp = makeMockEl("textarea");
+cpMsgInp.id = "pgCherryPickMessageInput";
+const cpSrcTag = makeMockEl("div");
+cpSrcTag.id = "pgCherryPickSourceTag";
+const cpConflictBanner = makeMockEl("div");
+cpConflictBanner.id = "pgCherryPickConflictBanner";
+const cpAllowConflicts = makeMockEl("input");
+cpAllowConflicts.id = "pgCherryPickAllowConflicts";
+const cpKeepReviewers = makeMockEl("input");
+cpKeepReviewers.id = "pgCherryPickKeepReviewers";
+const cpConfirmBtn = makeMockEl("button");
+cpConfirmBtn.id = "btnConfirmCherryPick";
+
+const domMap = {
+  pgRebaseBackdrop: rebaseBackdrop,
+  pgRebaseSubtitle: rebaseSubEl,
+  pgRebaseBranchName: rebaseBranchEl,
+  pgRebaseCustomBaseInput: customInp,
+  pgRebaseChainParentOption: chainOption,
+  pgRebaseChainParentLabel: chainLabel,
+  pgRebaseConflictBanner: rebaseConflictBanner,
+  pgRebaseAllowConflicts: rebaseAllowConflicts,
+  btnConfirmRebase: rebaseBtn,
+
+  pgCherryPickBackdrop: cpBackdrop,
+  pgCherryPickSubtitle: cpSubEl,
+  pgCherryPickBranchInput: cpBranchInp,
+  pgCherryPickBaseInput: cpBaseInp,
+  pgCherryPickMessageInput: cpMsgInp,
+  pgCherryPickSourceTag: cpSrcTag,
+  pgCherryPickConflictBanner: cpConflictBanner,
+  pgCherryPickAllowConflicts: cpAllowConflicts,
+  pgCherryPickKeepReviewers: cpKeepReviewers,
+  btnConfirmCherryPick: cpConfirmBtn
+};
+
+const mockLocalStorage = {};
+
+global.window = {
+  location: { href: "http://localhost:8080/?ui=polygerrit", search: "?ui=polygerrit" },
+  localStorage: {
+    getItem: k => mockLocalStorage[k] || null,
+    setItem: (k, v) => { mockLocalStorage[k] = String(v); },
+    removeItem: k => { delete mockLocalStorage[k]; }
+  },
+  innerWidth: 1400,
+  addEventListener() {},
+  removeEventListener() {},
+  setTimeout: fn => fn(),
+  clearTimeout: () => {}
+};
+
+global.document = {
+  getElementById: id => domMap[id] || makeMockEl("div"),
+  querySelector: sel => {
+    if (sel.includes('value="parent"')) return parentRadio;
+    if (sel.includes('value="chain_parent"')) return chainRadio;
+    if (sel.includes('value="custom"')) return customRadio;
+    if (sel.includes(':checked')) {
+      if (chainRadio.checked) return chainRadio;
+      if (customRadio.checked) return customRadio;
+      return parentRadio;
+    }
+    return null;
+  },
+  querySelectorAll: () => [],
+  createElement: tag => makeMockEl(tag),
+  addEventListener() {},
+  documentElement: {
+    style: { setProperty() {}, getPropertyValue: () => "" },
+    setAttribute() {},
+    classList: { add() {}, remove() {}, contains: () => false }
+  }
+};
+global.navigator = { clipboard: { writeText: async () => {} } };
+
+let lastFetchCall = null;
+const mockFetchHandler = async (url, opts) => {
+  lastFetchCall = { url, opts, body: JSON.parse((opts && opts.body) || "{}") };
+  return {
+    ok: true,
+    json: async () => ({ status: "ok", change: { number: 43330002, status: "NEW" }, new_cl: 43330099 })
+  };
+};
+global.fetch = mockFetchHandler;
+global.sidecarFetch = mockFetchHandler;
+
+"""
+            + js_body
+            + """
+
+// Override sidecarFetch and fetch after js_body loads
+sidecarFetch = mockFetchHandler;
+global.sidecarFetch = mockFetchHandler;
+global.fetch = mockFetchHandler;
+
+(async () => {
+  // Setup mock 2-commit relation chain stack
+  const commit1 = {
+    number: 43330001,
+    subject: "feat(core): Base stack commit 测试_🚀_é",
+    branch: "goog/studio-main",
+    project: "platform/hardware/google/aemu",
+    patch_set: 1
+  };
+  const commit2 = {
+    number: 43330002,
+    subject: "fix(ui): Stack tip with merge conflict 测试_🚀_é",
+    branch: "goog/studio-main",
+    project: "platform/hardware/google/aemu",
+    patch_set: 2,
+    mergeable: false, // Conflict state!
+    commit_message: "fix(ui): Stack tip commit 测试_🚀_é\\n\\nBug: N/A\\nTest: bazel test"
+  };
+
+  state.changes = [commit1, commit2];
+  state.stacks = [{
+    stack_id: "stack:relation_test",
+    commits: [commit1, commit2]
+  }];
+  state.selectedStackId = "stack:relation_test";
+  state.selectedClNumber = 43330002;
+
+  // 1. Verify Rebase Dialog with relation chain parent & conflict detection
+  openPgRebaseDialog(43330002);
+  assert.equal(state.rebaseDialogOpen, true, "Rebase dialog should be open");
+  assert.equal(state.rebaseDialogCl, 43330002, "Rebase dialog target CL should match");
+
+  // Chain parent option should be displayed and pointing to 43330001
+  assert.equal(chainOption.style.display, "flex", "Chain parent option should be visible");
+  assert.ok(chainLabel.textContent.includes("ag/43330001"), "Chain label should display parent CL ag/43330001");
+  assert.equal(chainRadio.checked, true, "chain_parent radio should be auto-checked when stacked");
+
+  // Conflict banner & allow conflicts
+  assert.equal(rebaseConflictBanner.style.display, "flex", "Conflict banner should be visible for mergeable: false");
+  assert.equal(rebaseAllowConflicts.checked, true, "Allow conflicts should be auto-checked for merge conflict");
+
+  // Execute Rebase
+  await executePgRebase();
+  assert.ok(lastFetchCall, "sidecarFetch should be called");
+  assert.equal(lastFetchCall.url, "/api/gerrit/rebase");
+  assert.equal(lastFetchCall.body.cl, 43330002);
+  assert.equal(lastFetchCall.body.base, "43330001", "Base should be parent change number");
+  assert.equal(lastFetchCall.body.allow_conflicts, true, "allow_conflicts should be true");
+  assert.equal(state.rebaseDialogOpen, false, "Dialog should close after successful rebase");
+
+  // 2. Verify Cherry-Pick Dialog
+  openPgCherryPickDialog(43330002);
+  assert.equal(state.cherryPickDialogOpen, true, "Cherry-pick dialog should be open");
+  assert.equal(state.cherryPickDialogCl, 43330002);
+
+  assert.ok(cpSrcTag.textContent.includes("goog/studio-main"), "Source tag should mention current branch");
+  assert.equal(cpConflictBanner.style.display, "flex", "Cherry pick conflict advisory should be shown");
+  assert.equal(cpAllowConflicts.checked, true, "Allow conflicts should be checked");
+  assert.equal(cpKeepReviewers.checked, true, "Keep reviewers should be checked by default");
+
+  // Set branch and execute cherry-pick
+  setPgCherryPickBranch("sys-img-dev");
+  assert.equal(cpBranchInp.value, "sys-img-dev");
+
+  await executePgCherryPick();
+  assert.ok(lastFetchCall);
+  assert.equal(lastFetchCall.url, "/api/gerrit/cherry_pick");
+  assert.equal(lastFetchCall.body.cl, 43330002);
+  assert.equal(lastFetchCall.body.destination, "sys-img-dev");
+  assert.equal(lastFetchCall.body.allow_conflicts, true);
+  assert.equal(lastFetchCall.body.keep_reviewers, true);
+  assert.equal(state.cherryPickDialogOpen, false, "Dialog should close after successful cherry-pick");
+
+  console.log("POLY_GERRIT_REBASE_AND_CHERRY_PICK_OK");
+})().catch(err => {
+  console.error("Async test error:", err);
+  process.exit(1);
+});
+"""
+        )
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", encoding="utf-8", delete=False
+        ) as f:
+            f.write(harness_js)
+            script_path = f.name
+
+        try:
+            res = subprocess.run(
+                [node_bin, script_path],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Headless Node harness failed for PolyGerrit rebase & cherry-pick:\nSTDERR:\n{res.stderr}\nSTDOUT:\n{res.stdout}",
+            )
+            self.assertIn("POLY_GERRIT_REBASE_AND_CHERRY_PICK_OK", res.stdout)
+        finally:
+            if os.path.exists(script_path):
+                os.remove(script_path)
+
+    def test_polygerrit_submit_requirements_audit_details_modal_and_shortcuts(self) -> None:
+        """Verifies authentic PolyGerrit Submit Requirements Audit details modal, predicate expressions, and Shift+Z shortcut."""
+        import os
+        import re
+        import subprocess
+        import tempfile
+        from commands.gerrit.services.diff_parser import get_gerrit_ui_template_path
+        from commands.gerrit.services.queue_service import (
+            _enrich_submit_requirements,
+            enrich_change_for_ui,
+        )
+
+        # 1. Backend Service: _enrich_submit_requirements with expression results, atoms, applicability, override, and Unicode
+        raw_sr_list = [
+            {
+                "name": "Code-Owners",
+                "status": "UNSATISFIED",
+                "description": "Requires code owner approvals for modified files (测试_🚀_é)",
+                "submittability_expression_result": {
+                    "expression": "label:Code-Owners=MAX AND -label:Code-Owners=MIN",
+                    "passing_atoms": [],
+                    "failing_atoms": ["label:Code-Owners=MAX"],
+                },
+                "applicability_expression_result": {
+                    "expression": "branch:refs/heads/master",
+                    "passing_atoms": ["branch:refs/heads/master"],
+                    "failing_atoms": [],
+                },
+                "override_expression_result": {
+                    "expression": "label:Owners-Override=+1",
+                    "passing_atoms": [],
+                    "failing_atoms": ["label:Owners-Override=+1"],
+                },
+            }
+        ]
+
+        enriched_srs = _enrich_submit_requirements(
+            change={"submit_requirements": raw_sr_list},
+            human_cr2=[{"name": "Alice", "email": "alice@google.com", "short": "alice", "value": 2}],
+            required_cr2_count=2,
+            presubmit_info={"presubmit_status": "passed"},
+            pv_score=2,
+            has_negative_cr=False,
+            is_submittable=False,
+        )
+
+        # Enriched list should have Code-Owners, synthesized Code-Review, and synthesized Presubmit-Verified
+        names = [sr["name"] for sr in enriched_srs]
+        self.assertIn("Code-Owners", names)
+        self.assertIn("Code-Review", names)
+        self.assertIn("Presubmit-Verified", names)
+
+        owner_sr = next(sr for sr in enriched_srs if sr["name"] == "Code-Owners")
+        self.assertEqual(owner_sr["status"], "UNSATISFIED")
+        self.assertIn("测试_🚀_é", owner_sr["description"])
+        self.assertEqual(owner_sr["applicability_expression"], "branch:refs/heads/master")
+        self.assertEqual(owner_sr["applicability_passing_atoms"], ["branch:refs/heads/master"])
+        self.assertEqual(owner_sr["override_expression"], "label:Owners-Override=+1")
+
+        cr_sr = next(sr for sr in enriched_srs if sr["name"] == "Code-Review")
+        self.assertEqual(cr_sr["status"], "UNSATISFIED")
+        self.assertIn("Requires 2 human +2", cr_sr["failing_atoms"][0])
+
+        # Test trigger_votes enrichment in enrich_change_for_ui
+        mock_raw_cl = {
+            "id": "ag%2F43330099",
+            "_number": 43330099,
+            "change_id": "I43330099",
+            "subject": "Submit requirements test 测试_🚀_é",
+            "status": "NEW",
+            "project": "platform/hardware/google/aemu",
+            "branch": "goog/studio-main",
+            "owner": {"name": "Test Owner", "email": "owner@google.com"},
+            "labels": {
+                "Presubmit-Ready": {"all": [{"name": "Reviewer", "value": 1}]},
+                "Autosubmit": {"all": [{"name": "Owner", "value": 1}]},
+            },
+            "submit_requirements": raw_sr_list,
+        }
+        enriched_cl = enrich_change_for_ui(mock_raw_cl, viewer_email="viewer@google.com")
+        self.assertIn("trigger_votes", enriched_cl)
+        trigger_names = [tv["name"] for tv in enriched_cl["trigger_votes"]]
+        self.assertIn("Presubmit-Ready", trigger_names)
+        self.assertIn("Autosubmit", trigger_names)
+
+        # 2. Static Template: verify DOM tokens and CSS classes
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists())
+        html = tpl_path.read_text(encoding="utf-8")
+
+        for token in (
+            "pg-sr-audit-dialog",
+            "pgSrAuditBackdrop",
+            "pgSrAuditHeroBanner",
+            "pgSrAuditSearchInput",
+            "btnClearSrAuditFilter",
+            "pgSrAuditCardsContainer",
+            "pgSrAuditTriggerContainer",
+            "btnCopySrAuditReport",
+            "pg-btn-sr-audit",
+            "openPgSubmitRequirementsAuditDialog",
+            "closePgSubmitRequirementsAuditDialog",
+            "togglePgSubmitRequirementsAuditDialog",
+            "highlightPgSrExpression",
+            "copyPgSubmitRequirementsAuditReport",
+            "renderPgSrAuditContent",
+            "renderPgSrAuditCardHtml",
+            "pg-sr-audit-hero",
+            "pg-sr-audit-card",
+            "pg-expr-op",
+            "pg-expr-key",
+        ):
+            self.assertIn(token, html, msg=f"Expected token '{token}' in PolyGerrit template")
+
+        # Verify Shift+Z in keyboard shortcuts
+        self.assertIn('"Shift", "Z"', html)
+        self.assertIn("Inspect submit requirements & submittability audit", html)
+
+        # 3. Headless Node/VM DOM Harness: verify dialog lifecycle, predicate rendering, report copying, and shortcuts
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, flags=re.S)
+        self.assertTrue(scripts)
+        js_body = scripts[-1]
+        for boot_call in (
+            "loadSidebarLayoutPrefs();",
+            "initWorkspaceSplitter();",
+            "initDiffCodeSelectionListeners();",
+            "initApp();",
+        ):
+            js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    disabled: false,
+    checked: false,
+    title: "",
+    id: "",
+    innerHTML: "",
+    style: {
+      display: "",
+      setProperty(k, v) { this[k] = v; },
+      getPropertyValue(k) { return this[k] || ""; }
+    },
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+        } else if (force) {
+          classes.add(c);
+        } else {
+          classes.delete(c);
+        }
+      },
+      has(c) { return classes.has(c); },
+      contains(c) { return classes.has(c); }
+    },
+    getAttribute(k) { return attrs[k] || null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    appendChild(c) { children.push(c); },
+    querySelectorAll(sel) { return []; },
+    querySelector(sel) { return null; },
+    addEventListener() {},
+    scrollIntoView() {},
+    scrollTo() {},
+    focus() { this._focused = true; },
+    select() {}
+  };
+}
+
+const elementsById = new Map();
+function getOrCreateEl(id, tag = "div") {
+  if (!elementsById.has(id)) {
+    const el = makeMockEl(tag);
+    el.id = id;
+    elementsById.set(id, el);
+  }
+  return elementsById.get(id);
+}
+
+let lastToast = null;
+let lastClipboardText = null;
+
+global.window = global;
+global.document = {
+  documentElement: makeMockEl("html"),
+  getElementById: (id) => getOrCreateEl(id),
+  querySelector: (sel) => {
+    if (sel && sel.startsWith("#")) return getOrCreateEl(sel.slice(1));
+    return makeMockEl("div");
+  },
+  querySelectorAll: (sel) => [],
+  addEventListener: (evt, cb) => {
+    if (!global._listeners) global._listeners = {};
+    if (!global._listeners[evt]) global._listeners[evt] = [];
+    global._listeners[evt].push(cb);
+  },
+};
+global.navigator = {
+  clipboard: {
+    writeText: async (txt) => {
+      lastClipboardText = txt;
+      return Promise.resolve();
+    }
+  }
+};
+global.localStorage = {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {},
+};
+global.showToast = (msg, isErr) => { lastToast = { msg, isErr }; };
+
+"""
+            + js_body
+            + """
+
+(async () => {
+  // 1. Verify highlightPgSrExpression syntax highlighting
+  const highlighted = highlightPgSrExpression("label:Code-Review=+2 AND -label:Code-Review=-2 OR branch:refs/heads/master");
+  assert.ok(highlighted.includes('class="pg-expr-op">AND</span>'), "Expected AND operator highlighted");
+  assert.ok(highlighted.includes('class="pg-expr-op">OR</span>'), "Expected OR operator highlighted");
+  assert.ok(highlighted.includes('class="pg-expr-key">label:</span>'), "Expected label: key highlighted");
+  assert.ok(highlighted.includes('class="pg-expr-key">branch:</span>'), "Expected branch: key highlighted");
+
+  // 2. Setup mock change with Unicode and rich submit requirements
+  const testCl = {
+    number: 43330099,
+    subject: "Submit requirements audit 测试_🚀_é",
+    patch_set: 3,
+    is_submittable: false,
+    submit_requirements: [
+      {
+        name: "Code-Review",
+        status: "UNSATISFIED",
+        description: "Requires 2 human Code-Review +2 approvals and no -2 votes",
+        expression: "label:Code-Review=MAX AND -label:Code-Review=MIN",
+        passing_atoms: ["Code-Review +2 (alice)"],
+        failing_atoms: ["Requires 2 human +2 approvals (1 more needed)"],
+      },
+      {
+        name: "Presubmit-Verified",
+        status: "SATISFIED",
+        description: "Presubmit test verification by TreeHugger",
+        expression: "label:Presubmit-Verified=+2",
+        passing_atoms: ["Presubmit-Verified +2 (TreeHugger)"],
+        failing_atoms: [],
+      },
+      {
+        name: "Code-Owners",
+        status: "UNSATISFIED",
+        description: "Code owner approval for modified files (测试_🚀_é)",
+        expression: "label:Code-Owners=MAX",
+        applicability_expression: "branch:refs/heads/master",
+        passing_atoms: [],
+        failing_atoms: ["label:Code-Owners=MAX"],
+      }
+    ],
+    presubmit_ready_voters: ["alice@google.com", "bob@google.com"],
+    autosubmit_voters: ["alice@google.com"],
+    trigger_votes: [
+      { name: "Presubmit-Ready", value: 1, voters: ["alice@google.com", "bob@google.com"] },
+      { name: "Autosubmit", value: 1, voters: ["alice@google.com"] }
+    ]
+  };
+  state.changes = [testCl];
+  state.selectedClNumber = 43330099;
+
+  // 3. Test openPgSubmitRequirementsAuditDialog
+  openPgSubmitRequirementsAuditDialog(43330099);
+  assert.equal(state.srAuditDialogOpen, true, "Dialog should be marked open in state");
+  assert.equal(state.srAuditCl, 43330099, "Active CL in state should match");
+
+  const backdrop = getOrCreateEl("pgSrAuditBackdrop");
+  assert.ok(backdrop.classList.has("open"), "Backdrop should have open class");
+  assert.equal(backdrop.getAttribute("aria-hidden"), "false");
+
+  const subTitle = getOrCreateEl("pgSrAuditSubtitle");
+  assert.ok(subTitle.textContent.includes("43330099"), "Subtitle should include change number");
+  assert.ok(subTitle.textContent.includes("测试_🚀_é"), "Subtitle should include Unicode subject");
+
+  // Verify Hero Banner
+  const heroEl = getOrCreateEl("pgSrAuditHeroBanner");
+  assert.ok(heroEl.className.includes("is-pending") || heroEl.className.includes("is-blocked"));
+  assert.ok(heroEl.innerHTML.includes("Not Submittable") || heroEl.innerHTML.includes("satisfied"));
+
+  // Verify Cards Container rendered all 3 requirements
+  const cardsEl = getOrCreateEl("pgSrAuditCardsContainer");
+  assert.ok(cardsEl.innerHTML.includes("Code-Review"));
+  assert.ok(cardsEl.innerHTML.includes("Presubmit-Verified"));
+  assert.ok(cardsEl.innerHTML.includes("Code-Owners"));
+  assert.ok(cardsEl.innerHTML.includes("测试_🚀_é"));
+  assert.ok(cardsEl.innerHTML.includes("Applicable if:"));
+
+  // 4. Test Filtering: satisfied vs unsatisfied
+  setPgSrAuditFilter("satisfied");
+  assert.ok(cardsEl.innerHTML.includes("Presubmit-Verified"));
+  assert.ok(!cardsEl.innerHTML.includes("Code-Owners"), "Code-Owners should be filtered out under satisfied");
+
+  setPgSrAuditFilter("unsatisfied");
+  assert.ok(cardsEl.innerHTML.includes("Code-Owners"));
+  assert.ok(!cardsEl.innerHTML.includes("Presubmit-Verified"), "Presubmit-Verified should be filtered out under unsatisfied");
+
+  setPgSrAuditFilter("all");
+  assert.ok(cardsEl.innerHTML.includes("Presubmit-Verified"));
+  assert.ok(cardsEl.innerHTML.includes("Code-Owners"));
+
+  // Test Search Filter
+  onPgSrAuditFilterInput({ target: { value: "TreeHugger" } });
+  assert.ok(cardsEl.innerHTML.includes("Presubmit-Verified"));
+  assert.ok(!cardsEl.innerHTML.includes("Code-Owners"), "Code-Owners does not match TreeHugger search query");
+
+  clearPgSrAuditFilter();
+  assert.ok(cardsEl.innerHTML.includes("Code-Owners"), "Clearing search filter should restore Code-Owners card");
+
+  // 5. Test copyPgSubmitRequirementsAuditReport
+  showToast = (msg) => { lastToast = { msg }; getOrCreateEl("toast").textContent = msg; };
+  await copyPgSubmitRequirementsAuditReport(43330099);
+  assert.ok(lastClipboardText, "Report text should be copied to clipboard");
+  assert.ok(lastClipboardText.includes("### Submit Requirements Audit — ag/43330099"));
+  assert.ok(lastClipboardText.includes("Code-Review"));
+  assert.ok(lastClipboardText.includes("Presubmit-Verified"));
+  assert.ok(lastClipboardText.includes("测试_🚀_é"));
+  assert.ok(lastClipboardText.includes("Presubmit-Ready"));
+  const toastEl = getOrCreateEl("toast");
+  assert.ok(toastEl.textContent.includes("copied to clipboard") || (lastToast && lastToast.msg.includes("copied to clipboard")));
+
+  // 6. Test closePgSubmitRequirementsAuditDialog
+  closePgSubmitRequirementsAuditDialog();
+  assert.equal(state.srAuditDialogOpen, false, "Dialog should be closed in state");
+  assert.ok(!backdrop.classList.has("open"), "Backdrop open class should be removed");
+  assert.equal(backdrop.getAttribute("aria-hidden"), "true");
+
+  // 7. Test Keyboard shortcut listeners: Shift+Z and Escape
+  const keydownListeners = global._listeners && global._listeners.keydown;
+  assert.ok(keydownListeners && keydownListeners.length > 0, "Keydown listener must be registered");
+
+  // Trigger Shift+Z
+  keydownListeners[keydownListeners.length - 1]({
+    key: "Z",
+    shiftKey: true,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    target: { tagName: "BODY" },
+    preventDefault: () => {}
+  });
+  assert.equal(state.srAuditDialogOpen, true, "Shift+Z should toggle open Submit Requirements Audit dialog");
+
+  // Trigger Escape
+  keydownListeners[keydownListeners.length - 1]({
+    key: "Escape",
+    shiftKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    target: { tagName: "BODY" },
+    preventDefault: () => {}
+  });
+  assert.equal(state.srAuditDialogOpen, false, "Escape should close Submit Requirements Audit dialog");
+
+  console.log("POLY_GERRIT_SR_AUDIT_OK");
+})().catch(err => {
+  console.error("Async test error:", err);
+  process.exit(1);
+});
+"""
+        )
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", encoding="utf-8", delete=False
+        ) as f:
+            f.write(harness_js)
+            script_path = f.name
+
+        try:
+            res = subprocess.run(
+                [node_bin, script_path],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Headless Node harness failed for PolyGerrit submit requirements audit:\nSTDERR:\n{res.stderr}\nSTDOUT:\n{res.stdout}",
+            )
+            self.assertIn("POLY_GERRIT_SR_AUDIT_OK", res.stdout)
+        finally:
+            if os.path.exists(script_path):
+                os.remove(script_path)
+
+    def test_polygerrit_search_autocomplete_operators_and_starred_changes(self) -> None:
+        """Verifies authentic PolyGerrit search autocomplete, operators query engine, presets bar, and starred changes."""
+        import os
+        import re
+        import subprocess
+        import tempfile
+        from commands.gerrit.services.diff_parser import get_gerrit_ui_template_path
+
+        # 1. Static Template Verification: DOM elements, CSS classes, helper functions, and shortcuts
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists())
+        html = tpl_path.read_text(encoding="utf-8")
+
+        for token in (
+            "pg-search-suggestions-popover",
+            "pg-search-popover-head",
+            "pg-search-popover-presets",
+            "pg-search-preset-chip",
+            "pg-search-reset-chip",
+            "pg-search-suggestions-list",
+            "pg-search-suggestion-item",
+            "pg-search-item-badge",
+            "pg-star-btn",
+            "pg-header-star-btn",
+            "pg-search-quick-row",
+            "pg-drawer-presets-bar",
+            "PG_SEARCH_OPERATORS",
+            "PG_SEARCH_PRESETS",
+            "isClStarred",
+            "togglePgStarChange",
+            "syncPgStarButtonsDom",
+            "evaluatePgLabelFilter",
+            "matchesSearchQuery",
+            "openPgSearchSuggestions",
+            "closePgSearchSuggestions",
+            "applyPgSearchSuggestion",
+            "togglePgSearchPresetToken",
+            "renderPgSearchPresetsHtml",
+            "renderPgSearchPresetsDom",
+            "renderPgSearchSuggestionsPopoverHtml",
+            "renderPgSearchSuggestionsListOnly",
+            "onQueueSearchFocus",
+            "onQueueSearchInput",
+            "onQueueSearchKeydown",
+        ):
+            self.assertIn(token, html, msg=f"Expected token '{token}' in PolyGerrit template")
+
+        # Verify '*' shortcut registered in cheatsheet
+        self.assertIn('"*"', html)
+        self.assertIn("Star / unstar selected change", html)
+
+        # 2. Headless Node/VM DOM Harness Verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, flags=re.S)
+        self.assertTrue(scripts)
+        js_body = scripts[-1]
+        for boot_call in (
+            "loadSidebarLayoutPrefs();",
+            "initWorkspaceSplitter();",
+            "initDiffCodeSelectionListeners();",
+            "initApp();",
+        ):
+            js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const children = [];
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    disabled: false,
+    checked: false,
+    title: "",
+    id: "",
+    innerHTML: "",
+    style: {
+      display: "",
+      setProperty(k, v) { this[k] = v; },
+      getPropertyValue(k) { return this[k] || ""; }
+    },
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) { classes.delete(c); return false; }
+          else { classes.add(c); return true; }
+        }
+        if (force) classes.add(c); else classes.delete(c);
+        return force;
+      },
+      contains(c) { return classes.has(c); }
+    },
+    setAttribute(k, v) { this[k] = String(v); },
+    getAttribute(k) { return this[k] || null; },
+    removeAttribute(k) { delete this[k]; },
+    appendChild(c) { children.push(c); return c; },
+    querySelector(sel) {
+      if (sel === ".pg-star-icon") return makeMockEl("span");
+      if (sel === ".pg-star-label") return makeMockEl("span");
+      if (sel === "span") return makeMockEl("span");
+      return null;
+    },
+    querySelectorAll(sel) { return []; },
+    scrollIntoView() {},
+    focus() {},
+    select() {},
+    setSelectionRange() {},
+    contains(target) { return true; }
+  };
+}
+
+const mockElements = {
+  queueSearchInput: makeMockEl("input"),
+  queueSearchClearBtn: makeMockEl("button"),
+  pgSearchSuggestionsPopover: makeMockEl("div"),
+  pgDrawerPresetsBar: makeMockEl("div"),
+  pgSearchPopoverPresets: makeMockEl("div"),
+  authorFilterSelect: makeMockEl("select"),
+  authorChipsBar: makeMockEl("div"),
+  queueList: makeMockEl("div"),
+  scopeSelect: makeMockEl("select"),
+  cntType_all: makeMockEl("span"),
+  bottomHiddenCount: makeMockEl("span"),
+  collapsedDoneBucket: makeMockEl("div"),
+};
+
+const keydownListeners = [];
+const clickListeners = [];
+
+global.window = {
+  localStorage: {
+    _data: {},
+    getItem(k) { return this._data[k] || null; },
+    setItem(k, v) { this._data[k] = String(v); },
+    removeItem(k) { delete this._data[k]; }
+  },
+  addEventListener(event, fn) {
+    if (event === "click") clickListeners.push(fn);
+  },
+  removeEventListener() {}
+};
+global.localStorage = global.window.localStorage;
+global.navigator = { clipboard: { writeText: async () => {} } };
+
+global.document = {
+  documentElement: makeMockEl("html"),
+  getElementById(id) {
+    if (!mockElements[id]) {
+      mockElements[id] = makeMockEl("div");
+      mockElements[id].id = id;
+    }
+    return mockElements[id];
+  },
+  querySelector(sel) {
+    if (sel.includes("pgSearchSuggestionsPopover")) return mockElements.pgSearchSuggestionsPopover;
+    return makeMockEl("div");
+  },
+  querySelectorAll(sel) {
+    return [];
+  },
+  createElement(tag) { return makeMockEl(tag); },
+  addEventListener(event, fn) {
+    if (event === "keydown") keydownListeners.push(fn);
+    if (event === "click") clickListeners.push(fn);
+  }
+};
+
+"""
+            + js_body
+            + """
+
+(async () => {
+  // Setup Viewer and Mock Changes
+  state.viewer = "viewer@google.com";
+  state.authEmail = "viewer@google.com";
+
+  const c101 = {
+    number: 101,
+    subject: "feat(aemu): Unicode 测试_🚀_é support",
+    status: "NEW",
+    owner_email: "viewer@google.com",
+    owner_short: "viewer",
+    owner_name: "Viewer User",
+    author_short: "viewer",
+    files: ["emulator/libs/file/测试_🚀_é.cc"],
+    human_cr2: [{ value: 2, email: "reviewer@google.com", short: "reviewer" }],
+    required_cr2_count: 1,
+    presubmit_score: 2,
+    presubmit_vetted: true,
+    is_submittable: true,
+    work_in_progress: false,
+    url: "https://android-review.googlesource.com/c/101",
+  };
+
+  const c102 = {
+    number: 102,
+    subject: "fix(ui): WIP draft change",
+    status: "NEW",
+    work_in_progress: true,
+    owner_email: "other@google.com",
+    owner_short: "other",
+    reviewers: [{ email: "viewer@google.com", username: "viewer", name: "Viewer" }],
+    human_cr2: [],
+    required_cr2_count: 1,
+    presubmit_score: 0,
+    is_submittable: false,
+    files: ["tools/ui.py"],
+    url: "https://android-review.googlesource.com/c/102",
+  };
+
+  const c103 = {
+    number: 103,
+    subject: "refactor: Blocked change",
+    status: "NEW",
+    work_in_progress: false,
+    owner_email: "alice@google.com",
+    owner_short: "alice",
+    human_cr2: [],
+    required_cr2_count: 1,
+    reviewers: [{ email: "alice@google.com", cr_vote: -2, is_bot: false }],
+    attention_set: [{ account: { email: "viewer@google.com", name: "Viewer" } }],
+    viewer_in_attention_set: true,
+    is_submittable: false,
+    files: ["README.md"],
+    url: "https://android-review.googlesource.com/c/103",
+  };
+
+  state.changes = [c101, c102, c103];
+  state.inlineCommentsByCl = {
+    102: [{ id: "d1", kind: "draft", file_path: "tools/ui.py", line: 10, message: "Draft note" }]
+  };
+
+  // --- 1. Test matchesSearchQuery Operator Evaluation ---
+  // status:open
+  state.searchQuery = "status:open";
+  assert.equal(matchesSearchQuery(c101), true, "status:open should match c101");
+  assert.equal(matchesSearchQuery(c102), true, "status:open should match c102");
+  assert.equal(matchesSearchQuery(c103), true, "status:open should match c103");
+
+  // owner:self
+  state.searchQuery = "owner:self";
+  assert.equal(matchesSearchQuery(c101), true, "owner:self should match c101");
+  assert.equal(matchesSearchQuery(c102), false, "owner:self should not match c102");
+
+  // reviewer:self
+  state.searchQuery = "reviewer:self";
+  assert.equal(matchesSearchQuery(c102), true, "reviewer:self should match c102");
+  assert.equal(matchesSearchQuery(c101), false, "reviewer:self should not match c101");
+
+  // is:submittable
+  state.searchQuery = "is:submittable";
+  assert.equal(matchesSearchQuery(c101), true, "is:submittable should match c101");
+  assert.equal(matchesSearchQuery(c102), false, "is:submittable should not match c102");
+
+  // is:wip
+  state.searchQuery = "is:wip";
+  assert.equal(matchesSearchQuery(c102), true, "is:wip should match c102");
+  assert.equal(matchesSearchQuery(c101), false, "is:wip should not match c101");
+
+  // Negation: -is:wip
+  state.searchQuery = "-is:wip";
+  assert.equal(matchesSearchQuery(c101), true, "-is:wip should match c101");
+  assert.equal(matchesSearchQuery(c102), false, "-is:wip should reject c102");
+  assert.equal(matchesSearchQuery(c103), true, "-is:wip should match c103");
+
+  // has:draft
+  state.searchQuery = "has:draft";
+  assert.equal(matchesSearchQuery(c102), true, "has:draft should match c102");
+  assert.equal(matchesSearchQuery(c101), false, "has:draft should not match c101");
+
+  // attention:self
+  state.searchQuery = "attention:self";
+  assert.equal(matchesSearchQuery(c103), true, "attention:self should match c103");
+  assert.equal(matchesSearchQuery(c101), false, "attention:self should not match c101");
+
+  // label:cr=+2
+  state.searchQuery = "label:cr=+2";
+  assert.equal(matchesSearchQuery(c101), true, "label:cr=+2 should match c101");
+  assert.equal(matchesSearchQuery(c102), false, "label:cr=+2 should not match c102");
+
+  // label:cr=-2
+  state.searchQuery = "label:cr=-2";
+  assert.equal(matchesSearchQuery(c103), true, "label:cr=-2 should match c103");
+  assert.equal(matchesSearchQuery(c101), false, "label:cr=-2 should not match c101");
+
+  // Unicode search: "测试_🚀_é"
+  state.searchQuery = "测试_🚀_é";
+  assert.equal(matchesSearchQuery(c101), true, "Unicode term should match c101");
+  assert.equal(matchesSearchQuery(c102), false, "Unicode term should not match c102");
+
+  // Numeric CL search: "ag/101"
+  state.searchQuery = "ag/101";
+  assert.equal(matchesSearchQuery(c101), true, "ag/101 should match c101");
+  assert.equal(matchesSearchQuery(c102), false, "ag/101 should not match c102");
+
+  // --- 2. Test Starring Lifecycle ---
+  assert.equal(isClStarred(c101), false, "c101 should initially not be starred");
+  togglePgStarChange(101);
+  assert.equal(state.starredCls.has(101), true, "togglePgStarChange(101) should add 101 to state.starredCls");
+  assert.equal(isClStarred(c101), true, "isClStarred(c101) should now return true");
+
+  state.searchQuery = "is:starred";
+  assert.equal(matchesSearchQuery(c101), true, "is:starred should match starred c101");
+  assert.equal(matchesSearchQuery(c102), false, "is:starred should not match unstarred c102");
+
+  togglePgStarChange(101);
+  assert.equal(state.starredCls.has(101), false, "togglePgStarChange(101) should remove 101");
+  assert.equal(isClStarred(c101), false, "isClStarred(c101) should return false");
+
+  // --- 3. Test Quick Presets & Autocomplete Popover ---
+  state.searchQuery = "";
+  togglePgSearchPresetToken("is:starred");
+  assert.equal(state.searchQuery, "is:starred", "togglePgSearchPresetToken should append is:starred");
+
+  togglePgSearchPresetToken("is:starred");
+  assert.equal(state.searchQuery, "", "togglePgSearchPresetToken should remove is:starred if present");
+
+  togglePgSearchPresetToken("attention:self");
+  assert.equal(state.searchQuery, "attention:self", "togglePgSearchPresetToken should append attention:self");
+
+  togglePgSearchPresetToken("attention:self");
+  assert.equal(state.searchQuery, "", "togglePgSearchPresetToken should toggle off attention:self");
+
+  // Test openPgSearchSuggestions
+  openPgSearchSuggestions();
+  assert.equal(state.searchSuggestionsOpen, true, "openPgSearchSuggestions should set searchSuggestionsOpen = true");
+  assert.ok(mockElements.pgSearchSuggestionsPopover.innerHTML.includes("Quick Filters"), "Popover should render Quick Filters");
+  assert.ok(mockElements.pgSearchSuggestionsPopover.innerHTML.includes("status:open"), "Popover should render status:open suggestion");
+
+  // Test keyboard navigation in search
+  onQueueSearchKeydown({ key: "ArrowDown", preventDefault: () => {} });
+  assert.equal(state.searchSuggestionIndex, 0, "ArrowDown should highlight first suggestion");
+
+  // Test applyPgSearchSuggestion
+  applyPgSearchSuggestion("is:submittable");
+  assert.ok(state.searchQuery.includes("is:submittable"), "applyPgSearchSuggestion should set query to is:submittable");
+  assert.equal(state.searchSuggestionsOpen, false, "applyPgSearchSuggestion should close suggestions popover");
+
+  // Test Escape closes suggestions
+  openPgSearchSuggestions();
+  assert.equal(state.searchSuggestionsOpen, true);
+  onQueueSearchKeydown({ key: "Escape", preventDefault: () => {} });
+  assert.equal(state.searchSuggestionsOpen, false, "Escape should close suggestions popover");
+
+  // --- 4. Test Star Keyboard Shortcut '*' ---
+  state.selectedClNumber = 101;
+  const lastKeydown = keydownListeners[keydownListeners.length - 1];
+  lastKeydown({
+    key: "*",
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+    target: { tagName: "BODY" },
+    preventDefault: () => {}
+  });
+  assert.equal(state.starredCls.has(101), true, "'*' keydown should toggle star on active CL");
+
+  console.log("POLY_GERRIT_SEARCH_AND_STARS_OK");
+})().catch(err => {
+  console.error("Async test error:", err);
+  process.exit(1);
+});
+"""
+        )
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", encoding="utf-8", delete=False
+        ) as f:
+            f.write(harness_js)
+            script_path = f.name
+
+        try:
+            res = subprocess.run(
+                [node_bin, script_path],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Headless Node harness failed for PolyGerrit search and stars:\nSTDERR:\n{res.stderr}\nSTDOUT:\n{res.stdout}",
+            )
+            self.assertIn("POLY_GERRIT_SEARCH_AND_STARS_OK", res.stdout)
+        finally:
+            if os.path.exists(script_path):
+                os.remove(script_path)
+
+    def test_polygerrit_custom_dashboard_saved_searches_manager(self) -> None:
+        """Verifies authentic PolyGerrit custom dashboard saved searches, section evaluation, manager modal, and Shift+Y shortcut."""
+        import os
+        import re
+        import subprocess
+        import tempfile
+        from commands.gerrit.services.diff_parser import get_gerrit_ui_template_path
+
+        # 1. Static Template Verification: DOM elements, CSS classes, helper functions, and shortcuts
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists())
+        html = tpl_path.read_text(encoding="utf-8")
+
+        for token in (
+            "pg-btn-save-search",
+            "pg-search-popover-saved-section",
+            "pg-search-saved-label",
+            "pg-saved-search-chip",
+            "pg-saved-dash-icon",
+            "pg-btn-save-search-popover",
+            "pg-btn-manage-searches-popover",
+            "pg-custom-sec-pill",
+            "pg-section-actions",
+            "pg-btn-sec-action",
+            "pg-saved-searches-dialog",
+            "pg-saved-searches-add-box",
+            "pg-saved-search-card",
+            "pgSaveSearchBackdrop",
+            "pgSavedSearchesBackdrop",
+            "btnSaveSearchQuery",
+            "pgNewSearchTitle",
+            "pgNewSearchQuery",
+            "DEFAULT_SAVED_SEARCHES",
+            "persistPgSavedSearches",
+            "addPgCustomDashboardSection",
+            "deletePgSavedSearch",
+            "toggleSavedSearchDashboardVisibility",
+            "movePgSavedSearch",
+            "applyPgSavedSearch",
+            "resetPgSavedSearchesToDefaults",
+            "renderPgSavedSearchesListHtml",
+            "openSaveCurrentSearchDialog",
+            "closeSaveCurrentSearchDialog",
+            "confirmSaveCurrentSearch",
+            "openSavedSearchesModal",
+            "closeSavedSearchesModal",
+            "toggleSavedSearchesModal",
+            "setQueueSearchAndApply",
+        ):
+            self.assertIn(token, html, msg=f"Expected token '{token}' in PolyGerrit template")
+
+        # Verify 'Shift+Y' shortcut registered in cheatsheet
+        self.assertIn('"Shift", "Y"', html)
+        self.assertIn("Manage custom dashboard sections & saved searches", html)
+
+        # 2. Headless Node/VM DOM Harness Verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, flags=re.S)
+        self.assertTrue(scripts)
+        js_body = scripts[-1]
+        for boot_call in (
+            "loadSidebarLayoutPrefs();",
+            "initWorkspaceSplitter();",
+            "initDiffCodeSelectionListeners();",
+            "initApp();",
+        ):
+            js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const children = [];
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    disabled: false,
+    checked: false,
+    title: "",
+    id: "",
+    innerHTML: "",
+    style: {
+      display: "",
+      setProperty(k, v) { this[k] = v; },
+      getPropertyValue(k) { return this[k] || ""; }
+    },
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) { classes.delete(c); return false; }
+          else { classes.add(c); return true; }
+        }
+        if (force) classes.add(c); else classes.delete(c);
+        return force;
+      },
+      contains(c) { return classes.has(c); }
+    },
+    setAttribute(k, v) { this[k] = String(v); },
+    getAttribute(k) { return this[k] || null; },
+    removeAttribute(k) { delete this[k]; },
+    appendChild(c) { children.push(c); return c; },
+    querySelector(sel) {
+      if (sel === ".pg-star-icon") return makeMockEl("span");
+      if (sel === ".pg-star-label") return makeMockEl("span");
+      if (sel === "span") return makeMockEl("span");
+      return null;
+    },
+    querySelectorAll(sel) { return []; },
+    scrollIntoView() {},
+    focus() {},
+    select() {},
+    setSelectionRange() {},
+    contains(target) { return true; }
+  };
+}
+
+const mockElements = {
+  queueSearchInput: makeMockEl("input"),
+  queueSearchClearBtn: makeMockEl("button"),
+  btnSaveSearchQuery: makeMockEl("button"),
+  pgSearchSuggestionsPopover: makeMockEl("div"),
+  pgDrawerPresetsBar: makeMockEl("div"),
+  pgSearchPopoverPresets: makeMockEl("div"),
+  pgSaveSearchBackdrop: makeMockEl("div"),
+  pgSaveSearchTitleInput: makeMockEl("input"),
+  pgSaveSearchQueryInput: makeMockEl("input"),
+  pgSaveSearchShowOnDash: makeMockEl("input"),
+  btnConfirmSaveSearch: makeMockEl("button"),
+  pgSavedSearchesBackdrop: makeMockEl("div"),
+  pgSavedSearchesSubtitle: makeMockEl("div"),
+  pgNewSearchTitle: makeMockEl("input"),
+  pgNewSearchQuery: makeMockEl("input"),
+  pgNewSearchShowOnDash: makeMockEl("input"),
+  btnAddNewSavedSearch: makeMockEl("button"),
+  pgSavedSearchesList: makeMockEl("div"),
+  pgSavedSearchesFooterStats: makeMockEl("div"),
+  authorFilterSelect: makeMockEl("select"),
+  authorChipsBar: makeMockEl("div"),
+  queueList: makeMockEl("div"),
+  scopeSelect: makeMockEl("select"),
+  cntType_all: makeMockEl("span"),
+  bottomHiddenCount: makeMockEl("span"),
+  collapsedDoneBucket: makeMockEl("div"),
+};
+
+mockElements.pgSaveSearchShowOnDash.checked = true;
+mockElements.pgNewSearchShowOnDash.checked = true;
+
+const keydownListeners = [];
+const clickListeners = [];
+
+const mockLocalStorage = {
+  _store: {},
+  getItem(k) { return this._store[k] || null; },
+  setItem(k, v) { this._store[k] = String(v); },
+  removeItem(k) { delete this._store[k]; },
+  clear() { this._store = {}; }
+};
+
+globalThis.window = {
+  location: { search: "" },
+  localStorage: mockLocalStorage,
+  addEventListener(evt, fn) {
+    if (evt === "keydown") keydownListeners.push(fn);
+    if (evt === "click") clickListeners.push(fn);
+  },
+  removeEventListener() {}
+};
+
+globalThis.document = {
+  documentElement: {
+    setAttribute() {},
+    getAttribute() { return "dark"; }
+  },
+  getElementById(id) { return mockElements[id] || null; },
+  querySelector(sel) {
+    if (sel === "#queueSearchInput") return mockElements.queueSearchInput;
+    if (sel === "#queueSearchClearBtn") return mockElements.queueSearchClearBtn;
+    if (sel === "#btnSaveSearchQuery") return mockElements.btnSaveSearchQuery;
+    if (sel === "#pgSearchSuggestionsPopover") return mockElements.pgSearchSuggestionsPopover;
+    if (sel === "#pgSavedSearchesBackdrop") return mockElements.pgSavedSearchesBackdrop;
+    if (sel === "#pgSaveSearchBackdrop") return mockElements.pgSaveSearchBackdrop;
+    if (sel === "#pgSavedSearchesList") return mockElements.pgSavedSearchesList;
+    return null;
+  },
+  querySelectorAll(sel) { return []; },
+  addEventListener(evt, fn) {
+    if (evt === "keydown") keydownListeners.push(fn);
+    if (evt === "click") clickListeners.push(fn);
+  }
+};
+
+globalThis.localStorage = mockLocalStorage;
+globalThis.showToast = function(msg) {};
+"""
+            + js_body
+            + """
+(async () => {
+  // --- 1. Test Initial State & Defaults ---
+  assert.ok(Array.isArray(DEFAULT_SAVED_SEARCHES), "DEFAULT_SAVED_SEARCHES should be an array");
+  assert.ok(DEFAULT_SAVED_SEARCHES.length >= 4, "DEFAULT_SAVED_SEARCHES should have >= 4 default templates");
+  assert.ok(Array.isArray(state.savedSearches), "state.savedSearches should be initialized as an array");
+  const initialCount = state.savedSearches.length;
+
+  // --- 2. Test Adding Custom Dashboard Section ---
+  const secGoldfish = addPgCustomDashboardSection(
+    "Goldfish Reviews",
+    "project:platform/hardware/generic/goldfish status:open",
+    true
+  );
+  assert.ok(secGoldfish, "addPgCustomDashboardSection should return created section");
+  assert.equal(secGoldfish.title, "Goldfish Reviews");
+  assert.equal(secGoldfish.query, "project:platform/hardware/generic/goldfish status:open");
+  assert.equal(secGoldfish.showOnDashboard, true);
+  assert.equal(state.savedSearches.length, initialCount + 1, "savedSearches should increment by 1");
+
+  // Verify persistence in localStorage
+  const savedInLs = JSON.parse(mockLocalStorage.getItem("gerrit_ui_pg_saved_searches") || "[]");
+  assert.ok(savedInLs.some(s => s.id === secGoldfish.id), "Saved search should be persisted in localStorage");
+
+  // Test adding with Unicode metadata
+  const secUnicode = addPgCustomDashboardSection(
+    "测试_🚀_é Custom",
+    "file:测试_🚀_é.cc",
+    true
+  );
+  assert.ok(secUnicode);
+  assert.equal(secUnicode.title, "测试_🚀_é Custom");
+  assert.equal(secUnicode.query, "file:测试_🚀_é.cc");
+
+  // --- 3. Test Dashboard Partition & Evaluation with Custom Sections ---
+  const mockCl101 = {
+    number: 101,
+    project: "platform/hardware/generic/goldfish",
+    status: "NEW",
+    subject: "Add goldfish driver",
+    owner_email: "someone@google.com",
+    updated: "2026-10-31 06:00:00.000000000",
+    work_in_progress: false
+  };
+  const mockCl102 = {
+    number: 102,
+    project: "platform/external/qemu",
+    status: "NEW",
+    subject: "Unicode support",
+    files: [{ file: "emulator/libs/测试_🚀_é.cc" }],
+    owner_email: "someone@google.com",
+    updated: "2026-10-31 06:10:00.000000000",
+    work_in_progress: false
+  };
+  state.changes = [mockCl101, mockCl102];
+  const mockStacks = [
+    { stack_id: "s101", commits: [mockCl101] },
+    { stack_id: "s102", commits: [mockCl102] }
+  ];
+
+  const sections = partitionCommitsIntoDashboardSections(mockStacks);
+  const goldfishSec = sections.find(s => s.id === secGoldfish.id);
+  assert.ok(goldfishSec, "Custom section should be present in partitioned dashboard sections");
+  assert.equal(goldfishSec.title, "Goldfish Reviews");
+  assert.equal(goldfishSec.isCustomSection, true);
+  assert.equal(goldfishSec.items.length, 1);
+  assert.equal(goldfishSec.items[0].commit.number, 101);
+
+  const unicodeSec = sections.find(s => s.id === secUnicode.id);
+  assert.ok(unicodeSec, "Unicode custom section should be present");
+  assert.equal(unicodeSec.title, "测试_🚀_é Custom");
+  assert.equal(unicodeSec.items.length, 1);
+  assert.equal(unicodeSec.items[0].commit.number, 102);
+
+  // --- 4. Test renderPgDashboardSectionHtml ---
+  const htmlGoldfish = renderPgDashboardSectionHtml(goldfishSec);
+  assert.ok(htmlGoldfish.includes("pg-custom-sec-pill"), "Custom section HTML should render custom sec pill");
+  assert.ok(htmlGoldfish.includes("project:platform/hardware/generic/goldfish"), "Custom section HTML should include query");
+  assert.ok(htmlGoldfish.includes("pg-section-actions"), "Custom section HTML should include header action buttons");
+  assert.ok(htmlGoldfish.includes("openSavedSearchesModal"), "Custom section HTML should link to edit modal");
+  assert.ok(htmlGoldfish.includes("toggleSavedSearchDashboardVisibility"), "Custom section HTML should link to unpin button");
+
+  // --- 5. Test Toggling Dashboard Visibility ---
+  toggleSavedSearchDashboardVisibility(secGoldfish.id);
+  assert.equal(secGoldfish.showOnDashboard, false, "Visibility toggle should set showOnDashboard to false");
+  const sectionsAfterToggle = partitionCommitsIntoDashboardSections(mockStacks);
+  assert.equal(
+    sectionsAfterToggle.some(s => s.id === secGoldfish.id),
+    false,
+    "Disabled custom section should not appear on dashboard"
+  );
+  // Toggle back on
+  toggleSavedSearchDashboardVisibility(secGoldfish.id);
+  assert.equal(secGoldfish.showOnDashboard, true);
+
+  // --- 6. Test Reorder & Deletion ---
+  const origIdx = state.savedSearches.findIndex(s => s.id === secGoldfish.id);
+  movePgSavedSearch(secGoldfish.id, -1);
+  const newIdx = state.savedSearches.findIndex(s => s.id === secGoldfish.id);
+  assert.equal(newIdx, origIdx - 1, "movePgSavedSearch should move item up");
+
+  deletePgSavedSearch(secUnicode.id);
+  assert.equal(
+    state.savedSearches.some(s => s.id === secUnicode.id),
+    false,
+    "deletePgSavedSearch should remove section from state"
+  );
+
+  // --- 7. Test Apply Saved Search to Search Bar ---
+  applyPgSavedSearch(secGoldfish.id);
+  assert.equal(state.searchQuery, "project:platform/hardware/generic/goldfish status:open");
+  assert.equal(mockElements.queueSearchInput.value, "project:platform/hardware/generic/goldfish status:open");
+
+  // --- 8. Test Modals Open/Close & List Rendering ---
+  openSavedSearchesModal();
+  assert.equal(state.savedSearchesModalOpen, true);
+  assert.ok(mockElements.pgSavedSearchesBackdrop.classList.contains("open"));
+  assert.ok(mockElements.pgSavedSearchesList.innerHTML.includes("Goldfish Reviews"));
+  assert.ok(mockElements.pgSavedSearchesList.innerHTML.includes("pg-saved-search-card"));
+
+  closeSavedSearchesModal();
+  assert.equal(state.savedSearchesModalOpen, false);
+  assert.equal(mockElements.pgSavedSearchesBackdrop.classList.contains("open"), false);
+
+  openSaveCurrentSearchDialog();
+  assert.equal(state.saveSearchModalOpen, true);
+  assert.ok(mockElements.pgSaveSearchBackdrop.classList.contains("open"));
+  closeSaveCurrentSearchDialog();
+  assert.equal(state.saveSearchModalOpen, false);
+
+  // --- 9. Test Shift+Y and Escape Keyboard Shortcuts ---
+  const lastKeydown = keydownListeners[keydownListeners.length - 1];
+  assert.ok(typeof lastKeydown === "function", "Keydown listener must be registered");
+
+  // Press Shift+Y
+  lastKeydown({
+    key: "Y",
+    shiftKey: true,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    target: { tagName: "BODY" },
+    preventDefault: () => {}
+  });
+  assert.equal(state.savedSearchesModalOpen, true, "Shift+Y should open Saved Searches modal");
+
+  // Press Escape
+  lastKeydown({
+    key: "Escape",
+    shiftKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    target: { tagName: "BODY" },
+    preventDefault: () => {}
+  });
+  assert.equal(state.savedSearchesModalOpen, false, "Escape should close Saved Searches modal");
+
+  // Open Save Current Search Dialog and press Escape
+  openSaveCurrentSearchDialog();
+  assert.equal(state.saveSearchModalOpen, true);
+  lastKeydown({
+    key: "Escape",
+    shiftKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    target: { tagName: "BODY" },
+    preventDefault: () => {}
+  });
+  assert.equal(state.saveSearchModalOpen, false, "Escape should close Save Current Search dialog");
+
+  // --- 10. Test Reset Defaults ---
+  resetPgSavedSearchesToDefaults();
+  assert.equal(state.savedSearches.length, DEFAULT_SAVED_SEARCHES.length);
+
+  console.log("POLY_GERRIT_SAVED_SEARCHES_MANAGER_OK");
+})().catch(err => {
+  console.error("Async test error:", err);
+  process.exit(1);
+});
+"""
+        )
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", encoding="utf-8", delete=False
+        ) as f:
+            f.write(harness_js)
+            script_path = f.name
+
+        try:
+            res = subprocess.run(
+                [node_bin, script_path],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Headless Node harness failed for PolyGerrit saved searches manager:\nSTDERR:\n{res.stderr}\nSTDOUT:\n{res.stdout}",
+            )
+            self.assertIn("POLY_GERRIT_SAVED_SEARCHES_MANAGER_OK", res.stdout)
+        finally:
+            if os.path.exists(script_path):
+                os.remove(script_path)
+
+    def test_polygerrit_file_list_range_selection_and_cursor_navigation(self) -> None:
+        """Verifies authentic PolyGerrit file list cursor navigation, Shift+Click range review, and selective diff expansion."""
+        import os
+        import re
+        import subprocess
+        import tempfile
+        from commands.gerrit.services.diff_parser import get_gerrit_ui_template_path
+
+        # 1. Static Template Verification: DOM elements, CSS classes, helper functions, and shortcuts
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists())
+        html = tpl_path.read_text(encoding="utf-8")
+
+        for token in (
+            "pg-file-row.is-focused",
+            "pg-btn-expand-unreviewed",
+            "btnExpandUnreviewed-",
+            "btnExpandUnreviewedHeader-",
+            "onPgFileReviewedCheckboxClick",
+            "focusPgFileRow",
+            "navigatePgFileListCursor",
+            "togglePgFocusedFileReviewed",
+            "openFocusedPgFileDiff",
+            "expandPgUnreviewedFileDiffs",
+            "getPgVisibleFileList",
+            "getPgFilteredAndSortedFiles",
+            "window.onPgFileReviewedCheckboxClick = onPgFileReviewedCheckboxClick;",
+            "window.focusPgFileRow = focusPgFileRow;",
+            "window.navigatePgFileListCursor = navigatePgFileListCursor;",
+            "window.togglePgFocusedFileReviewed = togglePgFocusedFileReviewed;",
+            "window.openFocusedPgFileDiff = openFocusedPgFileDiff;",
+            "window.expandPgUnreviewedFileDiffs = expandPgUnreviewedFileDiffs;",
+            "window.getPgVisibleFileList = getPgVisibleFileList;",
+        ):
+            self.assertIn(token, html, f"Expected template to define '{token}'")
+
+        # Verify keyboard shortcuts registered in cheatsheet
+        self.assertIn("Next file in change (advances cursor)", html)
+        self.assertIn("Previous file in change (advances cursor)", html)
+        self.assertIn("Toggle active / focused file reviewed & advance", html)
+        self.assertIn("Toggle reviewed checkbox on focused file (File List)", html)
+
+        # 2. Headless Node/VM DOM Harness Verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, flags=re.S)
+        self.assertTrue(scripts)
+        js_body = scripts[-1]
+        for boot_call in (
+            "loadSidebarLayoutPrefs();",
+            "initWorkspaceSplitter();",
+            "initDiffCodeSelectionListeners();",
+            "initApp();",
+        ):
+            js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const children = [];
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    disabled: false,
+    checked: false,
+    title: "",
+    id: "",
+    innerHTML: "",
+    style: {
+      display: "",
+      setProperty(k, v) { this[k] = v; },
+      getPropertyValue(k) { return this[k] || ""; }
+    },
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) { classes.delete(c); return false; }
+          else { classes.add(c); return true; }
+        }
+        if (force) classes.add(c); else classes.delete(c);
+        return force;
+      },
+      contains(c) { return classes.has(c); }
+    },
+    setAttribute(k, v) { this[k] = String(v); },
+    getAttribute(k) { return this[k] || null; },
+    removeAttribute(k) { delete this[k]; },
+    appendChild(c) { children.push(c); return c; },
+    querySelector(sel) {
+      return null;
+    },
+    querySelectorAll(sel) { return []; },
+    scrollIntoView() {},
+    scrollIntoViewIfNeeded() {},
+    focus() {},
+    select() {},
+    contains(target) { return true; }
+  };
+}
+
+const keydownListeners = [];
+const mockLocalStorage = {
+  _store: {},
+  getItem(k) { return this._store[k] || null; },
+  setItem(k, v) { this._store[k] = String(v); },
+  removeItem(k) { delete this._store[k]; },
+  clear() { this._store = {}; }
+};
+
+const domFileRows = [];
+const domCheckboxes = [];
+const domDiffBlocks = [];
+const mockToast = makeMockEl("div");
+mockToast.id = "toast";
+
+globalThis.window = {
+  location: { search: "" },
+  localStorage: mockLocalStorage,
+  addEventListener(evt, fn) {
+    if (evt === "keydown") keydownListeners.push(fn);
+  },
+  removeEventListener() {}
+};
+
+globalThis.toastsShown = [];
+globalThis.showToast = function(msg) {
+  globalThis.toastsShown.push(msg);
+  mockToast.textContent = msg;
+};
+
+globalThis.document = {
+  documentElement: {
+    setAttribute() {},
+    getAttribute() { return "dark"; }
+  },
+  getElementById(id) {
+    if (id === "toast") return mockToast;
+    if (id.startsWith("file-diff-")) {
+      return domDiffBlocks.find(d => d.id === id) || null;
+    }
+    return null;
+  },
+  querySelector(sel) {
+    if (sel === ".pg-change-view") return makeMockEl("div");
+    if (sel === ".pg-file-list-table") return makeMockEl("table");
+    return null;
+  },
+  querySelectorAll(sel) {
+    if (sel.includes(".pg-file-row") || sel.includes(".pg-tree-file-row")) {
+      return domFileRows;
+    }
+    if (sel.includes("input[data-cl=")) {
+      // Find matching checkboxes
+      const clMatch = sel.match(/data-cl="([^"]+)"/);
+      const fileMatch = sel.match(/data-file="([^"]+)"/);
+      return domCheckboxes.filter(cb => {
+        const matchCl = !clMatch || cb.getAttribute("data-cl") === clMatch[1];
+        const matchFile = !fileMatch || cb.getAttribute("data-file") === fileMatch[1];
+        return matchCl && matchFile;
+      });
+    }
+    if (sel.includes(".pg-file-diff-block")) {
+      return domDiffBlocks;
+    }
+    return [];
+  },
+  addEventListener(evt, fn) {
+    if (evt === "keydown") keydownListeners.push(fn);
+  }
+};
+
+globalThis.localStorage = mockLocalStorage;
+"""
+            + js_body
+            + """
+(async () => {
+  // --- Setup Test Change and Files with Unicode ---
+  const clNum = 889901;
+  const curPs = 2;
+  const mockFiles = [
+    { file: "include/goldfish/header.h", additions: 12, deletions: 0 },
+    { file: "src/goldfish/model.cc", additions: 45, deletions: 10 },
+    { file: "tests/fixtures/测试_🚀_é.cc", additions: 88, deletions: 5 },
+    { file: "z_docs/README.md", additions: 5, deletions: 2 },
+  ];
+
+  const mockChange = {
+    number: clNum,
+    patch_set: curPs,
+    project: "platform/hardware/generic/goldfish",
+    status: "NEW",
+    subject: "Refactor file list navigation",
+    owner_email: "joshuaduong@google.com",
+    updated: "2026-10-31 08:00:00.000000000"
+  };
+
+  state.changes = [mockChange];
+  state.selectedClNumber = clNum;
+  state.diffsByCl = state.diffsByCl || {};
+  state.diffsByCl[clNum] = { patch_set: curPs, files: mockFiles };
+
+  // Populate mock DOM elements for file rows and checkboxes
+  mockFiles.forEach(f => {
+    const rowEl = makeMockEl("tr");
+    rowEl.classList.add("pg-file-row");
+    rowEl.setAttribute("data-cl", clNum);
+    rowEl.setAttribute("data-file", f.file);
+    domFileRows.push(rowEl);
+
+    const cbEl = makeMockEl("input");
+    cbEl.setAttribute("data-cl", clNum);
+    cbEl.setAttribute("data-ps", curPs);
+    cbEl.setAttribute("data-file", f.file);
+    cbEl.checked = false;
+    domCheckboxes.push(cbEl);
+
+    const safeFileId = f.file.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const diffBlockEl = makeMockEl("div");
+    diffBlockEl.id = `file-diff-${clNum}-${safeFileId}`;
+    diffBlockEl.classList.add("pg-file-diff-block");
+    diffBlockEl.setAttribute("data-cl", clNum);
+    diffBlockEl.setAttribute("data-ps", curPs);
+    diffBlockEl.setAttribute("data-file", f.file);
+    domDiffBlocks.push(diffBlockEl);
+  });
+
+  // --- 1. Test getPgVisibleFileList ---
+  const visible = getPgVisibleFileList(clNum);
+  assert.equal(visible.length, 4, "Should list all 4 visible files");
+  assert.equal(visible[0], "include/goldfish/header.h");
+  assert.equal(visible[2], "tests/fixtures/测试_🚀_é.cc", "Unicode filename should be preserved exactly");
+
+  // --- 2. Test focusPgFileRow ---
+  focusPgFileRow(clNum, "src/goldfish/model.cc");
+  assert.equal(state.focusedFileByCl[clNum], "src/goldfish/model.cc");
+  const modelRow = domFileRows.find(r => r.getAttribute("data-file") === "src/goldfish/model.cc");
+  assert.ok(modelRow.classList.contains("is-focused"), "Focused file row must have .is-focused class");
+
+  // Other rows should not be focused
+  const headerRow = domFileRows.find(r => r.getAttribute("data-file") === "include/goldfish/header.h");
+  assert.equal(headerRow.classList.contains("is-focused"), false);
+
+  // --- 3. Test navigatePgFileListCursor ---
+  navigatePgFileListCursor(clNum, "next");
+  assert.equal(
+    state.focusedFileByCl[clNum],
+    "tests/fixtures/测试_🚀_é.cc",
+    "next navigation should advance cursor to Unicode file"
+  );
+  const unicodeRow = domFileRows.find(r => r.getAttribute("data-file") === "tests/fixtures/测试_🚀_é.cc");
+  assert.ok(unicodeRow.classList.contains("is-focused"));
+
+  navigatePgFileListCursor(clNum, "next");
+  assert.equal(state.focusedFileByCl[clNum], "z_docs/README.md");
+
+  // Clamp at end
+  navigatePgFileListCursor(clNum, "next");
+  assert.equal(state.focusedFileByCl[clNum], "z_docs/README.md", "next navigation should clamp at last file");
+
+  // Navigate prev
+  navigatePgFileListCursor(clNum, "prev");
+  assert.equal(state.focusedFileByCl[clNum], "tests/fixtures/测试_🚀_é.cc");
+
+  // --- 4. Test Single Click on Reviewed Checkbox ---
+  const cb0 = domCheckboxes[0];
+  cb0.checked = true;
+  onPgFileReviewedCheckboxClick({ shiftKey: false }, cb0);
+  onPgFileReviewedCheckboxChanged(cb0, { shiftKey: false });
+
+  assert.equal(isPgFileReviewed(clNum, curPs, "include/goldfish/header.h"), true);
+  assert.equal(isPgFileReviewed(clNum, curPs, "src/goldfish/model.cc"), false);
+  assert.equal(state.lastReviewedCheckbox.file, "include/goldfish/header.h");
+  assert.equal(state.lastReviewedCheckbox.checked, true);
+
+  // --- 5. Test Shift+Click Range Selection (Files 0 through 2 including Unicode) ---
+  const cb2 = domCheckboxes[2];
+  cb2.checked = true;
+  onPgFileReviewedCheckboxClick({ shiftKey: true }, cb2);
+  onPgFileReviewedCheckboxChanged(cb2, { shiftKey: true });
+
+  // Files 0, 1, and 2 should all be marked reviewed!
+  assert.equal(isPgFileReviewed(clNum, curPs, "include/goldfish/header.h"), true);
+  assert.equal(isPgFileReviewed(clNum, curPs, "src/goldfish/model.cc"), true);
+  assert.equal(isPgFileReviewed(clNum, curPs, "tests/fixtures/测试_🚀_é.cc"), true);
+  assert.equal(isPgFileReviewed(clNum, curPs, "z_docs/README.md"), false);
+
+  assert.equal(state.lastReviewedCheckbox.file, "tests/fixtures/测试_🚀_é.cc");
+  assert.ok(
+    mockToast.textContent.includes("Marked 3 files as reviewed") ||
+    globalThis.toastsShown.some(t => t.includes("Marked 3 files as reviewed")),
+    "Toast should confirm range of 3 files marked reviewed"
+  );
+
+  // --- 6. Test Shift+Click to Unreview Range ---
+  // Start from cb2 (reviewed), then Shift+Click cb1 unchecked
+  const cb1 = domCheckboxes[1];
+  cb1.checked = false;
+  onPgFileReviewedCheckboxClick({ shiftKey: true }, cb1);
+  onPgFileReviewedCheckboxChanged(cb1, { shiftKey: true });
+
+  // Files 1 and 2 should now be unreviewed
+  assert.equal(isPgFileReviewed(clNum, curPs, "src/goldfish/model.cc"), false);
+  assert.equal(isPgFileReviewed(clNum, curPs, "tests/fixtures/测试_🚀_é.cc"), false);
+  // File 0 remains reviewed
+  assert.equal(isPgFileReviewed(clNum, curPs, "include/goldfish/header.h"), true);
+
+  // --- 7. Test togglePgFocusedFileReviewed ---
+  focusPgFileRow(clNum, "tests/fixtures/测试_🚀_é.cc");
+  togglePgFocusedFileReviewed(clNum);
+  assert.equal(
+    isPgFileReviewed(clNum, curPs, "tests/fixtures/测试_🚀_é.cc"),
+    true,
+    "togglePgFocusedFileReviewed should toggle reviewed state to true"
+  );
+  togglePgFocusedFileReviewed(clNum);
+  assert.equal(
+    isPgFileReviewed(clNum, curPs, "tests/fixtures/测试_🚀_é.cc"),
+    false,
+    "togglePgFocusedFileReviewed should toggle reviewed state back to false"
+  );
+
+  // --- 8. Test expandPgUnreviewedFileDiffs ---
+  // Header is reviewed, model.cc and tests/fixtures/测试_🚀_é.cc and z_docs/README.md are unreviewed
+  expandPgUnreviewedFileDiffs(clNum, curPs);
+  assert.equal(isPgFileCollapsed(clNum, curPs, "include/goldfish/header.h"), true, "Reviewed file should be collapsed");
+  assert.equal(isPgFileCollapsed(clNum, curPs, "src/goldfish/model.cc"), false, "Unreviewed file should be expanded");
+  assert.equal(isPgFileCollapsed(clNum, curPs, "tests/fixtures/测试_🚀_é.cc"), false, "Unreviewed file should be expanded");
+  assert.equal(isPgFileCollapsed(clNum, curPs, "z_docs/README.md"), false, "Unreviewed file should be expanded");
+
+  // --- 9. Test openFocusedPgFileDiff ---
+  // Collapse model.cc then open focused diff
+  setPgFileCollapsed(clNum, curPs, "src/goldfish/model.cc", true);
+  focusPgFileRow(clNum, "src/goldfish/model.cc");
+  openFocusedPgFileDiff(clNum);
+  assert.equal(
+    isPgFileCollapsed(clNum, curPs, "src/goldfish/model.cc"),
+    false,
+    "openFocusedPgFileDiff should uncollapse target diff block"
+  );
+
+  // --- 10. Test Keydown Shortcut Triggers (], [, o, f, x) ---
+  const lastKeydown = keydownListeners[keydownListeners.length - 1];
+  assert.ok(typeof lastKeydown === "function", "Keydown listener must be registered");
+
+  // Press ] (next file)
+  focusPgFileRow(clNum, "include/goldfish/header.h");
+  lastKeydown({
+    key: "]",
+    shiftKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    target: { tagName: "BODY" },
+    preventDefault: () => {}
+  });
+  assert.equal(state.focusedFileByCl[clNum], "src/goldfish/model.cc", "] should advance focused file");
+
+  // Press [ (prev file)
+  lastKeydown({
+    key: "[",
+    shiftKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    target: { tagName: "BODY" },
+    preventDefault: () => {}
+  });
+  assert.equal(state.focusedFileByCl[clNum], "include/goldfish/header.h", "[ should move back focused file");
+
+  // Press o (open focused file diff)
+  setPgFileCollapsed(clNum, curPs, "include/goldfish/header.h", true);
+  lastKeydown({
+    key: "o",
+    shiftKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    target: { tagName: "BODY" },
+    preventDefault: () => {}
+  });
+  assert.equal(isPgFileCollapsed(clNum, curPs, "include/goldfish/header.h"), false, "o should open focused file diff");
+
+  // Press f (toggle active file reviewed)
+  lastKeydown({
+    key: "f",
+    shiftKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    target: { tagName: "BODY" },
+    preventDefault: () => {}
+  });
+  // Since header.h was reviewed (from earlier test), f toggles it to false
+  assert.equal(isPgFileReviewed(clNum, curPs, "include/goldfish/header.h"), false, "f should toggle active file reviewed");
+
+  console.log("POLY_GERRIT_FILE_LIST_RANGE_SELECTION_OK");
+})().catch(err => {
+  console.error("Async test error:", err);
+  process.exit(1);
+});
+"""
+        )
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", encoding="utf-8", delete=False
+        ) as f:
+            f.write(harness_js)
+            script_path = f.name
+
+        try:
+            res = subprocess.run(
+                [node_bin, script_path],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Headless Node harness failed for PolyGerrit file list range selection & cursor navigation:\nSTDERR:\n{res.stderr}\nSTDOUT:\n{res.stdout}",
+            )
+            self.assertIn("POLY_GERRIT_FILE_LIST_RANGE_SELECTION_OK", res.stdout)
+        finally:
+            if os.path.exists(script_path):
+                os.remove(script_path)
+
+    def test_polygerrit_magic_files_and_merge_list(self) -> None:
+        """Verifies authentic PolyGerrit magic files (/COMMIT_MSG & /MERGE_LIST),
+
+        merge commit detection, interactive reviewed checkboxes, gr-merge-list
+        viewer panel, directory tree mode compatibility, and keyboard navigation.
+        """
+        import os
+        import re
+        import subprocess
+        import tempfile
+        import shutil
+
+        node_bin = shutil.which("node")
+        if not node_bin:
+            self.skipTest("node binary not found on PATH")
+
+        template_path = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "src",
+            "templates",
+            "gerrit_ui_polygerrit.html",
+        )
+        with open(template_path, "r", encoding="utf-8") as f:
+            template_content = f.read()
+
+        # 1. Static template token checks
+        self.assertIn("function isPgMergeCommit(c, bundle)", template_content)
+        self.assertIn("function getPgMergeList(c, bundle)", template_content)
+        self.assertIn("function renderMergeListPanelHtml(c, bundle)", template_content)
+        self.assertIn("function scrollToMergeListBox(clNum)", template_content)
+        self.assertIn("function toggleMergeList(clNum)", template_content)
+        self.assertIn("function copyMergeListShas(clNum, btnEl)", template_content)
+        self.assertIn("size-merge", template_content)
+        self.assertIn("merge-list-panel", template_content)
+        self.assertIn("merge-list-table", template_content)
+
+        # 2. Extract script body
+        script_matches = re.findall(
+            r"<script\b[^>]*>(.*?)</script>", template_content, re.DOTALL
+        )
+        self.assertTrue(len(script_matches) > 0, "No <script> blocks found in template")
+        js_body = "\n".join(script_matches)
+
+        harness_js = """
+const assert = require("node:assert/strict");
+
+function makeMockEl(tagName = "div") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  return {
+    tagName: tagName.toUpperCase(),
+    value: "",
+    textContent: "",
+    disabled: false,
+    checked: false,
+    style: {},
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+        } else if (force) {
+          classes.add(c);
+        } else {
+          classes.delete(c);
+        }
+      },
+      contains(c) { return classes.has(c); }
+    },
+    getAttribute(k) { return attrs[k] || null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    appendChild(c) { children.push(c); return c; },
+    querySelectorAll(sel) { return []; },
+    querySelector(sel) { return null; },
+    addEventListener() {},
+    focus() {},
+    scrollIntoView() {}
+  };
+}
+
+let lastToastMessage = "";
+globalThis.showToast = (msg) => { lastToastMessage = String(msg); };
+
+const domElements = new Map();
+globalThis.document = {
+  body: makeMockEl("body"),
+  getElementById(id) {
+    if (!domElements.has(id)) {
+      const el = makeMockEl("div");
+      el.id = id;
+      domElements.set(id, el);
+    }
+    return domElements.get(id);
+  },
+  querySelector(sel) { return null; },
+  querySelectorAll(sel) { return []; }
+};
+
+const storage = {};
+globalThis.window = {
+  innerWidth: 1440,
+  localStorage: {
+    getItem(k) { return Object.prototype.hasOwnProperty.call(storage, k) ? storage[k] : null; },
+    setItem(k, v) { storage[k] = String(v); },
+    removeItem(k) { delete storage[k]; }
+  }
+};
+""" + js_body + """
+// 1. Verify isPgMergeCommit detection
+const normalCl = { number: 7001, patch_set: 1, subject: "feat: Normal change" };
+const normalBundle = { patch_set: 1, files: [{ file: "main.cc" }] };
+assert.strictEqual(isPgMergeCommit(normalCl, normalBundle), false, "Normal CL is not a merge commit");
+
+const mergeClByParents = {
+  number: 7002,
+  patch_set: 2,
+  subject: "Merge branch 'release' into main",
+  parents: ["11111111", "22222222"]
+};
+assert.strictEqual(isPgMergeCommit(mergeClByParents, null), true, "Multiple parents indicates merge commit");
+
+const mergeClByFlag = { number: 7003, patch_set: 1, is_merge_commit: true };
+assert.strictEqual(isPgMergeCommit(mergeClByFlag, null), true, "is_merge_commit flag indicates merge commit");
+
+const mergeBundleByFiles = { patch_set: 1, files: [{ file: "/MERGE_LIST" }, { file: "main.cc" }] };
+assert.strictEqual(isPgMergeCommit(null, mergeBundleByFiles), true, "Bundle containing /MERGE_LIST indicates merge commit");
+
+// 2. Verify getPgMergeList extraction with Unicode subjects
+const unicodeMergeList = [
+  { commit: "abcdef123456", author: { name: "Author 1" }, date: "2 hours ago", subject: "Commit 1: 测试_🚀_é" },
+  { commit: "9876543210fe", author: { name: "Author 2" }, date: "1 day ago", subject: "Commit 2: Regular fix" }
+];
+const mergeClWithList = {
+  number: 7004,
+  patch_set: 1,
+  is_merge_commit: true,
+  merge_list: unicodeMergeList
+};
+const extractedList = getPgMergeList(mergeClWithList, null);
+assert.strictEqual(extractedList.length, 2);
+assert.strictEqual(extractedList[0].subject, "Commit 1: 测试_🚀_é");
+assert.strictEqual(extractedList[0].commit, "abcdef123456");
+
+// Synthesizing from extra parents
+const synthesizedList = getPgMergeList({ number: 7005, parents: ["base_parent", "merged_parent_sha"] }, null);
+assert.strictEqual(synthesizedList.length, 1);
+assert.strictEqual(synthesizedList[0].commit, "merged_parent_sha");
+
+// 3. Verify renderPgFileListHtml for normal change (/COMMIT_MSG with reviewed checkbox, no /MERGE_LIST)
+state.selectedPatchsetByCl = {};
+const normalTableHtml = renderPgFileListHtml(normalCl, normalBundle);
+assert.ok(normalTableHtml.includes("pg-magic-file-row"), "Table must contain magic file row");
+assert.ok(normalTableHtml.includes('data-file="/COMMIT_MSG"'), "Table must contain /COMMIT_MSG row");
+assert.ok(normalTableHtml.includes('class="pg-file-reviewed-cb" data-cl="7001" data-ps="1" data-file="/COMMIT_MSG"'), "/COMMIT_MSG must have reviewed checkbox");
+assert.ok(normalTableHtml.includes('size-msg'), "/COMMIT_MSG must have MSG size badge");
+assert.strictEqual(normalTableHtml.includes("/MERGE_LIST"), false, "Normal change must not display /MERGE_LIST");
+
+// 4. Verify renderPgFileListHtml for merge change (both /COMMIT_MSG and /MERGE_LIST present)
+const mergeBundle = {
+  patch_set: 1,
+  files: [{ file: "code.cc", additions: 10, deletions: 2, status: "M" }],
+  merge_list: unicodeMergeList
+};
+const mergeTableHtml = renderPgFileListHtml(mergeClWithList, mergeBundle);
+assert.ok(mergeTableHtml.includes('data-file="/COMMIT_MSG"'), "Merge change must contain /COMMIT_MSG row");
+assert.ok(mergeTableHtml.includes('data-file="/MERGE_LIST"'), "Merge change must contain /MERGE_LIST row");
+assert.ok(mergeTableHtml.includes('class="pg-file-reviewed-cb" data-cl="7004" data-ps="1" data-file="/MERGE_LIST"'), "/MERGE_LIST must have reviewed checkbox");
+assert.ok(mergeTableHtml.includes('size-merge'), "/MERGE_LIST must have MERGE size badge");
+assert.ok(mergeTableHtml.includes('2 commits'), "/MERGE_LIST must display commit count in delta cell");
+assert.ok(mergeTableHtml.includes('Merge List'), "/MERGE_LIST must display description");
+
+// 5. Verify directory tree view renders /COMMIT_MSG and /MERGE_LIST at the top
+setPgFileTreeMode(7004, true);
+assert.strictEqual(getPgFileTreeMode(7004), true);
+const treeTableHtml = renderPgFileListHtml(mergeClWithList, mergeBundle);
+assert.ok(treeTableHtml.includes('data-file="/COMMIT_MSG"'), "Tree mode must contain /COMMIT_MSG row");
+assert.ok(treeTableHtml.includes('data-file="/MERGE_LIST"'), "Tree mode must contain /MERGE_LIST row");
+setPgFileTreeMode(7004, false);
+
+// 6. Verify renderMergeListPanelHtml viewer component
+const panelHtml = renderMergeListPanelHtml(mergeClWithList, mergeBundle);
+assert.ok(panelHtml.includes('id="mergeListPanel-7004"'), "Merge list panel must have id");
+assert.ok(panelHtml.includes('class="commit-msg-title"'), "Merge list panel must have title bar");
+assert.ok(panelHtml.includes('🔀 Merge List'), "Merge list panel must display icon and title");
+assert.ok(panelHtml.includes('2 commits'), "Merge list panel must show commit count");
+assert.ok(panelHtml.includes('merge-list-table'), "Merge list panel must have table");
+assert.ok(panelHtml.includes('abcdef12'), "Merge list panel must display short SHA");
+assert.ok(panelHtml.includes('Author 1'), "Merge list panel must display author");
+assert.ok(panelHtml.includes('Commit 1: 测试_🚀_é'), "Merge list panel must display Unicode subject");
+assert.ok(panelHtml.includes('btnCopyMergeList-7004'), "Merge list panel must have Copy SHAs button");
+
+// 7. Verify collapse / expand lifecycle for merge list panel
+assert.strictEqual(isMergeListCollapsed(7004), false);
+toggleMergeList(7004);
+assert.strictEqual(isMergeListCollapsed(7004), true);
+toggleMergeList(7004);
+assert.strictEqual(isMergeListCollapsed(7004), false);
+uncollapseMergeList(7004);
+assert.strictEqual(isMergeListCollapsed(7004), false);
+
+// 8. Verify copyMergeListShas
+state.changes = [mergeClWithList];
+state.diffsByCl = { 7004: mergeBundle };
+const copyBtn = makeMockEl("button");
+copyMergeListShas(7004, copyBtn);
+assert.strictEqual(copyBtn.innerHTML, "✓ Copied");
+assert.ok(lastToastMessage.includes("Copied 2 merged commit SHA(s)"));
+
+// 9. Verify getPgAllVisibleFiles includes magic files
+const allFiles = getPgAllVisibleFiles(7004);
+assert.ok(allFiles.includes("/COMMIT_MSG"), "getPgAllVisibleFiles must include /COMMIT_MSG");
+assert.ok(allFiles.includes("/MERGE_LIST"), "getPgAllVisibleFiles must include /MERGE_LIST");
+assert.ok(allFiles.includes("code.cc"), "getPgAllVisibleFiles must include code files");
+assert.strictEqual(allFiles[0], "/COMMIT_MSG");
+assert.strictEqual(allFiles[1], "/MERGE_LIST");
+
+// 10. Verify filter matching for /MERGE_LIST
+assert.strictEqual(matchesPgFileFilter("/MERGE_LIST", "merge"), true);
+assert.strictEqual(matchesPgFileFilter("/MERGE_LIST", "list"), true);
+assert.strictEqual(matchesPgFileFilter("/MERGE_LIST", "mergelist"), true);
+assert.strictEqual(matchesPgFileFilter("/MERGE_LIST", "status:m"), true);
+assert.strictEqual(matchesPgFileFilter("/MERGE_LIST", "is:modified"), true);
+assert.strictEqual(matchesPgFileFilter("/MERGE_LIST", "unrelated_xyz"), false);
+
+// 11. Verify reviewed status toggle for /COMMIT_MSG and /MERGE_LIST
+setPgFileReviewed(7004, 1, "/COMMIT_MSG", true);
+assert.strictEqual(isPgFileReviewed(7004, 1, "/COMMIT_MSG"), true);
+setPgFileReviewed(7004, 1, "/COMMIT_MSG", false);
+assert.strictEqual(isPgFileReviewed(7004, 1, "/COMMIT_MSG"), false);
+
+setPgFileReviewed(7004, 1, "/MERGE_LIST", true);
+assert.strictEqual(isPgFileReviewed(7004, 1, "/MERGE_LIST"), true);
+setPgFileReviewed(7004, 1, "/MERGE_LIST", false);
+assert.strictEqual(isPgFileReviewed(7004, 1, "/MERGE_LIST"), false);
+
+console.log("POLYGERRIT_MAGIC_FILES_AND_MERGE_LIST_OK");
+"""
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", encoding="utf-8", delete=False
+        ) as f:
+            f.write(harness_js)
+            script_path = f.name
+
+        try:
+            res = subprocess.run(
+                [node_bin, script_path],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Headless Node harness failed for PolyGerrit magic files & merge list:\nSTDERR:\n{res.stderr}\nSTDOUT:\n{res.stdout}",
+            )
+            self.assertIn("POLYGERRIT_MAGIC_FILES_AND_MERGE_LIST_OK", res.stdout)
+        finally:
+            if os.path.exists(script_path):
+                os.remove(script_path)
+
+    def test_polygerrit_diff_header_nav_and_renamed_files(self):
+        """Verifies PolyGerrit Diff Header navigation, copy path action, renamed files tracking, and sticky controls."""
+        from commands.gerrit.services.diff_parser import get_gerrit_ui_template_path
+
+        tpl_path = get_gerrit_ui_template_path("polygerrit")
+        self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
+        html = tpl_path.read_text(encoding="utf-8")
+
+        # 1. Verify static template DOM tokens and CSS classes
+        self.assertIn("pg-file-pos-pill", html)
+        self.assertIn("pg-diff-nav-group", html)
+        self.assertIn("pg-btn-diff-nav", html)
+        self.assertIn("btn-diff-prev", html)
+        self.assertIn("btn-diff-next", html)
+        self.assertIn("btn-diff-up", html)
+        self.assertIn("pg-btn-copy-file-path", html)
+        self.assertIn("pg-file-copy-btn", html)
+        self.assertIn("pg-file-renamed-tag", html)
+        self.assertIn("pg-file-renamed-sub", html)
+        self.assertIn("function getPgFileOldPath", html)
+        self.assertIn("function copyPgFilePath", html)
+        self.assertIn("window.copyPgFilePath = copyPgFilePath;", html)
+        self.assertIn("window.getPgFileOldPath = getPgFileOldPath;", html)
+
+        # 2. Headless Node/VM DOM harness verification
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, re.DOTALL)
+        self.assertTrue(scripts)
+        js_body = (
+            scripts[-1]
+            .replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+            .replace("\n  initApp();", "\n  // initApp();")
+        )
+
+        harness_prefix = """const assert = require("assert");
+
+function makeMockEl(tag = "div") {
+  const classes = new Set();
+  const attrs = {};
+  const children = [];
+  return {
+    tagName: tag.toUpperCase(),
+    id: "",
+    className: "",
+    children,
+    parentNode: null,
+    style: {},
+    classList: {
+      add(...cs) { cs.forEach(c => classes.add(c)); },
+      remove(...cs) { cs.forEach(c => classes.delete(c)); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+        } else if (force) {
+          classes.add(c);
+        } else {
+          classes.delete(c);
+        }
+      },
+      contains(c) { return classes.has(c); }
+    },
+    getAttribute(k) { return attrs[k] || null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    appendChild(c) { children.push(c); return c; },
+    querySelectorAll(sel) { return []; },
+    querySelector(sel) { return null; },
+    addEventListener() {},
+    focus() {},
+    scrollIntoView() {}
+  };
+}
+
+let lastToastMessage = "";
+globalThis.showToast = (msg) => { lastToastMessage = String(msg); };
+
+let copiedClipboardText = "";
+const mockClipboard = {
+  writeText: async (text) => {
+    copiedClipboardText = String(text || "");
+    return Promise.resolve();
+  }
+};
+
+const domElements = new Map();
+globalThis.document = {
+  body: makeMockEl("body"),
+  getElementById(id) {
+    if (!domElements.has(id)) {
+      const el = makeMockEl("div");
+      el.id = id;
+      domElements.set(id, el);
+    }
+    return domElements.get(id);
+  },
+  querySelector(sel) { return null; },
+  querySelectorAll(sel) { return []; },
+  addEventListener() {},
+  createElement(tag) { return makeMockEl(tag); }
+};
+
+const storage = {};
+globalThis.window = {
+  innerWidth: 1440,
+  navigator: { clipboard: mockClipboard },
+  localStorage: {
+    getItem(k) { return Object.prototype.hasOwnProperty.call(storage, k) ? storage[k] : null; },
+    setItem(k, v) { storage[k] = String(v); },
+    removeItem(k) { delete storage[k]; }
+  }
+};
+globalThis.navigator = globalThis.window.navigator;
+globalThis.localStorage = globalThis.window.localStorage;
+globalThis.state = {
+  selectedClNumber: 8001,
+  diffsByCl: {},
+  focusedFileByCl: {},
+  activeFileByCl: {},
+  pgFileQueryFilterByCl: {},
+  presubmitTargetsByCl: {},
+};
+"""
+
+        harness_suffix = """
+showToast = function(msg) {
+  lastToastMessage = String(msg || "");
+};
+
+// 1. Verify getPgFileOldPath with various formats and Unicode
+const normalFile = { file: "emulator/libs/file.cc" };
+assert.strictEqual(getPgFileOldPath(normalFile), "");
+
+const renamedFile1 = { file: "gpu/vulkan/driver.cc", old_path: "gpu/legacy/driver_测试_🚀_é.cc" };
+assert.strictEqual(getPgFileOldPath(renamedFile1), "gpu/legacy/driver_测试_🚀_é.cc");
+
+const renamedFile2 = { file: "net/socket.cc", oldPath: "old_net/socket.cc" };
+assert.strictEqual(getPgFileOldPath(renamedFile2), "old_net/socket.cc");
+
+const renamedFile3 = { file: "audio/pcm.c", old_file: "audio/old_pcm.c" };
+assert.strictEqual(getPgFileOldPath(renamedFile3), "audio/old_pcm.c");
+
+const renamedFile4 = { file: "ui/window.cc", status: "R", backup_path: "ui/old_window.cc" };
+assert.strictEqual(getPgFileOldPath(renamedFile4), "ui/old_window.cc");
+
+// 2. Verify getPgFileStatus detection of renames
+assert.strictEqual(getPgFileStatus(normalFile), "M");
+assert.strictEqual(getPgFileStatus(renamedFile1), "R");
+assert.strictEqual(getPgFileStatus(renamedFile2), "R");
+assert.strictEqual(getPgFileStatus({ file: "new.txt", additions: 5, deletions: 0, lines: [{ type: "add" }] }), "A");
+assert.strictEqual(getPgFileStatus({ file: "del.txt", additions: 0, deletions: 5, lines: [{ type: "del" }] }), "D");
+
+// 3. Verify matchesPgFileFilter with oldPath matching
+const metaRenamed = {
+  status: "R",
+  oldPath: "gpu/legacy/driver_测试_🚀_é.cc",
+};
+assert.strictEqual(matchesPgFileFilter("gpu/vulkan/driver.cc", "vulkan", metaRenamed), true);
+assert.strictEqual(matchesPgFileFilter("gpu/vulkan/driver.cc", "legacy", metaRenamed), true);
+assert.strictEqual(matchesPgFileFilter("gpu/vulkan/driver.cc", "测试", metaRenamed), true);
+assert.strictEqual(matchesPgFileFilter("gpu/vulkan/driver.cc", "is:renamed", metaRenamed), true);
+assert.strictEqual(matchesPgFileFilter("gpu/vulkan/driver.cc", "status:r", metaRenamed), true);
+assert.strictEqual(matchesPgFileFilter("gpu/vulkan/driver.cc", "audio_codec", metaRenamed), false);
+
+// 4. Verify copyPgFilePath clipboard action
+lastToastMessage = "";
+copiedClipboardText = "";
+copyPgFilePath(null, "hardware/google/aemu/测试_🚀_é.cc");
+assert.strictEqual(copiedClipboardText, "hardware/google/aemu/测试_🚀_é.cc");
+assert.ok(lastToastMessage.includes('Copied "hardware/google/aemu/测试_🚀_é.cc" to clipboard'));
+
+// 5. Verify renderFileDiffBlock with navInfo and renamed file
+const f1 = {
+  file: "hardware/gpu/driver.cc",
+  old_path: "hardware/gpu/old_driver_测试_🚀_é.cc",
+  additions: 12,
+  deletions: 3,
+  lines: [{ old: 1, new: 1, type: "ctx", text: "int main() { return 0; }" }],
+};
+const diffBlockHtml = renderFileDiffBlock(f1, 8001, 2, true, { index: 3, total: 8 });
+assert.ok(diffBlockHtml.includes('class="pg-file-pos-pill"'), "Must render file position pill");
+assert.ok(diffBlockHtml.includes('3 of 8'), "Must render '3 of 8' in position pill");
+assert.ok(diffBlockHtml.includes('class="pg-btn-copy-file-path"'), "Must render copy file path button in header");
+assert.ok(diffBlockHtml.includes('class="pg-diff-nav-group"'), "Must render in-diff nav group");
+assert.ok(diffBlockHtml.includes('btn-diff-prev'), "Must render prev diff button");
+assert.ok(diffBlockHtml.includes('btn-diff-next'), "Must render next diff button");
+assert.ok(diffBlockHtml.includes('btn-diff-up'), "Must render up to file list button");
+assert.ok(diffBlockHtml.includes('class="pg-file-renamed-tag"'), "Must render renamed tag");
+assert.ok(diffBlockHtml.includes("old_driver_测试_🚀_é.cc"), "Must include old path in renamed tag");
+assert.ok(diffBlockHtml.includes('status-R'), "Must render status-R badge");
+
+// 6. Verify renderPgFileListHtml and renderPgTreeFileRowHtml include copy button & renamed sub
+const changeObj = { number: 8001, patch_set: 2, subject: "Test change" };
+const bundleObj = {
+  patch_set: 2,
+  files: [
+    { file: "hardware/gpu/driver.cc", old_path: "hardware/gpu/old_driver_测试_🚀_é.cc", additions: 12, deletions: 3 },
+    { file: "hardware/net/nic.cc", additions: 5, deletions: 0 }
+  ]
+};
+const fileListTableHtml = renderPgFileListHtml(changeObj, bundleObj);
+assert.ok(fileListTableHtml.includes('class="pg-file-copy-btn"'), "File list table must include 1-click copy button");
+assert.ok(fileListTableHtml.includes('class="pg-file-renamed-sub"'), "File list table must include renamed subtitle");
+assert.ok(fileListTableHtml.includes("renamed from hardware/gpu/old_driver_测试_🚀_é.cc"), "Must mention old path");
+
+const treeRowHtml = renderPgTreeFileRowHtml(changeObj, bundleObj.files[0], true, 2, new Set(), false, false);
+assert.ok(treeRowHtml.includes('class="pg-file-copy-btn"'), "Tree file row must include 1-click copy button");
+assert.ok(treeRowHtml.includes('class="pg-file-renamed-sub"'), "Tree file row must include renamed subtitle");
+
+// 7. Verify navigatePgFileDiff stepping
+const b1 = makeMockEl("div");
+b1.setAttribute("data-cl", "8001");
+b1.setAttribute("data-ps", "2");
+b1.setAttribute("data-file", "f1.cc");
+b1.classList.add("pg-file-diff-block");
+
+const b2 = makeMockEl("div");
+b2.setAttribute("data-cl", "8001");
+b2.setAttribute("data-ps", "2");
+b2.setAttribute("data-file", "f2.cc");
+b2.classList.add("pg-file-diff-block");
+
+const b3 = makeMockEl("div");
+b3.setAttribute("data-cl", "8001");
+b3.setAttribute("data-ps", "2");
+b3.setAttribute("data-file", "f3.cc");
+b3.classList.add("pg-file-diff-block");
+
+const mockContainer = makeMockEl("div");
+mockContainer.classList.add("pg-change-view");
+mockContainer.querySelectorAll = (sel) => [b1, b2, b3];
+
+globalThis.document.querySelector = (sel) => {
+  if (sel === ".pg-change-view") return mockContainer;
+  return null;
+};
+
+// Navigate from f1.cc to next -> f2.cc
+navigatePgFileDiff("next", "f1.cc");
+assert.strictEqual(state.activeFileByCl[8001], "f2.cc");
+
+// Navigate from f2.cc to next -> f3.cc
+navigatePgFileDiff("next", "f2.cc");
+assert.strictEqual(state.activeFileByCl[8001], "f3.cc");
+
+// Navigate from f3.cc to next -> at last file diff
+lastToastMessage = "";
+navigatePgFileDiff("next", "f3.cc");
+assert.strictEqual(lastToastMessage, "At last file diff");
+
+// Navigate from f2.cc to prev -> f1.cc
+navigatePgFileDiff("prev", "f2.cc");
+assert.strictEqual(state.activeFileByCl[8001], "f1.cc");
+
+// Navigate from f1.cc to prev -> jumps to File List
+lastToastMessage = "";
+navigatePgFileDiff("prev", "f1.cc");
+assert.ok(lastToastMessage.includes("jumped to File List"));
+
+console.log("POLYGERRIT_DIFF_HEADER_NAV_AND_RENAMED_FILES_OK");
+"""
+
+        harness_js = harness_prefix + js_body + harness_suffix
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".js", encoding="utf-8", delete=False
+        ) as f:
+            f.write(harness_js)
+            script_path = f.name
+
+        try:
+            res = subprocess.run(
+                [node_bin, script_path],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+            self.assertEqual(
+                res.returncode,
+                0,
+                f"Headless Node harness failed for PolyGerrit diff header nav and renamed files:\nSTDERR:\n{res.stderr}\nSTDOUT:\n{res.stdout}",
+            )
+            self.assertIn("POLYGERRIT_DIFF_HEADER_NAV_AND_RENAMED_FILES_OK", res.stdout)
+        finally:
+            if os.path.exists(script_path):
+                os.remove(script_path)
 
 
 if __name__ == "__main__":

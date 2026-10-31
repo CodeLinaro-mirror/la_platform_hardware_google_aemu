@@ -107,6 +107,8 @@ cc_binary(
     py_test(
         name = f.replace("tests/", "").replace("/", "_").replace(".py", ""),
         srcs = [f],
+        data = ["@rules_nodejs//nodejs:current_node_toolchain"] if f == "tests/gerrit_ui_test.py" else [],
+        env = {"NODE_BIN": "$(NODE_PATH)"} if f == "tests/gerrit_ui_test.py" else {},
         # do not sort
         imports = [
             "src",
@@ -114,6 +116,7 @@ cc_binary(
             "workflows",
         ],
         tags = ["manual"] if "benchmark" in f else [],
+        toolchains = ["@rules_nodejs//nodejs:current_node_toolchain"] if f == "tests/gerrit_ui_test.py" else [],
         deps = [
             ":emu_dev_cli_lib",
         ],
