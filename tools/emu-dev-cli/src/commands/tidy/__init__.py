@@ -15,13 +15,20 @@
 """Tidy management and automated remediation commands for emu-dev-cli."""
 
 import argparse
-from typing import Optional
+from typing import Any, Optional
+
+from core.command import Command, CommandGroup, CommandResult
+from core.context import ExecutionContext
 
 from .add_cmd import handle_tidy_add
 from .check_cmd import handle_tidy_check
 from .fix_cmd import handle_tidy_fix
 
 __all__ = [
+    "TidyCommand",
+    "TidyCheckCommand",
+    "TidyFixCommand",
+    "TidyAddCommand",
     "register_parser",
     "handle_tidy_check",
     "handle_tidy_fix",
@@ -107,153 +114,188 @@ LEVEL_CHOICES = [
 
 def register_parser(subparsers: argparse._SubParsersAction) -> None:
     """Registers the tidy top-level command and its subcommands."""
-    tidy_parser = subparsers.add_parser(
-        "tidy",
-        help="Clang-tidy analysis, progressive remediation, and rule generation",
-        description="Inspect, level-up, and automatically remediate clang-tidy diagnostics across emulator modules.",
-        epilog=_AGENT_HELP_EPILOG,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+    TidyCommand().register(subparsers)
+
+
+class TidyCheckCommand(Command[argparse.Namespace, Any]):
+    """Scans and checks clang-tidy diagnostics for a target or git diff."""
+
+    name = "check"
+    help_text = "Scan and check clang-tidy diagnostics for a target or git diff"
+    description = "Scan targets or modified files and output diagnostic tables or structured JSON."
+    epilog = _CHECK_EPILOG
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "target",
+            nargs="?",
+            default=None,
+            help="Bazel tidy report or library target to analyze (e.g. @goldfish//emulator/libs/async:tidy)",
+        )
+        parser.add_argument(
+            "--diff",
+            action="store_true",
+            help="Filter checks strictly to files modified in current git diff",
+        )
+        parser.add_argument(
+            "--file",
+            type=str,
+            help="Path to a specific source file to filter diagnostics for",
+        )
+        parser.add_argument(
+            "--level",
+            default="4",
+            choices=LEVEL_CHOICES,
+            metavar="LEVEL",
+            help="Severity level to scan: 4/public/all (full scan for presubmit confidence, default), 3/types, 2/local, 1/safe",
+        )
+        parser.add_argument(
+            "--checks",
+            type=str,
+            help="Custom clang-tidy checks filter string (e.g. 'modernize-*,misc-*')",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: Optional[ExecutionContext] = None
+    ) -> CommandResult:
+        res = handle_tidy_check(args)
+        if isinstance(res, CommandResult):
+            return res
+        return CommandResult.success(action="tidy check")
+
+
+class TidyFixCommand(Command[argparse.Namespace, Any]):
+    """Runs multi-tier closed-loop automated remediation and test verification."""
+
+    name = "fix"
+    help_text = "Run multi-tier closed-loop automated remediation and test verification"
+    description = "Apply deterministic compiler fixes, semantic renames, and AI repairs with fastbuild verification."
+    epilog = _FIX_EPILOG
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "target",
+            nargs="?",
+            default=None,
+            help="Bazel tidy target to remediate (e.g. @goldfish//emulator/libs/async:tidy)",
+        )
+        parser.add_argument(
+            "--level",
+            default="4",
+            choices=LEVEL_CHOICES,
+            metavar="LEVEL",
+            help="Check level to remediate: safe/1 (localized), local/2 (local renames), types/3 (types), public/4 (full)",
+        )
+        parser.add_argument(
+            "--checks",
+            type=str,
+            help="Custom clang-tidy checks filter string (e.g. 'modernize-*,misc-*')",
+        )
+        parser.add_argument(
+            "--model",
+            type=str,
+            default="auto",
+            choices=["auto", "pro", "flash", "flash_lite"],
+            help="AI model tier to use: 'auto' (escalate from flash to pro), 'pro', or 'flash'",
+        )
+        parser.add_argument(
+            "--continue",
+            dest="continue_tx",
+            action="store_true",
+            help="Resume an in-flight refactoring transaction from the active Git log state",
+        )
+        parser.add_argument(
+            "--abort",
+            action="store_true",
+            help="Abort the current transaction and roll back working tree to the baseline anchor commit",
+        )
+        parser.add_argument(
+            "--status",
+            action="store_true",
+            help="Inspect and display active in-flight refactoring transaction state",
+        )
+        parser.add_argument(
+            "--test",
+            type=str,
+            help="Optional Bazel test target to run for regression verification (e.g. @goldfish//emulator/libs/async:async_test)",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Preview proposed fixes without applying modifications to files",
+        )
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Proceed even if uncommitted git changes exist in the working tree",
+        )
+        parser.add_argument(
+            "--upload",
+            action="store_true",
+            help="Create a clean git commit and upload to Gerrit (repo upload . --cbr -y)",
+        )
+        parser.add_argument(
+            "--bug",
+            type=str,
+            help="Buganizer issue ID to attach to the commit message (Bug: <id>)",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: Optional[ExecutionContext] = None
+    ) -> CommandResult:
+        res = handle_tidy_fix(args)
+        if isinstance(res, CommandResult):
+            return res
+        return CommandResult.success(action="tidy fix")
+
+
+class TidyAddCommand(Command[argparse.Namespace, Any]):
+    """Injects or configures clang_tidy_test rules in BUILD.bazel."""
+
+    name = "add"
+    help_text = "Inject or configure clang_tidy_test rules in BUILD.bazel"
+    description = (
+        "Automatically inspect a BUILD.bazel file or package directory and append a valid "
+        "clang_tidy_test declaration. If --target is omitted, all cc_library, cc_binary, "
+        "and cc_test targets in the package are included automatically."
+    )
+    epilog = (
+        "Examples:\n"
+        "  # Auto-discover and add all C++ targets in package\n"
+        "  emu-dev-cli tidy add emulator/libs/sockets\n\n"
+        "  # Add specific target(s)\n"
+        "  emu-dev-cli tidy add emulator/libs/sockets --target sockets"
     )
 
-    tidy_subparsers = tidy_parser.add_subparsers(
-        dest="tidy_subcommand", help="Available tidy subcommands"
-    )
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "path",
+            type=str,
+            help="Path to the target BUILD.bazel file or package directory to update",
+        )
+        parser.add_argument(
+            "--target",
+            type=str,
+            action="append",
+            dest="targets",
+            help="Specific target name(s) to include in clang_tidy_test (defaults to all C++ targets in package if omitted)",
+        )
 
-    # 1. emu-dev-cli tidy check
-    check_parser = tidy_subparsers.add_parser(
-        "check",
-        help="Scan and check clang-tidy diagnostics for a target or git diff",
-        description="Scan targets or modified files and output diagnostic tables or structured JSON.",
-        epilog=_CHECK_EPILOG,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    check_parser.add_argument(
-        "target",
-        nargs="?",
-        default=None,
-        help="Bazel tidy report or library target to analyze (e.g. @goldfish//emulator/libs/async:tidy)",
-    )
-    check_parser.add_argument(
-        "--diff",
-        action="store_true",
-        help="Filter checks strictly to files modified in current git diff",
-    )
-    check_parser.add_argument(
-        "--file",
-        type=str,
-        help="Path to a specific source file to filter diagnostics for",
-    )
-    check_parser.add_argument(
-        "--level",
-        default="4",
-        choices=LEVEL_CHOICES,
-        metavar="LEVEL",
-        help="Severity level to scan: 4/public/all (full scan for presubmit confidence, default), 3/types, 2/local, 1/safe",
-    )
+    def execute(
+        self, args: argparse.Namespace, ctx: Optional[ExecutionContext] = None
+    ) -> CommandResult:
+        res = handle_tidy_add(args)
+        if isinstance(res, CommandResult):
+            return res
+        return CommandResult.success(action="tidy add")
 
-    check_parser.add_argument(
-        "--checks",
-        type=str,
-        help="Custom clang-tidy checks filter string (e.g. 'modernize-*,misc-*')",
-    )
-    check_parser.set_defaults(func=handle_tidy_check)
 
-    # 2. emu-dev-cli tidy fix
-    fix_parser = tidy_subparsers.add_parser(
-        "fix",
-        help="Run multi-tier closed-loop automated remediation and test verification",
-        description="Apply deterministic compiler fixes, semantic renames, and AI repairs with fastbuild verification.",
-        epilog=_FIX_EPILOG,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+class TidyCommand(CommandGroup):
+    """Top-level command group for clang-tidy analysis and remediation."""
 
-    fix_parser.add_argument(
-        "target",
-        nargs="?",
-        default=None,
-        help="Bazel tidy target to remediate (e.g. @goldfish//emulator/libs/async:tidy)",
-    )
-    fix_parser.add_argument(
-        "--level",
-        default="4",
-        choices=LEVEL_CHOICES,
-        metavar="LEVEL",
-        help="Check level to remediate: safe/1 (localized), local/2 (local renames), types/3 (types), public/4 (full)",
-    )
-    fix_parser.add_argument(
-        "--checks",
-        type=str,
-        help="Custom clang-tidy checks filter string (e.g. 'modernize-*,misc-*')",
-    )
-
-    fix_parser.add_argument(
-        "--model",
-        type=str,
-        default="auto",
-        choices=["auto", "pro", "flash", "flash_lite"],
-        help="AI model tier to use: 'auto' (escalate from flash to pro), 'pro', or 'flash'",
-    )
-    fix_parser.add_argument(
-        "--continue",
-        dest="continue_tx",
-        action="store_true",
-        help="Resume an in-flight refactoring transaction from the active Git log state",
-    )
-    fix_parser.add_argument(
-        "--abort",
-        action="store_true",
-        help="Abort the current transaction and roll back working tree to the baseline anchor commit",
-    )
-    fix_parser.add_argument(
-        "--status",
-        action="store_true",
-        help="Inspect and display active in-flight refactoring transaction state",
-    )
-    fix_parser.add_argument(
-        "--test",
-        type=str,
-        help="Optional Bazel test target to run for regression verification (e.g. @goldfish//emulator/libs/async:async_test)",
-    )
-    fix_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Preview proposed fixes without applying modifications to files",
-    )
-    fix_parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Proceed even if uncommitted git changes exist in the working tree",
-    )
-    fix_parser.add_argument(
-        "--upload",
-        action="store_true",
-        help="Create a clean git commit and upload to Gerrit (repo upload . --cbr -y)",
-    )
-    fix_parser.add_argument(
-        "--bug",
-        type=str,
-        help="Buganizer issue ID to attach to the commit message (Bug: <id>)",
-    )
-    fix_parser.set_defaults(func=handle_tidy_fix)
-
-    # 3. emu-dev-cli tidy add
-    add_parser = tidy_subparsers.add_parser(
-        "add",
-        help="Inject or configure clang_tidy_test rules in BUILD.bazel",
-        description="Automatically inspect a BUILD.bazel file or package directory and append a valid clang_tidy_test declaration. If --target is omitted, all cc_library, cc_binary, and cc_test targets in the package are included automatically.",
-        epilog="Examples:\n  # Auto-discover and add all C++ targets in package\n  emu-dev-cli tidy add emulator/libs/sockets\n\n  # Add specific target(s)\n  emu-dev-cli tidy add emulator/libs/sockets --target sockets",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    add_parser.add_argument(
-        "path",
-        type=str,
-        help="Path to the target BUILD.bazel file or package directory to update",
-    )
-    add_parser.add_argument(
-        "--target",
-        type=str,
-        action="append",
-        dest="targets",
-        help="Specific target name(s) to include in clang_tidy_test (defaults to all C++ targets in package if omitted)",
-    )
-    add_parser.set_defaults(func=handle_tidy_add)
+    name = "tidy"
+    help_text = "Clang-tidy analysis, progressive remediation, and rule generation"
+    description = "Inspect, level-up, and automatically remediate clang-tidy diagnostics across emulator modules."
+    epilog = _AGENT_HELP_EPILOG
+    subcommand_dest = "tidy_subcommand"
+    subcommands = [TidyCheckCommand(), TidyFixCommand(), TidyAddCommand()]

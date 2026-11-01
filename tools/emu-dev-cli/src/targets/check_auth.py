@@ -14,29 +14,42 @@
 
 """Target handler for 'emu-dev-cli fetch-build check-auth'."""
 
+import argparse
+from typing import Any, Optional
+
 from clients.artifact_service import check_authentication_status
+from core.command import Command, CommandResult
+from core.context import ExecutionContext
 from lib.output import print_result
 
 
+class FetchCheckAuthCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Verifies that Android Build API authentication file exists and works."""
+
+    name = "check-auth"
+    help = "Verify that Android Build API authentication file exists and works"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--token",
+            type=str,
+            default=None,
+            help="Explicit OAuth2 access token to test",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: Optional[ExecutionContext] = None
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_check_auth(args)
+
+
 def register_parser(subparser, default_host):
-    parser = subparser.add_parser(
-        "check-auth",
-        help="Verify that Android Build API authentication file exists and works"
-    )
-    parser.add_argument(
-        "--token",
-        type=str,
-        default=None,
-        help="Explicit OAuth2 access token to test"
-    )
-
-    def handler(args):
-        run_check_auth(args)
-
-    parser.set_defaults(func=handler)
+    del default_host
+    return FetchCheckAuthCommand().register(subparser)
 
 
-def run_check_auth(args):
+def run_check_auth(args) -> CommandResult[dict[str, Any]]:
     json_mode = getattr(args, "json", False)
     token = getattr(args, "token", None)
 
@@ -51,7 +64,7 @@ def run_check_auth(args):
         if status.get("file_path"):
             data["auth_file"] = status["file_path"]
             data["file_exists"] = status["file_exists"]
-        print_result(data, json_mode=json_mode)
+        return print_result(data, json_mode=json_mode)
     else:
         data = {
             "status": "error",
@@ -65,4 +78,4 @@ def run_check_auth(args):
         if status.get("file_path"):
             data["auth_file"] = status["file_path"]
             data["file_exists"] = status["file_exists"]
-        print_result(data, json_mode=json_mode, is_error=True)
+        return print_result(data, json_mode=json_mode, is_error=True)

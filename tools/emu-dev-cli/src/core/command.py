@@ -56,7 +56,7 @@ class CommandResult(Generic[TResult]):
     @classmethod
     def success(
         cls,
-        data: TResult,
+        data: TResult | None = None,
         *,
         summary: str = "",
         action: str = "",
@@ -104,6 +104,10 @@ class CommandResult(Generic[TResult]):
             and self.status != STATUS_ERROR
         )
 
+    def __int__(self) -> int:
+        """Returns the integer exit code of this CommandResult."""
+        return int(self.exit_code)
+
     @property
     def already_rendered(self) -> bool:
         """Returns True if a legacy command already printed its output before exiting."""
@@ -148,6 +152,7 @@ class Command(ABC, Generic[TArgs, TResult]):
     help_text: str = ""
     # Long `--help` text and its argparse formatter, used by register().
     description: str = ""
+    epilog: str = ""
     formatter_class: type[argparse.HelpFormatter] | None = None
 
     def configure_parser(self, parser: argparse.ArgumentParser) -> None:
@@ -181,8 +186,12 @@ class Command(ABC, Generic[TArgs, TResult]):
             kwargs["aliases"] = list(self.aliases)
         if self.description:
             kwargs["description"] = self.description
+        if self.epilog:
+            kwargs["epilog"] = self.epilog
         if self.formatter_class is not None:
             kwargs["formatter_class"] = self.formatter_class
+        elif self.epilog:
+            kwargs["formatter_class"] = argparse.RawDescriptionHelpFormatter
         parser = subparsers.add_parser(self.name, **kwargs)
         self.configure_parser(parser)
         self.bind_parser(parser)
@@ -221,22 +230,31 @@ class CommandGroup(Command[argparse.Namespace, Any]):
     # Namespace attribute that argparse fills with the chosen subcommand name.
     subcommand_dest: str = ""
     subcommand_help: str = ""
+    subcommands: Sequence[Command[Any, Any]] = ()
 
-    def __init__(self, subcommands: Sequence[Command[Any, Any]]) -> None:
-        self._subcommands = tuple(subcommands)
+    def __init__(
+        self, subcommands: Sequence[Command[Any, Any]] | None = None
+    ) -> None:
+        resolved = (
+            subcommands
+            if subcommands is not None
+            else getattr(self, "subcommands", ())
+        )
+        self._subcommands = tuple(resolved)
+        self.subcommands = self._subcommands
         self._by_name: dict[str, Command[Any, Any]] = {}
         for sub_cmd in self._subcommands:
             for key in (sub_cmd.name, *sub_cmd.aliases):
                 self._by_name[key] = sub_cmd
         self._parser: argparse.ArgumentParser | None = None
 
-    @property
-    def subcommands(self) -> tuple[Command[Any, Any], ...]:
-        """Returns the subcommands in registration (and `--help`) order."""
-        return self._subcommands
+    def configure_group_parser(self, parser: argparse.ArgumentParser) -> None:
+        """Optional hook to register group-level arguments before subparsers."""
+        del parser
 
     def configure_parser(self, parser: argparse.ArgumentParser) -> None:
         self._parser = parser
+        self.configure_group_parser(parser)
         subparsers = parser.add_subparsers(
             dest=self.subcommand_dest, help=self.subcommand_help
         )
@@ -272,12 +290,17 @@ class CommandGroup(Command[argparse.Namespace, Any]):
         return sub_cmd.validate(args, ctx)
 
     def execute(
-        self, args: argparse.Namespace, ctx: ExecutionContext
+        self, args: argparse.Namespace, ctx: ExecutionContext | None = None
     ) -> CommandResult[Any]:
         sub_cmd = self.resolve_subcommand(args)
         if sub_cmd is not None:
-            return sub_cmd.execute(args, ctx)
-        if ctx.config.json_mode or self._parser is None:
+            return sub_cmd.execute(args, ctx)  # type: ignore[arg-type]
+        json_mode = (
+            ctx.config.json_mode
+            if ctx is not None
+            else bool(getattr(args, "json", False))
+        )
+        if json_mode or self._parser is None:
             raise UsageError(
                 f"Missing '{self.name}' subcommand.",
                 remediation=self._usage_remediation(),

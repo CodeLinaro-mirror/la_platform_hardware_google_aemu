@@ -14,13 +14,19 @@
 
 """Emulator Performance & Profiling Command Suite ('emu-dev-cli perf')."""
 
+import argparse
 import json
 import logging
 import os
-import sys
 from typing import Any, Dict, List, Optional
 
-from core.context import detect_host_platform
+from core.command import (
+    Command,
+    CommandGroup,
+    CommandResult,
+    META_KEY_ALREADY_RENDERED,
+)
+from core.context import ExecutionContext, detect_host_platform
 from lib.output import format_markdown_table, print_result
 from lib.perf_insights import (
     DEFAULT_RUN_CACHE_DIR,
@@ -55,11 +61,11 @@ def _detect_host() -> str:
     return detect_host_platform()
 
 
-def run_perf_list(args: Any) -> None:
+def run_perf_list(args: Any) -> CommandResult[dict[str, Any]]:
     """Handles `emu-dev-cli perf list`."""
     json_mode = getattr(args, "json", False)
     if json_mode:
-        print_result(
+        return print_result(
             {
                 "status": "success",
                 "action": "perf list",
@@ -68,7 +74,6 @@ def run_perf_list(args: Any) -> None:
             },
             json_mode=True,
         )
-        return
 
     suite_headers = ["Suite (`--suite`)", "Included Workloads", "Description"]
     suite_rows = [
@@ -92,9 +97,14 @@ def run_perf_list(args: Any) -> None:
         + format_markdown_table(prof_headers, prof_rows)
     )
     print(md)
+    return CommandResult.success(
+        {"suites": BUILTIN_SUITES, "profilers": BUILTIN_PROFILERS},
+        action="perf list",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
-def run_perf_run(args: Any) -> None:
+def run_perf_run(args: Any) -> CommandResult[dict[str, Any]]:
     """Handles `emu-dev-cli perf run`."""
     json_mode = getattr(args, "json", False)
     try:
@@ -109,6 +119,7 @@ def run_perf_run(args: Any) -> None:
         iterations = int(getattr(args, "iterations", 5) or 5)
         warmup = int(getattr(args, "warmup", 1) or 1)
         boots = int(getattr(args, "boots", 1) or 1)
+        del boots
         target_spec = getattr(args, "target", None) or getattr(
             args, "emulator_dir", None
         )
@@ -156,13 +167,17 @@ def run_perf_run(args: Any) -> None:
                 json.dump(report, f, indent=2)
 
         if json_mode:
-            print_result(report, json_mode=True)
-        else:
-            print(render_single_report_markdown(report))
-            if out_path:
-                print(f"*Saved JSON report to `{out_path}`.*")
+            return print_result(report, json_mode=True)
+        print(render_single_report_markdown(report))
+        if out_path:
+            print(f"*Saved JSON report to `{out_path}`.*")
+        return CommandResult.success(
+            report,
+            action="perf run",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
     except Exception as e:
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "perf run",
@@ -217,7 +232,7 @@ def _execute_or_load_target_for_compare(
     return report
 
 
-def run_perf_compare(args: Any) -> None:
+def run_perf_compare(args: Any) -> CommandResult[dict[str, Any]]:
     """Handles `emu-dev-cli perf compare <baseline> <candidate>`.
 
     Supports comparing two saved `.json` files, two Android Build IDs (`123` vs `321`),
@@ -271,15 +286,20 @@ def run_perf_compare(args: Any) -> None:
 
         fmt = getattr(args, "format", "markdown")
         if json_mode or fmt == "json":
-            print_result(comp, json_mode=True)
-        elif fmt == "commit":
+            return print_result(comp, json_mode=True)
+        if fmt == "commit":
             print(render_comparison_commit_text(comp))
         elif fmt == "report" or report_path:
             print(render_weekly_qualification_report(comp))
         else:
             print(render_comparison_markdown(comp))
+        return CommandResult.success(
+            comp,
+            action="perf compare",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
     except Exception as e:
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "perf compare",
@@ -292,7 +312,7 @@ def run_perf_compare(args: Any) -> None:
         )
 
 
-def run_perf_history(args: Any) -> None:
+def run_perf_history(args: Any) -> CommandResult[dict[str, Any]]:
     """Handles `emu-dev-cli perf history`."""
     json_mode = getattr(args, "json", False)
     entries = load_perf_history(
@@ -300,12 +320,16 @@ def run_perf_history(args: Any) -> None:
         suite_filter=getattr(args, "suite", None),
     )
     if json_mode:
-        print_result(
+        return print_result(
             {"status": "success", "action": "perf history", "entries": entries},
             json_mode=True,
         )
-    else:
-        print(format_perf_history_markdown(entries))
+    print(format_perf_history_markdown(entries))
+    return CommandResult.success(
+        {"entries": entries},
+        action="perf history",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
 def _add_common_benchmark_arguments(
@@ -357,175 +381,207 @@ def _add_common_benchmark_arguments(
     )
 
 
-def register_parser(subparsers: Any) -> None:
+class PerfListCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Lists all built-in emulator performance suites and host/guest profilers."""
+
+    name = "list"
+    help = "List all built-in emulator performance suites and host/guest profilers"
+
+    def execute(
+        self, args: argparse.Namespace, ctx: Optional[ExecutionContext] = None
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_perf_list(args)
+
+
+class PerfRunCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Runs performance workloads and telemetry profilers."""
+
+    name = "run"
+    help = "Run performance workloads + telemetry profilers against a running or managed emulator binary"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--suite",
+            type=str,
+            default="adb",
+            help="Comma-separated suite(s) or workload(s) to run (default: 'adb'; see 'perf list')",
+        )
+        parser.add_argument(
+            "--test",
+            type=str,
+            default=None,
+            help="Optional substring filter for specific workload names (e.g. 'push_256MiB_tmpfs')",
+        )
+        parser.add_argument(
+            "--profile",
+            type=str,
+            default="proc",
+            help="Comma-separated profiler(s) to attach: proc, perf-stat, perf-record, perfetto, emu-perf-stat",
+        )
+        parser.add_argument(
+            "--serial",
+            type=str,
+            default=None,
+            help="ADB device serial when benchmarking an already-running emulator (e.g. emulator-5554)",
+        )
+        parser.add_argument(
+            "--target",
+            type=str,
+            default=None,
+            help="Target emulator binary: go/ab build ID (e.g. 15075377), 'stable', 'latest:emu-main-next', 'local', or directory",
+        )
+        parser.add_argument(
+            "--emulator-dir",
+            dest="emulator_dir",
+            type=str,
+            default=None,
+            help="Alias for --target when specifying a local extracted emulator directory",
+        )
+        _add_common_benchmark_arguments(parser, default_settle_seconds=None)
+        parser.add_argument(
+            "--trace",
+            type=str,
+            default=None,
+            help="Path to write host Perfetto trace (.pftrace) when launching a managed emulator",
+        )
+        parser.add_argument(
+            "--label",
+            type=str,
+            default=None,
+            help="Custom label for the benchmark report",
+        )
+        parser.add_argument(
+            "-o",
+            "--output",
+            type=str,
+            default=None,
+            help="Path to save full JSON benchmark report",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: Optional[ExecutionContext] = None
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_perf_run(args)
+
+
+class PerfCompareCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Compares two builds, directories, or saved JSON reports."""
+
+    name = "compare"
+    help = "Compare two builds (e.g. 'perf compare 123 321'), directories, or saved .json reports"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "baseline",
+            type=str,
+            help="Baseline target: go/ab build ID, 'stable', 'latest:emu-main-dev', directory, or .json path (supports file.json:subkey)",
+        )
+        parser.add_argument(
+            "candidate",
+            type=str,
+            help="Candidate target: go/ab build ID, 'latest:emu-main-next', directory, or .json path (supports file.json:subkey)",
+        )
+        parser.add_argument(
+            "--suite",
+            type=str,
+            default="adb-tmpfs,adb-disk",
+            help="Suites to run when comparing live builds/directories (default: 'adb-tmpfs,adb-disk')",
+        )
+        parser.add_argument(
+            "--profile",
+            type=str,
+            default="proc",
+            help="Profilers to attach when comparing live builds (proc, perf-stat, perf-record, perfetto)",
+        )
+        _add_common_benchmark_arguments(parser, default_settle_seconds=30.0)
+        parser.add_argument(
+            "--reuse-cache",
+            dest="reuse_cache",
+            action="store_true",
+            help="Reuse previously cached run results in ~/.cache/emu-dev-cli/perf_runs/ if available",
+        )
+        parser.add_argument(
+            "--labels",
+            type=str,
+            default=None,
+            help="Optional comma-separated display labels 'BaselineName,CandidateName'",
+        )
+        parser.add_argument(
+            "--format",
+            choices=["markdown", "report", "commit", "json"],
+            default="markdown",
+            help="Output format: 'markdown' (4-part scorecard), 'report' (full weekly qualification report), 'commit', or 'json'",
+        )
+        parser.add_argument(
+            "-o",
+            "--output",
+            type=str,
+            default=None,
+            help="Optional path to save comparison JSON artifact",
+        )
+        parser.add_argument(
+            "--scorecard",
+            type=str,
+            default=None,
+            help="Optional path to save the 4-part Markdown scorecard artifact",
+        )
+        parser.add_argument(
+            "--report",
+            type=str,
+            default=None,
+            help="Optional path to save the full Weekly Performance Qualification Report Markdown artifact",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: Optional[ExecutionContext] = None
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_perf_compare(args)
+
+
+class PerfHistoryCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Displays longitudinal performance history across runs and builds."""
+
+    name = "history"
+    help = "Display longitudinal performance history across runs and builds"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--limit",
+            type=int,
+            default=20,
+            help="Maximum number of recent runs to display (default: 20)",
+        )
+        parser.add_argument(
+            "--suite",
+            type=str,
+            default=None,
+            help="Filter history entries by suite name (e.g. 'adb')",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: Optional[ExecutionContext] = None
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_perf_history(args)
+
+
+class PerfCommand(CommandGroup):
+    """Parent command group for `emu-dev-cli perf`."""
+
+    name = "perf"
+    help = "Profile, benchmark, and compare emulator binaries (ADB, boot, idle, snapshot, display)"
+    subcommand_dest = "perf_cmd"
+    subcommands = (
+        PerfListCommand(),
+        PerfRunCommand(),
+        PerfCompareCommand(),
+        PerfHistoryCommand(),
+    )
+
+
+def register_parser(subparsers: Any) -> argparse.ArgumentParser:
     """Registers the `perf` command and its subcommands (`list`, `run`, `compare`, `history`)."""
-    perf_parser = subparsers.add_parser(
-        "perf",
-        help="Profile, benchmark, and compare emulator binaries (ADB, boot, idle, snapshot, display)",
-    )
-    perf_sub = perf_parser.add_subparsers(
-        dest="perf_cmd", help="Performance subcommands"
-    )
-
-    def _help(args: Any) -> None:
-        perf_parser.print_help()
-        sys.exit(0)
-
-    perf_parser.set_defaults(func=_help)
-
-    # 1. perf list
-    list_p = perf_sub.add_parser(
-        "list",
-        help="List all built-in emulator performance suites and host/guest profilers",
-    )
-    list_p.set_defaults(func=run_perf_list)
-
-    # 2. perf run
-    run_p = perf_sub.add_parser(
-        "run",
-        help="Run performance workloads + telemetry profilers against a running or managed emulator binary",
-    )
-    run_p.add_argument(
-        "--suite",
-        type=str,
-        default="adb",
-        help="Comma-separated suite(s) or workload(s) to run (default: 'adb'; see 'perf list')",
-    )
-    run_p.add_argument(
-        "--test",
-        type=str,
-        default=None,
-        help="Optional substring filter for specific workload names (e.g. 'push_256MiB_tmpfs')",
-    )
-    run_p.add_argument(
-        "--profile",
-        type=str,
-        default="proc",
-        help="Comma-separated profiler(s) to attach: proc, perf-stat, perf-record, perfetto, emu-perf-stat",
-    )
-    run_p.add_argument(
-        "--serial",
-        type=str,
-        default=None,
-        help="ADB device serial when benchmarking an already-running emulator (e.g. emulator-5554)",
-    )
-    run_p.add_argument(
-        "--target",
-        type=str,
-        default=None,
-        help="Target emulator binary: go/ab build ID (e.g. 15075377), 'stable', 'latest:emu-main-next', 'local', or directory",
-    )
-    run_p.add_argument(
-        "--emulator-dir",
-        dest="emulator_dir",
-        type=str,
-        default=None,
-        help="Alias for --target when specifying a local extracted emulator directory",
-    )
-    _add_common_benchmark_arguments(run_p, default_settle_seconds=None)
-    run_p.add_argument(
-        "--trace",
-        type=str,
-        default=None,
-        help="Path to write host Perfetto trace (.pftrace) when launching a managed emulator",
-    )
-    run_p.add_argument(
-        "--label",
-        type=str,
-        default=None,
-        help="Custom label for the benchmark report",
-    )
-    run_p.add_argument(
-        "-o",
-        "--output",
-        type=str,
-        default=None,
-        help="Path to save full JSON benchmark report",
-    )
-    run_p.set_defaults(func=run_perf_run)
-
-    # 3. perf compare
-    cmp_p = perf_sub.add_parser(
-        "compare",
-        help="Compare two builds (e.g. 'perf compare 123 321'), directories, or saved .json reports",
-    )
-    cmp_p.add_argument(
-        "baseline",
-        type=str,
-        help="Baseline target: go/ab build ID, 'stable', 'latest:emu-main-dev', directory, or .json path (supports file.json:subkey)",
-    )
-    cmp_p.add_argument(
-        "candidate",
-        type=str,
-        help="Candidate target: go/ab build ID, 'latest:emu-main-next', directory, or .json path (supports file.json:subkey)",
-    )
-    cmp_p.add_argument(
-        "--suite",
-        type=str,
-        default="adb-tmpfs,adb-disk",
-        help="Suites to run when comparing live builds/directories (default: 'adb-tmpfs,adb-disk')",
-    )
-    cmp_p.add_argument(
-        "--profile",
-        type=str,
-        default="proc",
-        help="Profilers to attach when comparing live builds (proc, perf-stat, perf-record, perfetto)",
-    )
-    _add_common_benchmark_arguments(cmp_p, default_settle_seconds=30.0)
-    cmp_p.add_argument(
-        "--reuse-cache",
-        dest="reuse_cache",
-        action="store_true",
-        help="Reuse previously cached run results in ~/.cache/emu-dev-cli/perf_runs/ if available",
-    )
-    cmp_p.add_argument(
-        "--labels",
-        type=str,
-        default=None,
-        help="Optional comma-separated display labels 'BaselineName,CandidateName'",
-    )
-    cmp_p.add_argument(
-        "--format",
-        choices=["markdown", "report", "commit", "json"],
-        default="markdown",
-        help="Output format: 'markdown' (4-part scorecard), 'report' (full weekly qualification report), 'commit', or 'json'",
-    )
-    cmp_p.add_argument(
-        "-o",
-        "--output",
-        type=str,
-        default=None,
-        help="Optional path to save comparison JSON artifact",
-    )
-    cmp_p.add_argument(
-        "--scorecard",
-        type=str,
-        default=None,
-        help="Optional path to save the 4-part Markdown scorecard artifact",
-    )
-    cmp_p.add_argument(
-        "--report",
-        type=str,
-        default=None,
-        help="Optional path to save the full Weekly Performance Qualification Report Markdown artifact",
-    )
-    cmp_p.set_defaults(func=run_perf_compare)
-
-    # 4. perf history
-    hist_p = perf_sub.add_parser(
-        "history",
-        help="Display longitudinal performance history across runs and builds",
-    )
-    hist_p.add_argument(
-        "--limit",
-        type=int,
-        default=20,
-        help="Maximum number of recent runs to display (default: 20)",
-    )
-    hist_p.add_argument(
-        "--suite",
-        type=str,
-        default=None,
-        help="Filter history entries by suite name (e.g. 'adb')",
-    )
-    hist_p.set_defaults(func=run_perf_history)
+    return PerfCommand().register(subparsers)

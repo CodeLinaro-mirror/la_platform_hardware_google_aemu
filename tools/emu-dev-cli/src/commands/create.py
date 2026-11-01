@@ -12,7 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
+import argparse
+from typing import Any
+
+from core.command import (
+    Command,
+    CommandGroup,
+    CommandResult,
+    META_KEY_ALREADY_RENDERED,
+    bind_command,
+)
+from core.context import ExecutionContext
 from lib.avd import (
     DEVICE_PROFILES,
     create_mesh_avds,
@@ -21,82 +31,110 @@ from lib.avd import (
 from lib.output import print_result
 
 
-def print_device_profiles(json_mode=False):
+def print_device_profiles(json_mode: bool = False) -> CommandResult[dict[str, Any]]:
     if json_mode:
-        print_result({
+        return print_result({
             "status": "success",
             "action": "create avd --list-profiles",
             "profiles": DEVICE_PROFILES
         }, json_mode=True)
-        return
 
     print("Available Device Profiles:")
     print("-" * 65)
     for p_name, info in DEVICE_PROFILES.items():
         print(f"  {p_name:<16} : {info['description']}")
     print("-" * 65)
+    return CommandResult.success(
+        {"profiles": DEVICE_PROFILES},
+        action="create avd --list-profiles",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
+
+
+def _add_avd_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--name", type=str, default=None, help="Name of the AVD (defaults to profile name if omitted)")
+    parser.add_argument("--prefix", type=str, default=None, help="Prefix name when creating multiple AVD instances (e.g. 'mesh-node')")
+    parser.add_argument("--count", type=int, default=1, help="Number of AVD instances to batch create (default: 1)")
+    parser.add_argument("--sysimg-dir", type=str, default=None, help="Path to extracted system-image directory")
+    parser.add_argument(
+        "--profile",
+        type=str,
+        default="medium_phone",
+        choices=list(DEVICE_PROFILES.keys()),
+        help="Device profile: small_phone, medium_phone (default), medium_tablet, small_desktop, medium_desktop, large_desktop"
+    )
+    parser.add_argument("--list-profiles", action="store_true", help="List available device profiles and exit")
+    parser.add_argument("--ram", type=int, default=None, help="Override RAM size in MB")
+    parser.add_argument("--cores", type=int, default=4, help="Number of CPU cores (default: 4)")
+    parser.add_argument("--disk-size", type=str, default=None, help="Override data partition size (e.g. 8G)")
+    parser.add_argument("--gpu", type=str, default="auto", help="GPU mode: auto, host, swiftshader_indirect (default: auto)")
+    parser.add_argument("--force", action="store_true", help="Overwrite existing AVD with the same name")
+
+
+class CreateAvdCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Creates a new Android Virtual Device (AVD) or batch of AVDs."""
+
+    name = "avd"
+    help = "Create a new Android Virtual Device (AVD) or batch of AVDs from a system-image directory"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        _add_avd_arguments(parser)
+        parser.set_defaults(parser=parser)
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_create_avd(args)
+
+
+class CreateMeshCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Creates a mesh batch of N Android Virtual Devices (AVDs)."""
+
+    name = "mesh"
+    help = "Create a mesh batch of N Android Virtual Devices (AVDs) from a system-image directory"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        _add_avd_arguments(parser)
+        parser.set_defaults(parser=parser)
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_create_avd(args)
+
+
+class CreateCommand(CommandGroup):
+    """Parent command group for `emu-dev-cli create`."""
+
+    name = "create"
+    help = "Create AVDs or other developer artifacts"
+    subcommand_dest = "create_cmd"
+    subcommands = (
+        CreateAvdCommand(),
+        CreateMeshCommand(),
+    )
 
 
 def register_parser(subparsers):
-    create_parser = subparsers.add_parser(
-        "create",
-        help="Create AVDs or other developer artifacts"
-    )
-    create_subparsers = create_parser.add_subparsers(dest="create_cmd", help="Available resource types to create")
-    create_parser.set_defaults(func=lambda args: create_parser.print_help() or sys.exit(0))
-
-    def add_avd_arguments(parser):
-        parser.add_argument("--name", type=str, default=None, help="Name of the AVD (defaults to profile name if omitted)")
-        parser.add_argument("--prefix", type=str, default=None, help="Prefix name when creating multiple AVD instances (e.g. 'mesh-node')")
-        parser.add_argument("--count", type=int, default=1, help="Number of AVD instances to batch create (default: 1)")
-        parser.add_argument("--sysimg-dir", type=str, default=None, help="Path to extracted system-image directory")
-        parser.add_argument(
-            "--profile",
-            type=str,
-            default="medium_phone",
-            choices=list(DEVICE_PROFILES.keys()),
-            help="Device profile: small_phone, medium_phone (default), medium_tablet, small_desktop, medium_desktop, large_desktop"
-        )
-        parser.add_argument("--list-profiles", action="store_true", help="List available device profiles and exit")
-        parser.add_argument("--ram", type=int, default=None, help="Override RAM size in MB")
-        parser.add_argument("--cores", type=int, default=4, help="Number of CPU cores (default: 4)")
-        parser.add_argument("--disk-size", type=str, default=None, help="Override data partition size (e.g. 8G)")
-        parser.add_argument("--gpu", type=str, default="auto", help="GPU mode: auto, host, swiftshader_indirect (default: auto)")
-        parser.add_argument("--force", action="store_true", help="Overwrite existing AVD with the same name")
-
-    # create avd
-    avd_parser = create_subparsers.add_parser(
-        "avd",
-        help="Create a new Android Virtual Device (AVD) or batch of AVDs from a system-image directory"
-    )
-    add_avd_arguments(avd_parser)
-    avd_parser.set_defaults(parser=avd_parser, func=run_create_avd)
-
-    # create mesh
-    mesh_parser = create_subparsers.add_parser(
-        "mesh",
-        help="Create a mesh batch of N Android Virtual Devices (AVDs) from a system-image directory"
-    )
-    add_avd_arguments(mesh_parser)
-    mesh_parser.set_defaults(parser=mesh_parser, func=run_create_avd)
+    return CreateCommand().register(subparsers)
 
 
-def run_create_avd(args):
+def run_create_avd(args) -> CommandResult[dict[str, Any]]:
     json_mode = getattr(args, "json", False)
 
     if args.list_profiles:
-        print_device_profiles(json_mode)
-        return
+        return print_device_profiles(json_mode)
 
     count = getattr(args, "count", 1) or 1
     if count < 1:
-        print_result({
+        return print_result({
             "status": "error",
             "action": "create avd",
             "error_message": f"Invalid --count value: {count}. Must be >= 1.",
             "exit_code": 1
         }, json_mode=json_mode, is_error=True)
-        sys.exit(1)
 
     profile_name = getattr(args, "profile", None) or "medium_phone"
     prefix = getattr(args, "prefix", None) or getattr(args, "name", None) or (profile_name if count == 1 else f"{profile_name}-mesh")
@@ -117,16 +155,19 @@ def run_create_avd(args):
             f"   emu-dev-cli create {cmd_type} --name {name_val}{count_flag}\n"
         )
         if json_mode:
-            print_result({
+            return print_result({
                 "status": "error",
                 "action": f"create {cmd_type}",
                 "error_message": "No system-image directory specified and no cached images found in /tmp.",
                 "suggestion": "emu-dev-cli fetch-build system-image --latest",
                 "exit_code": 1
             }, json_mode=True, is_error=True)
-        else:
-            print(f"❌ Error: {err_msg}")
-        sys.exit(1)
+        print(f"❌ Error: {err_msg}")
+        return CommandResult.failure(
+            err_msg,
+            action=f"create {cmd_type}",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     if not args.sysimg_dir and not json_mode:
         print(f"ℹ️  Using auto-discovered system image: {sysimg_dir_arg}")
@@ -145,18 +186,17 @@ def run_create_avd(args):
             explicit_name=getattr(args, "name", None) if count == 1 else None,
         )
     except (FileNotFoundError, FileExistsError, ValueError) as e:
-        print_result({
+        return print_result({
             "status": "error",
             "action": "create mesh" if count > 1 else "create avd",
             "error_message": str(e),
             "exit_code": 1
         }, json_mode=json_mode, is_error=True)
-        sys.exit(1)
 
     if count == 1:
         first = created_avds[0]
         summary_msg = f"Created AVD '{first['avd_name']}' [{first['profile']}] ({first['arch']}/{first['abi']})"
-        print_result({
+        return print_result({
             "status": "success",
             "action": "create avd",
             "summary": summary_msg,
@@ -172,7 +212,7 @@ def run_create_avd(args):
         }, json_mode=json_mode)
     else:
         summary_msg = f"Created {len(created_avds)} AVD mesh instances with prefix '{prefix}' [{profile_name}]"
-        print_result({
+        return print_result({
             "status": "success",
             "action": "create mesh",
             "summary": summary_msg,

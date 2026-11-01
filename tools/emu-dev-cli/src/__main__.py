@@ -96,8 +96,8 @@ def _handle_version_flag(args) -> None:
             payload["commit_short"] = UNKNOWN_COMMIT
             payload["summary"] = "No installed version record found"
         print_result(payload, json_mode=True)
-
-    print(format_version_display(installed))
+    else:
+        print(format_version_display(installed))
     sys.exit(0)
 
 
@@ -164,9 +164,7 @@ def main():
     if getattr(args, "version", False):
         _handle_version_flag(args)
 
-    if not args.subcommand or (
-        not hasattr(args, "func") and not hasattr(args, COMMAND_INSTANCE_ATTR)
-    ):
+    if not args.subcommand or not hasattr(args, COMMAND_INSTANCE_ATTR):
         parser.print_help()
         sys.exit(1)
 

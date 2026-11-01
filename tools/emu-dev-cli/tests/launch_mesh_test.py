@@ -92,9 +92,9 @@ class LaunchMeshTest(unittest.TestCase):
         with patch("lib.emulator.find_cached_emulator_dir", return_value=None), \
              patch("commands.launch.find_cached_emulator_dir", return_value=None):
             with patch("commands.launch.print_result") as mock_print:
-                with self.assertRaises(SystemExit):
-                    run_launch_mesh(Args())
+                run_launch_mesh(Args())
                 self.assertTrue(mock_print.called)
+                self.assertTrue(mock_print.call_args.kwargs.get("is_error"))
                 payload = mock_print.call_args[0][0]
                 self.assertEqual(payload["status"], "error")
                 self.assertEqual(payload["suggestion"], "emu-dev-cli fetch-build emulator --latest")

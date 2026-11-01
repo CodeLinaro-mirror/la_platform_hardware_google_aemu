@@ -306,7 +306,7 @@ class SbomCommandTest(unittest.TestCase):
 
         args_gen = parser.parse_args(["sbom", "generate", "--aosp", "--build-id", "999"])
         self.assertEqual(args_gen.sbom_cmd, "generate")
-        self.assertIs(args_gen.func, sbom.run_generate)
+        self.assertIsInstance(args_gen._command_instance, sbom.SbomGenerateCommand)
         self.assertTrue(args_gen.aosp)
         self.assertEqual(args_gen.build_id, "999")
         self.assertIsNone(args_gen.config)
@@ -326,9 +326,9 @@ class SbomCommandTest(unittest.TestCase):
 
         args_diff = parser.parse_args(["sbom", "diff", "old.json", "new.json"])
         self.assertEqual(args_diff.sbom_cmd, "diff")
-        self.assertIs(args_diff.func, sbom.run_diff)
-        self.assertIs(args_insp.func, sbom.run_inspect)
-        self.assertIs(args_audit.func, sbom.run_audit)
+        self.assertIsInstance(args_diff._command_instance, sbom.SbomDiffCommand)
+        self.assertIsInstance(args_insp._command_instance, sbom.SbomInspectCommand)
+        self.assertIsInstance(args_audit._command_instance, sbom.SbomAuditCommand)
         self.assertEqual(args_diff.old_sbom, "old.json")
         self.assertEqual(args_diff.new_sbom, "new.json")
 

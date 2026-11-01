@@ -12,13 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import glob
 import logging
 import os
 import platform
 import re
 import shutil
-from typing import Optional
+from typing import Any, Optional
 import zipfile
 
 from clients.artifact_service import (
@@ -27,6 +28,13 @@ from clients.artifact_service import (
     ProdArtifactService,
     check_authentication_status,
 )
+from core.command import (
+    Command,
+    CommandResult,
+    META_KEY_ALREADY_RENDERED,
+    bind_command,
+)
+from core.context import ExecutionContext
 from core.process import ProcessRunner, SubprocessRunner
 from lib.output import print_result
 
@@ -88,6 +96,30 @@ HOST_CANDIDATES = {
 }
 
 
+class FetchEmulatorCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Fetches Android Emulator binaries from Android Build."""
+
+    name = "emulator"
+    help = "Fetch Android Emulator binaries"
+
+    def __init__(self, parser: Optional[argparse.ArgumentParser] = None) -> None:
+        self._parser = parser
+
+    def execute(
+        self, args: argparse.Namespace, ctx: Optional[ExecutionContext] = None
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        if not getattr(args, "build_id", None) and not getattr(args, "latest", False):
+            if self._parser is not None:
+                self._parser.print_help()
+            return CommandResult.success(
+                {},
+                action="fetch-build emulator",
+                metadata={META_KEY_ALREADY_RENDERED: True},
+            )
+        return run_emulator_fetch(args)
+
+
 def register_parser(subparser, default_host):
     parser = subparser.add_parser(
         "emulator",
@@ -137,14 +169,8 @@ def register_parser(subparser, default_host):
         action="store_true",
         help="Skip preflight authentication readiness check"
     )
-
-    def handler(args):
-        if not args.build_id and not args.latest:
-            parser.print_help()
-            return
-        run_emulator_fetch(args)
-
-    parser.set_defaults(func=handler)
+    bind_command(parser, FetchEmulatorCommand(parser=parser))
+    return parser
 
 
 def run_emulator_fetch(
@@ -152,7 +178,8 @@ def run_emulator_fetch(
     *,
     artifact_service: Optional[ArtifactService] = None,
     runner: Optional[ProcessRunner] = None,
-):
+    render_output: bool = True,
+) -> CommandResult[dict[str, Any]]:
     host = args.host.lower()
     build_id = getattr(args, "build_id", None)
     is_latest = getattr(args, "latest", False)
@@ -176,8 +203,14 @@ def run_emulator_fetch(
             if auth_status.get("file_path"):
                 res_data["auth_file"] = auth_status["file_path"]
                 res_data["file_exists"] = auth_status["file_exists"]
-            print_result(res_data, json_mode=json_mode, is_error=True)
-            return
+            if not render_output:
+                return CommandResult.failure(
+                    res_data["summary"],
+                    data=res_data,
+                    action="fetch-build emulator",
+                    metadata={META_KEY_ALREADY_RENDERED: True},
+                )
+            return print_result(res_data, json_mode=json_mode, is_error=True)
 
     fetch_tool = FETCH_ARTIFACT_BIN if os.path.exists(FETCH_ARTIFACT_BIN) else shutil.which("fetch_artifact")
 
@@ -272,13 +305,21 @@ def run_emulator_fetch(
 
     if not successful_target:
         desc = f"latest on branch {branch}" if is_latest else f"build {build_id}"
-        print_result({
+        err_data = {
             "status": "error",
             "action": "fetch-build emulator",
             "summary": f"Failed to fetch emulator artifact for {desc} (host: {host})",
             "error_message": last_err or "Artifact download failed.",
-            "exit_code": 1
-        }, json_mode=json_mode, is_error=True)
+            "exit_code": 1,
+        }
+        if not render_output:
+            return CommandResult.failure(
+                err_data["summary"],
+                data=err_data,
+                action="fetch-build emulator",
+                metadata={META_KEY_ALREADY_RENDERED: True},
+            )
+        return print_result(err_data, json_mode=json_mode, is_error=True)
 
     all_zips = glob.glob(os.path.join(dest_dir, "*.zip"))
     zips = [z for z in all_zips if "symbols" not in os.path.basename(z) and "breakpad" not in os.path.basename(z)]
@@ -358,4 +399,11 @@ def run_emulator_fetch(
     if binary_path:
         result_data["emulator_binary"] = binary_path
 
-    print_result(result_data, json_mode=json_mode)
+    if not render_output:
+        return CommandResult.success(
+            result_data,
+            summary=summary_desc,
+            action="fetch-build emulator",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
+    return print_result(result_data, json_mode=json_mode)

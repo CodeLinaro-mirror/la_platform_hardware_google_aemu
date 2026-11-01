@@ -68,6 +68,8 @@ class MutatingTestCommand(Command[argparse.Namespace, dict[str, str]]):
                 "New Gerrit comments arrived on patch set 2.",
                 remediation="Re-run step 0 to address new comments.",
             )
+        if args.mode == "crash":
+            raise RuntimeError("Unexpected low-level failure in command")
         return CommandResult(
             data={"branch": "studio-main", "note": "成功_🚀_é"},
             action="mutate-repo",
@@ -169,6 +171,24 @@ class DispatcherTest(unittest.TestCase):
             retry_dispatcher.dispatch(retry_args), int(ExitCode.RETRY_OR_LOOP)
         )
         self.assertIn("ERROR: New Gerrit comments arrived", stderr_retry.getvalue())
+
+        # 4. Unexpected RuntimeError -> exit code 1 + rollback + JSON error envelope
+        cmd.rolled_back = False
+        stderr_crash = StringIO()
+        crash_dispatcher = CliDispatcher(
+            context=ctx,
+            renderer=OutputRenderer(stdout=StringIO(), stderr=stderr_crash),
+        )
+        crash_args = parser.parse_args(["--json", "mutate-repo", "--mode", "crash"])
+        self.assertEqual(
+            crash_dispatcher.dispatch(crash_args), int(ExitCode.FAILURE)
+        )
+        self.assertTrue(cmd.rolled_back)
+        crash_json = json.loads(stderr_crash.getvalue())
+        self.assertEqual(crash_json["status"], "error")
+        self.assertEqual(crash_json["error_type"], "RuntimeError")
+        self.assertIn("Unexpected low-level failure", crash_json["error"])
+        self.assertEqual(crash_json["exit_code"], 1)
 
     def test_dispatch_supports_legacy_func_handlers_seamlessly(self) -> None:
         ctx = ExecutionContext.for_testing()

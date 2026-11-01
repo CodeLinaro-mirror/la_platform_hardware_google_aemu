@@ -317,9 +317,8 @@ class TidyFixTest(unittest.TestCase):
         )
         captured_stdout = StringIO()
         with patch("sys.stdout", captured_stdout):
-            with self.assertRaises(SystemExit) as exit_ctx:
-                handle_tidy_fix(args)
-        self.assertEqual(exit_ctx.exception.code, 1)
+            res = handle_tidy_fix(args)
+        self.assertEqual(res.exit_code, 1)
         self.assertIn("测试_🚀_é", captured_stdout.getvalue())
 
 

@@ -240,10 +240,9 @@ Crashing Thread:
                 "commands.update_cmd.ensure_codesearch_urls_config"
             ), patch(
                 "sys.stdout", buf
-            ), self.assertRaises(
-                SystemExit
             ):
-                run_update_cmd(argparse.Namespace(json=True, verbose=True, path=fake_bin))
+                res = run_update_cmd(argparse.Namespace(json=True, verbose=True, path=fake_bin))
+            self.assertEqual(res.exit_code, 0)
             parsed = json.loads(buf.getvalue())
             self.assertEqual(parsed["status"], "success")
             self.assertEqual(parsed["action"], "update")
@@ -254,8 +253,9 @@ Crashing Thread:
         buf = StringIO()
         with patch("commands.docs.discover_wiki_documents", return_value=[]), patch(
             "sys.stdout", buf
-        ), self.assertRaises(SystemExit):
-            run_docs_index(argparse.Namespace(json=True, category="all"))
+        ):
+            res = run_docs_index(argparse.Namespace(json=True, category="all"))
+        self.assertEqual(res.exit_code, 0)
         parsed = json.loads(buf.getvalue())
         self.assertEqual(parsed["status"], "success")
         self.assertEqual(parsed["action"], "docs index")
@@ -270,10 +270,11 @@ Crashing Thread:
             buf = StringIO()
             with patch(
                 "commands.tidy.add_cmd.get_source_directory", return_value=tmp_dir
-            ), patch("sys.stdout", buf), self.assertRaises(SystemExit):
-                handle_tidy_add(
+            ), patch("sys.stdout", buf):
+                res = handle_tidy_add(
                     argparse.Namespace(path=build_file, targets=None, json=True)
                 )
+            self.assertEqual(res.exit_code, 0)
             parsed = json.loads(buf.getvalue())
             self.assertEqual(parsed["status"], "success")
             self.assertEqual(parsed["action"], "tidy add")

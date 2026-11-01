@@ -23,6 +23,8 @@ import subprocess
 from typing import Any, Dict, List, Optional, Set
 
 from commands.source_directory import get_source_directory
+from core.command import Command, CommandGroup, CommandResult
+from core.context import ExecutionContext
 from lib.bazel import find_bazel_cmd
 from lib.output import format_markdown_table, print_result
 
@@ -344,11 +346,11 @@ def validate_spdx_structure(doc: Dict[str, Any], spdx_path: Optional[str] = None
     }
 
 
-def run_generate(args: argparse.Namespace) -> None:
+def run_generate(args: argparse.Namespace) -> CommandResult:
     json_mode = getattr(args, "json", False)
     ws = _resolve_workspace_dir(branch=args.branch, source_dir=args.source_dir)
     if not ws:
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "sbom generate",
@@ -358,7 +360,6 @@ def run_generate(args: argparse.Namespace) -> None:
             json_mode=json_mode,
             is_error=True,
         )
-        return
 
     bazel_cmd = find_bazel_cmd(ws)
     cmd = [
@@ -382,7 +383,7 @@ def run_generate(args: argparse.Namespace) -> None:
             check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "sbom generate",
@@ -393,11 +394,10 @@ def run_generate(args: argparse.Namespace) -> None:
             json_mode=json_mode,
             is_error=True,
         )
-        return
 
     if res.returncode != 0:
         err_msg = (res.stderr or res.stdout or "Bazel build failed").strip() if json_mode else "Bazel build failed"
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "sbom generate",
@@ -408,11 +408,10 @@ def run_generate(args: argparse.Namespace) -> None:
             json_mode=json_mode,
             is_error=True,
         )
-        return
 
     built_sbom = _resolve_sbom_file(None, branch=args.branch, source_dir=args.source_dir)
     if not built_sbom:
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "sbom generate",
@@ -422,7 +421,6 @@ def run_generate(args: argparse.Namespace) -> None:
             json_mode=json_mode,
             is_error=True,
         )
-        return
 
     final_path = built_sbom
     if args.out:
@@ -437,7 +435,7 @@ def run_generate(args: argparse.Namespace) -> None:
             if os.path.realpath(built_sbom) != os.path.realpath(out_abs):
                 shutil.copyfile(built_sbom, out_abs)
         except OSError as e:
-            print_result(
+            return print_result(
                 {
                     "status": "error",
                     "action": "sbom generate",
@@ -447,14 +445,13 @@ def run_generate(args: argparse.Namespace) -> None:
                 json_mode=json_mode,
                 is_error=True,
             )
-            return
         final_path = out_abs
 
     try:
         with open(final_path, "r", encoding="utf-8") as f:
             doc = json.load(f)
     except (json.JSONDecodeError, OSError, ValueError) as e:
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "sbom generate",
@@ -464,7 +461,6 @@ def run_generate(args: argparse.Namespace) -> None:
             json_mode=json_mode,
             is_error=True,
         )
-        return
 
     validation = validate_spdx_structure(doc, spdx_path=final_path)
     package_count = validation["total_packages"]
@@ -472,7 +468,7 @@ def run_generate(args: argparse.Namespace) -> None:
     if not validation["valid"]:
         summary += f"; validation FAILED ({len(validation['errors'])} errors)"
 
-    print_result(
+    return print_result(
         {
             "status": "success" if validation["valid"] else "error",
             "action": "sbom generate",
@@ -499,7 +495,7 @@ def run_generate(args: argparse.Namespace) -> None:
     )
 
 
-def run_inspect(args: argparse.Namespace) -> None:
+def run_inspect(args: argparse.Namespace) -> CommandResult:
     json_mode = getattr(args, "json", False)
     sbom_file = _resolve_sbom_file(args.sbom, branch=args.branch, source_dir=args.source_dir)
     if not sbom_file:
@@ -508,7 +504,7 @@ def run_inspect(args: argparse.Namespace) -> None:
             if args.sbom
             else _missing_sbom_message(args.branch, args.source_dir)
         )
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "sbom inspect",
@@ -518,13 +514,12 @@ def run_inspect(args: argparse.Namespace) -> None:
             json_mode=json_mode,
             is_error=True,
         )
-        return
 
     try:
         with open(sbom_file, "r", encoding="utf-8") as f:
             doc = json.load(f)
     except (json.JSONDecodeError, OSError, ValueError) as e:
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "sbom inspect",
@@ -534,10 +529,9 @@ def run_inspect(args: argparse.Namespace) -> None:
             json_mode=json_mode,
             is_error=True,
         )
-        return
 
     if not isinstance(doc, dict):
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "sbom inspect",
@@ -547,7 +541,6 @@ def run_inspect(args: argparse.Namespace) -> None:
             json_mode=json_mode,
             is_error=True,
         )
-        return
 
     raw_pkgs = doc.get("packages")
     pkgs = [p for p in (raw_pkgs if isinstance(raw_pkgs, list) else []) if isinstance(p, dict)]
@@ -573,7 +566,7 @@ def run_inspect(args: argparse.Namespace) -> None:
         rows,
     )
 
-    print_result(
+    return print_result(
         {
             "status": "success",
             "action": "sbom inspect",
@@ -589,7 +582,7 @@ def run_inspect(args: argparse.Namespace) -> None:
     )
 
 
-def run_audit(args: argparse.Namespace) -> None:
+def run_audit(args: argparse.Namespace) -> CommandResult:
     json_mode = getattr(args, "json", False)
     sbom_file = _resolve_sbom_file(args.sbom, branch=args.branch, source_dir=args.source_dir)
     if not sbom_file:
@@ -598,7 +591,7 @@ def run_audit(args: argparse.Namespace) -> None:
             if args.sbom
             else _missing_sbom_message(args.branch, args.source_dir)
         )
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "sbom audit",
@@ -608,13 +601,12 @@ def run_audit(args: argparse.Namespace) -> None:
             json_mode=json_mode,
             is_error=True,
         )
-        return
 
     try:
         with open(sbom_file, "r", encoding="utf-8") as f:
             doc = json.load(f)
     except (json.JSONDecodeError, OSError, ValueError) as e:
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "sbom audit",
@@ -624,12 +616,11 @@ def run_audit(args: argparse.Namespace) -> None:
             json_mode=json_mode,
             is_error=True,
         )
-        return
 
     res = validate_spdx_structure(doc, spdx_path=sbom_file)
     is_err = not res["valid"] or (args.strict and bool(res["warnings"]))
 
-    print_result(
+    return print_result(
         {
             "status": "error" if is_err else "success",
             "action": "sbom audit",
@@ -743,7 +734,7 @@ def diff_spdx_documents(doc_a: Dict[str, Any], doc_b: Dict[str, Any]) -> Dict[st
     }
 
 
-def run_diff(args: argparse.Namespace) -> None:
+def run_diff(args: argparse.Namespace) -> CommandResult[dict[str, Any]]:
     json_mode = getattr(args, "json", False)
     docs = []
     paths = []
@@ -761,7 +752,7 @@ def run_diff(args: argparse.Namespace) -> None:
             if not isinstance(doc, dict):
                 error = f"Invalid SBOM JSON in {path}: root must be a JSON object (dict)"
         if error:
-            print_result(
+            return print_result(
                 {
                     "status": "error",
                     "action": "sbom diff",
@@ -771,7 +762,6 @@ def run_diff(args: argparse.Namespace) -> None:
                 json_mode=json_mode,
                 is_error=True,
             )
-            return
         docs.append(doc)
         paths.append(path)
     doc_a, doc_b = docs
@@ -804,7 +794,7 @@ def run_diff(args: argparse.Namespace) -> None:
         rows,
     )
 
-    print_result(
+    return print_result(
         {
             "status": "success",
             "action": "sbom diff",
@@ -823,115 +813,155 @@ def run_diff(args: argparse.Namespace) -> None:
     )
 
 
+class SbomGenerateCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Builds the emulator SPDX 2.3 SBOM via Bazel."""
+
+    name = "generate"
+    help = "Build the emulator SPDX 2.3 SBOM via Bazel (supports release and --aosp)"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--branch",
+            default="emu-main-next",
+            help="Registered source branch to build from (default: emu-main-next)",
+        )
+        parser.add_argument(
+            "--source-dir",
+            default=None,
+            help="Explicit workspace root path (overrides --branch)",
+        )
+        parser.add_argument(
+            "--build-id",
+            default="developer",
+            help="Build ID to stamp into the SBOM (default: developer)",
+        )
+        parser.add_argument(
+            "--aosp",
+            action="store_true",
+            help="Build using AOSP configuration (--config=aosp --lockfile_mode=off)",
+        )
+        parser.add_argument(
+            "--config",
+            action="append",
+            default=None,
+            metavar="CONFIG",
+            help="Additional Bazel --config value; repeat to pass several (e.g. --config release)",
+        )
+        parser.add_argument(
+            "--out",
+            "-o",
+            default=None,
+            help="Copy the generated .spdx.json to this file or directory",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_generate(args)
+
+
+class SbomInspectCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Displays a table of all packages, versions, licenses, suppliers, and PURLs in an SBOM."""
+
+    name = "inspect"
+    help = "Display a table of all packages, versions, licenses, suppliers, and PURLs in an SBOM"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--sbom",
+            default=None,
+            help="Path to .spdx.json file (default: the SBOM built by 'sbom generate' in the workspace)",
+        )
+        parser.add_argument(
+            "--branch",
+            default="emu-main-next",
+            help="Registered branch to locate built SBOM (default: emu-main-next)",
+        )
+        parser.add_argument(
+            "--source-dir",
+            default=None,
+            help="Explicit workspace root path",
+        )
+        parser.add_argument(
+            "--filter",
+            "-f",
+            default=None,
+            help="Substring filter on package name, version, license, supplier, or PURL",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_inspect(args)
+
+
+class SbomAuditCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Validates an SBOM against Google's SPDX 2.3 style guide and spdx_validator."""
+
+    name = "audit"
+    help = "Validate an SBOM against Google's SPDX 2.3 style guide (go/spdx-style-guide) and spdx_validator"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--sbom",
+            default=None,
+            help="Path to .spdx.json file (default: the SBOM built by 'sbom generate' in the workspace)",
+        )
+        parser.add_argument(
+            "--branch",
+            default="emu-main-next",
+            help="Registered branch to locate built SBOM (default: emu-main-next)",
+        )
+        parser.add_argument(
+            "--source-dir",
+            default=None,
+            help="Explicit workspace root path",
+        )
+        parser.add_argument(
+            "--strict",
+            action="store_true",
+            help="Fail if any warnings are present",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_audit(args)
+
+
+class SbomDiffCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Compares two SPDX 2.3 SBOM JSON files."""
+
+    name = "diff"
+    help = "Compare two SPDX 2.3 SBOM JSON files and report added, removed, or version/license-changed packages"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("old_sbom", help="Path to baseline/old .spdx.json file")
+        parser.add_argument("new_sbom", help="Path to new .spdx.json file")
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_diff(args)
+
+
+class SbomCommand(CommandGroup):
+    """Parent command group for `emu-dev-cli sbom`."""
+
+    name = "sbom"
+    help = "Generate, inspect, audit, and diff SPDX 2.3 Software Bill of Materials (SBOM)"
+    subcommand_dest = "sbom_cmd"
+    subcommands = (
+        SbomGenerateCommand(),
+        SbomInspectCommand(),
+        SbomAuditCommand(),
+        SbomDiffCommand(),
+    )
+
+
 def register_parser(subparsers) -> None:
-    sbom_parser = subparsers.add_parser(
-        "sbom",
-        help="Generate, inspect, audit, and diff SPDX 2.3 Software Bill of Materials (SBOM)",
-    )
-    sbom_parser.set_defaults(func=lambda args: sbom_parser.print_help())
-
-    sbom_sub = sbom_parser.add_subparsers(dest="sbom_cmd", help="SBOM operations")
-
-    # generate
-    gen_p = sbom_sub.add_parser(
-        "generate",
-        help="Build the emulator SPDX 2.3 SBOM via Bazel (supports release and --aosp)",
-    )
-    gen_p.add_argument(
-        "--branch",
-        default="emu-main-next",
-        help="Registered source branch to build from (default: emu-main-next)",
-    )
-    gen_p.add_argument(
-        "--source-dir",
-        default=None,
-        help="Explicit workspace root path (overrides --branch)",
-    )
-    gen_p.add_argument(
-        "--build-id",
-        default="developer",
-        help="Build ID to stamp into the SBOM (default: developer)",
-    )
-    gen_p.add_argument(
-        "--aosp",
-        action="store_true",
-        help="Build using AOSP configuration (--config=aosp --lockfile_mode=off)",
-    )
-    gen_p.add_argument(
-        "--config",
-        action="append",
-        default=None,
-        metavar="CONFIG",
-        help="Additional Bazel --config value; repeat to pass several (e.g. --config release)",
-    )
-    gen_p.add_argument(
-        "--out",
-        "-o",
-        default=None,
-        help="Copy the generated .spdx.json to this file or directory",
-    )
-    gen_p.set_defaults(func=run_generate)
-
-    # inspect
-    insp_p = sbom_sub.add_parser(
-        "inspect",
-        help="Display a table of all packages, versions, licenses, suppliers, and PURLs in an SBOM",
-    )
-    insp_p.add_argument(
-        "--sbom",
-        default=None,
-        help="Path to .spdx.json file (default: the SBOM built by 'sbom generate' in the workspace)",
-    )
-    insp_p.add_argument(
-        "--branch",
-        default="emu-main-next",
-        help="Registered branch to locate built SBOM (default: emu-main-next)",
-    )
-    insp_p.add_argument(
-        "--source-dir",
-        default=None,
-        help="Explicit workspace root path",
-    )
-    insp_p.add_argument(
-        "--filter",
-        "-f",
-        default=None,
-        help="Substring filter on package name, version, license, supplier, or PURL",
-    )
-    insp_p.set_defaults(func=run_inspect)
-
-    # audit
-    audit_p = sbom_sub.add_parser(
-        "audit",
-        help="Validate an SBOM against Google's SPDX 2.3 style guide (go/spdx-style-guide) and spdx_validator",
-    )
-    audit_p.add_argument(
-        "--sbom",
-        default=None,
-        help="Path to .spdx.json file (default: the SBOM built by 'sbom generate' in the workspace)",
-    )
-    audit_p.add_argument(
-        "--branch",
-        default="emu-main-next",
-        help="Registered branch to locate built SBOM (default: emu-main-next)",
-    )
-    audit_p.add_argument(
-        "--source-dir",
-        default=None,
-        help="Explicit workspace root path",
-    )
-    audit_p.add_argument(
-        "--strict",
-        action="store_true",
-        help="Fail if any warnings are present",
-    )
-    audit_p.set_defaults(func=run_audit)
-
-    # diff
-    diff_p = sbom_sub.add_parser(
-        "diff",
-        help="Compare two SPDX 2.3 SBOM JSON files and report added, removed, or version/license-changed packages",
-    )
-    diff_p.add_argument("old_sbom", help="Path to baseline/old .spdx.json file")
-    diff_p.add_argument("new_sbom", help="Path to new .spdx.json file")
-    diff_p.set_defaults(func=run_diff)
+    SbomCommand().register(subparsers)
