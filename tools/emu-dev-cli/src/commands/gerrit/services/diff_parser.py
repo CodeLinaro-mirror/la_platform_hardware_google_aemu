@@ -200,7 +200,11 @@ def build_aemu_map_commit_url(
     file_paths: list[str] | tuple[str, ...] | set[str] | None = None,
     base_url: str = AEMU_MAP_BASE_URL,
 ) -> str:
-    """Builds a zero-backend `go/aemu-map?ag=<cl>&files=<comma_separated_paths>` URL."""
+    """Builds a zero-backend `go/aemu-map#ag=<cl>&files=<comma_separated_paths>` URL.
+
+    The parameters live in the URL fragment because the go/aemu-map redirect
+    chain drops query strings, while browsers keep the fragment.
+    """
     raw_cl = str(cl_number or "").strip()
     if raw_cl.lower().startswith("ag/"):
         raw_cl = raw_cl[3:].strip()
@@ -222,11 +226,11 @@ def build_aemu_map_commit_url(
             cleaned_files.append(rel_path)
     encoded_cl = urllib.parse.quote(raw_cl, safe="")
     if not cleaned_files:
-        return f"{base_url}?ag={encoded_cl}"
+        return f"{base_url}#ag={encoded_cl}"
     encoded_files = ",".join(
         urllib.parse.quote(p, safe="/._-~") for p in cleaned_files
     )
-    return f"{base_url}?ag={encoded_cl}&files={encoded_files}"
+    return f"{base_url}#ag={encoded_cl}&files={encoded_files}"
 
 
 def format_repo_display_path(project: str) -> str:
