@@ -30,6 +30,7 @@ from commands.gerrit.ping_for_review import (
     PingArgs,
     PingResult,
 )
+from commands.gerrit.stack import GerritStackCommand
 from core.command import (
     Command,
     CommandGroup,
@@ -918,6 +919,7 @@ class GerritCommand(CommandGroup):
         GerritResumeCommand(),
         GerritUiCommand(),
         GerritPingForReviewCommand(),
+        GerritStackCommand(),
     ]
 
     def configure_group_parser(self, parser: argparse.ArgumentParser) -> None:

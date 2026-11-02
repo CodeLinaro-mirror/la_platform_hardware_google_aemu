@@ -55,6 +55,7 @@ DEFAULT_GERRIT_HOST = "https://googleplex-android-review.git.corp.google.com"
 GERRIT_OAUTH_SCOPE = "https://www.googleapis.com/auth/gerritcodereview"
 GERRIT_HTTP_TIMEOUT_SEC = 20.0
 GERRIT_CLI_TIMEOUT_SEC = 25.0
+DEFAULT_CHANGE_QUERY_LIMIT = 25
 _AUTH_FALLBACK_HTTP_CODES = (400, 401, 403)
 HTTPS_DEFAULT_PORT = 443
 HTTP_OK_MIN = 200
@@ -746,6 +747,55 @@ class GerritClient:
             raise RuntimeError(
                 f"Unexpected Gerrit detail response type ({type(data).__name__}) for CL '{change_id}' "
                 f"on '{self.host}'. Verify that the CL exists and run `gcert` before retrying."
+            )
+        return data
+
+    def query_changes(
+        self,
+        query: str,
+        *,
+        options: tuple[str, ...] = (),
+        limit: int = DEFAULT_CHANGE_QUERY_LIMIT,
+    ) -> list[dict[str, Any]]:
+        """Runs a Gerrit change search (`GET /changes/?q=`) and returns the matching ChangeInfo dicts."""
+        encoded_q = urllib.parse.quote(query.strip(), safe=":()")
+        params = [f"q={encoded_q}", f"n={max(1, int(limit))}"]
+        params.extend(f"o={urllib.parse.quote(opt, safe='')}" for opt in options)
+        data = self._request_json(f"/a/changes/?{'&'.join(params)}")
+        if not isinstance(data, list):
+            raise RuntimeError(
+                f"Unexpected Gerrit search response type ({type(data).__name__}) for query "
+                f"'{query}' on '{self.host}'. Check the query syntax and run `gcert` before retrying."
+            )
+        return [change for change in data if isinstance(change, dict)]
+
+    def get_related_changes(
+        self,
+        change_id: str | int,
+        revision: str = "current",
+    ) -> list[dict[str, Any]]:
+        """Returns the relation chain of a revision (`GET .../related`), tip-most change first."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        encoded_rev = urllib.parse.quote(str(revision), safe="")
+        data = self._request_json(f"/a/changes/{encoded_id}/revisions/{encoded_rev}/related")
+        related = data.get("changes") if isinstance(data, dict) else None
+        if not isinstance(related, list):
+            return []
+        return [entry for entry in related if isinstance(entry, dict)]
+
+    def get_mergeable(
+        self,
+        change_id: str | int,
+        revision: str = "current",
+    ) -> dict[str, Any]:
+        """Returns Gerrit's MergeableInfo for a revision (`GET .../mergeable`)."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        encoded_rev = urllib.parse.quote(str(revision), safe="")
+        data = self._request_json(f"/a/changes/{encoded_id}/revisions/{encoded_rev}/mergeable")
+        if not isinstance(data, dict):
+            raise RuntimeError(
+                f"Unexpected Gerrit mergeable response type ({type(data).__name__}) for CL "
+                f"'{change_id}' on '{self.host}'. Verify that the CL is open and retry."
             )
         return data
 
