@@ -104,3 +104,24 @@ suppressions, flaky test fixes) that can land independently:
   repo upload --cbr -y --wip -o "nokeycheck" .
   ```
 
+---
+
+## 6. Checking a Stack Before and After Upload (`gerrit stack`)
+
+- **Before uploading**, run the checks reviewers would apply to each local commit:
+  ```bash
+  emu-dev-cli gerrit stack pre-upload              # every commit in @{upstream}..HEAD
+  emu-dev-cli gerrit stack pre-upload --working-tree --message-file draft.txt
+  ```
+  It checks the commit message, `cc_binary_with_manifest` in goldfish BUILD files,
+  go/error-messages, and `//emulator/libs` reuse on the lines each commit adds. Errors exit
+  non-zero; warnings only fail with `--strict`.
+- **After uploading**, see what each CL in the stack still needs:
+  ```bash
+  emu-dev-cli gerrit stack status                  # the stack of the local HEAD commit
+  emu-dev-cli gerrit stack status ag/12345 --json
+  emu-dev-cli gerrit stack status --topic my-topic
+  ```
+  It lists the CLs base first with patch sets, mergeability, Treehugger results, and whose
+  Code-Review vote Review-Enforcement still needs before Autosubmit can merge them.
+

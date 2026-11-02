@@ -61,9 +61,12 @@ BUG_LINE_PATTERN = re.compile(r"(?im)^\s*Bug:\s*(?:b/)?(\d+|N/A|None)\s*$")
 # Regular expression to validate Test: line (command or N/A)
 TEST_LINE_PATTERN = re.compile(r"(?im)^\s*Test:\s*(\S.*?)\s*$")
 
-# Forbidden tags: Tag= and CONV=
+# Forbidden agent tags: Tag=, CONV= / CONVERSATION=, and the AGY= / ORIGINAL_AUTHOR=
+# trailers banned by docs/playbooks/git_and_gerrit.md. Trailers start a line, so prose
+# that mentions them is not flagged.
 FORBIDDEN_TAG_PATTERN = re.compile(r"(?i)\bTAG\s*=")
-FORBIDDEN_CONV_PATTERN = re.compile(r"(?i)\bCONV\s*=")
+FORBIDDEN_CONV_PATTERN = re.compile(r"(?im)^\s*CONV(?:ERSATION)?\s*=")
+FORBIDDEN_AGENT_TRAILER_PATTERN = re.compile(r"(?im)^\s*(AGY|ORIGINAL_AUTHOR)\s*=")
 
 
 # Regular expression to match any Change-Id line header
@@ -126,11 +129,20 @@ def validate_commit_message(
             "(explain what and why vs. how)."
         )
 
-    # 3. Forbidden Tags Check (No Tag= or CONV=)
+    # 3. Forbidden Tags Check (No Tag=, CONV=, CONVERSATION=, AGY=, or ORIGINAL_AUTHOR=)
     if FORBIDDEN_TAG_PATTERN.search(msg):
         errors.append("Commit message contains forbidden tag 'Tag=' ('Tag=' and 'CONV=' are not allowed).")
     if FORBIDDEN_CONV_PATTERN.search(msg):
-        errors.append("Commit message contains forbidden tag 'CONV=' ('Tag=' and 'CONV=' are not allowed).")
+        errors.append(
+            "Commit message contains forbidden tag 'CONV=' or 'CONVERSATION=' "
+            "('Tag=' and 'CONV=' are not allowed)."
+        )
+    agent_trailer = FORBIDDEN_AGENT_TRAILER_PATTERN.search(msg)
+    if agent_trailer:
+        errors.append(
+            f"Commit message contains forbidden trailer '{agent_trailer.group(1)}=' "
+            "(agent trailers are not allowed in Gerrit commit messages)."
+        )
 
     # 2. Bug: line check (either a bug number like 'Bug: 12345678' or 'Bug: N/A')
     if not BUG_LINE_PATTERN.search(msg):

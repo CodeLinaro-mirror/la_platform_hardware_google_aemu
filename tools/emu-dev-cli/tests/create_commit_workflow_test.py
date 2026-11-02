@@ -84,6 +84,29 @@ class TestCreateCommitWorkflowIntegration(WorkflowTestCase):
         self.assertTrue(any("Tag=" in e for e in errors))
         self.assertTrue(any("CONV=" in e for e in errors))
 
+        # Agent conversation and authorship trailers are rejected as well
+        msg_with_agent_trailers = (
+            "feat: Test title\n\n"
+            "Description.\n\n"
+            "Bug: 12345678\n"
+            "Test: Presubmit\n"
+            "CONVERSATION=https://jetski.example/c/1\n"
+            "AGY=1\n"
+        )
+        errors = validate_commit_message(msg_with_agent_trailers)
+        self.assertEqual(len(errors), 2)
+        self.assertTrue(any("'CONVERSATION='" in e for e in errors))
+        self.assertTrue(any("forbidden trailer 'AGY='" in e for e in errors))
+
+        # Prose that names a banned trailer is not a trailer
+        msg_mentioning_trailers = (
+            "feat: Test title\n\n"
+            "Rejects the CONV= and AGY= trailers.\n\n"
+            "Bug: 12345678\n"
+            "Test: Presubmit\n"
+        )
+        self.assertEqual(validate_commit_message(msg_mentioning_trailers), [])
+
         # Missing Bug: line
         msg_missing_bug = "feat: Test title\n\nDescription.\n\nTest: Presubmit\n"
         errors = validate_commit_message(msg_missing_bug)
