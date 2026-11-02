@@ -18,16 +18,18 @@ from __future__ import annotations
 
 from commands.gerrit.stack.pre_upload import StackPreUploadCommand
 from commands.gerrit.stack.status import StackStatusCommand
+from commands.gerrit.stack.sync import StackSyncCommand
 from core.command import CommandGroup
 
 
 class GerritStackCommand(CommandGroup):
-    """Groups the commands that inspect and audit a stack of related CLs."""
+    """Groups the commands that inspect, sync, and audit a stack of related CLs."""
 
     name = "stack"
-    help_text = "Inspect a CL stack's review state and audit local commits before upload"
+    help_text = "Inspect, sync, and audit a stack of related Gerrit CLs"
     subcommand_dest = "stack_command"
     subcommands = [
         StackStatusCommand(),
         StackPreUploadCommand(),
+        StackSyncCommand(),
     ]

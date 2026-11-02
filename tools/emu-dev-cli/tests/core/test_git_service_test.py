@@ -95,6 +95,68 @@ class GitServiceTest(unittest.TestCase):
         with self.assertRaises(SubprocessError):
             git.rev_parse("nonexistent_ref", check=True)
 
+    def test_rebase_merge_tree_branch_and_push_gerrit(self) -> None:
+        git = FakeGitService(current_branch_name="feat-branch")
+        self.assertEqual(git.current_branch(), "feat-branch")
+        git.current_branch_name = "HEAD"
+        self.assertEqual(git.current_branch(), "")
+
+        base = git.seed_commit("base1", "chore: Base\n")
+        up = git.seed_commit(
+            "up1",
+            "feat: Upstream\n",
+            parents=(base.sha,),
+            changed_files=("src/up_测试.py",),
+        )
+        local = git.seed_commit(
+            "loc1",
+            "feat: Local\n",
+            parents=(base.sha,),
+            changed_files=("src/loc.py",),
+        )
+
+        self.assertEqual(git.log_oneline("base1..up1"), ["up1 feat: Upstream"])
+        self.assertEqual(git.diff_names("base1", "up1"), ["src/up_测试.py"])
+
+        # Clean merge_tree_check and rebase_onto
+        merge_ok = git.merge_tree_check("up1", "loc1", merge_base="base1")
+        self.assertEqual(merge_ok.returncode, 0)
+        rebase_ok = git.rebase_onto("up1", "base1", "loc1")
+        self.assertEqual(rebase_ok.returncode, 0)
+        self.assertEqual(git.commit_parents("HEAD"), [up.sha])
+
+        # Conflicting merge_tree_check and rebase_onto + abort_rebase
+        git.merge_tree_conflicts.add(("up1", "loc1"))
+        merge_conflict = git.merge_tree_check("up1", "loc1", merge_base="base1")
+        self.assertEqual(merge_conflict.returncode, 1)
+        rebase_conflict = git.rebase_onto("up1", "base1", "loc1")
+        self.assertEqual(rebase_conflict.returncode, 1)
+        self.assertFalse(git.is_clean())
+        git.abort_rebase()
+        self.assertTrue(git.is_clean())
+
+        # checkout_branch and push_gerrit
+        git.checkout_branch("synced-branch", local.sha, force=True)
+        self.assertEqual(git.current_branch(), "synced-branch")
+        push_res = git.push_gerrit(
+            "aosp",
+            local.sha,
+            "studio-main",
+            topic="my-topic",
+            notify="OWNER",
+            presubmit_ready=True,
+            extra_options=("wip",),
+        )
+        self.assertEqual(push_res.returncode, 0)
+        self.assertEqual(
+            git.pushed_refs[-1],
+            (
+                "aosp",
+                "loc1:refs/for/studio-main",
+                ("notify=OWNER", "nokeycheck", "topic=my-topic", "l=Presubmit-Ready+1", "wip"),
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

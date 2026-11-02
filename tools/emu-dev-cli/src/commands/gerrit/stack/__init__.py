@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Gerrit stack tooling: `gerrit stack status` and `gerrit stack pre-upload`."""
+"""Gerrit stack tooling: `status`, `pre-upload`, and `sync`."""
 
 from commands.gerrit.stack.cmd import GerritStackCommand
 from commands.gerrit.stack.pre_upload import (
@@ -31,9 +31,20 @@ from commands.gerrit.stack.status import (
     StackStatusCommand,
     StackStatusReport,
 )
+from commands.gerrit.stack.sync import (
+    ChangeSyncResult,
+    FileCollision,
+    StackSyncArgs,
+    StackSyncCommand,
+    StackSyncReport,
+    StackSyncSnapshot,
+    UpstreamCommit,
+)
 
 __all__ = [
     "CHECK_NAMES",
+    "ChangeSyncResult",
+    "FileCollision",
     "Finding",
     "GerritStackCommand",
     "PreUploadArgs",
@@ -45,5 +56,10 @@ __all__ = [
     "StackStatusArgs",
     "StackStatusCommand",
     "StackStatusReport",
+    "StackSyncArgs",
+    "StackSyncCommand",
+    "StackSyncReport",
+    "StackSyncSnapshot",
+    "UpstreamCommit",
     "audit_review_enforcement",
 ]

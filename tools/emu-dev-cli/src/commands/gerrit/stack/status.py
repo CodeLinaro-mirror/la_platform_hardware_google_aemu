@@ -583,22 +583,84 @@ def build_change_status(
     )
 
 
+@dataclass(frozen=True)
+class CollectedChain:
+    """Raw relation chain links, ChangeInfo map, and MergeableInfo map for one stack."""
+
+    links: tuple[ChainLink, ...]
+    details: dict[int, dict[str, Any]]
+    mergeable: dict[int, dict[str, Any]]
+
+
+def resolve_ref_change_id(
+    ctx: ExecutionContext, repo: str, ref: str = "HEAD"
+) -> tuple[str, str]:
+    """Returns `(change_id, sha)` of the local `ref` commit through `GitService`."""
+    git = ctx.git_service
+    if not git.is_git_repo(cwd=repo):
+        raise UsageError(
+            f"'{repo}' is not inside a Git work tree, so {ref} cannot be resolved.",
+            remediation="Run from your checkout, pass --repo <dir>, or pass a CL number or --topic.",
+        )
+    sha = git.rev_parse(ref, cwd=repo, verify=True, check=False)
+    if not sha:
+        raise UsageError(
+            f"Git reference '{ref}' could not be resolved in '{repo}'.",
+            remediation="Pass an existing local branch name, HEAD, a CL number, ag/<id>, or --topic.",
+        )
+    match = COMMIT_CHANGE_ID_RE.search(git.commit_message(ref, cwd=repo))
+    if not match:
+        raise UsageError(
+            f"The {ref} commit in '{repo}' has no 'Change-Id:' footer, so it has not been uploaded.",
+            remediation="Upload the commit first, or pass a CL number, ag/<id>, or --topic.",
+        )
+    return match.group(1), sha
+
+
+def pick_seed_change(
+    changes: list[dict[str, Any]], cl_id: str, host: str
+) -> dict[str, Any]:
+    """Picks the one change matching `cl_id`, preferring open changes for shared Change-Ids."""
+    if not changes:
+        raise UsageError(
+            f"No Gerrit change matches '{cl_id}' on '{host}'.",
+            remediation="Check the CL number or Change-Id, or pass --host for another Gerrit host.",
+        )
+    open_changes = [c for c in changes if c.get("status") == CHANGE_OPEN] or changes
+    if len(open_changes) > 1:
+        listed = ", ".join(
+            f"ag/{c.get('_number')} ({c.get('branch')})" for c in open_changes
+        )
+        raise UsageError(
+            f"Change-Id '{cl_id}' matches {len(open_changes)} CLs: {listed}.",
+            remediation="Pass the CL number of the one you want.",
+        )
+    return open_changes[0]
+
+
 class StackStatusService:
     """Collects relation chains and per-CL state from Gerrit through `GerritClient`."""
 
-    def __init__(self, client: GerritClient, host: str) -> None:
+    def __init__(
+        self,
+        client: GerritClient,
+        host: str,
+        *,
+        options: tuple[str, ...] = STATUS_QUERY_OPTIONS,
+    ) -> None:
         self._client = client
         self._host = host
+        self._options = options
 
     def find_changes(self, query: str, limit: int = MAX_TOPIC_CHANGES) -> list[dict[str, Any]]:
         """Runs a Gerrit search with every option the status view needs."""
-        return self._client.query_changes(query, options=STATUS_QUERY_OPTIONS, limit=limit)
+        return self._client.query_changes(query, options=self._options, limit=limit)
 
-    def collect(self, seeds: Sequence[Mapping[str, Any]], target_number: int = 0) -> tuple[StackSnapshot, ...]:
-        """Builds one snapshot per relation chain that contains at least one seed CL."""
+    def collect_chains(self, seeds: Sequence[Mapping[str, Any]]) -> tuple[CollectedChain, ...]:
+        """Collects deduplicated relation chains, detailed ChangeInfo, and MergeableInfo for `seeds`."""
         details = {int(s.get("_number", 0) or 0): dict(s) for s in seeds}
         covered: set[int] = set()
-        stacks: list[StackSnapshot] = []
+        chains: list[CollectedChain] = []
         for seed in seeds:
             number = int(seed.get("_number", 0) or 0)
             if number in covered:
@@ -606,8 +668,21 @@ class StackStatusService:
             chain = self._chain_for(seed)
             covered.update(link.number for link in chain)
             mergeable = self._fetch_chain_state(chain, details)
-            stacks.append(self._snapshot(chain, details, mergeable, target_number))
-        return tuple(stacks)
+            chains.append(
+                CollectedChain(
+                    links=tuple(chain),
+                    details=dict(details),
+                    mergeable=mergeable,
+                )
+            )
+        return tuple(chains)
+
+    def collect(self, seeds: Sequence[Mapping[str, Any]], target_number: int = 0) -> tuple[StackSnapshot, ...]:
+        """Builds one snapshot per relation chain that contains at least one seed CL."""
+        return tuple(
+            self._snapshot(c.links, c.details, c.mergeable, target_number)
+            for c in self.collect_chains(seeds)
+        )
 
     def _chain_for(self, seed: Mapping[str, Any]) -> list[ChainLink]:
         """Returns the chain containing `seed`, ordered base first."""
@@ -806,19 +881,7 @@ class StackStatusCommand(Command[StackStatusArgs, StackStatusReport]):
     @staticmethod
     def _pick_seed(changes: list[dict[str, Any]], cl_id: str, host: str) -> dict[str, Any]:
         """Picks the one change matching `cl_id`, preferring open changes for shared Change-Ids."""
-        if not changes:
-            raise UsageError(
-                f"No Gerrit change matches '{cl_id}' on '{host}'.",
-                remediation="Check the CL number or Change-Id, or pass --host for another Gerrit host.",
-            )
-        open_changes = [c for c in changes if c.get("status") == CHANGE_OPEN] or changes
-        if len(open_changes) > 1:
-            listed = ", ".join(f"ag/{c.get('_number')} ({c.get('branch')})" for c in open_changes)
-            raise UsageError(
-                f"Change-Id '{cl_id}' matches {len(open_changes)} CLs: {listed}.",
-                remediation="Pass the CL number of the one you want.",
-            )
-        return open_changes[0]
+        return pick_seed_change(changes, cl_id, host)
 
     def _resolve_seeds(
         self, args: StackStatusArgs, service: StackStatusService, ctx: ExecutionContext

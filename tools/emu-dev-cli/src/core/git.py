@@ -33,6 +33,8 @@ from core.process import (
 
 DEFAULT_GIT_TIMEOUT_SEC: float = 30.0
 DEFAULT_GIT_FETCH_TIMEOUT_SEC: float = 120.0
+DEFAULT_GIT_REBASE_TIMEOUT_SEC: float = 120.0
+DEFAULT_GIT_PUSH_TIMEOUT_SEC: float = 120.0
 
 
 @dataclass(frozen=True)
@@ -371,6 +373,86 @@ class GitService(ABC):
         res = self.run_git(["config", "--get", key], cwd=cwd, check=False)
         return res.stdout.strip() if res.returncode == 0 else ""
 
+    def current_branch(self, cwd: Path | str | None = None) -> str:
+        """Returns the current checked-out branch name, or empty string if detached."""
+        res = self.run_git(
+            ["rev-parse", "--abbrev-ref", "HEAD"], cwd=cwd, check=False
+        )
+        if res.returncode != 0:
+            return ""
+        name = res.stdout.strip()
+        return "" if name == "HEAD" else name
+
+    def merge_tree_check(
+        self,
+        base_ref: str,
+        branch_ref: str,
+        *,
+        merge_base: str | None = None,
+        cwd: Path | str | None = None,
+    ) -> ProcessResult:
+        """Performs a non-destructive 3-way merge check via `git merge-tree --write-tree`."""
+        cmd = ["merge-tree", "--write-tree"]
+        if merge_base:
+            cmd.append(f"--merge-base={merge_base}")
+        cmd.extend([base_ref, branch_ref])
+        return self.run_git(cmd, cwd=cwd, check=False)
+
+    def rebase_onto(
+        self,
+        new_base: str,
+        upstream: str,
+        branch: str | None = None,
+        *,
+        cwd: Path | str | None = None,
+        timeout_sec: float = DEFAULT_GIT_REBASE_TIMEOUT_SEC,
+        check: bool = False,
+    ) -> ProcessResult:
+        """Rebases commits from `upstream..branch` onto `new_base`."""
+        cmd = ["rebase", "--onto", new_base, upstream]
+        if branch:
+            cmd.append(branch)
+        return self.run_git(
+            cmd, cwd=cwd, check=check, timeout_sec=timeout_sec
+        )
+
+    def abort_rebase(self, cwd: Path | str | None = None) -> ProcessResult:
+        """Aborts an in-progress `git rebase`."""
+        return self.run_git(["rebase", "--abort"], cwd=cwd, check=False)
+
+    def push_gerrit(
+        self,
+        remote: str,
+        ref: str,
+        target_branch: str,
+        *,
+        topic: str | None = None,
+        notify: str = "OWNER",
+        presubmit_ready: bool = False,
+        extra_options: Sequence[str] = (),
+        cwd: Path | str | None = None,
+        timeout_sec: float = DEFAULT_GIT_PUSH_TIMEOUT_SEC,
+        check: bool = False,
+    ) -> ProcessResult:
+        """Pushes `ref` to `refs/for/<target_branch>` with Gerrit push options."""
+        cmd = ["push", remote, f"{ref}:refs/for/{target_branch}"]
+        options: list[str] = []
+        if notify:
+            options.append(f"notify={notify}")
+        options.append("nokeycheck")
+        if topic:
+            options.append(f"topic={topic}")
+        if presubmit_ready:
+            options.append("l=Presubmit-Ready+1")
+        for opt in extra_options:
+            if opt and opt not in options:
+                options.append(opt)
+        for opt in options:
+            cmd.extend(["-o", opt])
+        return self.run_git(
+            cmd, cwd=cwd, check=check, timeout_sec=timeout_sec
+        )
+
 
 class ProdGitService(GitService):
     """Production `GitService` backed by a `ProcessRunner`."""
@@ -422,6 +504,14 @@ class FakeGitService(GitService):
     ancestors: set[tuple[str, str]] = field(default_factory=set)
     staged_files: list[str] = field(default_factory=list)
     diff_files: dict[str, list[str]] = field(default_factory=dict)
+    current_branch_name: str = "studio-main"
+    rebase_conflicts: set[str] = field(default_factory=set)
+    merge_tree_conflicts: set[tuple[str, str]] = field(default_factory=set)
+    pushed_refs: list[tuple[str, str, tuple[str, ...]]] = field(
+        default_factory=list
+    )
+    push_returncode: int = 0
+    push_stderr: str = ""
     recorded_commands: list[tuple[str, ...]] = field(default_factory=list)
     process_runner: FakeProcessRunner = field(
         default_factory=FakeProcessRunner
@@ -477,6 +567,166 @@ class FakeGitService(GitService):
             return self.commits[-2]
         return None
 
+    def _log_range_commits(self, revision_range: str) -> list[GitCommitInfo]:
+        if ".." not in revision_range:
+            return list(reversed(self.commits))
+        base_ref, tip_ref = revision_range.split("..", 1)
+        base_commit = self._resolve_commit(base_ref)
+        tip_commit = self._resolve_commit(tip_ref)
+        base_sha = base_commit.sha if base_commit else self.refs.get(base_ref, base_ref)
+        if tip_commit is None:
+            return []
+        collected: list[GitCommitInfo] = []
+        current: Optional[GitCommitInfo] = tip_commit
+        visited: set[str] = set()
+        while current is not None and current.sha not in visited:
+            if current.sha == base_sha or current.sha.startswith(base_sha):
+                break
+            visited.add(current.sha)
+            collected.append(current)
+            next_parent = current.parents[0] if current.parents else ""
+            current = self._resolve_commit(next_parent) if next_parent else None
+        return collected
+
+    def _diff_name_only_files(self, ref_args: Sequence[str]) -> list[str]:
+        key = "..".join(ref_args) if ref_args else "HEAD"
+        if key in self.diff_files:
+            return list(self.diff_files[key])
+        if len(ref_args) == 2:
+            range_commits = self._log_range_commits(f"{ref_args[0]}..{ref_args[1]}")
+            seen: list[str] = []
+            for commit in reversed(range_commits):
+                for path in commit.changed_files:
+                    if path not in seen:
+                        seen.append(path)
+            if seen:
+                return seen
+        if ref_args:
+            commit = self._resolve_commit(ref_args[-1])
+            return (
+                list(commit.changed_files)
+                if commit is not None
+                else list(self.staged_files)
+            )
+        return list(self.staged_files)
+
+    def _handle_merge_tree(self, args: Sequence[str]) -> tuple[int, str, str]:
+        positional = [a for a in args[1:] if not a.startswith("-")]
+        base_ref = positional[-2] if len(positional) >= 2 else ""
+        branch_ref = positional[-1] if positional else ""
+        base_sha = self.refs.get(base_ref, base_ref)
+        branch_sha = self.refs.get(branch_ref, branch_ref)
+        has_conflict = (
+            (base_ref, branch_ref) in self.merge_tree_conflicts
+            or (base_sha, branch_sha) in self.merge_tree_conflicts
+            or branch_ref in self.rebase_conflicts
+            or branch_sha in self.rebase_conflicts
+        )
+        if has_conflict:
+            return (
+                1,
+                "CONFLICT (content): Merge conflict in fake_file.py\n",
+                "Auto-merging failed\n",
+            )
+        return (0, f"{'d' * 40}\n", "")
+
+    def _handle_rebase(self, args: Sequence[str]) -> tuple[int, str, str]:
+        if "--abort" in args:
+            self.status_output = ""
+            return (0, "", "")
+        if "--onto" not in args:
+            return (0, "", "")
+        idx = list(args).index("--onto")
+        new_base = args[idx + 1] if idx + 1 < len(args) else "HEAD"
+        upstream = args[idx + 2] if idx + 2 < len(args) else "HEAD~1"
+        branch = args[idx + 3] if idx + 3 < len(args) else "HEAD"
+        target_commit = self._resolve_commit(branch)
+        new_base_commit = self._resolve_commit(new_base)
+        new_base_sha = (
+            new_base_commit.sha
+            if new_base_commit is not None
+            else self.refs.get(new_base, new_base)
+        )
+        target_sha = target_commit.sha if target_commit is not None else branch
+        if (
+            branch in self.rebase_conflicts
+            or target_sha in self.rebase_conflicts
+            or (new_base, branch) in self.merge_tree_conflicts
+            or (new_base_sha, branch) in self.merge_tree_conflicts
+            or (new_base_sha, target_sha) in self.merge_tree_conflicts
+        ):
+            self.status_output = "UU fake_conflict.py\n"
+            return (
+                1,
+                "CONFLICT (content): Merge conflict in fake_conflict.py\n",
+                f"error: could not apply {target_sha[:7]} (upstream {upstream})\n",
+            )
+        rebased_sha = f"{len(self.commits) + 101:040x}"
+        message = target_commit.message if target_commit is not None else ""
+        changed = target_commit.changed_files if target_commit is not None else ()
+        self.seed_commit(
+            rebased_sha,
+            message,
+            parents=(new_base_sha,),
+            changed_files=changed,
+            update_head=True,
+        )
+        self.ancestors.add((new_base_sha, rebased_sha))
+        if branch != "HEAD" and not re.fullmatch(r"[0-9a-fA-F]{7,40}", branch):
+            self.refs[branch] = rebased_sha
+            self.current_branch_name = branch
+        return (0, f"Successfully rebased and updated {branch}.\n", "")
+
+    def _handle_checkout(self, args: Sequence[str]) -> tuple[int, str, str]:
+        if "-B" in args or "-b" in args:
+            flag = "-B" if "-B" in args else "-b"
+            idx = list(args).index(flag)
+            branch = args[idx + 1] if idx + 1 < len(args) else "main"
+            start_point = args[idx + 2] if idx + 2 < len(args) else "HEAD"
+            commit = self._resolve_commit(start_point)
+            sha = (
+                commit.sha
+                if commit is not None
+                else self.refs.get(start_point, start_point)
+            )
+            self.refs[branch] = sha
+            self.refs["HEAD"] = sha
+            self.current_branch_name = branch
+            return (0, f"Switched to and reset branch '{branch}'\n", "")
+        target = args[-1] if len(args) > 1 else "HEAD"
+        commit = self._resolve_commit(target)
+        if commit is not None:
+            self.refs["HEAD"] = commit.sha
+        if target in self.refs and not re.fullmatch(r"[0-9a-fA-F]{7,40}", target):
+            self.current_branch_name = target
+        return (0, "", "")
+
+    def _handle_push(self, args: Sequence[str]) -> tuple[int, str, str]:
+        options: list[str] = []
+        positional: list[str] = []
+        skip_next = False
+        for i, arg in enumerate(args[1:], start=1):
+            if skip_next:
+                skip_next = False
+                continue
+            if arg == "-o" and i + 1 < len(args):
+                options.append(args[i + 1])
+                skip_next = True
+            elif arg.startswith("-o"):
+                options.append(arg[2:])
+            elif not arg.startswith("-"):
+                positional.append(arg)
+        remote = positional[0] if positional else "origin"
+        refspec = positional[1] if len(positional) > 1 else "HEAD"
+        self.pushed_refs.append((remote, refspec, tuple(options)))
+        if self.push_returncode != 0:
+            return (
+                self.push_returncode,
+                "",
+                self.push_stderr or "fatal: remote rejected push\n",
+            )
+        return (0, "", f"To {remote}\n * [new reference] {refspec}\n")
+
     def run_git(
         self,
         args: Sequence[str],
@@ -521,6 +771,8 @@ class FakeGitService(GitService):
                 else:
                     returncode = 128
                     stderr = "fatal: not a git repository\n"
+            elif "--abbrev-ref" in args:
+                stdout = f"{self.current_branch_name or 'HEAD'}\n"
             else:
                 ref = args[-1].removesuffix("^{commit}")
                 commit = self._resolve_commit(ref)
@@ -564,7 +816,14 @@ class FakeGitService(GitService):
                 )
                 stdout = f"{matched}\n" if matched else ""
             elif "--oneline" in args:
-                lines = [f"{c.sha[:7]} {c.subject}" for c in reversed(self.commits)]
+                range_arg = next(
+                    (a for a in args[1:] if not a.startswith("-")), ""
+                )
+                range_commits = self._log_range_commits(range_arg)
+                lines = [
+                    f"{c.sha[:7] if re.fullmatch(r'[0-9a-fA-F]{40}', c.sha) else c.sha} {c.subject}"
+                    for c in range_commits
+                ]
                 stdout = ("\n".join(lines) + "\n") if lines else ""
             else:
                 ref = args[-1] if not args[-1].startswith("-") else "HEAD"
@@ -587,15 +846,16 @@ class FakeGitService(GitService):
                 stdout = " ".join(tokens) + "\n"
         elif subcmd == "diff" and "--name-only" in args:
             ref_args = [a for a in args[1:] if not a.startswith("-")]
-            key = "..".join(ref_args) if ref_args else "HEAD"
-            if key in self.diff_files:
-                files = self.diff_files[key]
-            elif ref_args:
-                commit = self._resolve_commit(ref_args[-1])
-                files = list(commit.changed_files) if commit else list(self.staged_files)
-            else:
-                files = list(self.staged_files)
+            files = self._diff_name_only_files(ref_args)
             stdout = ("\n".join(files) + "\n") if files else ""
+        elif subcmd == "merge-tree":
+            returncode, stdout, stderr = self._handle_merge_tree(args)
+        elif subcmd == "rebase":
+            returncode, stdout, stderr = self._handle_rebase(args)
+        elif subcmd == "checkout":
+            returncode, stdout, stderr = self._handle_checkout(args)
+        elif subcmd == "push":
+            returncode, stdout, stderr = self._handle_push(args)
         elif subcmd == "add":
             paths = [a for a in args[1:] if not a.startswith("-")]
             self.staged_files.extend(paths)

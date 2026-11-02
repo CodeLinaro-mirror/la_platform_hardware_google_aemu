@@ -106,7 +106,7 @@ suppressions, flaky test fixes) that can land independently:
 
 ---
 
-## 6. Checking a Stack Before and After Upload (`gerrit stack`)
+## 6. Checking and Syncing a Stack (`gerrit stack`)
 
 - **Before uploading**, run the checks reviewers would apply to each local commit:
   ```bash
@@ -124,4 +124,17 @@ suppressions, flaky test fixes) that can land independently:
   ```
   It lists the CLs base first with patch sets, mergeability, Treehugger results, and whose
   Code-Review vote Review-Enforcement still needs before Autosubmit can merge them.
+- **Syncing and rebasing a stack onto `studio-main` (`gerrit stack sync`):**
+  ```bash
+  emu-dev-cli gerrit stack sync --dry-run          # inspect upstream file overlaps and merge-tree without rebasing
+  emu-dev-cli gerrit stack sync                    # rebase open stack CLs onto target branch and push with notify=OWNER
+  emu-dev-cli gerrit stack sync --topic my-topic --presubmit
+  emu-dev-cli gerrit stack sync --branch feat-stack --no-push
+  ```
+  It inspects commits landed on the target branch since the stack's base commit to pinpoint file
+  overlaps before rebasing, validates mergeability via `git merge-tree` and Gerrit `MergeableInfo`
+  in `--dry-run` mode, rebases open child CLs in order while preserving `Change-Id:` footers and
+  topic metadata (aborting and restoring the branch on conflict), and pushes updated patchsets to
+  Gerrit with `-o notify=OWNER -o nokeycheck` (and `-o l=Presubmit-Ready+1` when `--presubmit` is
+  set).
 
