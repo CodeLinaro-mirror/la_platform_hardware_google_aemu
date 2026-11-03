@@ -483,6 +483,13 @@ message AudioCapabilities {
   // 1 indicates exclusive single-source injection; values > 1 indicate multi-source mixing.
   // Unset when microphone injection is unsupported (`microphone_profile` is unset).
   optional int32 max_concurrent_microphone_streams = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. True if `UpdateAudioStateRequest.wired_headset` can plug a virtual wired headset
+  // into the device: the emulator then signals the Linux jack switches (`SW_HEADPHONE_INSERT`,
+  // `SW_MICROPHONE_INSERT`) to the guest. True does not mean apps will see the headset: that also
+  // requires a system image whose audio policy declares wired headset devices, which emulator
+  // system images for API 29 and later do not. See "Wired headset jack" in
+  // services_v2/README.md.
+  bool supports_wired_headset = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
 }
 
 // Specifies supported PCM sample formats, sample rates, and channel layouts for an audio endpoint.

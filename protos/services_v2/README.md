@@ -548,6 +548,30 @@ substantially between API 24 and API 36. Query `DeviceMetadata.api_level` via
 | **Sleeping displays** | **System-image dependent** | Emulator images normally disable the screen-off timeout during first-boot setup, so displays stay on unless a client turns them off. Touches sent to a sleeping display are dropped unless the system image enables wake-on-touch (`touch.wake = 1`, as in goldfish images built since mid-2026); the touch that wakes the display may not reach apps. | Don't send `KEYCODE_POWER` (`android_keycode = 26`) to "wake" a display that may already be on: POWER toggles the display and turns an awake display off. |
 | **Wheel & rotary scrolling (`POINTER_ACTION_SCROLL`, `AxisEvent`)** | **API 24–35**<br>vs **API 36+** | `RotaryEncoderInputMapper` supports `AXIS_TYPE_ROTARY_ENCODER` from **API 24+**. Guests before **API 36** consume only whole wheel detents; **API 36** adds high-resolution wheel support (`REL_WHEEL_HI_RES`) behind a platform feature flag. | Send whole-integer `scroll_x` / `scroll_y` detents (`1.0`, `-1.0`) unless the guest is known to support high-resolution scrolling. |
 
+### Wired headset jack
+
+`AudioService.UpdateAudioState` with `wired_headset` plugs a virtual wired headset into the
+device when `AudioCapabilities.supports_wired_headset` is true. The emulator signals the Linux jack
+switches `SW_HEADPHONE_INSERT` and `SW_MICROPHONE_INSERT` to the guest, as real hardware does. What
+the guest does with them depends on the system image:
+
+- The guest's `WiredAccessoryManager` reads the switches only when the image sets
+  `config_useDevInputEventForAudioJack` (the framework default is false).
+- Apps see the headset only when the image's audio policy also declares wired headset devices.
+  Otherwise the guest rejects the device: it sends no `ACTION_HEADSET_PLUG`, and
+  `AudioManager.isWiredHeadsetOn()` stays false.
+
+| Emulator system image | `WiredAccessoryManager` reads the switches | Apps see the headset |
+| :--- | :--- | :--- |
+| Phone and tablet, API 24–28 | Yes | Yes. The audio policy declares wired headphone and headset devices. |
+| Phone and tablet, API 29+ | Yes | **No.** The audio policy declares only the speaker, built-in mic, telephony and FM tuner. |
+| Automotive and TV, API 35+ | No. These images no longer set `config_useDevInputEventForAudioJack`. | No |
+| Wear, API 33+ | No. Wear doesn't run `WiredAccessoryManager`. | No |
+
+To test headset handling in an app on API 29+, use a system image whose audio policy and audio HAL
+declare wired headset devices. To check what the guest received, run `adb shell getevent -lt` for the
+switch events and `adb shell dumpsys audio` for the wired device connection and any rejection.
+
 ---
 
 ## 6. gRPC Status Code Cheat Sheet
