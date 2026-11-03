@@ -81,6 +81,10 @@ DOC_TARGETS = {
         "emu-main-next",
         "hardware/google/aemu/tools/emu-dev-cli/docs/playbooks/crash_triage.md",
     ),
+    "playbook-mcp-server": (
+        "emu-main-next",
+        "hardware/google/aemu/tools/emu-dev-cli/docs/playbooks/mcp_server.md",
+    ),
 }
 
 _SKIP_DIRS = {

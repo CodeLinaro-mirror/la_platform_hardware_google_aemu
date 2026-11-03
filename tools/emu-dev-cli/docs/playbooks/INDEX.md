@@ -39,6 +39,7 @@ emu-dev-cli docs lint
 | `playbook-git-and-gerrit`                   | `playbooks/git_and_gerrit.md`           | Git-on-Borg `push.negotiate=false` hang fix, Gerrit commit message rules (no `TAG=`/`CONV=`), branch splits, `mise presubmit`, and `gerrit stack` (`pre-upload`, `status`, `sync`, `watch`). |
 | `playbook-threading-and-invariants`         | `playbooks/threading_and_invariants.md` | Concurrency invariants across QEMU BQL, Looper/EventLoop, gfxstream RenderThread, gRPC server threads, and Display Pipeline (`DisplaySource` / `DisplaySink` / `VideoRecorder`).             |
 | `playbook-crash-triage`                     | `playbooks/crash_triage.md`             | Production `qemu-next` crash discovery (`crash list-crashes` via F1 SQL + `blade:crash-queryapi`), Buganizer deduplication/filing, and `go/crash` annotation linking (`crash link-bug`).     |
+| `playbook-mcp-server`                       | `playbooks/mcp_server.md`               | `emu-dev-cli mcp serve`: MCP server that gives agents (Jetski, Claude Code) typed tools for Gerrit stacks and reviews, crash triage, `perf compare`, and `tidy check`.                       |
 
 ---
 

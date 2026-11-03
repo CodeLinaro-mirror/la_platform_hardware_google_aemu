@@ -531,6 +531,7 @@ def bad_helper(label: str = "测试_🚀_é") -> None:
             harness,
             init_cmd,
             launch,
+            mcp,
             mesh,
             perf,
             sbom,
@@ -541,7 +542,7 @@ def bad_helper(label: str = "测试_🚀_é") -> None:
             update_prebuilt,
             workflow,
         )
-        from core.command import COMMAND_INSTANCE_ATTR, Command
+        from core.command import COMMAND_INSTANCE_ATTR, Command, bind_command
         from install import installer
 
         # 1. Verify zero legacy `set_defaults(func=...)` calls exist in src/
@@ -593,8 +594,9 @@ def bad_helper(label: str = "测试_🚀_é") -> None:
             mod.register_parser(subparsers)
         fetch_build.register_parser(subparsers, "linux-x86_64")
         update_prebuilt.register_parser(subparsers, "linux-x86_64")
+        bind_command(subparsers, mcp.McpCommand())
 
-        self.assertGreaterEqual(len(subparsers.choices), 21)
+        self.assertGreaterEqual(len(subparsers.choices), 22)
         for name, subparser in sorted(subparsers.choices.items()):
             cmd_inst = subparser.get_default(COMMAND_INSTANCE_ATTR)
             self.assertIsInstance(
