@@ -19,6 +19,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -279,7 +280,7 @@ def _candidate_gerrit_ui_template_paths(template_name: str = "gerrit_ui.html") -
 
 def get_gerrit_ui_template_path(variant: str = "classic") -> Path:
     """Resolves the HTML template path for `emu-dev-cli gerrit ui` (`classic` or `polygerrit`)."""
-    norm_variant = str(variant or "").strip().lower()
+    norm_variant = str(variant or "classic").strip().lower()
     template_name = (
         "gerrit_ui_polygerrit.html" if norm_variant == "polygerrit" else "gerrit_ui.html"
     )
@@ -566,10 +567,127 @@ def get_image_mime_type(file_path: str) -> str:
     return IMAGE_MIME_TYPES_BY_EXT.get(ext, "application/octet-stream")
 
 
+def _append_symbol_if_present(
+    current_file: dict[str, Any], code_text: str, new_ln: int, old_ln: int
+) -> None:
+    """Extracts a code symbol from `code_text` and appends it to `current_file['symbols']`."""
+    sym = extract_symbol_from_code_line(code_text)
+    if sym:
+        current_file["symbols"].append(
+            {
+                "name": sym,
+                "line": new_ln,
+                "old_line": old_ln,
+                "kind": "class" if sym.startswith(("class ", "struct ")) else "function",
+            }
+        )
+
+
+def _apply_diff_metadata_header_line(
+    current_file: dict[str, Any], line: str, max_lines_per_file: int
+) -> bool:
+    """Processes git diff metadata header lines (`+++`, `---`, rename, copy, similarity, binary)."""
+    if line.startswith("+++ "):
+        cand = unquote_git_diff_path(line[4:])
+        if cand and cand != "/dev/null":
+            current_file["file"] = cand
+            current_file["is_binary"] = is_binary_path(cand)
+            current_file["is_image"] = is_image_path(cand)
+        elif cand == "/dev/null":
+            current_file["status"] = "D"
+        return True
+    if line.startswith("--- "):
+        cand = unquote_git_diff_path(line[4:])
+        if cand == "/dev/null":
+            current_file["status"] = "A"
+        return True
+    if line.startswith("new file mode"):
+        current_file["status"] = "A"
+        return True
+    if line.startswith("deleted file mode"):
+        current_file["status"] = "D"
+        return True
+    if line.startswith("similarity index "):
+        m_sim = re.match(r"^similarity index\s+(\d+)%", line)
+        if m_sim:
+            current_file["similarity"] = int(m_sim.group(1))
+        if len(current_file["lines"]) < max_lines_per_file:
+            current_file["lines"].append({"type": "hunk", "old": "", "new": "", "text": line})
+        return True
+    for prefix, status_code, is_old in (
+        ("rename from ", "R", True),
+        ("rename to ", "R", False),
+        ("copy from ", "C", True),
+        ("copy to ", "C", False),
+    ):
+        if line.startswith(prefix):
+            path_val = unquote_git_diff_path(line[len(prefix) :].strip())
+            if is_old:
+                current_file["old_path"] = path_val
+            elif path_val:
+                current_file["file"] = path_val
+                current_file["is_binary"] = is_binary_path(path_val)
+                current_file["is_image"] = is_image_path(path_val)
+            current_file["status"] = status_code
+            if len(current_file["lines"]) < max_lines_per_file:
+                current_file["lines"].append({"type": "hunk", "old": "", "new": "", "text": line})
+            return True
+    if line.startswith("index "):
+        return True
+    if line.startswith("Binary files "):
+        current_file["is_binary"] = True
+        if is_image_path(current_file["file"]):
+            current_file["is_image"] = True
+        if len(current_file["lines"]) < max_lines_per_file:
+            current_file["lines"].append({"type": "hunk", "old": "", "new": "", "text": line})
+        return True
+    return False
+
+
+def _finalize_parsed_diff_file(
+    f: dict[str, Any],
+    owner_approvals: dict[str, str] | None,
+    file_total_lines: dict[str, int] | None,
+) -> None:
+    """Normalizes similarity, total_lines, binary/image flags, owners, and deduplicated symbols."""
+    fpath = f.get("file", "")
+    if f.get("status") in ("R", "C") and f.get("similarity") is None:
+        if f.get("additions", 0) == 0 and f.get("deletions", 0) == 0:
+            f["similarity"] = 100
+    if f.get("status") == "A":
+        f["total_lines"] = f.get("additions", 0)
+    elif f.get("status") == "D":
+        f["total_lines"] = 0
+    elif file_total_lines and fpath in file_total_lines:
+        f["total_lines"] = file_total_lines[fpath]
+    if is_image_path(fpath):
+        f["is_image"] = True
+        f["is_binary"] = True
+    elif is_binary_path(fpath):
+        f["is_binary"] = True
+    else:
+        f.setdefault("is_binary", False)
+        f.setdefault("is_image", False)
+    if owner_approvals is not None and fpath in owner_approvals:
+        f["owner_status"] = owner_approvals[fpath]
+    if f.get("symbols"):
+        seen_names: set[str] = set()
+        deduped: list[dict[str, Any]] = []
+        for s in f["symbols"]:
+            name = s.get("name")
+            if name and name not in seen_names:
+                seen_names.add(name)
+                deduped.append(s)
+        f["symbols"] = deduped
+    else:
+        f["symbols"] = []
+
+
 def parse_unified_diff_files(
     raw_diff: str,
     max_lines_per_file: int = DEFAULT_MAX_DIFF_LINES_PER_FILE,
     owner_approvals: dict[str, str] | None = None,
+    file_total_lines: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     """Parses a unified git patch into per-file structured diff lines for UI rendering."""
     files: list[dict[str, Any]] = []
@@ -587,53 +705,27 @@ def parse_unified_diff_files(
                 "deletions": 0,
                 "truncated": False,
                 "status": "M",
+                "old_path": None,
+                "similarity": None,
+                "total_lines": None,
                 "is_binary": is_binary_path(raw_path),
                 "is_image": is_image_path(raw_path),
+                "symbols": [],
             }
             files.append(current_file)
             continue
         if current_file is None:
             continue
-        if line.startswith("+++ "):
-            cand = unquote_git_diff_path(line[4:])
-            if cand and cand != "/dev/null":
-                current_file["file"] = cand
-                current_file["is_binary"] = is_binary_path(cand)
-                current_file["is_image"] = is_image_path(cand)
-            elif cand == "/dev/null":
-                current_file["status"] = "D"
-            continue
-        if line.startswith("--- "):
-            cand = unquote_git_diff_path(line[4:])
-            if cand == "/dev/null":
-                current_file["status"] = "A"
-            continue
-        if line.startswith("new file mode"):
-            current_file["status"] = "A"
-            continue
-        if line.startswith("deleted file mode"):
-            current_file["status"] = "D"
-            continue
-        if line.startswith("rename to "):
-            current_file["status"] = "R"
-            if len(current_file["lines"]) < max_lines_per_file:
-                current_file["lines"].append({"type": "hunk", "old": "", "new": "", "text": line})
-            continue
-        if line.startswith("index "):
-            continue
-        if line.startswith(("rename from ", "similarity index ", "Binary files ")):
-            if line.startswith("Binary files "):
-                current_file["is_binary"] = True
-                if is_image_path(current_file["file"]):
-                    current_file["is_image"] = True
-            if len(current_file["lines"]) < max_lines_per_file:
-                current_file["lines"].append({"type": "hunk", "old": "", "new": "", "text": line})
+        if _apply_diff_metadata_header_line(current_file, line, max_lines_per_file):
             continue
         if line.startswith("@@ "):
             m = re.match(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$", line)
             if m:
                 old_ln = int(m.group(1))
                 new_ln = int(m.group(2))
+                hunk_ctx = m.group(3).strip()
+                if hunk_ctx:
+                    _append_symbol_if_present(current_file, hunk_ctx, new_ln, old_ln)
             if len(current_file["lines"]) < max_lines_per_file:
                 current_file["lines"].append({"type": "hunk", "old": "", "new": "", "text": line})
             continue
@@ -644,6 +736,9 @@ def parse_unified_diff_files(
 
         if line.startswith("+"):
             current_file["additions"] += 1
+            code_body = line[1:].strip()
+            if code_body and not code_body.startswith(("//", "/*", "*", "#")):
+                _append_symbol_if_present(current_file, code_body, new_ln, old_ln)
             current_file["lines"].append({"type": "add", "old": "", "new": str(new_ln), "text": line})
             new_ln += 1
         elif line.startswith("-"):
@@ -656,26 +751,19 @@ def parse_unified_diff_files(
             new_ln += 1
 
     for f in files:
-        fpath = f.get("file", "")
-        if is_image_path(fpath):
-            f["is_image"] = True
-            f["is_binary"] = True
-        elif is_binary_path(fpath):
-            f["is_binary"] = True
-        else:
-            f.setdefault("is_binary", False)
-            f.setdefault("is_image", False)
-        if owner_approvals is not None and fpath in owner_approvals:
-            f["owner_status"] = owner_approvals[fpath]
+        _finalize_parsed_diff_file(f, owner_approvals, file_total_lines)
 
     return files
+
+
+parse_git_unified_diff = parse_unified_diff_files
 
 
 _IDENT_START_CLASS = r"[A-Za-z_\u0080-\U0010ffff]"
 _IDENT_CONT_CLASS = r"[\w\u0080-\U0010ffff]"
 _HUNK_CONTEXT_RE = re.compile(r"^@@[^@]+@@\s*(.+?)\s*$")
 _PY_DEF_OR_CLASS_RE = re.compile(
-    rf"^\s*(?:async\s+def|def|class)\s+({_IDENT_START_CLASS}{_IDENT_CONT_CLASS}*)"
+    rf"^\s*(?:async\s+def|def|class|struct)\s+({_IDENT_START_CLASS}{_IDENT_CONT_CLASS}*)"
 )
 _GO_FUNC_RE = re.compile(
     rf"^\s*func\s+(?:\([^)]*\)\s*)?({_IDENT_START_CLASS}{_IDENT_CONT_CLASS}*)\s*[\[(]"
@@ -985,11 +1073,26 @@ class GerritDiffService(GerritServiceBase):
                 if base_clean == "base"
                 else None
             )
+            mergeable_fut = (
+                pool.submit(self._resolve_mergeable_info, cl_id, rev_target)
+                if base_clean == "base"
+                else None
+            )
             raw_patch = patch_fut.result()
             decoded_patch = decode_gerrit_patch(raw_patch) if raw_patch else ""
+            mergeable_info = (
+                mergeable_fut.result()
+                if mergeable_fut
+                else {"mergeable": True, "conflicts": [], "contains_git_conflicts": False}
+            )
             rev_data = {
                 "commit_message": extract_commit_message_from_patch(decoded_patch) if decoded_patch else "",
                 "is_pure_rebase": rebase_fut.result() if rebase_fut else False,
+                "mergeable": bool(mergeable_info.get("mergeable", True)),
+                "conflicts": list(mergeable_info.get("conflicts") or []),
+                "contains_git_conflicts": bool(mergeable_info.get("contains_git_conflicts", False)),
+                "merge_strategy": str(mergeable_info.get("strategy") or ""),
+                "submit_type": str(mergeable_info.get("submit_type") or ""),
                 "files": parse_unified_diff_files(decoded_patch) if decoded_patch else [],
             }
             if cache_rev_key:
@@ -1002,6 +1105,29 @@ class GerritDiffService(GerritServiceBase):
                 threads_fut.result(),
                 self._enrich_questions_with_diff_symbols(qa_fut.result(), rev_data["files"]),
             )
+
+    def _resolve_mergeable_info(self, cl_id: str, rev: str = "current") -> dict[str, Any]:
+        """Resolves mergeability info via Gerrit REST API, returning safe fallback if unsupported."""
+        try:
+            return self.client.get_mergeable(cl_id, revision=rev)
+        except Exception:
+            return {
+                "mergeable": True,
+                "conflicts": [],
+                "contains_git_conflicts": False,
+                "strategy": "",
+                "submit_type": "",
+            }
+
+    def get_mergeable_info(
+        self,
+        cl_number: str | int,
+        revision: str | int = "current",
+    ) -> dict[str, Any]:
+        """Queries mergeability status for a change revision, providing conflict files and strategy."""
+        cl_id = str(cl_number).strip()
+        rev_str = str(revision).strip() if revision else "current"
+        return self._resolve_mergeable_info(cl_id, rev=rev_str)
 
     def _store_diff_bundle_caches(
         self,
@@ -1053,10 +1179,16 @@ class GerritDiffService(GerritServiceBase):
             "base_patch_set": base_clean,
             "commit_message": rev_data["commit_message"],
             "is_pure_rebase": rev_data["is_pure_rebase"],
+            "mergeable": rev_data.get("mergeable", True),
+            "conflicts": rev_data.get("conflicts", []),
+            "contains_git_conflicts": rev_data.get("contains_git_conflicts", False),
+            "merge_strategy": rev_data.get("merge_strategy", ""),
+            "submit_type": rev_data.get("submit_type", ""),
             "files": rev_data["files"],
             "unresolved_threads": threads,
             "comment_threads": threads,
             "code_questions": code_questions,
+            "reviewed_files": self.fetch_reviewed_files(cl_id, target_ps_num),
         }
         with self._session_lock:
             if len(self._full_diff_bundle_cache) >= DIFF_BUNDLE_CACHE_MAX_ENTRIES:
@@ -1137,7 +1269,154 @@ class GerritDiffService(GerritServiceBase):
             self._file_content_cache[cache_key] = (time.monotonic(), res)
         return res
 
+    def fetch_file_blame(
+        self,
+        cl_number: str | int,
+        file_path: str,
+        patch_set: str | int | None = None,
+        parent: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Fetches blame information for a file in a Gerrit change revision with caching."""
+        cl_id = str(cl_number).strip()
+        path_clean = str(file_path).strip().lstrip("/")
+        known_rev, known_ps = self._get_known_revision(cl_id)
+        target_ps_str = str(patch_set).strip() if patch_set is not None else ""
+        is_parent = parent or (target_ps_str in ("0", "base", "parent"))
+        target_rev = (
+            target_ps_str
+            if target_ps_str and target_ps_str not in ("0", "base", "parent", "current")
+            else (known_rev or "current")
+        )
+
+        cache_key = (cl_id, str(target_rev), path_clean, is_parent)
+        with self._session_lock:
+            cached = self._file_blame_cache.get(cache_key)
+        if cached is not None and (time.monotonic() - cached[0]) < RAW_QUEUE_CACHE_TTL_SEC:
+            return list(cached[1])
+
+        blame_entries: list[dict[str, Any]] = []
+        try:
+            blame_entries = self.client.get_revision_file_blame(
+                cl_id, path_clean, revision=target_rev, parent=is_parent
+            )
+        except Exception as exc:
+            logging.getLogger(__name__).debug(
+                "Gerrit API blame error for %s %s: %s", cl_id, path_clean, exc
+            )
+
+        with self._session_lock:
+            if len(self._file_blame_cache) >= DIFF_BUNDLE_CACHE_MAX_ENTRIES:
+                self._file_blame_cache.pop(next(iter(self._file_blame_cache)), None)
+            self._file_blame_cache[cache_key] = (time.monotonic(), list(blame_entries))
+        return list(blame_entries)
+
+    def fetch_reviewed_files(
+        self,
+        cl_number: str | int,
+        patch_set: str | int | None = None,
+    ) -> list[str]:
+        """Fetches the list of files marked as reviewed by the current user on Gerrit with caching."""
+        cl_id = str(cl_number).strip()
+        known_rev, known_ps = self._get_known_revision(cl_id)
+        target_ps_str = str(patch_set).strip() if patch_set is not None else ""
+        target_rev = target_ps_str if target_ps_str and target_ps_str != "current" else (known_rev or "current")
+        cache_key = (cl_id, str(target_rev))
+        with self._session_lock:
+            cached = self._reviewed_files_cache.get(cache_key)
+        if cached is not None and (time.monotonic() - cached[0]) < RAW_QUEUE_CACHE_TTL_SEC:
+            return list(cached[1])
+
+        reviewed_list: list[str] = []
+        try:
+            reviewed_list = self.client.get_revision_reviewed_files(cl_id, revision=target_rev)
+        except Exception as exc:
+            logging.getLogger(__name__).debug(
+                "Gerrit API reviewed files error for %s ps %s: %s", cl_id, target_rev, exc
+            )
+
+        with self._session_lock:
+            if len(self._reviewed_files_cache) >= DIFF_BUNDLE_CACHE_MAX_ENTRIES:
+                self._reviewed_files_cache.pop(next(iter(self._reviewed_files_cache)), None)
+            self._reviewed_files_cache[cache_key] = (time.monotonic(), list(reviewed_list))
+        return list(reviewed_list)
+
+    def set_file_reviewed(
+        self,
+        cl_number: str | int,
+        file_path: str,
+        reviewed: bool = True,
+        patch_set: str | int | None = None,
+    ) -> bool:
+        """Sets reviewed status for a file on Gerrit and updates the local cache."""
+        cl_id = str(cl_number).strip()
+        known_rev, known_ps = self._get_known_revision(cl_id)
+        target_ps_str = str(patch_set).strip() if patch_set is not None else ""
+        target_rev = target_ps_str if target_ps_str and target_ps_str != "current" else (known_rev or "current")
+        success = self.client.set_revision_file_reviewed(
+            cl_id, file_path, reviewed=reviewed, revision=target_rev
+        )
+        if not success:
+            return False
+
+        path_str = str(file_path).strip()
+        candidate_revs = {str(target_rev)}
+        if known_rev:
+            candidate_revs.add(str(known_rev))
+        if known_ps:
+            candidate_revs.add(str(known_ps))
+        with self._session_lock:
+            for rev_key in candidate_revs:
+                ck = (cl_id, rev_key)
+                cached = self._reviewed_files_cache.get(ck)
+                if cached is not None:
+                    cur_set = set(cached[1])
+                    if reviewed:
+                        cur_set.add(path_str)
+                    else:
+                        cur_set.discard(path_str)
+                    self._reviewed_files_cache[ck] = (time.monotonic(), sorted(cur_set))
+            for b_key in [k for k in self._full_diff_bundle_cache if k[0] == cl_id]:
+                self._full_diff_bundle_cache.pop(b_key, None)
+        return True
+
+    def set_files_reviewed_batch(
+        self,
+        cl_number: str | int,
+        file_paths: list[str],
+        reviewed: bool = True,
+        patch_set: str | int | None = None,
+    ) -> dict[str, Any]:
+        """Sets reviewed status for multiple files on Gerrit concurrently."""
+        results: dict[str, bool] = {}
+        cleaned_paths = [str(p).strip() for p in file_paths if str(p).strip()]
+        if not cleaned_paths:
+            return {
+                "status": "ok",
+                "cl": cl_number,
+                "patch_set": patch_set,
+                "reviewed": reviewed,
+                "count": 0,
+                "results": results,
+            }
+        with ThreadPoolExecutor(max_workers=min(len(cleaned_paths), DIFF_FETCH_WORKERS)) as pool:
+            future_to_file = {
+                pool.submit(self.set_file_reviewed, cl_number, f, reviewed, patch_set): f
+                for f in cleaned_paths
+            }
+            for fut, f in future_to_file.items():
+                try:
+                    results[f] = fut.result()
+                except Exception:
+                    results[f] = False
+        return {
+            "status": "ok",
+            "cl": cl_number,
+            "patch_set": patch_set,
+            "reviewed": reviewed,
+            "count": len(results),
+            "results": results,
+        }
+
 
 DiffService = GerritDiffService
-
 

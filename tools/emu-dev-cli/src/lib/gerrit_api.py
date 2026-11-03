@@ -103,6 +103,7 @@ class GerritCommentMessage:
     robot_run_id: str = ""
     url: str = ""
     fix_suggestions: list[dict[str, Any]] = field(default_factory=list)
+    change_message_id: str = ""
 
 
 @dataclass
@@ -128,6 +129,7 @@ class GerritCommentThread:
     url: str = ""
     fix_suggestions: list[dict[str, Any]] = field(default_factory=list)
     messages: list[GerritCommentMessage] = field(default_factory=list)
+    change_message_id: str = ""
 
     @property
     def latest_message(self) -> str:
@@ -674,6 +676,70 @@ class GerritClient:
         except Exception:
             return stripped
 
+    def get_revision_file_blame(
+        self,
+        change_id: str,
+        file_path: str,
+        revision: str = "current",
+        parent: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Fetches blame information for a file in a Gerrit change revision."""
+        encoded_id = urllib.parse.quote(str(change_id), safe="")
+        encoded_rev = urllib.parse.quote(str(revision), safe="")
+        encoded_file = urllib.parse.quote(str(file_path).lstrip("/"), safe="")
+        query = "?parent=1" if parent else ""
+        path = f"/a/changes/{encoded_id}/revisions/{encoded_rev}/files/{encoded_file}/blame{query}"
+        res = self._request_json(path)
+        if isinstance(res, list):
+            return res
+        return []
+
+    def get_revision_reviewed_files(
+        self,
+        change_id: str | int,
+        revision: str = "current",
+    ) -> list[str]:
+        """Fetches the list of reviewed files for the authenticated user on a revision via `GET /changes/{id}/revisions/{rev}/files?reviewed`."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        encoded_rev = urllib.parse.quote(str(revision).strip(), safe="")
+        path = f"/a/changes/{encoded_id}/revisions/{encoded_rev}/files?reviewed"
+        try:
+            res = self._request_json(path)
+            if isinstance(res, list):
+                return [str(f) for f in res]
+            if isinstance(res, dict):
+                return [
+                    str(k)
+                    for k, v in res.items()
+                    if (isinstance(v, dict) and v.get("reviewed")) or (isinstance(v, bool) and v)
+                ]
+        except Exception as exc:
+            logger.debug("Failed to fetch reviewed files for %s ps %s: %s", change_id, revision, exc)
+        return []
+
+    def set_revision_file_reviewed(
+        self,
+        change_id: str | int,
+        file_path: str,
+        reviewed: bool = True,
+        revision: str = "current",
+    ) -> bool:
+        """Marks or unmarks a file as reviewed for the authenticated user via `PUT`/`DELETE /changes/{id}/revisions/{rev}/files/{file}/reviewed`."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        encoded_rev = urllib.parse.quote(str(revision).strip(), safe="")
+        clean_path = str(file_path).strip()
+        if clean_path.startswith("/") and not clean_path.startswith(("/COMMIT_MSG", "/MERGE_LIST")):
+            clean_path = clean_path.lstrip("/")
+        encoded_file = urllib.parse.quote(clean_path, safe="")
+        path = f"/a/changes/{encoded_id}/revisions/{encoded_rev}/files/{encoded_file}/reviewed"
+        method = "PUT" if reviewed else "DELETE"
+        try:
+            self._request_raw(path, method=method)
+            return True
+        except Exception as exc:
+            logger.debug("Failed to set reviewed=%s for %s %s: %s", reviewed, change_id, file_path, exc)
+            return False
+
     def list_open_changes(
         self,
         owner: str = "self",
@@ -740,7 +806,7 @@ class GerritClient:
         endpoint = (
             f"/a/changes/{encoded_id}/detail"
             f"?o=CURRENT_REVISION&o=ALL_REVISIONS&o=CURRENT_COMMIT"
-            f"&o=MESSAGES&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS{extra}"
+            f"&o=MESSAGES&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=SUBMIT_REQUIREMENTS{extra}"
         )
         data = self._request_json(endpoint)
         if not isinstance(data, dict):
@@ -786,18 +852,26 @@ class GerritClient:
     def get_mergeable(
         self,
         change_id: str | int,
-        revision: str = "current",
+        revision: str | int = "current",
     ) -> dict[str, Any]:
         """Returns Gerrit's MergeableInfo for a revision (`GET .../mergeable`)."""
         encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
-        encoded_rev = urllib.parse.quote(str(revision), safe="")
-        data = self._request_json(f"/a/changes/{encoded_id}/revisions/{encoded_rev}/mergeable")
+        encoded_rev = urllib.parse.quote(str(revision).strip(), safe="")
+        endpoint = f"/a/changes/{encoded_id}/revisions/{encoded_rev}/mergeable"
+        data = self._request_json(endpoint, method="GET")
         if not isinstance(data, dict):
             raise RuntimeError(
                 f"Unexpected Gerrit mergeable response type ({type(data).__name__}) for CL "
                 f"'{change_id}' on '{self.host}'. Verify that the CL is open and retry."
             )
-        return data
+        return {
+            **data,
+            "mergeable": bool(data.get("mergeable", True)),
+            "conflicts": list(data.get("conflicts") or []),
+            "contains_git_conflicts": bool(data.get("contains_git_conflicts", False)),
+            "strategy": str(data.get("strategy") or ""),
+            "submit_type": str(data.get("submit_type") or ""),
+        }
 
     def get_included_in(
         self,
@@ -850,6 +924,27 @@ class GerritClient:
             "change_id": str(change_id),
             "file_path": file_path,
             "bytes": len(content_bytes),
+            "response": raw_res,
+        }
+
+    def set_commit_message(
+        self,
+        change_id: str | int,
+        message: str,
+        *,
+        notify: str = "OWNER",
+    ) -> dict[str, Any]:
+        """Modifies the commit message of a change edit via `PUT /changes/{id}/message` with mandatory notify: OWNER."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        endpoint = f"/a/changes/{encoded_id}/message"
+        payload = {"message": message, "notify": notify or "OWNER"}
+        raw_res = self._request_raw(endpoint, method="PUT", data=payload)
+        return {
+            "status": "ok",
+            "change_id": str(change_id),
+            "message": message,
+            "bytes": len(message.encode("utf-8")),
+            "notify": notify or "OWNER",
             "response": raw_res,
         }
 
@@ -1331,6 +1426,7 @@ def _build_threads_for_file(
                     robot_run_id=item_robot_run_id or (root_robot_run if item_robot else ""),
                     url=item_url or (root_url if item_robot else ""),
                     fix_suggestions=item_fix_suggs if isinstance(item_fix_suggs, list) else [],
+                    change_message_id=str(item.get("change_message_id", "") or ""),
                 )
             )
 
@@ -1358,6 +1454,7 @@ def _build_threads_for_file(
                 url=root_url,
                 fix_suggestions=root_fix_suggestions if isinstance(root_fix_suggestions, list) else [],
                 messages=msg_items,
+                change_message_id=str(leaf_obj.get("change_message_id") or root_obj.get("change_message_id") or ""),
             )
         )
 

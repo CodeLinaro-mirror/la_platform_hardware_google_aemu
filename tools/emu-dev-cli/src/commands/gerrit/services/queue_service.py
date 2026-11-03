@@ -62,6 +62,7 @@ from lib.gerrit_api import (
     DEFAULT_GERRIT_HOST,
     GERRIT_CLI_TIMEOUT_SEC,
     decode_gerrit_patch,
+    extract_label_score,
     parse_cl_identifier,
     strip_xssi_prefix,
 )
@@ -117,11 +118,17 @@ NON_HUMAN_OS_USERS: frozenset[str] = frozenset({"root", "nobody", "daemon", "bin
 
 _LABEL_SHORT_NAMES: dict[str, str] = {
     "Code-Review": "CR",
+    "Verified": "V",
     "Presubmit-Verified": "PV",
     "Presubmit-Ready": "PR",
     "Autosubmit": "AS",
     "Performance": "Perf",
+    "Lint": "Lint",
+    "Bypass-Presubmit": "BP",
+    "Rubber-Stamp": "RS",
+    "Commit-Queue": "CQ",
     "Open-Source-Licensing": "OSL",
+    "Trust": "Trust",
     "Presubmit-Verified-Together": "PVT",
     "API-Review": "API",
     "Owners-Override": "OO",
@@ -432,6 +439,17 @@ def _extract_attention_metadata(
         ).strip()
         reason = str(acct_info.get("reason") or "").strip()
         last_update = str(acct_info.get("last_update") or "").strip()
+        reason_acct = acct_info.get("reason_account")
+        actor_email, actor_name = _format_account_actor(reason_acct, "")
+        if not actor_name and isinstance(reason_acct, dict):
+            actor_name = (
+                reason_acct.get("name")
+                or reason_acct.get("display_name")
+                or reason_acct.get("username")
+                or ""
+            ).strip()
+            actor_email = (reason_acct.get("email") or "").strip().lower()
+
         wait_display = ""
         att_dt = parse_gerrit_timestamp(last_update)
         if att_dt:
@@ -448,6 +466,8 @@ def _extract_attention_metadata(
             "name": name or short,
             "short": short,
             "reason": reason,
+            "actor_name": actor_name,
+            "actor_email": actor_email,
             "last_update": last_update,
             "waiting_display": wait_display,
             "is_viewer": is_viewer,
@@ -471,6 +491,27 @@ def _extract_attention_metadata(
     attention_details.sort(key=lambda d: (0 if d["is_viewer"] else 1, d["short"].lower()))
 
     history_entries = _extract_attention_set_history(change, now_dt)
+
+    # Cross-reference history entries to enrich missing actor_name or reason
+    for detail in attention_details:
+        if detail.get("actor_name") and detail.get("reason"):
+            continue
+        em = detail.get("email") or ""
+        short_lower = (detail.get("short") or "").lower()
+        for h in history_entries:
+            if h.get("operation") != "add":
+                continue
+            matches_actor = (em and h.get("email") == em) or (
+                short_lower and h.get("name", "").lower() == short_lower
+            )
+            if not matches_actor:
+                continue
+            if not detail.get("actor_name") and h.get("actor_name"):
+                detail["actor_name"] = h.get("actor_name")
+                detail["actor_email"] = h.get("actor_email") or ""
+            if not detail.get("reason") and h.get("reason"):
+                detail["reason"] = h.get("reason")
+            break
 
     return {
         "attention_set_emails": sorted(attention_by_email.keys()),
@@ -496,11 +537,19 @@ def build_viewer_gerrit_query(
         )
     elif norm_scope == "owner" and viewer:
         base_q = f"status:open -is:wip owner:{viewer}"
+    elif norm_scope == "wip" and viewer:
+        base_q = f"status:open is:wip owner:{viewer}"
+    elif norm_scope == "cc" and viewer:
+        base_q = f"status:open -is:wip cc:{viewer} -owner:{viewer} -reviewer:{viewer}"
+    elif norm_scope == "closed" and viewer:
+        base_q = f"status:closed (owner:{viewer} OR reviewer:{viewer})"
+    elif norm_scope == "starred":
+        base_q = "is:starred"
     elif norm_scope == "team" or not viewer:
         base_q = DEFAULT_EMULATOR_GERRIT_QUERY
     else:
         base_q = f"status:open -is:wip reviewer:{viewer} -owner:{viewer}"
-    if norm_author and norm_scope != "owner":
+    if norm_author and norm_scope not in ("owner", "wip"):
         author_q = norm_author if "@" in norm_author else f"{norm_author}@google.com"
         return f"{base_q} owner:{author_q}"
     return base_q
@@ -562,7 +611,7 @@ def _collect_votes_by_account(
     labels: dict[str, Any]
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, Any]]]:
     """Collects non-zero label votes keyed by `_account_lookup_key` and raw voter account objects."""
-    priority_labels = ("Code-Review", "Presubmit-Verified", "Presubmit-Ready", "Autosubmit")
+    priority_labels = ("Code-Review", "Verified", "Presubmit-Verified", "Presubmit-Ready", "Autosubmit")
     ordered_names = [k for k in priority_labels if k in labels] + sorted(
         k for k in labels.keys() if k not in priority_labels
     )
@@ -615,6 +664,7 @@ def _build_participant_entry(
     is_owner = bool(email and email == owner_email)
     votes = [dict(v) for v in (votes_by_key.get(key) or [])]
     cr_vote = next((int(v["value"]) for v in votes if v["label"] == "Code-Review"), 0)
+    verified_vote = next((int(v["value"]) for v in votes if v["label"] == "Verified"), 0)
     is_removable = (
         (key in removable_keys or (bool(email) and email in removable_keys))
         if removable_keys is not None
@@ -634,6 +684,7 @@ def _build_participant_entry(
         "in_attention_set": key in attention_keys or (bool(email) and email in attention_keys),
         "removable": is_removable,
         "cr_vote": cr_vote,
+        "verified_vote": verified_vote,
         "votes": votes,
     }
 
@@ -736,33 +787,92 @@ def _extract_positive_label_voters(
     return voters, viewer_voted
 
 
+def _get_viewer_label_vote(
+    labels: dict[str, Any], label_name: str, viewer: str
+) -> int:
+    """Returns the viewer's integer vote on `label_name` (or 0 if none)."""
+    if not viewer:
+        return 0
+    for vote in (labels.get(label_name) or {}).get("all") or []:
+        if (vote.get("email") or "").strip().lower() == viewer:
+            return int(vote.get("value", 0) or 0)
+    return 0
+
+
 def _extract_autosubmit_and_viewer_votes(
     change: dict[str, Any], viewer_email: str
 ) -> dict[str, Any]:
-    """Extracts the viewer's current CR/Autosubmit/Presubmit-Ready votes and label state."""
+    """Extracts the viewer's current CR, Verified, Autosubmit, Presubmit-Ready, and extended votes."""
     viewer = (viewer_email or "").strip().lower()
     labels = change.get("labels") or {}
-    cr_all = (labels.get("Code-Review") or {}).get("all") or []
     as_all = (labels.get("Autosubmit") or {}).get("all") or []
     pr_all = (labels.get("Presubmit-Ready") or {}).get("all") or []
-
-    viewer_cr_vote = 0
-    for vote in cr_all:
-        if (vote.get("email") or "").strip().lower() == viewer:
-            viewer_cr_vote = int(vote.get("value", 0) or 0)
-            break
-
     autosubmit_voters, viewer_autosubmit = _extract_positive_label_voters(as_all, viewer)
     pr_voters, viewer_pr = _extract_positive_label_voters(pr_all, viewer)
 
     return {
-        "viewer_cr_vote": viewer_cr_vote,
+        "viewer_cr_vote": _get_viewer_label_vote(labels, "Code-Review", viewer),
+        "viewer_verified_vote": _get_viewer_label_vote(labels, "Verified", viewer),
+        "viewer_presubmit_verified_vote": _get_viewer_label_vote(labels, "Presubmit-Verified", viewer),
         "viewer_autosubmit": viewer_autosubmit,
         "autosubmit_enabled": bool(autosubmit_voters),
         "autosubmit_voters": autosubmit_voters,
         "viewer_presubmit_ready": viewer_pr,
         "presubmit_ready_enabled": bool(pr_voters),
         "presubmit_ready_voters": pr_voters,
+        "viewer_performance_vote": _get_viewer_label_vote(labels, "Performance", viewer),
+        "viewer_lint_vote": _get_viewer_label_vote(labels, "Lint", viewer),
+        "viewer_bypass_presubmit_vote": _get_viewer_label_vote(labels, "Bypass-Presubmit", viewer),
+        "viewer_api_review_vote": _get_viewer_label_vote(labels, "API-Review", viewer),
+        "viewer_owners_override_vote": _get_viewer_label_vote(labels, "Owners-Override", viewer),
+        "viewer_rubber_stamp_vote": _get_viewer_label_vote(labels, "Rubber-Stamp", viewer),
+        "viewer_commit_queue_vote": _get_viewer_label_vote(labels, "Commit-Queue", viewer),
+        "viewer_open_source_licensing_vote": _get_viewer_label_vote(labels, "Open-Source-Licensing", viewer),
+        "viewer_trust_vote": _get_viewer_label_vote(labels, "Trust", viewer),
+    }
+
+
+def _extract_verified_label_summary(
+    change: dict[str, Any], viewer_v_vote: int = 0
+) -> dict[str, Any]:
+    """Extracts overall Verified label score, voters, and rejecters from change labels."""
+    labels = change.get("labels") or {}
+    v_label = labels.get("Verified") or {}
+    v_all = v_label.get("all") or []
+
+    voters_pos: list[str] = []
+    voters_neg: list[str] = []
+    for vote in v_all:
+        val = int(vote.get("value", 0) or 0)
+        name = vote.get("name") or (vote.get("email") or "").split("@")[0] or "reviewer"
+        if val < 0:
+            voters_neg.append(name)
+        elif val > 0:
+            voters_pos.append(name)
+
+    if v_all:
+        v_score = extract_label_score({"all": v_all})
+    else:
+        if v_label.get("rejected"):
+            voters_neg.append(v_label["rejected"].get("name") or "reviewer")
+        elif v_label.get("approved"):
+            voters_pos.append(v_label["approved"].get("name") or "reviewer")
+        raw_score = extract_label_score(v_label)
+        v_score = (
+            max(-1, min(1, raw_score))
+            if (v_label.get("rejected") or v_label.get("approved"))
+            else raw_score
+        )
+
+    if viewer_v_vote < 0:
+        v_score = min(v_score, viewer_v_vote)
+    elif viewer_v_vote > 0 and v_score >= 0:
+        v_score = max(v_score, viewer_v_vote)
+
+    return {
+        "verified_score": v_score,
+        "verified_voters": voters_pos,
+        "verified_rejecters": voters_neg,
     }
 
 
@@ -905,6 +1015,7 @@ def _enrich_submit_requirements(
     pv_score: int,
     has_negative_cr: bool,
     is_submittable: bool,
+    mergeable: bool = True,
 ) -> list[dict[str, Any]]:
     """Extracts, enriches, or synthesizes submit requirements for PolyGerrit change view."""
     raw_list = change.get("submit_requirements") or []
@@ -1067,6 +1178,30 @@ def _enrich_submit_requirements(
         })
         seen_names.add("Verified")
 
+    if not mergeable or change.get("contains_git_conflicts") or str(change.get("status") or "").upper() in ("CONFLICT", "MERGE_CONFLICT"):
+        if "Change-Is-Mergeable" not in seen_names:
+            conflicts = list(change.get("conflicts") or [])
+            fail_desc = (
+                f"Merge conflict detected with target branch ({', '.join(conflicts)})"
+                if conflicts
+                else "Merge conflict detected with target branch"
+            )
+            result.append({
+                "name": "Change-Is-Mergeable",
+                "status": "UNSATISFIED",
+                "description": "Change must be mergeable without conflicts onto target branch",
+                "expression": "is:mergeable",
+                "passing_atoms": [],
+                "failing_atoms": [fail_desc],
+                "applicability_expression": "",
+                "applicability_passing_atoms": [],
+                "applicability_failing_atoms": [],
+                "override_expression": "",
+                "override_passing_atoms": [],
+                "override_failing_atoms": [],
+            })
+            seen_names.add("Change-Is-Mergeable")
+
     return result
 
 
@@ -1165,6 +1300,44 @@ def _extract_patchset_details(
     return patchset_details
 
 
+def _resolve_change_mergeability(change: dict[str, Any]) -> tuple[bool, bool, list[str]]:
+    """Resolves `mergeable`, `contains_git_conflicts`, and `conflicts_list` from Gerrit change fields."""
+    contains_git_conflicts = bool(change.get("contains_git_conflicts", False))
+    conflicts_list = list(change.get("conflicts") or [])
+    has_sr_conflict = any(
+        isinstance(r, dict)
+        and str(r.get("status") or "").upper()
+        not in ("SATISFIED", "PASSED", "OVERRIDDEN", "NOT_APPLICABLE")
+        and (
+            "is:mergeable"
+            in str(
+                (r.get("submittability_expression_result") or {}).get("expression")
+                or r.get("expression")
+                or ""
+            )
+            or str(r.get("name") or "") in ("Change-Is-Mergeable", "Mergeable")
+            or any(
+                "mergeable" in str(fa).lower() or "conflict" in str(fa).lower()
+                for fa in (
+                    (r.get("submittability_expression_result") or {}).get("failing_atoms") or []
+                )
+            )
+            or any("conflict" in str(fa).lower() for fa in (r.get("failing_atoms") or []))
+        )
+        for r in (change.get("submit_requirements") or [])
+    )
+    if has_sr_conflict:
+        contains_git_conflicts = True
+    mergeable = (
+        change.get("mergeable", True) is not False
+        and not contains_git_conflicts
+        and not bool(conflicts_list)
+        and not has_sr_conflict
+        and str(change.get("status") or "").upper() not in ("CONFLICT", "MERGE_CONFLICT")
+    )
+    return mergeable, contains_git_conflicts, conflicts_list
+
+
 def enrich_change_for_ui(
     change: dict[str, Any],
     viewer_email: str,
@@ -1216,6 +1389,7 @@ def enrich_change_for_ui(
     work_in_progress = bool(change.get("work_in_progress"))
     change_status = str(change.get("status") or "NEW")
     vote_meta = _extract_autosubmit_and_viewer_votes(change, viewer)
+    v_meta = _extract_verified_label_summary(change, vote_meta.get("viewer_verified_vote", 0))
     cur_ps = int(change.get("current_revision_number", 1) or 1)
     known_ps_numbers: set[int] = set()
     if cur_ps > 0:
@@ -1242,7 +1416,7 @@ def enrich_change_for_ui(
     updated_ts = round(updated_dt.timestamp(), 3) if updated_dt else 0.0
     updated_iso = updated_dt.isoformat() if updated_dt else str(change.get("updated") or "")
     updated_display = format_relative_age(hours_idle) if updated_dt else ""
-    mergeable = change.get("mergeable", True) is not False
+    mergeable, contains_git_conflicts, conflicts_list = _resolve_change_mergeability(change)
     has_negative_cr = any(int(p.get("cr_vote", 0) or 0) < 0 for p in reviewers_detail)
     raw_gerrit_submittable = change.get("submittable")
     gerrit_submittable = raw_gerrit_submittable if isinstance(raw_gerrit_submittable, bool) else None
@@ -1330,9 +1504,31 @@ def enrich_change_for_ui(
         "project_short": project_short,
         "branch": change.get("branch", ""),
         "topic": change.get("topic", ""),
+        "hashtags": [
+            str(t).strip()
+            for t in (
+                change.get("hashtags")
+                if isinstance(change.get("hashtags"), (list, tuple, set))
+                else ([change.get("hashtags")] if isinstance(change.get("hashtags"), str) else [])
+            )
+            if str(t).strip()
+        ],
         "status": change_status,
         "submit_type": str(change.get("submit_type") or ""),
+        "submitted_together": [
+            x
+            for x in (change.get("submitted_together") or [])
+            if isinstance(x, (dict, int, str))
+        ]
+        if isinstance(change.get("submitted_together"), list)
+        else [],
         "work_in_progress": work_in_progress,
+        "starred": bool(change.get("starred") or ("star" in (change.get("stars") or []))),
+        "stars": (
+            [str(s) for s in change.get("stars")]
+            if isinstance(change.get("stars"), (list, tuple))
+            else (["star"] if change.get("starred") else [])
+        ),
         "insertions": insertions,
         "deletions": deletions,
         "attention_set_emails": attention_meta["attention_set_emails"],
@@ -1363,13 +1559,29 @@ def enrich_change_for_ui(
         "approved_by_viewer": approved_by_viewer,
         "is_submittable": is_submittable,
         "gerrit_submittable": gerrit_submittable,
+        "verified_score": v_meta["verified_score"],
+        "verified_voters": v_meta["verified_voters"],
+        "verified_rejecters": v_meta["verified_rejecters"],
         "viewer_cr_vote": vote_meta["viewer_cr_vote"],
+        "viewer_verified_vote": vote_meta.get("viewer_verified_vote", 0),
+        "viewer_presubmit_verified_vote": vote_meta.get("viewer_presubmit_verified_vote", 0),
         "viewer_autosubmit": vote_meta["viewer_autosubmit"],
         "autosubmit_enabled": vote_meta["autosubmit_enabled"],
         "autosubmit_voters": vote_meta["autosubmit_voters"],
         "viewer_presubmit_ready": vote_meta["viewer_presubmit_ready"],
         "presubmit_ready_enabled": vote_meta["presubmit_ready_enabled"],
         "presubmit_ready_voters": vote_meta["presubmit_ready_voters"],
+        "viewer_performance_vote": vote_meta.get("viewer_performance_vote", 0),
+        "viewer_lint_vote": vote_meta.get("viewer_lint_vote", 0),
+        "viewer_bypass_presubmit_vote": vote_meta.get("viewer_bypass_presubmit_vote", 0),
+        "viewer_api_review_vote": vote_meta.get("viewer_api_review_vote", 0),
+        "viewer_owners_override_vote": vote_meta.get("viewer_owners_override_vote", 0),
+        "viewer_rubber_stamp_vote": vote_meta.get("viewer_rubber_stamp_vote", 0),
+        "viewer_commit_queue_vote": vote_meta.get("viewer_commit_queue_vote", 0),
+        "viewer_open_source_licensing_vote": vote_meta.get("viewer_open_source_licensing_vote", 0),
+        "viewer_trust_vote": vote_meta.get("viewer_trust_vote", 0),
+        "labels": dict(change.get("labels") or {}),
+        "permitted_labels": dict(change.get("permitted_labels") or {}),
         "trigger_votes": [
             *(
                 [{
@@ -1408,6 +1620,11 @@ def enrich_change_for_ui(
         "patchset_details": patchset_details,
         "current_revision": cur_rev,
         "parent_revision": parent_sha,
+        "parents": [
+            p.get("commit", "")
+            for p in parents
+            if isinstance(p, dict) and p.get("commit")
+        ],
         "hours_in_flight": round(hours_in_flight, 1),
         "hours_idle": round(hours_idle, 1),
         "updated_iso": updated_iso,
@@ -1415,6 +1632,8 @@ def enrich_change_for_ui(
         "updated_display": updated_display,
         "flight_display": flight_str,
         "mergeable": mergeable,
+        "contains_git_conflicts": contains_git_conflicts,
+        "conflicts": conflicts_list,
         "cliff_zone": cliff_zone,
         "risk": risk,
         "commit_type": commit_type,
@@ -1439,6 +1658,7 @@ def enrich_change_for_ui(
             pv_score=pv_score,
             has_negative_cr=has_negative_cr,
             is_submittable=is_submittable,
+            mergeable=mergeable,
         ),
         "messages": _enrich_change_messages(change.get("messages") or []),
     }
@@ -1662,6 +1882,14 @@ class GerritQueueService(GerritServiceBase):
             cl_number, patch_set=patch_set, base=base
         )
 
+    def get_mergeable_info(
+        self,
+        cl_number: str | int,
+        revision: str | int = "current",
+    ) -> dict[str, Any]:
+        """Delegates mergeable info lookup to `GerritDiffService`."""
+        return self._get_diff_service().get_mergeable_info(cl_number, revision=revision)
+
     def _load_bug_cache(self) -> dict[str, dict[str, str]]:
         """Loads cached Buganizer priority/severity metadata from disk if available."""
         try:
@@ -1879,6 +2107,27 @@ class GerritQueueService(GerritServiceBase):
                 if not ch.get("work_in_progress")
                 or ((ch.get("owner") or {}).get("email") or "").strip().lower() == viewer
             ]
+        elif not explicit_query and norm_scope == "closed" and viewer:
+            raw_changes = [
+                ch
+                for ch in raw_changes
+                if str(ch.get("status") or "").upper() in ("MERGED", "ABANDONED")
+            ]
+        elif not explicit_query and norm_scope == "cc" and viewer:
+            raw_changes = [
+                ch
+                for ch in raw_changes
+                if is_cc_reviewer(ch, viewer)
+                and not is_explicit_reviewer(ch, viewer)
+                and ((ch.get("owner") or {}).get("email") or "").strip().lower() != viewer
+            ]
+        elif not explicit_query and norm_scope == "wip" and viewer:
+            raw_changes = [
+                ch
+                for ch in raw_changes
+                if ch.get("work_in_progress")
+                and ((ch.get("owner") or {}).get("email") or "").strip().lower() == viewer
+            ]
 
         bug_lookup, has_uncached_bugs = self._resolve_queue_bug_lookup(raw_changes, fast=fast)
         now_dt = datetime.now(timezone.utc)
@@ -2005,6 +2254,8 @@ class GerritQueueService(GerritServiceBase):
             return
         if label_name == "Code-Review":
             target["cr_vote"] = val
+        elif label_name == "Verified":
+            target["verified_vote"] = val
         votes = [v for v in (target.get("votes") or []) if v.get("label") != label_name]
         if val != 0:
             fmt = f"+{val}" if val > 0 else str(val)
@@ -2116,6 +2367,11 @@ class GerritQueueService(GerritServiceBase):
             item["viewer_cr_vote"] = cr_val
             self._sync_viewer_participant_vote(item, viewer, short, "Code-Review", "CR", cr_val)
             self._sync_viewer_cr_approval(item, viewer, short, cr_val)
+        if "Verified" in vote_map:
+            v_val = int(vote_map["Verified"])
+            item["viewer_verified_vote"] = v_val
+            item["verified_score"] = v_val
+            self._sync_viewer_participant_vote(item, viewer, short, "Verified", "V", v_val)
         if "Autosubmit" in vote_map:
             as_val = int(vote_map["Autosubmit"])
             item["viewer_autosubmit"] = as_val >= 1
@@ -2129,6 +2385,26 @@ class GerritQueueService(GerritServiceBase):
             self._apply_session_presubmit_ready_vote(
                 item, viewer, short, int(vote_map["Presubmit-Ready"]), pr_is_fresh
             )
+        if "Performance" in vote_map:
+            perf_val = int(vote_map["Performance"])
+            item["viewer_performance_vote"] = perf_val
+            self._sync_viewer_participant_vote(item, viewer, short, "Performance", "Perf", perf_val)
+        if "Lint" in vote_map:
+            lint_val = int(vote_map["Lint"])
+            item["viewer_lint_vote"] = lint_val
+            self._sync_viewer_participant_vote(item, viewer, short, "Lint", "Lint", lint_val)
+        if "Bypass-Presubmit" in vote_map:
+            bp_val = int(vote_map["Bypass-Presubmit"])
+            item["viewer_bypass_presubmit_vote"] = bp_val
+            self._sync_viewer_participant_vote(item, viewer, short, "Bypass-Presubmit", "BP", bp_val)
+        if "API-Review" in vote_map:
+            api_val = int(vote_map["API-Review"])
+            item["viewer_api_review_vote"] = api_val
+            self._sync_viewer_participant_vote(item, viewer, short, "API-Review", "API", api_val)
+        if "Owners-Override" in vote_map:
+            oo_val = int(vote_map["Owners-Override"])
+            item["viewer_owners_override_vote"] = oo_val
+            self._sync_viewer_participant_vote(item, viewer, short, "Owners-Override", "OO", oo_val)
 
     def _apply_session_approvals(
         self, enriched: list[dict[str, Any]], viewer_email: str
@@ -2166,6 +2442,7 @@ class GerritQueueService(GerritServiceBase):
             f"/a/changes/{encoded_id}/detail"
             "?o=CURRENT_REVISION&o=ALL_REVISIONS&o=CURRENT_COMMIT&o=CURRENT_FILES"
             "&o=MESSAGES&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=SUBMITTABLE"
+            "&o=SUBMIT_REQUIREMENTS"
         )
         detail = self.client._request_json(endpoint)
         if not isinstance(detail, dict):

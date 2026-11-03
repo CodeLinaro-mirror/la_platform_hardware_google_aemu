@@ -317,9 +317,21 @@ class GerritVoteSubmitService(GerritServiceBase):
         autosubmit: bool | int | None,
         presubmit_ready: bool | int | None,
         *,
+        verified: int | None = None,
+        presubmit_verified: int | None = None,
+        performance: int | None = None,
+        lint: int | None = None,
+        bypass_presubmit: int | None = None,
+        api_review: int | None = None,
+        owners_override: int | None = None,
+        rubber_stamp: int | None = None,
+        commit_queue: int | None = None,
+        open_source_licensing: int | None = None,
+        trust: int | None = None,
+        extra_labels: dict[str, int] | None = None,
         allow_empty: bool = False,
     ) -> dict[str, int]:
-        """Constructs Gerrit `labels` dict for `Code-Review`, `Autosubmit`, and `Presubmit-Ready`."""
+        """Constructs Gerrit `labels` dict for review, verified, presubmit, and extended labels."""
         labels: dict[str, int] = {}
         if code_review is not None:
             labels["Code-Review"] = int(code_review)
@@ -333,10 +345,29 @@ class GerritVoteSubmitService(GerritServiceBase):
                 labels["Presubmit-Ready"] = 1
         elif presubmit_ready is not None:
             labels["Presubmit-Ready"] = int(presubmit_ready)
+        for gerrit_label, raw_val in (
+            ("Verified", verified),
+            ("Presubmit-Verified", presubmit_verified),
+            ("Performance", performance),
+            ("Lint", lint),
+            ("Bypass-Presubmit", bypass_presubmit),
+            ("API-Review", api_review),
+            ("Owners-Override", owners_override),
+            ("Rubber-Stamp", rubber_stamp),
+            ("Commit-Queue", commit_queue),
+            ("Open-Source-Licensing", open_source_licensing),
+            ("Trust", trust),
+        ):
+            if raw_val is not None:
+                labels[gerrit_label] = int(raw_val)
+        if extra_labels:
+            for k, v in extra_labels.items():
+                if v is not None and k not in labels:
+                    labels[str(k)] = int(v)
         if not labels and not allow_empty:
             raise ValueError(
                 "Cannot cast Gerrit vote: no label values specified "
-                "(provide code_review, autosubmit, or presubmit_ready)."
+                "(provide code_review, verified, autosubmit, presubmit_ready, performance, lint, bypass_presubmit, or other label)."
             )
         return labels
 
@@ -377,6 +408,19 @@ class GerritVoteSubmitService(GerritServiceBase):
         autosubmit: bool | int | None = False,
         presubmit_ready: bool | int | None = False,
         message: str = "",
+        *,
+        verified: int | None = None,
+        presubmit_verified: int | None = None,
+        performance: int | None = None,
+        lint: int | None = None,
+        bypass_presubmit: int | None = None,
+        api_review: int | None = None,
+        owners_override: int | None = None,
+        rubber_stamp: int | None = None,
+        commit_queue: int | None = None,
+        open_source_licensing: int | None = None,
+        trust: int | None = None,
+        extra_labels: dict[str, int] | None = None,
     ) -> dict[str, Any]:
         """Casts labels across one or more CLs using `gob-curl` with mandatory `notify: OWNER`."""
         gob_curl = shutil.which("gob-curl")
@@ -398,6 +442,18 @@ class GerritVoteSubmitService(GerritServiceBase):
             batch.code_review,
             batch.autosubmit,
             batch.presubmit_ready,
+            verified=verified,
+            presubmit_verified=presubmit_verified,
+            performance=performance,
+            lint=lint,
+            bypass_presubmit=bypass_presubmit,
+            api_review=api_review,
+            owners_override=owners_override,
+            rubber_stamp=rubber_stamp,
+            commit_queue=commit_queue,
+            open_source_licensing=open_source_licensing,
+            trust=trust,
+            extra_labels=extra_labels,
             allow_empty=bool(clean_msg),
         )
         cr_hint = int(labels.get("Code-Review", 0))
@@ -809,6 +865,33 @@ class GerritVoteSubmitService(GerritServiceBase):
             "change": updated_change,
         }
 
+    def modify_star(
+        self,
+        cl_number: str | int,
+        starred: bool = True,
+        *,
+        viewer_email: str | None = None,
+    ) -> dict[str, Any]:
+        """Stars or unstars `cl_number` on Gerrit for the authenticated user."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        method = "PUT" if starred else "DELETE"
+        endpoint = f"/a/accounts/self/starred.changes/{cl_id}"
+        resp: Any = None
+        try:
+            resp = self.client._request_json(endpoint, method=method)
+        except RuntimeError as exc:
+            err_msg = str(exc)
+            if "exit code 0" not in err_msg and "204" not in err_msg:
+                raise
+            resp = {}
+        self._invalidate_cl_caches([cl_id])
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "starred": bool(starred),
+            "response": resp,
+        }
+
     def _modify_single_reviewer_for_batch(
         self,
         cl_id: str,
@@ -1195,6 +1278,7 @@ class GerritVoteSubmitService(GerritServiceBase):
         cl_number: str | int,
         base: str | None = None,
         allow_conflicts: bool = False,
+        rebase_chain: bool = False,
         *,
         viewer_email: str | None = None,
     ) -> dict[str, Any]:
@@ -1207,12 +1291,29 @@ class GerritVoteSubmitService(GerritServiceBase):
             payload["base"] = str(base).strip()
         if allow_conflicts:
             payload["allow_conflicts"] = True
+        if rebase_chain:
+            payload["rebase_chain"] = True
 
-        resp = self.client._request_json(
-            f"/a/changes/{cl_id}/rebase",
-            method="POST",
-            data=payload,
-        )
+        resp: Any = None
+        if rebase_chain:
+            try:
+                resp = self.client._request_json(
+                    f"/a/changes/{cl_id}/rebase_chain",
+                    method="POST",
+                    data=payload,
+                )
+            except Exception:
+                resp = self.client._request_json(
+                    f"/a/changes/{cl_id}/rebase",
+                    method="POST",
+                    data=payload,
+                )
+        else:
+            resp = self.client._request_json(
+                f"/a/changes/{cl_id}/rebase",
+                method="POST",
+                data=payload,
+            )
         self._invalidate_cl_caches([cl_id])
         updated_change: dict[str, Any] | None = None
         try:
@@ -1225,6 +1326,7 @@ class GerritVoteSubmitService(GerritServiceBase):
             "cl": cl_id,
             "base": base,
             "allow_conflicts": bool(allow_conflicts),
+            "rebase_chain": bool(rebase_chain),
             "action": "rebase",
             "notify": OWNER_NOTIFY_HANDLING,
             "response": resp,
@@ -1303,6 +1405,91 @@ class GerritVoteSubmitService(GerritServiceBase):
             "change": updated_change,
         }
 
+    def set_work_in_progress(
+        self,
+        cl_number: str | int,
+        work_in_progress: bool = True,
+        message: str = "",
+        *,
+        viewer_email: str | None = None,
+    ) -> dict[str, Any]:
+        """Sets or unsets Work in Progress state on `cl_number` via Gerrit REST API with mandatory `notify: OWNER`."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        payload: dict[str, Any] = {
+            "notify": OWNER_NOTIFY_HANDLING,
+        }
+        if message and str(message).strip():
+            payload["message"] = str(message).strip()
+
+        action = "wip" if work_in_progress else "ready"
+        endpoint = f"/a/changes/{cl_id}/{action}"
+        resp = self.client._request_json(
+            endpoint,
+            method="POST",
+            data=payload,
+        )
+        self._invalidate_cl_caches([cl_id])
+        updated_change: dict[str, Any] | None = None
+        try:
+            updated_change = self.fetch_single_enriched_change(cl_id, viewer_email=viewer_email)
+        except Exception:
+            updated_change = None
+
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "action": action,
+            "work_in_progress": bool(work_in_progress),
+            "notify": OWNER_NOTIFY_HANDLING,
+            "response": resp,
+            "change": updated_change,
+        }
+
+    def set_topic(
+        self,
+        cl_number: str | int,
+        topic: str = "",
+        *,
+        viewer_email: str | None = None,
+    ) -> dict[str, Any]:
+        """Sets or removes the Topic on `cl_number` via Gerrit REST API."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        clean_topic = str(topic or "").strip()
+        endpoint = f"/a/changes/{cl_id}/topic"
+        resp: Any = None
+        try:
+            if clean_topic:
+                resp = self.client._request_json(
+                    endpoint,
+                    method="PUT",
+                    data={"topic": clean_topic},
+                )
+            else:
+                resp = self.client._request_json(
+                    endpoint,
+                    method="DELETE",
+                )
+        except RuntimeError as exc:
+            err_msg = str(exc)
+            if "exit code 0" not in err_msg and "204" not in err_msg:
+                raise
+            resp = {}
+
+        self._invalidate_cl_caches([cl_id])
+        updated_change: dict[str, Any] | None = None
+        try:
+            updated_change = self.fetch_single_enriched_change(cl_id, viewer_email=viewer_email)
+        except Exception:
+            updated_change = None
+
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "topic": clean_topic,
+            "response": resp,
+            "change": updated_change,
+        }
+
     def cherry_pick_change(
         self,
         cl_number: str | int,
@@ -1310,6 +1497,7 @@ class GerritVoteSubmitService(GerritServiceBase):
         message: str = "",
         base: str | None = None,
         revision: str | None = None,
+        topic: str | None = None,
         allow_conflicts: bool = False,
         keep_reviewers: bool = False,
         *,
@@ -1330,6 +1518,8 @@ class GerritVoteSubmitService(GerritServiceBase):
             payload["message"] = str(message).strip()
         if base and str(base).strip():
             payload["base"] = str(base).strip()
+        if topic and str(topic).strip():
+            payload["topic"] = str(topic).strip()
         if allow_conflicts:
             payload["allow_conflicts"] = True
         if keep_reviewers:
@@ -1345,7 +1535,7 @@ class GerritVoteSubmitService(GerritServiceBase):
         if isinstance(resp, dict):
             new_cl_id = resp.get("_number") or resp.get("change_id") or resp.get("id")
 
-        return {
+        result: dict[str, Any] = {
             "status": "ok",
             "cl": cl_id,
             "destination": dest_clean,
@@ -1357,6 +1547,52 @@ class GerritVoteSubmitService(GerritServiceBase):
             "new_change": resp,
             "new_cl": new_cl_id,
         }
+        if topic and str(topic).strip():
+            result["topic"] = str(topic).strip()
+        return result
+
+    def revert_change(
+        self,
+        cl_number: str | int,
+        message: str = "",
+        topic: str | None = None,
+        *,
+        viewer_email: str | None = None,
+    ) -> dict[str, Any]:
+        """Reverts merged `cl_number` via Gerrit REST API with mandatory `notify: OWNER`."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        payload: dict[str, Any] = {
+            "notify": OWNER_NOTIFY_HANDLING,
+        }
+        if message and str(message).strip():
+            payload["message"] = str(message).strip()
+        if topic and str(topic).strip():
+            payload["topic"] = str(topic).strip()
+
+        resp = self.client._request_json(
+            f"/a/changes/{cl_id}/revert",
+            method="POST",
+            data=payload,
+        )
+        self._invalidate_cl_caches([cl_id])
+        revert_cl = None
+        if isinstance(resp, dict):
+            revert_cl = resp.get("_number") or resp.get("change_id") or resp.get("id")
+            if revert_cl is not None:
+                self._invalidate_cl_caches([str(revert_cl)])
+
+        result: dict[str, Any] = {
+            "status": "ok",
+            "cl": cl_id,
+            "action": "revert",
+            "revert_cl": revert_cl,
+            "notify": OWNER_NOTIFY_HANDLING,
+            "response": resp,
+            "new_cl": revert_cl,
+        }
+        if topic and str(topic).strip():
+            result["topic"] = str(topic).strip()
+        return result
 
     def create_follow_up_change(
         self,
@@ -1542,6 +1778,31 @@ class GerritVoteSubmitService(GerritServiceBase):
             "file_path": file_clean,
             "bytes": len(content.encode("utf-8")),
             "action": "save_edit",
+            "response": res,
+        }
+
+    def save_commit_message(
+        self,
+        cl_number: str | int,
+        message: str,
+        *,
+        notify: str = OWNER_NOTIFY_HANDLING,
+        viewer_email: str | None = None,
+    ) -> dict[str, Any]:
+        """Modifies the commit message of the change edit for `cl_number` with mandatory `notify: OWNER`."""
+        cl_id = parse_cl_identifier(str(cl_number), allow_head=False)
+        msg_clean = str(message or "").strip()
+        if not msg_clean:
+            raise ValueError(f"Commit message cannot be empty for change ag/{cl_id}.")
+        res = self.client.set_commit_message(cl_id, msg_clean, notify=notify or OWNER_NOTIFY_HANDLING)
+        self._invalidate_cl_caches([cl_id])
+        return {
+            "status": "ok",
+            "cl": cl_id,
+            "message": msg_clean,
+            "bytes": len(msg_clean.encode("utf-8")),
+            "action": "edit_commit_message",
+            "notify": OWNER_NOTIFY_HANDLING,
             "response": res,
         }
 

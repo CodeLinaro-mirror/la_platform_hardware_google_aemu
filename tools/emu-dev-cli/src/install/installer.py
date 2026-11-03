@@ -3,7 +3,6 @@ import hashlib
 import os
 from pathlib import Path
 import platform
-import py_compile
 import shlex
 import shutil
 import signal

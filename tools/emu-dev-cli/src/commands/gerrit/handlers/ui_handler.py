@@ -63,6 +63,44 @@ _UI_TOKEN_HINT = (
     "'emu-dev-cli gerrit ui' (it ends with ?token=...)."
 )
 
+_OPTIONAL_VOTE_LABEL_KEYS: tuple[str, ...] = (
+    "verified",
+    "presubmit_verified",
+    "performance",
+    "lint",
+    "bypass_presubmit",
+    "api_review",
+    "owners_override",
+    "rubber_stamp",
+    "commit_queue",
+    "open_source_licensing",
+    "trust",
+)
+_NON_CR_VOTE_LABEL_KEYS: frozenset[str] = frozenset(
+    (*_OPTIONAL_VOTE_LABEL_KEYS, "autosubmit", "presubmit_ready")
+)
+
+
+def _extract_optional_vote_labels(body: dict[str, Any]) -> dict[str, int | None]:
+    """Coerces optional integer Gerrit label values from a `/api/gerrit/vote` payload."""
+    return {
+        k: (int(body[k]) if body.get(k) is not None else None)
+        for k in _OPTIONAL_VOTE_LABEL_KEYS
+    }
+
+
+def _extract_extra_vote_labels(body: dict[str, Any]) -> dict[str, int]:
+    """Coerces custom `labels` dictionary entries from a `/api/gerrit/vote` payload."""
+    raw_labels = dict(body.get("labels") or {}) if isinstance(body.get("labels"), dict) else {}
+    extra_labels: dict[str, int] = {}
+    for k, v in raw_labels.items():
+        try:
+            extra_labels[str(k)] = int(v)
+        except (ValueError, TypeError):
+            pass
+    return extra_labels
+
+
 _is_truthy_query_flag = is_truthy_query_flag
 
 
@@ -122,9 +160,9 @@ class _GerritRouteEndpoints:
         req_viewer = _normalize_viewer_email(req.query_str("viewer"))
         req_ui = req.query_str("ui", strip=True).lower()
         ui_variant = (
-            "polygerrit"
-            if req.path == "/polygerrit" or req_ui in ("polygerrit", "pg")
-            else "classic"
+            "classic"
+            if req.path == "/classic" or req_ui in ("classic", "legacy")
+            else "polygerrit"
         )
         initial_state: dict[str, Any] = {
             "viewer": req_viewer or self._service.default_viewer,
@@ -181,6 +219,53 @@ class _GerritRouteEndpoints:
             res = self._service.fetch_file_content(cl, file_path, patch_set=ps)
         res["ui_version"] = get_gerrit_ui_template_version()
         handler.send_json(res)
+
+    def get_file_blame(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        cl = req.query_str("cl", strip=True)
+        file_path = req.query_str("file", strip=True)
+        ps = req.query_opt_str("ps")
+        parent_val = req.query_opt_str("parent")
+        is_parent = parent_val in ("1", "true") or ps in ("0", "base", "parent")
+        if not cl or not file_path:
+            handler.send_json(
+                {"error": "Missing required 'cl' or 'file' query parameter"},
+                status=400,
+            )
+            return
+        blame_data = self._service.fetch_file_blame(
+            cl, file_path, patch_set=ps, parent=is_parent
+        )
+        handler.send_json(
+            {
+                "status": "ok",
+                "cl": cl,
+                "file": file_path,
+                "patch_set": ps,
+                "is_parent": is_parent,
+                "blame": blame_data,
+                "ui_version": get_gerrit_ui_template_version(),
+            }
+        )
+
+    def get_reviewed_files(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        cl = req.query_str("cl", strip=True)
+        ps = req.query_opt_str("ps")
+        if not cl:
+            handler.send_json(
+                {"error": "Missing required 'cl' query parameter"},
+                status=400,
+            )
+            return
+        reviewed_list = self._service.fetch_reviewed_files(cl, patch_set=ps)
+        handler.send_json(
+            {
+                "status": "ok",
+                "cl": cl,
+                "patch_set": ps,
+                "reviewed_files": reviewed_list,
+                "ui_version": get_gerrit_ui_template_version(),
+            }
+        )
 
     def get_swarm_status(self, handler: JsonRequestHandler, req: WebRequest) -> None:
         handler.send_json(
@@ -263,6 +348,19 @@ class _GerritRouteEndpoints:
         res["ui_version"] = get_gerrit_ui_template_version()
         handler.send_json(res)
 
+    def get_mergeable(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        cl_num = req.query_str("cl", strip=True)
+        if not cl_num:
+            handler.send_json(
+                {"error": "Missing required `cl` query parameter for `/api/gerrit/mergeable`."},
+                status=400,
+            )
+            return
+        ps = req.query_opt_str("ps") or "current"
+        res = self._service.get_mergeable_info(cl_num, revision=ps)
+        res["ui_version"] = get_gerrit_ui_template_version()
+        handler.send_json(res)
+
     def get_change_edit(self, handler: JsonRequestHandler, req: WebRequest) -> None:
         cl_num = req.query_str("cl", strip=True)
         if not cl_num:
@@ -296,13 +394,16 @@ class _GerritRouteEndpoints:
 
     def post_vote(self, handler: JsonRequestHandler, req: WebRequest) -> None:
         body = req.body
+        optional_labels = _extract_optional_vote_labels(body)
+        extra_labels = _extract_extra_vote_labels(body)
+        has_other_vote_input = (
+            any(k in body for k in _NON_CR_VOTE_LABEL_KEYS)
+            or bool(extra_labels)
+            or bool(str(body.get("message") or "").strip())
+        )
         if "code_review" in body:
             cr_arg = int(body["code_review"]) if body["code_review"] is not None else None
-        elif (
-            "autosubmit" in body
-            or "presubmit_ready" in body
-            or str(body.get("message") or "").strip()
-        ):
+        elif has_other_vote_input:
             cr_arg = None
         else:
             cr_arg = 2
@@ -311,7 +412,9 @@ class _GerritRouteEndpoints:
             code_review=cr_arg,
             autosubmit=_coerce_vote_flag(body.get("autosubmit", False)),
             presubmit_ready=_coerce_vote_flag(body.get("presubmit_ready", False)),
+            extra_labels=extra_labels,
             message=str(body.get("message", "")),
+            **optional_labels,
         )
         handler.send_json(res)
 
@@ -329,6 +432,8 @@ class _GerritRouteEndpoints:
         }
         if "allow_conflicts" in body:
             kwargs["allow_conflicts"] = _coerce_vote_flag(body.get("allow_conflicts", False))
+        if "rebase_chain" in body:
+            kwargs["rebase_chain"] = _coerce_vote_flag(body.get("rebase_chain", False))
         handler.send_json(self._service.rebase_change(**kwargs))
 
     def post_abandon(self, handler: JsonRequestHandler, req: WebRequest) -> None:
@@ -351,6 +456,28 @@ class _GerritRouteEndpoints:
             )
         )
 
+    def post_set_wip(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        handler.send_json(
+            self._service.set_work_in_progress(
+                cl_number=body.get("cl", ""),
+                work_in_progress=True,
+                message=str(body.get("message") or ""),
+                viewer_email=req.body_opt_str("viewer"),
+            )
+        )
+
+    def post_set_ready(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        handler.send_json(
+            self._service.set_work_in_progress(
+                cl_number=body.get("cl", ""),
+                work_in_progress=False,
+                message=str(body.get("message") or ""),
+                viewer_email=req.body_opt_str("viewer"),
+            )
+        )
+
     def post_cherry_pick(self, handler: JsonRequestHandler, req: WebRequest) -> None:
         body = req.body
         dest = req.body_str("destination", "branch", strip=True)
@@ -368,11 +495,31 @@ class _GerritRouteEndpoints:
             "revision": req.body_opt_str("revision"),
             "viewer_email": req.body_opt_str("viewer"),
         }
+        if "topic" in body:
+            kwargs["topic"] = req.body_opt_str("topic")
         if "allow_conflicts" in body:
             kwargs["allow_conflicts"] = _coerce_vote_flag(body.get("allow_conflicts", False))
         if "keep_reviewers" in body:
             kwargs["keep_reviewers"] = bool(body.get("keep_reviewers", False))
         handler.send_json(self._service.cherry_pick_change(**kwargs))
+
+    def post_revert(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        cl_num = body.get("cl", "")
+        if not cl_num:
+            handler.send_json(
+                {"status": "error", "error": "Change identifier `cl` is required for revert."},
+                status=400,
+            )
+            return
+        kwargs: dict[str, Any] = {
+            "cl_number": cl_num,
+            "message": str(body.get("message") or ""),
+            "viewer_email": req.body_opt_str("viewer"),
+        }
+        if "topic" in body:
+            kwargs["topic"] = req.body_opt_str("topic")
+        handler.send_json(self._service.revert_change(**kwargs))
 
     def post_follow_up(self, handler: JsonRequestHandler, req: WebRequest) -> None:
         body = req.body
@@ -427,6 +574,33 @@ class _GerritRouteEndpoints:
                 cl_number=cl_num,
                 file_path=file_path,
                 content=content,
+                viewer_email=req.body_opt_str("viewer"),
+            )
+        )
+
+    def post_edit_commit_message(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        cl_num = req.body_str("cl", strip=True)
+        if not cl_num:
+            handler.send_json(
+                {"status": "error", "error": "CL number is required for editing commit message."},
+                status=400,
+            )
+            return
+        message = body.get("message", "")
+        if not isinstance(message, str):
+            message = str(message or "")
+        msg_clean = message.strip()
+        if not msg_clean:
+            handler.send_json(
+                {"status": "error", "error": "Commit message cannot be empty."},
+                status=400,
+            )
+            return
+        handler.send_json(
+            self._service.save_commit_message(
+                cl_number=cl_num,
+                message=msg_clean,
                 viewer_email=req.body_opt_str("viewer"),
             )
         )
@@ -510,6 +684,36 @@ class _GerritRouteEndpoints:
             )
         )
 
+    def post_star(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        cl_num = req.body_str("cl", strip=True) or req.body_str("change", strip=True)
+        starred = bool(body.get("starred", True))
+        handler.send_json(
+            self._service.modify_star(
+                cl_number=cl_num,
+                starred=starred,
+                viewer_email=req.body_opt_str("viewer"),
+            )
+        )
+
+    def post_topic(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        cl_num = req.body_str("cl", strip=True) or req.body_str("change", strip=True)
+        if not cl_num:
+            handler.send_json(
+                {"error": "Missing required 'cl' parameter for `/api/gerrit/topic`"},
+                status=400,
+            )
+            return
+        topic = str(body.get("topic", "")).strip()
+        handler.send_json(
+            self._service.set_topic(
+                cl_number=cl_num,
+                topic=topic,
+                viewer_email=req.body_opt_str("viewer"),
+            )
+        )
+
     def post_chat_dm(self, handler: JsonRequestHandler, req: WebRequest) -> None:
         body = req.body
         handler.send_json(
@@ -531,6 +735,47 @@ class _GerritRouteEndpoints:
 
     def post_swarm_review(self, handler: JsonRequestHandler, req: WebRequest) -> None:
         handler.send_json(self._service.post_swarm_review(cl_number=req.body.get("cl", "")))
+
+    def post_file_reviewed(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        cl = str(body.get("cl") or body.get("cl_number") or "").strip()
+        file_path = str(body.get("file_path") or body.get("file") or "").strip()
+        ps = body.get("ps") or body.get("patch_set")
+        reviewed = bool(body.get("reviewed", True))
+        if not cl or not file_path:
+            handler.send_json(
+                {"error": "Missing required 'cl' or 'file' in request body"},
+                status=400,
+            )
+            return
+        success = self._service.set_file_reviewed(cl, file_path, reviewed=reviewed, patch_set=ps)
+        handler.send_json(
+            {
+                "status": "ok" if success else "warning",
+                "cl": cl,
+                "file": file_path,
+                "patch_set": ps,
+                "reviewed": reviewed,
+                "synced": success,
+                "ui_version": get_gerrit_ui_template_version(),
+            }
+        )
+
+    def post_batch_files_reviewed(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        body = req.body
+        cl = str(body.get("cl") or body.get("cl_number") or "").strip()
+        files = body.get("files") or body.get("file_paths") or []
+        ps = body.get("ps") or body.get("patch_set")
+        reviewed = bool(body.get("reviewed", True))
+        if not cl or not isinstance(files, list):
+            handler.send_json(
+                {"error": "Missing required 'cl' or 'files' array in request body"},
+                status=400,
+            )
+            return
+        res = self._service.set_files_reviewed_batch(cl, files, reviewed=reviewed, patch_set=ps)
+        res["ui_version"] = get_gerrit_ui_template_version()
+        handler.send_json(res)
 
     def post_inline_comment(self, handler: JsonRequestHandler, req: WebRequest) -> None:
         body = req.body
@@ -614,29 +859,40 @@ def _build_gerrit_router(service: Any, agent_proxy: AgentProxy) -> Router:
     router.add_get("/api/gerrit/queue", endpoints.get_queue)
     router.add_get("/api/gerrit/diffs", endpoints.get_diffs)
     router.add_get("/api/gerrit/file-content", endpoints.get_file_content)
+    router.add_get(["/api/gerrit/blame", "/api/gerrit/file-blame"], endpoints.get_file_blame)
+    router.add_get(["/api/gerrit/reviewed-files", "/api/gerrit/file-reviewed"], endpoints.get_reviewed_files)
     router.add_get("/api/gerrit/swarm-status", endpoints.get_swarm_status)
     router.add_get("/api/gerrit/code-questions", endpoints.get_code_questions)
     router.add_get("/api/gerrit/suggest-reviewers", endpoints.get_suggest_reviewers)
     router.add_get("/api/gerrit/presubmit-targets", endpoints.get_presubmit_targets)
     router.add_get(["/api/gerrit/included-in", "/api/gerrit/included_in"], endpoints.get_included_in)
+    router.add_get(["/api/gerrit/mergeable", "/api/gerrit/mergeability"], endpoints.get_mergeable)
     router.add_get(["/api/gerrit/edit", "/api/gerrit/change-edit"], endpoints.get_change_edit)
     router.add_get("/api/gerrit/ai-analysis", endpoints.get_ai_analysis)
     router.add_get("/api/gerrit/update-status", endpoints.get_update_status)
 
     router.add_post("/api/gerrit/vote", endpoints.post_vote)
+    router.add_post(["/api/gerrit/file-reviewed", "/api/gerrit/reviewed"], endpoints.post_file_reviewed)
+    router.add_post(["/api/gerrit/batch-files-reviewed", "/api/gerrit/batch-reviewed"], endpoints.post_batch_files_reviewed)
     router.add_post(["/api/gerrit/checks/rerun", "/api/gerrit/checks-rerun"], endpoints.post_checks_rerun)
     router.add_post("/api/gerrit/submit", endpoints.post_submit)
     router.add_post("/api/gerrit/rebase", endpoints.post_rebase)
     router.add_post("/api/gerrit/abandon", endpoints.post_abandon)
     router.add_post("/api/gerrit/restore", endpoints.post_restore)
+    router.add_post("/api/gerrit/revert", endpoints.post_revert)
+    router.add_post(["/api/gerrit/set-wip", "/api/gerrit/wip"], endpoints.post_set_wip)
+    router.add_post(["/api/gerrit/set-ready", "/api/gerrit/ready"], endpoints.post_set_ready)
     router.add_post(["/api/gerrit/cherry_pick", "/api/gerrit/cherry-pick"], endpoints.post_cherry_pick)
     router.add_post(["/api/gerrit/follow_up", "/api/gerrit/follow-up", "/api/gerrit/create_change"], endpoints.post_follow_up)
     router.add_post(["/api/gerrit/edit-file", "/api/gerrit/save-edit"], endpoints.post_save_change_edit)
+    router.add_post(["/api/gerrit/edit-commit-message", "/api/gerrit/change-edit/message"], endpoints.post_edit_commit_message)
     router.add_post("/api/gerrit/publish-edit", endpoints.post_publish_change_edit)
     router.add_post("/api/gerrit/discard-edit", endpoints.post_discard_change_edit)
     router.add_post("/api/gerrit/assign-reviewer", endpoints.post_assign_reviewer)
     router.add_post("/api/gerrit/reviewer", endpoints.post_reviewer)
     router.add_post("/api/gerrit/attention", endpoints.post_attention)
+    router.add_post("/api/gerrit/star", endpoints.post_star)
+    router.add_post("/api/gerrit/topic", endpoints.post_topic)
     router.add_post("/api/gerrit/chat-dm", endpoints.post_chat_dm)
     router.add_post("/api/gerrit/harness", endpoints.post_harness)
     router.add_post("/api/gerrit/post-swarm-review", endpoints.post_swarm_review)
@@ -697,11 +953,13 @@ def serve_gerrit_ui(
     query: str = "",
     open_browser: bool = True,
     export_static_path: str | None = None,
+    ui_variant: str = "polygerrit",
 ) -> int:
     """Starts the local Gerrit UI server or exports a pre-populated static snapshot HTML."""
     from commands.gerrit.ui_server import GerritUIService
 
     service = GerritUIService(host=gerrit_host, default_viewer=viewer, default_query=query)
+    norm_variant = str(ui_variant or "polygerrit").strip().lower()
     if export_static_path:
         queue_data = service.fetch_queue(viewer_email=viewer or None, query=query or None)
         vetted_stacks = [
@@ -718,14 +976,17 @@ def serve_gerrit_ui(
         if not target_cls:
             target_cls = [c["number"] for c in (queue_data.get("changes") or [])[:6]]
         queue_data["prefetched_diffs"] = service.fetch_multi_commit_diffs(target_cls)
-        html_out = render_static_gerrit_ui_html(initial_payload=queue_data)
+        html_out = render_static_gerrit_ui_html(
+            initial_payload=queue_data, variant=norm_variant
+        )
         out_file = Path(export_static_path).resolve()
         out_file.parent.mkdir(parents=True, exist_ok=True)
         out_file.write_text(html_out, encoding="utf-8")
-        print(f"Exported static Gerrit UI snapshot ({len(queue_data['changes'])} CLs) to {out_file}")
+        print(f"Exported static Gerrit UI snapshot ({len(queue_data['changes'])} CLs, {norm_variant}) to {out_file}")
         return 0
 
     ui_token = mint_ui_token()
+    extra_suffix = "&ui=classic" if norm_variant in ("classic", "legacy") else ""
     serve_http(
         lambda tok: make_gerrit_ui_handler(service, ui_token=tok),
         host=host_addr,
@@ -734,9 +995,9 @@ def serve_gerrit_ui(
         open_browser=open_browser,
         port_finder=find_available_port,
         server_cls=http.server.ThreadingHTTPServer,
-        browser_opener=webbrowser.open,
+        browser_opener=lambda u: webbrowser.open(f"{u}{extra_suffix}"),
         banner_fn=lambda url, _port: (
-            f"AEMU Fast Gerrit UI running at {url} (viewer: {service.default_viewer})"
+            f"AEMU Fast Gerrit UI running at {url}{extra_suffix} (viewer: {service.default_viewer}, UI: {norm_variant})"
         ),
         shutdown_message="\nShutting down Gerrit UI server.",
     )

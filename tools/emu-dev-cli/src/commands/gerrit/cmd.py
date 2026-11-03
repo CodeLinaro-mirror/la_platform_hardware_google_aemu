@@ -896,6 +896,13 @@ class GerritUiCommand(Command[argparse.Namespace, Any]):
             default=None,
             help="Export a pre-populated static HTML snapshot to the specified file path",
         )
+        parser.add_argument(
+            "--ui",
+            dest="ui_variant",
+            choices=["polygerrit", "classic"],
+            default="polygerrit",
+            help="UI variant to display: 'polygerrit' (default) or 'classic'",
+        )
 
     def execute(
         self, args: argparse.Namespace, ctx: ExecutionContext | None = None
@@ -947,6 +954,7 @@ def handle_gerrit_ui(args: argparse.Namespace) -> CommandResult:
         query=args.query,
         open_browser=not args.no_browser,
         export_static_path=args.export_static,
+        ui_variant=getattr(args, "ui_variant", "polygerrit"),
     )
     return CommandResult.success(
         action="gerrit ui",

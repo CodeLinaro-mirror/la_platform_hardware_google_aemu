@@ -37,6 +37,8 @@ CONTEXT_SHARED_ATTRS: frozenset[str] = frozenset({
     "_diff_revision_cache",
     "_full_diff_bundle_cache",
     "_file_content_cache",
+    "_file_blame_cache",
+    "_reviewed_files_cache",
     "_included_in_cache",
     "_last_prewarm_by_viewer",
     "_prewarm_in_progress",
@@ -85,6 +87,8 @@ class GerritWorkspaceContext:
         self._diff_revision_cache: dict[tuple[str, str], dict[str, Any]] = {}
         self._full_diff_bundle_cache: dict[tuple[str, str], tuple[float, dict[str, Any]]] = {}
         self._file_content_cache: dict[tuple[str, str, str], tuple[float, dict[str, Any]]] = {}
+        self._file_blame_cache: dict[tuple[str, str, str, bool], tuple[float, list[dict[str, Any]]]] = {}
+        self._reviewed_files_cache: dict[tuple[str, str], tuple[float, list[str]]] = {}
         self._included_in_cache: dict[str, tuple[float, dict[str, Any]]] = {}
         self._last_prewarm_by_viewer: dict[str, float] = {}
         self._prewarm_in_progress = False
@@ -128,6 +132,9 @@ class GerritWorkspaceContext:
             stale_keys = [k for k in self._full_diff_bundle_cache if k[0] in target_ids]
             for key in stale_keys:
                 self._full_diff_bundle_cache.pop(key, None)
+            stale_rev_keys = [k for k in self._reviewed_files_cache if k[0] in target_ids]
+            for key in stale_rev_keys:
+                self._reviewed_files_cache.pop(key, None)
             for cid in target_ids:
                 self._included_in_cache.pop(cid, None)
 
