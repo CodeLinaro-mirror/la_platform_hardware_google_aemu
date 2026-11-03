@@ -62,15 +62,17 @@ where every mutable field is marked `optional`:
 
 ### Rule 3: Normalized 2D Geometry (`[0.0, 1.0]`)
 
-All touch coordinates (`Pointer.x`, `Pointer.y`) and display regions
-(`NormalizedRect`) use normalized floating-point coordinates relative to the
-active logical display dimensions:
+Touch coordinates (`Pointer.x`, `Pointer.y`) and display regions
+(`NormalizedRect`) use normalized floating-point coordinates in `[0.0, 1.0]`:
 
-- `(0.0, 0.0)` is top-left; `(1.0, 1.0)` is bottom-right.
-- Values outside `[0.0, 1.0]` (e.g. `x = -0.02` or `y = 1.03`) are **never
-  clamped** by the server so clients can perform bezel-originating edge swipes
-  (system back gesture, notification shade pull-down).
-- `Pointer.size` is normalized relative to `min(display.width, display.height)`.
+- `Pointer.x` and `Pointer.y` are in the display panel's **natural (unrotated,
+  `ROTATION_DEG0`)** coordinate frame (`(0.0, 0.0)` is natural top-left;
+  `(1.0, 1.0)` is natural bottom-right) and are **clamped** to `[0.0, 1.0]`
+  (system back and notification-shade edge swipes start at `0.0` or `1.0`; see
+  `Screenshot` in `display_service.proto` when mapping from rotated landscape
+  screenshots).
+- `Pointer.size` is normalized relative to `min(display.width, display.height)`
+  and clamped to `[0.0, 1.0]`.
 
 ### Rule 4: Shared Monotonic Clock (`CLOCK_MONOTONIC` Nanoseconds)
 
@@ -345,7 +347,7 @@ def tap_and_capture(input_stub, display_stub, x: float, y: float) -> bytes:
                     input_source_id=1,  # Non-zero ID identifies an automated agent
                     pointer=input_service_pb2.PointerEvent(
                         action=input_service_pb2.POINTER_ACTION_DOWN,
-                        pointers=[input_service_pb2.Pointer(x=x, y=y)],
+                        pointers=[input_service_pb2.PointerEvent.Pointer(x=x, y=y)],
                     ),
                 ),
                 input_service_pb2.InputEvent(
@@ -353,7 +355,7 @@ def tap_and_capture(input_stub, display_stub, x: float, y: float) -> bytes:
                     input_source_id=1,
                     pointer=input_service_pb2.PointerEvent(
                         action=input_service_pb2.POINTER_ACTION_UP,
-                        pointers=[input_service_pb2.Pointer(x=x, y=y)],
+                        pointers=[input_service_pb2.PointerEvent.Pointer(x=x, y=y)],
                     ),
                 ),
             ]
@@ -367,7 +369,6 @@ def tap_and_capture(input_stub, display_stub, x: float, y: float) -> bytes:
             display_service_pb2.GetScreenshotRequest(
                 display_id=0,
                 format=common_pb2.IMAGE_FORMAT_PNG,
-                max_dimension=1080,  # Server downscales preserving aspect ratio
             )
         )
         if shot.presentation_time_nanos >= barrier_nanos:
@@ -377,18 +378,26 @@ def tap_and_capture(input_stub, display_stub, x: float, y: float) -> bytes:
 ### Recipe C3: Recording Human Demonstrations (`StreamInputActivity`)
 
 If you are building a macro recorder or recording human demonstrations to train
-an AI agent, subscribe to `InputService.StreamInputActivity`. Every input event
-carries its `input_source_id`:
+an AI agent, subscribe to `InputService.StreamInputActivity`. Every emitted
+`InputActivity` wraps the dispatched `InputEvent` (with its resolved
+`input_source_id`), `dispatched_at_nanos` on `CLOCK_MONOTONIC`, and
+`synthesized` (true for server-generated disconnect/timeout cleanup events):
 
-- `input_source_id == 0`: Human interacting via the host UI window.
-- `input_source_id > 0`: Automated agent or CLI script.
+- `activity.event.input_source_id == 0`: Human interacting via the host UI window.
+- `activity.event.input_source_id != 0`: Automated agent or CLI script.
 
 ```python
-for event in input_stub.StreamInputActivity(
+for activity in input_stub.StreamInputActivity(
     input_service_pb2.StreamInputActivityRequest()
 ):
-    actor = "HUMAN" if event.input_source_id == 0 else f"AGENT#{event.input_source_id}"
-    print(f"[{event.timestamp_nanos} ns] {actor}: {event.WhichOneof('event')}")
+    if activity.synthesized:
+        continue  # Skip server-generated cleanup when recording for replay
+    src = activity.event.input_source_id
+    actor = "HUMAN" if src == 0 else f"AGENT#{src}"
+    print(
+        f"[{activity.dispatched_at_nanos} ns] {actor}: "
+        f"{activity.event.WhichOneof('event')}"
+    )
 ```
 
 ### Recipe C4: Driving 3D Pose, Environment, Foldables/Rollables, Battery, GPS & Telephony
@@ -522,7 +531,26 @@ print(f"Saved snapshot {snapshot.snapshot_id} ({snapshot.disk_size_bytes} bytes)
 
 ---
 
-## 5. gRPC Status Code Cheat Sheet
+## 5. Cross-API-Level Input Guidance (Android 7.0 / API 24+)
+
+`InputService` supports Android **API 24 (Android 7.0) and higher**. While
+`InputCapabilities` tells your client which hardware peripherals exist, guest
+Android `InputReader`, `InputDispatcher`, and `SystemUI` behavior evolved
+substantially between API 24 and API 36. Query `DeviceMetadata.api_level` via
+`CapabilitiesService.GetDeviceCapabilities` and follow these portable patterns:
+
+| Area | API Level Boundary | Guest Android Behavior | Recommended Client / Agent Practice |
+| :--- | :--- | :--- | :--- |
+| **Gesture cancellation (`POINTER_ACTION_CANCEL`, stream disconnect, idle timeout)** | **API 24–29**<br>vs **API 30**<br>vs **API 31+** | • **API 24–29**: `MT_TOOL_PALM` is unrecognized and treated as a normal finger **`ACTION_UP` (click/tap)**.<br>• **API 30**: Cancels the **entire multi-touch gesture** (`ACTION_CANCEL`) across all pointers.<br>• **API 31+**: Cancels **per-pointer** (`ACTION_POINTER_UP \| FLAG_CANCELED`, or `ACTION_CANCEL` on last pointer). | Always finish anonymous `SendInputEvents` gestures with an explicit `POINTER_ACTION_UP`. To abort a tap without clicking on `api_level <= 29`, drag outside the clickable view bounds before lifting. |
+| **Secondary displays (`display_id > 0`)** | **API 24–28**<br>vs **API 29+** | • **API 24–28**: Per-display `VirtioInput` / `.idc` routing is absent on standard emulated images.<br>• **API 29+**: Per-display routing works once the target display is created and active (inactive viewports drop events). | Target `display_id = 0` on `api_level <= 28`; on `api_level >= 29`, verify the display is active via `DisplayService` first. |
+| **System Gesture Navigation edges (`Pointer.x` near `0.0` / `1.0`)** | **API 24–28**<br>vs **API 29+** | • **API 24–28**: 3-button / 2-button nav; edge swipes reach the app.<br>• **API 29+**: On Gesture Navigation images, `DOWN` within ~`30dp` of left/right edges or bottom bar causes SystemUI to `pilferPointers()`, sending `ACTION_CANCEL` to the app and triggering Back / Home. | Start horizontal app swipes inset from screen edges (`x` in `[0.15, 0.85]`). Use `KeyEvent` (`android_keycode = 4` or `dom_code = "BrowserBack"`) for API-independent Back navigation. |
+| **Stylus handwriting & barrel button (`TOOL_TYPE_STYLUS`, `BUTTON_MASK_STYLUS_PRIMARY`)** | **API 24–33**<br>vs **API 34+** | • **API 24–33**: Pure `MotionEvent` stream.<br>• **API 34+**: When stylus handwriting (`HandwritingInitiator`) is enabled and the IME supports it, a stylus drag in an `EditText` starts IME handwriting and sends `ACTION_CANCEL` to the view. The platform enables it by default, but emulator system images built since mid-2026 turn it off during first-boot setup (`Settings.Secure.STYLUS_HANDWRITING_ENABLED = 0`). `BTN_STYLUS` emits **both** `MotionEvent(BUTTON_STYLUS_PRIMARY)` and `KeyEvent(KEYCODE_STYLUS_BUTTON_PRIMARY = 308)`. | Use `TOOL_TYPE_FINGER` for standard text scrolling/selection over `EditText` on `api_level >= 34` unless specifically testing stylus handwriting, and check the guest's handwriting setting when you do. |
+| **Sleeping displays** | **System-image dependent** | Emulator images normally disable the screen-off timeout during first-boot setup, so displays stay on unless a client turns them off. Touches sent to a sleeping display are dropped unless the system image enables wake-on-touch (`touch.wake = 1`, as in goldfish images built since mid-2026); the touch that wakes the display may not reach apps. | Don't send `KEYCODE_POWER` (`android_keycode = 26`) to "wake" a display that may already be on: POWER toggles the display and turns an awake display off. |
+| **Wheel & rotary scrolling (`POINTER_ACTION_SCROLL`, `AxisEvent`)** | **API 24–35**<br>vs **API 36+** | `RotaryEncoderInputMapper` supports `AXIS_TYPE_ROTARY_ENCODER` from **API 24+**. Guests before **API 36** consume only whole wheel detents; **API 36** adds high-resolution wheel support (`REL_WHEEL_HI_RES`) behind a platform feature flag. | Send whole-integer `scroll_x` / `scroll_y` detents (`1.0`, `-1.0`) unless the guest is known to support high-resolution scrolling. |
+
+---
+
+## 6. gRPC Status Code Cheat Sheet
 
 All services use standard gRPC status codes with consistent semantics so clients
 can implement a single error handler:

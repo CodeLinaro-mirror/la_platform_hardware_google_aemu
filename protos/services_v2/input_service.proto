@@ -10,6 +10,64 @@ import "google/api/field_behavior.proto";
 
 // Injects touch, mouse, stylus, keyboard, rotary axis, and text events into the device,
 // and observes input dispatched by every connected client.
+//
+// GUEST ANDROID API-LEVEL COMPATIBILITY & DEVELOPER GUIDANCE (API 24+):
+//   `InputService` supports Android 7.0 (API 24) and higher. Always consult `InputCapabilities`
+//   (`CapabilitiesService.GetDeviceCapabilities`) for peripheral/feature support, and inspect
+//   `DeviceMetadata.api_level` when compensating for guest Android OS behavior changes across SDK
+//   releases. Some behaviors also depend on the system image build rather than the API level
+//   alone; those are called out below:
+//   - Gesture cancellation (`POINTER_ACTION_CANCEL`, stream disconnect, anonymous batch teardown,
+//     and `held_input_idle_timeout_ms`):
+//     * API 24-29 (Android 7.0-10): Linux evdev `MT_TOOL_PALM` is unrecognized by `InputReader`
+//       and treated as a normal finger lift (`MotionEvent.ACTION_UP`), which triggers clicks/drops
+//       at the pointer's current position. Always end anonymous `SendInputEvents` gestures with an
+//       explicit `POINTER_ACTION_UP`; to abort a tap without clicking on `api_level <= 29`, drag
+//       the pointer outside the target view's bounds before lifting.
+//     * API 30 (Android 11): Cancels the entire active multi-touch gesture (`ACTION_CANCEL`) across
+//       all pointers on `display_id`.
+//     * API 31+ (Android 12+): Cancels only the targeted pointer (`ACTION_POINTER_UP` with
+//       `MotionEvent.FLAG_CANCELED`, or `ACTION_CANCEL` when the last active pointer lifts).
+//   - Secondary display routing (`PointerEvent.display_id > 0`):
+//     * API 24-28 (Android 7.0-9): Per-display `VirtioInput` / `.idc` input routing is absent on
+//       standard system images; target primary `display_id = 0` only.
+//     * API 29+ (Android 10+): Per-display routing is supported once the target display is created
+//       and active (inactive guest viewports drop events).
+//   - System Gesture Navigation edge zones (`Pointer.x` near `0.0` / `1.0`, `y` near `1.0`):
+//     * API 24-28: 3-button / 2-button navigation; edge-originating horizontal drags reach apps
+//       directly (e.g., `DrawerLayout`).
+//     * API 29+: When Gesture Navigation is active (default on Google Play / Pixel overlays),
+//       `POINTER_ACTION_DOWN` within ~`30dp` of the left/right edges (`EdgeBackGestureHandler`) or
+//       bottom gesture bar causes SystemUI to `pilferPointers()` once drag slop is crossed,
+//       sending `MotionEvent.ACTION_CANCEL` to the app and triggering System Back (or Predictive
+//       Back on API 33/34+) / Home / Recents. Start app-level horizontal swipes inset from the
+//       edges (e.g., `x` in `[0.15, 0.85]`), and prefer `KeyEvent` (`android_keycode = 4` or
+//       `dom_code = "BrowserBack"`) for API-independent Back navigation.
+//   - Stylus handwriting & barrel button (`TOOL_TYPE_STYLUS`, `BUTTON_MASK_STYLUS_PRIMARY`):
+//     * API 24-33: Stylus drags and `BUTTON_MASK_STYLUS_PRIMARY` deliver pure `MotionEvent`s.
+//       (From API 33+, `PreferStylusOverTouchBlocker` cancels concurrent finger touches from
+//       separate touch devices on stylus down, and on stylus hover from API 35+.)
+//     * API 34+ (Android 14+): Stylus handwriting (`HandwritingInitiator`) is available. When it
+//       is enabled and the IME supports it, dragging `TOOL_TYPE_STYLUS` over a
+//       handwriting-capable `EditText` starts IME handwriting and sends
+//       `MotionEvent.ACTION_CANCEL` to the view (use `TOOL_TYPE_FINGER` for standard text
+//       scrolling/selection). The platform enables it by default, but emulator system images
+//       built since mid-2026 turn it off during first-boot setup
+//       (`Settings.Secure.STYLUS_HANDWRITING_ENABLED = 0`), so check the guest setting. In
+//       addition, `BTN_STYLUS` attaches `KeyboardInputMapper` alongside `MultiTouchInputMapper`,
+//       so `BUTTON_MASK_STYLUS_PRIMARY` dispatches both `MotionEvent(BUTTON_STYLUS_PRIMARY)` and
+//       `KeyEvent(KEYCODE_STYLUS_BUTTON_PRIMARY = 308)`.
+//   - Sleeping displays (depends on the system image): Emulator images normally disable the
+//     screen-off timeout during first-boot setup, so displays stay on unless a client turns them
+//     off. Touches sent to a sleeping display are dropped unless the system image enables
+//     wake-on-touch (`touch.wake = 1` in its touchscreen configuration, as in goldfish images
+//     built since mid-2026); then a touch wakes the display, but that touch may not reach apps.
+//     `KEYCODE_POWER` (`android_keycode = 26`) toggles the display: sending it to an awake
+//     display turns it off, so only send it to wake a display that is known to be off.
+//   - Wheel scroll resolution (`POINTER_ACTION_SCROLL`): Guests before API 36 consume only whole
+//     wheel detents. API 36 adds high-resolution wheel support (`REL_WHEEL_HI_RES`) behind a
+//     platform feature flag, so send whole detents (`1.0`, `-1.0`) unless the guest is known to
+//     support high-resolution scrolling.
 service InputService {
   // Performs a bounded input gesture batch and returns once its final event has been dispatched
   // to the guest.
@@ -49,9 +107,22 @@ service InputService {
   // a completion barrier for callers that need to observe the resulting UI state.
   //
   // Expected gRPC status codes:
-  //   - INVALID_ARGUMENT: `timestamp_nanos` values are not non-decreasing, `display_id` is
-  //     unknown, an event is missing its payload, or the gesture spans longer than
-  //     `InputCapabilities.max_batch_duration_ms`.
+  //   - INVALID_ARGUMENT: `timestamp_nanos` is negative or decreases within the batch, batch span
+  //     exceeds `InputCapabilities.max_batch_duration_ms`, an event is missing its payload,
+  //     `display_id` is negative/unknown/inactive, `pointer_id` is outside
+  //     `[0, InputCapabilities.max_touch_point_count - 1]`, floating-point fields are non-finite
+  //     (`NaN`/`Inf`), `KeyEvent.key_identifier` or `AxisEvent.axis` is unset/unrecognized, or
+  //     `TextEvent.text` contains a character other than printable ASCII, `\n`, or `\t`.
+  //   - FAILED_PRECONDITION: An event uses an input capability absent from
+  //     `InputCapabilities.supported_features`, or `POINTER_ACTION_DOWN` targets a
+  //     `(display_id, pointer_id)` already held in the caller's session (`POINTER_ACTION_MOVE`,
+  //     `POINTER_ACTION_UP`, and `POINTER_ACTION_CANCEL` on an unheld `pointer_id` are no-ops).
+  //   - RESOURCE_EXHAUSTED: All available multi-touch slots on `display_id` are occupied (human
+  //     source `0` has reserved slot capacity; automated sources share the remaining pool), or the
+  //     session's pending event queue is full.
+  //   - UNAVAILABLE: Target display touch device or guest keyboard sink is not yet active, or the
+  //     input subsystem is shutting down.
+  //   - CANCELLED: Caller cancelled the RPC context while awaiting paced dispatch.
   //   - PERMISSION_DENIED: Caller lacks write permission (`ACCESS_MODE_READ_ONLY`).
   rpc SendInputEvents(SendInputEventsRequest) returns (SendInputEventsResponse);
 
@@ -62,15 +133,26 @@ service InputService {
   //
   // STREAM LIFECYCLE:
   //   1. Client opens client-streaming RPC and sends `InputEvent` messages paced by `timestamp_nanos`.
-  //   2. Server rebases `timestamp_nanos` onto `CLOCK_MONOTONIC` to preserve inter-event timing
-  //      (critical for smooth drag/scroll velocity calculation in Android's VelocityTracker).
+  //   2. Server paces consecutive timed events step-by-step on `CLOCK_MONOTONIC` (preserving
+  //      inter-event timing for smooth drag/scroll velocity in Android's VelocityTracker), caps
+  //      individual inter-event delays (e.g., 1s) so idle pauses between user gestures never stall
+  //      subsequent bursts, and rebases onto the host clock if `timestamp_nanos` jumps backwards.
   //   3. If the client disconnects or cancels while a pointer or key is pressed, the server automatically
-  //      synthesizes release/cancel events to prevent stuck touches or keys. Only pointers belonging to
-  //      the disconnecting `input_source_id` are released.
+  //      synthesizes release/cancel events to prevent stuck touches or keys. Only pointers and keys
+  //      held by the disconnecting session are released.
   //   4. Client half-closes the stream to finish and receive `StreamInputEventsResponse`.
   //
   // Expected gRPC status codes:
-  //   - INVALID_ARGUMENT: Unknown `display_id` or missing `event` payload.
+  //   - INVALID_ARGUMENT: Negative `timestamp_nanos`, missing `event` payload, invalid/inactive
+  //     `display_id`, out-of-range `pointer_id`, non-finite float fields, unset/unrecognized
+  //     `KeyEvent.key_identifier` or `AxisEvent.axis`, or a `TextEvent.text` character other than
+  //     printable ASCII, `\n`, or `\t`.
+  //   - FAILED_PRECONDITION: Event uses a capability absent from
+  //     `InputCapabilities.supported_features`, or `POINTER_ACTION_DOWN` targets a pointer already
+  //     held in this stream's session.
+  //   - RESOURCE_EXHAUSTED: Multi-touch slot pool on `display_id` or session event queue is full.
+  //   - UNAVAILABLE: Target display touch device or keyboard sink is not active, or shutting down.
+  //   - CANCELLED: Caller cancelled the stream context while awaiting paced dispatch.
   //   - PERMISSION_DENIED: Caller lacks write permission (`ACCESS_MODE_READ_ONLY`).
   rpc StreamInputEvents(stream InputEvent) returns (StreamInputEventsResponse);
 
@@ -126,15 +208,26 @@ enum PointerAction {
   // Contact lifted off the surface or button released (Android MotionEvent.ACTION_UP).
   POINTER_ACTION_UP = 3;
   // Aborts an active gesture without triggering click or drop handlers (Android
-  // MotionEvent.ACTION_CANCEL / MotionEvent.FLAG_CANCELED). For touch contacts, the contact tool
-  // type is switched to a palm (Linux `MT_TOOL_PALM`) before lifting so the guest aborts the
-  // gesture without firing a click or drop.
+  // MotionEvent.ACTION_CANCEL / MotionEvent.FLAG_CANCELED). Leaving `PointerEvent.pointers` empty
+  // cancels all contacts currently held by the caller's session on `display_id`.
+  //
+  // Guest OS API-level behavior on Linux evdev touchscreens (switches slot to `MT_TOOL_PALM`
+  // before lifting):
+  //   - Android 12+ (API 31+): Cancels individual pointers with `MotionEvent.FLAG_CANCELED` (or
+  //     `ACTION_CANCEL` when the last pointer is cancelled).
+  //   - Android 11 (API 30): Cancels the entire active gesture (`ACTION_CANCEL`) across all
+  //     pointers on the display.
+  //   - Android 7.0-10 (API 24-29): `MT_TOOL_PALM` is unrecognized and behaves like a normal
+  //     `POINTER_ACTION_UP` (activating clicks/drops at the current coordinate; drag off-target
+  //     before lifting to suppress activation on `api_level <= 29`).
   POINTER_ACTION_CANCEL = 4;
   // Pointer entered the display hover region without touching (Android MotionEvent.ACTION_HOVER_ENTER).
   POINTER_ACTION_HOVER_ENTER = 5;
   // Pointer moved while hovering above the surface (Android MotionEvent.ACTION_HOVER_MOVE).
   POINTER_ACTION_HOVER_MOVE = 6;
-  // Pointer exited the display hover region (Android MotionEvent.ACTION_HOVER_EXIT).
+  // Pointer exited the display hover region (Android MotionEvent.ACTION_HOVER_EXIT). Leaving
+  // `PointerEvent.pointers` empty exits all hovering pointers held by the caller's session on
+  // `display_id`.
   POINTER_ACTION_HOVER_EXIT = 7;
   // Mouse wheel or trackpad scroll delta event (Android MotionEvent.ACTION_SCROLL).
   POINTER_ACTION_SCROLL = 8;
@@ -160,7 +253,7 @@ enum ToolType {
 
 // Classifies hardware keyboard and button state transitions.
 enum KeyAction {
-  // Default unspecified key action.
+  // Default unspecified key action (treated as KEY_ACTION_PRESS).
   KEY_ACTION_UNSPECIFIED = 0;
   // Key depressed and held (Android KeyEvent.ACTION_DOWN).
   KEY_ACTION_DOWN = 1;
@@ -205,10 +298,15 @@ enum AxisType {
 // Encapsulates a single timestamped input event dispatched to the device.
 message InputEvent {
   // Optional position on the client's own timeline, in nanoseconds, used to pace this event
-  // relative to its neighbours. Only deltas between events are significant: the server
-  // rebases the client timeline onto the host `CLOCK_MONOTONIC` clock, anchoring at the first
-  // event of a `SendInputEvents` batch, or at the first event received on a
-  // `StreamInputEvents` stream. Clients therefore never need to know the host clock.
+  // relative to its neighbours. Must be >= 0 when set. Only deltas between events are
+  // significant:
+  //   - `SendInputEvents`: `timestamp_nanos` must be non-decreasing across the batch and span at
+  //     most `InputCapabilities.max_batch_duration_ms`, anchored once to `CLOCK_MONOTONIC` at the
+  //     first timed event.
+  //   - `StreamInputEvents`: paced step-by-step between consecutive timed events, capping each
+  //     step delay (e.g., 1s) so idle gaps between interactive gestures do not stall later bursts,
+  //     and rebasing onto `CLOCK_MONOTONIC` if `timestamp_nanos` jumps backwards.
+  // Clients therefore never need to know the host clock.
   //
   // Preserving inter-event spacing is what lets Android's VelocityTracker derive realistic
   // drag and fling velocity, and what distinguishes a long press from a tap.
@@ -239,7 +337,7 @@ message InputEvent {
     KeyEvent key = 3;
     // Rotary dial, automotive knob, or steering wheel axis event.
     AxisEvent axis = 4;
-    // Synthesized ASCII keyboard text typing event.
+    // Printable ASCII, `\n`, and `\t` typed as key presses; any other character rejects the event.
     TextEvent text = 5;
   }
 }
@@ -275,37 +373,67 @@ message InputEvent {
 //   3. Send POINTER_ACTION_UP at (x1, y1) (pressure defaults to 0.0 when omitted) to complete the gesture.
 //
 // --- Multi-Touch Protocol (Pinch / Zoom) ---
-// Each contact point is identified by a stable `pointer_id` (0..9) within the caller's session
-// for the duration of its contact. Each `PointerEvent` only needs to list the pointers being
-// pressed, moved, or released in that step (or all active pointers of that session); previously
-// pressed pointers omitted from a `POINTER_ACTION_MOVE` remain held at their last reported
-// position. In a multi-finger gesture, a `POINTER_ACTION_MOVE` event where an individual pointer
-// explicitly sets `pressure = 0.0` lifts that pointer while the other pointers continue moving.
-// Contacts belonging to other sessions or sources are tracked independently and must not be
-// listed; a client only ever enumerates pointers it owns.
+// Each contact point is identified by a stable `pointer_id` in
+// `[0, InputCapabilities.max_touch_point_count - 1]` within the caller's session for the duration
+// of its contact. Each `PointerEvent` only needs to list the pointers being pressed, moved, or
+// released in that step (or all active pointers of that session); previously pressed pointers
+// omitted from a `POINTER_ACTION_MOVE` remain held at their last reported position.
+//   - Lifting a subset of fingers: In `POINTER_ACTION_MOVE`, explicitly setting `pressure <= 0.0`
+//     on an individual pointer lifts that pointer while other pointers continue moving. Conversely,
+//     in `POINTER_ACTION_UP`, omitted or `<= 0.0` pressure lifts the pointer whereas explicitly
+//     setting `pressure > 0.0` keeps that pointer held (so multi-finger `POINTER_ACTION_UP` packets
+//     listing all active fingers lift only the zero-pressure pointer; single-pointer
+//     `POINTER_ACTION_UP` callers MUST omit `pressure` or set `0.0`).
+//   - Contacts belonging to other sessions or sources are tracked independently and must not be
+//     listed; a client only ever enumerates pointers it owns.
+//
+// --- Multi-Display, Foldables, Edge Navigation & Screen Power State ---
+//   - Secondary displays (`display_id > 0`): Requires Android 10+ (API 29+) per-display input
+//     routing and an active target display in `DisplayService`; on API 24-28, target primary
+//     `display_id = 0` only.
+//   - Foldable panel binding: On foldable devices where logical `display_id` `0` switches between
+//     inner and outer physical panels on posture change, `display_id` resolves to the active
+//     physical panel at `POINTER_ACTION_DOWN` and stays bound to that physical panel until lifted
+//     so mid-gesture posture transitions never leave an orphaned contact on the previous panel.
+//   - Gesture-navigation edge insets (API 29+): On gesture-navigation images, `POINTER_ACTION_DOWN`
+//     within ~`30dp` of the left/right edges or bottom gesture bar is pilfered by SystemUI into
+//     Back/Home navigation (`MotionEvent.ACTION_CANCEL` to the app); start app-level horizontal
+//     swipes inset from the edges (e.g., `x` in `[0.15, 0.85]`).
+//   - Sleeping displays: Touches sent to a sleeping display are dropped unless the system image
+//     enables wake-on-touch (`touch.wake = 1`), in which case the waking touch may not reach
+//     apps. Displays normally stay on because emulator images disable the screen-off timeout;
+//     `KEYCODE_POWER` toggles the display and turns an awake display off.
 message PointerEvent {
-  // Target display identifier (0 for the primary display; defaults to 0).
+  // Target display identifier (0 for the primary display; defaults to 0; `display_id > 0` requires
+  // API 29+ and an active secondary display).
   int32 display_id = 1;
   // Lifecycle transition of the pointer event.
   PointerAction action = 2;
   // Pointers being pressed, moved, or released in this step (or all active pointers of this
-  // session). In a multi-finger `POINTER_ACTION_MOVE`, setting `pressure = 0.0` on an individual
-  // pointer lifts that pointer while the other pointers continue moving.
+  // session). May be empty ONLY on `POINTER_ACTION_CANCEL` or `POINTER_ACTION_HOVER_EXIT` to
+  // cancel/exit all contacts held by this session on `display_id`.
   repeated Pointer pointers = 3;
-  // Horizontal scroll delta in wheel detents/ticks (positive scrolls right).
+  // Horizontal scroll delta in wheel detents/ticks (positive scrolls right). Prefer whole detents:
+  // guests without high-resolution wheel support (before API 36, or API 36+ with the platform
+  // feature flag off) only honor whole detents.
   // When action is POINTER_ACTION_SCROLL, pointers[0] MUST specify the (x, y)
   // cursor location where the scroll event is dispatched.
   optional float scroll_x = 4;
-  // Vertical scroll delta in wheel detents/ticks (positive scrolls down).
+  // Vertical scroll delta in wheel detents/ticks (positive scrolls down). Prefer whole detents:
+  // guests without high-resolution wheel support (before API 36, or API 36+ with the platform
+  // feature flag off) only honor whole detents.
   // When action is POINTER_ACTION_SCROLL, pointers[0] MUST specify the (x, y)
   // cursor location where the scroll event is dispatched.
   optional float scroll_y = 5;
 
   // Describes the state and geometry of a single active contact point or cursor.
   message Pointer {
-    // Stable contact slot identifier in range [0, 9] tracking this finger/tool across events.
+    // Stable contact slot identifier in `[0, InputCapabilities.max_touch_point_count - 1]`
+    // tracking this finger/tool across events within the caller's session on `display_id`.
     int32 pointer_id = 1;
-    // Physical input tool type for this contact point.
+    // Physical input tool type for this contact point (`TOOL_TYPE_UNSPECIFIED` defaults to
+    // `TOOL_TYPE_FINGER`; `TOOL_TYPE_STYLUS` and `TOOL_TYPE_ERASER` require `INPUT_FEATURE_STYLUS`;
+    // `TOOL_TYPE_MOUSE` requires `INPUT_FEATURE_MOUSE_POINTER`).
     ToolType tool_type = 2;
     // Normalized X coordinate in the display panel's natural (unrotated) coordinate frame,
     // clamped to [0.0, 1.0] (defaults to 0.0).
@@ -313,20 +441,37 @@ message PointerEvent {
     // Normalized Y coordinate in the display panel's natural (unrotated) coordinate frame,
     // clamped to [0.0, 1.0] (defaults to 0.0).
     float y = 4;
-    // Normalized contact pressure, clamped to [0.0, 1.0].
-    // When omitted, defaults to 1.0 for POINTER_ACTION_DOWN and POINTER_ACTION_MOVE,
-    // and 0.0 for POINTER_ACTION_UP, POINTER_ACTION_CANCEL, and HOVER_* actions.
-    // In a multi-finger POINTER_ACTION_MOVE, explicitly setting `pressure = 0.0` lifts this
-    // pointer while other active pointers continue moving.
+    // Normalized contact pressure, clamped to [0.0, 1.0]:
+    //   - `POINTER_ACTION_DOWN`: defaults to `1.0` when omitted; explicit `pressure <= 0.0` is
+    //     coerced to `1.0` because Android `MultiTouchInputMapper` treats zero pressure on an
+    //     active slot as hover rather than touch-down (use `POINTER_ACTION_HOVER_ENTER` or
+    //     `POINTER_ACTION_HOVER_MOVE` for zero-pressure hover).
+    //   - `POINTER_ACTION_MOVE`: defaults to `1.0` when omitted; explicitly setting
+    //     `pressure <= 0.0` lifts this pointer while other pointers continue moving.
+    //   - `POINTER_ACTION_UP`: defaults to `0.0` (lifting the pointer) when omitted or `<= 0.0`;
+    //     explicitly setting `pressure > 0.0` keeps this pointer held on the surface.
+    //   - `POINTER_ACTION_CANCEL`, `POINTER_ACTION_HOVER_ENTER`, `POINTER_ACTION_HOVER_MOVE`,
+    //     `POINTER_ACTION_HOVER_EXIT`: forced to `0.0`.
     optional float pressure = 5;
     // Touch ellipse major axis diameter normalized relative to `min(width, height)` of the
-    // display panel, clamped to [0.0, 1.0] (defaults to 0.0).
+    // display panel, clamped to [0.0, 1.0]. When 0.0 (omitted), emulated touchscreens emit a
+    // small circular default contact (~4% of panel range) on both major and minor axes.
     float size = 6;
     // Tool orientation angle in radians within range [-pi/2, pi/2] relative to vertical (defaults to 0.0).
     float orientation_radians = 7;
-    // Stylus tilt angle from surface normal in radians within range [0.0, pi/2] (0.0 is perpendicular).
+    // Stylus tilt angle from surface normal in radians within range [0.0, pi/2] (0.0 is
+    // perpendicular). Applies to `TOOL_TYPE_STYLUS` and `TOOL_TYPE_ERASER` (`INPUT_FEATURE_STYLUS`)
+    // on a best-effort basis: on multi-touch screens without a dedicated single-touch stylus
+    // digitizer, Android `MultiTouchInputMapper` ignores `ABS_TILT_X`/`ABS_TILT_Y` and reports
+    // `MotionEvent.AXIS_TILT = 0.0` (while `orientation_radians` is preserved).
     float tilt_radians = 8;
     // Bitmask of active pressed buttons combined via bitwise OR (`ButtonMask`).
+    // `BUTTON_MASK_STYLUS_PRIMARY` requires `INPUT_FEATURE_STYLUS` (sharing per-display stylus
+    // button state on Linux evdev; note that on API 34+, pressing `BTN_STYLUS` emits both
+    // `MotionEvent(BUTTON_STYLUS_PRIMARY)` and `KeyEvent(KEYCODE_STYLUS_BUTTON_PRIMARY = 308)`);
+    // mouse buttons (`BUTTON_MASK_PRIMARY`, `BUTTON_MASK_SECONDARY`, `BUTTON_MASK_TERTIARY`,
+    // `BUTTON_MASK_BACK`, `BUTTON_MASK_FORWARD`) and `BUTTON_MASK_STYLUS_SECONDARY` require
+    // `INPUT_FEATURE_MOUSE_POINTER`.
     int32 button_mask = 9;
     // Relative horizontal movement delta in raw pixels for `POINTER_ACTION_RELATIVE_MOVE` (defaults to 0.0).
     float delta_x = 10;
@@ -337,23 +482,40 @@ message PointerEvent {
 
 // Represents a hardware key, W3C DOM key, or Linux evdev scancode transition.
 //
-// Key events are routed to the active Android input focus and are independent of display ID.
+// Key events are routed to the active Android input focus, require `INPUT_FEATURE_KEYBOARD`, and
+// are independent of display ID.
+//
+// MULTI-SESSION KEY HOLDING:
+//   - `KEY_ACTION_DOWN` always forwards a press to the guest (preserving key autorepeat) and
+//     records the caller's session as holding that key.
+//   - `KEY_ACTION_UP` releases the guest key only once ALL sessions holding that key have released
+//     it (releasing an unheld key is a no-op), preventing concurrent clients or session teardown
+//     from prematurely releasing a modifier or key still held by another source.
 message KeyEvent {
-  // Key state transition (DOWN, UP, or atomic PRESS).
+  // Key state transition (`KEY_ACTION_DOWN`, `KEY_ACTION_UP`, or atomic `KEY_ACTION_PRESS`).
   KeyAction action = 1;
 
   // Target key identifier (exactly one representation must be set).
   oneof key_identifier {
-    // W3C UI Events KeyboardEvent.code string (e.g., "KeyA", "Enter", "ArrowDown").
+    // W3C UI Events KeyboardEvent.code string (e.g., "KeyA", "Enter", "ArrowDown", "BrowserBack",
+    // "AudioVolumeUp", "Power"). Preferred portable representation for all keyboard keys; mapped
+    // assuming a physical US QWERTY key layout.
     string dom_code = 2;
-    // Android KeyEvent keycode integer (e.g., KEYCODE_HOME = 3, KEYCODE_BACK = 4).
+    // Android KeyEvent keycode integer for hardware system/navigation buttons without universal
+    // keyboard scancodes. On Linux evdev / emulated backends, ONLY the 9 system keycodes
+    // `KEYCODE_HOME` (3), `KEYCODE_BACK` (4), `KEYCODE_VOLUME_UP` (24), `KEYCODE_VOLUME_DOWN` (25),
+    // `KEYCODE_POWER` (26), `KEYCODE_CAMERA` (27), `KEYCODE_MENU` (82), `KEYCODE_SEARCH` (84), and
+    // `KEYCODE_APP_SWITCH` (187) are accepted; all other values fail with `INVALID_ARGUMENT` (use
+    // `dom_code` or `evdev_code` instead).
     int32 android_keycode = 3;
-    // Linux input subsystem evdev scancode integer (e.g., KEY_A = 30).
+    // Linux input subsystem evdev scancode integer in `(0, 0x2ff]` (e.g., `KEY_A` = 30).
     int32 evdev_code = 4;
   }
 }
 
 // Represents a rotary encoder step or continuous analog axis displacement.
+// Requires `INPUT_FEATURE_ROTARY_ENCODER` (supported by Android `RotaryEncoderInputMapper` from
+// API 24+ / Android 7.0+, producing `SOURCE_ROTARY_ENCODER` `MotionEvent.ACTION_SCROLL`).
 message AxisEvent {
   // Target physical rotary or analog axis.
   AxisType axis = 1;
@@ -361,14 +523,25 @@ message AxisEvent {
   float value = 2;
 }
 
-// Types ASCII text as a sequence of synthesized key events on the guest keyboard.
+// Types ASCII text as a sequence of synthesized key presses on the guest keyboard.
 //
-// This is keyboard key-event synthesis rather than a direct Android `InputConnection` IME
-// commit; printable ASCII characters (`[0x20, 0x7f)`) are translated to key presses (with
-// modifier keys as needed) and non-ASCII characters are ignored.
+// Requires `INPUT_FEATURE_KEYBOARD`.
+//
+// ASCII ONLY: `text` may contain only printable ASCII characters (`[0x20, 0x7f)`), `\n` (Enter),
+// and `\t` (Tab). Any other character, including non-ASCII UTF-8 code points (such as `é`, `€`,
+// CJK characters, or emoji) and other control characters (such as `\r` and `\b`), rejects the
+// whole event, so no part of its text is typed. `SendInputEvents` and `StreamInputEvents` fail
+// with `INVALID_ARGUMENT`, naming the first such character and its index. The WebRTC `"input_v2"`
+// data channel cannot report errors, so it drops the event. Convert Windows `\r\n` line endings
+// to `\n` before sending.
+//
+// This is key-event synthesis rather than a direct Android `InputConnection` IME commit: each
+// character is produced by US English (QWERTY) key presses, with Shift pressed as needed, so the
+// characters appear as intended only while the guest's physical keyboard layout is English (US),
+// the emulator default.
 message TextEvent {
-  // Printable ASCII text string to type as synthesized keyboard key events (non-ASCII
-  // characters are ignored).
+  // Text to type: printable ASCII characters, `\n`, and `\t` only. Any other character rejects the
+  // event (see `TextEvent`).
   string text = 1;
 }
 
@@ -414,7 +587,9 @@ message StreamInputActivityRequest {
 
 // Reports a single input event after its report was queued to the guest input device.
 message InputActivity {
-  // Output only. Event exactly as dispatched, including the `input_source_id` that produced it.
+  // Output only. Event as dispatched, including the resolved `input_source_id` that produced it
+  // and the caller's requested `PointerEvent.display_id` (even when foldable routing bound the
+  // contact to an alternate cover panel).
   InputEvent event = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
 
   // Output only. Host monotonic time (`CLOCK_MONOTONIC`) at which the report was queued to the
@@ -423,9 +598,10 @@ message InputActivity {
   // through `SendInputEvents`.
   int64 dispatched_at_nanos = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
 
-  // Output only. True when the server generated this event rather than a client, such as the
-  // release and cancel events synthesized when a client disconnects mid-gesture. Replay of a
-  // captured sequence should normally skip synthesized events, since the server regenerates
-  // them as needed.
+  // Output only. True when the server generated this event rather than a client — such as
+  // `POINTER_ACTION_CANCEL` and `KEY_ACTION_UP` cleanup synthesized on stream disconnect,
+  // anonymous `SendInputEvents` completion, `held_input_idle_timeout_ms` expiry, virtual display
+  // removal, guest input driver reset, or VM snapshot restore. Replay of a captured sequence
+  // should normally skip synthesized events, since the server regenerates them as needed.
   bool synthesized = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
 }

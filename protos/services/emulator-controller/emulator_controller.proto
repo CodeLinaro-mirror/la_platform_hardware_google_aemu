@@ -160,70 +160,190 @@ service EmulatorController {
 
     // Deprecated: prefer streamInputEvent or android.emulation.v2.InputService.
     //
-    // Sends a keyboard event to the emulator. This operation is asynchronous
-    // and executed on the main looper.
+    // Sends a keyboard event to the emulator. Executed asynchronously on the main
+    // looper (`OK` is returned once scheduled).
     //
-    // The `KeyboardEvent` message allows specifying input using `keyCode`, `key` (W3C standard string), or `text` (UTF-8 string).
-    // The `KeyEventSender` prioritizes `key`, then `keyCode`, then `text`.
-    // - If `key` is a non-printable W3C key string (e.g., "Backspace", "ArrowUp"), it's translated to an evdev keycode and sent.
-    // - If `key` is a printable Unicode character, it's converted to a sequence of evdev keydown/keyup events, handling modifiers.
-    // - If `keyCode` is provided, it's translated from its `codeType` (Usb, Evdev, XKB, Win, Mac) to an evdev keycode and sent as keydown/keyup pairs.
-    // - If `text` is provided, each UTF-8 character is converted to evdev keypress (keydown then keyup) events.
+    // GUEST ANDROID API-LEVEL BEHAVIOR (QEMU2, API 21-36):
+    //   The v1 input RPCs (`sendKey`, `sendTouch`, `sendMouse`, `injectWheel`,
+    //   `streamInputEvent`) route through QEMU2's virtual input devices, whose
+    //   topology and guest Android `InputReader`/`InputDispatcher` semantics vary
+    //   by API level:
+    //   - Transport & `display > 0` (`API 21-28` vs. `API 29+`):
+    //     * `API 21-28` (Android 5.0-9): `VirtioInput` is disabled. All input
+    //       routes through the single legacy `goldfish_events` (`"qwerty2"`)
+    //       device (fixed 16,384-`uint32` FIFO; overflows drop individual triplets
+    //       without `SYN_DROPPED` frame alignment), and `display > 0` is ignored
+    //       (all events land on primary `display = 0`).
+    //     * `API 29+` (Android 10+ on x86/x86_64; `API 30/31+` on arm64):
+    //       `VirtioInput` enables `virtio_input_multi_touch_1..11` (bound to
+    //       displays via `.idc` `touch.displayId` and `input-port-associations`),
+    //       `virtio-keyboard-pci`, and `virtio_input_rotary`. Targeting an
+    //       uncreated or inactive `display > 0` causes Android `TouchInputMapper`
+    //       to disable that mapper and drop events.
+    //     * Desktop / XR AVDs (`API 29+` with `VirtioTablet` or `VirtioMouse`
+    //       enabled): `virtio_input_multi_touch_1..11` are omitted, so
+    //       `TouchEvent` and `PenEvent` are dropped; use `MouseEvent` instead.
+    //   - Gesture Navigation edge pilfering (`API 29+`): On Gesture Navigation
+    //     system images (default on Google Play / Pixel overlays; 3-button nav on
+    //     `API <= 28`), `ACTION_DOWN` within ~`30dp` of the left/right edges or
+    //     bottom gesture bar causes SystemUI to `pilferPointers()` once drag slop
+    //     is exceeded, sending `MotionEvent.ACTION_CANCEL` to the app and
+    //     triggering System Back / Home. Start app swipes inset away from edges.
+    //   - Palm cancellation via `AndroidEvent` (`MT_TOOL_PALM = 0x02`):
+    //     `API 21-29` treats `MT_TOOL_PALM` as `TOOL_TYPE_FINGER` (lifting triggers
+    //     `ACTION_UP` click); `API 30` cancels the entire active multi-touch
+    //     gesture (`MotionEvent.ACTION_CANCEL`); `API 31+` cancels only the
+    //     affected pointer (`ACTION_POINTER_UP | FLAG_CANCELED`, or
+    //     `ACTION_CANCEL` on the last active pointer). Note that `TouchEvent`'s
+    //     lazy 120s timeout never emits `MT_TOOL_PALM`; it emits a normal finger
+    //     `ACTION_UP`.
+    //   - Stylus arbitration, handwriting & buttons (`API 33+` / `API 34+`):
+    //     `API 33+` cancels concurrent finger touches on stylus down
+    //     (`PreferStylusOverTouchBlocker`, extended to stylus hover in `API 35+`).
+    //     On `API 34+`, when stylus handwriting is enabled (the platform
+    //     default; emulator images built since mid-2026 turn it off during
+    //     first-boot setup), dragging `PenEvent` over an `EditText` starts IME
+    //     stylus handwriting (`ACTION_CANCEL` to the view). On `API 34+`,
+    //     `BTN_STYLUS` also emits both `MotionEvent(BUTTON_STYLUS_PRIMARY)` and
+    //     `KeyEvent(KEYCODE_STYLUS_BUTTON_PRIMARY = 308)` (`API <= 33` updates
+    //     `MotionEvent` button state only).
+    //   - Sleeping displays (depends on the system image): Touches sent to a
+    //     sleeping display are dropped unless the system image enables
+    //     wake-on-touch (`touch.wake = 1`), in which case the waking touch may
+    //     not reach apps. Wake the screen first; note that `KEYCODE_POWER`
+    //     toggles the display and turns an awake display off.
     //
-    // This method returns `OK` (code 0) upon successful asynchronous scheduling of the operation.
+    // HARDWARE KEYBOARD GATING (`API 29+`):
+    //   When `VirtioInput` is enabled (`API 29+`) and the AVD has
+    //   `hw.keyboard = no`, `virtio-keyboard-pci` is omitted and alphanumeric
+    //   `KeyboardEvent`s are dropped; only `goldfish_events` system keys (such as
+    //   `GoHome`, `GoBack`, `Power`, `AppSwitch`, and volume keys) are delivered.
+    //   On `API <= 28`, `goldfish_events` delivers all keys regardless of
+    //   `hw.keyboard`.
+    //
+    // Field evaluation order in `KeyboardEvent` is ADDITIVE (`key` -> `text` ->
+    // `keyCode`): callers SHOULD populate at most one of `key`, `text`, or
+    // `keyCode` per message because setting multiple fields dispatches each
+    // populated field in sequence:
+    // - If `key` is a non-printable W3C key string (e.g., "Backspace", "ArrowUp",
+    //   "GoHome"), it is translated to an evdev keycode and sent according to
+    //   `eventType` (keys pressed with `keydown` are NOT auto-released; send a
+    //   matching `keyup`).
+    // - If `key` is a single printable ASCII character (`[0x20, 0x7f)`), it is
+    //   translated assuming a US `qwerty2` layout (pressing `KEY_LEFTSHIFT`
+    //   automatically on `keydown` / `keypress` when shifted). A single
+    //   non-ASCII character in `key` is dropped.
+    // - If `text` is non-empty, it is typed as ASCII only: each printable ASCII
+    //   character (`[0x20, 0x7f)`), `\n`, and `\t` is typed as a full
+    //   press-and-release sequence (`eventType` is ignored); all other
+    //   characters (non-ASCII UTF-8 code points and other control characters)
+    //   are dropped.
+    // - If `keyCode > 0`, it is translated from `codeType` (`Usb`, `Evdev`, `XKB`,
+    //   `Win`, `Mac`) to an evdev keycode and sent according to `eventType`. When
+    //   `key` is empty and `codeType == Evdev`, a precautionary key-up (`EV_KEY`
+    //   value 0) is emitted immediately before the requested event.
     rpc sendKey(KeyboardEvent) returns (google.protobuf.Empty) {}
     // Deprecated: prefer streamInputEvent or android.emulation.v2.InputService.
     //
-    // Sends touch events to the emulator. This operation is asynchronous and executed on the main looper.
+    // Sends touch events to the emulator. Executed asynchronously on the main
+    // looper (`OK` is returned once scheduled).
     //
-    // The `TouchEvent` contains a list of `Touch` objects, each with `x`, `y` coordinates, `identifier`, `pressure`, `touch_major`, `touch_minor`, `expiration`, and `orientation`.
-    // Coordinates are in the display panel's natural (unrotated) pixel coordinate frame. Each `Touch` `identifier` is mapped to an internal Linux multitouch slot.
-    // `expiration` is ignored: contacts on a `streamInputEvent` stream remain held until lifted with `pressure = 0` or until the stream closes (which automatically releases all contacts of that stream).
-    //
-    // This method returns `OK` (code 0) upon successful asynchronous scheduling of the operation. Warnings are logged if no touch slots are available.
+    // Coordinates `(x, y)` are in the display panel's natural (unrotated) pixel
+    // coordinate frame (`[0, width]` x `[0, height]`):
+    // - Multi-display & foldables: `display > 0` requires `API 29+` (`VirtioInput`
+    //   enabled; `API 30/31+` on arm64) and an active secondary display. On
+    //   `API <= 28`, `display > 0` is ignored and routes to `display = 0`. While a
+    //   Pixel Fold AVD is folded, `display` is automatically redirected to the
+    //   outer cover display. Dropped on `API 29+` Desktop/XR AVDs when
+    //   `VirtioTablet` or `VirtioMouse` is enabled.
+    // - Global slot pool: All callers (`sendTouch` and all `streamInputEvent`
+    //   streams) and displays share a single global 10-slot pool (`0..9`). Reusing
+    //   the same `identifier` across concurrent streams or displays shares the
+    //   same slot.
+    // - Lazy 120s expiration: Unlifted contacts lazily expire after 120 seconds
+    //   when the next `TouchEvent` arrives, emitting a normal finger lift
+    //   (`MotionEvent.ACTION_UP`, NOT `ACTION_CANCEL`) unless
+    //   `Touch.expiration = NEVER_EXPIRE` is set.
+    // - Guest OS filtering: Subject to `API 29+` ~`30dp` Gesture Navigation edge
+    //   pilfering (`ACTION_CANCEL` to app) and to sleeping-display dropping,
+    //   which depends on the system image (see the API-level notes on
+    //   `sendKey`).
     rpc sendTouch(TouchEvent) returns (google.protobuf.Empty) {}
     // Deprecated: prefer streamInputEvent or android.emulation.v2.InputService.
     //
-    // Sends mouse events to the emulator. This operation is asynchronous and executed on the main looper.
+    // Sends mouse events to the emulator. Executed asynchronously on the main
+    // looper (`OK` is returned once scheduled).
     //
-    // `MouseEvent` emulates a single-finger capacitive touch on the target `display` in the panel's natural (unrotated) pixel coordinate frame using the primary (left, bit 0) button:
-    // - `(buttons & 1) != 0` presses or moves pointer 0 at `(x, y)`.
-    // - `(buttons & 1) == 0` lifts pointer 0 if it is currently pressed; hover moves with `buttons == 0` while pointer 0 is not pressed send nothing.
-    // - All other button bits are ignored.
-    // Pointer 0 is shared with `TouchEvent` `identifier` 0 on the same stream.
-    //
-    // This method returns `OK` (code 0) upon successful asynchronous scheduling of the operation.
+    // Behavior varies by API level and AVD device profile:
+    // - Standard touchscreen AVDs (`API 29+` with `VirtioInput` enabled and
+    //   `VirtioTablet`/`VirtioMouse` disabled): Emulates a single-finger
+    //   capacitive touch on `display` in natural (unrotated) panel pixels using
+    //   only bit 0 (`(buttons & 1) != 0` presses/moves; `0` lifts; hover moves
+    //   with `buttons == 0` while unheld and higher button bits are ignored;
+    //   folded Pixel Fold redirects `display` to the cover display). Subject to
+    //   `API 29+` ~`30dp` Gesture Navigation edge pilfering and to
+    //   sleeping-display dropping (depends on the system image).
+    // - Desktop / XR AVDs (`API 29+` with `VirtioTablet` or `VirtioMouse`
+    //   enabled): Drives a mouse cursor on `display = 0` supporting hover motion
+    //   and `BTN_LEFT` (bit 0), `BTN_RIGHT` (bit 1), and `BTN_MIDDLE` (bit 2). In
+    //   absolute mode, `API 34+` scales both X and Y by `max(width, height)`
+    //   (`API <= 33` scales by `(width, height)`) to match `TouchInputMapper`
+    //   pointer-mode scaling.
+    // - Legacy `API <= 28` (`VirtioInput` disabled, `goldfish_events`): Routes to
+    //   `display = 0` without masking higher button bits (`buttons == 2` skips
+    //   `SYN_REPORT`; bit 2 (`0x4`) triggers legacy secondary pinch finger).
     rpc sendMouse(MouseEvent) returns (google.protobuf.Empty) {}
-    // Injects a stream of wheel events into the emulator. This is a server-side streaming RPC.
-    //
-    // Each `WheelEvent` contains `dx`, `dy` (delta values, `dy` is pre-multiplied by 120 for scroll clicks), and `display` ID.
-    // If the emulator's input device has rotary capabilities (e.g., AVD_WEAR flavor), `dy` is scaled and sent as a rotary event.
-    // Otherwise, it's sent as a standard mouse wheel event.
-    //
-    // This method returns a server-side streaming reactor.
+    // Injects a stream of wheel events into the emulator. This is a client-side
+    // streaming RPC (`120` units in `dx`/`dy` = 1 wheel click/detent):
+    // - Wear OS / rotary AVDs (`hw.rotaryInput = yes`): Requires `API 29+`
+    //   (`VirtioInput` enabled), forwarding `dy / 8` as `REL_WHEEL` rotary steps
+    //   to `RotaryEncoderInputMapper` (`dx` and `display` are ignored). Dropped on
+    //   `API <= 28` Wear OS images because `WheelEventSender` gates on
+    //   `VirtioInput`.
+    // - Desktop / XR AVDs (`API 29+` with `VirtioMouse` or `VirtioTablet`
+    //   enabled): Accumulates discrete `120`-unit clicks (`dx / 120`, `dy / 120`)
+    //   as `REL_WHEEL` / `REL_HWHEEL` on `display = 0` (QEMU2 never emits
+    //   `REL_WHEEL_HI_RES`).
+    // - Standard touch-only AVDs: Wheel events are dropped.
     rpc injectWheel(stream WheelEvent) returns (google.protobuf.Empty) {}
 
-    // Streams a series of generic input events to the emulator. The events are processed in the order they arrive.
-    // This is a server-side streaming RPC that supports various input types encapsulated within `InputEvent`'s `oneof type` field.
+    // Streams a series of generic input events to the emulator in arrival order.
+    // This is a client-side streaming RPC supporting the variants in
+    // `InputEvent.type`.
+    //
+    // Stream events dispatch directly through the shared global input senders:
+    // slots and key states are NOT isolated per stream and are NOT automatically
+    // released when the stream closes (callers must send explicit `pressure = 0`
+    // touch/pen lifts and `keyup` events). Returns `INVALID_ARGUMENT` (code 3) if
+    // an unrecognized `InputEvent` variant is received.
     //
     // Supported input types:
-    // - `key_event` (KeyboardEvent): Processed by `KeyEventSender` as described in `sendKey`.
-    // - `touch_event` (TouchEvent): Processed by `TouchEventSender` as described in `sendTouch`.
-    // - `mouse_event` (MouseEvent): Processed by `MouseEventSender` as described in `sendMouse`.
-    // - `android_event` (AndroidEvent): Raw Linux input events (`type`, `code`, `value`) sent directly to the kernel.
-    // - `pen_event` (PenEvent): Processed by `PenEventSender` for pen input, including pressure, orientation, and button state.
-    // - `wheel_event` (WheelEvent): Processed by `WheelEventSender` as described in `injectWheel`.
-    // - `xr_command` (XrCommand): Executes XR-specific commands (e.g., `RECENTER` to recenter the viewport). Unknown actions are logged as warnings.
-    // - `xr_head_rotation_event` (RotationRadian): Sends head rotation data in radians. Logs an error if the agent call fails.
-    // - `xr_head_movement_event` (Translation): Sends head movement data in meters. Logs an error if the agent call fails.
-    // - `xr_head_angular_velocity_event` (AngularVelocity): Sends head angular velocity data in radians per second. Logs an error if the agent call fails.
-    // - `xr_head_velocity_event` (Velocity): Sends head velocity data in meters per second. Logs an error if the agent call fails.
-    // - `touchpad_event` (TouchpadEvent): Processed by `TouchpadEventSender` for touchpad input, similar to touch events but for a touchpad device.
-    //
-    // All underlying input sending operations for XR events are executed asynchronously on the main looper.
-    //
-    // Returns `INVALID_ARGUMENT` (code 3) if an unrecognized input event type is received, indicating a potential out-of-date emulator.
-    // The stream reactor automatically deletes itself upon completion.
+    // - `key_event` (KeyboardEvent): Processed as described in `sendKey`.
+    // - `touch_event` (TouchEvent): Processed as described in `sendTouch`.
+    // - `mouse_event` (MouseEvent): Processed as described in `sendMouse`.
+    // - `android_event` (AndroidEvent): Raw Linux `EV_*` triplet forwarded
+    //   immediately without buffering (`EV_ABS`/`EV_KEY`/`EV_SYN`/`EV_SW` route
+    //   to `virtio_input_multi_touch[display]` on `API 29+` when `VirtioTablet` /
+    //   `VirtioMouse` are off, while other types — and all events on `API <= 28`
+    //   — route to `goldfish_events` on `display = 0`).
+    // - `pen_event` (PenEvent): Active stylus/eraser contact (`location.pressure >
+    //   0`) on dedicated slot 10 (`rubber_pointer` + `button_pressed` asserts
+    //   `BTN_TOOL_RUBBER`; hover with `pressure <= 0` while unheld is ignored;
+    //   `display > 0` requires `API 29+`, though tool/button/orientation codes
+    //   always route to `display = 0`). On `API 34+`, stylus drags over an
+    //   `EditText` start IME stylus handwriting when it is enabled
+    //   (`ACTION_CANCEL` to the view; emulator images built since mid-2026 turn
+    //   it off during first-boot setup), and `button_pressed` emits both
+    //   `MotionEvent(BUTTON_STYLUS_PRIMARY)` and
+    //   `KeyEvent(KEYCODE_STYLUS_BUTTON_PRIMARY = 308)`.
+    // - `wheel_event` (WheelEvent): Processed as described in `injectWheel`.
+    // - `xr_command`, `xr_head_rotation_event`, `xr_head_movement_event`,
+    //   `xr_head_angular_velocity_event`, `xr_head_velocity_event`,
+    //   `xr_hand_event`, `xr_eye_event`: XR input events executed asynchronously
+    //   on the main looper (require an XR-capable emulator configuration;
+    //   otherwise logged and dropped without terminating the stream).
+    // - `touchpad_event` (TouchpadEvent): Multi-touch touchpad events using
+    //   Protocol B (dropped when no touchpad backend is configured).
     rpc streamInputEvent(stream InputEvent) returns (google.protobuf.Empty) {}
 
     // Initiates or manipulates a phone call in the emulator. This is a synchronous
@@ -983,92 +1103,134 @@ message ClipData {
 // touch-sensitive device. The contact point is commonly a finger or stylus
 // and the device may be a touchscreen or trackpad.
 message Touch {
-    // The horizontal coordinate. This is the physical location on the
-    // screen For example 0 indicates the leftmost coordinate.
+    // Horizontal coordinate in pixels in the display panel's natural (unrotated)
+    // coordinate frame, clamped to `[0, display_width]` (0 is leftmost).
     int32 x = 1;
 
-    // The vertical coordinate. This is the physical location on the screen
-    // For example 0 indicates the top left coordinate.
+    // Vertical coordinate in pixels in the display panel's natural (unrotated)
+    // coordinate frame, clamped to `[0, display_height]` (0 is topmost).
     int32 y = 2;
 
-    // The identifier is an arbitrary non-negative integer that is used to
-    // identify and track each tool independently when multiple tools are
-    // active. For example, when multiple fingers are touching the device,
-    // each finger should be assigned a distinct tracking id that is used as
-    // long as the finger remains in contact. Tracking ids may be reused
-    // when their associated tools move out of range.
-    //
-    // The emulator currently supports up to 10 concurrent touch events. The
-    // identifier can be any uninque value and will be mapped to the next
-    // available internal identifier.
+    // Non-negative tracking identifier for this finger across a gesture.
+    // Mapped into a single global 10-slot pool (`0..9`) shared across all
+    // callers (`sendTouch` and all `streamInputEvent` streams) and across all
+    // displays: reusing the same `identifier` across concurrent streams or
+    // displays shares the same slot until lifted with `pressure = 0`.
     int32 identifier = 3;
 
-    // Reports the physical pressure applied to the tip of the tool or the
-    // signal strength of the touch contact.
-    //
-    // The values reported must be non-zero when the tool is touching the
-    // device and zero otherwise to indicate that the touch event is
-    // completed.
-    //
-    // Make sure to deliver a pressure of 0 for the given identifier when
-    // the touch event is completed, otherwise the touch identifier will not
-    // be unregistered!
+    // Nominal contact pressure in `[0, 1024]`:
+    // - `pressure > 0` presses or updates the contact (values above `1024` are
+    //   forwarded unclamped, producing `MotionEvent.getPressure() > 1.0` in
+    //   Android `InputReader`).
+    // - `pressure <= 0` lifts and unregisters `identifier`.
+    // Always deliver `pressure = 0` when a touch completes so its slot is freed.
     int32 pressure = 4;
 
-    // Optionally reports the cross-sectional area of the touch contact, or
-    // the length of the longer dimension of the touch contact.
+    // Touch contact major axis diameter in `[0, 32767]` (`ABS_MT_TOUCH_MAJOR` is
+    // emitted only when non-zero).
     int32 touch_major = 5;
 
-    // Optionally reports the length of the shorter dimension of the touch
-    // contact. This axis will be ignored if touch_major is reporting an
-    // area measurement greater than 0.
+    // Touch contact minor axis diameter in `[0, 32767]` (`ABS_MT_TOUCH_MINOR` is
+    // emitted only when non-zero; ignored by Android `InputReader` unless
+    // `touch_major > 0`).
     int32 touch_minor = 6;
 
     enum EventExpiration {
-        // Ignored. Contacts on a `streamInputEvent` stream remain held until
-        // lifted with `pressure = 0` or until the stream closes (which
-        // automatically releases all contacts of that stream).
+        // Lazily expires the slot after 120 seconds without updates: no
+        // background timer runs while idle, so the contact stays held until the
+        // next `TouchEvent` arrives, which then emits a normal finger lift
+        // (`ABS_MT_TRACKING_ID = -1` / `MotionEvent.ACTION_UP`, NOT
+        // `ACTION_CANCEL`).
         EVENT_EXPIRATION_UNSPECIFIED = 0;
 
-        // Ignored. Contacts on a `streamInputEvent` stream remain held until
-        // lifted with `pressure = 0` or until the stream closes.
+        // Disables the 120-second lazy slot expiration so the contact stays held
+        // until an explicit `pressure = 0` arrives.
         NEVER_EXPIRE = 1;
     }
 
-    // Ignored: contacts on a `streamInputEvent` stream remain held until
-    // lifted with `pressure = 0` or until the stream closes (which
-    // automatically releases all contacts of that stream).
+    // Slot expiration policy for the global 120-second lazy timeout.
     EventExpiration expiration = 7;
 
-    // The orientation of the contact, if any.
+    // Contact orientation angle in integer degrees advertised in `[0, 90]`
+    // relative to vertical (`0` is aligned with the panel's vertical axis; `90`
+    // is horizontal).
     int32 orientation = 8;
 }
 
-// A Pen is similar to a touch, with the addition
-// of button and rubber information.
+// Active stylus or tail-eraser contact mapped to dedicated pointer slot 10 with
+// lazy 120-second expiration (unless `location.expiration = NEVER_EXPIRE`).
+// Only contact events (`location.pressure > 0`) and lifts of an active pen
+// (`location.pressure <= 0` while pressed) are forwarded; hover packets with
+// `pressure <= 0` while the pen is not in contact are ignored. Dropped on
+// `API 29+` Desktop/XR AVDs when `VirtioTablet` or `VirtioMouse` is enabled.
+//
+// Guest Android API-level behavior (`API 21-36`):
+// - `API <= 28`: `VirtioInput` is off; all events route to `display = 0`.
+// - `API 29+`: Coordinates route to `display`, except tool/button/orientation
+//   codes (`BTN_TOOL_RUBBER`, `BTN_STYLUS`, `ABS_MT_ORIENTATION`), which always
+//   route to `display = 0` (folded Pixel Fold redirects `display` to the outer
+//   cover display).
+// - `API 33+` (Android 13+): `PreferStylusOverTouchBlocker` cancels concurrent
+//   finger touches on stylus down (extended to stylus hover in `API 35+`).
+// - `API 34+` (Android 14+):
+//   * When stylus handwriting is enabled (the platform default; emulator images
+//     built since mid-2026 turn it off during first-boot setup), dragging a
+//     stylus over a handwriting-capable `EditText` starts IME stylus
+//     handwriting (`HandwritingInitiator`), sending `MotionEvent.ACTION_CANCEL`
+//     to the view.
+//   * Advertising `BTN_STYLUS` attaches `KeyboardInputMapper` alongside
+//     `MultiTouchInputMapper`, so `button_pressed = true` emits both
+//     `MotionEvent(BUTTON_STYLUS_PRIMARY)` and
+//     `KeyEvent(KEYCODE_STYLUS_BUTTON_PRIMARY = 308)` (`API <= 33` updates
+//     `MotionEvent` button state only).
+// - Sleeping displays: Dropped unless the system image enables wake-on-touch
+//   (`touch.wake = 1`).
 message Pen {
+    // Contact position, pressure (`[0, 1024]`), `touch_major`, `expiration`, and
+    // `orientation` (`location.identifier` is ignored; pen contacts always use
+    // dedicated slot 10; `MotionEvent.AXIS_TILT` is always `0.0`).
     Touch location = 1;
 
-    // True if the button is pressed or not
+    // True when the primary stylus barrel button (`BTN_STYLUS`) is depressed
+    // (also emits `KEYCODE_STYLUS_BUTTON_PRIMARY = 308` on `API 34+`).
     bool button_pressed = 2;
 
-    // True if it is a rubber pointer.
+    // True for tail eraser (`BTN_TOOL_RUBBER` / `TOOL_TYPE_ERASER`), false for
+    // pen tip (`TOOL_TYPE_STYLUS`). Note: `rubber_pointer = true` requires
+    // `button_pressed = true` to assert `BTN_TOOL_RUBBER = 1`; with
+    // `button_pressed = false`, `BTN_TOOL_RUBBER` is not set and Android reports
+    // `TOOL_TYPE_FINGER`.
     bool rubber_pointer = 3;
 }
 
-// A TouchEvent contains a list of Touch objects that are in contact with
-// the touch surface.
+// A TouchEvent contains a list of Touch objects on a target display.
 //
-// Touch events are delivered in sequence as specified in the touchList.
+// TouchEvents are delivered to the emulated devices using Linux multi-touch
+// ["Protocol B"](https://www.kernel.org/doc/Documentation/input/multi-touch-protocol.txt)
+// across a single global 10-slot pool (`0..9`).
 //
-// TouchEvents are delivered to the emulated devices using ["Protocol
-// B"](https://www.kernel.org/doc/Documentation/input/multi-touch-protocol.txt)
+// Guest Android API-level & device behavior (`API 21-36`):
+// - `API <= 28`: `VirtioInput` is off (`goldfish_events`); `display > 0` is
+//   ignored and all touches land on `display = 0`.
+// - `API 29+` (`API 30/31+` on arm64): `display > 0` requires an active
+//   secondary display (inactive displays disable their `TouchInputMapper` and
+//   drop events). Dropped when `VirtioTablet` or `VirtioMouse` is enabled
+//   (Desktop/XR AVDs). While a Pixel Fold AVD is folded, `display` is
+//   automatically redirected to the outer cover display.
+// - `API 29+` Gesture Navigation: Touches starting within ~`30dp` of the
+//   left/right edges or bottom gesture bar are pilfered by SystemUI
+//   (`MotionEvent.ACTION_CANCEL` to the app) to trigger System Back / Home
+//   (`API <= 28` 3-button navigation delivers edge swipes directly to apps).
+// - Sleeping displays: Touches are dropped unless the system image enables
+//   wake-on-touch (`touch.wake = 1`), in which case the waking touch may not
+//   reach apps.
 message TouchEvent {
     // The list of Touch objects, note that these do not need to be unique
     repeated Touch touches = 1;
 
     // The display device where the touch event occurred.
-    // Omitting or using the value 0 indicates the main display.
+    // Omitting or using the value 0 indicates the main display (`display > 0`
+    // requires `API 29+`; `API <= 28` falls back to `display = 0`).
     int32 display = 2;
 }
 
@@ -1088,26 +1250,38 @@ message TouchpadEvent {
     int32 touchpad = 2;
 }
 
+// A PenEvent contains a list of Pen contacts on a target display (see `Pen` for
+// `API 21-36` guest OS and `display` routing semantics).
 message PenEvent {
     // The list of Pen objects, note that these do not need to be unique
     repeated Pen events = 1;
 
     // The display device where the pen event occurred.
-    // Omitting or using the value 0 indicates the main display.
+    // Omitting or using the value 0 indicates the main display (`display > 0`
+    // coordinates require `API 29+`, while tool/button/orientation codes always
+    // route to `display = 0`).
     int32 display = 2;
 }
 
 // The MouseEvent interface represents pointer events from a pointing device
 // (such as a mouse).
 //
-// `MouseEvent` emulates a single-finger capacitive touch on the target
-// `display` in the panel's natural (unrotated) pixel coordinate frame using
-// the primary (left, bit 0) button:
-// - `(buttons & 1) != 0` presses or moves pointer 0 at `(x, y)`.
-// - `(buttons & 1) == 0` lifts pointer 0 if it is currently pressed; hover
-//   moves with `buttons == 0` while pointer 0 is not pressed send nothing.
-// - All other button bits are ignored.
-// Pointer 0 is shared with `TouchEvent` `identifier` 0 on the same stream.
+// Behavior across guest Android API levels (`API 21-36`) and AVD profiles:
+// - Standard touchscreen AVDs (`API 29+` with `VirtioInput` enabled and
+//   `VirtioTablet`/`VirtioMouse` disabled): Emulates a single-finger capacitive
+//   touch on `display` in the panel's natural (unrotated) pixel coordinate frame
+//   using only bit 0 (`(buttons & 1) != 0` presses/moves; `0` lifts; hover moves
+//   and higher button bits send nothing; folded Pixel Fold redirects `display`
+//   to the cover display). Subject to `API 29+` ~`30dp` Gesture Navigation edge
+//   pilfering and to sleeping-display dropping (depends on the system image).
+// - Desktop / XR AVDs (`API 29+` with `VirtioTablet` or `VirtioMouse` enabled):
+//   Drives a cursor on `display = 0` supporting hover motion and
+//   `BTN_LEFT`/`BTN_RIGHT`/`BTN_MIDDLE`. In absolute mode, `API 34+` scales both
+//   X and Y by `max(width, height)` (`API <= 33` scales by `(width, height)`) to
+//   match `TouchInputMapper` pointer-mode scaling.
+// - Legacy `API <= 28` (`VirtioInput` disabled, `goldfish_events`): Routes to
+//   `display = 0` without masking higher button bits (`buttons == 2` skips
+//   `SYN_REPORT`; bit 2 (`0x4`) triggers legacy secondary pinch finger).
 message MouseEvent {
     // The horizontal coordinate in the display panel's natural (unrotated)
     // pixel frame, where 0 indicates the leftmost coordinate.
@@ -1117,17 +1291,33 @@ message MouseEvent {
     // pixel frame, where 0 indicates the topmost coordinate.
     int32 y = 2;
 
-    // Bitmask of pressed buttons. Only bit 0 (value 1, primary/left button) is
-    // used: `(buttons & 1) != 0` presses or moves pointer 0, and
-    // `(buttons & 1) == 0` lifts pointer 0. Hover moves with `buttons == 0`
-    // while pointer 0 is not pressed and all other button bits send nothing.
+    // Bitmask of pressed buttons:
+    // - `API 29+` touchscreen AVDs: Only bit 0 (value 1, primary/left button) is
+    //   used (`(buttons & 1) != 0` presses/moves; `0` lifts; hover moves and
+    //   higher bits send nothing).
+    // - `API 29+` Desktop/XR AVDs (`VirtioTablet`/`VirtioMouse`): Bits 0, 1, and
+    //   2 map to `BTN_LEFT`, `BTN_RIGHT`, and `BTN_MIDDLE`.
+    // - `API <= 28` (`goldfish_events`): Unmasked (`buttons == 2` skips sync;
+    //   bit 2 (`0x4`) triggers legacy secondary pinch finger).
     int32 buttons = 3;
 
     // The display device where the mouse event occurred.
-    // Omitting or using the value 0 indicates the main display.
+    // Omitting or using the value 0 indicates the main display (`display > 0`
+    // requires `API 29+` touchscreen routing; Desktop/XR and `API <= 28` always
+    // route to `display = 0`).
     int32 display = 4;
 }
 
+// Mouse wheel or Wear OS rotary scroll delta (`120` units = 1 wheel click).
+// - Wear OS / rotary AVDs (`hw.rotaryInput = yes`): Supported on `API 29+`
+//   (`VirtioInput` enabled), forwarding `dy / 8` as `REL_WHEEL` rotary steps
+//   (`dx` and `display` ignored). Dropped on `API <= 28` Wear OS images where
+//   `VirtioInput` is off.
+// - Desktop / XR AVDs (`API 29+` with `VirtioMouse` or `VirtioTablet` enabled):
+//   Accumulates discrete `120`-unit clicks (`dx / 120`, `dy / 120`) as
+//   `REL_WHEEL` / `REL_HWHEEL` on `display = 0` (QEMU2 never emits
+//   `REL_WHEEL_HI_RES`).
+// - Standard touch-only AVDs: Dropped.
 message WheelEvent {
     // The value indicating how much the mouse wheel is rotated. Scaled so that
     // 120 equals to 1 wheel click. (120 is chosen as a multiplier often used to
@@ -1140,7 +1330,8 @@ message WheelEvent {
     int32 dy = 2;
 
     // The display device where the mouse event occurred.
-    // Omitting or using the value 0 indicates the main display.
+    // Omitting or using the value 0 indicates the main display (currently
+    // ignored; rotary and Desktop/XR wheel events always target `display = 0`).
     int32 display = 3;
 }
 
@@ -1150,8 +1341,15 @@ message WheelEvent {
 // This follows the pattern as set by
 // (javascript)[https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent]
 //
-// Note: that only keyCode, key, or text can be set and that the semantics
-// will slightly vary.
+// Notes:
+// - Callers SHOULD populate at most one of `key`, `text`, or `keyCode` per
+//   message. Populated fields are evaluated additively in order `key` -> `text`
+//   -> `keyCode` (setting more than one dispatches each in turn).
+// - On `API 29+` (`VirtioInput` enabled), if the AVD has `hw.keyboard = no`,
+//   `virtio-keyboard-pci` is omitted and alphanumeric keys are dropped (only
+//   `goldfish_events` system keys such as `GoHome`, `GoBack`, `Power`,
+//   `AppSwitch`, and volume keys are delivered). On `API <= 28`,
+//   `goldfish_events` delivers all keys regardless of `hw.keyboard`.
 message KeyboardEvent {
     // Code types that the emulator can receive. Note that the emulator
     // will do its best to translate the code to an evdev value that
@@ -1168,20 +1366,16 @@ message KeyboardEvent {
     }
 
     enum KeyEventType {
-        // Indicates that this keyevent should be send to the emulator
-        // as a key down event. Meaning that the key event will be
-        // translated to an EvDev event type and bit 11 (0x400) will be
-        // set before it is sent to the emulator.
+        // Sends a key-down transition (`EV_KEY` value 1) to the guest keyboard
+        // device. Keys pressed with `keydown` are NOT automatically released
+        // when a stream closes; callers must send a matching `keyup`.
         keydown = 0;
 
-        // Indicates that the keyevent should be send to the emulator
-        // as a key up event. Meaning that the key event will be
-        // translated to an EvDev event type and
-        // sent to the emulator.
+        // Sends a key-up transition (`EV_KEY` value 0) to the guest keyboard
+        // device.
         keyup = 1;
 
-        // Indicates that the keyevent will be send to the emulator
-        // as e key down event and immediately followed by a keyup event.
+        // Sends an atomic key-down immediately followed by key-up.
         keypress = 2;
     }
 
@@ -1191,13 +1385,12 @@ message KeyboardEvent {
     // The type of keyboard event that should be sent to the emulator
     KeyEventType eventType = 2;
 
-    // This property represents a physical key on the keyboard (as opposed
-    // to the character generated by pressing the key). In other words, this
-    // property is a value which isn't altered by keyboard layout or the
-    // state of the modifier keys. This value will be interpreted by the
-    // emulator depending on the KeyCodeType. The incoming key code will be
-    // translated to an evdev code type and send to the emulator.
-    // The values in key and text will be ignored.
+    // Physical key code interpreted according to `codeType` and translated to a
+    // Linux evdev scancode (`keyCode <= 0` is ignored). Evaluated after `key`
+    // and `text` if multiple fields are populated; callers should leave `key`
+    // and `text` empty when using `keyCode`. When `key` is empty and
+    // `codeType == Evdev`, a precautionary key-up (`EV_KEY` value 0) is emitted
+    // immediately before the requested event.
     int32 keyCode = 3;
 
     // The value of the key pressed by the user, taking into consideration
@@ -1211,8 +1404,10 @@ message KeyboardEvent {
     // sequence:
     // ["Shift", "a"] -> [0x2a, 0x1e] whereas "a" results in ["a"] -> [0x1e].
     //
-    // Not all documented keys are understood by android, and only printable
-    // ASCII [32-127) characters are properly translated.
+    // Not all documented keys are understood by Android. Single-character
+    // values are supported for printable ASCII only (`[0x20, 0x7f)`, translated
+    // assuming a US `qwerty2` guest keyboard layout); a single non-ASCII
+    // character is dropped.
     //
     // Keep in mind that there are a set of key values that result in android
     // specific behavior
@@ -1225,16 +1420,16 @@ message KeyboardEvent {
     // - "Power":  The Power button.
     string key = 4;
 
-    // Series of utf8 encoded characters to send to the emulator. An attempt
-    // will be made to translate every character will an EvDev event type and
-    // send to the emulator as a keypress event. The values in keyCode,
-    // eventType, codeType and key will be ignored.
+    // ASCII-only text typed as synthesized US `qwerty2` press-and-release key
+    // events (`eventType` is ignored for `text`). Only printable ASCII
+    // characters (`[0x20, 0x7f)`), `\n`, and `\t` are typed; all other
+    // characters (non-ASCII UTF-8 code points and other control characters) are
+    // dropped. Evaluated after `key` and before `keyCode` if multiple fields are
+    // populated; callers should leave `key` and `keyCode` unset when using
+    // `text`.
     //
-    // Note that most printable ASCII characters (range [32-127) can be send
-    // individually with the "key" param. Do not expect arbitrary UTF symbols to
-    // arrive in the emulator (most will be ignored).
-    //
-    // Note that it is possible to overrun the keyboard buffer by slamming this
+    // Note that it is possible to overrun the keyboard buffer (especially the
+    // 16,384-`uint32` `goldfish_events` FIFO on `API <= 28`) by slamming this
     // endpoint with large quantities of text (>1kb). The clipboard api is
     // better suited for transferring large quantities of text.
     string text = 5;
@@ -1269,11 +1464,21 @@ message InputEvent {
     }
 };
 
-// The android input event system is a framework for handling input from a
-// variety of devices by generating events that describe changes in the
-// state of the devices and forwarding them to user space applications.
-//
-// An AndroidEvents will be delivered directly to the kernel as is.
+// Raw Linux `input_event` triplet (`type`, `code`, `value`) forwarded
+// immediately per call without buffering:
+// - `API 29+` (`VirtioInput` enabled, `VirtioTablet`/`VirtioMouse` disabled):
+//   `EV_ABS`, `EV_KEY`, `EV_SYN`, and `EV_SW` route to
+//   `virtio_input_multi_touch[display]` (guest kernel filters `EV_KEY` to
+//   advertised `BTN_TOOL_RUBBER`/`BTN_STYLUS`; folded Pixel Fold redirects
+//   `display` to the cover display), while `EV_REL`, `EV_MSC`, and all events
+//   when `VirtioTablet`/`VirtioMouse` are enabled route to `goldfish_events` on
+//   `display = 0`.
+// - `API <= 28` (`VirtioInput` disabled): All events route to `goldfish_events`
+//   on `display = 0` (`display > 0` is ignored).
+// - `ABS_MT_TOOL_TYPE = MT_TOOL_PALM` (`0x02`): Treated as `TOOL_TYPE_FINGER` on
+//   `API 21-29` (`ACTION_UP` on lift), cancels the entire multi-touch gesture on
+//   `API 30` (`MotionEvent.ACTION_CANCEL`), and cancels per-pointer on `API 31+`
+//   (`FLAG_CANCELED`).
 message AndroidEvent {
     // The type of the event. The types of the event are specified
     // by the android kernel. Some examples are:
