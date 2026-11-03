@@ -672,7 +672,9 @@ class FakeGitService(GitService):
             update_head=True,
         )
         self.ancestors.add((new_base_sha, rebased_sha))
-        if branch != "HEAD" and not re.fullmatch(r"[0-9a-fA-F]{7,40}", branch):
+        # Rebasing a commit (not a branch) leaves HEAD detached, as in real git.
+        is_commit = target_commit is not None and target_commit.sha == branch
+        if branch != "HEAD" and not is_commit and not re.fullmatch(r"[0-9a-fA-F]{7,40}", branch):
             self.refs[branch] = rebased_sha
             self.current_branch_name = branch
         return (0, f"Successfully rebased and updated {branch}.\n", "")

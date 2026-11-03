@@ -32,7 +32,10 @@ from clients.chat_service import (
     FakeChatNotificationService,
     MAX_CHAT_DM_LENGTH,
     ProdChatNotificationService,
+    ReviewPingItem,
+    describe_review_ping_cl,
     format_review_ping_message,
+    format_stack_review_ping_message,
     is_bot_or_agent_chat_email,
     normalize_chat_dm_recipient,
     parse_gchat_dm_output,
@@ -213,6 +216,44 @@ class ChatServiceTest(unittest.TestCase):
         self.assertIsInstance(fake.sent_dms[0], ChatDmRequest)
         self.assertEqual(fake.sent_dms[0].recipient, "jansene@google.com")
         self.assertEqual(res.chat_url, "https://chat.google.com/dm/TEST_SPACE")
+
+    def test_send_stack_review_ping_reuses_single_cl_wording_and_lists_stacks(self) -> None:
+        fake = FakeChatNotificationService()
+        items = [
+            ReviewPingItem(cl_number=str(n), subject=f"feat: Part {n} 测试_🚀_é", patch_set=2)
+            for n in (1, 2)
+        ]
+        single = fake.send_stack_review_ping(recipient="jansene", items=items[:1])
+        self.assertEqual(
+            single.message,
+            format_review_ping_message(cl_number="1", subject="feat: Part 1 测试_🚀_é", patch_set=2),
+        )
+        stack = fake.send_stack_review_ping(recipient="jansene", items=items)
+        self.assertEqual(
+            stack.message.splitlines(),
+            [
+                "Hi! These CLs are green and ready for review when you have a moment:",
+                f"- {describe_review_ping_cl(cl_number='1', subject='feat: Part 1 测试_🚀_é', patch_set=2)}",
+                "- [ag/2](https://googleplex-android-review.git.corp.google.com/c/2) "
+                "(feat: Part 2 测试_🚀_é) (PS2, Presubmit-Verified: +2)",
+            ],
+        )
+        self.assertEqual(stack.cl_number, "1, ag/2")
+        with self.assertRaisesRegex(UsageError, "no CLs were given"):
+            fake.send_stack_review_ping(recipient="jansene", items=[])
+
+    def test_stack_review_ping_message_stops_before_the_dm_size_limit(self) -> None:
+        items = [
+            ReviewPingItem(cl_number=str(43000000 + n), subject="feat: " + "长" * 150, patch_set=12)
+            for n in range(40)
+        ]
+        message = format_stack_review_ping_message(items)
+        self.assertLessEqual(len(message), MAX_CHAT_DM_LENGTH)
+        lines = message.splitlines()
+        self.assertRegex(lines[-1], r"^- \.\.\.and \d+ more$")
+        listed = len(lines) - 2
+        self.assertEqual(lines[-1], f"- ...and {len(items) - listed} more")
+        self.assertEqual(validate_chat_dm_message(message, recipient_email="jansene@google.com"), message)
 
 
 if __name__ == "__main__":

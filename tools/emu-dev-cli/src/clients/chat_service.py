@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 import json
 import os
@@ -166,7 +166,7 @@ def parse_gchat_dm_output(stdout_str: str) -> tuple[str, str, str]:
     return space_name, message_name, chat_url
 
 
-def format_review_ping_message(
+def describe_review_ping_cl(
     *,
     cl_number: str,
     subject: str = "",
@@ -174,7 +174,7 @@ def format_review_ping_message(
     patch_set: int = 1,
     presubmit_score: int = 2,
 ) -> str:
-    """Formats a concise Google Chat review ping message with CL shortlink and summary."""
+    """Formats one CL as `[ag/N](url) (subject) (PS2, Presubmit-Verified: +2)` for review pings."""
     clean_cl = str(cl_number).strip()
     link_url = (
         gerrit_url.strip()
@@ -186,10 +186,61 @@ def format_review_ping_message(
     subject_clause = f" ({clean_subject})" if clean_subject else ""
     score_str = f"+{presubmit_score}" if presubmit_score > 0 else str(presubmit_score)
     ps_clause = f"PS{patch_set}, " if patch_set > 0 else ""
-    return (
-        f"Hi! {link_md}{subject_clause} ({ps_clause}Presubmit-Verified: {score_str}) "
-        "is green and ready for review when you have a moment."
+    return f"{link_md}{subject_clause} ({ps_clause}Presubmit-Verified: {score_str})"
+
+
+def format_review_ping_message(
+    *,
+    cl_number: str,
+    subject: str = "",
+    gerrit_url: str = "",
+    patch_set: int = 1,
+    presubmit_score: int = 2,
+) -> str:
+    """Formats a concise Google Chat review ping message with CL shortlink and summary."""
+    described = describe_review_ping_cl(
+        cl_number=cl_number,
+        subject=subject,
+        gerrit_url=gerrit_url,
+        patch_set=patch_set,
+        presubmit_score=presubmit_score,
     )
+    return f"Hi! {described} is green and ready for review when you have a moment."
+
+
+@dataclass(frozen=True)
+class ReviewPingItem:
+    """One green CL listed in a stack review ping."""
+
+    cl_number: str
+    subject: str = ""
+    gerrit_url: str = ""
+    patch_set: int = 1
+    presubmit_score: int = 2
+
+    def describe(self) -> str:
+        """Formats the CL the same way a single-CL review ping does."""
+        return describe_review_ping_cl(
+            cl_number=self.cl_number,
+            subject=self.subject,
+            gerrit_url=self.gerrit_url,
+            patch_set=self.patch_set,
+            presubmit_score=self.presubmit_score,
+        )
+
+
+def format_stack_review_ping_message(items: Sequence[ReviewPingItem]) -> str:
+    """Formats one review ping that lists green CLs, stopping before the DM size limit."""
+    lines = ["Hi! These CLs are green and ready for review when you have a moment:"]
+    for index, item in enumerate(items):
+        line = f"- {item.describe()}"
+        overflow = f"- ...and {len(items) - index} more"
+        # Always leave room for the overflow line, in case the next CL does not fit.
+        if len("\n".join([*lines, line, overflow])) > MAX_CHAT_DM_LENGTH:
+            lines.append(overflow)
+            break
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def execute_gchat_send_dm_command(
@@ -323,6 +374,37 @@ class ChatNotificationService(ABC):
             recipient,
             body,
             cl_number=str(cl_number).strip(),
+            sender_email=sender_email,
+        )
+
+    def send_stack_review_ping(
+        self,
+        *,
+        recipient: str,
+        items: Sequence[ReviewPingItem],
+        sender_email: str = "",
+    ) -> ChatDmResult:
+        """Sends one review ping for every green CL in `items`, worded like `send_review_ping` for one CL."""
+        if not items:
+            raise UsageError(
+                f"Failed to send a stack review ping to '{recipient}': no CLs were given.",
+                remediation="Pass at least one green CL to ping about.",
+            )
+        if len(items) == 1:
+            item = items[0]
+            return self.send_review_ping(
+                cl_number=item.cl_number,
+                recipient=recipient,
+                subject=item.subject,
+                gerrit_url=item.gerrit_url,
+                patch_set=item.patch_set,
+                presubmit_score=item.presubmit_score,
+                sender_email=sender_email,
+            )
+        return self.send_direct_message(
+            recipient,
+            format_stack_review_ping_message(items),
+            cl_number=", ag/".join(item.cl_number for item in items),
             sender_email=sender_email,
         )
 

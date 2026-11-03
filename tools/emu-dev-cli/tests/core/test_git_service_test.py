@@ -125,6 +125,15 @@ class GitServiceTest(unittest.TestCase):
         self.assertEqual(rebase_ok.returncode, 0)
         self.assertEqual(git.commit_parents("HEAD"), [up.sha])
 
+        # Rebasing a commit by SHA moves HEAD only; it must not turn the SHA into a branch.
+        git.rebase_onto("up1", "base1", "loc1")
+        self.assertEqual(git.rev_parse("loc1"), "loc1")
+        branch_tip = git.seed_commit("feat_tip", "feat: Branch tip\n", parents=(base.sha,))
+        git.refs["feat-branch"] = branch_tip.sha
+        git.rebase_onto("up1", "base1", "feat-branch")
+        self.assertNotEqual(git.rev_parse("feat-branch"), branch_tip.sha)
+        self.assertEqual(git.current_branch(), "feat-branch")
+
         # Conflicting merge_tree_check and rebase_onto + abort_rebase
         git.merge_tree_conflicts.add(("up1", "loc1"))
         merge_conflict = git.merge_tree_check("up1", "loc1", merge_base="base1")
