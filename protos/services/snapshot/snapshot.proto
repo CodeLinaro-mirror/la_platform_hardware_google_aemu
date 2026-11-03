@@ -84,6 +84,21 @@ message SaveStats {
     optional uint64 ram_changed_bytes = 3;
 }
 
+message VirtualEnvironmentScene {
+    message AnimationState {
+        enum State {
+            STATE_UNKNOWN = 0;
+            STATE_PAUSED = 1;
+            STATE_PLAYING = 2;
+        }
+        optional State state = 1;
+        optional float playback_speed = 2;
+        optional uint64 playback_position_us = 3;
+    }
+    map<string, AnimationState> animation_states = 1;
+    optional string environment_ini = 2;
+}
+
 message Snapshot {
     // Update every time when introducing some breaking changes that make the
     // previous loading code break when trying to load the new snapshot.
@@ -162,4 +177,7 @@ message Snapshot {
 
     // resizable config
     optional int32 resizable_display = 21;
+
+    // Virtual environment scene state
+    optional VirtualEnvironmentScene virtual_environment_scene = 22;
 }
