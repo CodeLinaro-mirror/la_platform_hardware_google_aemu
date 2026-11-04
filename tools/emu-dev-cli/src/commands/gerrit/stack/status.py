@@ -81,12 +81,34 @@ PRESUBMIT_WARNING = "warning"
 PRESUBMIT_FAILED = "failed"
 PRESUBMIT_NOT_STARTED = "not_started"
 
+# What a blocker is about, so callers can tell problems that need the author apart from
+# steps that only need time or reviewers.
+BLOCKER_PARENT_ABANDONED = "parent_abandoned"
+BLOCKER_OUTDATED_PARENT = "outdated_parent"
+BLOCKER_MERGE_CONFLICT = "merge_conflict"
+BLOCKER_WORK_IN_PROGRESS = "work_in_progress"
+BLOCKER_CODE_REVIEW_VETO = "code_review_veto"
+BLOCKER_REVIEW = "review"
+BLOCKER_PRESUBMIT_FAILED = "presubmit_failed"
+BLOCKER_PRESUBMIT_PENDING = "presubmit_pending"
+BLOCKER_UNRESOLVED_COMMENTS = "unresolved_comments"
+BLOCKER_REQUIREMENTS = "requirements"
+
 # Requirements reported through dedicated fields, so they are not repeated as "other".
 _DEDICATED_REQUIREMENTS = frozenset(
     {REVIEW_ENFORCEMENT_REQUIREMENT, CODE_REVIEW_LABEL, PRESUBMIT_VERIFIED_LABEL}
 )
 
 GerritClientBuilder = Callable[[ExecutionContext, str], GerritClient]
+
+
+def build_gerrit_client(
+    ctx: ExecutionContext, host: str, factory: GerritClientBuilder | None = None
+) -> GerritClient:
+    """Returns a client from `factory` (tests), or the gob-curl backed GerritClient for `host`."""
+    if factory is not None:
+        return factory(ctx, host)
+    return GerritClient(host=host, runner=ctx.process_runner, prefer_cli=True)
 
 
 def _signed(score: int) -> str:
@@ -97,7 +119,8 @@ def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
-def _short_sha(sha: str) -> str:
+def short_sha(sha: str) -> str:
+    """Abbreviates a commit SHA for human-readable output (`?` when unknown)."""
     return sha[:SHORT_SHA_LEN] if sha else "?"
 
 
@@ -192,6 +215,7 @@ class Blocker:
 
     reason: str
     action: str
+    kind: str = ""
 
 
 @dataclass(frozen=True)
@@ -248,7 +272,9 @@ class ChangeStatus:
             "presubmit": self.presubmit.to_dict() if self.presubmit else None,
             "review_enforcement": self.review.to_dict() if self.review else None,
             "other_unsatisfied_requirements": list(self.other_unsatisfied),
-            "blockers": [{"reason": b.reason, "action": b.action} for b in self.blockers],
+            "blockers": [
+                {"reason": b.reason, "action": b.action, "kind": b.kind} for b in self.blockers
+            ],
             "next_action": self.next_action,
             "is_target": self.is_target,
         }
@@ -292,6 +318,11 @@ class StackSnapshot:
         }
 
 
+def summarize_stacks(stacks: Sequence[StackSnapshot]) -> str:
+    """Joins per-stack verdicts such as `project (branch): 1 open CL, all ready to merge.`."""
+    return " | ".join(f"{s.project} ({s.branch}): {s.summary()}" for s in stacks)
+
+
 @dataclass(frozen=True)
 class StackStatusReport(Mapping[str, Any]):
     """Structured output of `gerrit stack status`."""
@@ -304,9 +335,7 @@ class StackStatusReport(Mapping[str, Any]):
     @property
     def summary(self) -> str:
         """Joins the per-stack verdicts into the command summary line."""
-        return " | ".join(
-            f"{s.project} ({s.branch}): {s.summary()}" for s in self.stacks
-        )
+        return summarize_stacks(self.stacks)
 
     def to_dict(self) -> dict[str, Any]:
         """Serializes the report into the `--json` payload (`local` only when HEAD was resolved)."""
@@ -406,11 +435,13 @@ def _structural_blockers(facts: _ChangeFacts) -> list[Blocker]:
         blockers.append(Blocker(
             f"Parent ag/{parent.number} is abandoned",
             f"Rebase onto {facts.branch} or restore ag/{parent.number}",
+            BLOCKER_PARENT_ABANDONED,
         ))
     elif parent is not None and parent.patch_set < parent.current_patch_set:
         blockers.append(Blocker(
             f"Based on ag/{parent.number} PS{parent.patch_set}, but its latest is PS{parent.current_patch_set}",
             f"Rebase onto ag/{parent.number} PS{parent.current_patch_set}",
+            BLOCKER_OUTDATED_PARENT,
         ))
     if facts.mergeable in (MERGEABLE_CONFLICT, MERGEABLE_FALSE):
         files = ", ".join(facts.conflicts[:MAX_LISTED_CONFLICTS])
@@ -418,10 +449,20 @@ def _structural_blockers(facts: _ChangeFacts) -> list[Blocker]:
         blockers.append(Blocker(
             f"Does not merge cleanly into {facts.branch}{detail}",
             f"Rebase onto {facts.branch} and resolve the conflicts",
+            BLOCKER_MERGE_CONFLICT,
         ))
     if facts.work_in_progress:
-        blockers.append(Blocker("Marked work in progress", "Mark the CL ready for review"))
+        blockers.append(Blocker(
+            "Marked work in progress", "Mark the CL ready for review", BLOCKER_WORK_IN_PROGRESS
+        ))
     return blockers
+
+
+def reviewers_to_ask(review: ReviewEnforcementAudit) -> tuple[str, tuple[str, ...]]:
+    """Returns the Code-Review vote still needed and the human reviewers who could cast it."""
+    if review.code_review_satisfied:
+        return "+1", review.pending_reviewers
+    return "+2", (*review.plus_one_approvers, *review.pending_reviewers)
 
 
 def _review_blockers(review: ReviewEnforcementAudit) -> list[Blocker]:
@@ -429,22 +470,26 @@ def _review_blockers(review: ReviewEnforcementAudit) -> list[Blocker]:
     blockers: list[Blocker] = []
     if review.blocking_voters:
         names = ", ".join(format_ldap(e) for e in review.blocking_voters)
-        blockers.append(Blocker(f"Code-Review -2 from {names}", f"Address the -2 from {names}"))
-    if review.code_review_satisfied:
-        vote, candidates = "+1", review.pending_reviewers
-    else:
-        vote, candidates = "+2", (*review.plus_one_approvers, *review.pending_reviewers)
+        blockers.append(Blocker(
+            f"Code-Review -2 from {names}", f"Address the -2 from {names}", BLOCKER_CODE_REVIEW_VETO
+        ))
+    vote, candidates = reviewers_to_ask(review)
     names = " or ".join(format_ldap(e) for e in candidates)
     ask = f"Ask {names} for Code-Review {vote}" if names else f"Add a trusted reviewer for Code-Review {vote}"
     if review.untrusted_approval_suspected:
         blockers.append(Blocker(
             "Review-Enforcement is unsatisfied although two human approvals were counted",
             f"{ask}, or re-vote from a trusted device",
+            BLOCKER_REVIEW,
         ))
     elif not review.satisfied:
-        blockers.append(Blocker(f"Review-Enforcement: {review.describe_missing()}", ask))
+        blockers.append(Blocker(
+            f"Review-Enforcement: {review.describe_missing()}", ask, BLOCKER_REVIEW
+        ))
     if review.satisfied and not review.code_review_satisfied and not review.blocking_voters:
-        blockers.append(Blocker("No Code-Review +2 from someone other than the uploader", ask))
+        blockers.append(Blocker(
+            "No Code-Review +2 from someone other than the uploader", ask, BLOCKER_REVIEW
+        ))
     return blockers
 
 
@@ -457,11 +502,20 @@ def _presubmit_blocker(presubmit: PresubmitProgress) -> Blocker | None:
         return Blocker(
             f"Presubmit failed (PV {_signed(presubmit.verified)})",
             f"Fix the failing targets: {link}" if link else "Fix the failing presubmit targets",
+            BLOCKER_PRESUBMIT_FAILED,
         )
     if presubmit.status == PRESUBMIT_NOT_STARTED:
-        return Blocker("Presubmit has not run on this patch set", "Vote Presubmit-Ready +1")
+        return Blocker(
+            "Presubmit has not run on this patch set",
+            "Vote Presubmit-Ready +1",
+            BLOCKER_PRESUBMIT_PENDING,
+        )
     run = f" ({presubmit.workplan_id})" if presubmit.workplan_id else ""
-    return Blocker(f"Presubmit is {presubmit.status}{run}", "Wait for presubmit to finish")
+    return Blocker(
+        f"Presubmit is {presubmit.status}{run}",
+        "Wait for presubmit to finish",
+        BLOCKER_PRESUBMIT_PENDING,
+    )
 
 
 def _ci_blockers(facts: _ChangeFacts) -> list[Blocker]:
@@ -472,10 +526,13 @@ def _ci_blockers(facts: _ChangeFacts) -> list[Blocker]:
         blockers.append(Blocker(
             f"{facts.unresolved_comments} unresolved comment thread(s)",
             "Resolve or reply to the open threads",
+            BLOCKER_UNRESOLVED_COMMENTS,
         ))
     if facts.other_unsatisfied:
         names = ", ".join(facts.other_unsatisfied)
-        blockers.append(Blocker(f"Unsatisfied submit requirements: {names}", f"Satisfy {names}"))
+        blockers.append(Blocker(
+            f"Unsatisfied submit requirements: {names}", f"Satisfy {names}", BLOCKER_REQUIREMENTS
+        ))
     return blockers
 
 
@@ -555,7 +612,7 @@ def build_change_status(
     parent = (
         f"ag/{parent_link.number} PS{parent_link.patch_set}"
         if parent_link is not None
-        else f"{branch}@{_short_sha(link.parent_commit)}"
+        else f"{branch}@{short_sha(link.parent_commit)}"
     )
     return ChangeStatus(
         position=position,
@@ -679,10 +736,11 @@ class StackStatusService:
 
     def collect(self, seeds: Sequence[Mapping[str, Any]], target_number: int = 0) -> tuple[StackSnapshot, ...]:
         """Builds one snapshot per relation chain that contains at least one seed CL."""
-        return tuple(
-            self._snapshot(c.links, c.details, c.mergeable, target_number)
-            for c in self.collect_chains(seeds)
-        )
+        return tuple(self.snapshot(c, target_number) for c in self.collect_chains(seeds))
+
+    def snapshot(self, chain: CollectedChain, target_number: int = 0) -> StackSnapshot:
+        """Builds the review, presubmit, and merge state of an already collected chain."""
+        return self._snapshot(chain.links, chain.details, chain.mergeable, target_number)
 
     def _chain_for(self, seed: Mapping[str, Any]) -> list[ChainLink]:
         """Returns the chain containing `seed`, ordered base first."""
@@ -857,11 +915,6 @@ class StackStatusCommand(Command[StackStatusArgs, StackStatusReport]):
             )
         return candidate
 
-    def _create_client(self, ctx: ExecutionContext, host: str) -> GerritClient:
-        if self._gerrit_client_factory is not None:
-            return self._gerrit_client_factory(ctx, host)
-        return GerritClient(host=host, runner=ctx.process_runner, prefer_cli=True)
-
     def _resolve_head(self, ctx: ExecutionContext, repo: str) -> tuple[str, str]:
         """Returns `(change_id, head_sha)` of the local HEAD commit through GitService."""
         git = ctx.git_service
@@ -919,8 +972,8 @@ class StackStatusCommand(Command[StackStatusArgs, StackStatusReport]):
         note = ""
         if match is not None and not in_sync:
             note = (
-                f"Local HEAD {_short_sha(head_sha)} in '{repo}' is not the uploaded "
-                f"ag/{match.number} PS{match.patch_set} ({_short_sha(match.current_revision)}); "
+                f"Local HEAD {short_sha(head_sha)} in '{repo}' is not the uploaded "
+                f"ag/{match.number} PS{match.patch_set} ({short_sha(match.current_revision)}); "
                 "upload your local commit or rebase onto the uploaded patch set."
             )
         return {"repo": repo, "head": head_sha, "in_sync": in_sync, "note": note}
@@ -929,7 +982,7 @@ class StackStatusCommand(Command[StackStatusArgs, StackStatusReport]):
         self, args: StackStatusArgs | argparse.Namespace, ctx: ExecutionContext
     ) -> CommandResult[StackStatusReport]:
         validated = self.validate(args, ctx)
-        client = self._create_client(ctx, validated.host)
+        client = build_gerrit_client(ctx, validated.host, self._gerrit_client_factory)
         service = StackStatusService(client, validated.host)
         try:
             query, seeds, head_sha = self._resolve_seeds(validated, service, ctx)

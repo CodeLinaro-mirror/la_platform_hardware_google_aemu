@@ -34,6 +34,7 @@ from commands.gerrit.stack.status import (
     CollectedChain,
     GerritClientBuilder,
     StackStatusService,
+    build_gerrit_client,
     classify_mergeable,
     pick_seed_change,
     resolve_ref_change_id,
@@ -384,6 +385,72 @@ def _parse_conflict_paths(output: str) -> tuple[str, ...]:
             if path and path not in paths:
                 paths.append(path)
     return tuple(paths)
+
+
+def _seed_for_change(
+    service: StackStatusService, cl_id: str, host: str
+) -> dict[str, Any]:
+    return pick_seed_change(service.find_changes(f"change:{cl_id}"), cl_id, host)
+
+
+def validate_stack_selectors(cl: str, topic: str, branch: str) -> None:
+    """Rejects more than one of a positional CL/branch, `--topic`, and `--branch`."""
+    explicit_selectors = sum([bool(topic), bool(branch), cl.upper() != "HEAD"])
+    if explicit_selectors > 1:
+        raise UsageError(
+            f"Conflicting stack selectors were given (cl='{cl}', "
+            f"topic='{topic}', branch='{branch}').",
+            remediation="Pass only one of a positional CL/branch, --topic <topic>, or --branch <branch>.",
+        )
+
+
+def resolve_stack_seeds(
+    service: StackStatusService,
+    ctx: ExecutionContext,
+    *,
+    cl: str = "HEAD",
+    topic: str = "",
+    branch: str = "",
+    repo: str = ".",
+    host: str = DEFAULT_GERRIT_HOST,
+) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
+    """Returns `(query_info, seed_changes, local_branch)` for a topic, local branch, or CL."""
+    if topic:
+        seeds = service.find_changes(f'topic:"{topic}"')
+        if not seeds:
+            raise UsageError(
+                f"No Gerrit changes were found for topic '{topic}' on '{host}'.",
+                remediation="Verify the topic name (topics are case-sensitive) or pass a CL number.",
+            )
+        return {"mode": "topic", "input": topic}, seeds, ""
+
+    if branch:
+        cl_id, _ = resolve_ref_change_id(ctx, repo, branch)
+        query = {"mode": "branch", "input": branch, "resolved": cl_id}
+        return query, [_seed_for_change(service, cl_id, host)], branch
+
+    if cl.upper() == "HEAD":
+        cl_id, _ = resolve_ref_change_id(ctx, repo, "HEAD")
+        query = {"mode": "head", "input": "HEAD", "resolved": cl_id}
+        local_branch = ctx.git_service.current_branch(cwd=repo)
+        return query, [_seed_for_change(service, cl_id, host)], local_branch
+
+    try:
+        cl_id = parse_cl_identifier(cl, allow_head=False, strict=True)
+        mode = "change"
+        local_branch = ""
+    except ValueError as exc:
+        if not ctx.git_service.rev_parse(cl, cwd=repo, verify=True, check=False):
+            raise UsageError(
+                str(exc),
+                remediation="Pass a CL number, ag/<id>, Gerrit URL, Change-Id, local branch name, or --topic.",
+            ) from exc
+        cl_id, _ = resolve_ref_change_id(ctx, repo, cl)
+        mode = "branch"
+        local_branch = cl
+
+    query = {"mode": mode, "input": cl, "resolved": cl_id}
+    return query, [_seed_for_change(service, cl_id, host)], local_branch
 
 
 @dataclass(frozen=True)
@@ -1270,19 +1337,7 @@ class StackSyncCommand(Command[StackSyncArgs, StackSyncReport]):
                 presubmit=bool(getattr(args, "presubmit", False)),
             )
 
-        explicit_selectors = sum(
-            [
-                bool(candidate.topic),
-                bool(candidate.branch),
-                candidate.cl.upper() != "HEAD",
-            ]
-        )
-        if explicit_selectors > 1:
-            raise UsageError(
-                f"Conflicting stack selectors were given (cl='{candidate.cl}', "
-                f"topic='{candidate.topic}', branch='{candidate.branch}').",
-                remediation="Pass only one of a positional CL/branch, --topic <topic>, or --branch <branch>.",
-            )
+        validate_stack_selectors(candidate.cl, candidate.topic, candidate.branch)
         if not ctx.git_service.is_git_repo(cwd=candidate.repo):
             raise UsageError(
                 f"Directory '{candidate.repo}' is not inside a Git work tree.",
@@ -1300,11 +1355,6 @@ class StackSyncCommand(Command[StackSyncArgs, StackSyncReport]):
             )
         return candidate
 
-    def _create_client(self, ctx: ExecutionContext, host: str) -> GerritClient:
-        if self._gerrit_client_factory is not None:
-            return self._gerrit_client_factory(ctx, host)
-        return GerritClient(host=host, runner=ctx.process_runner, prefer_cli=True)
-
     def _resolve_seeds(
         self,
         args: StackSyncArgs,
@@ -1312,69 +1362,21 @@ class StackSyncCommand(Command[StackSyncArgs, StackSyncReport]):
         ctx: ExecutionContext,
     ) -> tuple[dict[str, Any], list[dict[str, Any]], str]:
         """Returns `(query_info, seed_changes, local_branch)` for the requested stack."""
-        if args.topic:
-            seeds = service.find_changes(f'topic:"{args.topic}"')
-            if not seeds:
-                raise UsageError(
-                    f"No Gerrit changes were found for topic '{args.topic}' on '{args.host}'.",
-                    remediation="Verify the topic name (topics are case-sensitive) or pass a CL number.",
-                )
-            return {"mode": "topic", "input": args.topic}, seeds, ""
-
-        if args.branch:
-            cl_id, _ = resolve_ref_change_id(ctx, args.repo, args.branch)
-            seed = pick_seed_change(
-                service.find_changes(f"change:{cl_id}"), cl_id, args.host
-            )
-            return (
-                {"mode": "branch", "input": args.branch, "resolved": cl_id},
-                [seed],
-                args.branch,
-            )
-
-        if args.cl.upper() == "HEAD":
-            cl_id, _ = resolve_ref_change_id(ctx, args.repo, "HEAD")
-            seed = pick_seed_change(
-                service.find_changes(f"change:{cl_id}"), cl_id, args.host
-            )
-            branch = ctx.git_service.current_branch(cwd=args.repo)
-            return (
-                {"mode": "head", "input": "HEAD", "resolved": cl_id},
-                [seed],
-                branch,
-            )
-
-        try:
-            cl_id = parse_cl_identifier(args.cl, allow_head=False, strict=True)
-            mode = "change"
-            local_branch = ""
-        except ValueError as exc:
-            if ctx.git_service.rev_parse(
-                args.cl, cwd=args.repo, verify=True, check=False
-            ):
-                cl_id, _ = resolve_ref_change_id(ctx, args.repo, args.cl)
-                mode = "branch"
-                local_branch = args.cl
-            else:
-                raise UsageError(
-                    str(exc),
-                    remediation="Pass a CL number, ag/<id>, Gerrit URL, Change-Id, local branch name, or --topic.",
-                ) from exc
-
-        seed = pick_seed_change(
-            service.find_changes(f"change:{cl_id}"), cl_id, args.host
-        )
-        return (
-            {"mode": mode, "input": args.cl, "resolved": cl_id},
-            [seed],
-            local_branch,
+        return resolve_stack_seeds(
+            service,
+            ctx,
+            cl=args.cl,
+            topic=args.topic,
+            branch=args.branch,
+            repo=args.repo,
+            host=args.host,
         )
 
     def execute(
         self, args: StackSyncArgs | argparse.Namespace, ctx: ExecutionContext
     ) -> CommandResult[StackSyncReport]:
         validated = self.validate(args, ctx)
-        client = self._create_client(ctx, validated.host)
+        client = build_gerrit_client(ctx, validated.host, self._gerrit_client_factory)
         sync_service = StackSyncService(client, validated.host, ctx)
         try:
             query, seeds, local_branch = self._resolve_seeds(

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Gerrit stack tooling: `status`, `pre-upload`, and `sync`."""
+"""Gerrit stack tooling: `status`, `pre-upload`, `sync`, and `watch`."""
 
 from commands.gerrit.stack.cmd import GerritStackCommand
 from commands.gerrit.stack.pre_upload import (
@@ -40,6 +40,8 @@ from commands.gerrit.stack.sync import (
     StackSyncSnapshot,
     UpstreamCommit,
 )
+from commands.gerrit.stack.watch import StackWatchCommand, StackWatchReport
+from commands.gerrit.stack.watch_service import PingLedger, StackWatchArgs, WatchEvent
 
 __all__ = [
     "CHECK_NAMES",
@@ -47,6 +49,7 @@ __all__ = [
     "FileCollision",
     "Finding",
     "GerritStackCommand",
+    "PingLedger",
     "PreUploadArgs",
     "PreUploadReport",
     "REQUIRED_TRUSTED_APPROVALS",
@@ -60,6 +63,10 @@ __all__ = [
     "StackSyncCommand",
     "StackSyncReport",
     "StackSyncSnapshot",
+    "StackWatchArgs",
+    "StackWatchCommand",
+    "StackWatchReport",
     "UpstreamCommit",
+    "WatchEvent",
     "audit_review_enforcement",
 ]

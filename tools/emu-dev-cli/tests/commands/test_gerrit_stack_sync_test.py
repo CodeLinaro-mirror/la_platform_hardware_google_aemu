@@ -52,9 +52,9 @@ from core.dispatcher import CliDispatcher, OutputRenderer
 from core.errors import ExecutionError, UsageError
 from core.git import FakeGitService
 from core.process import FakeProcessCall, ProcessResult
-from tests.commands.test_gerrit_stack_status_test import (
+from testlib.gerrit_fakes import (
     FakeStackGerritClient,
-    _change_id,
+    change_id,
     related_entry,
     stack_change,
 )
@@ -117,13 +117,13 @@ class StackSyncCommandTest(unittest.TestCase):
 
         git.seed_commit(
             "sha_801_ps1",
-            f"feat(gerrit): Part 1\n\nChange-Id: {_change_id(801)}\n",
+            f"feat(gerrit): Part 1\n\nChange-Id: {change_id(801)}\n",
             parents=("base_sha",),
             changed_files=(UNICODE_PATH, "src/part1.py"),
         )
         git.seed_commit(
             "sha_802_ps1",
-            f"feat(gerrit): Part 2\n\nChange-Id: {_change_id(802)}\n",
+            f"feat(gerrit): Part 2\n\nChange-Id: {change_id(802)}\n",
             parents=("sha_801_ps1",),
             changed_files=("src/part2.py",),
         )
@@ -222,7 +222,7 @@ class StackSyncCommandTest(unittest.TestCase):
         git.refs["aosp/studio-main"] = "base_sha"
         git.seed_commit(
             "sha_810_ps1",
-            f"feat: Up to date\n\nChange-Id: {_change_id(810)}\n",
+            f"feat: Up to date\n\nChange-Id: {change_id(810)}\n",
             parents=("base_sha",),
         )
         c810 = _sync_change(810, parent_commit="base_sha", files=["src/clean.py"])
@@ -324,7 +324,7 @@ class StackSyncCommandTest(unittest.TestCase):
         git.seed_commit("sha_831_ps1", "feat: Abandoned parent\n", parents=("sha_830_ps1",))
         git.seed_commit(
             "sha_832_ps1",
-            f"feat: Open child\n\nChange-Id: {_change_id(832)}\n",
+            f"feat: Open child\n\nChange-Id: {change_id(832)}\n",
             parents=("sha_831_ps1",),
             changed_files=("src/child.py",),
         )
@@ -384,12 +384,12 @@ class StackSyncCommandTest(unittest.TestCase):
             ctx,
         )
         self.assertTrue(res.ok)
-        self.assertIn(f"Change-Id: {_change_id(841)}", git.commit_message("HEAD"))
+        self.assertIn(f"Change-Id: {change_id(841)}", git.commit_message("HEAD"))
         self.assertEqual(
             _ensure_change_id_footer(
-                f"feat: Test\n\nChange-Id: {_change_id(841)}\n", _change_id(841)
+                f"feat: Test\n\nChange-Id: {change_id(841)}\n", change_id(841)
             ),
-            f"feat: Test\n\nChange-Id: {_change_id(841)}\n",
+            f"feat: Test\n\nChange-Id: {change_id(841)}\n",
         )
 
     def test_fetch_failure_and_push_failure_raise_actionable_execution_errors(self) -> None:
@@ -418,7 +418,7 @@ class StackSyncCommandTest(unittest.TestCase):
         git.process_runner._prefix_rules.clear()
         git.seed_commit(
             "sha_842_ps1",
-            f"feat: Push fail\n\nChange-Id: {_change_id(842)}\n",
+            f"feat: Push fail\n\nChange-Id: {change_id(842)}\n",
             parents=("base_sha",),
         )
         git.push_returncode = 1
@@ -552,7 +552,7 @@ class StackSyncCliTest(unittest.TestCase):
         git.refs["aosp/studio-main"] = "base_sha"
         git.seed_commit(
             "sha_860_ps1",
-            f"feat: CLI sync\n\nChange-Id: {_change_id(860)}\n",
+            f"feat: CLI sync\n\nChange-Id: {change_id(860)}\n",
             parents=("base_sha",),
         )
         ctx = ExecutionContext.for_testing(

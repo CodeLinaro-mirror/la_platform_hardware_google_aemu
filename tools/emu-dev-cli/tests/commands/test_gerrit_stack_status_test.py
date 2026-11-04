@@ -18,7 +18,6 @@ import argparse
 from io import StringIO
 import json
 import os
-import re
 import shutil
 import sys
 from typing import Any
@@ -53,124 +52,18 @@ from core.errors import ExecutionError, UsageError
 from core.git import FakeGitService
 from core.process import FakeProcessCall, ProcessResult
 from lib.gerrit_api import GerritClient
-from testlib.gerrit_fakes import make_fake_change
-
-AGENT = "groupagent-android-emulator-heavy@google.com"
-ERWIN = "jansene@google.com"
-JOSHUA = "joshuaduong@google.com"
-DENALEX = "corakwue@google.com"
-PROJECT = "platform/hardware/google/aemu"
-SUBJECT_UNICODE = "feat(gerrit): Add stack status 测试_🚀_é"
-
-
-def _change_id(number: int) -> str:
-    return f"I{number:040x}"
-
-
-def _requirements(**statuses: str) -> list[dict[str, Any]]:
-    names = {
-        "review_enforcement": "Review-Enforcement",
-        "code_review": "Code-Review",
-        "presubmit_verified": "Presubmit-Verified",
-        "lint": "Lint",
-        "code_owners": "Code-Owners",
-        "security_review": "Security-Review",
-    }
-    return [{"name": names[key], "status": value} for key, value in statuses.items()]
-
-
-def stack_change(
-    number: int,
-    *,
-    uploader: str = AGENT,
-    parent_commit: str = "base_sha",
-    patch_set: int = 1,
-    status: str = "NEW",
-    votes: list[tuple[str, int]] | None = None,
-    reviewers: tuple[str, ...] = (ERWIN, JOSHUA, DENALEX),
-    labels: dict[str, int] | None = None,
-    requirements: list[dict[str, Any]] | None = None,
-    messages: list[dict[str, Any]] | None = None,
-    subject: str = SUBJECT_UNICODE,
-    extra: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Builds a ChangeInfo with DETAILED_LABELS, SUBMIT_REQUIREMENTS, and MESSAGES fields."""
-    rev = f"sha_{number}_ps{patch_set}"
-    change = make_fake_change(
-        number,
-        subject=subject,
-        owner_email=AGENT,
-        change_id=_change_id(number),
-        current_revision=rev,
-        current_revision_number=patch_set,
-        parent_commit=parent_commit,
-        reviewers=[{"email": e} for e in reviewers],
-        code_review_votes=[{"email": e, "value": v} for e, v in (votes or [])],
-        extra_fields={"status": status, **(extra or {})},
-    )
-    change["revisions"][rev]["uploader"] = {"email": uploader}
-    for label, value in (labels or {}).items():
-        change["labels"][label] = {"all": [{"email": "bot@google.com", "value": value}]}
-    change["submit_requirements"] = requirements or []
-    change["messages"] = messages or []
-    return change
-
-
-def related_entry(number: int, *, patch_set: int = 1, current: int | None = None,
-                  parent_commit: str = "base_sha", status: str = "NEW") -> dict[str, Any]:
-    return {
-        "project": PROJECT,
-        "change_id": _change_id(number),
-        "commit": {
-            "commit": f"sha_{number}_ps{patch_set}",
-            "parents": [{"commit": parent_commit}],
-            "subject": "s",
-        },
-        "_change_number": number,
-        "_revision_number": patch_set,
-        "_current_revision_number": current if current is not None else patch_set,
-        "status": status,
-    }
-
-
-class FakeStackGerritClient:
-    """In-memory stand-in for GerritClient's search, related, and mergeable endpoints."""
-
-    def __init__(self, changes: list[dict[str, Any]], related: dict[int, list[dict[str, Any]]],
-                 mergeable: dict[int, dict[str, Any]] | None = None) -> None:
-        self.changes = {c["_number"]: c for c in changes}
-        self.related = related
-        self.mergeable = mergeable or {}
-        self.queries: list[str] = []
-        self.related_calls: list[int] = []
-        self.mergeable_calls: list[int] = []
-        self.closed = False
-        self.fail_with: Exception | None = None
-
-    def query_changes(self, query: str, *, options: tuple[str, ...] = (), limit: int = 25) -> list[dict[str, Any]]:
-        if self.fail_with is not None:
-            raise self.fail_with
-        self.queries.append(query)
-        assert "SUBMIT_REQUIREMENTS" in options and "DETAILED_LABELS" in options
-        topic = re.match(r'topic:"(.+)"', query)
-        if topic:
-            return [c for c in self.changes.values() if c.get("topic") == topic.group(1)][:limit]
-        wanted = re.findall(r"change:(\w+)", query)
-        return [
-            c for c in self.changes.values()
-            if str(c["_number"]) in wanted or c["change_id"] in wanted
-        ][:limit]
-
-    def get_related_changes(self, change_id: int, revision: str = "current") -> list[dict[str, Any]]:
-        self.related_calls.append(change_id)
-        return self.related.get(change_id, [])
-
-    def get_mergeable(self, change_id: int, revision: str = "current") -> dict[str, Any]:
-        self.mergeable_calls.append(change_id)
-        return self.mergeable.get(change_id, {"mergeable": True})
-
-    def close(self) -> None:
-        self.closed = True
+from testlib.gerrit_fakes import (
+    AGENT,
+    DENALEX,
+    ERWIN,
+    JOSHUA,
+    SUBJECT_UNICODE,
+    FakeStackGerritClient,
+    change_id,
+    related_entry,
+    stack_change,
+    submit_requirements,
+)
 
 
 def _command(client: FakeStackGerritClient) -> StackStatusCommand:
@@ -190,7 +83,7 @@ class ReviewEnforcementAuditTest(unittest.TestCase):
     def test_agent_upload_with_one_human_plus_two_needs_one_more_from_pending_reviewers(self) -> None:
         audit = audit_review_enforcement(stack_change(
             1, votes=[(ERWIN, 2), (AGENT, 1)],
-            requirements=_requirements(review_enforcement="UNSATISFIED", code_review="SATISFIED"),
+            requirements=submit_requirements(review_enforcement="UNSATISFIED", code_review="SATISFIED"),
         ))
         self.assertFalse(audit.uploader_counts)
         self.assertEqual(audit.approvers, (ERWIN,))
@@ -204,7 +97,7 @@ class ReviewEnforcementAuditTest(unittest.TestCase):
     def test_two_human_votes_satisfy_agent_upload(self) -> None:
         audit = audit_review_enforcement(stack_change(
             2, votes=[(ERWIN, 2), (JOSHUA, 1)],
-            requirements=_requirements(review_enforcement="SATISFIED", code_review="SATISFIED"),
+            requirements=submit_requirements(review_enforcement="SATISFIED", code_review="SATISFIED"),
         ))
         self.assertEqual(audit.approvals, REQUIRED_TRUSTED_APPROVALS)
         self.assertTrue(audit.satisfied)
@@ -227,7 +120,7 @@ class ReviewEnforcementAuditTest(unittest.TestCase):
     def test_gerrit_rejection_despite_two_counted_approvals_flags_untrusted_vote(self) -> None:
         audit = audit_review_enforcement(stack_change(
             4, votes=[(ERWIN, 2), (JOSHUA, 2)],
-            requirements=_requirements(review_enforcement="UNSATISFIED"),
+            requirements=submit_requirements(review_enforcement="UNSATISFIED"),
         ))
         self.assertTrue(audit.untrusted_approval_suspected)
         self.assertIn("Gerrit does not trust one of them", audit.describe())
@@ -249,7 +142,7 @@ class ReviewEnforcementAuditTest(unittest.TestCase):
     def test_two_plus_ones_ask_existing_voters_to_raise_to_plus_two(self) -> None:
         client = FakeStackGerritClient([stack_change(
             7, votes=[(ERWIN, 1), (JOSHUA, 1)], labels={"Presubmit-Verified": 1},
-            requirements=_requirements(review_enforcement="SATISFIED", code_review="UNSATISFIED"),
+            requirements=submit_requirements(review_enforcement="SATISFIED", code_review="UNSATISFIED"),
         )], {})
         change = _command(client).execute(
             StackStatusArgs(cl="7"), ExecutionContext.for_testing("/tmp/emu-stack-plus-one")
@@ -281,7 +174,7 @@ class StackStatusCommandTest(unittest.TestCase):
         base = stack_change(
             101, patch_set=2, votes=[(ERWIN, 2), (JOSHUA, 1)],
             labels={"Presubmit-Verified": 2, "Lint": 1, "Performance": 2, "Autosubmit": 1},
-            requirements=_requirements(
+            requirements=submit_requirements(
                 review_enforcement="SATISFIED", code_review="SATISFIED", presubmit_verified="SATISFIED",
                 lint="SATISFIED", security_review="NOT_APPLICABLE",
             ),
@@ -290,12 +183,12 @@ class StackStatusCommandTest(unittest.TestCase):
         middle = stack_change(
             102, parent_commit="sha_101_ps1", votes=[(ERWIN, 2)],
             labels={"Presubmit-Verified": 2},
-            requirements=_requirements(review_enforcement="UNSATISFIED", code_review="SATISFIED"),
+            requirements=submit_requirements(review_enforcement="UNSATISFIED", code_review="SATISFIED"),
         )
         tip = stack_change(
             103, parent_commit="sha_102_ps1", votes=[],
             labels={"Presubmit-Verified": -1},
-            requirements=_requirements(
+            requirements=submit_requirements(
                 review_enforcement="UNSATISFIED", code_review="UNSATISFIED", code_owners="UNSATISFIED",
             ),
             extra={"unresolved_comment_count": 2, "work_in_progress": True},
@@ -391,7 +284,7 @@ class StackStatusCommandTest(unittest.TestCase):
         parent = stack_change(260, status="ABANDONED")
         child = stack_change(261, parent_commit="sha_260_ps1", votes=[(ERWIN, 2), (JOSHUA, 1)],
                              labels={"Presubmit-Verified": 2},
-                             requirements=_requirements(review_enforcement="SATISFIED", code_review="SATISFIED"))
+                             requirements=submit_requirements(review_enforcement="SATISFIED", code_review="SATISFIED"))
         related = [related_entry(261, parent_commit="sha_260_ps1"), related_entry(260, status="ABANDONED")]
         client = FakeStackGerritClient([parent, child], {261: related})
         child_status = _command(client).execute(
@@ -405,7 +298,7 @@ class StackStatusCommandTest(unittest.TestCase):
         child = stack_change(
             202, parent_commit="sha_201_ps1", uploader=ERWIN, votes=[(JOSHUA, 2)],
             labels={"Presubmit-Verified": 2},
-            requirements=_requirements(review_enforcement="SATISFIED", code_review="SATISFIED"),
+            requirements=submit_requirements(review_enforcement="SATISFIED", code_review="SATISFIED"),
         )
         related = [related_entry(202, parent_commit="sha_201_ps1"), related_entry(201, status="MERGED")]
         client = FakeStackGerritClient([merged, child], {202: related})
@@ -424,15 +317,15 @@ class StackStatusCommandTest(unittest.TestCase):
     def test_open_parent_makes_ready_child_wait_and_presubmit_states_are_reported(self) -> None:
         parent = stack_change(
             301, labels={"Presubmit-Ready": 1}, votes=[(ERWIN, 2), (JOSHUA, 1)],
-            requirements=_requirements(review_enforcement="SATISFIED", code_review="SATISFIED"),
+            requirements=submit_requirements(review_enforcement="SATISFIED", code_review="SATISFIED"),
         )
         child = stack_change(
             302, parent_commit="sha_301_ps1", votes=[(ERWIN, 2), (JOSHUA, 1)], labels={"Presubmit-Verified": 2},
-            requirements=_requirements(review_enforcement="SATISFIED", code_review="SATISFIED"),
+            requirements=submit_requirements(review_enforcement="SATISFIED", code_review="SATISFIED"),
         )
         lone = stack_change(
             303, votes=[(ERWIN, 2), (JOSHUA, 1)],
-            requirements=_requirements(review_enforcement="SATISFIED", code_review="SATISFIED"),
+            requirements=submit_requirements(review_enforcement="SATISFIED", code_review="SATISFIED"),
         )
         related = [related_entry(302, parent_commit="sha_301_ps1"), related_entry(301)]
         client = FakeStackGerritClient([parent, child, lone], {302: related, 301: related})
@@ -450,15 +343,15 @@ class StackStatusCommandTest(unittest.TestCase):
     def test_head_is_resolved_through_git_service_and_local_drift_is_reported(self) -> None:
         change = stack_change(
             401, votes=[(ERWIN, 2)],
-            requirements=_requirements(review_enforcement="UNSATISFIED", code_review="SATISFIED"),
+            requirements=submit_requirements(review_enforcement="UNSATISFIED", code_review="SATISFIED"),
         )
         client = FakeStackGerritClient([change], {})
         git = FakeGitService()
-        git.seed_commit("a" * 40, f"{SUBJECT_UNICODE}\n\nBody.\n\nChange-Id: {_change_id(401)}\n")
+        git.seed_commit("a" * 40, f"{SUBJECT_UNICODE}\n\nBody.\n\nChange-Id: {change_id(401)}\n")
         ctx = ExecutionContext.for_testing("/tmp/emu-stack-head", services={"git_service": git})
         result = _command(client).execute(StackStatusArgs(cl="HEAD", repo="/work/aemu"), ctx)
 
-        self.assertEqual(client.queries[0], f"change:{_change_id(401)}")
+        self.assertEqual(client.queries[0], f"change:{change_id(401)}")
         self.assertEqual(result.data.query["mode"], "head")
         local = result.data.local
         self.assertFalse(local["in_sync"])
@@ -469,7 +362,7 @@ class StackStatusCommandTest(unittest.TestCase):
     def test_head_matching_the_uploaded_patch_set_is_in_sync(self) -> None:
         client = FakeStackGerritClient([stack_change(402)], {})
         git = FakeGitService()
-        git.seed_commit("sha_402_ps1", f"fix: Sync\n\nBody.\n\nChange-Id: {_change_id(402)}\n")
+        git.seed_commit("sha_402_ps1", f"fix: Sync\n\nBody.\n\nChange-Id: {change_id(402)}\n")
         ctx = ExecutionContext.for_testing("/tmp/emu-stack-sync", services={"git_service": git})
         result = _command(client).execute(StackStatusArgs(), ctx)
         self.assertTrue(result.data.local["in_sync"])
@@ -520,10 +413,10 @@ class StackStatusCommandTest(unittest.TestCase):
             _command(FakeStackGerritClient([], {})).execute(StackStatusArgs(cl="999"), ctx)
         self.assertIn("No Gerrit change matches '999'", err.exception.message)
 
-        twin_a = stack_change(601, extra={"change_id": _change_id(600), "branch": "studio-main"})
-        twin_b = stack_change(602, extra={"change_id": _change_id(600), "branch": "main"})
+        twin_a = stack_change(601, extra={"change_id": change_id(600), "branch": "studio-main"})
+        twin_b = stack_change(602, extra={"change_id": change_id(600), "branch": "main"})
         with self.assertRaises(UsageError) as err:
-            _command(FakeStackGerritClient([twin_a, twin_b], {})).execute(StackStatusArgs(cl=_change_id(600)), ctx)
+            _command(FakeStackGerritClient([twin_a, twin_b], {})).execute(StackStatusArgs(cl=change_id(600)), ctx)
         self.assertIn("matches 2 CLs: ag/601 (studio-main), ag/602 (main)", err.exception.message)
 
         with self.assertRaises(UsageError):
@@ -549,7 +442,7 @@ class StackStatusCliTest(unittest.TestCase):
     def test_json_cli_run_uses_gerrit_client_rest_endpoints(self) -> None:
         change = stack_change(
             701, uploader=ERWIN, votes=[(JOSHUA, 2)],
-            requirements=_requirements(review_enforcement="SATISFIED", code_review="SATISFIED"),
+            requirements=submit_requirements(review_enforcement="SATISFIED", code_review="SATISFIED"),
             labels={"Presubmit-Verified": 2},
         )
         urls: list[str] = []

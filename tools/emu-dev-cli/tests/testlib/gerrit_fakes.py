@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Reusable fake Gerrit change builders for Gerrit service and UI tests."""
+"""Reusable fake Gerrit change builders and clients for Gerrit command, service, and UI tests."""
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -107,3 +108,137 @@ def make_fake_change(
     if extra_fields:
         change.update(extra_fields)
     return change
+
+
+AGENT = "groupagent-android-emulator-heavy@google.com"
+ERWIN = "jansene@google.com"
+JOSHUA = "joshuaduong@google.com"
+DENALEX = "corakwue@google.com"
+PROJECT = "platform/hardware/google/aemu"
+SUBJECT_UNICODE = "feat(gerrit): Add stack status 测试_🚀_é"
+
+_REQUIREMENT_NAMES = {
+    "review_enforcement": "Review-Enforcement",
+    "code_review": "Code-Review",
+    "presubmit_verified": "Presubmit-Verified",
+    "lint": "Lint",
+    "code_owners": "Code-Owners",
+    "security_review": "Security-Review",
+}
+
+
+def change_id(number: int) -> str:
+    """Returns a deterministic `I<40 hex>` Change-Id for CL `number`."""
+    return f"I{number:040x}"
+
+
+def submit_requirements(**statuses: str) -> list[dict[str, Any]]:
+    """Builds SUBMIT_REQUIREMENTS entries, e.g. `submit_requirements(code_review="SATISFIED")`."""
+    return [{"name": _REQUIREMENT_NAMES[key], "status": value} for key, value in statuses.items()]
+
+
+def stack_change(
+    number: int,
+    *,
+    uploader: str = AGENT,
+    parent_commit: str = "base_sha",
+    patch_set: int = 1,
+    status: str = "NEW",
+    votes: list[tuple[str, int]] | None = None,
+    reviewers: tuple[str, ...] = (ERWIN, JOSHUA, DENALEX),
+    labels: dict[str, int] | None = None,
+    requirements: list[dict[str, Any]] | None = None,
+    messages: list[dict[str, Any]] | None = None,
+    subject: str = SUBJECT_UNICODE,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Builds a ChangeInfo with DETAILED_LABELS, SUBMIT_REQUIREMENTS, and MESSAGES fields."""
+    rev = f"sha_{number}_ps{patch_set}"
+    change = make_fake_change(
+        number,
+        subject=subject,
+        owner_email=AGENT,
+        change_id=change_id(number),
+        current_revision=rev,
+        current_revision_number=patch_set,
+        parent_commit=parent_commit,
+        reviewers=[{"email": e} for e in reviewers],
+        code_review_votes=[{"email": e, "value": v} for e, v in (votes or [])],
+        extra_fields={"status": status, **(extra or {})},
+    )
+    change["revisions"][rev]["uploader"] = {"email": uploader}
+    for label, value in (labels or {}).items():
+        change["labels"][label] = {"all": [{"email": "bot@google.com", "value": value}]}
+    change["submit_requirements"] = requirements or []
+    change["messages"] = messages or []
+    return change
+
+
+def related_entry(
+    number: int,
+    *,
+    patch_set: int = 1,
+    current: int | None = None,
+    parent_commit: str = "base_sha",
+    status: str = "NEW",
+) -> dict[str, Any]:
+    """Builds one RelatedChangeAndCommitInfo entry of a relation chain."""
+    return {
+        "project": PROJECT,
+        "change_id": change_id(number),
+        "commit": {
+            "commit": f"sha_{number}_ps{patch_set}",
+            "parents": [{"commit": parent_commit}],
+            "subject": "s",
+        },
+        "_change_number": number,
+        "_revision_number": patch_set,
+        "_current_revision_number": current if current is not None else patch_set,
+        "status": status,
+    }
+
+
+class FakeStackGerritClient:
+    """In-memory stand-in for GerritClient's search, related, and mergeable endpoints."""
+
+    def __init__(
+        self,
+        changes: list[dict[str, Any]],
+        related: dict[int, list[dict[str, Any]]],
+        mergeable: dict[int, dict[str, Any]] | None = None,
+    ) -> None:
+        self.changes = {c["_number"]: c for c in changes}
+        self.related = related
+        self.mergeable = mergeable or {}
+        self.queries: list[str] = []
+        self.related_calls: list[int] = []
+        self.mergeable_calls: list[int] = []
+        self.closed = False
+        self.fail_with: Exception | None = None
+
+    def query_changes(
+        self, query: str, *, options: tuple[str, ...] = (), limit: int = 25
+    ) -> list[dict[str, Any]]:
+        if self.fail_with is not None:
+            raise self.fail_with
+        self.queries.append(query)
+        assert "SUBMIT_REQUIREMENTS" in options and "DETAILED_LABELS" in options
+        topic = re.match(r'topic:"(.+)"', query)
+        if topic:
+            return [c for c in self.changes.values() if c.get("topic") == topic.group(1)][:limit]
+        wanted = re.findall(r"change:(\w+)", query)
+        return [
+            c for c in self.changes.values()
+            if str(c["_number"]) in wanted or c["change_id"] in wanted
+        ][:limit]
+
+    def get_related_changes(self, change_id: int, revision: str = "current") -> list[dict[str, Any]]:
+        self.related_calls.append(change_id)
+        return self.related.get(change_id, [])
+
+    def get_mergeable(self, change_id: int, revision: str = "current") -> dict[str, Any]:
+        self.mergeable_calls.append(change_id)
+        return self.mergeable.get(change_id, {"mergeable": True})
+
+    def close(self) -> None:
+        self.closed = True

@@ -137,4 +137,36 @@ suppressions, flaky test fixes) that can land independently:
   topic metadata (aborting and restoring the branch on conflict), and pushes updated patchsets to
   Gerrit with `-o notify=OWNER -o nokeycheck` (and `-o l=Presubmit-Ready+1` when `--presubmit` is
   set).
+- **Shepherding a stack until it merges (`gerrit stack watch`):**
+  ```bash
+  emu-dev-cli gerrit stack watch                          # poll the HEAD stack every 60s for up to 2h
+  emu-dev-cli gerrit stack watch --topic my-topic --ping-reviewers
+  emu-dev-cli gerrit stack watch ag/12345 --once --json   # one poll, for CI jobs and scripts
+  emu-dev-cli gerrit stack watch --no-rebase --ping jansene --exit-on-attention
+  ```
+  Each poll reads the stack like `gerrit stack status` and reports what changed since the last
+  poll: merged CLs, new patch sets, presubmit results, and mergeability.
+  - When a parent CL merges, the open CLs still based on it are rebased and pushed with
+    `gerrit stack sync` (`notify=OWNER`). A CL that still merges cleanly and has a passed or
+    running presubmit is left alone, so that run is not thrown away.
+  - The watch only rebases in a clean checkout whose current branch is at the uploaded patch set
+    of the stack's top CL, and only when you own every open CL in it (`git config user.email`).
+    If a push fails, the branch is put back. Otherwise it prints the `gerrit stack sync` command
+    to run yourself. `--no-rebase` only reports.
+  - After a rebase, presubmit has to run again: pass `--presubmit` to vote Presubmit-Ready +1 on
+    the pushed patch sets.
+  - With `--ping <ldap>` or `--ping-reviewers`, a CL whose current patch set reaches
+    Presubmit-Verified +2, has no `-2` or unresolved comments, and still needs reviews triggers
+    one Google Chat message per reviewer, listing all of that reviewer's green CLs.
+    `--ping-reviewers` picks the human reviewers whose vote Review-Enforcement still needs. Each
+    reviewer is pinged once per CL; sent pings are recorded in
+    `~/.cache/emu-dev-cli/gerrit_stack_watch_pings.json` (or `--state-file`), so reruns and
+    `--once` jobs stay quiet.
+  - The watch stops when every CL is closed (exit 0) or after `--timeout` seconds (exit 2).
+    Failed presubmits, merge conflicts, `-2` votes, abandoned parents, and failed rebases or pings
+    are listed under "Needs attention" and make the run exit 1; `--exit-on-attention` stops a long
+    watch at the first one. A failed poll keeps the last known state; three in a row stop the
+    watch. Ctrl-C prints the report so far (exit 130).
+  - With `--json`, the report goes to stdout on exit 0 and to stderr otherwise, like other
+    `emu-dev-cli` commands.
 
