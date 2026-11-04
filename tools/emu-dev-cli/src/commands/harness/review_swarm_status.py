@@ -30,6 +30,7 @@ from typing import Any
 from commands.harness.ledger import get_harness_base_dir
 from commands.harness.review_history import METRICS_REPORT_FILENAME
 from commands.harness.review_targets import atomic_write_text, sanitize_target_id
+from lib.path_utils import read_json_dict
 
 REVIEW_SWARM_SUBDIR: str = "review-swarm"
 SWARM_STATUS_FILENAME: str = "review_swarm_status.json"
@@ -58,22 +59,11 @@ def _parse_iso_utc(raw_value: Any) -> datetime | None:
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
 
 
-def _read_json_dict(path: Path) -> dict[str, Any] | None:
-    """Reads `path` as a JSON object, returning `None` if missing or malformed."""
-    if not path.is_file():
-        return None
-    try:
-        parsed = json.loads(path.read_text(encoding="utf-8", errors="replace"))
-    except (OSError, ValueError):
-        return None
-    return parsed if isinstance(parsed, dict) else None
-
-
 def _preserve_recent_started_at(
     status_path: Path, now: datetime, max_age_sec: float
 ) -> str | None:
     """Preserves `started_at` when an in-flight swarm was queued moments earlier."""
-    existing = _read_json_dict(status_path)
+    existing = read_json_dict(status_path)
     if not existing or existing.get("state") != "running":
         return None
     started_dt = _parse_iso_utc(existing.get("started_at"))
@@ -286,7 +276,7 @@ def _build_completed_fallback(
     swarm_dir: Path, cl_id: str, metrics: dict[str, Any]
 ) -> dict[str, Any]:
     """Reconstructs a normalized completed status dict from `review_swarm_metrics.json`."""
-    payload = _read_json_dict(swarm_dir / GERRIT_REVIEW_PAYLOAD_FILENAME)
+    payload = read_json_dict(swarm_dir / GERRIT_REVIEW_PAYLOAD_FILENAME)
     findings = _extract_findings_from_gerrit_payload(payload)
     agents = [{**item, "status": "done"} for item in (metrics.get("agents") or [])]
     return {
@@ -319,8 +309,8 @@ def read_cl_swarm_status(
     if swarm_dir is None:
         return None
     now = _utc_now(now_dt)
-    status_doc = _read_json_dict(swarm_dir / SWARM_STATUS_FILENAME)
-    metrics_doc = _read_json_dict(swarm_dir / METRICS_REPORT_FILENAME)
+    status_doc = read_json_dict(swarm_dir / SWARM_STATUS_FILENAME)
+    metrics_doc = read_json_dict(swarm_dir / METRICS_REPORT_FILENAME)
     has_payload = (swarm_dir / GERRIT_REVIEW_PAYLOAD_FILENAME).is_file()
 
     if status_doc and status_doc.get("state") == "running":

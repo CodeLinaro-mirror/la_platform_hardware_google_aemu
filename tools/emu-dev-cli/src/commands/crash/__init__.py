@@ -24,29 +24,49 @@ Integrates CrashAdvisor to provide:
 """
 
 from commands.crash.advisor import (
+    AdvisorLaunch,
+    CrashAdvisorRunner,
+    create_crash_bug_tracker,
     ensure_crashadvisor_imports,
-    run_crashadvisor_bazel,
+    load_crashadvisor_modules,
+    resolve_advisor_launch,
 )
-from commands.crash.analyze import register_analyze_parser, run_analyze
-from commands.crash.autofix import register_autofix_parser, run_autofix
-from commands.crash.file_bug import register_file_bug_parser, run_file_bug
-from commands.crash.find_bug import register_find_bug_parser, run_find_bug
+from commands.crash.analyze import (
+    CrashAnalyzeCommand,
+    register_analyze_parser,
+)
+from commands.crash.autofix import (
+    CrashAutofixCommand,
+    register_autofix_parser,
+)
+from commands.crash.file_bug import (
+    CrashFileBugCommand,
+    register_file_bug_parser,
+)
+from commands.crash.find_bug import (
+    CrashFindBugCommand,
+    register_find_bug_parser,
+)
 from commands.crash.fix_checker import (
-    CrashFixChecker,
     FixStatusResult,
-    check_buganizer_fixed_status,
     check_git_history_fixes,
     evaluate_crash_fix_status,
     extract_crash_version_info,
     format_agent_version_guardrail_prompt,
 )
-from commands.crash.link_bug import register_link_bug_parser, run_link_bug
-from commands.crash.list_crashes import (
-    register_list_crashes_parser,
-    run_list_crashes,
+from commands.crash.link_bug import (
+    CrashLinkBugCommand,
+    register_link_bug_parser,
 )
-from commands.crash.parser import register_parser
-from commands.crash.reproduce import register_reproduce_parser, run_reproduce
+from commands.crash.list_crashes import (
+    CrashListCrashesCommand,
+    register_list_crashes_parser,
+)
+from commands.crash.parser import CrashCommand, register_parser
+from commands.crash.reproduce import (
+    CrashReproduceCommand,
+    register_reproduce_parser,
+)
 from commands.crash.utils import (
     OAuthTokenManager,
     acquire_auth_token,
@@ -55,15 +75,25 @@ from commands.crash.utils import (
     get_crashadvisor_sandbox_dir,
     is_path_secure_user_owned,
     parse_crash_id,
+    resolve_crash_work_dir,
 )
 
 __all__ = [
-    "CrashFixChecker",
+    "AdvisorLaunch",
+    "CrashAdvisorRunner",
+    "CrashAnalyzeCommand",
+    "CrashAutofixCommand",
+    "CrashCommand",
+    "CrashFileBugCommand",
+    "CrashFindBugCommand",
+    "CrashLinkBugCommand",
+    "CrashListCrashesCommand",
+    "CrashReproduceCommand",
     "FixStatusResult",
     "OAuthTokenManager",
     "acquire_auth_token",
-    "check_buganizer_fixed_status",
     "check_git_history_fixes",
+    "create_crash_bug_tracker",
     "create_secure_sandbox_dir",
     "ensure_crashadvisor_imports",
     "evaluate_crash_fix_status",
@@ -72,6 +102,7 @@ __all__ = [
     "format_agent_version_guardrail_prompt",
     "get_crashadvisor_sandbox_dir",
     "is_path_secure_user_owned",
+    "load_crashadvisor_modules",
     "parse_crash_id",
     "register_analyze_parser",
     "register_autofix_parser",
@@ -81,12 +112,6 @@ __all__ = [
     "register_list_crashes_parser",
     "register_parser",
     "register_reproduce_parser",
-    "run_analyze",
-    "run_autofix",
-    "run_crashadvisor_bazel",
-    "run_file_bug",
-    "run_find_bug",
-    "run_link_bug",
-    "run_list_crashes",
-    "run_reproduce",
+    "resolve_advisor_launch",
+    "resolve_crash_work_dir",
 ]

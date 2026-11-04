@@ -16,8 +16,9 @@
 
 import argparse
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from commands import flakiness
+from core.context import ExecutionContext
 from lib.ath_api import TestHistoryEntry
 
 
@@ -28,10 +29,10 @@ class FlakinessHistoryTest(unittest.TestCase):
         self.parser.add_argument("--json", action="store_true")
         subparsers = self.parser.add_subparsers(dest="subcommand")
         flakiness.register_parser(subparsers)
+        self.ctx = ExecutionContext.for_testing()
 
     @patch("commands.flakiness.history.query_test_history")
-    @patch("commands.flakiness.history.print_result")
-    def test_handle_flakiness_history(self, mock_print_result, mock_history):
+    def test_handle_flakiness_history(self, mock_history):
         mock_history.return_value = (
             {
                 "test_target": "@goldfish//emulator/plugin/grpc/services:screen_recording_impl_test",
@@ -68,17 +69,17 @@ class FlakinessHistoryTest(unittest.TestCase):
                 "emulator_linux_x64_tsan",
             ]
         )
-        flakiness.handle_flakiness_history(args)
-        mock_print_result.assert_called_once()
-        data = mock_print_result.call_args[0][0]
+        cmd = flakiness.FlakinessHistoryCommand()
+        res = cmd.execute(args, self.ctx)
+        self.assertTrue(res.ok)
+        data = res.data
         self.assertEqual(data["total_runs"], 10)
         self.assertEqual(data["failed_runs"], 2)
         self.assertEqual(data["flake_rate_pct"], 20.0)
 
-    @patch("commands.flakiness.history.query_test_history")
-    @patch("commands.flakiness.history.print_result")
+    @patch("commands.flakiness.common.query_studio_test_history")
     def test_handle_flakiness_history_studio_defaults_days_20(
-        self, mock_print_result, mock_history
+        self, mock_history
     ):
         mock_history.return_value = (
             {
@@ -104,11 +105,12 @@ class FlakinessHistoryTest(unittest.TestCase):
                 "studio-linux",
             ]
         )
-        flakiness.handle_flakiness_history(args)
+        cmd = flakiness.FlakinessHistoryCommand()
+        res = cmd.execute(args, self.ctx)
+        self.assertTrue(res.ok)
         mock_history.assert_called_once()
         self.assertEqual(mock_history.call_args.kwargs["days"], 20)
-        mock_print_result.assert_called_once()
-        data = mock_print_result.call_args[0][0]
+        data = res.data
         self.assertEqual(data["target"], "studio-linux")
         self.assertIn("20 days", data["markdown_table"])
 

@@ -13,34 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Sets up message files for create-commit workflow.
+"""Delegation shim to `workflows.common.git_commit.verifier_cli` (`--mode=setup-msg-files`)."""
 
-Initializes proposed_msg_file as an empty file for the user/agent to write.
-"""
+from workflows.common.git_commit.verifier_cli import (
+    run_cli_entrypoint,
+    setup_msg_files,
+)
 
-import argparse
-from pathlib import Path
-import sys
-
-
-def setup_msg_files(proposed_msg_file: str) -> int:
-    """Initializes empty proposed commit message file."""
-    proposed_path = Path(proposed_msg_file).resolve()
-    proposed_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    proposed_path.write_text("", encoding="utf-8")
-    print("OK")
-    return 0
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Initialize proposed commit message file for create-commit."
-    )
-    parser.add_argument("proposed_msg_file", help="Path to initialize empty proposed commit message.")
-    args = parser.parse_args()
-
-    return setup_msg_files(proposed_msg_file=args.proposed_msg_file)
-
+__all__ = ["setup_msg_files"]
 
 if __name__ == "__main__":
-    sys.exit(main())
+    run_cli_entrypoint(["--mode=setup-msg-files"])

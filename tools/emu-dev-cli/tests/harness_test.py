@@ -17,10 +17,12 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 from typing import Any, Dict, Tuple
 import unittest
+from unittest import mock
 import yaml
 
 from commands.harness.code_guardrails import (
@@ -52,6 +54,9 @@ class HarnessGuardrailTest(unittest.TestCase):
     """Tests PreToolUse, PostToolUse, PreInvocation, and Stop hook guardrails."""
 
     def setUp(self) -> None:
+        env_patcher = mock.patch.dict(os.environ, {"EMU_HARNESS_NO_TITLE": "1"})
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.base_path = Path(self.temp_dir.name)
         self.ledger_store = SessionLedgerStore(base_dir=self.base_path / "harness")
@@ -627,6 +632,9 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
     """Tests plugin installation, status verification, and sidecar state helpers."""
 
     def setUp(self) -> None:
+        env_patcher = mock.patch.dict(os.environ, {"EMU_HARNESS_NO_TITLE": "1"})
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.base_path = Path(self.temp_dir.name)
 
@@ -650,9 +658,8 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         )
         pre_tool_cmd = hooks_json["aemu-harness"]["PreToolUse"][0]["hooks"][0]["command"]
         self.assertIn("/custom/bin/emu-dev-cli harness hook --event pre-tool", pre_tool_cmd)
-        # Code advisories ride on the PostToolUse result of file edits.
-        post_tool_matcher = hooks_json["aemu-harness"]["PostToolUse"][0]["matcher"].split("|")
-        self.assertTrue({"run_command", "write_file", "edit_file"}.issubset(post_tool_matcher))
+        self.assertEqual(hooks_json["aemu-harness"]["PreToolUse"][0]["matcher"], "*")
+        self.assertEqual(hooks_json["aemu-harness"]["PostToolUse"][0]["matcher"], "*")
 
         mcp_json = json.loads(
             (target_plugin_dir / "mcp_config.json").read_text(encoding="utf-8")
@@ -945,6 +952,85 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         self.assertIsNotNone(verdict_standalone)
         self.assertFalse(verdict_standalone[0])  # type: ignore[index]
         self.assertIn("gone.h", verdict_standalone[1])  # type: ignore[index]
+
+    def test_harness_hook_cli_dispatcher_emits_pure_json_without_summary(self) -> None:
+        import argparse
+        import io
+        from unittest.mock import patch
+
+        from commands.harness import register_parser
+        from core.dispatcher import CliDispatcher, OutputRenderer
+
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="subcommand")
+        register_parser(subparsers)
+        parsed = parser.parse_args(["harness", "hook", "--event", "pre-tool"])
+
+        stdin_payload = json.dumps(
+            {
+                "conversationId": "conv_hook_测试_🚀_é",
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {"CommandLine": "echo 测试_🚀_é"},
+                },
+            },
+            ensure_ascii=False,
+        )
+        fake_stdin = io.StringIO(stdin_payload)
+        fake_stdout = io.StringIO()
+        fake_stderr = io.StringIO()
+        dispatcher = CliDispatcher(
+            renderer=OutputRenderer(stdout=fake_stdout, stderr=fake_stderr)
+        )
+
+        with patch("sys.stdin", fake_stdin), patch("sys.stdout", fake_stdout), patch(
+            "commands.harness.guardrails.SessionLedgerStore",
+            return_value=SessionLedgerStore(base_dir=self.base_path / "harness"),
+        ):
+            exit_code = dispatcher.dispatch(parsed)
+
+        self.assertEqual(exit_code, 0)
+        raw_out = fake_stdout.getvalue()
+        self.assertNotIn("✅", raw_out)
+        self.assertNotIn("SUCCESS", raw_out)
+        self.assertNotIn("\x1b", raw_out)
+        self.assertEqual(len(raw_out.strip().splitlines()), 1)
+        self.assertEqual(json.loads(raw_out), {"decision": HookDecision.ALLOW.value})
+
+    def test_run_harness_hook_falls_back_to_allow_on_unhandled_exception(self) -> None:
+        import argparse
+        import io
+        from unittest.mock import patch
+
+        from commands.harness import register_parser
+        from core.dispatcher import CliDispatcher, OutputRenderer
+
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="subcommand")
+        register_parser(subparsers)
+        parsed = parser.parse_args(["harness", "hook", "--event", "pre-tool"])
+
+        fake_stdin = io.StringIO('{"conversationId": "conv_err_测试_🚀_é"}')
+        fake_stdout = io.StringIO()
+        fake_stderr = io.StringIO()
+        dispatcher = CliDispatcher(
+            renderer=OutputRenderer(stdout=fake_stdout, stderr=fake_stderr)
+        )
+
+        with patch("sys.stdin", fake_stdin), patch("sys.stdout", fake_stdout), patch(
+            "commands.harness.dispatch_hook_event",
+            side_effect=RuntimeError("simulated ledger failure"),
+        ), self.assertLogs("commands.harness", level="WARNING") as log_ctx:
+            exit_code = dispatcher.dispatch(parsed)
+
+        self.assertEqual(exit_code, 0)
+        raw_out = fake_stdout.getvalue()
+        self.assertNotIn("✅", raw_out)
+        self.assertEqual(len(raw_out.strip().splitlines()), 1)
+        self.assertEqual(json.loads(raw_out), {"decision": HookDecision.ALLOW.value})
+        self.assertTrue(
+            any("simulated ledger failure" in entry for entry in log_ctx.output)
+        )
 
 
 if __name__ == "__main__":

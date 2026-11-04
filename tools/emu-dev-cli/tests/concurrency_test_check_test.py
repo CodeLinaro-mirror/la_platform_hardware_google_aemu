@@ -21,6 +21,7 @@ import subprocess
 import tempfile
 from typing import Any, Dict
 import unittest
+from unittest import mock
 
 from commands.harness.concurrency_test_check import (
     WARNING_HEADER,
@@ -131,6 +132,9 @@ class ConcurrencyPostToolHookTest(unittest.TestCase):
     """Tests the PostToolUse integration against real temporary git repositories."""
 
     def setUp(self) -> None:
+        env_patcher = mock.patch.dict(os.environ, {"EMU_HARNESS_NO_TITLE": "1"})
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
         self.ledger_store = SessionLedgerStore(base_dir=self.root / "harness")

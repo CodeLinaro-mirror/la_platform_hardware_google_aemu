@@ -16,8 +16,9 @@
 
 import argparse
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from commands import flakiness
+from core.context import ExecutionContext
 from lib.ath_api import FlakyTestRecord
 
 
@@ -28,24 +29,21 @@ class FlakinessListTest(unittest.TestCase):
         self.parser.add_argument("--json", action="store_true")
         subparsers = self.parser.add_subparsers(dest="subcommand")
         flakiness.register_parser(subparsers)
+        self.ctx = ExecutionContext.for_testing()
 
     @patch("commands.flakiness.list_cmd.query_ath_flaky_tests")
-    @patch("commands.flakiness.list_cmd.print_result")
-    def test_handle_flakiness_list(self, mock_print_result, mock_query):
+    def test_handle_flakiness_list(self, mock_query):
         mock_query.return_value = []
         args = self.parser.parse_args(
             ["flakiness", "list", "--target", "emulator_linux_x64_asan"]
         )
-        flakiness.handle_flakiness_list(args)
-        mock_print_result.assert_called_once()
-        call_args, _ = mock_print_result.call_args
-        self.assertEqual(call_args[0]["target"], "emulator_linux_x64_asan")
+        cmd = flakiness.FlakinessListCommand()
+        res = cmd.execute(args, self.ctx)
+        self.assertTrue(res.ok)
+        self.assertEqual(res.data["target"], "emulator_linux_x64_asan")
 
     @patch("commands.flakiness.list_cmd.query_ath_flaky_tests")
-    @patch("commands.flakiness.list_cmd.print_result")
-    def test_handle_flakiness_list_live_records(
-        self, mock_print_result, mock_query
-    ):
+    def test_handle_flakiness_list_live_records(self, mock_query):
         mock_query.return_value = [
             FlakyTestRecord(
                 test_identifier="//emulator/videobridge:in_process_media_provider_test",
@@ -70,10 +68,11 @@ class FlakinessListTest(unittest.TestCase):
                 "10.0",
             ]
         )
-        flakiness.handle_flakiness_list(args)
+        cmd = flakiness.FlakinessListCommand()
+        res = cmd.execute(args, self.ctx)
+        self.assertTrue(res.ok)
         mock_query.assert_called_once()
-        mock_print_result.assert_called_once()
-        data = mock_print_result.call_args[0][0]
+        data = res.data
         self.assertEqual(data["records_count"], 1)
         self.assertEqual(
             data["records"][0]["test_identifier"],
@@ -81,10 +80,7 @@ class FlakinessListTest(unittest.TestCase):
         )
 
     @patch("commands.flakiness.list_cmd.query_studio_flaky_tests")
-    @patch("commands.flakiness.list_cmd.print_result")
-    def test_handle_flakiness_list_studio_target(
-        self, mock_print_result, mock_studio_query
-    ):
+    def test_handle_flakiness_list_studio_target(self, mock_studio_query):
         mock_studio_query.return_value = [
             FlakyTestRecord(
                 test_identifier="//tools/vendor/google/cli/android-device-hub/electron:test",
@@ -116,15 +112,16 @@ class FlakinessListTest(unittest.TestCase):
                 "studio-linux",
             ]
         )
-        flakiness.handle_flakiness_list(args)
+        cmd = flakiness.FlakinessListCommand()
+        res = cmd.execute(args, self.ctx)
+        self.assertTrue(res.ok)
         mock_studio_query.assert_called_once()
         _, kwargs = mock_studio_query.call_args
         self.assertEqual(kwargs["min_flake_rate"], 0.0)
         self.assertEqual(kwargs["min_failed_runs"], 1)
         self.assertEqual(kwargs["window"], 250)
 
-        mock_print_result.assert_called_once()
-        data = mock_print_result.call_args[0][0]
+        data = res.data
         self.assertEqual(data["source"], "f1_test_actions")
         self.assertEqual(data["records_count"], 1)
         self.assertEqual(
@@ -136,9 +133,8 @@ class FlakinessListTest(unittest.TestCase):
         self.assertIn(">0%", data["summary"])
 
     @patch("commands.flakiness.list_cmd.query_studio_flaky_tests")
-    @patch("commands.flakiness.list_cmd.print_result")
     def test_handle_flakiness_list_studio_target_explicit_zero_threshold(
-        self, mock_print_result, mock_studio_query
+        self, mock_studio_query
     ):
         mock_studio_query.return_value = []
         args = self.parser.parse_args(
@@ -151,7 +147,9 @@ class FlakinessListTest(unittest.TestCase):
                 "0",
             ]
         )
-        flakiness.handle_flakiness_list(args)
+        cmd = flakiness.FlakinessListCommand()
+        res = cmd.execute(args, self.ctx)
+        self.assertTrue(res.ok)
         mock_studio_query.assert_called_once()
         _, kwargs = mock_studio_query.call_args
         self.assertEqual(kwargs["min_flake_rate"], 0.0)

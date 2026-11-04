@@ -277,6 +277,8 @@ class BazelRunner:
             check=check,
             capture_output=capture_output,
             text=text,
+            encoding="utf-8" if text else None,
+            errors="replace" if text else None,
         )
 
     def test(
@@ -312,6 +314,8 @@ class BazelRunner:
             check=check,
             capture_output=capture_output,
             text=text,
+            encoding="utf-8" if text else None,
+            errors="replace" if text else None,
         )
 
     def cquery(
@@ -344,6 +348,8 @@ class BazelRunner:
             check=check,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
 
     def get_info(
@@ -362,7 +368,13 @@ class BazelRunner:
             cmd = [self.bazel_binary, "info"]
             run_cwd = str(cwd or self.source_dir) if (cwd or self.source_dir) else None
             res = subprocess.run(
-                cmd, cwd=run_cwd, check=True, capture_output=True, text=True
+                cmd,
+                cwd=run_cwd,
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
             )
             info_dict = {}
             for line in res.stdout.splitlines():

@@ -13,50 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Sets up message files for amend-commit workflow.
+"""Delegation shim to `workflows.common.git_commit.verifier_cli` (`--mode=setup-msg-files`)."""
 
-Extracts the commit message of the target commit into current_msg_file,
-and initializes proposed_msg_file as an empty file for the user/agent to write.
-"""
+from workflows.common.git_commit.verifier_cli import (
+    run_cli_entrypoint,
+    setup_msg_files,
+)
 
-import argparse
-from pathlib import Path
-import sys
-
-
-
-
-def setup_msg_files(
-    current_msg_file: str,
-    proposed_msg_file: str,
-) -> int:
-    """Initializes empty current and proposed commit message files in workflow cache."""
-    current_path = Path(current_msg_file).resolve()
-    current_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    current_path.write_text("", encoding="utf-8")
-
-    proposed_path = Path(proposed_msg_file).resolve()
-    proposed_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    proposed_path.write_text("", encoding="utf-8")
-
-    print("OK")
-    return 0
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Initialize current and proposed commit message files for amend-commit."
-    )
-    parser.add_argument("current_msg_file", help="Path to current commit message file.")
-    parser.add_argument("proposed_msg_file", help="Path to proposed commit message file.")
-    parser.add_argument("--cwd", default=None, help="Working directory (ignored).")
-    parsed = parser.parse_args()
-
-    return setup_msg_files(
-        current_msg_file=parsed.current_msg_file,
-        proposed_msg_file=parsed.proposed_msg_file,
-    )
-
+__all__ = ["setup_msg_files"]
 
 if __name__ == "__main__":
-    sys.exit(main())
+    run_cli_entrypoint(["--mode=setup-msg-files"])

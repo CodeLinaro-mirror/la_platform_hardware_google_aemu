@@ -962,6 +962,8 @@ class EmulatorControllerServicer(pb_grpc.EmulatorControllerServicer):
             self.state.mic_has_input = request.hasInput
             self.state.mic_is_plugged_in = request.isPluggedIn
             self.state.mic_is_muted = request.isMuted
+            queues = self.state._snapshot_subscribers_locked("audio")
+        self.state._publish_unlocked(queues, True)
         return empty_pb2.Empty()
 
     # -------------------------------------------------------------------------

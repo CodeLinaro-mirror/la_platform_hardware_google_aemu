@@ -24,8 +24,9 @@ import unittest
 from unittest.mock import MagicMock, patch
 import zipfile
 
+from clients.artifact_service import ProdArtifactService, check_authentication_status
 from commands import fetch_build
-from lib.android_build_client import AndroidBuildClient, check_authentication_status
+from core.process import FakeProcessRunner
 from targets import emulator, system_image, check_auth
 
 
@@ -37,10 +38,10 @@ class FetchBuildTest(unittest.TestCase):
         subparsers = self.parser.add_subparsers(dest="subcommand")
         fetch_build.register_parser(subparsers, default_host="mac-arm64")
 
-    @patch("lib.android_build_client.check_authentication_status")
-    @patch("lib.android_build_client.AndroidBuildClient.get_latest_build_id")
-    @patch("lib.android_build_client.AndroidBuildClient.find_matching_artifact")
-    @patch("lib.android_build_client.AndroidBuildClient.download_artifact")
+    @patch("targets.emulator.check_authentication_status")
+    @patch("clients.artifact_service.ProdArtifactService.resolve_build_id")
+    @patch("clients.artifact_service.ProdArtifactService.find_matching_artifact")
+    @patch("clients.artifact_service.ProdArtifactService.download_artifact")
     @patch("targets.emulator.print_result")
     @patch("shutil.which", return_value=None)
     @patch("os.path.exists")
@@ -69,7 +70,7 @@ class FetchBuildTest(unittest.TestCase):
             dest_file = os.path.join(dest_dir, art)
             with zipfile.ZipFile(dest_file, "w") as z:
                 z.writestr("emulator/emulator", "fake-binary-content")
-            return dest_file
+            return Path(dest_file)
 
         mock_download.side_effect = fake_download
 
@@ -81,7 +82,7 @@ class FetchBuildTest(unittest.TestCase):
                 "--host", "mac-arm64",
                 "--output-dir", tmpdir,
             ])
-            args.func(args)
+            args._command_instance.execute(args)
 
             mock_check_auth.assert_called_once()
             mock_latest_bid.assert_called_once_with("emu-main-next", "emulator_mac_aarch64")
@@ -94,10 +95,10 @@ class FetchBuildTest(unittest.TestCase):
             self.assertEqual(res["build_id"], "16000000")
             self.assertEqual(res["host"], "mac-arm64")
 
-    @patch("lib.android_build_client.check_authentication_status")
-    @patch("lib.android_build_client.AndroidBuildClient.get_latest_build_id")
-    @patch("lib.android_build_client.AndroidBuildClient.find_matching_artifact")
-    @patch("lib.android_build_client.AndroidBuildClient.download_artifact")
+    @patch("targets.emulator.check_authentication_status")
+    @patch("clients.artifact_service.ProdArtifactService.resolve_build_id")
+    @patch("clients.artifact_service.ProdArtifactService.find_matching_artifact")
+    @patch("clients.artifact_service.ProdArtifactService.download_artifact")
     @patch("targets.emulator.print_result")
     @patch("shutil.which", return_value=None)
     @patch("os.path.exists")
@@ -126,7 +127,7 @@ class FetchBuildTest(unittest.TestCase):
             dest_file = os.path.join(dest_dir, art)
             with zipfile.ZipFile(dest_file, "w") as z:
                 z.writestr("emulator/emulator", "fake-binary-content")
-            return dest_file
+            return Path(dest_file)
 
         mock_download.side_effect = fake_download
 
@@ -138,16 +139,16 @@ class FetchBuildTest(unittest.TestCase):
                 "--host", "mac-arm64",
                 "--output-dir", tmpdir,
             ])
-            args.func(args)
+            args._command_instance.execute(args)
 
             mock_latest_bid.assert_called_once_with("emu-main-dev", "emulator-mac_aarch64_gfxstream")
             res = mock_print_result.call_args[0][0]
             self.assertEqual(res["status"], "success")
             self.assertEqual(res["target"], "emulator-mac_aarch64_gfxstream")
 
-    @patch("lib.android_build_client.check_authentication_status")
-    @patch("lib.android_build_client.AndroidBuildClient.find_matching_artifact")
-    @patch("lib.android_build_client.AndroidBuildClient.download_artifact")
+    @patch("targets.emulator.check_authentication_status")
+    @patch("clients.artifact_service.ProdArtifactService.find_matching_artifact")
+    @patch("clients.artifact_service.ProdArtifactService.download_artifact")
     @patch("targets.emulator.print_result")
     @patch("shutil.which", return_value=None)
     @patch("os.path.exists")
@@ -175,7 +176,7 @@ class FetchBuildTest(unittest.TestCase):
             dest_file = os.path.join(dest_dir, art)
             with zipfile.ZipFile(dest_file, "w") as z:
                 z.writestr("emulator/emulator", "binary")
-            return dest_file
+            return Path(dest_file)
 
         mock_download.side_effect = fake_download
 
@@ -186,15 +187,15 @@ class FetchBuildTest(unittest.TestCase):
                 "--host", "mac-arm64",
                 "--output-dir", tmpdir,
             ])
-            args.func(args)
+            args._command_instance.execute(args)
 
             mock_download.assert_called_once()
             res = mock_print_result.call_args[0][0]
             self.assertEqual(res["status"], "success")
             self.assertEqual(res["build_id"], "15943073")
 
-    @patch("lib.android_build_client.check_authentication_status")
-    @patch("lib.android_build_client.AndroidBuildClient.download_artifact")
+    @patch("targets.emulator.check_authentication_status")
+    @patch("clients.artifact_service.ProdArtifactService.download_artifact")
     @patch("targets.emulator.print_result")
     def test_fetch_emulator_auth_check_failure(
         self, mock_print_result, mock_download, mock_check_auth
@@ -214,7 +215,7 @@ class FetchBuildTest(unittest.TestCase):
             "--branch", "emu-main-next",
             "--host", "mac-arm64",
         ])
-        args.func(args)
+        args._command_instance.execute(args)
 
         mock_download.assert_not_called()
         mock_print_result.assert_called_once()
@@ -226,10 +227,10 @@ class FetchBuildTest(unittest.TestCase):
         self.assertIn("gcloud auth", res["procedure"])
         self.assertEqual(res["file_exists"], False)
 
-    @patch("lib.android_build_client.check_authentication_status")
-    @patch("lib.android_build_client.AndroidBuildClient.get_latest_build_id")
-    @patch("lib.android_build_client.AndroidBuildClient.find_matching_artifact")
-    @patch("lib.android_build_client.AndroidBuildClient.download_artifact")
+    @patch("targets.emulator.check_authentication_status")
+    @patch("clients.artifact_service.ProdArtifactService.resolve_build_id")
+    @patch("clients.artifact_service.ProdArtifactService.find_matching_artifact")
+    @patch("clients.artifact_service.ProdArtifactService.download_artifact")
     @patch("targets.emulator.print_result")
     @patch("shutil.which", return_value=None)
     @patch("os.path.exists")
@@ -249,7 +250,7 @@ class FetchBuildTest(unittest.TestCase):
             dest_file = os.path.join(dest_dir, art)
             with zipfile.ZipFile(dest_file, "w") as z:
                 z.writestr("emulator/emulator", "fake-binary-content")
-            return dest_file
+            return Path(dest_file)
 
         mock_download.side_effect = fake_download
 
@@ -260,13 +261,13 @@ class FetchBuildTest(unittest.TestCase):
                 "--skip-auth-check",
                 "--output-dir", tmpdir,
             ])
-            args.func(args)
+            args._command_instance.execute(args)
 
             mock_check_auth.assert_not_called()
             mock_latest_bid.assert_called_once()
             mock_download.assert_called_once()
 
-    @patch("lib.android_build_client.check_authentication_status")
+    @patch("targets.check_auth.check_authentication_status")
     @patch("targets.check_auth.print_result")
     def test_check_auth_subcommand_success(self, mock_print_result, mock_check_auth):
         mock_check_auth.return_value = {
@@ -279,7 +280,7 @@ class FetchBuildTest(unittest.TestCase):
         }
 
         args = self.parser.parse_args(["fetch-build", "check-auth"])
-        args.func(args)
+        args._command_instance.execute(args)
 
         mock_print_result.assert_called_once()
         self.assertFalse(mock_print_result.call_args[1].get("is_error", False))
@@ -287,7 +288,7 @@ class FetchBuildTest(unittest.TestCase):
         self.assertEqual(res["status"], "success")
         self.assertEqual(res["auth_file"], "/fake/adc.json")
 
-    @patch("lib.android_build_client.check_authentication_status")
+    @patch("targets.check_auth.check_authentication_status")
     @patch("targets.check_auth.print_result")
     def test_check_auth_subcommand_failure(self, mock_print_result, mock_check_auth):
         mock_check_auth.return_value = {
@@ -300,7 +301,7 @@ class FetchBuildTest(unittest.TestCase):
         }
 
         args = self.parser.parse_args(["fetch-build", "check-auth"])
-        args.func(args)
+        args._command_instance.execute(args)
 
         mock_print_result.assert_called_once()
         self.assertTrue(mock_print_result.call_args[1].get("is_error", False))
@@ -318,7 +319,7 @@ class FetchBuildTest(unittest.TestCase):
             self.assertIsNotNone(status["procedure"])
 
     @patch("shutil.which", return_value=None)
-    @patch("lib.android_build_client.OAuthTokenManager")
+    @patch("clients.artifact_service.OAuthTokenManager")
     @patch("os.path.exists")
     def test_check_authentication_status_token_failure(self, mock_exists, mock_token_mgr_cls, mock_which):
         def exists_side_effect(path):
@@ -332,14 +333,14 @@ class FetchBuildTest(unittest.TestCase):
         mock_token_mgr_cls.return_value = mock_mgr
 
         with patch.dict(os.environ, {}, clear=True):
-            status = check_authentication_status()
+            status = check_authentication_status(token_manager_cls=mock_token_mgr_cls)
             self.assertFalse(status["valid"])
             self.assertTrue(status["file_exists"])
             self.assertIn("Could not acquire or refresh OAuth2 token", status["error_message"])
 
     @patch("shutil.which", return_value=None)
     @patch("urllib.request.urlopen")
-    @patch("lib.android_build_client.OAuthTokenManager")
+    @patch("clients.artifact_service.OAuthTokenManager")
     @patch("os.path.exists")
     def test_check_authentication_status_insufficient_scope(
         self, mock_exists, mock_token_mgr_cls, mock_urlopen, mock_which
@@ -365,14 +366,14 @@ class FetchBuildTest(unittest.TestCase):
         mock_urlopen.side_effect = http_err
 
         with patch.dict(os.environ, {}, clear=True):
-            status = check_authentication_status()
+            status = check_authentication_status(token_manager_cls=mock_token_mgr_cls)
             self.assertFalse(status["valid"])
             self.assertIn("lacks the required scope", status["error_message"])
             self.assertIsNotNone(status["procedure"])
 
     @patch("shutil.which", return_value=None)
     @patch("urllib.request.urlopen")
-    @patch("lib.android_build_client.OAuthTokenManager")
+    @patch("clients.artifact_service.OAuthTokenManager")
     @patch("os.path.exists")
     def test_check_authentication_status_success(
         self, mock_exists, mock_token_mgr_cls, mock_urlopen, mock_which
@@ -393,7 +394,7 @@ class FetchBuildTest(unittest.TestCase):
         mock_urlopen.return_value = mock_resp
 
         with patch.dict(os.environ, {}, clear=True):
-            status = check_authentication_status()
+            status = check_authentication_status(token_manager_cls=mock_token_mgr_cls)
             self.assertTrue(status["valid"])
             self.assertIsNone(status["error_message"])
             self.assertIsNone(status["procedure"])
@@ -411,24 +412,26 @@ class FetchBuildTest(unittest.TestCase):
         self.assertEqual(status["auth_method"], "FETCH_ARTIFACT_CLI")
 
     @patch("urllib.request.urlopen")
-    def test_android_build_client_v4_methods(self, mock_urlopen):
-        # 1. Test get_latest_build_id
+    def test_prod_artifact_service_v4_methods(self, mock_urlopen):
+        # 1. Test resolve_build_id
         mock_resp_builds = MagicMock()
         mock_resp_builds.read.return_value = b'{"builds": [{"buildId": "12345"}]}'
         mock_resp_builds.__enter__.return_value = mock_resp_builds
 
-        # 2. Test list_artifacts
+        # 2. Test list_artifacts / find_matching_artifact
         mock_resp_arts = MagicMock()
         mock_resp_arts.read.return_value = b'{"artifacts": [{"name": "sdk-repo-darwin_aarch64-emulator-12345.zip"}]}'
         mock_resp_arts.__enter__.return_value = mock_resp_arts
 
         mock_urlopen.side_effect = [mock_resp_builds, mock_resp_arts]
 
-        client = AndroidBuildClient(token="mock_token")
-        bid = client.get_latest_build_id("emu-main-next", "emulator_mac_aarch64")
+        service = ProdArtifactService(
+            FakeProcessRunner(), token="mock_token", use_fetch_artifact_cli=False
+        )
+        bid = service.resolve_build_id("emu-main-next", "emulator_mac_aarch64")
         self.assertEqual(bid, "12345")
 
-        art = client.find_matching_artifact(bid, "emulator_mac_aarch64", ["sdk-repo-darwin_aarch64-emulator-*.zip"])
+        art = service.find_matching_artifact(bid, "emulator_mac_aarch64", ["sdk-repo-darwin_aarch64-emulator-*.zip"])
         self.assertEqual(art, "sdk-repo-darwin_aarch64-emulator-12345.zip")
 
 

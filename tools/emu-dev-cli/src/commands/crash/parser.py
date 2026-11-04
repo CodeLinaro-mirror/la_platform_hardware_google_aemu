@@ -14,53 +14,60 @@
 
 """Parser registration module for the crash investigation subcommand group."""
 
-import sys
+import argparse
+from collections.abc import Sequence
+from typing import Any
 
-from commands.crash.analyze import register_analyze_parser
-from commands.crash.autofix import register_autofix_parser
-from commands.crash.file_bug import register_file_bug_parser
-from commands.crash.find_bug import register_find_bug_parser
-from commands.crash.link_bug import register_link_bug_parser
-from commands.crash.list_crashes import register_list_crashes_parser
-from commands.crash.reproduce import register_reproduce_parser
+from commands.crash.analyze import CrashAnalyzeCommand
+from commands.crash.autofix import CrashAutofixCommand
+from commands.crash.file_bug import CrashFileBugCommand
+from commands.crash.find_bug import CrashFindBugCommand
+from commands.crash.link_bug import CrashLinkBugCommand
+from commands.crash.list_crashes import CrashListCrashesCommand
+from commands.crash.reproduce import CrashReproduceCommand
+from core.command import Command, CommandGroup
 
 
-def register_parser(subparsers) -> None:
+class CrashCommand(CommandGroup):
+    """Top-level `crash` subcommand group delegating to typed Crash subcommands."""
+
+    name = "crash"
+    help_text = (
+        "Crash investigation group: production crash discovery (list-crashes), bug linking (link-bug), "
+        "stack analysis (analyze), reproduction (reproduce), Buganizer deduplication (find-bug, file-bug), "
+        "and AI autofixing (autofix)"
+    )
+    help = help_text
+    description = (
+        "Automated crash discovery, investigation, Buganizer deduplication, issue filing, "
+        "go/crash annotation linking, local reproduction, and AI autofixing tools group. "
+        "Contains subcommands: list-crashes, link-bug, analyze, reproduce, find-bug, file-bug, autofix."
+    )
+    subcommand_dest = "crash_cmd"
+    subcommand_help = "Available crash subcommands"
+
+    subcommand_classes = (
+        CrashListCrashesCommand,
+        CrashLinkBugCommand,
+        CrashFindBugCommand,
+        CrashFileBugCommand,
+        CrashAutofixCommand,
+        CrashReproduceCommand,
+        CrashAnalyzeCommand,
+    )
+
+    def __init__(
+        self, subcommands: Sequence[Command[Any, Any]] | None = None
+    ) -> None:
+        if subcommands is None:
+            subcommands = tuple(cls() for cls in self.subcommand_classes)
+        super().__init__(subcommands)
+
+
+def register_parser(subparsers) -> argparse.ArgumentParser:
     """Registers the `crash` subcommand parser group in emu-dev-cli.
 
     Args:
         subparsers: Top-level subparser group instance from main ArgumentParser.
     """
-    crash_parser = subparsers.add_parser(
-        "crash",
-        help="Crash investigation group: production crash discovery (list-crashes), bug linking (link-bug), stack analysis (analyze), reproduction (reproduce), Buganizer deduplication (find-bug, file-bug), and AI autofixing (autofix)",
-        description="Automated crash discovery, investigation, Buganizer deduplication, issue filing, go/crash annotation linking, local reproduction, and AI autofixing tools group. Contains subcommands: list-crashes, link-bug, analyze, reproduce, find-bug, file-bug, autofix.",
-    )
-    crash_parser.set_defaults(
-        func=lambda args: crash_parser.print_help() or sys.exit(0)
-    )
-
-    crash_subparsers = crash_parser.add_subparsers(
-        dest="crash_cmd", help="Available crash subcommands"
-    )
-
-    # 1. list-crashes
-    register_list_crashes_parser(crash_subparsers)
-
-    # 2. link-bug
-    register_link_bug_parser(crash_subparsers)
-
-    # 3. find-bug
-    register_find_bug_parser(crash_subparsers)
-
-    # 4. file-bug
-    register_file_bug_parser(crash_subparsers)
-
-    # 5. autofix
-    register_autofix_parser(crash_subparsers)
-
-    # 6. reproduce
-    register_reproduce_parser(crash_subparsers)
-
-    # 7. analyze
-    register_analyze_parser(crash_subparsers)
+    return CrashCommand().register(subparsers)

@@ -14,19 +14,9 @@
 
 """KosmicKrisp Vulkan ICD prebuilt updater (`emu-dev-cli update-prebuilt kosmickrisp`)."""
 
-from pathlib import Path
-import tempfile
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Dict, Optional, Sequence, Union
 
-from lib.prebuilt_updater import (
-    build_update_report,
-    fetch_ab_artifact,
-    install_prebuilt_file,
-    log_progress,
-    resolve_build_number,
-    resolve_dest_dir,
-    resolve_targets_list,
-)
+from lib.prebuilt_updater import run_standard_prebuilt_update
 
 PREBUILT_NAME = "kosmickrisp"
 ALIASES = ("kosmic-krisp",)
@@ -63,103 +53,13 @@ def update_prebuilt(
     **kwargs: Any,
 ) -> Dict[str, Any]:
     """Updates KosmicKrisp prebuilt libraries for `build_number` across `targets`."""
-    dry_run = bool(kwargs.get("dry_run", False))
-    custom_dest = kwargs.get("dest_dir")
-    branch = kwargs.get("branch") or DEFAULT_BRANCH
-    token = kwargs.get("token")
-
-    resolved_targets = resolve_targets_list(targets, SUPPORTED_TARGETS)
-    is_multi = len(resolved_targets) > 1
-    total_targets = len(resolved_targets)
-
-    file_records: List[Dict[str, Any]] = []
-    updated_files: List[str] = []
-    errors: List[str] = []
-    resolved_bids: List[str] = []
-
-    for idx, target in enumerate(resolved_targets, 1):
-        cfg = TARGETS_CONFIG.get(target)
-        if not cfg:
-            errors.append(f"Unsupported target '{target}' for {PREBUILT_NAME}")
-            continue
-
-        log_progress(
-            f"\n📦 [{idx}/{total_targets}] {target} → {cfg['dest_rel_dir']}"
-        )
-        dest_dir = resolve_dest_dir(
-            cfg["dest_rel_dir"],
-            custom_dest=custom_dest,
-            target=target,
-            is_multi_target=is_multi,
-        )
-        if not dest_dir or (not custom_dest and not dest_dir.is_dir()):
-            msg = f"Could not locate destination directory '{cfg['dest_rel_dir']}'"
-            log_progress(f"  ❌ {msg}")
-            errors.append(f"[{target}] {msg}")
-            continue
-
-        try:
-            bid = resolve_build_number(
-                build_number, branch, cfg["ab_target"], token=token
-            )
-        except Exception as e:
-            log_progress(f"  ❌ {e}")
-            errors.append(f"[{target}] {e}")
-            continue
-
-        if bid not in resolved_bids:
-            resolved_bids.append(bid)
-
-        archive = cfg["archive"].format(build_number=bid)
-        zip_entries = [src_rel for src_rel, _, _ in cfg["files"]]
-
-        with tempfile.TemporaryDirectory(prefix=f"emu_kk_{target}_") as tmp:
-            tmp_dir = Path(tmp)
-            err = fetch_ab_artifact(
-                build_number=bid,
-                ab_target=cfg["ab_target"],
-                artifact=archive,
-                out_dir=tmp_dir,
-                zip_entries=zip_entries,
-                token=token,
-            )
-            if err:
-                errors.append(f"[{target}] {err}")
-                continue
-
-            for src_rel, dst_name, mode in cfg["files"]:
-                src_file = tmp_dir / src_rel
-                dst_file = dest_dir / dst_name
-                if not src_file.is_file():
-                    msg = f"Expected '{src_rel}' not found in {archive}"
-                    log_progress(f"    ❌ {msg}")
-                    errors.append(f"[{target}] {msg}")
-                    continue
-
-                changed, rec = install_prebuilt_file(
-                    src_file=src_file,
-                    dst_file=dst_file,
-                    target=target,
-                    mode=mode,
-                    dry_run=dry_run,
-                )
-                file_records.append(rec)
-                if changed:
-                    updated_files.append(
-                        f"{target}/{dst_name}" if is_multi else dst_name
-                    )
-
-    bid_display = (
-        ", ".join(resolved_bids)
-        if resolved_bids
-        else str(build_number or "latest")
-    )
-    return build_update_report(
-        prebuilt=PREBUILT_NAME,
-        build_number=bid_display,
-        targets=resolved_targets,
-        file_records=file_records,
-        updated_files=updated_files,
-        errors=errors,
-        dry_run=dry_run,
+    return run_standard_prebuilt_update(
+        prebuilt_name=PREBUILT_NAME,
+        default_branch=DEFAULT_BRANCH,
+        supported_targets=SUPPORTED_TARGETS,
+        targets_config=TARGETS_CONFIG,
+        build_number=build_number,
+        targets=targets,
+        tmp_prefix="emu_kk_",
+        **kwargs,
     )

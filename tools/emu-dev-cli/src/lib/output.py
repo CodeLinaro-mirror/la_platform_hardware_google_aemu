@@ -18,15 +18,14 @@ import json
 import sys
 import unicodedata
 
-
-def ensure_utf8_stdio() -> None:
-    """Reconfigures CLI stdin/stdout/stderr to UTF-8 so non-ASCII paths never fail on Windows."""
-    for stream in (sys.stdin, sys.stdout, sys.stderr):
-        if hasattr(stream, "reconfigure"):
-            try:
-                stream.reconfigure(encoding="utf-8", errors="replace")
-            except (OSError, ValueError):
-                pass
+from core.command import (
+    CommandResult,
+    META_KEY_ALREADY_RENDERED,
+    STATUS_ERROR,
+    STATUS_SUCCESS,
+)
+from core.dispatcher import ensure_utf8_stdio
+from core.errors import ExitCode
 
 
 def get_display_width(s: str) -> int:
@@ -95,8 +94,10 @@ def print_status(msg: str, json_mode: bool = False) -> None:
         print(msg)
 
 
-def print_result(data: dict, json_mode: bool = False, is_error: bool = False):
-    """Prints output in either clean JSON format or human-readable terminal format."""
+def print_result(
+    data: dict, json_mode: bool = False, is_error: bool = False
+) -> CommandResult:
+    """Prints output in clean JSON or human-readable format and returns a CommandResult."""
     ensure_utf8_stdio()
     if json_mode:
         output_str = json.dumps(data, indent=2, ensure_ascii=False)
@@ -134,7 +135,19 @@ def print_result(data: dict, json_mode: bool = False, is_error: bool = False):
                 print(f"  • {key}: {val}")
         print()
 
-    if is_error:
-        sys.exit(data.get("exit_code", 1))
-    else:
-        sys.exit(0)
+    default_code = int(ExitCode.FAILURE) if is_error else int(ExitCode.SUCCESS)
+    exit_code = int(data.get("exit_code", default_code))
+    status = str(
+        data.get("status", STATUS_ERROR if is_error else STATUS_SUCCESS)
+    )
+    action = str(data.get("action", "done"))
+    summary = str(data.get("summary", action))
+    return CommandResult(
+        data=dict(data),
+        summary=summary,
+        action=action,
+        status=status,
+        exit_code=exit_code,
+        markdown_table=data.get("markdown_table"),
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )

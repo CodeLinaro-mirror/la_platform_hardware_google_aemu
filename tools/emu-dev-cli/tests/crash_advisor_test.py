@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -26,9 +27,12 @@ SRC_DIR = os.path.join(
 )
 
 from commands.crash.advisor import (
+    AdvisorLaunch,
+    CrashAdvisorRunner,
     ensure_crashadvisor_imports,
-    run_crashadvisor_bazel,
+    resolve_advisor_launch,
 )
+from core.context import ExecutionContext
 
 
 class CrashAdvisorTest(unittest.TestCase):
@@ -36,75 +40,80 @@ class CrashAdvisorTest(unittest.TestCase):
 
     def test_ensure_crashadvisor_imports(self):
         """Tests setting up sys.path and importing CrashAdvisor modules."""
-        modules = ensure_crashadvisor_imports()
-        self.assertIn("advisor", modules)
-        self.assertIn("symbols", modules)
-        self.assertIn("buganizer", modules)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            advisor_dir = Path(tmp_dir) / "advisor"
+            advisor_dir.mkdir()
+            for mod in ["api", "buganizer", "client", "context", "dump", "metadata", "rca", "symbols", "advisor"]:
+                (advisor_dir / f"{mod}.py").write_text(f"# fake {mod}", encoding="utf-8")
+            with patch("lib.workspace.WorkspacePathResolver.find_directory", return_value=advisor_dir):
+                modules = ensure_crashadvisor_imports()
+                self.assertIn("advisor", modules)
+                self.assertIn("symbols", modules)
+                self.assertIn("buganizer", modules)
 
     def test_tqdm_stub_context_manager(self):
         """Tests that the fallback tqdm stub supports both context manager and iteration."""
-        with patch.dict(sys.modules, {"tqdm": None}):
-            sys.modules.pop("tqdm", None)
-            ensure_crashadvisor_imports()
-            import tqdm
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            advisor_dir = Path(tmp_dir) / "advisor"
+            advisor_dir.mkdir()
+            for mod in ["api", "buganizer", "client", "context", "dump", "metadata", "rca", "symbols", "advisor"]:
+                (advisor_dir / f"{mod}.py").write_text(f"# fake {mod}", encoding="utf-8")
+            with patch("lib.workspace.WorkspacePathResolver.find_directory", return_value=advisor_dir), \
+                 patch.dict(sys.modules, {"tqdm": None}):
+                sys.modules.pop("tqdm", None)
+                ensure_crashadvisor_imports()
+                import tqdm
 
-            with tqdm.tqdm(total=10, unit="B") as bar:
-                bar.update(5)
-            self.assertEqual(list(tqdm.tqdm([1, 2, 3])), [1, 2, 3])
+                with tqdm.tqdm(total=10, unit="B") as bar:
+                    bar.update(5)
+                self.assertEqual(list(tqdm.tqdm([1, 2, 3])), [1, 2, 3])
 
-
-    @patch("subprocess.run")
     @patch("lib.workspace.WorkspacePathResolver.find_tool_binary")
-    def test_run_crashadvisor_bazel_executable_found(self, mock_find_bin, mock_run):
-        """Tests executing CrashAdvisor via precompiled binary executable."""
+    def test_resolve_advisor_launch_executable_found(self, mock_find_bin):
+        """Tests resolving CrashAdvisor via precompiled binary executable."""
         mock_find_bin.return_value = Path("/path/to/advisor")
-        mock_run.return_value = MagicMock(returncode=0)
+        launch = resolve_advisor_launch()
+        self.assertEqual(launch.command, ("/path/to/advisor",))
+        self.assertIsNone(launch.cwd)
 
-        res = run_crashadvisor_bazel(["12345", "--auto-run"])
-        mock_run.assert_called_once_with(
-            ["/path/to/advisor", "12345", "--auto-run"], check=True
-        )
-
-    @patch("subprocess.run")
     @patch("lib.workspace.WorkspacePathResolver.find_tool_binary")
     @patch("lib.workspace.WorkspacePathResolver.find_directory")
     @patch("lib.bazel.find_bazel_cmd")
-    def test_run_crashadvisor_bazel_fallback(
-        self, mock_find_bazel, mock_find_dir, mock_find_bin, mock_run
+    def test_resolve_advisor_launch_fallback(
+        self, mock_find_bazel, mock_find_dir, mock_find_bin
     ):
         """Tests fallback execution via Bazel when executable binary is absent."""
         mock_find_bin.return_value = None
         mock_find_dir.return_value = Path("/work/emu-main-next/hardware/google/aemu")
         mock_find_bazel.return_value = "bazel"
-        mock_run.return_value = MagicMock(returncode=0)
-
-        res = run_crashadvisor_bazel(["12345"])
-        mock_run.assert_called_once_with(
-            [
-                "bazel",
-                "run",
-                "@goldfish//emulator/crashreport/tool/advisor",
-                "--",
-                "12345",
-            ],
-            cwd="/work/emu-main-next",
-            check=True,
+        launch = resolve_advisor_launch()
+        self.assertEqual(
+            launch.command,
+            ("bazel", "run", "@goldfish//emulator/crashreport/tool/advisor", "--"),
         )
+        self.assertEqual(launch.cwd, Path("/work/emu-main-next"))
 
-    @patch("subprocess.run")
-    @patch("lib.workspace.WorkspacePathResolver.find_tool_binary")
-    def test_run_crashadvisor_bazel_error_handling(self, mock_find_bin, mock_run):
-        """Tests handling of CalledProcessError when check=False."""
-        mock_find_bin.return_value = Path("/path/to/advisor")
-        mock_run.side_effect = subprocess.CalledProcessError(
-            returncode=1, cmd=["/path/to/advisor"]
+    def test_crash_advisor_runner_run(self):
+        """Tests executing CrashAdvisor via CrashAdvisorRunner."""
+        ctx = ExecutionContext.for_testing()
+        runner = CrashAdvisorRunner(
+            resolve_launch=lambda: AdvisorLaunch(command=("fake_advisor",), cwd=Path("/tmp"))
         )
-
-        res = run_crashadvisor_bazel(["12345"], check=False)
-        self.assertEqual(res.returncode, 1)
-
-        with self.assertRaises(subprocess.CalledProcessError):
-            run_crashadvisor_bazel(["12345"], check=True)
+        res = runner.run(
+            ctx,
+            "05d8356e2f800000",
+            Path("/tmp/work"),
+            flags=["--auto-run"],
+            token="tok123",
+        )
+        self.assertTrue(res.ok)
+        calls = ctx.process_runner.calls
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(
+            calls[0].args,
+            ("fake_advisor", "05d8356e2f800000", "--auto-run", "--work-dir", "/tmp/work", "--token", "tok123"),
+        )
+        self.assertEqual(str(calls[0].cwd), "/tmp")
 
 
 if __name__ == "__main__":

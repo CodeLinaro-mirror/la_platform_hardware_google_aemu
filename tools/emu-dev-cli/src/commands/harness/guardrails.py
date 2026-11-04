@@ -44,6 +44,9 @@ from commands import docs
 from commands.harness.code_guardrails import (
     build_file_edit_advisory,
     evaluate_file_edit_payload,
+    extract_command_line,
+    extract_tool_args,
+    extract_tool_name,
     find_goldfish_repo_root,
 )
 from commands.harness.concurrency_test_check import build_concurrency_test_warning
@@ -53,6 +56,7 @@ from commands.harness.constants import (
     BAZEL_TEST_OUTPUT_FLAG_PATTERN,
     EMU_LAUNCH_CMD_PATTERN,
     EMU_TEARDOWN_CMD_PATTERN,
+    FILE_EDIT_TOOL_NAMES,
     GERRIT_COMMENTS_PUBLISH_PATTERN,
     GERRIT_UNSAFE_CMD_PATTERN,
     GIT_COMMIT_AMEND_PATTERN,
@@ -68,26 +72,19 @@ from commands.harness.constants import (
     NOTIFY_OWNER_FLAG_PATTERN,
     NOTIFY_OWNER_JSON_PATTERN,
     SHELL_ASSIGNMENT_PATTERN,
+    SHELL_COMMAND_TOOL_NAMES,
     SHELL_WRITE_TARGET_PATTERN,
     WORKFLOW_STATE_FLAG_PATTERN,
 )
 from commands.harness.diagnostics import enrich_post_tool_result
 from commands.harness.ledger import SessionLedgerStore
 from commands.harness.shell_segments import find_command_segment
+from commands.harness.terminal_title import TerminalTitleUpdater
 from commands.harness.upload_guardrails import (
     evaluate_upload_command,
     first_regex_group,
     resolve_command_cwd,
 )
-
-# Jetski tools that write or edit files; code guardrails and advisories apply to them.
-FILE_EDIT_TOOL_NAMES = frozenset({
-    "write_file",
-    "edit_file",
-    "replace_file_content",
-    "multi_replace_file_content",
-    "write_to_file",
-})
 
 
 def _load_commit_verifier():
@@ -106,28 +103,13 @@ def _load_commit_verifier():
         return commit_verifier
 
 
-def _extract_command_line(payload: Dict[str, Any]) -> str:
-    """Extracts the shell command string from a Jetski PreToolUse/PostToolUse payload."""
-    tool_call = payload.get("toolCall") or payload.get("tool_call") or {}
-    args = tool_call.get("args") or payload.get("tool_input") or {}
-    for key in ("CommandLine", "command", "cmd"):
-        val = args.get(key)
-        if isinstance(val, str) and val.strip():
-            return val.strip()
-    return ""
-
-
-def _extract_tool_name(payload: Dict[str, Any]) -> str:
-    """Extracts the tool name from a Jetski hook payload."""
-    tool_call = payload.get("toolCall") or payload.get("tool_call") or {}
-    name = tool_call.get("name") or payload.get("tool_name") or ""
-    return str(name).strip()
+_extract_command_line = extract_command_line
+_extract_tool_name = extract_tool_name
 
 
 def _extract_workspace_dir(payload: Dict[str, Any]) -> Optional[Path]:
     """Extracts the active workspace directory from a Jetski hook payload."""
-    tool_call = payload.get("toolCall") or payload.get("tool_call") or {}
-    args = tool_call.get("args") or payload.get("tool_input") or {}
+    args = extract_tool_args(payload)
     for key in ("Cwd", "cwd"):
         arg_val = args.get(key)
         if isinstance(arg_val, str) and arg_val.strip():
@@ -550,7 +532,7 @@ def handle_pre_tool_hook(
                 }
         return {"decision": HookDecision.ALLOW.value}
 
-    if tool_name and tool_name not in ("run_command", "run_shell_command", "bash"):
+    if tool_name and tool_name not in SHELL_COMMAND_TOOL_NAMES:
         return {"decision": HookDecision.ALLOW.value}
 
     command = _extract_command_line(payload)
@@ -643,6 +625,8 @@ def handle_post_tool_hook(
     tool_name = _extract_tool_name(payload)
     if tool_name in FILE_EDIT_TOOL_NAMES:
         return _append_file_edit_advisory(payload, ledger_store, conversation_id, tool_name)
+    if tool_name and tool_name not in SHELL_COMMAND_TOOL_NAMES:
+        return {}
 
     command = _extract_command_line(payload)
     if not command:
@@ -872,17 +856,32 @@ def dispatch_hook_event(
     payload: Dict[str, Any],
     store: Optional[SessionLedgerStore] = None,
     state_root: Optional[Path] = None,
+    title_updater: Optional[TerminalTitleUpdater] = None,
 ) -> Dict[str, Any]:
     """Dispatches a Jetski hook event name to its corresponding handler."""
+    ledger_store = store or SessionLedgerStore()
     normalized = event.strip().lower()
     if normalized == HookEvent.PRE_TOOL.value:
-        return handle_pre_tool_hook(payload, store=store)
-    if normalized == HookEvent.POST_TOOL.value:
-        return handle_post_tool_hook(payload, store=store)
-    if normalized == HookEvent.PRE_INVOCATION.value:
-        return handle_pre_invocation_hook(payload, store=store, state_root=state_root)
-    if normalized == HookEvent.SESSION_START.value:
-        return handle_session_start_hook(payload, store=store)
-    if normalized == HookEvent.STOP.value:
-        return handle_stop_hook(payload, store=store, state_root=state_root)
-    return {}
+        response = handle_pre_tool_hook(payload, store=ledger_store)
+    elif normalized == HookEvent.POST_TOOL.value:
+        response = handle_post_tool_hook(payload, store=ledger_store)
+    elif normalized == HookEvent.PRE_INVOCATION.value:
+        response = handle_pre_invocation_hook(
+            payload, store=ledger_store, state_root=state_root
+        )
+    elif normalized == HookEvent.SESSION_START.value:
+        response = handle_session_start_hook(payload, store=ledger_store)
+    elif normalized == HookEvent.STOP.value:
+        response = handle_stop_hook(
+            payload, store=ledger_store, state_root=state_root
+        )
+    else:
+        return {}
+
+    try:
+        updater = title_updater or TerminalTitleUpdater(base_dir=ledger_store.base_dir)
+        updater.handle_event(normalized, payload, response=response)
+    except Exception:
+        # Title updates are cosmetic; they must never break the hook's JSON response.
+        pass
+    return response

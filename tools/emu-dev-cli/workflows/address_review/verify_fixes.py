@@ -84,6 +84,8 @@ def verify_all_fixes(
             shell=use_shell,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             cwd=str(primary_repo),
             timeout=timeout,

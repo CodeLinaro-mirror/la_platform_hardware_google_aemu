@@ -19,9 +19,10 @@ import json
 import logging
 import os
 from pathlib import Path
-import subprocess
 from typing import Any
 
+from core.git import GitService, ProdGitService
+from core.process import ProcessResult
 from lib.path_utils import atomic_write_text, run_git_readonly
 
 logger = logging.getLogger(__name__)
@@ -55,16 +56,20 @@ def _has_git_metadata(directory: Path) -> bool:
     return False
 
 
-def _run_git(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+def _run_git(
+    args: list[str], cwd: Path, *, git_service: GitService | None = None
+) -> ProcessResult:
     """Runs a read-only git command with UTF-8 decoding and a bounded timeout."""
     try:
-        return run_git_readonly(args, cwd, timeout=GIT_TIMEOUT_SECONDS)
-    except (OSError, subprocess.SubprocessError) as exc:
+        return run_git_readonly(
+            args, cwd, timeout=GIT_TIMEOUT_SECONDS, git_service=git_service
+        )
+    except OSError as exc:
         logger.debug(
             "Git command 'git %s' failed in '%s': %s", " ".join(args), cwd, exc
         )
-        return subprocess.CompletedProcess(
-            args=["git", *args], returncode=1, stdout="", stderr=str(exc)
+        return ProcessResult(
+            args=("git", *args), returncode=1, stdout="", stderr=str(exc)
         )
 
 

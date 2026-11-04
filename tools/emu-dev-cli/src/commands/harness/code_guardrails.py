@@ -61,17 +61,51 @@ PRE_REFERENCE_ABSEIL_REPO_MARKERS = ("/external/qemu/", "/hardware/google/aemu/"
 MAX_ABSEIL_PIN_SEARCH_PARENTS = 3
 
 
-def _extract_file_path_and_content(payload: Dict[str, Any]) -> Tuple[str, str]:
-    """Extracts target file path and new text content from a file write/edit payload."""
+def extract_tool_args(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Extracts the tool arguments dictionary from a Jetski hook payload."""
     tool_call = payload.get("toolCall") or payload.get("tool_call") or {}
     args = tool_call.get("args") or payload.get("tool_input") or {}
-    path_str = str(
+    return args if isinstance(args, dict) else {}
+
+
+def extract_tool_name(payload: Dict[str, Any]) -> str:
+    """Extracts the tool name from a Jetski hook payload."""
+    tool_call = payload.get("toolCall") or payload.get("tool_call") or {}
+    name = (
+        (tool_call.get("name") if isinstance(tool_call, dict) else None)
+        or payload.get("tool_name")
+        or ""
+    )
+    return str(name).strip()
+
+
+def extract_command_line(payload: Dict[str, Any]) -> str:
+    """Extracts the shell command string from a Jetski PreToolUse/PostToolUse payload."""
+    args = extract_tool_args(payload)
+    for key in ("CommandLine", "command", "cmd"):
+        val = args.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
+
+
+def extract_file_path(payload: Dict[str, Any]) -> str:
+    """Extracts the target file path from a file write/edit hook payload."""
+    args = extract_tool_args(payload)
+    return str(
         args.get("TargetFile")
         or args.get("Path")
         or args.get("path")
         or args.get("file_path")
+        or args.get("filepath")
         or ""
     ).strip()
+
+
+def _extract_file_path_and_content(payload: Dict[str, Any]) -> Tuple[str, str]:
+    """Extracts target file path and new text content from a file write/edit payload."""
+    args = extract_tool_args(payload)
+    path_str = extract_file_path(payload)
     chunks = args.get("ReplacementChunks")
     chunk_text = (
         "\n".join(
@@ -475,11 +509,13 @@ def evaluate_goldfish_doc_drift(
                     build_text = build_file.read_text(encoding="utf-8")
                 except OSError:
                     build_text = ""
-                if not docs._bazel_target_exists_in_build_file(target_name, build_text):
+                if not docs._bazel_label_target_exists(target_name, build_text, pkg_dir):
                     return (
                         False,
                         "Blocked by AEMU Harness Documentation Drift Guardrail: "
-                        f"Bazel target `{label}` in '{norm_path}' was not found in '{build_file}'.",
+                        f"Bazel target `{label}` in '{norm_path}' is neither declared in "
+                        f"'{build_file}' nor a file in '{pkg_dir}'. Fix the label, or add "
+                        "the missing target or file.",
                     )
 
     # 4. Prevent stripping the AGENTS.md cross-link from a co-located ARCHITECTURE.md

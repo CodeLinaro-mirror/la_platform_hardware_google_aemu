@@ -2047,6 +2047,26 @@
   </div>
 
   <script>
+    // Every /api/ call carries the per-launch token from the page URL, which
+    // `emu-dev-cli workflow ui` prints and opens. The server rejects calls without it.
+    const UI_TOKEN = new URLSearchParams(window.location.search).get('token') || '';
+    let hasShownTokenWarning = false;
+
+    async function apiFetch(path, options = {}) {
+      const headers = Object.assign({}, options.headers || {}, { 'X-Sidecar-Token': UI_TOKEN });
+      const res = await fetch(path, Object.assign({}, options, { headers }));
+      if (res.status === 401 && !hasShownTokenWarning) {
+        hasShownTokenWarning = true;
+        showToastNotification({
+          title: 'Missing or invalid UI token',
+          body: 'Reopen the visualizer through the URL printed by "emu-dev-cli workflow ui" (it ends with ?token=...).',
+          type: 'error',
+          durationMs: 60000,
+        });
+      }
+      return res;
+    }
+
     let allSessions = [];
     let allConversations = [];
     let sidebarMode = 'workflows'; // 'workflows' | 'conversations'
@@ -2779,7 +2799,7 @@
     async function fetchSessions(isBackground = false) {
       try {
         const query = showSubWorkflows ? '?include_sub_workflows=true' : '';
-        const res = await fetch('/api/sessions' + query);
+        const res = await apiFetch('/api/sessions' + query);
         if (!res.ok) return;
         const data = await res.json();
         allSessions = data.sessions || [];
@@ -2797,7 +2817,7 @@
 
     async function fetchConversations(isBackground = false) {
       try {
-        const res = await fetch('/api/conversations?limit=60');
+        const res = await apiFetch('/api/conversations?limit=60');
         if (!res.ok) return;
         const data = await res.json();
         allConversations = data.conversations || [];
@@ -3203,7 +3223,7 @@
 
     async function loadSessionDetail(workflow, id, isBackground = false) {
       try {
-        const res = await fetch(`/api/session?workflow=${encodeURIComponent(workflow)}&id=${encodeURIComponent(id)}`);
+        const res = await apiFetch(`/api/session?workflow=${encodeURIComponent(workflow)}&id=${encodeURIComponent(id)}`);
         if (currentSelectedConversationId || currentSelectedWorkflow !== workflow || currentSelectedId !== id) {
           return;
         }
@@ -3385,7 +3405,7 @@
         showTranscriptLoadingSpinner(targetLabel);
       }
       try {
-        const res = await fetch(url);
+        const res = await apiFetch(url);
         if (
           currentSelectedConversationId !== expectedConvId ||
           currentSelectedWorkflow !== expectedWf ||
@@ -3930,9 +3950,10 @@
       modal.classList.add('open');
 
       try {
-        const res = await fetch(`/api/artifact?path=${encodeURIComponent(filePath)}`);
+        const res = await apiFetch(`/api/artifact?path=${encodeURIComponent(filePath)}`);
         if (!res.ok) {
-          contentEl.textContent = 'Failed to load artifact file.';
+          const err = await res.json().catch(() => ({}));
+          contentEl.textContent = err.error || `Failed to load artifact file (HTTP ${res.status}).`;
           return;
         }
         const data = await res.json();
@@ -3989,7 +4010,7 @@
       btn.textContent = 'Approving...';
 
       try {
-        const res = await fetch('/api/session/approve', {
+        const res = await apiFetch('/api/session/approve', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -4029,7 +4050,7 @@
       try {
         if (currentSelectedConversationId) {
           const cid = currentSelectedConversationId;
-          const res = await fetch('/api/conversation/poke', {
+          const res = await apiFetch('/api/conversation/poke', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -4051,7 +4072,7 @@
             alert('Failed to poke conversation: ' + (data.error || 'Unknown error'));
           }
         } else {
-          const res = await fetch('/api/session/poke', {
+          const res = await apiFetch('/api/session/poke', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -4093,7 +4114,7 @@
       btn.textContent = '🤖 Launching...';
 
       try {
-        const res = await fetch('/api/session/launch_agent', {
+        const res = await apiFetch('/api/session/launch_agent', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -4130,7 +4151,7 @@
 
     async function fetchWorkflowCatalog() {
       try {
-        const res = await fetch('/api/workflows');
+        const res = await apiFetch('/api/workflows');
         if (!res.ok) return;
         const data = await res.json();
         workflowCatalog = data.workflows || [];
@@ -4339,7 +4360,7 @@
       btn.textContent = 'Starting...';
 
       try {
-        const res = await fetch('/api/session/create', {
+        const res = await apiFetch('/api/session/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -4371,7 +4392,7 @@
       if (!confirm(`Are you sure you want to stop session #${currentSelectedId.substring(0, 8)}?`)) return;
 
       try {
-        const res = await fetch('/api/session/stop', {
+        const res = await apiFetch('/api/session/stop', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workflow: currentSelectedWorkflow, id: currentSelectedId }),
@@ -4393,7 +4414,7 @@
       if (!confirm(`Permanently delete session #${currentSelectedId.substring(0, 8)}? This cannot be undone.`)) return;
 
       try {
-        const res = await fetch('/api/session/delete', {
+        const res = await apiFetch('/api/session/delete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workflow: currentSelectedWorkflow, id: currentSelectedId }),
@@ -4424,7 +4445,7 @@
       if (!confirm(`Permanently delete session #${id.substring(0, 8)}?`)) return;
 
       try {
-        const res = await fetch('/api/session/delete', {
+        const res = await apiFetch('/api/session/delete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ workflow: wf, id: id }),
@@ -4470,7 +4491,7 @@
       if (!confirm(confirmMsg)) return;
 
       try {
-        const res = await fetch('/api/sessions/clear', {
+        const res = await apiFetch('/api/sessions/clear', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ filter: filterType }),

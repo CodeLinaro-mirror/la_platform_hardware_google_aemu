@@ -43,17 +43,19 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
+from core.git import GitService, ProdGitService
+from core.poller import poll_until
+from core.process import ProcessRunner, SubprocessRunner
 from lib.oauth import OAuthTokenManager, get_ssl_context
 from lib.workspace import WorkspacePathResolver
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_URLOPEN = urllib.request.urlopen
-
 DEFAULT_GERRIT_HOST = "https://googleplex-android-review.git.corp.google.com"
 GERRIT_OAUTH_SCOPE = "https://www.googleapis.com/auth/gerritcodereview"
 GERRIT_HTTP_TIMEOUT_SEC = 20.0
 GERRIT_CLI_TIMEOUT_SEC = 25.0
+DEFAULT_CHANGE_QUERY_LIMIT = 25
 _AUTH_FALLBACK_HTTP_CODES = (400, 401, 403)
 HTTPS_DEFAULT_PORT = 443
 HTTP_OK_MIN = 200
@@ -96,6 +98,12 @@ class GerritCommentMessage:
     unresolved: bool
     is_ai: bool = False
     commit_id: str = ""
+    is_robot: bool = False
+    robot_id: str = ""
+    robot_run_id: str = ""
+    url: str = ""
+    fix_suggestions: list[dict[str, Any]] = field(default_factory=list)
+    change_message_id: str = ""
 
 
 @dataclass
@@ -115,7 +123,13 @@ class GerritCommentThread:
     author_name: str
     author_email: str
     updated: str
+    is_robot: bool = False
+    robot_id: str = ""
+    robot_run_id: str = ""
+    url: str = ""
+    fix_suggestions: list[dict[str, Any]] = field(default_factory=list)
     messages: list[GerritCommentMessage] = field(default_factory=list)
+    change_message_id: str = ""
 
     @property
     def latest_message(self) -> str:
@@ -222,21 +236,22 @@ def decode_gerrit_patch(raw_patch: str) -> str:
         return raw_patch
 
 
-def _resolve_head_change_id(cwd: Path | str | None) -> str:
+def _resolve_head_change_id(
+    cwd: Path | str | None,
+    *,
+    runner: ProcessRunner | None = None,
+) -> str:
     """Extracts the `Change-Id: I...` footer from the local `HEAD` commit."""
     work_dir = str(Path(cwd).resolve()) if cwd else None
     try:
-        res = subprocess.run(
+        proc_runner = runner or SubprocessRunner()
+        res = proc_runner.run(
             ["git", "log", "-1", "--format=%B", "HEAD"],
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=True,
             cwd=work_dir,
-            timeout=GERRIT_CLI_TIMEOUT_SEC,
+            check=True,
+            timeout_sec=GERRIT_CLI_TIMEOUT_SEC,
         )
+        stdout_text = res.stdout
     except Exception as exc:
         stderr = (getattr(exc, "stderr", None) or "").strip()
         detail = f"{exc}: {stderr}" if stderr else str(exc)
@@ -244,7 +259,7 @@ def _resolve_head_change_id(cwd: Path | str | None) -> str:
             f"Failed to read HEAD commit message in '{work_dir or '.'}' ({detail}). "
             "Provide an explicit CL number or URL."
         ) from exc
-    match = COMMIT_CHANGE_ID_RE.search(res.stdout)
+    match = COMMIT_CHANGE_ID_RE.search(stdout_text)
     if match:
         return match.group(1)
     raise ValueError(
@@ -259,12 +274,13 @@ def parse_cl_identifier(
     *,
     allow_head: bool = True,
     strict: bool = False,
+    runner: ProcessRunner | None = None,
 ) -> str:
     """Normalizes a CL URL, `ag/<id>`, numeric CL ID, Change-Id, or `HEAD` into a Gerrit ID."""
     cleaned = (cl_input or "").strip()
     if not cleaned or cleaned.upper() == "HEAD":
         if allow_head:
-            return _resolve_head_change_id(cwd)
+            return _resolve_head_change_id(cwd, runner=runner)
     else:
         for pattern in (_AG_SHORTLINK_RE, _URL_CL_RE, _LEGACY_URL_CL_RE):
             matched = pattern.search(cleaned)
@@ -310,13 +326,21 @@ class GerritClient:
         self,
         host: str = DEFAULT_GERRIT_HOST,
         token: str | None = None,
+        *,
+        runner: ProcessRunner | None = None,
+        gob_curl_bin: str | None = None,
+        prefer_cli: bool = False,
+        urlopen: Callable[..., Any] | None = None,
     ) -> None:
         self.host = host.rstrip("/")
         self.api_host = self.host.replace(
             ".git.corp.google.com", ".googlesource.com"
         )
         self._explicit_token = token
-        self._urllib_auth_failed = False
+        self._runner = runner
+        self._gob_curl_bin = gob_curl_bin
+        self._urlopen = urlopen
+        self._urllib_auth_failed = bool(prefer_cli and token is None)
         self._conn_lock = threading.Lock()
         self._idle_conns: dict[str, list[http.client.HTTPSConnection]] = {}
         self._ssl_context = get_ssl_context()
@@ -449,10 +473,10 @@ class GerritClient:
         if body_bytes is not None:
             headers["Content-Type"] = "application/json; charset=UTF-8"
         try:
-            if urllib.request.urlopen is _DEFAULT_URLOPEN:
+            if self._urlopen is None:
                 return self._execute_keepalive_request(url, method, headers, body_bytes)
             req = urllib.request.Request(url, data=body_bytes, headers=headers, method=method)
-            with urllib.request.urlopen(
+            with self._urlopen(
                 req, context=self._ssl_context, timeout=GERRIT_HTTP_TIMEOUT_SEC
             ) as resp:
                 hdrs = getattr(resp, "headers", None)
@@ -474,6 +498,21 @@ class GerritClient:
         allow_empty: bool = False,
     ) -> str | None:
         """Executes a `gob-curl` or `gosso` CLI fallback command with UTF-8 decoding."""
+        if self._runner is not None:
+            proc = self._runner.run(
+                cmd,
+                check=False,
+                timeout_sec=GERRIT_CLI_TIMEOUT_SEC,
+            )
+            if proc.timed_out:
+                transport_errors.append(f"{label} TimeoutExpired")
+                return None
+            if proc.returncode == 0 and (allow_empty or proc.stdout.strip()):
+                return proc.stdout
+            err_lines = (proc.stderr or "").strip().splitlines()
+            err_detail = f" ({err_lines[0].split('?', 1)[0]})" if err_lines else ""
+            transport_errors.append(f"{label} exit code {proc.returncode}{err_detail}")
+            return None
         try:
             res = subprocess.run(
                 cmd,
@@ -505,7 +544,11 @@ class GerritClient:
     ) -> str | None:
         """Attempts authenticated Gerrit REST fallback via `gob-curl` then `gosso`."""
         allow_empty = method.upper() != "GET"
-        gob_curl = shutil.which("gob-curl")
+        gob_curl = (
+            self._gob_curl_bin
+            or shutil.which("gob-curl")
+            or ("/usr/bin/gob-curl" if self._runner is not None else None)
+        )
         if gob_curl:
             cmd = [gob_curl, "-s", "-f", "-S", "--compressed", "-X", method]
             if data is not None:
@@ -583,19 +626,119 @@ class GerritClient:
                 f"Verify that the target CL exists on '{self.host}' and run `gcert` to refresh SSO credentials."
             ) from exc
 
-    def get_revision_patch(self, change_id: str, revision: str = "current") -> str:
-        """Fetches and decodes the unified diff patch for a Gerrit change revision."""
+    def get_revision_patch(
+        self,
+        change_id: str,
+        revision: str = "current",
+        base: str | int | None = None,
+    ) -> str:
+        """Fetches and decodes the unified diff patch for a Gerrit change revision (or interdiff against base)."""
         encoded_id = urllib.parse.quote(str(change_id), safe="")
         encoded_rev = urllib.parse.quote(str(revision), safe="")
-        raw_patch = self._request_raw(f"/a/changes/{encoded_id}/revisions/{encoded_rev}/patch")
+        path = f"/a/changes/{encoded_id}/revisions/{encoded_rev}/patch"
+        if base is not None and str(base).strip().lower() not in ("", "0", "base", "parent"):
+            encoded_base = urllib.parse.quote(str(base).strip(), safe="")
+            path += f"?base={encoded_base}"
+        raw_patch = self._request_raw(path)
         stripped = raw_patch.strip()
         if not stripped:
+            if base is not None and str(base).strip().lower() not in ("", "0", "base", "parent"):
+                return ""
             raise RuntimeError(
                 f"Received an empty unified diff patch for Gerrit CL '{change_id}' "
                 f"(revision '{revision}') from '{self.host}'. "
                 "Verify that the CL has at least one patchset uploaded and run `gcert` before retrying."
             )
         return decode_gerrit_patch(stripped)
+
+    def get_revision_file_content(
+        self,
+        change_id: str,
+        file_path: str,
+        revision: str = "current",
+        decode_utf8: bool = True,
+        parent: bool = False,
+    ) -> str:
+        """Fetches and decodes the raw text content or returns base64 for a file in a Gerrit change revision."""
+        encoded_id = urllib.parse.quote(str(change_id), safe="")
+        encoded_rev = urllib.parse.quote(str(revision), safe="")
+        encoded_file = urllib.parse.quote(str(file_path).lstrip("/"), safe="")
+        query = "?parent=1" if parent else ""
+        path = f"/a/changes/{encoded_id}/revisions/{encoded_rev}/files/{encoded_file}/content{query}"
+        raw_b64 = self._request_raw(path)
+        stripped = raw_b64.strip()
+        if not stripped:
+            return ""
+        if not decode_utf8:
+            return stripped
+        try:
+            return base64.b64decode(stripped).decode("utf-8", errors="replace")
+        except Exception:
+            return stripped
+
+    def get_revision_file_blame(
+        self,
+        change_id: str,
+        file_path: str,
+        revision: str = "current",
+        parent: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Fetches blame information for a file in a Gerrit change revision."""
+        encoded_id = urllib.parse.quote(str(change_id), safe="")
+        encoded_rev = urllib.parse.quote(str(revision), safe="")
+        encoded_file = urllib.parse.quote(str(file_path).lstrip("/"), safe="")
+        query = "?parent=1" if parent else ""
+        path = f"/a/changes/{encoded_id}/revisions/{encoded_rev}/files/{encoded_file}/blame{query}"
+        res = self._request_json(path)
+        if isinstance(res, list):
+            return res
+        return []
+
+    def get_revision_reviewed_files(
+        self,
+        change_id: str | int,
+        revision: str = "current",
+    ) -> list[str]:
+        """Fetches the list of reviewed files for the authenticated user on a revision via `GET /changes/{id}/revisions/{rev}/files?reviewed`."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        encoded_rev = urllib.parse.quote(str(revision).strip(), safe="")
+        path = f"/a/changes/{encoded_id}/revisions/{encoded_rev}/files?reviewed"
+        try:
+            res = self._request_json(path)
+            if isinstance(res, list):
+                return [str(f) for f in res]
+            if isinstance(res, dict):
+                return [
+                    str(k)
+                    for k, v in res.items()
+                    if (isinstance(v, dict) and v.get("reviewed")) or (isinstance(v, bool) and v)
+                ]
+        except Exception as exc:
+            logger.debug("Failed to fetch reviewed files for %s ps %s: %s", change_id, revision, exc)
+        return []
+
+    def set_revision_file_reviewed(
+        self,
+        change_id: str | int,
+        file_path: str,
+        reviewed: bool = True,
+        revision: str = "current",
+    ) -> bool:
+        """Marks or unmarks a file as reviewed for the authenticated user via `PUT`/`DELETE /changes/{id}/revisions/{rev}/files/{file}/reviewed`."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        encoded_rev = urllib.parse.quote(str(revision).strip(), safe="")
+        clean_path = str(file_path).strip()
+        if clean_path.startswith("/") and not clean_path.startswith(("/COMMIT_MSG", "/MERGE_LIST")):
+            clean_path = clean_path.lstrip("/")
+        encoded_file = urllib.parse.quote(clean_path, safe="")
+        path = f"/a/changes/{encoded_id}/revisions/{encoded_rev}/files/{encoded_file}/reviewed"
+        method = "PUT" if reviewed else "DELETE"
+        try:
+            self._request_raw(path, method=method)
+            return True
+        except Exception as exc:
+            logger.debug("Failed to set reviewed=%s for %s %s: %s", reviewed, change_id, file_path, exc)
+            return False
 
     def list_open_changes(
         self,
@@ -663,7 +806,7 @@ class GerritClient:
         endpoint = (
             f"/a/changes/{encoded_id}/detail"
             f"?o=CURRENT_REVISION&o=ALL_REVISIONS&o=CURRENT_COMMIT"
-            f"&o=MESSAGES&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS{extra}"
+            f"&o=MESSAGES&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=SUBMIT_REQUIREMENTS{extra}"
         )
         data = self._request_json(endpoint)
         if not isinstance(data, dict):
@@ -672,6 +815,172 @@ class GerritClient:
                 f"on '{self.host}'. Verify that the CL exists and run `gcert` before retrying."
             )
         return data
+
+    def query_changes(
+        self,
+        query: str,
+        *,
+        options: tuple[str, ...] = (),
+        limit: int = DEFAULT_CHANGE_QUERY_LIMIT,
+    ) -> list[dict[str, Any]]:
+        """Runs a Gerrit change search (`GET /changes/?q=`) and returns the matching ChangeInfo dicts."""
+        encoded_q = urllib.parse.quote(query.strip(), safe=":()")
+        params = [f"q={encoded_q}", f"n={max(1, int(limit))}"]
+        params.extend(f"o={urllib.parse.quote(opt, safe='')}" for opt in options)
+        data = self._request_json(f"/a/changes/?{'&'.join(params)}")
+        if not isinstance(data, list):
+            raise RuntimeError(
+                f"Unexpected Gerrit search response type ({type(data).__name__}) for query "
+                f"'{query}' on '{self.host}'. Check the query syntax and run `gcert` before retrying."
+            )
+        return [change for change in data if isinstance(change, dict)]
+
+    def get_related_changes(
+        self,
+        change_id: str | int,
+        revision: str = "current",
+    ) -> list[dict[str, Any]]:
+        """Returns the relation chain of a revision (`GET .../related`), tip-most change first."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        encoded_rev = urllib.parse.quote(str(revision), safe="")
+        data = self._request_json(f"/a/changes/{encoded_id}/revisions/{encoded_rev}/related")
+        related = data.get("changes") if isinstance(data, dict) else None
+        if not isinstance(related, list):
+            return []
+        return [entry for entry in related if isinstance(entry, dict)]
+
+    def get_mergeable(
+        self,
+        change_id: str | int,
+        revision: str | int = "current",
+    ) -> dict[str, Any]:
+        """Returns Gerrit's MergeableInfo for a revision (`GET .../mergeable`)."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        encoded_rev = urllib.parse.quote(str(revision).strip(), safe="")
+        endpoint = f"/a/changes/{encoded_id}/revisions/{encoded_rev}/mergeable"
+        data = self._request_json(endpoint, method="GET")
+        if not isinstance(data, dict):
+            raise RuntimeError(
+                f"Unexpected Gerrit mergeable response type ({type(data).__name__}) for CL "
+                f"'{change_id}' on '{self.host}'. Verify that the CL is open and retry."
+            )
+        return {
+            **data,
+            "mergeable": bool(data.get("mergeable", True)),
+            "conflicts": list(data.get("conflicts") or []),
+            "contains_git_conflicts": bool(data.get("contains_git_conflicts", False)),
+            "strategy": str(data.get("strategy") or ""),
+            "submit_type": str(data.get("submit_type") or ""),
+        }
+
+    def get_included_in(
+        self,
+        change_id: str | int,
+    ) -> dict[str, Any]:
+        """Retrieves the branches and tags in which a change is included via `GET /changes/{id}/in`."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        endpoint = f"/changes/{encoded_id}/in"
+        res = self._request_json(endpoint, method="GET")
+        if not isinstance(res, dict):
+            return {"branches": [], "tags": [], "external": {}}
+        return {
+            "branches": list(res.get("branches") or []),
+            "tags": list(res.get("tags") or []),
+            "external": dict(res.get("external") or {}),
+        }
+
+    def get_change_edit(
+        self,
+        change_id: str | int,
+    ) -> dict[str, Any] | None:
+        """Retrieves active change edit details via `GET /changes/{id}/edit`, or None if no edit exists."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        endpoint = f"/changes/{encoded_id}/edit"
+        try:
+            res = self._request_json(endpoint, method="GET")
+            return res if isinstance(res, dict) and res else None
+        except Exception:
+            return None
+
+    def save_change_edit_file(
+        self,
+        change_id: str | int,
+        file_path: str,
+        content: str | bytes,
+    ) -> dict[str, Any]:
+        """Saves file content to a change edit via `PUT /changes/{id}/edit/{file_path}`."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        encoded_file = urllib.parse.quote(file_path.strip(), safe="")
+        endpoint = f"/a/changes/{encoded_id}/edit/{encoded_file}"
+        if isinstance(content, str):
+            content_bytes = content.encode("utf-8")
+        else:
+            content_bytes = content
+        b64_content = base64.b64encode(content_bytes).decode("ascii")
+        payload = {"binary_content": b64_content}
+        raw_res = self._request_raw(endpoint, method="PUT", data=payload)
+        return {
+            "status": "ok",
+            "change_id": str(change_id),
+            "file_path": file_path,
+            "bytes": len(content_bytes),
+            "response": raw_res,
+        }
+
+    def set_commit_message(
+        self,
+        change_id: str | int,
+        message: str,
+        *,
+        notify: str = "OWNER",
+    ) -> dict[str, Any]:
+        """Modifies the commit message of a change edit via `PUT /changes/{id}/message` with mandatory notify: OWNER."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        endpoint = f"/a/changes/{encoded_id}/message"
+        payload = {"message": message, "notify": notify or "OWNER"}
+        raw_res = self._request_raw(endpoint, method="PUT", data=payload)
+        return {
+            "status": "ok",
+            "change_id": str(change_id),
+            "message": message,
+            "bytes": len(message.encode("utf-8")),
+            "notify": notify or "OWNER",
+            "response": raw_res,
+        }
+
+    def publish_change_edit(
+        self,
+        change_id: str | int,
+        *,
+        notify: str = "OWNER",
+    ) -> dict[str, Any]:
+        """Publishes the change edit as a new patchset via `POST /changes/{id}/edit:publish` with mandatory notify: OWNER."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        endpoint = f"/a/changes/{encoded_id}/edit:publish"
+        payload = {"notify": notify or "OWNER"}
+        raw_res = self._request_raw(endpoint, method="POST", data=payload)
+        return {
+            "status": "ok",
+            "change_id": str(change_id),
+            "action": "publish_edit",
+            "notify": notify or "OWNER",
+            "response": raw_res,
+        }
+
+    def discard_change_edit(
+        self,
+        change_id: str | int,
+    ) -> dict[str, Any]:
+        """Discards the active change edit via `DELETE /changes/{id}/edit`."""
+        encoded_id = urllib.parse.quote(str(change_id).strip(), safe="")
+        endpoint = f"/a/changes/{encoded_id}/edit"
+        raw_res = self._request_raw(endpoint, method="DELETE")
+        return {
+            "status": "ok",
+            "change_id": str(change_id),
+            "action": "discard_edit",
+            "response": raw_res,
+        }
 
     def get_comment_threads(
         self,
@@ -795,26 +1104,28 @@ class GerritClient:
         @return Dictionary containing `status` (`'new_comments'`, `'approved'`, `'presubmit_failed'`, `'ai_review_clean'`, or `'timeout'`), `new_threads`, and `detail`.
         """
         known = set(known_comment_ids or set())
-        start_ts = clock_fn()
-        deadline = start_ts + max(0.0, timeout.total_seconds())
+        timeout_sec = max(0.0, timeout.total_seconds())
         interval_sec = max(1.0, poll_interval.total_seconds())
 
         last_detail: dict[str, Any] = {}
-        while True:
+        last_unresolved: list[GerritCommentThread] = []
+
+        def _check_review_state() -> dict[str, Any] | None:
+            nonlocal last_detail, last_unresolved
             last_detail = self.get_change_detail(change_id)
-            unresolved_threads = self.get_comment_threads(
+            last_unresolved = self.get_comment_threads(
                 change_id, include_resolved=False
             )
             new_threads = [
                 t
-                for t in unresolved_threads
+                for t in last_unresolved
                 if t.leaf_id not in known and t.root_id not in known
             ]
             if new_threads:
                 return {
                     "status": "new_comments",
                     "new_threads": new_threads,
-                    "unresolved_threads": unresolved_threads,
+                    "unresolved_threads": last_unresolved,
                     "detail": last_detail,
                 }
 
@@ -824,7 +1135,7 @@ class GerritClient:
                 return {
                     "status": "presubmit_failed",
                     "new_threads": [],
-                    "unresolved_threads": unresolved_threads,
+                    "unresolved_threads": last_unresolved,
                     "detail": last_detail,
                 }
 
@@ -834,7 +1145,7 @@ class GerritClient:
             cr_score = _extract_label_score(labels.get("Code-Review"))
             if (
                 cr_score >= 2
-                and not unresolved_threads
+                and not last_unresolved
                 and (not require_presubmit or pv_score >= 1)
                 and (not wait_for_ai or wait_for_approval or ai_done)
             ):
@@ -846,27 +1157,97 @@ class GerritClient:
                 }
 
             if wait_for_ai and not wait_for_approval:
-                if ai_done and not unresolved_threads:
+                if ai_done and not last_unresolved:
                     return {
                         "status": "ai_review_clean",
                         "new_threads": [],
                         "unresolved_threads": [],
                         "detail": last_detail,
                     }
+            return None
 
-            now = clock_fn()
-            if now >= deadline:
+        outcome = poll_until(
+            _check_review_state,
+            timeout_sec=timeout_sec,
+            interval_sec=interval_sec,
+            sleep_fn=sleep_fn,
+            clock_fn=clock_fn,
+        )
+        if outcome.succeeded and outcome.value is not None:
+            return outcome.value
+        return {
+            "status": "timeout",
+            "new_threads": [],
+            "unresolved_threads": last_unresolved,
+            "detail": last_detail,
+        }
+
+    def wait_for_presubmit_verified(
+        self,
+        change_id: str,
+        *,
+        required_score: int = 2,
+        timeout: timedelta = timedelta(minutes=30),
+        poll_interval: timedelta = timedelta(seconds=20),
+        sleep_fn: Callable[[float], None] = time.sleep,
+        clock_fn: Callable[[], float] = time.monotonic,
+    ) -> dict[str, Any]:
+        """Polls Gerrit until `Presubmit-Verified` reaches `required_score` (default `+2`).
+
+        @param change_id Gerrit CL number or Change-Id.
+        @param required_score Minimum positive Presubmit-Verified score required (default: 2).
+        @param timeout Maximum duration to poll before returning `status='timeout'`.
+        @param poll_interval Interval between Gerrit REST API polls.
+        @param sleep_fn Injectable sleep callable for deterministic testing.
+        @param clock_fn Injectable monotonic clock callable for deterministic testing.
+        @return Dictionary containing `status` (`'verified'`, `'presubmit_failed'`, or `'timeout'`), `presubmit_score`, `polls`, and `detail`.
+        """
+        timeout_sec = max(0.0, timeout.total_seconds())
+        interval_sec = max(1.0, poll_interval.total_seconds())
+        polls = 0
+        last_detail: dict[str, Any] = {}
+        last_pv_score = 0
+
+        def _check_presubmit() -> dict[str, Any] | None:
+            nonlocal polls, last_detail, last_pv_score
+            polls += 1
+            last_detail = self.get_change_detail(change_id)
+            labels = last_detail.get("labels") or {}
+            last_pv_score = extract_label_score(labels.get("Presubmit-Verified"))
+            if last_pv_score >= required_score:
                 return {
-                    "status": "timeout",
-                    "new_threads": [],
-                    "unresolved_threads": unresolved_threads,
+                    "status": "verified",
+                    "presubmit_score": last_pv_score,
+                    "polls": polls,
                     "detail": last_detail,
                 }
+            if last_pv_score < 0:
+                return {
+                    "status": "presubmit_failed",
+                    "presubmit_score": last_pv_score,
+                    "polls": polls,
+                    "detail": last_detail,
+                }
+            return None
 
-            sleep_fn(min(interval_sec, max(0.0, deadline - now)))
+        outcome = poll_until(
+            _check_presubmit,
+            timeout_sec=timeout_sec,
+            interval_sec=interval_sec,
+            sleep_fn=sleep_fn,
+            clock_fn=clock_fn,
+        )
+        if outcome.succeeded and outcome.value is not None:
+            return outcome.value
+        return {
+            "status": "timeout",
+            "presubmit_score": last_pv_score,
+            "polls": outcome.attempts,
+            "detail": last_detail,
+        }
 
 
-def _extract_label_score(label_info: dict[str, Any] | None) -> int:
+def extract_label_score(label_info: dict[str, Any] | None) -> int:
     """Extracts the effective integer score (-2..+2) from a Gerrit DetailedLabelInfo dict."""
     if not isinstance(label_info, dict):
         return 0
@@ -886,6 +1267,9 @@ def _extract_label_score(label_info: dict[str, Any] | None) -> int:
         if any(v > 0 for v in vals):
             return max(vals)
     return int(label_info.get("value", 0) or 0)
+
+
+_extract_label_score = extract_label_score
 
 
 def _has_ai_review_completed_on_patchset(
@@ -918,6 +1302,24 @@ def _is_ai_comment(raw: dict[str, Any]) -> bool:
     return "groupagent-android-" in name or "[gerrit review agent]" in str(
         raw.get("message", "")
     ).lower()
+
+
+def _is_robot_comment(raw: dict[str, Any]) -> bool:
+    """Returns True if the raw comment originates from a robot/CI linter tool."""
+    if bool(raw.get("is_robot")):
+        return True
+    if bool(raw.get("robot_id")):
+        return True
+    tag = str(raw.get("tag", "")).lower()
+    if "autogenerated~" in tag or "robot" in tag or "presubmit" in tag:
+        return True
+    author = raw.get("author") or {}
+    name = str(author.get("name", "")).lower()
+    email = str(author.get("email", "")).lower()
+    for tok in ("robot", "treehugger", "automerger", "-presubmit", "crystalball", "tricorder", "clang-tidy"):
+        if tok in name or tok in email:
+            return True
+    return bool(raw.get("fix_suggestions"))
 
 
 def _build_threads_for_file(
@@ -985,10 +1387,29 @@ def _build_threads_for_file(
 
         msg_items: list[GerritCommentMessage] = []
         any_ai = False
+        any_robot = False
+        root_robot_id = str(root_obj.get("robot_id") or leaf_obj.get("robot_id") or "")
+        root_robot_run = str(root_obj.get("robot_run_id") or leaf_obj.get("robot_run_id") or "")
+        root_url = str(root_obj.get("url") or leaf_obj.get("url") or "")
+        root_fix_suggestions = root_obj.get("fix_suggestions") or leaf_obj.get("fix_suggestions") or []
         for item in chain_objs:
             author = item.get("author") or {}
             item_ai = _is_ai_comment(item)
+            item_robot = _is_robot_comment(item)
             any_ai = any_ai or item_ai
+            any_robot = any_robot or item_robot
+            item_robot_id = str(item.get("robot_id") or "")
+            item_robot_run_id = str(item.get("robot_run_id") or "")
+            item_url = str(item.get("url") or "")
+            item_fix_suggs = item.get("fix_suggestions") or []
+            if item_robot and not root_robot_id:
+                root_robot_id = item_robot_id or str(author.get("name") or "Robot")
+            if item_robot and not root_robot_run:
+                root_robot_run = item_robot_run_id
+            if item_robot and not root_url:
+                root_url = item_url
+            if item_fix_suggs and not root_fix_suggestions:
+                root_fix_suggestions = item_fix_suggs
             msg_items.append(
                 GerritCommentMessage(
                     comment_id=str(item.get("id", "")),
@@ -1000,6 +1421,12 @@ def _build_threads_for_file(
                     unresolved=bool(item.get("unresolved", False)),
                     is_ai=item_ai,
                     commit_id=str(item.get("commit_id", "")),
+                    is_robot=item_robot,
+                    robot_id=item_robot_id or (root_robot_id if item_robot else ""),
+                    robot_run_id=item_robot_run_id or (root_robot_run if item_robot else ""),
+                    url=item_url or (root_url if item_robot else ""),
+                    fix_suggestions=item_fix_suggs if isinstance(item_fix_suggs, list) else [],
+                    change_message_id=str(item.get("change_message_id", "") or ""),
                 )
             )
 
@@ -1021,7 +1448,13 @@ def _build_threads_for_file(
                 ),
                 author_email=str(root_author.get("email") or ""),
                 updated=str(leaf_obj.get("updated") or root_obj.get("updated") or ""),
+                is_robot=any_robot,
+                robot_id=root_robot_id or (str(root_author.get("name") or "Robot") if any_robot else ""),
+                robot_run_id=root_robot_run,
+                url=root_url,
+                fix_suggestions=root_fix_suggestions if isinstance(root_fix_suggestions, list) else [],
                 messages=msg_items,
+                change_message_id=str(leaf_obj.get("change_message_id") or root_obj.get("change_message_id") or ""),
             )
         )
 
@@ -1219,6 +1652,8 @@ def fetch_and_checkout_cl(
     change_detail: dict[str, Any],
     repo_path: Path,
     mode: str = "auto",
+    *,
+    git_service: GitService | None = None,
 ) -> dict[str, Any]:
     """Ensures the target CL's latest revision is present in `repo_path`.
 
@@ -1236,22 +1671,10 @@ def fetch_and_checkout_cl(
         shard = str(cl_num)[-2:].zfill(2)
         fetch_ref = f"refs/changes/{shard}/{cl_num}/{rev_obj['_number']}"
 
-    # Check current HEAD commit message for matching Change-Id
+    git = git_service or ProdGitService(default_cwd=repo_path)
     try:
-        head_msg = subprocess.run(
-            ["git", "log", "-1", "--format=%B", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-            cwd=str(repo_path),
-        ).stdout
-        head_sha = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-            cwd=str(repo_path),
-        ).stdout.strip()
+        head_msg = git.commit_message("HEAD", cwd=repo_path)
+        head_sha = git.head_sha(cwd=repo_path, check=True)
         if change_id and change_id in head_msg and mode == "auto":
             return {
                 "status": "success",
@@ -1267,14 +1690,10 @@ def fetch_and_checkout_cl(
     if not fetch_ref:
         raise RuntimeError(f"Could not determine Gerrit fetch ref for CL {cl_num}.")
 
-    remote = _detect_git_remote(repo_path, change_detail.get("project", ""))
-    fetch_res = subprocess.run(
-        ["git", "fetch", remote, fetch_ref],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=str(repo_path),
+    remote = _detect_git_remote(
+        repo_path, change_detail.get("project", ""), git_service=git
     )
+    fetch_res = git.fetch(remote, fetch_ref, cwd=repo_path, check=False)
     if fetch_res.returncode != 0:
         raise RuntimeError(
             f"git fetch {remote} {fetch_ref} failed in '{repo_path}': {fetch_res.stderr.strip()}"
@@ -1282,26 +1701,11 @@ def fetch_and_checkout_cl(
 
     effective_mode = "cherry-pick" if mode in ("auto", "cherry-pick") else "checkout"
     if effective_mode == "cherry-pick":
-        cp_res = subprocess.run(
-            ["git", "cherry-pick", "FETCH_HEAD"],
-            capture_output=True,
-            text=True,
-            check=False,
-            cwd=str(repo_path),
-        )
+        cp_res = git.cherry_pick("FETCH_HEAD", cwd=repo_path, check=False)
         if cp_res.returncode != 0:
-            subprocess.run(
-                ["git", "cherry-pick", "--abort"],
-                capture_output=True,
-                check=False,
-                cwd=str(repo_path),
-            )
-            co_res = subprocess.run(
-                ["git", "checkout", "-B", f"review-{cl_num}", "FETCH_HEAD"],
-                capture_output=True,
-                text=True,
-                check=False,
-                cwd=str(repo_path),
+            git.abort_cherry_pick(cwd=repo_path)
+            co_res = git.checkout_branch(
+                f"review-{cl_num}", "FETCH_HEAD", cwd=repo_path, check=False
             )
             if co_res.returncode != 0:
                 raise RuntimeError(
@@ -1309,25 +1713,15 @@ def fetch_and_checkout_cl(
                 )
             effective_mode = "checkout"
     else:
-        co_res = subprocess.run(
-            ["git", "checkout", "-B", f"review-{cl_num}", "FETCH_HEAD"],
-            capture_output=True,
-            text=True,
-            check=False,
-            cwd=str(repo_path),
+        co_res = git.checkout_branch(
+            f"review-{cl_num}", "FETCH_HEAD", cwd=repo_path, check=False
         )
         if co_res.returncode != 0:
             raise RuntimeError(
                 f"git checkout FETCH_HEAD failed in '{repo_path}': {co_res.stderr.strip()}"
             )
 
-    new_head = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        capture_output=True,
-        text=True,
-        check=True,
-        cwd=str(repo_path),
-    ).stdout.strip()
+    new_head = git.head_sha(cwd=repo_path, check=True)
     return {
         "status": "success",
         "action": effective_mode,
@@ -1338,16 +1732,16 @@ def fetch_and_checkout_cl(
     }
 
 
-def _detect_git_remote(repo_path: Path, project_name: str) -> str:
+def _detect_git_remote(
+    repo_path: Path,
+    project_name: str,
+    *,
+    git_service: GitService | None = None,
+) -> str:
     """Resolves the Git remote name ('goog' or 'origin') or full Gerrit URL for fetching refs."""
+    git = git_service or ProdGitService(default_cwd=repo_path)
     try:
-        remotes = subprocess.run(
-            ["git", "remote"],
-            capture_output=True,
-            text=True,
-            check=True,
-            cwd=str(repo_path),
-        ).stdout.splitlines()
+        remotes = git.remotes(cwd=repo_path)
         for preferred in ("goog", "aosp", "origin"):
             if preferred in remotes:
                 return preferred
@@ -1361,27 +1755,21 @@ def _detect_git_remote(repo_path: Path, project_name: str) -> str:
 def upload_cl(
     repo_path: Path,
     presubmit: bool = True,
+    *,
+    git_service: GitService | None = None,
+    process_runner: ProcessRunner | None = None,
 ) -> dict[str, Any]:
     """Configures `push.negotiate=false` and uploads the current branch via `repo upload`."""
-    subprocess.run(
-        ["git", "config", "push.negotiate", "false"],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=str(repo_path),
+    git = git_service or ProdGitService(process_runner, default_cwd=repo_path)
+    runner = process_runner or (
+        git.process_runner if isinstance(git, ProdGitService) else SubprocessRunner()
     )
+    git.set_config("push.negotiate", "false", cwd=repo_path, check=False)
     cmd = ["repo", "upload", ".", "--cbr", "-y", "-o", "nokeycheck", "-o", "notify=OWNER"]
     if presubmit:
         cmd.extend(["--label", "Presubmit-Ready+1"])
 
-    res = subprocess.run(
-        cmd,
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=str(repo_path),
-    )
+    res = runner.run(cmd, check=False, cwd=str(repo_path))
     combined = (res.stdout or "") + "\n" + (res.stderr or "")
     if res.returncode != 0:
         upstream_match = re.search(
@@ -1389,33 +1777,16 @@ def upload_cl(
         )
         if upstream_match:
             upstream_ref = upstream_match.group(1).strip()
-            subprocess.run(
-                ["git", "branch", "--set-upstream-to", upstream_ref],
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
+            git.run_git(
+                ["branch", "--set-upstream-to", upstream_ref],
+                cwd=repo_path,
                 check=False,
-                cwd=str(repo_path),
             )
-            res = subprocess.run(
-                cmd,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                check=False,
-                cwd=str(repo_path),
-            )
+            res = runner.run(cmd, check=False, cwd=str(repo_path))
             combined = (res.stdout or "") + "\n" + (res.stderr or "")
 
     if res.returncode != 0 and "--no-verify" in combined and "--no-verify" not in cmd:
-        res = subprocess.run(
-            [*cmd, "--no-verify"],
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            check=False,
-            cwd=str(repo_path),
-        )
+        res = runner.run([*cmd, "--no-verify"], check=False, cwd=str(repo_path))
         combined = (res.stdout or "") + "\n" + (res.stderr or "")
 
     if res.returncode != 0:

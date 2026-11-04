@@ -22,6 +22,7 @@ from pathlib import Path
 import sys
 
 from commands.source_directory import get_source_directory
+from core.command import CommandResult, META_KEY_ALREADY_RENDERED
 from lib.agent_dispatcher import AgentDispatcher
 from lib.bazel import BazelRunner
 from lib.compiler_oracle import CompilerOracle
@@ -30,7 +31,11 @@ from lib.level1_engine import Level1RefactoringEngine
 from lib.output import print_result, print_status
 from lib.target_resolver import resolve_dependent_targets, resolve_report_targets
 import lib.tidy_engine
-from lib.tidy_engine import GitNativeRefactoringEngine, finalize_transaction
+from lib.tidy_engine import (
+    GitNativeRefactoringEngine,
+    RefactoringConfig,
+    finalize_transaction,
+)
 import lib.tidy_runner
 from lib.tidy_parser import normalize_tidy_level
 
@@ -38,14 +43,15 @@ logger = logging.getLogger(__name__)
 
 
 def _run_tidy_fix_single_level(
-    args: argparse.Namespace, emit_json_result: bool = True
-) -> None:
+    args: argparse.Namespace | RefactoringConfig, emit_json_result: bool = True
+) -> CommandResult:
     """Runs closed-loop automated remediation supporting Level 1 and Levels 2-4 transactions."""
-    json_mode = getattr(args, "json", False)
+    cfg = RefactoringConfig.from_namespace(args, emit_json_result=emit_json_result)
+    json_mode = cfg.json_mode
     source_dir = get_source_directory("emu-main-next") or os.getcwd()
-    target = getattr(args, "target_flag", None) or getattr(args, "target", None)
-    level = normalize_tidy_level(getattr(args, "level", 1))
-    continue_tx = getattr(args, "continue_tx", False)
+    target = cfg.target or None
+    level = normalize_tidy_level(cfg.level)
+    continue_tx = cfg.continue_tx
 
     # 1. Handle --abort
     if getattr(args, "abort", False):
@@ -53,7 +59,7 @@ def _run_tidy_fix_single_level(
         active = tx.get_active_transaction(workspace_root=Path(source_dir))
         if not active:
             if json_mode:
-                print_result(
+                return print_result(
                     {
                         "status": "success",
                         "action": "tidy fix --abort",
@@ -62,16 +68,18 @@ def _run_tidy_fix_single_level(
                     },
                     json_mode=True,
                 )
-            else:
-                print("No active transaction found to abort.")
-            sys.exit(0)
+            print("No active transaction found to abort.")
+            return CommandResult.success(
+                action="tidy fix --abort",
+                metadata={META_KEY_ALREADY_RENDERED: True},
+            )
         print_status(
             f"Aborting transaction for {active.target} and rolling back to anchor {active.anchor_commit[:8]}...",
             json_mode=json_mode,
         )
         tx.abort_transaction(anchor_commit=active.anchor_commit)
         if json_mode:
-            print_result(
+            return print_result(
                 {
                     "status": "success",
                     "action": "tidy fix --abort",
@@ -81,11 +89,13 @@ def _run_tidy_fix_single_level(
                 },
                 json_mode=True,
             )
-        else:
-            print(
-                "✅ Successfully aborted transaction. Working tree restored to clean baseline."
-            )
-        sys.exit(0)
+        print(
+            "✅ Successfully aborted transaction. Working tree restored to clean baseline."
+        )
+        return CommandResult.success(
+            action="tidy fix --abort",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     # 2. Handle --continue
     if continue_tx:
@@ -93,7 +103,7 @@ def _run_tidy_fix_single_level(
         active = tx.get_active_transaction(workspace_root=Path(source_dir))
         if not active:
             if json_mode:
-                print_result(
+                return print_result(
                     {
                         "status": "error",
                         "action": "tidy fix --continue",
@@ -102,12 +112,15 @@ def _run_tidy_fix_single_level(
                     json_mode=True,
                     is_error=True,
                 )
-            else:
-                print(
-                    "Error: No active transaction found in Git trailers to continue.",
-                    file=sys.stderr,
-                )
-            sys.exit(1)
+            print(
+                "Error: No active transaction found in Git trailers to continue.",
+                file=sys.stderr,
+            )
+            return CommandResult.failure(
+                "No active transaction found in Git trailers to continue.",
+                action="tidy fix --continue",
+                metadata={META_KEY_ALREADY_RENDERED: True},
+            )
         print_status(
             f"Resuming transaction for target {active.target} at Level {active.level} (Anchor: {active.anchor_commit[:8]})...",
             json_mode=json_mode,
@@ -120,7 +133,7 @@ def _run_tidy_fix_single_level(
     else:
         if not target:
             if json_mode:
-                print_result(
+                return print_result(
                     {
                         "status": "error",
                         "action": "tidy fix",
@@ -129,44 +142,49 @@ def _run_tidy_fix_single_level(
                     json_mode=True,
                     is_error=True,
                 )
-            else:
-                print(
-                    "Error: Target is required unless using --continue, --abort, or --status.",
-                    file=sys.stderr,
-                )
-            sys.exit(1)
+            print(
+                "Error: Target is required unless using --continue, --abort, or --status.",
+                file=sys.stderr,
+            )
+            return CommandResult.failure(
+                "Target is required unless using --continue, --abort, or --status.",
+                action="tidy fix",
+                metadata={META_KEY_ALREADY_RENDERED: True},
+            )
         tx = GitTransactionContext(workspace_root=Path(source_dir), target=target)
 
-    test_target = getattr(args, "test", None)
-    model = getattr(args, "model", "auto")
-    dry_run = getattr(args, "dry_run", False)
-    force = getattr(args, "force", False)
-    upload = getattr(args, "upload", False)
-    bug_id = getattr(args, "bug", None)
-    checks = getattr(args, "checks", None)
+    test_target = cfg.test_target
+    model = cfg.model
+    dry_run = cfg.dry_run
+    force = cfg.force
+    upload = cfg.upload
+    bug_id = cfg.bug_id
+    checks = cfg.checks
 
     runner = BazelRunner(source_dir=source_dir)
     oracle = CompilerOracle(runner=runner)
     dispatcher = AgentDispatcher()
     report_targets = resolve_report_targets(runner, target)
     if not report_targets:
-        if json_mode:
-            print_result(
-                {
-                    "status": "error",
-                    "action": "tidy fix",
-                    "target": target,
-                    "message": f"Could not resolve any actionable tidy targets for pattern '{target}'.",
-                },
-                json_mode=True,
-                is_error=True,
-            )
-        else:
-            print(
-                f"Error: Could not resolve any actionable tidy targets for pattern '{target}'."
-            )
-        return
+        msg = f"Could not resolve any actionable tidy targets for pattern '{target}'."
+        return print_result(
+            {
+                "status": "error",
+                "action": "tidy fix",
+                "summary": msg,
+                "target": target,
+                "message": msg,
+                "exit_code": 1,
+            },
+            json_mode=json_mode,
+            is_error=True,
+        )
     report_target = report_targets[0]
+    cfg = cfg.with_updates(
+        target=target,
+        report_target=report_target,
+        level=level,
+    )
 
     # =========================================================================
     # LEVEL 1: Deterministic Native AST Fixes
@@ -187,7 +205,7 @@ def _run_tidy_fix_single_level(
             upload=upload,
         )
         if json_mode and emit_json_result:
-            print_result(
+            return print_result(
                 {
                     "status": "success",
                     "action": "tidy fix",
@@ -197,7 +215,10 @@ def _run_tidy_fix_single_level(
                 },
                 json_mode=True,
             )
-        return
+        return CommandResult.success(
+            action="tidy fix",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     # =========================================================================
     # LEVELS 2-4: Compiler-Guided Git-Native Transaction Loop
@@ -214,7 +235,7 @@ def _run_tidy_fix_single_level(
     yaml_file = lib.tidy_engine._find_yaml_file(runner, report_target, source_dir)
     if not yaml_file or not yaml_file.exists():
         if json_mode and emit_json_result:
-            print_result(
+            return print_result(
                 {
                     "status": "success",
                     "action": "tidy fix",
@@ -226,7 +247,10 @@ def _run_tidy_fix_single_level(
             )
         elif not json_mode:
             print("✨ Target is clean! Zero diagnostics found.")
-        return
+        return CommandResult.success(
+            action="tidy fix",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     diagnostics = lib.tidy_runner.parse_fixes_yaml(str(yaml_file))
     active_diags = lib.tidy_runner.filter_diagnostics_by_level(
@@ -241,7 +265,7 @@ def _run_tidy_fix_single_level(
 
     if not level_diags:
         if json_mode and emit_json_result:
-            print_result(
+            return print_result(
                 {
                     "status": "success",
                     "action": "tidy fix",
@@ -255,7 +279,10 @@ def _run_tidy_fix_single_level(
             print(
                 f"✨ Target {target} is clean for Level {level} (0 actionable diagnostics)."
             )
-        return
+        return CommandResult.success(
+            action="tidy fix",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     print_status(
         f"Found {len(level_diags)} Level {level} diagnostics to refactor.",
@@ -270,7 +297,7 @@ def _run_tidy_fix_single_level(
                 symbols.append(
                     {"old": o_sym, "new": n_sym, "file": d.file_path, "line": d.line}
                 )
-            print_result(
+            return print_result(
                 {
                     "status": "success",
                     "action": "tidy fix",
@@ -288,7 +315,10 @@ def _run_tidy_fix_single_level(
             for d in level_diags:
                 o_sym, n_sym = lib.tidy_engine._extract_rename_symbols(d)
                 print(f"  • '{o_sym}' -> '{n_sym}' ({d.file_path}:{d.line})")
-        return
+        return CommandResult.success(
+            action="tidy fix",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     if not continue_tx:
         anchor = tx.start_transaction(target=target, level=level, force=force)
@@ -315,7 +345,7 @@ def _run_tidy_fix_single_level(
 
     finalize_transaction(tx, target, level, bug_id, test_target, upload, checks)
     if json_mode and emit_json_result:
-        print_result(
+        return print_result(
             {
                 "status": "success",
                 "action": "tidy fix",
@@ -325,9 +355,13 @@ def _run_tidy_fix_single_level(
             },
             json_mode=True,
         )
+    return CommandResult.success(
+        action="tidy fix",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
-def handle_tidy_fix(args: argparse.Namespace) -> None:
+def handle_tidy_fix(args: argparse.Namespace) -> CommandResult:
     """Runs automated remediation sequentially from Level 1 up to the requested level."""
     is_json = getattr(args, "json", False)
     if getattr(args, "status", False):
@@ -373,19 +407,24 @@ def handle_tidy_fix(args: argparse.Namespace) -> None:
                 print(f"  • Status:        {active.status}")
             else:
                 print("ℹ️ No active tidy refactoring transaction found in Git history.")
-        return
+        return CommandResult.success(
+            action="tidy fix --status",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     if getattr(args, "abort", False):
-        _run_tidy_fix_single_level(args, emit_json_result=True)
-        return
+        return _run_tidy_fix_single_level(args, emit_json_result=True)
 
     if getattr(args, "continue_tx", False):
-        _run_tidy_fix_single_level(args, emit_json_result=True)
-        return
+        return _run_tidy_fix_single_level(args, emit_json_result=True)
 
     target_level = normalize_tidy_level(getattr(args, "level", 1))
 
     # Sequentially execute levels
+    last_result = CommandResult.success(
+        action="tidy fix",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
     for lvl in range(1, target_level + 1):
         print_status(
             f"\n=======================================================\n"
@@ -394,4 +433,9 @@ def handle_tidy_fix(args: argparse.Namespace) -> None:
             json_mode=is_json,
         )
         args.level = lvl
-        _run_tidy_fix_single_level(args, emit_json_result=(lvl == target_level))
+        last_result = _run_tidy_fix_single_level(
+            args, emit_json_result=(lvl == target_level)
+        )
+        if not last_result.ok:
+            return last_result
+    return last_result

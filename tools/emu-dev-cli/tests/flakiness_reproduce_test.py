@@ -15,10 +15,9 @@
 """Unit tests for 'emu-dev-cli flakiness reproduce'."""
 
 import argparse
-import subprocess
 import unittest
-from unittest.mock import MagicMock, patch
 from commands import flakiness
+from core.context import ExecutionContext
 
 
 class FlakinessReproduceTest(unittest.TestCase):
@@ -28,17 +27,12 @@ class FlakinessReproduceTest(unittest.TestCase):
         self.parser.add_argument("--json", action="store_true")
         subparsers = self.parser.add_subparsers(dest="subcommand")
         flakiness.register_parser(subparsers)
+        self.ctx = ExecutionContext.for_testing()
 
-    @patch("subprocess.run")
-    @patch("commands.flakiness.reproduce.print_result")
-    def test_handle_flakiness_reproduce_passed(
-        self, mock_print_result, mock_run
-    ):
-        mock_proc = MagicMock()
-        mock_proc.returncode = 0
-        mock_proc.stdout = "PASSED in 0.5s"
-        mock_run.return_value = mock_proc
-
+    def test_handle_flakiness_reproduce_passed(self):
+        self.ctx.fake_process_runner.queue_response(
+            returncode=0, stdout="PASSED in 0.5s"
+        )
         args = self.parser.parse_args(
             [
                 "flakiness",
@@ -51,23 +45,17 @@ class FlakinessReproduceTest(unittest.TestCase):
                 "10",
             ]
         )
-        flakiness.handle_flakiness_reproduce(args)
-        mock_run.assert_called_once()
-        mock_print_result.assert_called_once()
-        data = mock_print_result.call_args[0][0]
+        cmd = flakiness.FlakinessReproduceCommand()
+        res = cmd.execute(args, self.ctx)
+        self.assertTrue(res.ok)
+        data = res.data
         self.assertTrue(data["success"])
         self.assertEqual(data["status"], "PASSED (No Flake Observed)")
 
-    @patch("subprocess.run")
-    @patch("commands.flakiness.reproduce.print_result")
-    def test_handle_flakiness_reproduce_failed(
-        self, mock_print_result, mock_run
-    ):
-        mock_proc = MagicMock()
-        mock_proc.returncode = 1
-        mock_proc.stdout = "FAILED (TSAN race detected)"
-        mock_run.return_value = mock_proc
-
+    def test_handle_flakiness_reproduce_failed(self):
+        self.ctx.fake_process_runner.queue_response(
+            returncode=1, stdout="FAILED (TSAN race detected)"
+        )
         args = self.parser.parse_args(
             [
                 "flakiness",
@@ -80,10 +68,10 @@ class FlakinessReproduceTest(unittest.TestCase):
                 "20",
             ]
         )
-        flakiness.handle_flakiness_reproduce(args)
-        mock_run.assert_called_once()
-        mock_print_result.assert_called_once()
-        data = mock_print_result.call_args[0][0]
+        cmd = flakiness.FlakinessReproduceCommand()
+        res = cmd.execute(args, self.ctx)
+        self.assertFalse(res.ok)
+        data = res.data
         self.assertFalse(data["success"])
         self.assertEqual(data["status"], "FAILED (Flake Reproduced)")
 

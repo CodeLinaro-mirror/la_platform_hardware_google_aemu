@@ -16,7 +16,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AudioClient, SampleFormat } from '../src/core/audio';
 import {
   AudioChunk,
+  AudioState,
+  MicrophoneInput_Kind,
   StreamSpeakerAudioRequest,
+  UpdateAudioStateRequest,
 } from '@android/emulator-services/audio_service';
 import { FakeTransport } from './fake_transport';
 
@@ -119,6 +122,58 @@ describe('AudioClient', () => {
     unsubscribe();
 
     expect(transport.streamCalls[0].signal?.aborted).toBe(true);
+  });
+
+  it('updates and observes AudioState over unary and streaming RPCs', async () => {
+    transport.respondWith(
+      AudioState.encode(
+        AudioState.fromPartial({
+          microphoneMuted: true,
+          microphoneInputs: [
+            {
+              sourceId: 'host',
+              kind: MicrophoneInput_Kind.HOST,
+              muted: true,
+              gain: 1.0,
+            },
+          ],
+        })
+      ).finish()
+    );
+
+    const updated = await client.UpdateAudioState({ microphoneMuted: true });
+
+    expect(transport.calls).toHaveLength(1);
+    expect(transport.calls[0].service).toBe(SERVICE);
+    expect(transport.calls[0].method).toBe('UpdateAudioState');
+    const sent = UpdateAudioStateRequest.decode(transport.calls[0].data);
+    expect(sent.microphoneMuted).toBe(true);
+    expect(updated.microphoneMuted).toBe(true);
+    expect(updated.microphoneInputs).toHaveLength(1);
+    expect(updated.microphoneInputs[0].sourceId).toBe('host');
+  });
+
+  // The host machine's microphone is the "host" mixer input: it is muted and
+  // unmuted through `microphone_inputs`, like any other input.
+  it('sends per-input mute and gain updates keyed by source_id', async () => {
+    transport.respondWith(AudioState.encode(AudioState.fromPartial({})).finish());
+
+    await client.UpdateAudioState({
+      microphoneInputs: [
+        { sourceId: 'host', muted: false },
+        { sourceId: '测试_🚀_é', gain: 0.5 },
+      ],
+    });
+
+    const sent = UpdateAudioStateRequest.decode(transport.calls[0].data);
+    expect(sent.microphoneMuted).toBeUndefined();
+    expect(sent.microphoneInputs).toHaveLength(2);
+    expect(sent.microphoneInputs[0].sourceId).toBe('host');
+    expect(sent.microphoneInputs[0].muted).toBe(false);
+    expect(sent.microphoneInputs[0].gain).toBeUndefined();
+    expect(sent.microphoneInputs[1].sourceId).toBe('测试_🚀_é');
+    expect(sent.microphoneInputs[1].gain).toBe(0.5);
+    expect(sent.microphoneInputs[1].muted).toBeUndefined();
   });
 });
 

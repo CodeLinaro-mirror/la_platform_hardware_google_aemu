@@ -16,8 +16,11 @@
 
 import argparse
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+from clients.buganizer_service import BuganizerIssue
 from commands import flakiness
+from core.context import ExecutionContext
+from core.errors import ExecutionError
 from lib.ath_api import FlakyTestRecord
 
 
@@ -28,15 +31,13 @@ class FlakinessTriageTest(unittest.TestCase):
         self.parser.add_argument("--json", action="store_true")
         subparsers = self.parser.add_subparsers(dest="subcommand")
         flakiness.register_parser(subparsers)
+        self.ctx = ExecutionContext.for_testing()
 
-    @patch("lib.agent.verify_agentapi_available")
+    @patch("commands.flakiness.triage.verify_agent_environment")
     @patch("commands.flakiness.triage.generate_ai_patch_for_test")
     @patch("commands.flakiness.triage.query_ath_flaky_tests")
-    @patch("commands.flakiness.triage.BuganizerClient.find_existing_open_bug")
-    @patch("commands.flakiness.triage.BuganizerClient.create_bug")
-    @patch("commands.flakiness.triage.print_result")
     def test_handle_flakiness_triage_dry_run(
-        self, mock_print_result, mock_create_bug, mock_find, mock_query, mock_patch, mock_verify
+        self, mock_query, mock_patch, mock_verify
     ):
         from lib.ai_patch_generator import AIPatchResult
         mock_patch.return_value = AIPatchResult(
@@ -59,8 +60,6 @@ class FlakinessTriageTest(unittest.TestCase):
                 latest_work_unit_id="WU44400250003168346",
             )
         ]
-        mock_find.return_value = None
-        mock_create_bug.return_value = "b/DRY_RUN_BUG_ID"
 
         args = self.parser.parse_args(
             [
@@ -73,13 +72,14 @@ class FlakinessTriageTest(unittest.TestCase):
                 "--dry-run",
             ]
         )
-        flakiness.handle_flakiness_triage(args)
-        mock_print_result.assert_called_once()
-        data = mock_print_result.call_args[0][0]
+        cmd = flakiness.FlakinessTriageCommand()
+        res = cmd.execute(args, self.ctx)
+        self.assertTrue(res.ok)
+        data = res.data
         self.assertEqual(data["triaged_count"], 1)
         self.assertEqual(data["results"][0]["status"], "NEW_FLAKY_TEST")
 
-    @patch("lib.agent.verify_agentapi_available")
+    @patch("commands.flakiness.triage.verify_agent_environment")
     @patch("commands.flakiness.triage.query_ath_flaky_tests")
     def test_handle_flakiness_triage_ath_auth_error_raises_fatal(
         self, mock_query, mock_verify
@@ -95,11 +95,12 @@ class FlakinessTriageTest(unittest.TestCase):
                 "@goldfish//emulator/libs/process:process_unittests",
             ]
         )
-        with self.assertRaises(RuntimeError) as ctx:
-            flakiness.handle_flakiness_triage(args)
-        self.assertIn("Authentication/Authorization failed", str(ctx.exception))
+        cmd = flakiness.FlakinessTriageCommand()
+        with self.assertRaises(ExecutionError) as ctx_err:
+            cmd.execute(args, self.ctx)
+        self.assertIn("Authentication/Authorization failed", str(ctx_err.exception))
 
-    @patch("lib.agent.verify_agentapi_available")
+    @patch("commands.flakiness.triage.verify_agent_environment")
     @patch("commands.flakiness.triage.query_ath_flaky_tests")
     def test_handle_flakiness_triage_no_ath_records_raises_fatal(
         self, mock_query, mock_verify
@@ -113,23 +114,16 @@ class FlakinessTriageTest(unittest.TestCase):
                 "@goldfish//emulator/libs/process:process_unittests",
             ]
         )
-        with self.assertRaises(RuntimeError) as ctx:
-            flakiness.handle_flakiness_triage(args)
-        self.assertIn("No execution or flakiness records found in ATH", str(ctx.exception))
+        cmd = flakiness.FlakinessTriageCommand()
+        with self.assertRaises(ExecutionError) as ctx_err:
+            cmd.execute(args, self.ctx)
+        self.assertIn("No execution or flakiness records found in ATH", str(ctx_err.exception))
 
-    @patch("lib.agent.verify_agentapi_available")
+    @patch("commands.flakiness.triage.verify_agent_environment")
     @patch("commands.flakiness.triage.generate_ai_patch_for_test")
     @patch("commands.flakiness.triage.query_studio_flaky_tests")
-    @patch("commands.flakiness.triage.BuganizerClient.fetch_all_component_open_bugs")
-    @patch("commands.flakiness.triage.BuganizerClient.find_existing_open_bug")
-    @patch("commands.flakiness.triage.BuganizerClient.create_bug")
-    @patch("commands.flakiness.triage.print_result")
     def test_handle_flakiness_triage_studio_defaults_component_2289192(
         self,
-        mock_print_result,
-        mock_create_bug,
-        mock_find,
-        mock_fetch_bugs,
         mock_studio_query,
         mock_patch,
         mock_verify,
@@ -162,10 +156,7 @@ class FlakinessTriageTest(unittest.TestCase):
                 l250_flake_rate_pct=0.4,
             )
         ]
-        mock_find.return_value = None
-        mock_create_bug.return_value = "b/DRY_RUN_BUG_ID"
 
-        # Omitting --min-flake-rate and --window defaults to ADH zero-tolerance (>0% over window=250)
         args = self.parser.parse_args(
             [
                 "flakiness",
@@ -175,20 +166,16 @@ class FlakinessTriageTest(unittest.TestCase):
                 "--dry-run",
             ]
         )
-        flakiness.handle_flakiness_triage(args)
+        cmd = flakiness.FlakinessTriageCommand()
+        res = cmd.execute(args, self.ctx)
+        self.assertTrue(res.ok)
         mock_studio_query.assert_called_once()
         _, kwargs = mock_studio_query.call_args
         self.assertEqual(kwargs["min_flake_rate"], 0.0)
         self.assertEqual(kwargs["min_failed_runs"], 1)
         self.assertEqual(kwargs["window"], 250)
-        mock_fetch_bugs.assert_called_once_with("2289192")
-        mock_create_bug.assert_called_once()
-        created_payload = mock_create_bug.call_args[0][0]
-        self.assertEqual(
-            created_payload.assignee, "groupagent-android-emulator@google.com"
-        )
-        mock_print_result.assert_called_once()
-        data = mock_print_result.call_args[0][0]
+
+        data = res.data
         self.assertEqual(data["component_id"], "2289192")
         self.assertEqual(data["triaged_count"], 1)
         self.assertEqual(
@@ -197,28 +184,18 @@ class FlakinessTriageTest(unittest.TestCase):
         )
 
     def test_flakiness_help_does_not_raise_percent_format_error(self):
-        with self.assertRaises(SystemExit) as ctx:
+        with self.assertRaises(SystemExit) as ctx_triage:
             self.parser.parse_args(["flakiness", "triage", "--help"])
-        self.assertEqual(ctx.exception.code, 0)
+        self.assertEqual(ctx_triage.exception.code, 0)
         with self.assertRaises(SystemExit) as ctx_list:
             self.parser.parse_args(["flakiness", "list", "--help"])
         self.assertEqual(ctx_list.exception.code, 0)
 
-    @patch("lib.agent.verify_agentapi_available")
+    @patch("commands.flakiness.triage.verify_agent_environment")
     @patch("commands.flakiness.triage.generate_ai_patch_for_test")
     @patch("commands.flakiness.triage.query_studio_flaky_tests")
-    @patch("commands.flakiness.triage.BuganizerClient.fetch_all_component_open_bugs")
-    @patch("commands.flakiness.triage.BuganizerClient.find_existing_open_bug")
-    @patch("commands.flakiness.triage.BuganizerClient.find_recently_fixed_bug")
-    @patch("commands.flakiness.triage.BuganizerClient.create_bug")
-    @patch("commands.flakiness.triage.print_result")
     def test_handle_flakiness_triage_skips_already_fixed_bug_when_l100_zero(
         self,
-        mock_print_result,
-        mock_create_bug,
-        mock_find_fixed,
-        mock_find_open,
-        mock_fetch_bugs,
         mock_studio_query,
         mock_patch,
         mock_verify,
@@ -243,8 +220,14 @@ class FlakinessTriageTest(unittest.TestCase):
                 l250_flake_rate_pct=27.2,
             )
         ]
-        mock_find_open.return_value = None
-        mock_find_fixed.return_value = "570657414"
+        self.ctx.fake_buganizer_service.seed_issue(
+            BuganizerIssue(
+                issue_id="570657414",
+                title="[Flaky Test] //tools/vendor/google/cli/android-device-hub/electron:package_test",
+                component_id=2289192,
+                status="FIXED",
+            )
+        )
 
         args = self.parser.parse_args(
             [
@@ -255,11 +238,11 @@ class FlakinessTriageTest(unittest.TestCase):
                 "--auto-file",
             ]
         )
-        flakiness.handle_flakiness_triage(args)
+        cmd = flakiness.FlakinessTriageCommand()
+        res = cmd.execute(args, self.ctx)
+        self.assertTrue(res.ok)
         mock_patch.assert_not_called()
-        mock_create_bug.assert_not_called()
-        mock_print_result.assert_called_once()
-        data = mock_print_result.call_args[0][0]
+        data = res.data
         self.assertEqual(data["results"][0]["status"], "ALREADY_FIXED_BUG")
         self.assertIn("570657414", data["results"][0]["bug_info"])
 

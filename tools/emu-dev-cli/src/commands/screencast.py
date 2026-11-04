@@ -18,7 +18,10 @@ from __future__ import annotations
 
 import argparse
 import os
+from typing import Any
 
+from core.command import Command, CommandResult
+from core.context import ExecutionContext
 from lib.output import ensure_utf8_stdio, print_result, print_status
 from lib.screencast import (
     get_platform_auth_hint,
@@ -28,44 +31,55 @@ from lib.screencast import (
 )
 
 
+class ScreencastCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Uploads a local video recording to screencast.googleplex.com."""
+
+    name = "screencast"
+    help = "Upload a local video recording (.mp4, .webm, .mov) to screencast.googleplex.com"
+    description = (
+        "Uploads a local screen recording (.mp4, .webm, .mov) to "
+        "screencast.googleplex.com and returns the shareable cast URL."
+    )
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "video_file",
+            help="Path to the local video file (.mp4, .webm, or .mov) to upload",
+        )
+        parser.add_argument(
+            "-t",
+            "--title",
+            default="",
+            help="Optional title for the Screencast (defaults to the video filename)",
+        )
+        parser.add_argument(
+            "-d",
+            "--description",
+            default="",
+            help="Optional description for the Screencast",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Validate the video file and inspect local corporate auth transports without uploading",
+        )
+        parser.add_argument(
+            "--json",
+            action="store_true",
+            default=argparse.SUPPRESS,
+            help="Output results in machine-readable JSON format",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext | None = None
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_screencast_cmd(args)
+
+
 def register_parser(subparsers: argparse._SubParsersAction) -> None:
     """Registers the `screencast` subcommand parser."""
-    parser = subparsers.add_parser(
-        "screencast",
-        help="Upload a local video recording (.mp4, .webm, .mov) to screencast.googleplex.com",
-        description=(
-            "Uploads a local screen recording (.mp4, .webm, .mov) to "
-            "screencast.googleplex.com and returns the shareable cast URL."
-        ),
-    )
-    parser.add_argument(
-        "video_file",
-        help="Path to the local video file (.mp4, .webm, or .mov) to upload",
-    )
-    parser.add_argument(
-        "-t",
-        "--title",
-        default="",
-        help="Optional title for the Screencast (defaults to the video filename)",
-    )
-    parser.add_argument(
-        "-d",
-        "--description",
-        default="",
-        help="Optional description for the Screencast",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Validate the video file and inspect local corporate auth transports without uploading",
-    )
-    parser.add_argument(
-        "--json",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help="Output results in machine-readable JSON format",
-    )
-    parser.set_defaults(func=run_screencast_cmd)
+    ScreencastCommand().register(subparsers)
 
 
 def _emit_dry_run_result(
@@ -76,7 +90,7 @@ def _emit_dry_run_result(
     resolved_title: str,
     description_arg: str,
     json_mode: bool,
-) -> None:
+) -> CommandResult[dict[str, Any]]:
     """Emits `--dry-run` validation and corporate transport diagnostics."""
     diag = inspect_transports()
     has_gosso = bool(diag.get("gosso_bin"))
@@ -87,7 +101,7 @@ def _emit_dry_run_result(
         if has_gosso
         else f"Validated {basename}, but `gosso` was not found. {get_platform_auth_hint()}"
     )
-    print_result(
+    return print_result(
         {
             "status": "success" if has_gosso else "error",
             "action": "screencast",
@@ -110,7 +124,7 @@ def _emit_dry_run_result(
     )
 
 
-def run_screencast_cmd(args: argparse.Namespace) -> None:
+def run_screencast_cmd(args: argparse.Namespace) -> CommandResult[dict[str, Any]]:
     """Executes `emu-dev-cli screencast <video_file>`."""
     ensure_utf8_stdio()
     json_mode = bool(getattr(args, "json", False))
@@ -122,7 +136,7 @@ def run_screencast_cmd(args: argparse.Namespace) -> None:
     try:
         abs_path, mime_type, size_bytes = validate_video_file(video_arg)
     except (FileNotFoundError, ValueError, OSError) as exc:
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "screencast",
@@ -133,11 +147,10 @@ def run_screencast_cmd(args: argparse.Namespace) -> None:
             json_mode=json_mode,
             is_error=True,
         )
-        return
 
     resolved_title = (title_arg or "").strip() or os.path.basename(abs_path)
     if dry_run:
-        _emit_dry_run_result(
+        return _emit_dry_run_result(
             abs_path=abs_path,
             mime_type=mime_type,
             size_bytes=size_bytes,
@@ -145,7 +158,6 @@ def run_screencast_cmd(args: argparse.Namespace) -> None:
             description_arg=description_arg,
             json_mode=json_mode,
         )
-        return
 
     print_status(
         f"🎬 Uploading {os.path.basename(abs_path)} to screencast.googleplex.com...",
@@ -158,7 +170,7 @@ def run_screencast_cmd(args: argparse.Namespace) -> None:
             description=description_arg,
         )
     except Exception as exc:
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "screencast",
@@ -169,9 +181,8 @@ def run_screencast_cmd(args: argparse.Namespace) -> None:
             json_mode=json_mode,
             is_error=True,
         )
-        return
 
-    print_result(
+    return print_result(
         {
             "status": "success",
             "action": "screencast",

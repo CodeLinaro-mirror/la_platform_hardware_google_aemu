@@ -170,7 +170,7 @@ def _wait_for_tcp_port(
     port: int,
     proc: subprocess.Popen[bytes],
     name: str,
-    timeout_sec: float = 10.0,
+    timeout_sec: float = 30.0,
 ) -> None:
     target_host = "127.0.0.1" if host in ("0.0.0.0", "::", "[::]") else host
     deadline = time.monotonic() + timeout_sec
@@ -243,10 +243,10 @@ class CompanionManager:
         _wait_for_tcp_port("127.0.0.1", vb_port, proc, "videobridge")
         channel = grpc.insecure_channel(vb_address)
         try:
-            grpc.channel_ready_future(channel).result(timeout=5.0)
+            grpc.channel_ready_future(channel).result(timeout=15.0)
         except grpc.FutureTimeoutError as err:
             raise TimeoutError(
-                f"Timed out waiting 5.0s for videobridge gRPC channel at {vb_address} to become ready."
+                f"Timed out waiting 15.0s for videobridge gRPC channel at {vb_address} to become ready."
             ) from err
         finally:
             channel.close()

@@ -231,7 +231,9 @@ class TidyFixTest(unittest.TestCase):
                         "lib.tidy_engine.AgentDispatcher.dispatch_refactor_step",
                         return_value=True,
                     ):
-                        with self.assertRaises(SystemExit):
+                        from core.errors import ExecutionError
+
+                        with self.assertRaises(ExecutionError):
                             handle_tidy_fix(args)
 
         mock_tx.rollback_step.assert_called_once()
@@ -291,6 +293,33 @@ class TidyFixTest(unittest.TestCase):
 
         # The global exception wrapper must catch the crash and strictly roll back
         mock_tx.rollback_step.assert_called_once()
+
+    @patch("commands.tidy.fix_cmd.resolve_report_targets", return_value=[])
+    @patch("commands.tidy.fix_cmd.GitTransactionContext")
+    @patch("commands.tidy.fix_cmd.CompilerOracle")
+    @patch("commands.tidy.fix_cmd.BazelRunner")
+    def test_handle_tidy_fix_exits_nonzero_in_text_mode_when_no_targets_resolved(
+        self, mock_bazel, mock_oracle, mock_tx_cls, mock_resolve
+    ):
+        args = argparse.Namespace(
+            target="@goldfish//emulator/libs/测试_🚀_é:missing",
+            target_flag=None,
+            level=1,
+            test=None,
+            dry_run=True,
+            force=True,
+            upload=False,
+            bug=None,
+            continue_tx=False,
+            abort=False,
+            status=False,
+            json=False,
+        )
+        captured_stdout = StringIO()
+        with patch("sys.stdout", captured_stdout):
+            res = handle_tidy_fix(args)
+        self.assertEqual(res.exit_code, 1)
+        self.assertIn("测试_🚀_é", captured_stdout.getvalue())
 
 
 if __name__ == "__main__":

@@ -16,125 +16,167 @@
 
 import argparse
 import os
-import subprocess
-import sys
 from pathlib import Path
+import sys
+from typing import Any
 
-from commands.crash.advisor import ensure_crashadvisor_imports, run_crashadvisor_bazel
-from commands.crash.autofix import run_autofix
-from commands.crash.file_bug import run_file_bug
-from commands.crash.find_bug import run_find_bug
+from commands.crash.advisor import CrashAdvisorRunner
+from commands.crash.autofix import CrashAutofixCommand
+from commands.crash.file_bug import CrashFileBugCommand
+from commands.crash.find_bug import CrashFindBugCommand
 from commands.crash.utils import (
+    CrashMetadata,
     acquire_auth_token,
-    get_crashadvisor_sandbox_dir,
     is_path_secure_user_owned,
     parse_crash_id,
+    resolve_crash_work_dir,
 )
+from core.command import Command, CommandResult
+from core.context import ExecutionContext
+from core.errors import CommandValidationError, UsageError
 from lib.output import print_status
 
 
-def run_analyze(args: argparse.Namespace) -> None:
-    """Unified crash analysis command handler.
+class CrashAnalyzeCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Command implementation for `emu-dev-cli crash analyze`."""
 
-    Routes to `run_file_bug` if `--file-bug` is supplied, `run_autofix` if `--autofix` is supplied,
-    or executes minidump deduplication and interactive CrashAdvisor RCA.
+    name = "analyze"
+    help_text = (
+        "Run minidump symbolication, stack fingerprinting, interactive RCA, "
+        "or automated Buganizer filing and autofixing"
+    )
+    help = help_text
+    description = (
+        "Unified crash analysis tool. Downloads minidumps, symbolicates stack traces, "
+        "computes normalized stack fingerprints, and executes interactive or automated "
+        "Root Cause Analysis (RCA). Can automatically file Buganizer issues (--file-bug) "
+        "and trigger autonomous AI fixes (--autofix)."
+    )
 
-    Args:
-        args: Parsed command line arguments.
-    """
-    json_mode = getattr(args, "json", False)
-    crash_id = parse_crash_id(args.crash_id)
-    file_bug_flag = getattr(args, "file_bug", False)
-    autofix_flag = getattr(args, "autofix", False)
-
-    if file_bug_flag:
-        run_file_bug(args)
-    elif autofix_flag:
-        run_autofix(args)
-    else:
-        # Run find-bug first for quick deduplication feedback, then run interactive/auto RCA
-        run_find_bug(args)
-        print_status(
-            "\n------------------------------------------------------------",
-            json_mode=json_mode,
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.description = self.description
+        parser.add_argument(
+            "crash_id", help="Crash ID (e.g. 05d8356e2f800000) or go/crash URL"
         )
-        print_status(
-            "🔬 Launching interactive CrashAdvisor RCA diagnostic session...",
-            json_mode=json_mode,
+        parser.add_argument("--token", help="OAuth2 token")
+        parser.add_argument(
+            "--file-bug",
+            action="store_true",
+            help="Automatically file/update Buganizer issue",
         )
-        ensure_crashadvisor_imports()
+        parser.add_argument(
+            "--autofix",
+            action="store_true",
+            help="Automatically attempt closed-loop fix",
+        )
+        parser.add_argument(
+            "--auto-run", action="store_true", help="Non-interactive RCA mode"
+        )
+        parser.add_argument("--timeout", help="Execution timeout (e.g. 30m)")
+        parser.add_argument(
+            "--work-dir",
+            dest="work_dir",
+            help="Optional explicit work directory override",
+        )
+        parser.add_argument(
+            "--json",
+            action="store_true",
+            default=argparse.SUPPRESS,
+            help="Output machine-readable JSON result",
+        )
 
-        sandbox_dir = get_crashadvisor_sandbox_dir(crash_id, create=True)
-        is_auto_run = getattr(args, "auto_run", False)
-        token = acquire_auth_token(getattr(args, "token", None))
-        cmd_args = [crash_id, "--work-dir", sandbox_dir]
-        if token:
-            cmd_args.extend(["--token", token])
+    def validate(self, args: argparse.Namespace, ctx: ExecutionContext) -> argparse.Namespace:
+        raw_id = str(getattr(args, "crash_id", "") or "").strip()
+        if not raw_id or not parse_crash_id(raw_id):
+            raise CommandValidationError(
+                "Crash ID cannot be empty for 'crash analyze'.",
+                remediation="Pass a 16-hex Crash ID (e.g. '05d8356e2f800000') or go/crash URL.",
+            )
+        if getattr(args, "file_bug", False):
+            CrashFileBugCommand().validate(args, ctx)
+        elif getattr(args, "autofix", False):
+            CrashAutofixCommand().validate(args, ctx)
+        else:
+            CrashFindBugCommand().validate(args, ctx)
+        return args
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        if getattr(args, "file_bug", False):
+            return CrashFileBugCommand().execute(args, ctx)
+        if getattr(args, "autofix", False):
+            return CrashAutofixCommand().execute(args, ctx)
+
+        find_result = CrashFindBugCommand().execute(args, ctx)
+        meta = CrashMetadata.from_args(
+            args, ctx.config.cache_dir, resolve_token=True
+        )
+        crash_id = meta.crash_id
+        work_dir = meta.work_dir
+
+        token = meta.token
+        is_auto_run = bool(getattr(args, "auto_run", False))
+
+        flags: list[str] = []
         if is_auto_run:
-            cmd_args.append("--auto-run")
+            flags.append("--auto-run")
         if getattr(args, "timeout", None):
-            cmd_args.extend(["--timeout", args.timeout])
+            flags.extend(["--timeout", str(args.timeout)])
 
-        run_crashadvisor_bazel(cmd_args)
+        advisor_runner = CrashAdvisorRunner()
+        advisor_runner.run(ctx, crash_id, work_dir, flags=flags, token=token)
 
         # In interactive mode (not auto-run), automatically execute investigation_cmd.sh
         if not is_auto_run:
-            script_path = Path(sandbox_dir) / "investigation_cmd.sh"
-            if script_path.exists():
-                if not (
-                    is_path_secure_user_owned(sandbox_dir, is_dir=True)
-                    and is_path_secure_user_owned(str(script_path), is_dir=False)
-                ):
-                    current_user = os.getuid() if hasattr(os, "getuid") else "current"
-                    sys.stderr.write(
-                        f"⚠️ Security warning: Refusing to execute {script_path} because directory or script permissions/ownership are insecure (must be owned by user {current_user} and not writable by group/others).\n"
-                    )
-                else:
-                    print_status(
-                        f"\n🚀 Launching interactive AI investigation session ({script_path})...\n",
-                        json_mode=json_mode,
-                    )
-                    try:
-                        script_path.chmod(0o700)
-                        subprocess.run(["bash", str(script_path)], timeout=3600)
-                    except Exception as e:
-                        sys.stderr.write(
-                            f"⚠️ Failed to launch interactive script: {e}\n"
-                        )
-            else:
-                sys.stderr.write(f"⚠️ Investigation script not found at {script_path}\n")
+            self._launch_interactive_session(ctx, work_dir)
+
+        data = dict(find_result.data)
+        data["action"] = "crash analyze"
+        data["sandbox_dir"] = str(work_dir)
+        return CommandResult(
+            data=data,
+            action="crash analyze",
+            summary=f"Completed crash analysis for {crash_id}.",
+        )
+
+    def _launch_interactive_session(
+        self, ctx: ExecutionContext, work_dir: Path
+    ) -> None:
+        script_path = work_dir / "investigation_cmd.sh"
+        if not script_path.exists():
+            sys.stderr.write(f"⚠️ Investigation script not found at {script_path}\n")
+            return
+        if not (
+            is_path_secure_user_owned(str(work_dir), is_dir=True)
+            and is_path_secure_user_owned(str(script_path), is_dir=False)
+        ):
+            current_user = os.getuid() if hasattr(os, "getuid") else "current"
+            sys.stderr.write(
+                f"⚠️ Security warning: Refusing to execute {script_path} because directory or script permissions/ownership are insecure (must be owned by user {current_user} and not writable by group/others).\n"
+            )
+            return
+        print_status(
+            f"\n🚀 Launching interactive AI investigation session ({script_path})...\n",
+            json_mode=ctx.config.json_mode,
+        )
+        try:
+            script_path.chmod(0o700)
+            ctx.process_runner.run(
+                ["bash", str(script_path)],
+                timeout_sec=3600.0,
+                stream_output=True,
+            )
+        except Exception as e:
+            sys.stderr.write(
+                f"⚠️ Failed to launch interactive script: {e}\n"
+            )
 
 
-def _add_analyze_arguments(parser: argparse.ArgumentParser) -> None:
-    """Helper to populate argument flags for analyze subcommands."""
-    parser.add_argument(
-        "crash_id", help="Crash ID (e.g. 05d8356e2f800000) or go/crash URL"
-    )
-    parser.add_argument("--token", help="OAuth2 token")
-    parser.add_argument(
-        "--file-bug",
-        action="store_true",
-        help="Automatically file/update Buganizer issue",
-    )
-    parser.add_argument(
-        "--autofix", action="store_true", help="Automatically attempt closed-loop fix"
-    )
-    parser.add_argument(
-        "--auto-run", action="store_true", help="Non-interactive RCA mode"
-    )
-    parser.add_argument("--timeout", help="Execution timeout (e.g. 30m)")
-    parser.set_defaults(func=run_analyze)
-
-
-def register_analyze_parser(crash_subparsers) -> None:
+def register_analyze_parser(crash_subparsers) -> argparse.ArgumentParser:
     """Registers the `analyze` subcommand parser under `crash`.
 
     Args:
         crash_subparsers: Subparser group instance from `crash` parser.
     """
-    analyze_parser = crash_subparsers.add_parser(
-        "analyze",
-        help="Run minidump symbolication, stack fingerprinting, interactive RCA, or automated Buganizer filing and autofixing",
-        description="Unified crash analysis tool. Downloads minidumps, symbolicates stack traces, computes normalized stack fingerprints, and executes interactive or automated Root Cause Analysis (RCA). Can automatically file Buganizer issues (--file-bug) and trigger autonomous AI fixes (--autofix).",
-    )
-    _add_analyze_arguments(analyze_parser)
+    return CrashAnalyzeCommand().register(crash_subparsers)
