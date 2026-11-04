@@ -51,6 +51,7 @@ from commands import (
     harness,
     init_cmd,
     launch,
+    mcp,
     mesh,
     perf,
     sbom,
@@ -61,7 +62,7 @@ from commands import (
     update_prebuilt,
     workflow,
 )
-from core.command import COMMAND_INSTANCE_ATTR
+from core.command import COMMAND_INSTANCE_ATTR, bind_command
 from core.context import detect_host_platform
 from core.dispatcher import CliDispatcher
 from install import installer
@@ -144,6 +145,7 @@ def main():
     init_cmd.register_parser(subparsers)
     installer.register_parser(subparsers)
     launch.register_parser(subparsers)
+    bind_command(subparsers, mcp.McpCommand())
     mesh.register_parser(subparsers)
     perf.register_parser(subparsers)
     sbom.register_parser(subparsers)
