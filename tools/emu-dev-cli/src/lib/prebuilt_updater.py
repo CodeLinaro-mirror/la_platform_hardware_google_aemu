@@ -37,6 +37,27 @@ SUPPORTED_TARGETS: Tuple[str, ...] = (
     "win-x64",
 )
 
+TARGET_ALIASES: Dict[str, str] = {
+    "linux-arm": "linux-arm64",
+    "linux-aarch64": "linux-arm64",
+    "mac-arm": "mac-arm64",
+    "mac-aarch64": "mac-arm64",
+}
+
+
+def normalize_target_name(
+    target: str,
+    supported_targets: Optional[Sequence[str]] = None,
+) -> str:
+    """Normalizes a target alias (e.g. 'linux-arm' -> 'linux-arm64') when supported."""
+    cleaned = target.strip().lower()
+    if supported_targets is not None and cleaned in supported_targets:
+        return cleaned
+    mapped = TARGET_ALIASES.get(cleaned, cleaned)
+    if supported_targets is None or mapped in supported_targets:
+        return mapped
+    return cleaned
+
 
 def log_progress(message: str) -> None:
     """Prints a real-time progress line to stderr."""
@@ -72,7 +93,10 @@ def resolve_targets_list(
 
     if not raw_items or "all" in raw_items:
         return list(supported_targets)
-    return raw_items
+    normalized = [
+        normalize_target_name(item, supported_targets) for item in raw_items
+    ]
+    return list(dict.fromkeys(normalized))
 
 
 def resolve_dest_dir(
@@ -82,11 +106,14 @@ def resolve_dest_dir(
     is_multi_target: bool = False,
 ) -> Optional[Path]:
     """Resolves the destination prebuilts directory in the workspace."""
+    rel_path = Path(rel_dir)
     if custom_dest:
         custom_root = Path(custom_dest).resolve()
         if is_multi_target and target:
-            if (custom_root / rel_dir).is_dir():
-                return (custom_root / rel_dir).resolve()
+            if (custom_root / rel_path).is_dir():
+                return (custom_root / rel_path).resolve()
+            if (custom_root / rel_path.name).is_dir():
+                return (custom_root / rel_path.name).resolve()
             return (custom_root / target).resolve()
         return custom_root
 
@@ -96,7 +123,7 @@ def resolve_dest_dir(
         search_roots.insert(0, Path(build_wd))
 
     for root in search_roots:
-        cand = root / rel_dir
+        cand = root / rel_path
         if cand.is_dir():
             return cand.resolve()
 
@@ -104,7 +131,21 @@ def resolve_dest_dir(
         default_workspace="",
         custom_roots=search_roots + [Path(__file__).resolve()],
     )
-    return resolver.find_directory(rel_dir)
+    found = resolver.find_directory(rel_path)
+    if found:
+        return found
+
+    if len(rel_path.parts) > 1:
+        parent_rel = rel_path.parent
+        for root in search_roots:
+            parent_cand = root / parent_rel
+            if parent_cand.is_dir():
+                return (parent_cand / rel_path.name).resolve()
+        found_parent = resolver.find_directory(parent_rel)
+        if found_parent:
+            return (found_parent / rel_path.name).resolve()
+
+    return None
 
 
 def _find_fetch_artifact_tool() -> Optional[str]:
@@ -294,6 +335,7 @@ def build_update_report(
     updated_files: List[str],
     errors: Optional[Sequence[str]] = None,
     dry_run: bool = False,
+    supported_targets: Sequence[str] = SUPPORTED_TARGETS,
 ) -> Dict[str, Any]:
     """Formats the markdown table and structured output dictionary for an update run."""
     action_name = f"update-prebuilt {prebuilt}"
@@ -314,7 +356,11 @@ def build_update_report(
     target_label = (
         targets[0]
         if len(targets) == 1
-        else ("all" if set(targets) == set(SUPPORTED_TARGETS) else ",".join(targets))
+        else (
+            "all"
+            if set(targets) == set(supported_targets)
+            else ",".join(targets)
+        )
     )
     mode_suffix = " (dry-run)" if dry_run else ""
 

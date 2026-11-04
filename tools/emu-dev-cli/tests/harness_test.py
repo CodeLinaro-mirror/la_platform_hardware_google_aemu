@@ -17,11 +17,18 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
+from typing import Any, Dict, Tuple
 import unittest
+from unittest import mock
 import yaml
 
+from commands.harness.code_guardrails import (
+    absl_mutex_lock_advisories,
+    grpc_utils_advisories,
+)
 from commands.harness.constants import (
     HookDecision,
     HookEvent,
@@ -47,6 +54,9 @@ class HarnessGuardrailTest(unittest.TestCase):
     """Tests PreToolUse, PostToolUse, PreInvocation, and Stop hook guardrails."""
 
     def setUp(self) -> None:
+        env_patcher = mock.patch.dict(os.environ, {"EMU_HARNESS_NO_TITLE": "1"})
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.base_path = Path(self.temp_dir.name)
         self.ledger_store = SessionLedgerStore(base_dir=self.base_path / "harness")
@@ -289,6 +299,270 @@ class HarnessGuardrailTest(unittest.TestCase):
         self.assertEqual(deny_statusor["decision"], HookDecision.DENY.value)
         self.assertIn("TotW 181", deny_statusor["reason"])
 
+    def _file_edit_hooks(
+        self, conv_id: str, tool: str, args: Dict[str, Any], result: str = "Created file."
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Runs the PreToolUse and PostToolUse hooks for one file edit."""
+        tool_call = {"name": tool, "args": args}
+        pre = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {"conversationId": conv_id, "toolCall": tool_call},
+            store=self.ledger_store,
+        )
+        post = dispatch_hook_event(
+            HookEvent.POST_TOOL.value,
+            {"conversationId": conv_id, "toolCall": tool_call, "result": result, "error": ""},
+            store=self.ledger_store,
+        )
+        return pre, post
+
+    def test_grpc_advisories_allow_the_edit_and_append_guidance(self) -> None:
+        conv_id = "conv-grpc-advisory"
+        battery_cc = "/work/goldfish/emulator/plugin/grpc/services/v2/battery/测试_🚀_é.cc"
+        raw_reactor = (
+            "class CustomBatteryStream final\n"
+            "    : public ::grpc::ServerWriteReactor<BatteryState> {\n"
+            " public:\n"
+            "  void OnDone() override { delete this; }\n"
+            "};\n"
+        )
+        status_switch = (
+            "switch (status.code()) {\n"
+            "  case absl::StatusCode::kInvalidArgument:\n"
+            "    return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, \"bad\");\n"
+            "  default:\n"
+            "    return grpc::Status::OK;\n"
+            "}\n"
+        )
+
+        # The raw reactor is allowed, and the applied edit's result carries the advice.
+        pre, post = self._file_edit_hooks(
+            conv_id, "write_file", {"Path": battery_cc, "Content": raw_reactor}
+        )
+        self.assertEqual(pre, {"decision": HookDecision.ALLOW.value})
+        advisory = post["overwriteResult"]
+        self.assertTrue(advisory.startswith("Created file.\n\n[AEMU Harness Code Advisory]"))
+        self.assertIn("Non-blocking: the edit was applied", advisory)
+        self.assertIn("'CustomBatteryStream' subclasses raw 'grpc::ServerWriteReactor'", advisory)
+        self.assertIn("StateStreamWriter", advisory)
+        self.assertIn("emulator/plugin/grpc/AGENTS.md", advisory)
+        self.assertNotIn("Blocked by", advisory)
+
+        # Several legacy sites in one edit yield one note with one line per pattern.
+        pre, post = self._file_edit_hooks(
+            conv_id,
+            "edit_file",
+            {
+                "Path": battery_cc,
+                "Replacement": raw_reactor
+                + raw_reactor.replace("CustomBatteryStream", "Other")
+                + status_switch
+                + "return ToGrpcStatus(status);\n",
+            },
+            result="Made 1 replacement.",
+        )
+        self.assertEqual(pre["decision"], HookDecision.ALLOW.value)
+        advisory = post["overwriteResult"]
+        self.assertEqual(advisory.count("[AEMU Harness Code Advisory]"), 1)
+        self.assertEqual(advisory.count("\n  * "), 2)
+        self.assertIn("'grpc::ServerWriteReactor' (+1 more)", advisory)
+        self.assertIn("'switch (status.code())' (+1 more)", advisory)
+        self.assertIn("AbslStatusToGrpcStatus", advisory)
+        self.assertIn("absl_status_translate.h", advisory)
+
+        ledger = self.ledger_store.load(conv_id)
+        self.assertEqual(ledger["stats"]["code_advisories"], 2)
+        self.assertEqual(ledger["stats"]["guardrails_blocked"], 0)
+
+        # Code that already uses grpc_utils, a failed edit, and grpc_utils itself get no advice.
+        valid_header = (
+            "template <typename Reactor = ::grpc::ServerWriteReactor<SystemState>>\n"
+            "using SystemStateWriter = ::android::emulation::control::StateStreamWriter<\n"
+            "    SystemState, int, StateChangeEventSource, 128, true, Reactor>;\n"
+            "class SystemServiceImpl final {\n"
+            " public:\n"
+            "  ::grpc::ServerWriteReactor<SystemState>* StreamSystemState(\n"
+            "      ::grpc::CallbackServerContext* context,\n"
+            "      const ::google::protobuf::Empty* request);\n"
+            "};\n"
+            "return AbslStatusToGrpcStatus(status);\n"
+        )
+        _, post = self._file_edit_hooks(
+            conv_id,
+            "write_file",
+            {"Path": battery_cc.replace("测试_🚀_é", "system_service_impl"), "Content": valid_header},
+        )
+        self.assertEqual(post, {})
+        failed = dispatch_hook_event(
+            HookEvent.POST_TOOL.value,
+            {
+                "conversationId": conv_id,
+                "toolCall": {"name": "write_file", "args": {"Path": battery_cc, "Content": raw_reactor}},
+                "result": "",
+                "error": "permission denied",
+            },
+            store=self.ledger_store,
+        )
+        self.assertEqual(failed, {})
+        self.assertEqual(
+            grpc_utils_advisories(
+                "/work/goldfish/emulator/libs/grpc_utils/include/android/emulation/control/"
+                "simple_async_grpc.h",
+                "class WithSimpleQueueWriter : public grpc::ServerWriteReactor<T> {};\n",
+            ),
+            [],
+        )
+
+    def test_absl_mutex_advisory_allows_the_edit_and_suggests_the_reference_form(self) -> None:
+        conv_id = "conv-absl-mutex"
+        goldfish_cc = "/work/goldfish/emulator/clipboard/测试_🚀_é/clipboard_agent.cc"
+        pre, post = self._file_edit_hooks(
+            conv_id,
+            "edit_file",
+            {
+                "Path": goldfish_cc,
+                "Replacement": "  absl::MutexLock clip_lock(&clip_mutex_);  // guards clip_\n",
+            },
+            result="Made 1 replacement.",
+        )
+        self.assertEqual(pre, {"decision": HookDecision.ALLOW.value})
+        advisory = post["overwriteResult"]
+        self.assertTrue(advisory.startswith("Made 1 replacement.\n\n[AEMU Harness Code Advisory]"))
+        self.assertIn("'absl::MutexLock clip_lock(&clip_mutex_);'", advisory)
+        self.assertIn("Prefer the reference form: 'absl::MutexLock clip_lock(clip_mutex_);'", advisory)
+
+        # A whole-file write over many legacy locks yields one line, not one per site.
+        legacy_file = "".join(
+            f"void F{i}() {{ absl::MutexLock lock(&mu_{i}); }}\n" for i in range(40)
+        )
+        _, post = self._file_edit_hooks(
+            conv_id, "write_file", {"Path": goldfish_cc, "Content": legacy_file}
+        )
+        advisory = post["overwriteResult"]
+        self.assertEqual(advisory.count("\n  * "), 1)
+        self.assertIn("'void F0() { absl::MutexLock lock(&mu_0); }' (+39 more)", advisory)
+
+        # gRPC and MutexLock advice on one edit share a single note.
+        _, post = self._file_edit_hooks(
+            conv_id,
+            "edit_file",
+            {
+                "Path": "/work/goldfish/emulator/plugin/grpc/services/v2/clipboard_service.cc",
+                "Replacement": (
+                    "class ClipStream : public grpc::ServerWriteReactor<ClipData> {};\n"
+                    "absl::MutexLock lock(&mu_);\n"
+                ),
+            },
+        )
+        advisory = post["overwriteResult"]
+        self.assertEqual(advisory.count("[AEMU Harness Code Advisory]"), 1)
+        self.assertEqual(advisory.count("\n  * "), 2)
+
+        advised = {
+            "this member": (
+                "absl::ReaderMutexLock lock(&this->mu_);",
+                "absl::ReaderMutexLock lock(this->mu_);",
+            ),
+            "object member, brace init": (
+                "::absl::WriterMutexLock lock{ &state.mu_ };",
+                "::absl::WriterMutexLock lock{ state.mu_ };",
+            ),
+            "condition overload": (
+                "absl::MutexLock lock(&mu_, absl::Condition(&ready_));",
+                "absl::MutexLock lock(mu_, absl::Condition(&ready_));",
+            ),
+            "unqualified after using": (
+                "using absl::ReleasableMutexLock;\nReleasableMutexLock lock(&mu_);",
+                "ReleasableMutexLock lock(mu_);",
+            ),
+            "split across lines": ("absl::MutexLock lock(\n    &mu_);", "absl::MutexLock lock( mu_);"),
+        }
+        for case, (content, suggestion) in advised.items():
+            advice = absl_mutex_lock_advisories(goldfish_cc, content)
+            self.assertEqual(len(advice), 1, msg=case)
+            self.assertIn(f"Prefer the reference form: '{suggestion}'", advice[0], msg=case)
+
+        no_advice = {
+            "reference form": "absl::MutexLock clip_lock(clip_mutex_);",
+            "reference condition overload": (
+                "absl::MutexLock lock(this->mu_, absl::Condition(&ready_));"
+            ),
+            "MutexLockMaybe": "absl::MutexLockMaybe lock(&mu_);\nMutexLockMaybe other(mu_ptr);",
+            "line comment": "// absl::MutexLock lock(&mu_);",
+            "block comment": "/* Old: absl::MutexLock lock(&mu_);\n */",
+            "rvalue references": (
+                "MutexLock(MutexLock&&) = delete;\nvoid Take(absl::MutexLock&& lock);"
+            ),
+        }
+        for case, content in no_advice.items():
+            self.assertEqual(absl_mutex_lock_advisories(goldfish_cc, content), [], msg=case)
+
+        # emu-main-dev builds external/qemu and aemu against Abseil LTS 20240116, which
+        # has no `Mutex&` constructors, so the pointer form gets no advice there.
+        for path in (
+            "/work/emulator/external/qemu/android/android-emu/android/console.cpp",
+            "/work/emulator/hardware/google/aemu/base/include/aemu/base/events/EventWaiter.h",
+        ):
+            self.assertEqual(
+                absl_mutex_lock_advisories(path, "absl::MutexLock lock(&mu_);"), [], msg=path
+            )
+
+    def test_absl_mutex_advisory_follows_the_checkout_abseil_pin(self) -> None:
+        pointer_form = "absl::MutexLock lock(&mu_);"
+        workspace = self.base_path / "emu_测试_🚀"
+        goldfish = workspace / "hardware" / "generic" / "goldfish"
+        (goldfish / "emulator").mkdir(parents=True, exist_ok=True)
+        (goldfish / "emulator" / "BUILD.bazel").write_text("", encoding="utf-8")
+        (goldfish / "MODULE.bazel").write_text("# Placeholder.\n", encoding="utf-8")
+        source = str(goldfish / "emulator" / "libs" / "lock.cc")
+
+        # goldfish emu-36-3-release and emu-36-4-release pin Abseil 20250512.1.
+        (workspace / "MODULE.bazel").write_text(
+            'bazel_dep(name = "abseil-cpp", version = "20250512.1")\n', encoding="utf-8"
+        )
+        self.assertEqual(absl_mutex_lock_advisories(source, pointer_form), [])
+
+        (workspace / "MODULE.bazel").write_text(
+            'bazel_dep(name = "abseil-cpp", version = "20260526.0")\n', encoding="utf-8"
+        )
+        self.assertEqual(len(absl_mutex_lock_advisories(source, pointer_form)), 1)
+
+    def test_pre_invocation_injects_grpc_playbook_context_when_working_in_grpc_plugin(self) -> None:
+        conv_id = "conv-grpc-pre-inv"
+        # 1. Unrelated workspace/prompt returns empty dict when no workflow/emulator is active
+        unrelated = dispatch_hook_event(
+            HookEvent.PRE_INVOCATION.value,
+            {
+                "conversationId": conv_id,
+                "activeFile": "/work/goldfish/emulator/net/http_client.cc",
+                "prompt": "Fix timeout handling in HttpClient",
+            },
+            store=self.ledger_store,
+            state_root=self.workflow_state_root,
+        )
+        self.assertEqual(unrelated, {})
+
+        # 2. Prompt or activeFile under emulator/plugin/grpc injects gRPC playbook context
+        grpc_inv = dispatch_hook_event(
+            HookEvent.PRE_INVOCATION.value,
+            {
+                "conversationId": conv_id,
+                "activeFile": (
+                    "/work/goldfish/emulator/plugin/grpc/services/v2/"
+                    "battery/battery_service_impl.cc"
+                ),
+            },
+            store=self.ledger_store,
+            state_root=self.workflow_state_root,
+        )
+        self.assertIn("injectSteps", grpc_inv)
+        msg = grpc_inv["injectSteps"][0]["ephemeralMessage"]
+        self.assertIn("emulator/plugin/grpc/AGENTS.md", msg)
+        self.assertIn("//emulator/libs/grpc_utils", msg)
+        self.assertIn("StateStreamWriter", msg)
+        self.assertIn("SimpleServerLambdaReader", msg)
+        self.assertIn("AbslStatusToGrpcStatus", msg)
+
     def test_pre_tool_command_auto_rewrite_overwrite(self) -> None:
         conv_id = "conv-rewrite-1"
         gerrit_out = dispatch_hook_event(
@@ -348,7 +622,7 @@ class HarnessGuardrailTest(unittest.TestCase):
         )
         self.assertIn("overwriteResult", post_out)
         self.assertIn("[AEMU Harness Auto-Diagnostic]", post_out["overwriteResult"])
-        self.assertIn("//emulator/libs/http", post_out["overwriteResult"])
+        self.assertIn("//emulator/libs/http:web_server", post_out["overwriteResult"])
         self.assertIn("--config=tsan", post_out["overwriteResult"])
         ledger = self.ledger_store.load(conv_id)
         self.assertEqual(ledger["stats"]["diagnostics_injected"], 1)
@@ -358,6 +632,9 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
     """Tests plugin installation, status verification, and sidecar state helpers."""
 
     def setUp(self) -> None:
+        env_patcher = mock.patch.dict(os.environ, {"EMU_HARNESS_NO_TITLE": "1"})
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.base_path = Path(self.temp_dir.name)
 
@@ -381,6 +658,8 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         )
         pre_tool_cmd = hooks_json["aemu-harness"]["PreToolUse"][0]["hooks"][0]["command"]
         self.assertIn("/custom/bin/emu-dev-cli harness hook --event pre-tool", pre_tool_cmd)
+        self.assertEqual(hooks_json["aemu-harness"]["PreToolUse"][0]["matcher"], "*")
+        self.assertEqual(hooks_json["aemu-harness"]["PostToolUse"][0]["matcher"], "*")
 
         mcp_json = json.loads(
             (target_plugin_dir / "mcp_config.json").read_text(encoding="utf-8")
@@ -441,7 +720,7 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         self.assertFalse(libs_res["result"]["isError"])  # type: ignore[index]
         payload = json.loads(libs_res["result"]["content"][0]["text"])  # type: ignore[index]
         targets = [lib["bazel_target"] for lib in payload["libraries"]]
-        self.assertIn("//emulator/libs/http", targets)
+        self.assertIn("//emulator/libs/http:web_server", targets)
 
     def test_progressive_disclosure_rules_and_swarm_presets(self) -> None:
         presets = list_harness_presets()
@@ -498,6 +777,39 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         report = install_harness_plugin(target_dir=target_str)
         self.assertTrue(report["installed"], msg=str(report))
         self.assertTrue(Path(target_str, "plugin.json").is_file())
+        reviewer_md = Path(target_str, "agents", "aemu-code-reviewer.md").read_text(encoding="utf-8")
+        self.assertIn("- view_file", reviewer_md)
+        self.assertNotIn("- read_file", reviewer_md)
+        self.assertNotIn("- code_search", reviewer_md)
+        deny_multi = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": "conv-multi-edit",
+                "toolCall": {
+                    "name": "multi_replace_file_content",
+                    "args": {
+                        "TargetFile": "/work/goldfish/emulator/net/client.cc",
+                        "ReplacementChunks": [
+                            {"ReplacementContent": 'std::ifstream in("测试_🚀_é.ini");\n'}
+                        ],
+                    },
+                },
+            },
+            store=SessionLedgerStore(base_dir=self.base_path / "harness"),
+        )
+        self.assertEqual(deny_multi["decision"], HookDecision.DENY.value)
+
+    def _write_valid_doc_commit_msg(self) -> Path:
+        msg_file = self.base_path / "valid_msg.txt"
+        msg_file.write_text(
+            "docs(grpc): Update gRPC agent playbook\n\n"
+            "Document reactor invariants and concurrency tests.\n\n"
+            "Bug: 485291270\n"
+            "Test: emu-dev-cli docs lint\n"
+            "Change-Id: I1234567890abcdef1234567890abcdef12345678\n",
+            encoding="utf-8",
+        )
+        return msg_file
 
     def test_goldfish_doc_drift_guardrails_on_edit_and_commit(self) -> None:
         ledger_store = SessionLedgerStore(base_dir=self.base_path / "harness")
@@ -573,15 +885,7 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
             "# gRPC Playbook\n\nBroken link to [missing](deleted_header.h).\n",
             encoding="utf-8",
         )
-        msg_file = self.base_path / "valid_msg.txt"
-        msg_file.write_text(
-            "docs(grpc): Update gRPC agent playbook\n\n"
-            "Document reactor invariants and concurrency tests.\n\n"
-            "Bug: 485291270\n"
-            "Test: emu-dev-cli docs lint\n"
-            "Change-Id: I1234567890abcdef1234567890abcdef12345678\n",
-            encoding="utf-8",
-        )
+        msg_file = self._write_valid_doc_commit_msg()
         commit_cmd = f'git -C "{goldfish}" commit -F "{msg_file}"'
         verdict_blocked = evaluate_git_commit_command(commit_cmd)
         self.assertIsNotNone(verdict_blocked)
@@ -599,6 +903,134 @@ class HarnessPluginInstallerAndSidecarTest(unittest.TestCase):
         verdict_ok = evaluate_git_commit_command(commit_cmd)
         self.assertIsNotNone(verdict_ok)
         self.assertTrue(verdict_ok[0], msg=verdict_ok[1])  # type: ignore[index]
+
+    def test_goldfish_doc_drift_ignores_non_goldfish_emulator_subdir(self) -> None:
+        ledger_store = SessionLedgerStore(base_dir=self.base_path / "harness")
+        vendor_google = self.base_path / "studio-main" / "tools" / "vendor" / "google"
+        (vendor_google / "emulator" / "ui").mkdir(parents=True, exist_ok=True)
+        (vendor_google / "optional-plugins" / "lightbuild").mkdir(
+            parents=True, exist_ok=True
+        )
+        (vendor_google / "optional-plugins" / "lightbuild" / "AGENTS.md").write_text(
+            "# Studio Plugin\n\nUses `//tools/adt/idea/missing_pkg:target`.\n",
+            encoding="utf-8",
+        )
+        msg_file = self._write_valid_doc_commit_msg()
+        vendor_commit_cmd = f'cd "{vendor_google}" && git commit -F "{msg_file}"'
+        verdict_vendor = evaluate_git_commit_command(vendor_commit_cmd)
+        self.assertIsNotNone(verdict_vendor)
+        self.assertTrue(verdict_vendor[0], msg=verdict_vendor[1])  # type: ignore[index]
+
+        allow_vendor_edit = dispatch_hook_event(
+            HookEvent.PRE_TOOL.value,
+            {
+                "conversationId": "conv-doc-drift",
+                "toolCall": {
+                    "name": "write_file",
+                    "args": {
+                        "Path": str(vendor_google / "emulator" / "AGENTS.md"),
+                        "Content": "# Studio Emulator UI\n\nUses `//tools/missing:pkg`.\n",
+                    },
+                },
+            },
+            store=ledger_store,
+        )
+        self.assertEqual(allow_vendor_edit["decision"], HookDecision.ALLOW.value)
+
+    def test_goldfish_doc_drift_detects_standalone_non_ascii_clone(self) -> None:
+        standalone_gf = self.base_path / "qemu_next_测试_🚀_é"
+        (standalone_gf / "emulator").mkdir(parents=True, exist_ok=True)
+        (standalone_gf / "MODULE.bazel").write_text("# goldfish\n", encoding="utf-8")
+        (standalone_gf / "emulator" / "BUILD.bazel").write_text("", encoding="utf-8")
+        (standalone_gf / "emulator" / "AGENTS.md").write_text(
+            "# Standalone Playbook\n\nBroken link to [missing](gone.h).\n",
+            encoding="utf-8",
+        )
+        msg_file = self._write_valid_doc_commit_msg()
+        standalone_cmd = f'git -C "{standalone_gf}" commit -F "{msg_file}"'
+        verdict_standalone = evaluate_git_commit_command(standalone_cmd)
+        self.assertIsNotNone(verdict_standalone)
+        self.assertFalse(verdict_standalone[0])  # type: ignore[index]
+        self.assertIn("gone.h", verdict_standalone[1])  # type: ignore[index]
+
+    def test_harness_hook_cli_dispatcher_emits_pure_json_without_summary(self) -> None:
+        import argparse
+        import io
+        from unittest.mock import patch
+
+        from commands.harness import register_parser
+        from core.dispatcher import CliDispatcher, OutputRenderer
+
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="subcommand")
+        register_parser(subparsers)
+        parsed = parser.parse_args(["harness", "hook", "--event", "pre-tool"])
+
+        stdin_payload = json.dumps(
+            {
+                "conversationId": "conv_hook_测试_🚀_é",
+                "toolCall": {
+                    "name": "run_command",
+                    "args": {"CommandLine": "echo 测试_🚀_é"},
+                },
+            },
+            ensure_ascii=False,
+        )
+        fake_stdin = io.StringIO(stdin_payload)
+        fake_stdout = io.StringIO()
+        fake_stderr = io.StringIO()
+        dispatcher = CliDispatcher(
+            renderer=OutputRenderer(stdout=fake_stdout, stderr=fake_stderr)
+        )
+
+        with patch("sys.stdin", fake_stdin), patch("sys.stdout", fake_stdout), patch(
+            "commands.harness.guardrails.SessionLedgerStore",
+            return_value=SessionLedgerStore(base_dir=self.base_path / "harness"),
+        ):
+            exit_code = dispatcher.dispatch(parsed)
+
+        self.assertEqual(exit_code, 0)
+        raw_out = fake_stdout.getvalue()
+        self.assertNotIn("✅", raw_out)
+        self.assertNotIn("SUCCESS", raw_out)
+        self.assertNotIn("\x1b", raw_out)
+        self.assertEqual(len(raw_out.strip().splitlines()), 1)
+        self.assertEqual(json.loads(raw_out), {"decision": HookDecision.ALLOW.value})
+
+    def test_run_harness_hook_falls_back_to_allow_on_unhandled_exception(self) -> None:
+        import argparse
+        import io
+        from unittest.mock import patch
+
+        from commands.harness import register_parser
+        from core.dispatcher import CliDispatcher, OutputRenderer
+
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="subcommand")
+        register_parser(subparsers)
+        parsed = parser.parse_args(["harness", "hook", "--event", "pre-tool"])
+
+        fake_stdin = io.StringIO('{"conversationId": "conv_err_测试_🚀_é"}')
+        fake_stdout = io.StringIO()
+        fake_stderr = io.StringIO()
+        dispatcher = CliDispatcher(
+            renderer=OutputRenderer(stdout=fake_stdout, stderr=fake_stderr)
+        )
+
+        with patch("sys.stdin", fake_stdin), patch("sys.stdout", fake_stdout), patch(
+            "commands.harness.dispatch_hook_event",
+            side_effect=RuntimeError("simulated ledger failure"),
+        ), self.assertLogs("commands.harness", level="WARNING") as log_ctx:
+            exit_code = dispatcher.dispatch(parsed)
+
+        self.assertEqual(exit_code, 0)
+        raw_out = fake_stdout.getvalue()
+        self.assertNotIn("✅", raw_out)
+        self.assertEqual(len(raw_out.strip().splitlines()), 1)
+        self.assertEqual(json.loads(raw_out), {"decision": HookDecision.ALLOW.value})
+        self.assertTrue(
+            any("simulated ledger failure" in entry for entry in log_ctx.output)
+        )
 
 
 if __name__ == "__main__":

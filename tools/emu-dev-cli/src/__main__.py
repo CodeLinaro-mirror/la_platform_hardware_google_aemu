@@ -16,7 +16,6 @@
 import argparse
 
 import os
-import platform
 import sys
 
 MIN_PYTHON = (3, 10)
@@ -55,31 +54,80 @@ from commands import (
     mesh,
     perf,
     sbom,
+    screencast,
     source_directory,
     tidy,
     update_cmd,
     update_prebuilt,
     workflow,
 )
+from core.command import COMMAND_INSTANCE_ATTR, bind_command
+from core.context import detect_host_platform
+from core.dispatcher import CliDispatcher
 from install import installer
 from lib.logging_config import setup_logging
+from lib.output import ensure_utf8_stdio, print_result
+from lib.version import UNKNOWN_COMMIT, format_version_display, read_installed_version
+
+
+MIGRATED_COMMANDS = (
+    build_times.BuildTimesCommand,
+    crash.CrashCommand,
+    cts.CtsCommand,
+    flakiness.FlakinessCommand,
+    harness.HarnessCommand,
+    update_prebuilt.UpdatePrebuiltCommand,
+)
+
+
+def create_cli_dispatcher() -> CliDispatcher:
+    """Builds a `CliDispatcher` with all Command-pattern subcommands registered."""
+    dispatcher = CliDispatcher()
+    for cmd_cls in MIGRATED_COMMANDS:
+        dispatcher.register_command(cmd_cls())
+    return dispatcher
 
 
 def detect_default_host():
-    system = platform.system().lower()
-    machine = platform.machine().lower()
-    if system == "linux":
-        return "linux-x64"
-    elif system == "darwin":
-        return "mac-arm64" if machine in ("arm64", "aarch64") else "mac-x64"
-    elif system == "windows":
-        return "windows-x64"
-    return "linux-x64"
+    return detect_host_platform()
+
+
+def _handle_version_flag(args) -> None:
+    """Prints installed emu-dev-cli version metadata and exits."""
+    ensure_utf8_stdio()
+    release_dir = installer.get_release_package_directory(None)
+    installed = read_installed_version(release_dir)
+    if getattr(args, "json", False):
+        payload = {
+            "status": "success",
+            "action": "version",
+            "installed": installed is not None,
+            "release_directory": release_dir,
+        }
+        if installed:
+            payload.update(installed)
+            payload["summary"] = (
+                f"emu-dev-cli {installed.get('commit_short', UNKNOWN_COMMIT)}"
+            )
+        else:
+            payload["commit"] = UNKNOWN_COMMIT
+            payload["commit_short"] = UNKNOWN_COMMIT
+            payload["summary"] = "No installed version record found"
+        print_result(payload, json_mode=True)
+
+    print(format_version_display(installed))
+    sys.exit(0)
 
 
 def main():
+    ensure_utf8_stdio()
     parser = argparse.ArgumentParser(
         prog="emu-dev-cli", description="Android Emulator Developer Assistant CLI"
+    )
+    parser.add_argument(
+        "--version",
+        action="store_true",
+        help="Show installed emu-dev-cli version information and exit",
     )
     parser.add_argument(
         "--json",
@@ -117,6 +165,7 @@ def main():
     mesh.register_parser(subparsers)
     perf.register_parser(subparsers)
     sbom.register_parser(subparsers)
+    screencast.register_parser(subparsers)
     source_directory.register_parser(subparsers)
     tidy.register_parser(subparsers)
     update_cmd.register_parser(subparsers)
@@ -130,11 +179,18 @@ def main():
         log_file=getattr(args, "log_file", None),
     )
 
-    if not args.subcommand or not hasattr(args, "func"):
+    if getattr(args, "version", False):
+        _handle_version_flag(args)
+
+    if not args.subcommand or (
+        not hasattr(args, "func") and not hasattr(args, COMMAND_INSTANCE_ATTR)
+    ):
         parser.print_help()
         sys.exit(1)
 
-    args.func(args)
+    exit_code = create_cli_dispatcher().dispatch(args)
+    if exit_code != 0:
+        sys.exit(exit_code)
 
 
 if __name__ == "__main__":

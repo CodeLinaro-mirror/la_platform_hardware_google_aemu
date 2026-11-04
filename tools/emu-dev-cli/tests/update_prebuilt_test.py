@@ -454,6 +454,10 @@ class UpdatePrebuiltTest(unittest.TestCase):
             "prebuilts.android_device_hub",
         )
         self.assertEqual(
+            res["prebuilts"]["android-device-hub"]["targets"],
+            ["linux-x64", "linux-arm64", "mac-arm64", "win-x64"],
+        )
+        self.assertEqual(
             res["prebuilts"]["android-device-hub"]["default_branch"],
             "studio-main",
         )
@@ -545,7 +549,7 @@ class UpdatePrebuiltTest(unittest.TestCase):
             self._create_fake_zip(
                 zip_file,
                 {
-                    "device-hub_pack.zip": f"pack-bytes-{target}".encode(
+                    "device-hub_pack.zip": f"pack-bytes-{target}-{Path(art).name}".encode(
                         "utf-8"
                     ),
                 },
@@ -556,7 +560,7 @@ class UpdatePrebuiltTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp_root:
             root_path = Path(tmp_root)
-            for tgt in ("linux-x64", "mac-arm64", "win-x64"):
+            for tgt in ("linux-x64", "linux-arm64", "mac-arm64", "win-x64"):
                 (root_path / tgt).mkdir(parents=True, exist_ok=True)
 
             args = self.parser.parse_args(
@@ -578,23 +582,163 @@ class UpdatePrebuiltTest(unittest.TestCase):
             self.assertEqual(res["prebuilt"], "android-device-hub")
             self.assertEqual(res["target"], "all")
             self.assertEqual(res["build_number"], "16557439")
+            self.assertEqual(len(res["files"]), 4)
             self.assertEqual(
                 (
                     root_path / "linux-x64" / "device-hub_pack_linux_x64.zip"
                 ).read_bytes(),
-                b"pack-bytes-studio-linux",
+                b"pack-bytes-studio-linux-android-cli.zip",
+            )
+            self.assertEqual(
+                (
+                    root_path
+                    / "linux-arm64"
+                    / "device-hub_pack_linux_arm64.zip"
+                ).read_bytes(),
+                b"pack-bytes-studio-linux-android-cli-linux-arm64.zip",
             )
             self.assertEqual(
                 (
                     root_path / "mac-arm64" / "device-hub_pack_darwin_arm64.zip"
                 ).read_bytes(),
-                b"pack-bytes-studio-mac-arm",
+                b"pack-bytes-studio-mac-arm-android-cli.zip",
             )
             self.assertEqual(
                 (
                     root_path / "win-x64" / "device-hub_pack_win32_x64.zip"
                 ).read_bytes(),
-                b"pack-bytes-studio-win",
+                b"pack-bytes-studio-win-android-cli.zip",
+            )
+
+    @patch("commands.update_prebuilt.check_authentication_status")
+    @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
+    @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
+    @patch("commands.update_prebuilt.print_result")
+    def test_update_android_device_hub_linux_arm_alias_and_missing_leaf_dir(
+        self,
+        mock_print_result,
+        mock_download,
+        mock_find_fetch_tool,
+        mock_check_auth,
+    ):
+        mock_check_auth.return_value = {"valid": True}
+
+        def fake_download(bid, target, art, dest_dir):
+            self.assertEqual(target, "studio-linux")
+            self.assertEqual(art, "artifacts/android-cli-linux-arm64.zip")
+            zip_file = Path(dest_dir) / art
+            zip_file.parent.mkdir(parents=True, exist_ok=True)
+            self._create_fake_zip(
+                zip_file,
+                {"device-hub_pack.zip": b"arm64-pack-payload"},
+            )
+            return str(zip_file)
+
+        mock_download.side_effect = fake_download
+
+        with tempfile.TemporaryDirectory() as tmp_ws:
+            ws_root = Path(tmp_ws)
+            adh_parent = (
+                ws_root
+                / "prebuilts"
+                / "android-emulator-build"
+                / "common"
+                / "android-device-hub"
+            )
+            adh_parent.mkdir(parents=True, exist_ok=True)
+
+            with patch.dict(
+                "os.environ", {"BUILD_WORKING_DIRECTORY": str(ws_root)}
+            ):
+                args = self.parser.parse_args(
+                    [
+                        "update-prebuilt",
+                        "android-device-hub",
+                        "--target=linux-arm",
+                        "--build-number=16709810",
+                        "--token=fake-token",
+                    ]
+                )
+                self.assertEqual(args.target, "linux-arm64")
+                args.func(args)
+
+            mock_print_result.assert_called_once()
+            res = mock_print_result.call_args[0][0]
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(res["target"], "linux-arm64")
+            installed = (
+                adh_parent
+                / "linux-arm64"
+                / "device-hub_pack_linux_arm64.zip"
+            )
+            self.assertTrue(installed.is_file())
+            self.assertEqual(installed.read_bytes(), b"arm64-pack-payload")
+
+    @patch("commands.update_prebuilt.check_authentication_status")
+    @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)
+    @patch("lib.prebuilt_updater.AndroidBuildClient.get_latest_build_id")
+    @patch("lib.prebuilt_updater.AndroidBuildClient.download_artifact")
+    @patch("commands.update_prebuilt.print_result")
+    def test_update_android_device_hub_common_dir_layout_dedups_studio_linux_bid(
+        self,
+        mock_print_result,
+        mock_download,
+        mock_get_latest_bid,
+        mock_find_fetch_tool,
+        mock_check_auth,
+    ):
+        mock_check_auth.return_value = {"valid": True}
+        mock_get_latest_bid.side_effect = lambda branch, ab_tgt: {
+            "studio-linux": "16709810",
+            "studio-mac-arm": "16711071",
+            "studio-win": "16709810",
+        }[ab_tgt]
+
+        def fake_download(bid, target, art, dest_dir):
+            zip_file = Path(dest_dir) / art
+            zip_file.parent.mkdir(parents=True, exist_ok=True)
+            self._create_fake_zip(
+                zip_file,
+                {"device-hub_pack.zip": f"{target}:{art}:{bid}".encode("utf-8")},
+            )
+            return str(zip_file)
+
+        mock_download.side_effect = fake_download
+
+        with tempfile.TemporaryDirectory() as tmp_adh:
+            adh_dir = Path(tmp_adh)
+            for subdir in ("linux-x64", "darwin-arm64", "win32-x64"):
+                (adh_dir / subdir).mkdir(parents=True, exist_ok=True)
+
+            args = self.parser.parse_args(
+                [
+                    "update-prebuilt",
+                    "android-device-hub",
+                    "--latest",
+                    "--token=fake-token",
+                    f"--dest-dir={tmp_adh}",
+                ]
+            )
+            args.func(args)
+
+            # studio-linux should only be queried once even though both
+            # linux-x64 and linux-arm64 use studio-linux.
+            self.assertEqual(mock_get_latest_bid.call_count, 3)
+            res = mock_print_result.call_args[0][0]
+            self.assertEqual(res["status"], "success")
+            self.assertEqual(res["target"], "all")
+            self.assertEqual(res["build_number"], "16709810, 16711071")
+            self.assertEqual(
+                (adh_dir / "darwin-arm64" / "device-hub_pack_darwin_arm64.zip").read_bytes(),
+                b"studio-mac-arm:android-cli.zip:16711071",
+            )
+            self.assertEqual(
+                (adh_dir / "win32-x64" / "device-hub_pack_win32_x64.zip").read_bytes(),
+                b"studio-win:android-cli.zip:16709810",
+            )
+            self.assertEqual(
+                (adh_dir / "linux-arm64" / "device-hub_pack_linux_arm64.zip").read_bytes(),
+                b"studio-linux:artifacts/android-cli-linux-arm64.zip:16709810",
             )
 
     @patch("lib.prebuilt_updater._find_fetch_artifact_tool", return_value=None)

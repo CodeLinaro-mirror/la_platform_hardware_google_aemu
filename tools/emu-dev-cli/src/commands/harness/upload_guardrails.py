@@ -22,20 +22,24 @@ import shlex
 from typing import Any, Dict, Optional, Tuple
 
 from commands.harness.constants import (
-    GERRIT_UPLOAD_CMD_PATTERN,
     GIT_C_FLAG_PATTERN,
-    GIT_COMMIT_MSG_FLAG_PATTERN,
+    HEAD_MUTATING_SEGMENT_PATTERN,
     HELP_FLAG_PATTERN,
     REPO_DIR_CD_PATTERN,
     REPO_FLAG_PATTERN,
     REPO_UPLOAD_BRANCH_FLAG_PATTERN,
     REPO_UPLOAD_TAIL_PATTERN,
+    SKIP_REVIEW_SWARM_ENV_SEGMENT_PATTERN,
     SKIP_REVIEW_SWARM_PATTERN,
+    UPLOAD_SEGMENT_PATTERN,
 )
 from commands.harness.review_swarm import (
     prepare_review_swarm_bundle,
     resolve_git_repo_dir,
 )
+from commands.harness.shell_segments import iter_command_segments
+
+_PRE_UPLOAD_GATE_PREFIX = "Blocked by AEMU Harness Pre-Upload Review-Swarm Gate"
 
 REPO_UPLOAD_VALUE_FLAGS = frozenset({
     "-j",
@@ -60,7 +64,7 @@ REPO_UPLOAD_VALUE_FLAGS = frozenset({
 })
 
 
-def _first_regex_group(match: Optional[re.Match[str]]) -> Optional[str]:
+def first_regex_group(match: Optional[re.Match[str]]) -> Optional[str]:
     """Returns the first non-empty captured group from a regex match, if any."""
     if not match:
         return None
@@ -105,20 +109,44 @@ def _extract_repo_upload_positional_dir(command: str, base_dir: Path) -> Optiona
     return None
 
 
-def _resolve_upload_repo_dir(command: str, default_cwd: Optional[Path] = None) -> Path:
-    """Extracts the target Git repository path from a Gerrit upload shell command."""
+def resolve_command_cwd(
+    command: str,
+    git_c_text: str = "",
+    default_cwd: Optional[Path] = None,
+) -> Path:
+    """Returns the directory a command runs in after a leading `cd <dir>` and `git -C <dir>`.
+
+    `git_c_text` is the text searched for `-C <dir>`, for example only the `git commit`
+    segment, so that `grep -C 3` elsewhere in the command is not taken for a directory.
+    Relative directories resolve against `default_cwd` (or the process working directory).
+    """
     base_dir = (default_cwd or Path.cwd()).expanduser().resolve()
-    branch_hint = _first_regex_group(REPO_UPLOAD_BRANCH_FLAG_PATTERN.search(command))
-    cd_raw = _first_regex_group(REPO_DIR_CD_PATTERN.search(command))
-    current_base = _resolve_relative_to_base(cd_raw, base_dir) if cd_raw else base_dir
+    for raw_dir in (
+        first_regex_group(REPO_DIR_CD_PATTERN.search(command)),
+        first_regex_group(GIT_C_FLAG_PATTERN.search(git_c_text)),
+    ):
+        if raw_dir:
+            base_dir = _resolve_relative_to_base(raw_dir, base_dir)
+    return base_dir
+
+
+def _resolve_upload_repo_dir(
+    command: str,
+    default_cwd: Optional[Path] = None,
+    upload_segment: Optional[str] = None,
+) -> Path:
+    """Extracts the target Git repository path from a Gerrit upload shell command."""
+    target_text = upload_segment if upload_segment is not None else command
+    branch_hint = first_regex_group(REPO_UPLOAD_BRANCH_FLAG_PATTERN.search(target_text))
+    current_base = resolve_command_cwd(command, default_cwd=default_cwd)
 
     for pattern in (REPO_FLAG_PATTERN, GIT_C_FLAG_PATTERN):
-        raw_dir = _first_regex_group(pattern.search(command))
+        raw_dir = first_regex_group(pattern.search(target_text))
         if raw_dir:
             candidate = _resolve_relative_to_base(raw_dir, current_base)
             return resolve_git_repo_dir(repo_dir=candidate, branch_hint=branch_hint)
 
-    positional_dir = _extract_repo_upload_positional_dir(command, current_base)
+    positional_dir = _extract_repo_upload_positional_dir(target_text, current_base)
     return resolve_git_repo_dir(
         repo_dir=positional_dir or current_base,
         branch_hint=branch_hint,
@@ -225,24 +253,76 @@ def _verify_cached_review_payload(bundle: Dict[str, Any], repo_dir: Path) -> Tup
     )
 
 
+def _scan_upload_segments(
+    command: str,
+) -> Tuple[Optional[str], Optional[Tuple[str, str]], bool]:
+    """Scans top-level segments for uploads, prior `HEAD` mutations, and skip flags."""
+    first_upload: Optional[str] = None
+    seen_mutation: Optional[str] = None
+    chained_pair: Optional[Tuple[str, str]] = None
+    skip_env = os.environ.get("AEMU_SKIP_REVIEW_SWARM") == "1"
+    all_uploads_skipped = True
+
+    for _, segment in iter_command_segments(command):
+        if SKIP_REVIEW_SWARM_ENV_SEGMENT_PATTERN.match(segment):
+            skip_env = True
+        if HELP_FLAG_PATTERN.search(segment):
+            continue
+        if UPLOAD_SEGMENT_PATTERN.match(segment):
+            seg_text = segment.strip()
+            first_upload = first_upload or seg_text
+            chained_pair = chained_pair or (
+                (seen_mutation, seg_text) if seen_mutation is not None else None
+            )
+            if not SKIP_REVIEW_SWARM_PATTERN.search(segment):
+                all_uploads_skipped = False
+            continue
+        if seen_mutation is None and HEAD_MUTATING_SEGMENT_PATTERN.match(segment):
+            seen_mutation = segment.strip()
+
+    if first_upload is None:
+        return None, None, False
+    return first_upload, chained_pair, (skip_env or all_uploads_skipped)
+
+
+def _format_chained_mutation_error(mutation_segment: str, upload_segment: str) -> str:
+    """Formats an actionable PreToolUse error when `HEAD` is mutated before upload."""
+    return (
+        f"{_PRE_UPLOAD_GATE_PREFIX}:\n"
+        "  Cannot chain a HEAD-mutating command with a Gerrit upload in the same shell command.\n"
+        "  The PreToolUse hook runs before the shell command executes, so chaining "
+        f"'{mutation_segment}' before '{upload_segment}' would inspect the stale pre-command "
+        "HEAD instead of the commit actually being uploaded.\n"
+        f"Next step: Run '{mutation_segment}' in a separate command first, audit the new HEAD "
+        'commit via `aemu_prepare_review_swarm(target="HEAD")` and `run_workflow(ScriptPath=...)`, '
+        f"and then run '{upload_segment}' on its own."
+    )
+
+
 def evaluate_upload_command(
     command: str,
     review_swarm_cache_root: Optional[Path] = None,
     default_cwd: Optional[Path] = None,
 ) -> Optional[Tuple[bool, str]]:
     """Gates Gerrit uploads on a clean 8-Specialist Parallel Code-Review Swarm audit for `HEAD`."""
-    unquoted_cmd = GIT_COMMIT_MSG_FLAG_PATTERN.sub("", command)
-    if not GERRIT_UPLOAD_CMD_PATTERN.search(unquoted_cmd) or HELP_FLAG_PATTERN.search(unquoted_cmd):
+    upload_segment, chained_pair, skip_requested = _scan_upload_segments(command)
+    if upload_segment is None:
         return None
-    if SKIP_REVIEW_SWARM_PATTERN.search(command) or os.environ.get("AEMU_SKIP_REVIEW_SWARM") == "1":
+    if skip_requested:
         return (
             True,
             "Allowed Gerrit upload (pre-upload review-swarm bypassed via --skip-review-swarm / AEMU_SKIP_REVIEW_SWARM=1)",
         )
+    if chained_pair is not None:
+        return False, _format_chained_mutation_error(chained_pair[0], chained_pair[1])
 
-    branch_hint = _first_regex_group(REPO_UPLOAD_BRANCH_FLAG_PATTERN.search(unquoted_cmd))
+    branch_hint = first_regex_group(REPO_UPLOAD_BRANCH_FLAG_PATTERN.search(upload_segment))
     try:
-        repo_dir = _resolve_upload_repo_dir(command, default_cwd=default_cwd)
+        repo_dir = _resolve_upload_repo_dir(
+            command,
+            default_cwd=default_cwd,
+            upload_segment=upload_segment,
+        )
         bundle = prepare_review_swarm_bundle(
             commit="HEAD",
             repo_dir=repo_dir,
@@ -253,9 +333,9 @@ def evaluate_upload_command(
         fallback_dir = default_cwd or Path.cwd()
         return (
             False,
-            f"Blocked by AEMU Harness Pre-Upload Review-Swarm Gate: "
+            f"{_PRE_UPLOAD_GATE_PREFIX}: "
             f"Could not inspect HEAD commit from '{fallback_dir}' ({exc}). "
-            "Call MCP tool `aemu_prepare_review_swarm(target=\"HEAD\", repo_dir=\"<git-repo-path>\")` "
+            'Call MCP tool `aemu_prepare_review_swarm(target="HEAD", repo_dir="<git-repo-path>")` '
             "and execute `run_workflow(ScriptPath=...)` before uploading.",
         )
     return _verify_cached_review_payload(bundle, repo_dir)

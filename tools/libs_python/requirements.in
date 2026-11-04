@@ -12,3 +12,4 @@ psutil
 grpcio
 pytest
 pytest-mock
+PyYAML==6.0.3

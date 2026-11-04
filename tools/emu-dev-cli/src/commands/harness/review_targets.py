@@ -14,14 +14,11 @@
 
 """Target discovery and unified diff parsing for the 8-Specialist Review Swarm."""
 
-import base64
 from concurrent.futures import ThreadPoolExecutor
-import json
 import os
 from pathlib import Path
 import re
 import subprocess
-import threading
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from commands.harness.constants import MAX_REPO_SUBPROJECT_SCAN_DEPTH
@@ -29,12 +26,12 @@ from lib.gerrit_api import (
     COMMIT_CHANGE_ID_RE,
     DEFAULT_GERRIT_HOST,
     GerritClient,
+    decode_gerrit_patch,
     find_repo_workspace_root,
     parse_cl_identifier as _parse_gerrit_cl_identifier,
-    strip_xssi_prefix,
+    unquote_git_diff_path,
 )
-
-BASE64_QUANTUM_LEN: int = 4
+from lib.path_utils import atomic_write_text, run_git_readonly
 
 COMMIT_MSG_FILE: str = "/COMMIT_MSG"
 GIT_SUBPROCESS_TIMEOUT_SEC: float = 30.0
@@ -42,20 +39,6 @@ MAX_SAFE_TARGET_ID_LEN: int = 24
 REPO_SUBPROJECT_SCAN_WORKERS: int = 16
 SUBPROJECT_PRIORITY_AHEAD_OR_BRANCH: int = 2
 SUBPROJECT_PRIORITY_NO_UPSTREAM: int = 1
-OCTAL_ESCAPE_DIGITS: str = "01234567"
-OCTAL_ESCAPE_LEN: int = 3
-MAX_OCTAL_BYTE_VAL: int = 0xFF
-GIT_C_QUOTE_ESCAPES: Dict[str, int] = {
-    "\\": 92,
-    '"': 34,
-    "t": 9,
-    "n": 10,
-    "r": 13,
-    "a": 7,
-    "b": 8,
-    "f": 12,
-    "v": 11,
-}
 
 DIFF_FILE_HEADER_RE: re.Pattern[str] = re.compile(r"^\+\+\+\s+(.+)$")
 DIFF_HUNK_HEADER_RE: re.Pattern[str] = re.compile(
@@ -66,20 +49,6 @@ BUG_ID_FOOTER_RE: re.Pattern[str] = re.compile(
 )
 
 
-def atomic_write_text(dest_path: Path, content: str) -> None:
-    """Atomically writes UTF-8 text via a PID/thread-scoped sibling temp file."""
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = dest_path.parent / (
-        f".{dest_path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
-    )
-    try:
-        tmp_path.write_text(content, encoding="utf-8")
-        tmp_path.replace(dest_path)
-    except BaseException:
-        tmp_path.unlink(missing_ok=True)
-        raise
-
-
 def sanitize_target_id(target_id: str) -> str:
     """Normalizes a target commit SHA or CL ID into a filesystem-safe directory slug."""
     cleaned = "".join(c for c in (target_id or "") if c.isalnum() or c in ("-", "_"))
@@ -88,53 +57,10 @@ def sanitize_target_id(target_id: str) -> str:
 
 def _run_git(args: List[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     """Executes a UTF-8 git subprocess isolated from stdin with a bounded timeout."""
-    return subprocess.run(
-        ["git", *args],
-        cwd=str(cwd),
-        stdin=subprocess.DEVNULL,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=GIT_SUBPROCESS_TIMEOUT_SEC,
-    )
+    return run_git_readonly(args, cwd, timeout=GIT_SUBPROCESS_TIMEOUT_SEC)
 
 
-def _consume_c_escape(inner: str, index: int) -> Tuple[bytes, int]:
-    """Decodes one backslash escape token inside a git C-quoted path."""
-    if index + 1 >= len(inner):
-        return inner[index].encode("utf-8"), index + 1
-    nxt = inner[index + 1]
-    octal_end = index + 1 + OCTAL_ESCAPE_LEN
-    if nxt in OCTAL_ESCAPE_DIGITS and octal_end <= len(inner):
-        octal_slice = inner[index + 1 : octal_end]
-        if all(ch in OCTAL_ESCAPE_DIGITS for ch in octal_slice):
-            byte_val = int(octal_slice, 8)
-            if byte_val <= MAX_OCTAL_BYTE_VAL:
-                return bytes([byte_val]), octal_end
-    if nxt in GIT_C_QUOTE_ESCAPES:
-        return bytes([GIT_C_QUOTE_ESCAPES[nxt]]), index + 2
-    return inner[index].encode("utf-8"), index + 1
-
-
-def _unquote_git_diff_path(raw: str) -> str:
-    """Unquotes git C-quoted UTF-8 diff header paths (`"b/..."`) into normalized relative paths."""
-    path = (raw or "").strip()
-    if len(path) >= 2 and path[0] == '"' and path[-1] == '"':
-        inner = path[1:-1]
-        out = bytearray()
-        idx = 0
-        while idx < len(inner):
-            if inner[idx] == "\\":
-                chunk, idx = _consume_c_escape(inner, idx)
-                out.extend(chunk)
-                continue
-            out.extend(inner[idx].encode("utf-8"))
-            idx += 1
-        path = out.decode("utf-8", errors="replace")
-    normalized = path.replace("\\", "/")
-    return normalized[2:] if normalized.startswith("b/") else normalized
+_unquote_git_diff_path = unquote_git_diff_path
 
 
 def _parse_hunk_bounds(hunk_match: re.Match[str]) -> Tuple[int, int, int]:
@@ -226,23 +152,7 @@ def parse_cl_identifier(cl_or_url: str) -> str:
     return _parse_gerrit_cl_identifier(cl_or_url, allow_head=False, strict=True)
 
 
-def _decode_gerrit_patch(raw_patch: str) -> str:
-    """Decodes a Gerrit `/patch` body from XSSI JSON, strict base64, or plain diff text."""
-    candidate = strip_xssi_prefix(raw_patch)
-    if candidate.startswith('"'):
-        try:
-            parsed = json.loads(candidate)
-        except ValueError:
-            parsed = None
-        if isinstance(parsed, str):
-            return parsed
-    compact = "".join(raw_patch.split())
-    if not compact or len(compact) % BASE64_QUANTUM_LEN != 0:
-        return raw_patch
-    try:
-        return base64.b64decode(compact, validate=True).decode("utf-8", errors="replace")
-    except ValueError:
-        return raw_patch
+_decode_gerrit_patch = decode_gerrit_patch
 
 
 def fetch_gerrit_cl_target(

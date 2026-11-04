@@ -16,18 +16,23 @@
 
 import argparse
 import sys
+from typing import Any
+
+from core.command import Command, CommandResult, bind_command
+from core.context import ExecutionContext
+from core.errors import UsageError
 from lib.ath_api import (
     SUPPORTED_TARGET_CHOICES,
     SUPPORTED_TARGET_PLATFORMS,
     SUPPORTED_TEST_IDENTIFIER_CHOICES,
 )
-from .fetch_logs import handle_flakiness_fetch_logs
-from .fix import handle_flakiness_fix
-from .history import handle_flakiness_history
-from .list_cmd import handle_flakiness_list
-from .reproduce import handle_flakiness_reproduce
-from .sponge import handle_flakiness_sponge
-from .triage import handle_flakiness_triage
+from .fetch_logs import FlakinessFetchLogsCommand, handle_flakiness_fetch_logs
+from .fix import FlakinessFixCommand, handle_flakiness_fix
+from .history import FlakinessHistoryCommand, handle_flakiness_history
+from .list_cmd import FlakinessListCommand, handle_flakiness_list
+from .reproduce import FlakinessReproduceCommand, handle_flakiness_reproduce
+from .sponge import FlakinessSpongeCommand, handle_flakiness_sponge
+from .triage import FlakinessTriageCommand, handle_flakiness_triage
 
 
 def run_flakiness_help(args):
@@ -114,7 +119,7 @@ Sample Invocations:
         dest="min_flake_rate",
         type=float,
         default=None,
-        help="Minimum failure/flake rate percentage threshold (default: any flake >0% for Android Device Hub, 5.0 for other targets)",
+        help="Minimum failure/flake rate percentage threshold (default: any flake >0%% for Android Device Hub, 5.0 for other targets)",
     )
     list_parser.add_argument(
         "--days",
@@ -165,7 +170,12 @@ Sample Invocations:
         default=None,
         help="Explicit OAuth2 token with androidbuild.internal scope",
     )
-    list_parser.set_defaults(func=handle_flakiness_list)
+    bind_command(
+        list_parser,
+        FlakinessListCommand(),
+        configure=False,
+        legacy_func=handle_flakiness_list,
+    )
 
     # Subcommand: fetch-logs
     fetch_parser = flakiness_subparsers.add_parser(
@@ -219,7 +229,12 @@ Sample Invocations:
         default=None,
         help="Explicit OAuth2 token with androidbuild.internal scope",
     )
-    fetch_parser.set_defaults(func=handle_flakiness_fetch_logs)
+    bind_command(
+        fetch_parser,
+        FlakinessFetchLogsCommand(),
+        configure=False,
+        legacy_func=handle_flakiness_fetch_logs,
+    )
 
     # Subcommand: triage
     triage_parser = flakiness_subparsers.add_parser(
@@ -282,12 +297,18 @@ Sample Invocations:
         help="Buganizer Component ID (default: 1016880 for emulator, 2289192 for Android Device Hub)",
     )
     triage_parser.add_argument(
+        "--assignee",
+        type=str,
+        default=None,
+        help="Buganizer issue assignee (default: groupagent-android-emulator@google.com for Android Device Hub, unassigned otherwise)",
+    )
+    triage_parser.add_argument(
         "--min-flake-rate",
         "--min_flake_rate",
         dest="min_flake_rate",
         type=float,
         default=None,
-        help="Minimum failure/flake rate percentage threshold for bug filing (default: any flake >0% for Android Device Hub, 10.0 for other targets)",
+        help="Minimum failure/flake rate percentage threshold for bug filing (default: any flake >0%% for Android Device Hub, 10.0 for other targets)",
     )
     triage_parser.add_argument(
         "--days",
@@ -374,7 +395,12 @@ Sample Invocations:
         action="store_true",
         help="Output proposed bug payloads without modifying Buganizer",
     )
-    triage_parser.set_defaults(func=handle_flakiness_triage)
+    bind_command(
+        triage_parser,
+        FlakinessTriageCommand(),
+        configure=False,
+        legacy_func=handle_flakiness_triage,
+    )
 
     # Subcommand: history
     history_parser = flakiness_subparsers.add_parser(
@@ -463,7 +489,12 @@ Sample Invocations:
         default=None,
         help="Explicit OAuth2 token with androidbuild.internal scope",
     )
-    history_parser.set_defaults(func=handle_flakiness_history)
+    bind_command(
+        history_parser,
+        FlakinessHistoryCommand(),
+        configure=False,
+        legacy_func=handle_flakiness_history,
+    )
 
     # Subcommand: reproduce
     reproduce_parser = flakiness_subparsers.add_parser(
@@ -508,7 +539,12 @@ Sample Invocations:
         default=None,
         help="Execution timeout limit in seconds (default: dynamically calculated based on target platform and iteration count)",
     )
-    reproduce_parser.set_defaults(func=handle_flakiness_reproduce)
+    bind_command(
+        reproduce_parser,
+        FlakinessReproduceCommand(),
+        configure=False,
+        legacy_func=handle_flakiness_reproduce,
+    )
 
     # Subcommand: fix
     fix_parser = flakiness_subparsers.add_parser(
@@ -586,7 +622,12 @@ Sample Invocations:
         action="store_true",
         help="Simulate fix and verification without modifying workspace files",
     )
-    fix_parser.set_defaults(func=handle_flakiness_fix)
+    bind_command(
+        fix_parser,
+        FlakinessFixCommand(),
+        configure=False,
+        legacy_func=handle_flakiness_fix,
+    )
 
     # Subcommand: sponge
     sponge_parser = flakiness_subparsers.add_parser(
@@ -669,6 +710,59 @@ Sample Invocations:
         default=None,
         help="Explicit OAuth2 token for ATH queries",
     )
-    sponge_parser.set_defaults(func=handle_flakiness_sponge)
+    bind_command(
+        sponge_parser,
+        FlakinessSpongeCommand(),
+        configure=False,
+        legacy_func=handle_flakiness_sponge,
+    )
+
+
+class FlakinessCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Top-level `flakiness` subcommand group delegating to typed Flakiness subcommands."""
+
+    name = "flakiness"
+    help_text = "Query, investigate, reproduce, and fix flaky emulator tests"
+
+    def __init__(self) -> None:
+        self._subcommands: dict[
+            str, Command[argparse.Namespace, dict[str, Any]]
+        ] = {
+            "list": FlakinessListCommand(),
+            "fetch-logs": FlakinessFetchLogsCommand(),
+            "triage": FlakinessTriageCommand(),
+            "history": FlakinessHistoryCommand(),
+            "reproduce": FlakinessReproduceCommand(),
+            "fix": FlakinessFixCommand(),
+            "sponge": FlakinessSpongeCommand(),
+        }
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        subparsers = parser.add_subparsers(
+            dest="flakiness_cmd", help="Available flakiness subcommands"
+        )
+        for sub_cmd in self._subcommands.values():
+            bind_command(subparsers, sub_cmd)
+
+    def _resolve_subcommand(
+        self, args: argparse.Namespace
+    ) -> Command[argparse.Namespace, dict[str, Any]]:
+        sub_name = str(getattr(args, "flakiness_cmd", "") or "").strip()
+        sub_cmd = self._subcommands.get(sub_name)
+        if sub_cmd is None:
+            valid = ", ".join(self._subcommands)
+            raise UsageError(
+                f"Missing or unknown flakiness subcommand '{sub_name or '<none>'}'.",
+                remediation=f"Specify one of the supported flakiness subcommands: {valid}.",
+            )
+        return sub_cmd
+
+    def validate(self, args: argparse.Namespace, ctx: ExecutionContext) -> None:
+        self._resolve_subcommand(args).validate(args, ctx)
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        return self._resolve_subcommand(args).execute(args, ctx)
 
 

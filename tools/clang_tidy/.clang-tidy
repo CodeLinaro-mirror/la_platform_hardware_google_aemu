@@ -1,0 +1,18 @@
+# .clang-tidy
+# A simple, basic clang-tidy config
+
+Checks: >
+  -*,
+  modernize-*,
+  readability-*,
+
+WarningsAsErrors: >
+  # Treat these specific rules as build-breaking errors to enforce rigor
+  modernize-use-override
+
+# --- Check Specific Configuration ---
+# You can configure individual checks for more precise control.
+CheckOptions:
+  # Enforce using 'const' in function parameters for safety and clarity.
+  readability-function-parameter-efficiency.MinimumBytes: 16
+  readability-function-parameter-efficiency.MinimumConfidence: 3

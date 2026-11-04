@@ -177,12 +177,16 @@ def run_install(argv=None):
         print(f"  + Installed emu-dev-cli global launcher to {dest_path}")
     except PermissionError:
         print(f"  + Permission denied for {dest_path}. Attempting to escalate with sudo...")
-        if installer.install_launcher_with_sudo(str(built_bin), str(dest_path)):
+        if installer.install_launcher_with_sudo(
+            str(built_bin), str(dest_path), source_dir=str(source_root)
+        ):
             final_installed = dest_path
             print(f"  + Installed emu-dev-cli global launcher to {dest_path} (via sudo)")
         else:
             fallback_path = Path(installer.get_fallback_install_path())
-            installer.install_launcher_wrapper(str(built_bin), str(fallback_path))
+            installer.install_launcher_wrapper(
+                str(built_bin), str(fallback_path), source_dir=str(source_root)
+            )
             final_installed = fallback_path
             print(f"  ! Sudo escalation failed; installed to fallback location: {fallback_path}")
 

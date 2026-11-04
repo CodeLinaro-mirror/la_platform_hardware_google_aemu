@@ -14,12 +14,16 @@
 
 """Build Time & Bazel Profile Analysis Command Suite ('emu-dev-cli build-times')."""
 
+import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import sys
 from typing import Any, Dict, List, Optional
 
 from commands.source_directory import get_source_directory
+from core.command import Command, CommandResult, bind_command
+from core.context import ExecutionContext, SERVICE_ARTIFACT
+from core.errors import ExecutionError, UsageError
 from lib.android_build_client import AndroidBuildClient
 from lib.build_profile_analyzer import (
     SUPPORTED_BUILD_TARGETS,
@@ -817,6 +821,551 @@ def _add_common_args(p) -> None:
     )
 
 
+class _ArtifactClientBridge:
+    """Adapts injected `ArtifactService` to the `AndroidBuildClient` interface used by `build_profile_analyzer`."""
+
+    def __init__(self, artifact_service: Any, fallback_token: str | None = None) -> None:
+        self._artifact_service = artifact_service
+        self._fallback_token = fallback_token
+
+    def get_latest_build_id(self, branch: str, target: str) -> str:
+        if hasattr(self._artifact_service, "get_latest_build_id"):
+            return str(self._artifact_service.get_latest_build_id(branch, target))
+        if hasattr(self._artifact_service, "resolve_latest_build_id"):
+            return str(
+                self._artifact_service.resolve_latest_build_id(
+                    branch=branch, target=target
+                )
+            )
+        return "0"
+
+    def get_build(self, build_id: str, target: str) -> dict[str, Any]:
+        if hasattr(self._artifact_service, "get_build"):
+            return dict(self._artifact_service.get_build(build_id, target) or {})
+        return {
+            "buildId": str(build_id),
+            "target": {"name": target},
+            "buildAttemptStatus": "COMPLETE",
+            "successful": True,
+        }
+
+    def list_artifacts(self, build_id: str, target: str) -> list[str]:
+        if hasattr(self._artifact_service, "list_artifacts"):
+            return list(self._artifact_service.list_artifacts(build_id, target) or [])
+        return ["logs/bazel/command.profile.gz"]
+
+    def download_artifact(
+        self, build_id: str, target: str, artifact_name: str, dest_dir: str
+    ) -> str:
+        if hasattr(self._artifact_service, "download_artifact"):
+            return str(
+                self._artifact_service.download_artifact(
+                    build_id, target, artifact_name, dest_dir
+                )
+            )
+        return str(
+            self._artifact_service.fetch_artifact(
+                build_id=str(build_id),
+                target=target,
+                artifact_name=artifact_name,
+                dest_dir=dest_dir,
+            )
+        )
+
+    def list_recent_builds(
+        self, branch: str, target: str, max_results: int = 10
+    ) -> list[dict[str, Any]]:
+        if hasattr(self._artifact_service, "list_recent_builds"):
+            return list(
+                self._artifact_service.list_recent_builds(
+                    branch, target, max_results=max_results
+                )
+            )
+        latest = self.get_latest_build_id(branch, target)
+        return [{"buildId": str(latest), "target": {"name": target}, "branch": branch}]
+
+
+class BuildTimesInspectCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Command implementation for `emu-dev-cli build-times inspect`."""
+
+    name = "inspect"
+    help_text = "Inspect how fast a specific build ID (or latest build) ran across all stages and view its critical path"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        _add_common_args(parser)
+        parser.add_argument(
+            "--build-id",
+            "--bid",
+            dest="build_id",
+            type=str,
+            default=None,
+            help="Specific Android Build ID (e.g. 16411294). Defaults to latest submitted build if omitted.",
+        )
+        parser.add_argument(
+            "--top",
+            type=int,
+            default=10,
+            help="Number of top critical path items, mnemonics, and slowest actions to show (default: 10)",
+        )
+
+    def validate(self, args: argparse.Namespace, ctx: ExecutionContext) -> None:
+        del ctx
+        raw_target = str(getattr(args, "target", "emulator_linux_x64"))
+        try:
+            resolve_build_targets(raw_target)
+        except ValueError as exc:
+            raise UsageError(
+                str(exc),
+                remediation=f"Specify a supported build target or alias ({', '.join(SUPPORTED_BUILD_TARGETS)}).",
+            ) from exc
+        top_n = int(getattr(args, "top", 10))
+        if top_n <= 0:
+            raise UsageError(
+                f"Top item count (--top) must be positive (got {top_n}).",
+                remediation="Pass a positive integer to --top (e.g. --top 10).",
+            )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        branch = str(getattr(args, "branch", "git_emu-main-next"))
+        token = getattr(args, "token", None)
+        use_cache = not bool(getattr(args, "no_cache", False))
+        top_n = int(getattr(args, "top", 10))
+        targets = resolve_build_targets(
+            str(getattr(args, "target", "emulator_linux_x64"))
+        )
+
+        artifact_service = ctx.services.get(SERVICE_ARTIFACT)
+        client_bridge = _ArtifactClientBridge(artifact_service, fallback_token=token)
+        build_id = getattr(args, "build_id", None)
+        if not build_id:
+            build_id = client_bridge.get_latest_build_id(branch, targets[0])
+
+        ordered: list[BuildProfileMetrics] = []
+        for tgt in targets:
+            ordered.append(
+                analyze_single_build(
+                    build_id=str(build_id),
+                    target=tgt,
+                    branch=branch,
+                    client=client_bridge,
+                    token=token,
+                    use_cache=use_cache,
+                )
+            )
+
+        if len(ordered) == 1:
+            m = ordered[0]
+            md = _render_single_build_markdown(m, top_n=top_n)
+            stages_summary = (
+                " ["
+                + ", ".join(
+                    f"{s.stage_id}={format_duration(s.bazel_wall_sec)}"
+                    for s in m.stages
+                )
+                + "]"
+                if m.stages
+                else ""
+            )
+            summary = (
+                f"Build {m.build_id} ({m.target}): Total CI={format_duration(m.total_ci_sec)} "
+                f"(Queue={format_duration(m.queue_sec)}, Bazel Wall={format_duration(m.bazel_wall_sec)}{stages_summary}, "
+                f"Critical Path={format_duration(m.critical_path_sec)})"
+            )
+        else:
+            headers = [
+                "Target",
+                "Total CI",
+                "Queue Wait",
+                "Total Bazel Wall",
+                "Stage Breakdown",
+                "Crit Path",
+                "Actions",
+                "Machine",
+                "#1 Critical Path Bottleneck",
+            ]
+            rows = []
+            for m in ordered:
+                top_cp = m.top_critical_bottleneck
+                stage_prefix = (
+                    f"[{top_cp.stage_id}] "
+                    if (top_cp and top_cp.stage_id)
+                    else ""
+                )
+                bottleneck_str = (
+                    f"`{format_duration(top_cp.duration_sec)}` {stage_prefix}{_truncate(top_cp.name, 44)}"
+                    if top_cp
+                    else "N/A"
+                )
+                rows.append(
+                    [
+                        f"`{m.target}`",
+                        f"**{format_duration(m.total_ci_sec)}**",
+                        format_duration(m.queue_sec),
+                        f"**{format_duration(m.bazel_wall_sec)}**",
+                        _format_stage_summary_inline(m),
+                        format_duration(m.critical_path_sec),
+                        f"{m.total_actions:,}" if m.profile_available else "N/A",
+                        f"`{m.machine_name or 'N/A'}`",
+                        bottleneck_str,
+                    ]
+                )
+            md = (
+                f"## Multi-Target Build Profile Summary — Build `{build_id}`\n\n"
+                + format_markdown_table(headers, rows)
+            )
+            summary = f"Inspected build {build_id} across {len(ordered)} targets."
+
+        data: dict[str, Any] = {
+            "status": "success",
+            "summary": summary,
+            "build_id": str(build_id),
+            "targets": targets,
+            "markdown_table": md,
+            "profiles": [m.to_dict() for m in ordered],
+        }
+        return CommandResult(
+            data=data,
+            action="build-times inspect",
+            summary=summary,
+            markdown_table=md,
+        )
+
+
+class BuildTimesHistoryCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Command implementation for `emu-dev-cli build-times history`."""
+
+    name = "history"
+    help_text = "Analyze the last N builds for a target across all Bazel stages"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        _add_common_args(parser)
+        parser.set_defaults(target="emulator_mac_aarch64")
+        parser.add_argument(
+            "--limit",
+            "-n",
+            type=int,
+            default=10,
+            help="Number of recent submitted builds to analyze (default: 10)",
+        )
+
+    def validate(self, args: argparse.Namespace, ctx: ExecutionContext) -> None:
+        del ctx
+        raw_target = str(getattr(args, "target", "emulator_mac_aarch64"))
+        try:
+            resolve_build_targets(raw_target)
+        except ValueError as exc:
+            raise UsageError(
+                str(exc),
+                remediation=f"Specify a supported build target or alias ({', '.join(SUPPORTED_BUILD_TARGETS)}).",
+            ) from exc
+        limit = int(getattr(args, "limit", 10))
+        if limit <= 0:
+            raise UsageError(
+                f"History limit (--limit) must be positive (got {limit}).",
+                remediation="Pass a positive integer to --limit (e.g. --limit 10).",
+            )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        branch = str(getattr(args, "branch", "git_emu-main-next"))
+        limit = int(getattr(args, "limit", 10))
+        token = getattr(args, "token", None)
+        use_cache = not bool(getattr(args, "no_cache", False))
+        targets = resolve_build_targets(
+            str(getattr(args, "target", "emulator_mac_aarch64"))
+        )
+
+        all_sections: list[str] = []
+        all_records: dict[str, list[dict[str, Any]]] = {}
+        for tgt in targets:
+            history = fetch_target_history(
+                target=tgt,
+                branch=branch,
+                limit=limit,
+                token=token,
+                use_cache=use_cache,
+            )
+            all_records[tgt] = [m.to_dict() for m in history]
+            if not history:
+                all_sections.append(
+                    f"### `{tgt}`\n*No builds found on `{branch}`.*"
+                )
+                continue
+
+            baseline, regressed = annotate_regressions(history)
+            headers = [
+                "Build ID",
+                "Created (UTC)",
+                "Total CI",
+                "Queue Wait",
+                "Total Bazel Wall",
+                "Stage Breakdown",
+                "Crit Path",
+                "Machine",
+                "#1 Critical Path Bottleneck",
+                "Assessment",
+            ]
+            rows = []
+            for m in history:
+                created_short = (
+                    m.creation_time[:16].replace("T", " ")
+                    if m.creation_time
+                    else "N/A"
+                )
+                top_cp = m.top_critical_bottleneck
+                stage_prefix = (
+                    f"[{top_cp.stage_id}] "
+                    if (top_cp and top_cp.stage_id)
+                    else ""
+                )
+                cp_str = (
+                    f"`{format_duration(top_cp.duration_sec)}` {stage_prefix}{_truncate(top_cp.name, 38)}"
+                    if top_cp
+                    else "N/A"
+                )
+                status_str = (
+                    f"⚠️ **SLOW** ({', '.join(m.regression_reasons)})"
+                    if m.is_regressed
+                    else "✅ Healthy"
+                )
+                rows.append(
+                    [
+                        f"`{m.build_id}`",
+                        created_short,
+                        f"**{format_duration(m.total_ci_sec)}**",
+                        format_duration(m.queue_sec),
+                        f"**{format_duration(m.bazel_wall_sec)}**",
+                        _format_stage_summary_inline(m),
+                        format_duration(m.critical_path_sec),
+                        f"`{m.machine_name or 'N/A'}`",
+                        cp_str,
+                        status_str,
+                    ]
+                )
+            sec = [
+                f"## Build Time History: `{tgt}` (Last {len(history)} Builds on `{branch}`)"
+            ]
+            if baseline:
+                sec.append(
+                    f"- **Healthy Baseline Reference**: Build `{baseline.build_id}` "
+                    f"(Total CI: `{format_duration(baseline.total_ci_sec)}`, "
+                    f"Bazel Wall: `{format_duration(baseline.bazel_wall_sec)}`)"
+                )
+            if regressed:
+                sec.append(
+                    f"- **Regressed / Slow Builds Detected**: **{len(regressed)} / {len(history)}** builds."
+                )
+            sec.append("")
+            sec.append(format_markdown_table(headers, rows))
+            all_sections.append("\n".join(sec))
+
+        full_md = "\n\n---\n\n".join(all_sections)
+        summary = f"Analyzed build time history for {', '.join(targets)} (limit={limit})."
+        data: dict[str, Any] = {
+            "status": "success",
+            "summary": summary,
+            "targets": targets,
+            "markdown_table": full_md,
+            "history": all_records,
+        }
+        return CommandResult(
+            data=data,
+            action="build-times history",
+            summary=summary,
+            markdown_table=full_md,
+        )
+
+
+class BuildTimesDiagnoseCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Command implementation for `emu-dev-cli build-times diagnose` (and `compare`)."""
+
+    name = "diagnose"
+    aliases = ("compare",)
+    help_text = "Find out why builds became slow by comparing regressed builds against baseline across all Bazel stages"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        _add_common_args(parser)
+        parser.set_defaults(target="emulator_mac_aarch64")
+        parser.add_argument(
+            "--limit",
+            "-n",
+            type=int,
+            default=10,
+            help="Number of recent builds to scan when auto-detecting regressions (default: 10)",
+        )
+        parser.add_argument(
+            "--baseline",
+            type=str,
+            default=None,
+            help="Explicit fast baseline build ID (auto-detected if omitted)",
+        )
+        parser.add_argument(
+            "--regressed",
+            type=str,
+            default=None,
+            help="Explicit slow/regressed build ID to diagnose (auto-detected if omitted)",
+        )
+
+    def validate(self, args: argparse.Namespace, ctx: ExecutionContext) -> None:
+        del ctx
+        raw_target = str(getattr(args, "target", "emulator_mac_aarch64"))
+        try:
+            resolve_build_targets(raw_target)
+        except ValueError as exc:
+            raise UsageError(
+                str(exc),
+                remediation=f"Specify a supported build target or alias ({', '.join(SUPPORTED_BUILD_TARGETS)}).",
+            ) from exc
+        limit = int(getattr(args, "limit", 10))
+        if limit < 2 and not (
+            getattr(args, "baseline", None) and getattr(args, "regressed", None)
+        ):
+            raise UsageError(
+                f"History scan limit (--limit) must be at least 2 when auto-detecting regressions (got {limit}).",
+                remediation="Pass --limit >= 2 or specify both --baseline <bid> and --regressed <bid>.",
+            )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        branch = str(getattr(args, "branch", "git_emu-main-next"))
+        limit = int(getattr(args, "limit", 10))
+        token = getattr(args, "token", None)
+        use_cache = not bool(getattr(args, "no_cache", False))
+        targets = resolve_build_targets(
+            str(getattr(args, "target", "emulator_mac_aarch64"))
+        )
+        target = targets[0]
+        source_root = ctx.config.get_source_directory(
+            "emu-main-next"
+        ) or get_source_directory("emu-main-next")
+
+        baseline_id = getattr(args, "baseline", None)
+        regressed_id = getattr(args, "regressed", None)
+        artifact_service = ctx.services.get(SERVICE_ARTIFACT)
+        client_bridge = _ArtifactClientBridge(
+            artifact_service, fallback_token=token
+        )
+
+        if baseline_id and regressed_id:
+            base_m = analyze_single_build(
+                build_id=str(baseline_id),
+                target=target,
+                branch=branch,
+                client=client_bridge,
+                token=token,
+                use_cache=use_cache,
+            )
+            reg_m = analyze_single_build(
+                build_id=str(regressed_id),
+                target=target,
+                branch=branch,
+                client=client_bridge,
+                token=token,
+                use_cache=use_cache,
+            )
+        else:
+            history = fetch_target_history(
+                target=target,
+                branch=branch,
+                limit=limit,
+                token=token,
+                use_cache=use_cache,
+            )
+            if len(history) < 2:
+                raise ExecutionError(
+                    f"Not enough completed builds found for '{target}' to diagnose (found {len(history)}).",
+                    remediation="Increase --limit or specify explicit --baseline and --regressed build IDs.",
+                )
+            base_m, regressed_list = annotate_regressions(history)
+            if regressed_list:
+                reg_m = max(
+                    regressed_list,
+                    key=lambda m: (m.bazel_wall_sec, m.total_ci_sec),
+                )
+            else:
+                reg_m = max(
+                    [m for m in history if m.build_id != base_m.build_id],
+                    key=lambda m: (m.bazel_wall_sec, m.total_ci_sec),
+                )
+
+        comp = compare_build_profiles(base_m, reg_m, source_root=source_root)
+        summary = (
+            comp["primary_causes"][0]
+            if comp["primary_causes"]
+            else "Diagnosis complete."
+        )
+        md_output = (
+            f"## Build Time Regression Diagnosis — `{target}` "
+            f"(`{reg_m.build_id}` vs Baseline `{base_m.build_id}`)\n\n"
+            + "\n".join(f"- {c}" for c in comp["primary_causes"])
+        )
+        data: dict[str, Any] = {
+            "status": "success",
+            "summary": summary,
+            "target": target,
+            "markdown_table": md_output,
+            "diagnosis": comp,
+        }
+        return CommandResult(
+            data=data,
+            action="build-times diagnose",
+            summary=summary,
+            markdown_table=md_output,
+        )
+
+
+class BuildTimesCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Top-level `build-times` (and alias `profile`) subcommand group."""
+
+    name = "build-times"
+    aliases = ("profile",)
+    help_text = "Analyze CI build times and Bazel logs/bazel/*.profile.gz stages across emu-main-next targets"
+
+    def __init__(self) -> None:
+        diagnose_cmd = BuildTimesDiagnoseCommand()
+        self._subcommands: dict[
+            str, Command[argparse.Namespace, dict[str, Any]]
+        ] = {
+            "inspect": BuildTimesInspectCommand(),
+            "history": BuildTimesHistoryCommand(),
+            "diagnose": diagnose_cmd,
+            "compare": diagnose_cmd,
+        }
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        sub = parser.add_subparsers(
+            dest="build_times_cmd", help="Build time analysis subcommands"
+        )
+        bind_command(sub, BuildTimesInspectCommand(), legacy_func=handle_inspect)
+        bind_command(sub, BuildTimesHistoryCommand(), legacy_func=handle_history)
+        bind_command(sub, BuildTimesDiagnoseCommand(), legacy_func=handle_diagnose)
+
+    def _resolve_subcommand(
+        self, args: argparse.Namespace
+    ) -> Command[argparse.Namespace, dict[str, Any]]:
+        sub_name = str(getattr(args, "build_times_cmd", "") or "").strip()
+        sub_cmd = self._subcommands.get(sub_name)
+        if sub_cmd is None:
+            raise UsageError(
+                f"Missing or unknown build-times subcommand '{sub_name or '<none>'}'.",
+                remediation="Specify one of: inspect, history, diagnose, compare.",
+            )
+        return sub_cmd
+
+    def validate(self, args: argparse.Namespace, ctx: ExecutionContext) -> None:
+        self._resolve_subcommand(args).validate(args, ctx)
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        return self._resolve_subcommand(args).execute(args, ctx)
+
+
 def register_parser(subparsers) -> None:
     """Registers 'emu-dev-cli build-times' (and alias 'profile') subcommands."""
     for cmd_name in ("build-times", "profile"):
@@ -850,7 +1399,12 @@ def register_parser(subparsers) -> None:
             default=10,
             help="Number of top critical path items, mnemonics, and slowest actions to show (default: 10)",
         )
-        inspect_p.set_defaults(func=handle_inspect)
+        bind_command(
+            inspect_p,
+            BuildTimesInspectCommand(),
+            configure=False,
+            legacy_func=handle_inspect,
+        )
 
         # 2. history
         history_p = sub.add_parser(
@@ -866,7 +1420,12 @@ def register_parser(subparsers) -> None:
             default=10,
             help="Number of recent submitted builds to analyze (default: 10)",
         )
-        history_p.set_defaults(func=handle_history)
+        bind_command(
+            history_p,
+            BuildTimesHistoryCommand(),
+            configure=False,
+            legacy_func=handle_history,
+        )
 
         # 3. diagnose / compare
         for diag_name in ("diagnose", "compare"):
@@ -895,7 +1454,12 @@ def register_parser(subparsers) -> None:
                 default=None,
                 help="Explicit slow/regressed build ID to diagnose (auto-detected if omitted)",
             )
-            diag_p.set_defaults(func=handle_diagnose)
+            bind_command(
+                diag_p,
+                BuildTimesDiagnoseCommand(),
+                configure=False,
+                legacy_func=handle_diagnose,
+            )
 
         def _default_handler(args, p=parser):
             if not getattr(args, "build_times_cmd", None):

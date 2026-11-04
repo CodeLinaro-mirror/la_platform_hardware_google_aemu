@@ -1,0 +1,22 @@
+{
+  "name": "aemu-gerrit-ui",
+  "display_name": "AEMU Fast Gerrit",
+  "description": "Fast multi-commit Gerrit reviewer for Android Emulator: 2x human +2 slot tracking, Vetted Only filter, Cliff Radar, Cognitive Load tiers, continuous stack diffs, and 1-click harness actions (v0.4).",
+  "command": "python3",
+  "args": ["server.py"],
+  "restart_policy": "always",
+  "has_web_ui": true,
+  "ui_config": {
+    "display_name": "AEMU Fast Gerrit",
+    "views": [
+      {
+        "id": "aemu-fast-gerrit",
+        "title": "AEMU Fast Gerrit",
+        "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
+        "path": "/",
+        "content_path": "/",
+        "icon": "code"
+      }
+    ]
+  }
+}

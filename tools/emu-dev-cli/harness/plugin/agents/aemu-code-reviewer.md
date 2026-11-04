@@ -1,12 +1,14 @@
 ---
 name: aemu-code-reviewer
 description: "Android Emulator Code Review Specialist: audits local commits or Gerrit CLs for //emulator/libs/* reuse, go/error-messages compliance, TotW 181, cross-platform Unicode safety, 5-way code complexity, and Semantic Commit formatting."
-main-agent: false
+mainAgent: false
 subagent: true
 tools:
-  - read_file
+  - view_file
   - run_command
-  - code_search
+  - grep_search
+  - find_by_name
+  - list_dir
 ---
 
 # Android Emulator Code Reviewer Subagent (`aemu-code-reviewer`)

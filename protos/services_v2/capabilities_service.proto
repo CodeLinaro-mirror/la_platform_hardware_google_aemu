@@ -464,6 +464,11 @@ message AudioCapabilities {
   // Output only. Formats offered by device-to-host speaker capture via StreamSpeakerAudio.
   // Omitted if speaker capture is unsupported.
   optional AudioFormatProfile speaker_profile = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+  // Output only. Maximum number of simultaneous injected microphone streams (across
+  // AudioService and RtcService) that the device can mix concurrently.
+  // 1 indicates exclusive single-source injection; values > 1 indicate multi-source mixing.
+  // Unset when microphone injection is unsupported (`microphone_profile` is unset).
+  optional int32 max_concurrent_microphone_streams = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
 }
 
 // Specifies supported PCM sample formats, sample rates, and channel layouts for an audio endpoint.

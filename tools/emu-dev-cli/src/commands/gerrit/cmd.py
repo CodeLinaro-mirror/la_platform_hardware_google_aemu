@@ -746,4 +746,56 @@ def register_parser(subparsers: Any) -> argparse.ArgumentParser:
     )
     resume_p.set_defaults(func=handle_gerrit_resume)
 
+    ui_p = gerrit_sub.add_parser(
+        "ui",
+        help="Launch the fast multi-commit & agent-aware Gerrit web UI",
+    )
+    ui_p.add_argument(
+        "--port",
+        type=int,
+        default=8085,
+        help="Local TCP port for the Gerrit UI server (default: 8085)",
+    )
+    ui_p.add_argument(
+        "--host-addr",
+        default="127.0.0.1",
+        help="Local address to bind the HTTP server to (default: 127.0.0.1)",
+    )
+    ui_p.add_argument(
+        "--viewer",
+        default="",
+        help="Reviewer email perspective (default: auto-detected from git/Gerrit)",
+    )
+    ui_p.add_argument(
+        "--query",
+        default="",
+        help="Custom Gerrit search query (default: open CLs across emulator repos)",
+    )
+    ui_p.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Do not automatically open the browser when starting the server",
+    )
+    ui_p.add_argument(
+        "--export-static",
+        default=None,
+        help="Export a pre-populated static HTML snapshot to the specified file path",
+    )
+    ui_p.set_defaults(func=handle_gerrit_ui)
+
     return gerrit_parser
+
+
+def handle_gerrit_ui(args: argparse.Namespace) -> None:
+    """Starts the fast multi-commit Gerrit web UI or exports a static snapshot."""
+    from commands.gerrit.ui_server import serve_gerrit_ui
+
+    serve_gerrit_ui(
+        host_addr=args.host_addr,
+        port=args.port,
+        gerrit_host=getattr(args, "host", DEFAULT_GERRIT_HOST),
+        viewer=args.viewer,
+        query=args.query,
+        open_browser=not args.no_browser,
+        export_static_path=args.export_static,
+    )

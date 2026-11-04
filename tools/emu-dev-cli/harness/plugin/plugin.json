@@ -1,6 +1,6 @@
 {
   "name": "aemu-harness",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Android Emulator Custom Agent Harness for Jetski Web & CLI: deterministic Git/Gerrit guardrails, declarative workflow state injection, specialized emulator subagents, and an interactive AuxPane Control Center.",
   "author": {
     "name": "Android Emulator Team",
