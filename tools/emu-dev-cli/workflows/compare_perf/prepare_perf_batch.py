@@ -24,7 +24,7 @@ _WORKFLOW_DIR = Path(__file__).resolve().parent
 _EMU_DEV_CLI_DIR = _WORKFLOW_DIR.parent.parent
 _SRC_DIR = _EMU_DEV_CLI_DIR / "src"
 
-from lib.perf_runner import (
+from lib.perf import (
     _detect_default_host,
     _resolve_perf_avd_template,
     resolve_suites,

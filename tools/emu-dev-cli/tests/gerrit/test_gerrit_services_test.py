@@ -24,7 +24,9 @@ from commands.gerrit.handlers.ui_handler import (
     render_static_gerrit_ui_html,
 )
 from commands.gerrit.services.diff_parser import (
+    AEMU_MAP_BASE_URL,
     GerritDiffService,
+    build_aemu_map_commit_url,
     build_code_search_file_url,
     classify_commit_type,
     classify_risk_and_load,
@@ -47,8 +49,10 @@ from commands.gerrit.services.queue_service import (
 from commands.gerrit.services.vote_submit_service import (
     GerritVoteSubmitService,
     OWNER_NOTIFY_HANDLING,
+    ReviewBatchConfig,
 )
 from commands.gerrit.ui_server import GerritUIService
+from testlib.gerrit_fakes import make_fake_change
 
 
 class GerritDiffServiceTest(unittest.TestCase):
@@ -102,6 +106,29 @@ class GerritDiffServiceTest(unittest.TestCase):
         self.assertIn("src/foo_test.cc", cs_url)
         self.assertIn("l=42", cs_url)
 
+        map_url = build_aemu_map_commit_url(
+            "ag/43351736",
+            [
+                "/COMMIT_MSG",
+                "/MERGE_LIST",
+                "emulator/net/async_socket_adapter.cc",
+                "/emulator/net/async_socket_adapter.h",
+                "emulator/net/async_socket_adapter.cc",
+                "src/测试_🚀_é.cc",
+            ],
+        )
+        self.assertEqual(
+            map_url,
+            f"{AEMU_MAP_BASE_URL}#ag=43351736&files="
+            "emulator/net/async_socket_adapter.cc,"
+            "emulator/net/async_socket_adapter.h,"
+            "src/%E6%B5%8B%E8%AF%95_%F0%9F%9A%80_%C3%A9.cc",
+        )
+        self.assertEqual(
+            build_aemu_map_commit_url(43351736, ["/COMMIT_MSG", "/dev/null"]),
+            f"{AEMU_MAP_BASE_URL}#ag=43351736",
+        )
+
     def test_extract_symbol_from_code_line(self):
         self.assertEqual(
             extract_symbol_from_code_line("void HandleRequest(int fd) {"),
@@ -126,58 +153,16 @@ class GerritQueueServiceTest(unittest.TestCase):
         self.assertFalse(is_agent_or_bot_email("jansene@google.com"))
 
         now = datetime(2026, 10, 28, 22, 0, 0, tzinfo=timezone.utc)
-        change_obj = {
-            "_number": 43351736,
-            "change_id": "I1234567890abcdef1234567890abcdef12345678",
-            "project": "platform/hardware/google/aemu",
-            "branch": "studio-main",
-            "subject": "refactor(gerrit): Decompose UI monolith 测试_🚀_é",
-            "created": "2026-10-28 12:00:00.000000000",
-            "updated": "2026-10-28 21:00:00.000000000",
-            "insertions": 50,
-            "deletions": 20,
-            "unresolved_comment_count": 0,
-            "current_revision": "rev_a",
-            "current_revision_number": 1,
-            "owner": {
-                "email": "groupagent-android-emulator-heavy@google.com",
-                "name": "Archie",
-            },
-            "revisions": {
-                "rev_a": {
-                    "_number": 1,
-                    "files": {"tools/emu-dev-cli/src/commands/gerrit/ui_server.py": {}},
-                    "commit": {"parents": [{"commit": "rev_base"}]},
-                }
-            },
-            "reviewers": {
-                "REVIEWER": [
-                    {"email": "jansene@google.com", "name": "Erwin Jansen"},
-                    {"email": "joshuaduong@google.com", "name": "Joshua Duong"},
-                ]
-            },
-            "labels": {
-                "Code-Review": {
-                    "all": [
-                        {
-                            "email": "jansene@google.com",
-                            "name": "Erwin Jansen",
-                            "value": 2,
-                        },
-                        {
-                            "email": "groupagent-android-emulator-heavy@google.com",
-                            "name": "Archie",
-                            "value": 1,
-                        },
-                    ]
-                }
-            },
-        }
+        change_obj = make_fake_change(43351736)
         enriched = enrich_change_for_ui(change_obj, "jansene@google.com", now_dt=now)
         self.assertTrue(enriched["is_agent_cl"])
         self.assertEqual(enriched["required_cr2_count"], 2)
         self.assertEqual(enriched["human_cr2_count"], 1)
         self.assertTrue(enriched["approved_by_viewer"])
+        self.assertEqual(
+            enriched["aemu_map_url"],
+            "http://go/aemu-map#ag=43351736&files=tools/emu-dev-cli/src/commands/gerrit/ui_server.py",
+        )
 
     def test_extract_bug_ids_from_change(self):
         change = {
@@ -354,6 +339,51 @@ class GerritUIServiceFacadeAndHandlerTest(unittest.TestCase):
 
             html = render_static_gerrit_ui_html({"items": [], "total": 0})
             self.assertIn("<!DOCTYPE html>", html)
+            self.assertIn("buildAemuMapCommitUrl", html)
+            self.assertIn("openAemuMapLink", html)
+            self.assertIn("aemu-map-pill", html)
+
+    def test_gerrit_ui_service_pure_composition_and_context_propagation(self):
+        from commands.gerrit.services import (
+            DiffService,
+            GerritWorkspaceContext,
+            InlineQaService,
+            ReviewQueueService,
+            VoteSubmitService,
+        )
+
+        self.assertEqual(GerritUIService.__bases__, (object,))
+        ctx = GerritWorkspaceContext(
+            default_viewer="tester_测试_🚀_é@google.com",
+            default_query="status:open",
+            auth_email="tester_测试_🚀_é@google.com",
+        )
+        diff_svc = DiffService(context=ctx)
+        queue_svc = ReviewQueueService(context=ctx, diff_service=diff_svc)
+        vote_svc = VoteSubmitService(context=ctx, queue_service=queue_svc)
+        qa_svc = InlineQaService(
+            context=ctx, diff_service=diff_svc, queue_service=queue_svc
+        )
+        facade = GerritUIService(
+            context=ctx,
+            diff_service=diff_svc,
+            queue_service=queue_svc,
+            vote_submit_service=vote_svc,
+            inline_qa_service=qa_svc,
+        )
+        self.assertIs(facade.context, ctx)
+        self.assertIs(facade.diff_service, diff_svc)
+        self.assertIs(facade.queue_service, queue_svc)
+        self.assertIs(facade.vote_submit_service, vote_svc)
+        self.assertIs(facade.inline_qa_service, qa_svc)
+
+        # Updating a shared context attribute on the facade propagates to all composed services
+        facade.default_viewer = "updated_测试@google.com"
+        self.assertEqual(ctx.default_viewer, "updated_测试@google.com")
+        self.assertEqual(diff_svc.default_viewer, "updated_测试@google.com")
+        self.assertEqual(queue_svc.default_viewer, "updated_测试@google.com")
+        self.assertEqual(vote_svc.default_viewer, "updated_测试@google.com")
+        self.assertEqual(qa_svc.default_viewer, "updated_测试@google.com")
 
 
 if __name__ == "__main__":

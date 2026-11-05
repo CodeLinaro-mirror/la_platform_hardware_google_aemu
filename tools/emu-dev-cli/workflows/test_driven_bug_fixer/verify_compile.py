@@ -46,6 +46,8 @@ def verify_compile(cmd: str, cwd: str = None, timeout: int = 600, phase: str = "
             cwd=str(work_dir),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:

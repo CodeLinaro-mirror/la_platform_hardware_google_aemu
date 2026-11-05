@@ -33,6 +33,9 @@ PLUGIN_EXECUTABLE_MODE: int = 0o755
 # Rendered from `REUSABLE_LIBS_CATALOG` for the standalone AuxPane sidecar, which
 # cannot import the CLI; the bundled file is an empty placeholder.
 SIDECAR_LIBS_CATALOG_FILENAME: str = "libs_catalog.json"
+# The standalone AuxPane sidecar also gets a copy of the CLI's request checks.
+SIDECAR_WEB_SECURITY_RELPATH: str = "sidecars/aemu_harness_ui/web_security.py"
+_WEB_SECURITY_SRC: Path = Path(__file__).resolve().parents[2] / "core" / "web" / "security.py"
 
 def get_default_plugin_dest_dir(
     home_dir: Optional[Union[Path, str]] = None,
@@ -136,9 +139,17 @@ def _compute_sidecar_bundle_stamp(src_file: Path, cli_src_dir: Optional[Union[Pa
     watched = [
         src_root / "templates" / "gerrit_ui.html",
         src_root / "commands" / "gerrit" / "ui_server.py",
+        src_root / "commands" / "gerrit" / "handlers" / "ui_handler.py",
         src_root / "commands" / "gerrit" / "presubmit_targets.py",
         src_root / "commands" / "gerrit" / "ai_analysis.py",
         src_root / "commands" / "gerrit" / "sidecar_updater.py",
+        src_root / "core" / "web" / "security.py",
+        src_root / "core" / "web" / "router.py",
+        src_root / "core" / "web" / "assets.py",
+        src_root / "core" / "web" / "handler.py",
+        src_root / "core" / "web" / "agent_proxy.py",
+        src_root / "core" / "web" / "server.py",
+        src_root / "lib" / "web_security.py",
         src_file.parent / "sidecars" / "aemu_gerrit_ui" / "server.py",
         src_file.parent / "sidecars" / "aemu_harness_ui" / "server.py",
     ]
@@ -244,6 +255,11 @@ def install_harness_plugin(
             )
             installed_files.append(str(dst_file))
 
+    web_security_copy = dest_dir / SIDECAR_WEB_SECURITY_RELPATH
+    web_security_copy.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(_WEB_SECURITY_SRC, web_security_copy)
+    installed_files.append(str(web_security_copy))
+
     _enable_plugin_and_sidecar_in_config(dest_dir)
     return {
         "installed": True,
@@ -319,6 +335,7 @@ def get_harness_plugin_status(
         "agents/aemu-flake-hunter.md",
         "sidecars/aemu_harness_ui/sidecar.json",
         "sidecars/aemu_harness_ui/server.py",
+        SIDECAR_WEB_SECURITY_RELPATH,
         "sidecars/aemu_gerrit_ui/sidecar.json",
         "sidecars/aemu_gerrit_ui/server.py",
     ]

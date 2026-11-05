@@ -27,6 +27,7 @@ import { TelephonyState, TransitionCallRequest_Action } from '../core/telephony'
 import { GetScreenshotRequest } from '../core/screen_capture';
 import { CameraFrame } from '../core/camera';
 import { SystemState } from '../core/system';
+import { AudioState, AudioStateUpdate } from '../core/audio';
 
 /**
  * Hook to manage the WebRTC connection lifecycle and media stream.
@@ -1025,6 +1026,136 @@ export function useSystem(options: { stream?: boolean } = { stream: true }) {
     fetchSystemState,
     rebootDevice,
     isLoading,
+    error,
+  };
+}
+
+/**
+ * Hook to send the browser microphone to the device over the WebRTC session.
+ */
+export function useMicrophone() {
+  const client = useDeviceClient();
+  const [enabled, setEnabled] = useState(client.rtc.microphoneEnabled);
+  const [isBusy, setIsBusy] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    const handleChange = (on: boolean) => setEnabled(on);
+    client.rtc.on('microphoneChange', handleChange);
+    setEnabled(client.rtc.microphoneEnabled);
+    return () => client.rtc.off('microphoneChange', handleChange);
+  }, [client]);
+
+  const run = useCallback(async (op: () => Promise<void>) => {
+    setIsBusy(true);
+    setError(null);
+    try {
+      await op();
+    } catch (err: any) {
+      setError(err);
+      throw err;
+    } finally {
+      setIsBusy(false);
+    }
+  }, []);
+
+  const enable = useCallback(
+    (constraints?: MediaTrackConstraints) => run(() => client.rtc.enableMicrophone(constraints)),
+    [client, run]
+  );
+
+  const disable = useCallback(() => run(() => client.rtc.disableMicrophone()), [client, run]);
+
+  const toggle = useCallback(
+    () => (client.rtc.microphoneEnabled ? disable() : enable()),
+    [client, enable, disable]
+  );
+
+  return {
+    enabled,
+    enable,
+    disable,
+    toggle,
+    isBusy,
+    error,
+  };
+}
+
+/**
+ * Hook to inspect the virtual microphone mixer and mute or adjust its inputs.
+ */
+export function useAudio(options: { stream?: boolean } = { stream: true }) {
+  const client = useDeviceClient();
+  const [audioState, setAudioState] = useState<AudioState | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const fetchAudioState = useCallback(async () => {
+    setError(null);
+    try {
+      const state = await client.audio.GetAudioState();
+      setAudioState(state);
+      return state;
+    } catch (err: any) {
+      setError(err);
+      throw err;
+    }
+  }, [client]);
+
+  useEffect(() => {
+    fetchAudioState().catch(() => {});
+    if (options.stream === false) return;
+
+    const cancel = client.audio.subscribeAudioState(
+      (state) => setAudioState(state),
+      (err) => setError(err as Error)
+    );
+    return cancel;
+  }, [client, fetchAudioState, options.stream]);
+
+  const update = useCallback(
+    async (change: AudioStateUpdate) => {
+      setIsUpdating(true);
+      setError(null);
+      try {
+        const state = await client.audio.UpdateAudioState(change);
+        setAudioState(state);
+        return state;
+      } catch (err: any) {
+        setError(err);
+        throw err;
+      } finally {
+        setIsUpdating(false);
+      }
+    },
+    [client]
+  );
+
+  /** Master mute: the guest hears silence from every input. */
+  const setMicrophoneMuted = useCallback(
+    (muted: boolean) => update({ microphoneMuted: muted }),
+    [update]
+  );
+
+  /** Mutes one mixer input, e.g. `"host"` for the host machine's microphone. */
+  const setInputMuted = useCallback(
+    (sourceId: string, muted: boolean) => update({ microphoneInputs: [{ sourceId, muted }] }),
+    [update]
+  );
+
+  /** Sets one mixer input's linear gain, in [0.0, 4.0]. */
+  const setInputGain = useCallback(
+    (sourceId: string, gain: number) => update({ microphoneInputs: [{ sourceId, gain }] }),
+    [update]
+  );
+
+  return {
+    audioState,
+    fetchAudioState,
+    setMicrophoneMuted,
+    setInputMuted,
+    setInputGain,
+    isUpdating,
     error,
   };
 }

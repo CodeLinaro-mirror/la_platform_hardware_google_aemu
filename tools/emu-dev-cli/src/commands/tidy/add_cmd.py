@@ -23,6 +23,7 @@ import sys
 from typing import List, Optional, Tuple
 
 from commands.source_directory import get_source_directory
+from core.command import CommandResult, META_KEY_ALREADY_RENDERED
 from lib.output import print_result, print_status
 
 logger = logging.getLogger(__name__)
@@ -193,13 +194,13 @@ def _resolve_build_file(
     return None, suggestions
 
 
-def handle_tidy_add(args: argparse.Namespace) -> None:
+def handle_tidy_add(args: argparse.Namespace) -> CommandResult:
     """Injects or configures a clang_tidy_test rule into the specified BUILD.bazel file or package directory."""
     json_mode = getattr(args, "json", False)
     raw_path_str = getattr(args, "path", None) or getattr(args, "build_file", None)
     if not raw_path_str:
         if json_mode:
-            print_result(
+            return print_result(
                 {
                     "status": "error",
                     "action": "tidy add",
@@ -208,19 +209,22 @@ def handle_tidy_add(args: argparse.Namespace) -> None:
                 json_mode=True,
                 is_error=True,
             )
-        else:
-            print(
-                "Error: Target BUILD.bazel path or package directory is required.",
-                file=sys.stderr,
-            )
-        sys.exit(1)
+        print(
+            "Error: Target BUILD.bazel path or package directory is required.",
+            file=sys.stderr,
+        )
+        return CommandResult.failure(
+            "Target BUILD.bazel path or package directory is required.",
+            action="tidy add",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     source_dir = get_source_directory("emu-main-next") or os.getcwd()
     build_path, suggestions = _resolve_build_file(raw_path_str, source_dir)
 
     if not build_path or not build_path.exists():
         if json_mode:
-            print_result(
+            return print_result(
                 {
                     "status": "error",
                     "action": "tidy add",
@@ -231,33 +235,36 @@ def handle_tidy_add(args: argparse.Namespace) -> None:
                 json_mode=True,
                 is_error=True,
             )
-        else:
-            print(
-                f"❌ Error: Target BUILD.bazel file does not exist for '{raw_path_str}'.\n",
-                file=sys.stderr,
-            )
-            print("💡 Actionable suggestions:", file=sys.stderr)
-            print(
-                "  1. Pass the path relative to workspace root or use Bazel label syntax:",
-                file=sys.stderr,
-            )
-            print(
-                "     • emu-dev-cli tidy add emulator/libs/sockets",
-                file=sys.stderr,
-            )
-            print(
-                "     • emu-dev-cli tidy add @goldfish//emulator/libs/sockets",
-                file=sys.stderr,
-            )
-            if suggestions:
-                print("  2. Did you mean one of these existing packages?", file=sys.stderr)
-                for s in suggestions:
-                    print(f"     • {s}", file=sys.stderr)
-            print(
-                f"  3. If this is a new package, create the BUILD.bazel file first:\n     touch {raw_path_str}/BUILD.bazel\n",
-                file=sys.stderr,
-            )
-        sys.exit(1)
+        print(
+            f"❌ Error: Target BUILD.bazel file does not exist for '{raw_path_str}'.\n",
+            file=sys.stderr,
+        )
+        print("💡 Actionable suggestions:", file=sys.stderr)
+        print(
+            "  1. Pass the path relative to workspace root or use Bazel label syntax:",
+            file=sys.stderr,
+        )
+        print(
+            "     • emu-dev-cli tidy add emulator/libs/sockets",
+            file=sys.stderr,
+        )
+        print(
+            "     • emu-dev-cli tidy add @goldfish//emulator/libs/sockets",
+            file=sys.stderr,
+        )
+        if suggestions:
+            print("  2. Did you mean one of these existing packages?", file=sys.stderr)
+            for s in suggestions:
+                print(f"     • {s}", file=sys.stderr)
+        print(
+            f"  3. If this is a new package, create the BUILD.bazel file first:\n     touch {raw_path_str}/BUILD.bazel\n",
+            file=sys.stderr,
+        )
+        return CommandResult.failure(
+            f"Target BUILD.bazel file does not exist for '{raw_path_str}'.",
+            action="tidy add",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
     targets: List[str] = getattr(args, "targets", []) or []
     content = build_path.read_text(encoding="utf-8")
@@ -291,7 +298,7 @@ def handle_tidy_add(args: argparse.Namespace) -> None:
     build_path.write_text(new_content, encoding="utf-8")
 
     if json_mode:
-        print_result(
+        return print_result(
             {
                 "status": "success",
                 "action": "tidy add",
@@ -309,3 +316,7 @@ def handle_tidy_add(args: argparse.Namespace) -> None:
         print(
             f"ℹ️ All specified targets are already configured in clang_tidy_test in {build_path}."
         )
+    return CommandResult.success(
+        action="tidy add",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )

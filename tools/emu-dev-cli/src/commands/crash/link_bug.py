@@ -22,18 +22,21 @@ import argparse
 import json
 import re
 import shutil
-import subprocess
 import sys
 from typing import Any
 
+from clients.buganizer_service import (
+    is_safe_signature_issue_match as _service_is_safe_signature_issue_match,
+    normalize_bug_url_and_id as _service_normalize_bug_url_and_id,
+)
 from core.command import Command, CommandResult, bind_command
 from core.context import (
     ExecutionContext,
     SERVICE_F1_SQL,
     SERVICE_PROCESS_RUNNER,
 )
-from core.errors import ExecutionError, UsageError
-from core.process import ProcessRunner
+from core.errors import CommandValidationError, ExecutionError, UsageError
+from core.process import ProcessRunner, SubprocessRunner
 from lib.output import print_result
 
 from commands.crash.utils import parse_crash_id
@@ -44,81 +47,26 @@ CRASH_QUERYAPI_TARGET = "blade:crash-queryapi"
 DEFAULT_F1_SQL_BIN = "/google/bin/releases/f1-team/public/f1-sql"
 
 _HEX_REPORT_ID_RE = re.compile(r"^[0-9a-fA-F]{16}$")
-_BUG_ID_EXTRACT_RE = re.compile(r"(?:^|b/|issues/)(\d+)(?:[/?#]|$)")
 _ANNOTATION_BLOCK_RE = re.compile(r"annotations\s*\{(.*?)\n\}", re.DOTALL)
 _STACK_SIG_RE = re.compile(r'StackSignature:\s*"((?:[^"\\]|\\.)*)"')
 _BUG_INFO_BLOCK_RE = re.compile(r"BugInfo\s*\{(.*?)\}", re.DOTALL)
 _BUG_ID_FIELD_RE = re.compile(r"BugID:\s*(\d+)")
 _BUG_URL_FIELD_RE = re.compile(r'BugUrl:\s*"((?:[^"\\]|\\.)*)"')
-_SIG_HASH_SUFFIX_RE = re.compile(r"-([0-9a-fA-F]{6,16})\b")
-_GENERIC_WRAPPER_SIG_RE = re.compile(
-    r"(?:FailWithoutStackTrace|__abort_with_payload|PthreadWaiter::Wait|"
-    r"FutexWaiter::Wait|CrashReporterImpl::Die|LogMessage::Flush|"
-    r"\babort\b|std::terminate)"
-)
 
 
 def is_safe_signature_issue_match(
     stable_signature: str, issue: dict[str, Any] | None
 ) -> bool:
-    """Checks whether a Buganizer issue returned by signature search is a safe exact match.
-
-    Prevents false-positive matches when `BuganizerClient.search_issue_by_signature`
-    or Buganizer tokenization strips the `-<hex_hash>` suffix on generic abort/log/waiter
-    wrapper signatures (e.g. `FailWithoutStackTrace-7a37e8e9` matching `FailWithoutStackTrace-b59fb732`).
-    """
-    if not issue or not isinstance(issue, dict):
-        return False
-    sig = stable_signature.strip()
-    if not sig:
-        return False
-
-    state = issue.get("issueState") or {}
-    title = str(state.get("title") or issue.get("title") or "").strip()
-    if not title:
-        return True
-    sig_hash_match = _SIG_HASH_SUFFIX_RE.search(sig)
-
-    if sig_hash_match:
-        expected_hash = sig_hash_match.group(1).lower()
-        title_hashes = [m.lower() for m in _SIG_HASH_SUFFIX_RE.findall(title)]
-        if title_hashes and expected_hash not in title_hashes:
-            return False
-        if _GENERIC_WRAPPER_SIG_RE.search(sig) and expected_hash not in title_hashes:
-            return False
-
-    return True
+    """Checks whether a Buganizer issue returned by signature search is a safe exact match."""
+    return _service_is_safe_signature_issue_match(stable_signature, issue)
 
 
 def normalize_bug_url_and_id(bug_input: str) -> tuple[str, str]:
-    """Normalizes a Buganizer ID, shortlink, or full URL into (bug_id, canonical_url).
-
-    Args:
-        bug_input: Raw bug string such as '567125517', 'b/567125517', or
-            'https://b.corp.google.com/issues/567125517'.
-
-    Returns:
-        Tuple of (bug_id_str, canonical_bug_url).
-
-    Raises:
-        ValueError: If no numeric bug ID or valid URL can be extracted.
-    """
-    cleaned = bug_input.strip()
-    if cleaned.isdigit():
-        return cleaned, f"https://b.corp.google.com/issues/{cleaned}"
-
-    match = _BUG_ID_EXTRACT_RE.search(cleaned)
-    if match:
-        bug_id = match.group(1)
-        return bug_id, f"https://b.corp.google.com/issues/{bug_id}"
-
-    if cleaned.startswith(("http://", "https://")):
-        return "", cleaned
-
-    raise ValueError(
-        f"Invalid bug identifier '{bug_input}'. Expected a numeric Buganizer ID (e.g. 567125517), "
-        "shortlink (b/567125517), or full issue URL."
-    )
+    """Normalizes a Buganizer ID, shortlink, or full URL into (bug_id, canonical_url)."""
+    try:
+        return _service_normalize_bug_url_and_id(bug_input)
+    except UsageError as exc:
+        raise ValueError(exc.message) from exc
 
 
 def parse_search_annotations_output(
@@ -200,24 +148,13 @@ def search_crash_annotations(
         request_proto,
     ]
 
-    if runner is not None:
-        res = runner.run(cmd, check=False, timeout_sec=15.0)
+    proc_runner = runner or SubprocessRunner()
+    try:
+        res = proc_runner.run(cmd, check=False, timeout_sec=15.0)
         if res.returncode != 0 or not isinstance(res.stdout, str):
             return {}
         return parse_search_annotations_output(res.stdout)
-
-    try:
-        res_proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-        if res_proc.returncode != 0 or not isinstance(res_proc.stdout, str):
-            return {}
-        return parse_search_annotations_output(res_proc.stdout)
-    except (OSError, subprocess.SubprocessError):
+    except Exception:
         return {}
 
 
@@ -267,8 +204,9 @@ def update_crash_annotation(
         request_proto,
     ]
 
-    if runner is not None:
-        res = runner.run(cmd, check=False, timeout_sec=15.0)
+    proc_runner = runner or SubprocessRunner()
+    try:
+        res = proc_runner.run(cmd, check=False, timeout_sec=15.0)
         stdout_str = res.stdout if isinstance(res.stdout, str) else ""
         stderr_str = res.stderr if isinstance(res.stderr, str) else ""
         if res.returncode == 0 and "status_code: SUCCESS" in stdout_str:
@@ -276,26 +214,8 @@ def update_crash_annotation(
         return False, (
             stderr_str.strip() or stdout_str.strip() or f"Exit code {res.returncode}"
         )
-
-    try:
-        res_proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-        stdout_str = res_proc.stdout if isinstance(res_proc.stdout, str) else ""
-        stderr_str = res_proc.stderr if isinstance(res_proc.stderr, str) else ""
-        if res_proc.returncode == 0 and "status_code: SUCCESS" in stdout_str:
-            return True, stdout_str.strip()
-        return False, (
-            stderr_str.strip()
-            or stdout_str.strip()
-            or f"Exit code {res_proc.returncode}"
-        )
-    except (OSError, subprocess.SubprocessError) as e:
-        return False, str(e)
+    except Exception as exc:
+        return False, str(exc)
 
 
 def is_crash_report_id(target: str) -> bool:
@@ -345,8 +265,9 @@ def resolve_signature_from_report_id(
                 return val
         return None
 
-    if runner is not None:
-        res_run = runner.run(
+    proc_runner = runner or SubprocessRunner()
+    try:
+        res_run = proc_runner.run(
             [f1_sql_bin, "--csv_output=true"],
             input_text=sql,
             check=False,
@@ -370,156 +291,26 @@ def resolve_signature_from_report_id(
             if val and val != "NULL":
                 return val
         return None
-
-    try:
-        res = subprocess.run(
-            [f1_sql_bin, "--csv_output=true"],
-            input=sql,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-        )
-        if res.returncode != 0 or not isinstance(res.stdout, str):
-            return None
-        raw_lines = res.stdout.splitlines()
-        header_idx = next(
-            (
-                i
-                for i, line in enumerate(raw_lines)
-                if line.strip().strip('"') == "stable_signature"
-            ),
-            None,
-        )
-        if header_idx is None:
-            return None
-        for line in raw_lines[header_idx + 1 :]:
-            val = line.strip().strip('"').replace('""', '"')
-            if val and val != "NULL":
-                return val
+    except Exception:
         return None
-    except (OSError, subprocess.SubprocessError):
-        return None
-
-
-def run_link_bug(args: argparse.Namespace) -> None:
-    """CLI handler for `emu-dev-cli crash link-bug`."""
-    json_mode = getattr(args, "json", False)
-    unlink = getattr(args, "unlink", False)
-    product_name = getattr(args, "product", DEFAULT_PRODUCT_NAME)
-    target = args.target.strip()
-
-    try:
-        bug_id, bug_url = normalize_bug_url_and_id(args.bug)
-    except ValueError as e:
-        if json_mode:
-            print_result(
-                {"status": "error", "message": str(e)},
-                json_mode=True,
-                is_error=True,
-            )
-        else:
-            sys.stderr.write(f"❌ {e}\n")
-        sys.exit(1)
-
-    report_id: str | None = None
-    stable_signature = target
-    if is_crash_report_id(target):
-        report_id = parse_crash_id(target)
-        if not json_mode:
-            print(f"🔎 Resolving stable_signature for ReportID {report_id}...")
-        resolved = resolve_signature_from_report_id(
-            report_id, product_name=product_name
-        )
-        if not resolved:
-            msg = (
-                f"Could not resolve stable_signature for ReportID '{report_id}'. "
-                "Please pass the stable_signature directly."
-            )
-            if json_mode:
-                print_result(
-                    {"status": "error", "message": msg},
-                    json_mode=True,
-                    is_error=True,
-                )
-            else:
-                sys.stderr.write(f"❌ {msg}\n")
-            sys.exit(1)
-        stable_signature = resolved
-
-    ok, detail = update_crash_annotation(
-        stable_signature=stable_signature,
-        bug_url=bug_url,
-        unlink=unlink,
-        product_name=product_name,
-    )
-
-    if not ok:
-        msg = f"Failed to {'unlink' if unlink else 'link'} {bug_url} for signature '{stable_signature}': {detail}"
-        if json_mode:
-            print_result(
-                {
-                    "status": "error",
-                    "action": "crash link-bug",
-                    "stable_signature": stable_signature,
-                    "report_id": report_id,
-                    "bug_id": bug_id,
-                    "bug_url": bug_url,
-                    "unlinked": unlink,
-                    "message": msg,
-                },
-                json_mode=True,
-                is_error=True,
-            )
-        else:
-            sys.stderr.write(f"❌ {msg}\n")
-        sys.exit(1)
-
-    # Fetch updated annotations to confirm current state
-    current_annotations = search_crash_annotations(
-        [stable_signature], product_name=product_name
-    ).get(stable_signature, [])
-
-    payload: dict[str, Any] = {
-        "status": "success",
-        "action": "crash link-bug",
-        "stable_signature": stable_signature,
-        "report_id": report_id,
-        "bug_id": bug_id,
-        "bug_url": bug_url,
-        "unlinked": unlink,
-        "linked_bugs": current_annotations,
-    }
-
-    if json_mode:
-        print_result(payload, json_mode=True)
-    else:
-        verb = "Unlinked" if unlink else "Linked"
-        print(
-            f"✅ {verb} bug {bug_url} {'from' if unlink else 'to'} go/crash signature:"
-        )
-        print(f"   • Signature: {stable_signature}")
-        if report_id:
-            print(f"   • Report ID: {report_id}")
-        if current_annotations:
-            urls = ", ".join(b["bug_url"] for b in current_annotations)
-            print(f"   • Active go/crash Bug Links: {urls}")
-        else:
-            print("   • Active go/crash Bug Links: (none)")
 
 
 class CrashLinkBugCommand(Command[argparse.Namespace, dict[str, Any]]):
     """Command implementation for `emu-dev-cli crash link-bug`."""
 
     name = "link-bug"
-    help_text = "Associate (or unlink) a Buganizer issue URL with a crash signature in go/crash"
+    help_text = (
+        "Associate (or unlink) a Buganizer issue URL with a crash signature in go/crash"
+    )
+    help = help_text
+    description = (
+        "Associates or removes a Buganizer issue URL on a crash signature in go/crash "
+        "via QueryAPIService.UpdateAnnotation on blade:crash-queryapi. Accepts either a "
+        "stable_signature or a 16-hex crash ReportID."
+    )
 
     def configure_parser(self, parser: argparse.ArgumentParser) -> None:
-        parser.description = (
-            "Associates or removes a Buganizer issue URL on a crash signature in go/crash "
-            "via QueryAPIService.UpdateAnnotation on blade:crash-queryapi. Accepts either a "
-            "stable_signature or a 16-hex crash ReportID."
-        )
+        parser.description = self.description
         parser.add_argument(
             "target",
             help="Crash stable_signature (e.g. 'virtio_gpu_rutabaga_load-e709a6ba') or 16-hex crash ReportID",
@@ -555,7 +346,7 @@ class CrashLinkBugCommand(Command[argparse.Namespace, dict[str, Any]]):
             or ""
         ).strip()
         if not target:
-            raise UsageError(
+            raise CommandValidationError(
                 "Crash target signature or ReportID cannot be empty for 'crash link-bug'.",
                 remediation="Pass a non-empty stable_signature or 16-hex crash ReportID.",
             )
@@ -567,7 +358,7 @@ class CrashLinkBugCommand(Command[argparse.Namespace, dict[str, Any]]):
         try:
             normalize_bug_url_and_id(bug_arg)
         except ValueError as exc:
-            raise UsageError(
+            raise CommandValidationError(
                 str(exc),
                 remediation="Pass a numeric Buganizer ID (e.g. '567125517'), shortlink ('b/567125517'), or full issue URL.",
             ) from exc
@@ -640,10 +431,6 @@ class CrashLinkBugCommand(Command[argparse.Namespace, dict[str, Any]]):
         )
 
 
-def register_link_bug_parser(crash_subparsers) -> None:
+def register_link_bug_parser(crash_subparsers) -> argparse.ArgumentParser:
     """Registers the `link-bug` subcommand parser under `crash`."""
-    bind_command(
-        crash_subparsers,
-        CrashLinkBugCommand(),
-        legacy_func=run_link_bug,
-    )
+    return CrashLinkBugCommand().register(crash_subparsers)

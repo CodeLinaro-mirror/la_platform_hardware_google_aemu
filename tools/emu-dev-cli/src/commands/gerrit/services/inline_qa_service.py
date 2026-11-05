@@ -21,11 +21,11 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
-import subprocess
 import threading
 from typing import Any
 import urllib.request
+
+from clients.agent_runtime_service import ProdAgentRuntimeService
 
 from commands.gerrit.ai_analysis import (
     build_ai_analysis_prompt,
@@ -36,10 +36,10 @@ from commands.gerrit.services.diff_parser import (
     GerritServiceBase,
     extract_enclosing_function_from_diff_lines,
     extract_symbol_from_code_line,
-    register_ui_hook,
-    resolve_ui_hook,
 )
-from lib.gerrit_api import parse_cl_identifier
+from commands.gerrit.services.queue_service import GerritQueueService
+from core.process import SubprocessRunner
+from lib.gerrit_api import DEFAULT_GERRIT_HOST, parse_cl_identifier
 
 _CODE_QUESTION_PROMPT_RE = re.compile(
     r"Regarding Gerrit CL `ag/(?P<cl>\d+)` in `(?P<file_path>[^`]+)` "
@@ -431,51 +431,68 @@ def _call_local_language_server_rpc(method_name: str, payload: dict[str, Any]) -
 
 
 def _run_sidecar_agentapi(args: list[str], project_id: str | None = None) -> dict[str, Any]:
-    """Invokes `agentapi` for Jetski Web sidecar conversation integration."""
-    agentapi_bin = shutil.which("agentapi")
-    if not agentapi_bin:
-        cand = Path.home() / ".gemini" / "jetski" / "bin" / "agentapi"
-        if cand.is_file():
-            agentapi_bin = str(cand)
-        else:
-            agentapi_bin = "agentapi"
-    env = os.environ.copy()
-    if project_id:
-        env["ANTIGRAVITY_PROJECT_ID"] = project_id
-    else:
-        env.pop("ANTIGRAVITY_SOURCE_METADATA", None)
-    res = subprocess.run(
-        [agentapi_bin, *args],
-        capture_output=True,
-        text=True,
-        env=env,
-        check=False,
-        timeout=30,
+    """Invokes `agentapi` for Jetski Web sidecar conversation integration via AgentRuntimeService."""
+    return ProdAgentRuntimeService(SubprocessRunner()).invoke_agentapi_raw(
+        args, project_id=project_id
     )
-    if res.returncode != 0:
-        subcmd = args[0] if args else "command"
-        detail = (res.stderr or res.stdout or "").strip() or f"exit code {res.returncode}"
-        raise RuntimeError(
-            f"agentapi '{subcmd}' failed (exit {res.returncode}): {detail}. "
-            "Verify the Jetski agentapi binary and active language server session."
-        )
-    out = (res.stdout or "").strip()
-    return json.loads(out) if out else {}
-
-
-
-
-register_ui_hook("discover_transcript_code_questions", discover_transcript_code_questions)
-register_ui_hook("_call_local_language_server_rpc", _call_local_language_server_rpc)
-register_ui_hook("_run_sidecar_agentapi", _run_sidecar_agentapi)
 
 
 class GerritInlineQaService(GerritServiceBase):
     """Domain service for Jetski inline code Q&A threads and AI intangibles analysis."""
 
-    def fetch_commit_diff_bundle(self, cl_number: str | int) -> dict[str, Any]:
+    def __init__(
+        self,
+        host: str = DEFAULT_GERRIT_HOST,
+        default_viewer: str = "",
+        default_query: str = "",
+        sidecar_updater: Any | None = None,
+        *,
+        context: Any | None = None,
+        diff_service: GerritDiffService | None = None,
+        queue_service: GerritQueueService | None = None,
+    ) -> None:
+        super().__init__(
+            host=host,
+            default_viewer=default_viewer,
+            default_query=default_query,
+            sidecar_updater=sidecar_updater,
+            context=context,
+        )
+        self._diff_service = diff_service
+        self._queue_service = queue_service
+
+    def _get_diff_service(self) -> GerritDiffService:
+        if self._diff_service is None:
+            self._diff_service = GerritDiffService(
+                context=self.context, inline_qa_service=self
+            )
+        return self._diff_service
+
+    def _get_queue_service(self) -> GerritQueueService:
+        if self._queue_service is None:
+            self._queue_service = GerritQueueService(
+                context=self.context, diff_service=self._get_diff_service()
+            )
+        return self._queue_service
+
+    def fetch_commit_diff_bundle(
+        self,
+        cl_number: str | int,
+        patch_set: str | int | None = None,
+        base: str | int | None = None,
+    ) -> dict[str, Any]:
         """Delegates diff bundle lookup to `GerritDiffService`."""
-        return GerritDiffService.fetch_commit_diff_bundle(self, cl_number)  # type: ignore[arg-type]
+        return self._get_diff_service().fetch_commit_diff_bundle(
+            cl_number, patch_set=patch_set, base=base
+        )
+
+    def _resolve_change_patchset_and_project(
+        self, cl_id: str, patchset: int | None, project: str
+    ) -> tuple[int, str]:
+        """Delegates `(patch_set, project)` resolution to `GerritQueueService`."""
+        return self._get_queue_service()._resolve_change_patchset_and_project(
+            cl_id, patchset, project
+        )
 
     def _merge_tracked_qa_state(
         self,
@@ -576,7 +593,7 @@ class GerritInlineQaService(GerritServiceBase):
             tracked = set(self._tracked_qa_conv_ids)
             deleted = set(self._deleted_qa_conv_ids) | set(self._analyzer_conv_ids)
             ignored = {k: set(v) for k, v in self._ignored_steps_by_conv.items()}
-        tx_items = resolve_ui_hook("discover_transcript_code_questions", discover_transcript_code_questions)(
+        tx_items = discover_transcript_code_questions(
             conversation_id=conversation_id,
             cl_numbers=cleaned or None,
             extra_conversation_ids=tracked,
@@ -596,7 +613,7 @@ class GerritInlineQaService(GerritServiceBase):
         if not parent_conv:
             return None
         try:
-            meta_res = resolve_ui_hook("_run_sidecar_agentapi", _run_sidecar_agentapi)(["get-conversation-metadata", parent_conv])
+            meta_res = _run_sidecar_agentapi(["get-conversation-metadata", parent_conv])
             pid = _extract_agentapi_project_id(meta_res)
             if pid:
                 self._cached_project_id = pid
@@ -661,13 +678,13 @@ class GerritInlineQaService(GerritServiceBase):
         """Dispatches `prompt` to `target_conv_id` or starts an isolated background conversation."""
         try:
             if target_conv_id:
-                res = resolve_ui_hook("_run_sidecar_agentapi", _run_sidecar_agentapi)(
+                res = _run_sidecar_agentapi(
                     ["send-message", target_conv_id, prompt],
                     project_id=project_id,
                 )
                 return True, target_conv_id, res
             resolved_pid = self._resolve_sidecar_project_id(project_id)
-            res = resolve_ui_hook("_run_sidecar_agentapi", _run_sidecar_agentapi)(
+            res = _run_sidecar_agentapi(
                 ["new-conversation", "--title", title, prompt],
                 project_id=resolved_pid,
             )
@@ -840,12 +857,12 @@ class GerritInlineQaService(GerritServiceBase):
         """Cancels an in-flight LS invocation and deletes or rewinds its latest turn step."""
         if not conv_id:
             return
-        resolve_ui_hook("_call_local_language_server_rpc", _call_local_language_server_rpc)(
+        _call_local_language_server_rpc(
             "CancelCascadeInvocation",
             {"cascadeId": conv_id, "killBackgroundTasks": True},
         )
         if delete_entire_conv:
-            resolve_ui_hook("_call_local_language_server_rpc", _call_local_language_server_rpc)(
+            _call_local_language_server_rpc(
                 "DeleteCascadeTrajectory",
                 {"cascadeId": conv_id},
             )
@@ -858,7 +875,7 @@ class GerritInlineQaService(GerritServiceBase):
         prev_end_step = prev_turn.get("end_step_index") if prev_turn else None
         latest_step = turns[-1].get("step_index") if turns else None
         if prev_end_step is not None:
-            resolve_ui_hook("_call_local_language_server_rpc", _call_local_language_server_rpc)(
+            _call_local_language_server_rpc(
                 "RevertToCascadeStep",
                 {
                     "cascadeId": conv_id,
@@ -1275,4 +1292,8 @@ class GerritInlineQaService(GerritServiceBase):
             force=force,
             brain_root=brain_root,
         )
+
+
+InlineQaService = GerritInlineQaService
+
 

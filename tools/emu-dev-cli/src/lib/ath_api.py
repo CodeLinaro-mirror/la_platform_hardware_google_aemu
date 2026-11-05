@@ -658,7 +658,21 @@ def fetch_ath_invocations(
                         i for i in b_data.get("invocations", [])
                         if _matches_invocation_filters(i, tgt, allowed_test_ids)
                     ]
-                except Exception:
+                except HTTPError as exc:
+                    if exc.code in (401, 403):
+                        raise
+                    logger.warning(
+                        "Failed fetching postsubmit invocations for build %s: %s",
+                        bid,
+                        exc,
+                    )
+                    return []
+                except Exception as exc:
+                    logger.warning(
+                        "Failed fetching postsubmit invocations for build %s: %s",
+                        bid,
+                        exc,
+                    )
                     return []
 
             with ThreadPoolExecutor(max_workers=8) as p_executor:
@@ -793,7 +807,21 @@ def query_ath_flaky_tests(
                     page_token = wu_data.get("nextPageToken")
                     if not page_token:
                         break
-                except Exception:
+                except HTTPError as exc:
+                    if exc.code in (401, 403):
+                        raise
+                    logger.warning(
+                        "Workunit pagination failed for invocation %s: %s",
+                        inv_id,
+                        exc,
+                    )
+                    break
+                except Exception as exc:
+                    logger.warning(
+                        "Workunit pagination failed for invocation %s: %s",
+                        inv_id,
+                        exc,
+                    )
                     break
             return inv_id, build_id, inv_suite, all_wus
 
@@ -1029,6 +1057,7 @@ def query_test_history(
                 # Query only error workunits to see if clean_target is the one that failed
                 err_units: List[Dict[str, Any]] = []
                 err_page_token = None
+                err_query_failed = False
                 while True:
                     err_url = (
                         f"https://androidbuildinternal.googleapis.com/android/internal/build/v3/workunits"
@@ -1045,7 +1074,23 @@ def query_test_history(
                         err_page_token = wu_data.get("nextPageToken")
                         if not err_page_token:
                             break
-                    except Exception:
+                    except HTTPError as exc:
+                        if exc.code in (401, 403):
+                            raise
+                        err_query_failed = True
+                        logger.warning(
+                            "Error-workunit pagination failed for invocation %s: %s",
+                            inv_id,
+                            exc,
+                        )
+                        break
+                    except Exception as exc:
+                        err_query_failed = True
+                        logger.warning(
+                            "Error-workunit pagination failed for invocation %s: %s",
+                            inv_id,
+                            exc,
+                        )
                         break
 
                 for w in err_units:
@@ -1065,6 +1110,8 @@ def query_test_history(
                                 test_identifier=inv_test_id,
                             )
                         ]
+                if err_query_failed:
+                    return []
                 if tot_targets > 0:
                     return [
                         TestHistoryEntry(
@@ -1096,7 +1143,21 @@ def query_test_history(
                     page_token = wu_data.get("nextPageToken")
                     if not page_token:
                         break
-                except Exception:
+                except HTTPError as exc:
+                    if exc.code in (401, 403):
+                        raise
+                    logger.warning(
+                        "Workunit pagination failed for invocation %s: %s",
+                        inv_id,
+                        exc,
+                    )
+                    break
+                except Exception as exc:
+                    logger.warning(
+                        "Workunit pagination failed for invocation %s: %s",
+                        inv_id,
+                        exc,
+                    )
                     break
 
             matched_entries: List[TestHistoryEntry] = []

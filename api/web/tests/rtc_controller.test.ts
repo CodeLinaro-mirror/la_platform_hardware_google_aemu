@@ -37,11 +37,20 @@ class MockRTCPeerConnection {
   public addedIceCandidates: any[] = [];
   public closed = false;
 
+  public offerOptions: (RTCOfferOptions | undefined)[] = [];
+
+  // Returned by addTransceiver('audio', ...).
+  public audioTransceiver = {
+    sender: { replaceTrack: vi.fn(async (_track: any) => {}) },
+  };
+  public addTransceiver = vi.fn((_kind: any, _init?: any) => this.audioTransceiver);
+
   async setRemoteDescription(desc: RTCSessionDescriptionInit) {
     this.remoteDescription = desc;
   }
 
-  async createOffer(): Promise<RTCSessionDescriptionInit> {
+  async createOffer(options?: RTCOfferOptions): Promise<RTCSessionDescriptionInit> {
+    this.offerOptions.push(options);
     return { type: 'offer', sdp: 'v=0\r\no=mock-client-offer' };
   }
 
@@ -55,10 +64,6 @@ class MockRTCPeerConnection {
 
   async addIceCandidate(candidate: any) {
     this.addedIceCandidates.push(candidate);
-  }
-
-  addTransceiver(trackOrKind: any, init?: any) {
-    return {};
   }
 
   createDataChannel(label: string, init?: any) {
@@ -109,11 +114,15 @@ describe('RtcController (TDD)', () => {
   let mockTransport: MockRtcTransport;
   let inputChannel: InputChannel;
   let rtcController: RtcController;
+  let micTrack: { kind: string; label: string; stop: ReturnType<typeof vi.fn> };
+  let getUserMediaMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     mockPeerConnection = new MockRTCPeerConnection();
     mockTransport = new MockRtcTransport();
     inputChannel = new InputChannel();
+    micTrack = { kind: 'audio', label: '测试_🚀_é', stop: vi.fn() };
+    getUserMediaMock = vi.fn().mockResolvedValue({ getAudioTracks: () => [micTrack] });
 
     mockTransport.requestStreamMock.mockResolvedValue(
       RtcStreamResponse.encode(
@@ -127,6 +136,7 @@ describe('RtcController (TDD)', () => {
       transport: mockTransport as any,
       inputChannel,
       createPeerConnection: () => mockPeerConnection as any,
+      getUserMedia: getUserMediaMock as any,
     });
   });
 
@@ -370,5 +380,147 @@ describe('RtcController (TDD)', () => {
 
     expect(mockPeerConnection.closed).toBe(true);
     expect(rtcController.state).toBe(RtcConnectionState.DISCONNECTED);
+  });
+
+  describe('microphone', () => {
+    function createMicController(): RtcController {
+      return new RtcController({
+        transport: mockTransport as any,
+        inputChannel,
+        createPeerConnection: () => mockPeerConnection as any,
+        getUserMedia: getUserMediaMock as any,
+        microphone: true,
+      });
+    }
+
+    async function connectMic(): Promise<RtcController> {
+      const controller = createMicController();
+      await controller.connect();
+      return controller;
+    }
+
+    it('leaves the offer unchanged without the microphone option', async () => {
+      await rtcController.connect();
+
+      expect(mockPeerConnection.addTransceiver).toHaveBeenCalledTimes(0);
+      expect(mockPeerConnection.offerOptions).toEqual([
+        { offerToReceiveVideo: true, offerToReceiveAudio: true },
+      ]);
+    });
+
+    it('offers one sendrecv audio transceiver with the microphone option', async () => {
+      await connectMic();
+
+      expect(mockPeerConnection.addTransceiver).toHaveBeenCalledTimes(1);
+      expect(mockPeerConnection.addTransceiver).toHaveBeenCalledWith('audio', {
+        direction: 'sendrecv',
+      });
+      expect(mockPeerConnection.offerOptions).toEqual([{ offerToReceiveVideo: true }]);
+      expect(mockPeerConnection.localDescription?.sdp).toContain('a=candidate:loopback-active');
+    });
+
+    it('enable attaches the microphone track without renegotiating', async () => {
+      const controller = await connectMic();
+      const changes: boolean[] = [];
+      controller.on('microphoneChange', (on) => changes.push(on));
+
+      await controller.enableMicrophone({ deviceId: '测试_🚀_é' });
+
+      expect(getUserMediaMock).toHaveBeenCalledWith({ audio: { deviceId: '测试_🚀_é' } });
+      expect(mockPeerConnection.audioTransceiver.sender.replaceTrack).toHaveBeenCalledWith(micTrack);
+      expect(controller.microphoneEnabled).toBe(true);
+      expect(changes).toEqual([true]);
+      expect(mockTransport.sendJsepMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('disable detaches and stops the track without renegotiating', async () => {
+      const controller = await connectMic();
+      await controller.enableMicrophone();
+      const changes: boolean[] = [];
+      controller.on('microphoneChange', (on) => changes.push(on));
+
+      await controller.disableMicrophone();
+
+      expect(mockPeerConnection.audioTransceiver.sender.replaceTrack).toHaveBeenCalledWith(null);
+      expect(micTrack.stop).toHaveBeenCalledTimes(1);
+      expect(controller.microphoneEnabled).toBe(false);
+      expect(changes).toEqual([false]);
+      expect(mockTransport.sendJsepMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects enable without the microphone option', async () => {
+      await rtcController.connect();
+
+      await expect(rtcController.enableMicrophone()).rejects.toThrow('microphone: true');
+      expect(getUserMediaMock).toHaveBeenCalledTimes(0);
+      expect(rtcController.microphoneEnabled).toBe(false);
+    });
+
+    it('rejects enable before connect', async () => {
+      const controller = createMicController();
+
+      await expect(controller.enableMicrophone()).rejects.toThrow('Call connect()');
+      expect(getUserMediaMock).toHaveBeenCalledTimes(0);
+    });
+
+    it('stays disabled and emits an actionable error when getUserMedia fails', async () => {
+      const controller = await connectMic();
+      const denied = new Error('Permission denied');
+      denied.name = 'NotAllowedError';
+      getUserMediaMock.mockRejectedValue(denied);
+      const errors: Error[] = [];
+      const changes: boolean[] = [];
+      controller.on('error', (err) => errors.push(err));
+      controller.on('microphoneChange', (on) => changes.push(on));
+
+      await expect(controller.enableMicrophone()).rejects.toThrow('NotAllowedError');
+
+      expect(controller.microphoneEnabled).toBe(false);
+      expect(errors).toHaveLength(1);
+      expect(errors[0].message).toContain('Allow microphone access');
+      expect(changes).toEqual([]);
+      expect(mockPeerConnection.audioTransceiver.sender.replaceTrack).toHaveBeenCalledTimes(0);
+    });
+
+    it('ends disabled when disable races an in-flight enable', async () => {
+      const controller = await connectMic();
+      let grant: (stream: any) => void = () => {};
+      getUserMediaMock.mockImplementation(() => new Promise((resolve) => (grant = resolve)));
+
+      const enabling = controller.enableMicrophone();
+      const disabling = controller.disableMicrophone();
+      await new Promise((r) => setTimeout(r, 0));
+      grant({ getAudioTracks: () => [micTrack] });
+      await enabling;
+      await disabling;
+
+      expect(controller.microphoneEnabled).toBe(false);
+      expect(micTrack.stop).toHaveBeenCalledTimes(1);
+      expect(mockPeerConnection.audioTransceiver.sender.replaceTrack).toHaveBeenCalledWith(null);
+    });
+
+    it('disconnect stops the microphone track and reports it off', async () => {
+      const controller = await connectMic();
+      await controller.enableMicrophone();
+      const changes: boolean[] = [];
+      controller.on('microphoneChange', (on) => changes.push(on));
+
+      controller.disconnect();
+
+      expect(micTrack.stop).toHaveBeenCalledTimes(1);
+      expect(controller.microphoneEnabled).toBe(false);
+      expect(changes).toEqual([false]);
+      await expect(controller.enableMicrophone()).rejects.toThrow('Call connect()');
+    });
+
+    it('treats a second enable and a disable while off as no-ops', async () => {
+      const controller = await connectMic();
+      await controller.disableMicrophone();
+      await controller.enableMicrophone();
+      await controller.enableMicrophone();
+
+      expect(getUserMediaMock).toHaveBeenCalledTimes(1);
+      expect(mockPeerConnection.audioTransceiver.sender.replaceTrack).toHaveBeenCalledTimes(1);
+    });
   });
 });

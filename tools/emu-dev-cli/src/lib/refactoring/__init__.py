@@ -19,7 +19,6 @@ from lib.refactoring.base_engine import BaseRefactoringEngine
 
 __all__ = [
     "BaseRefactoringEngine",
-    "BatchedRefactoringEngine",
     "GitNativeRefactoringEngine",
     "Level1RefactoringEngine",
     "finalize_transaction",
@@ -27,10 +26,6 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
-    if name == "BatchedRefactoringEngine":
-        from lib.batched_engine import BatchedRefactoringEngine
-
-        return BatchedRefactoringEngine
     if name == "GitNativeRefactoringEngine":
         from lib.tidy_engine import GitNativeRefactoringEngine
 

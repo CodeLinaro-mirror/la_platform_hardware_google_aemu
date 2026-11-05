@@ -27,29 +27,17 @@ _EMU_DEV_CLI_DIR = os.path.dirname(_TESTS_DIR)
 _SRC_DIR = os.path.join(_EMU_DEV_CLI_DIR, "src")
 
 from commands.workflow import find_workflow_target, list_available_workflows
+from testlib.workflows import WorkflowTestCase
 
 
-class TestHelloWorldExampleWorkflow(unittest.TestCase):
+class TestHelloWorldExampleWorkflow(WorkflowTestCase):
 
     def setUp(self):
-        target = find_workflow_target("hello-world-example")
-        self.assertIsNotNone(target, "hello-world-example workflow target not found")
-        self.target_type, self.workflow_yaml = target
-        self.assertEqual(self.target_type, "yaml")
-        self.assertTrue(os.path.isfile(self.workflow_yaml))
-
-        self.yaml_runner_py = os.path.join(
-            _EMU_DEV_CLI_DIR, "workflows", "core", "yaml_runner.py"
-        )
+        self.setup_workflow("hello-world-example")
         self.assertTrue(os.path.isfile(self.yaml_runner_py))
 
     def test_workflow_discovery(self):
-        workflows = list_available_workflows()
-        self.assertIn("hello-world-example", workflows)
-        wf = workflows["hello-world-example"]
-        self.assertEqual(wf["name"], "hello-world-example")
-        self.assertEqual(wf["target_type"], "yaml")
-        self.assertTrue(os.path.isfile(wf["target_path"]))
+        wf = self.assert_workflow_discovery("hello-world-example")
         self.assertTrue(wf["target_path"].endswith("workflow.yaml"))
         self.assertIn("example workflow", wf["description"].lower())
 

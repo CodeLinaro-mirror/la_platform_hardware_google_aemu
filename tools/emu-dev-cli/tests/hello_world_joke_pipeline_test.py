@@ -27,28 +27,17 @@ _SRC_DIR = os.path.join(_EMU_DEV_CLI_DIR, "src")
 
 
 from commands.workflow import find_workflow_target, list_available_workflows
+from testlib.workflows import WorkflowTestCase
 from workflows.core.yaml_runner import load_state_yaml
 
 
-class TestHelloWorldJokePipelineWorkflow(unittest.TestCase):
+class TestHelloWorldJokePipelineWorkflow(WorkflowTestCase):
 
     def setUp(self):
-        target = find_workflow_target("hello-world-joke-pipeline")
-        self.assertIsNotNone(target, "hello-world-joke-pipeline workflow target not found")
-        self.target_type, self.workflow_yaml = target
-        self.assertEqual(self.target_type, "yaml")
-        self.assertTrue(os.path.isfile(self.workflow_yaml))
-
-        self.yaml_runner_py = os.path.join(
-            _EMU_DEV_CLI_DIR, "workflows", "core", "yaml_runner.py"
-        )
+        self.setup_workflow("hello-world-joke-pipeline")
 
     def test_workflow_discovery(self):
-        workflows = list_available_workflows()
-        self.assertIn("hello-world-joke-pipeline", workflows)
-        wf = workflows["hello-world-joke-pipeline"]
-        self.assertEqual(wf["name"], "hello-world-joke-pipeline")
-        self.assertEqual(wf["target_type"], "yaml")
+        self.assert_workflow_discovery("hello-world-joke-pipeline")
 
     def test_full_pipeline_lifecycle_end_to_end(self):
         with tempfile.TemporaryDirectory() as tmpdir:

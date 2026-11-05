@@ -9,11 +9,20 @@ import os
 import re
 import subprocess
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from commands.source_directory import get_source_directory
+from core.command import (
+    Command,
+    CommandGroup,
+    CommandResult,
+    META_KEY_ALREADY_RENDERED,
+    bind_command,
+)
+from core.context import ExecutionContext
 from lib.output import print_result
 from workflows.core.yaml_runner import (
+    WorkflowRegistry,
     _build_subprocess_env,
     approve_workflow_session,
     get_state_base_dir,
@@ -80,10 +89,12 @@ def discover_workflow_directories() -> List[str]:
     return candidates
 
 
-def list_available_workflows() -> Dict[str, Dict[str, str]]:
-    """Discovers all available workflows and returns a dict mapping name to metadata."""
-    workflows = {}
-    for base_dir in discover_workflow_directories():
+def _scan_workflow_directories(
+    candidate_dirs: List[str],
+) -> Dict[str, Dict[str, str]]:
+    """Scans workflow directories on disk and builds the workflow catalog."""
+    workflows: Dict[str, Dict[str, str]] = {}
+    for base_dir in candidate_dirs:
         if not os.path.isdir(base_dir):
             continue
         for entry in os.listdir(base_dir):
@@ -156,6 +167,14 @@ def list_available_workflows() -> Dict[str, Dict[str, str]]:
     return workflows
 
 
+def list_available_workflows() -> Dict[str, Dict[str, str]]:
+    """Discovers all available workflows and returns a dict mapping name to metadata."""
+    return WorkflowRegistry.get_or_scan(
+        discover_workflow_directories(),
+        _scan_workflow_directories,
+    )
+
+
 def find_workflow_target(workflow_name: str) -> Optional[Tuple[str, str]]:
     """Resolves (target_type, target_path) for an exact workflow name."""
     workflows = list_available_workflows()
@@ -195,155 +214,249 @@ def register_parser(subparsers):
                 sys.argv.insert(i + 2, "--")
             break
 
-    workflow_parser = subparsers.add_parser(
-        "workflow",
-        help="Hook-enforced automated workflows to guide agents",
-        description="Run and manage hook-enforced automated workflows to guide agents.",
+    WorkflowCommand().register(subparsers)
+
+
+class WorkflowListCommand(Command[argparse.Namespace, Any]):
+    """Lists available development workflows."""
+
+    name = "list"
+    help_text = "List available development workflows"
+
+    def execute(
+        self, args: argparse.Namespace, ctx: Optional[ExecutionContext] = None
+    ) -> CommandResult:
+        return run_workflow_help(args)
+
+
+class WorkflowUiCommand(Command[argparse.Namespace, Any]):
+    """Launches the workflow web visualizer UI."""
+
+    name = "ui"
+    help_text = (
+        "Launch the web visualizer to inspect running and past workflow sessions"
     )
-    workflow_parser.set_defaults(
-        parser=workflow_parser,
-        func=run_workflow_help,
+    description = (
+        "Launch the single-page web visualizer for emu-dev-cli workflows."
     )
 
-    workflow_subparsers = workflow_parser.add_subparsers(
-        dest="workflow_cmd",
-        metavar="<workflow>",
-        help="Available workflows",
-    )
-
-    list_parser = workflow_subparsers.add_parser(
-        "list",
-        help="List available development workflows",
-    )
-    list_parser.set_defaults(
-        func=run_workflow_help,
-    )
-
-    ui_parser = workflow_subparsers.add_parser(
-        "ui",
-        help="Launch the web visualizer to inspect running and past workflow sessions",
-        description="Launch the single-page web visualizer for emu-dev-cli workflows.",
-    )
-    ui_parser.add_argument(
-        "--port",
-        type=int,
-        default=8080,
-        help="Port to run the web visualizer server on (default: 8080, auto-finds next available)",
-    )
-    ui_parser.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help="Host to bind the web server to (default: 127.0.0.1)",
-    )
-    ui_parser.add_argument(
-        "--no-browser",
-        action="store_true",
-        help="Do not automatically open the web browser upon startup",
-    )
-    ui_parser.set_defaults(
-        func=run_workflow_ui,
-    )
-
-    approve_parser = workflow_subparsers.add_parser(
-        "approve",
-        help="Approve a workflow session paused at a human verification barrier",
-        description="Approve a workflow session paused at a human verification barrier.",
-    )
-    approve_parser.add_argument(
-        "--state",
-        dest="state_id",
-        required=True,
-        help="State ID of the workflow session to approve",
-    )
-    approve_parser.add_argument(
-        "--workflow",
-        dest="workflow_name",
-        default=None,
-        help="Optional workflow name if disambiguating state ID",
-    )
-    approve_parser.add_argument(
-        "--feedback",
-        default=None,
-        help="Optional feedback message to pass to the agent for the next step",
-    )
-    approve_parser.set_defaults(
-        func=run_workflow_approve,
-    )
-
-    resume_parser = workflow_subparsers.add_parser(
-        "resume",
-        help="Resume a completed, paused, or stuck workflow session and wake its Jetski conversation",
-        description="Reset a workflow session to RUNNING and wake its linked Jetski conversation.",
-    )
-    resume_parser.add_argument(
-        "--state",
-        dest="state_id",
-        required=True,
-        help="State ID of the workflow session to resume",
-    )
-    resume_parser.add_argument(
-        "--workflow",
-        dest="workflow_name",
-        default=None,
-        help="Optional workflow name if disambiguating state ID",
-    )
-    resume_parser.add_argument(
-        "--step",
-        type=int,
-        default=0,
-        help="Step index to resume from (default: 0)",
-    )
-    resume_parser.add_argument(
-        "--prompt",
-        default=None,
-        help="Optional custom wake prompt to send to the linked Jetski conversation",
-    )
-    resume_parser.add_argument(
-        "--no-wake",
-        action="store_true",
-        help="Only reset workflow state without waking the background Jetski conversation",
-    )
-    resume_parser.set_defaults(
-        func=run_workflow_resume,
-    )
-
-    # Discovered workflows registered directly as subcommands (single canonical name with '-')
-    workflows = list_available_workflows()
-    for name, wf in workflows.items():
-        desc = wf.get("description", "Automated development workflow")
-        target_path = wf.get("target_path", wf.get("main_script"))
-        target_type = wf.get("target_type", "script")
-
-        wf_p = workflow_subparsers.add_parser(
-            name,
-            help=desc,
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--port",
+            type=int,
+            default=8080,
+            help="Port to run the web visualizer server on (default: 8080, auto-finds next available)",
         )
-        if target_path:
-            def make_help_func(path, ttype):
-                def _help(file=None):
-                    if ttype == "yaml" or path.endswith((".yaml", ".yml")):
-                        run_yaml_workflow(path, ["--help"])
-                    else:
-                        subprocess.run([sys.executable, path, "--help"], env=_build_subprocess_env())
-                return _help
-            wf_p.print_help = make_help_func(target_path, target_type)
+        parser.add_argument(
+            "--host",
+            default="127.0.0.1",
+            help="Host to bind the web server to (default: 127.0.0.1)",
+        )
+        parser.add_argument(
+            "--no-browser",
+            action="store_true",
+            help="Do not automatically open the web browser upon startup",
+        )
 
-        wf_p.add_argument(
+    def execute(
+        self, args: argparse.Namespace, ctx: Optional[ExecutionContext] = None
+    ) -> CommandResult:
+        return run_workflow_ui(args)
+
+
+class WorkflowApproveCommand(Command[argparse.Namespace, Any]):
+    """Approves a workflow session paused at a human verification barrier."""
+
+    name = "approve"
+    help_text = (
+        "Approve a workflow session paused at a human verification barrier"
+    )
+    description = (
+        "Approve a workflow session paused at a human verification barrier."
+    )
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--state",
+            dest="state_id",
+            required=True,
+            help="State ID of the workflow session to approve",
+        )
+        parser.add_argument(
+            "--workflow",
+            dest="workflow_name",
+            default=None,
+            help="Optional workflow name if disambiguating state ID",
+        )
+        parser.add_argument(
+            "--feedback",
+            default=None,
+            help="Optional feedback message to pass to the agent for the next step",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: Optional[ExecutionContext] = None
+    ) -> CommandResult:
+        return run_workflow_approve(args)
+
+
+class WorkflowResumeCommand(Command[argparse.Namespace, Any]):
+    """Resumes a workflow session and optionally wakes its linked Jetski conversation."""
+
+    name = "resume"
+    help_text = (
+        "Resume a completed, paused, or stuck workflow session and wake its Jetski conversation"
+    )
+    description = (
+        "Reset a workflow session to RUNNING and wake its linked Jetski conversation."
+    )
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--state",
+            dest="state_id",
+            required=True,
+            help="State ID of the workflow session to resume",
+        )
+        parser.add_argument(
+            "--workflow",
+            dest="workflow_name",
+            default=None,
+            help="Optional workflow name if disambiguating state ID",
+        )
+        parser.add_argument(
+            "--step",
+            type=int,
+            default=0,
+            help="Step index to resume from (default: 0)",
+        )
+        parser.add_argument(
+            "--prompt",
+            default=None,
+            help="Optional custom wake prompt to send to the linked Jetski conversation",
+        )
+        parser.add_argument(
+            "--no-wake",
+            action="store_true",
+            help="Only reset workflow state without waking the background Jetski conversation",
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: Optional[ExecutionContext] = None
+    ) -> CommandResult:
+        return run_workflow_resume(args)
+
+
+class WorkflowTargetCommand(Command[argparse.Namespace, Any]):
+    """Executes a discovered development workflow by name."""
+
+    def __init__(
+        self,
+        workflow_name: str,
+        description_text: str,
+        target_path: Optional[str],
+        target_type: str,
+    ) -> None:
+        self.name = workflow_name
+        self.help_text = description_text
+        self._target_path = target_path
+        self._target_type = target_type
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        if self._target_path:
+            path = self._target_path
+            ttype = self._target_type
+
+            def _help(file=None):
+                if ttype == "yaml" or path.endswith((".yaml", ".yml")):
+                    run_yaml_workflow(path, ["--help"])
+                else:
+                    subprocess.run(
+                        [sys.executable, path, "--help"],
+                        env=_build_subprocess_env(),
+                    )
+
+            parser.print_help = _help
+
+        parser.add_argument(
             "workflow_args",
             nargs=argparse.REMAINDER,
             help=argparse.SUPPRESS,
         )
-        wf_p.set_defaults(
-            func=run_workflow_direct,
-            workflow_target_name=name,
+        parser.set_defaults(workflow_target_name=self.name)
+
+    def execute(
+        self, args: argparse.Namespace, ctx: Optional[ExecutionContext] = None
+    ) -> CommandResult:
+        args.workflow_target_name = self.name
+        return run_workflow_direct(args)
+
+
+class WorkflowCommand(CommandGroup):
+    """Top-level command group for automated development workflows."""
+
+    name = "workflow"
+    help_text = "Hook-enforced automated workflows to guide agents"
+    description = "Run and manage hook-enforced automated workflows to guide agents."
+    subcommand_dest = "workflow_cmd"
+
+    def register(
+        self,
+        subparsers: argparse._SubParsersAction,
+    ) -> argparse.ArgumentParser:
+        parser = subparsers.add_parser(
+            self.name,
+            help=self.help_text,
+            description=self.description or self.help_text,
+            formatter_class=argparse.RawDescriptionHelpFormatter,
         )
+        parser.set_defaults(parser=parser)
+        self._parser = parser
+        self.bind_parser(parser)
+        child_subparsers = parser.add_subparsers(
+            dest=self.subcommand_dest,
+            metavar="<workflow>",
+            help="Available workflows",
+        )
+        static_commands: List[Command[Any, Any]] = [
+            WorkflowListCommand(),
+            WorkflowUiCommand(),
+            WorkflowApproveCommand(),
+            WorkflowResumeCommand(),
+        ]
+        all_children: List[Command[Any, Any]] = []
+        for child in static_commands:
+            child.register(child_subparsers)
+            all_children.append(child)
+            self._by_name[child.name] = child
+        for wf_name, wf in list_available_workflows().items():
+            desc = wf.get("description", "Automated development workflow")
+            target_path = wf.get("target_path", wf.get("main_script"))
+            target_type = wf.get("target_type", "script")
+            wf_cmd = WorkflowTargetCommand(
+                wf_name, desc, target_path, target_type
+            )
+            wf_cmd.register(child_subparsers)
+            all_children.append(wf_cmd)
+            self._by_name[wf_cmd.name] = wf_cmd
+        self._subcommands = tuple(all_children)
+        self.subcommands = self._subcommands
+        return parser
+
+    def execute(
+        self, args: argparse.Namespace, ctx: Optional[ExecutionContext] = None
+    ) -> CommandResult:
+        sub_cmd = self.resolve_subcommand(args)
+        if sub_cmd is not None:
+            return sub_cmd.execute(args, ctx)
+        return run_workflow_help(args)
 
 
-def run_workflow_help(args):
+def run_workflow_help(args: argparse.Namespace) -> CommandResult:
     json_mode = getattr(args, "json", False)
     if json_mode:
         workflows = list_available_workflows()
-        print_result(
+        return print_result(
             {
                 "status": "success",
                 "workflows": [
@@ -353,18 +466,24 @@ def run_workflow_help(args):
             },
             json_mode=True,
         )
-        return
     if hasattr(args, "parser"):
         args.parser.print_help()
-        sys.exit(0)
+        return CommandResult.success(
+            action="workflow",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
     workflows = list_available_workflows()
     print("Available workflows:")
     max_len = max((len(w) for w in workflows.keys()), default=10)
     for wf in sorted(workflows.values(), key=lambda w: w["name"]):
         print(f"  {wf['name'].ljust(max_len + 4)}{wf['description']}")
+    return CommandResult.success(
+        action="workflow list",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
-def run_workflow_ui(args):
+def run_workflow_ui(args: argparse.Namespace) -> CommandResult:
     """Launches the workflow web UI visualizer."""
     from workflows.ui.server import start_server
 
@@ -372,23 +491,36 @@ def run_workflow_ui(args):
     host = getattr(args, "host", "127.0.0.1")
     no_browser = getattr(args, "no_browser", False)
     start_server(host=host, port=port, open_browser=not no_browser, block=True)
+    return CommandResult.success(
+        action="workflow ui",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
-def run_workflow_approve(args):
+def run_workflow_approve(args: argparse.Namespace) -> CommandResult:
     """Approves a workflow session paused at a human verification barrier."""
     state_id = getattr(args, "state_id", "")
     wf_name = getattr(args, "workflow_name", None)
     feedback = getattr(args, "feedback", None)
-    ok, msg = approve_workflow_session(state_id=state_id, workflow_name=wf_name, feedback=feedback)
+    ok, msg = approve_workflow_session(
+        state_id=state_id, workflow_name=wf_name, feedback=feedback
+    )
     if ok:
         print(msg)
-        sys.exit(0)
-    else:
-        print(f"Error: {msg}", file=sys.stderr)
-        sys.exit(1)
+        return CommandResult.success(
+            summary=msg,
+            action="workflow approve",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
+    print(f"Error: {msg}", file=sys.stderr)
+    return CommandResult.failure(
+        msg,
+        action="workflow approve",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
-def run_workflow_resume(args):
+def run_workflow_resume(args: argparse.Namespace) -> CommandResult:
     """Resumes a workflow session and optionally wakes its linked Jetski conversation."""
     state_id = getattr(args, "state_id", "")
     wf_name = getattr(args, "workflow_name", None)
@@ -403,32 +535,40 @@ def run_workflow_resume(args):
         wake_conversation=not no_wake,
     )
     if getattr(args, "json", False):
-        print_result(
+        return print_result(
             {"status": "success" if ok else "error", "message": msg, "session": info},
             json_mode=True,
             is_error=not ok,
         )
-        sys.exit(0 if ok else 1)
     if ok:
         print(msg)
         if info.get("continuation_cmd"):
             print(f"Continuation command: {info['continuation_cmd']}")
-        sys.exit(0)
-    else:
-        print(f"Error: {msg}", file=sys.stderr)
-        sys.exit(1)
+        return CommandResult.success(
+            summary=msg,
+            action="workflow resume",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
+    print(f"Error: {msg}", file=sys.stderr)
+    return CommandResult.failure(
+        msg,
+        action="workflow resume",
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
-def run_workflow_direct(args):
+def run_workflow_direct(args: argparse.Namespace) -> CommandResult:
     wf_name = getattr(args, "workflow_target_name", None) or getattr(
         args, "workflow_cmd", ""
     )
-    target_args = [a for a in (getattr(args, "workflow_args", []) or []) if a != "--"]
+    target_args = [
+        a for a in (getattr(args, "workflow_args", []) or []) if a != "--"
+    ]
     main_script = find_workflow_main(wf_name)
     if not main_script:
         available = ", ".join(list_available_workflows().keys()) or "none"
         msg = f"Unknown workflow '{wf_name}'. Available workflows: {available}"
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "error_message": msg,
@@ -437,32 +577,35 @@ def run_workflow_direct(args):
             json_mode=getattr(args, "json", False),
             is_error=True,
         )
-        sys.exit(1)
     target = find_workflow_target(wf_name)
     if target and target[0] == "yaml":
         code = run_yaml_workflow(target[1], target_args)
     else:
         code = run_workflow_main(main_script, target_args)
-    sys.exit(code)
+    return CommandResult(
+        status="success" if code == 0 else "error",
+        action=f"workflow {wf_name}",
+        exit_code=int(code),
+        metadata={META_KEY_ALREADY_RENDERED: True},
+    )
 
 
-def run_workflow_command(args):
+def run_workflow_command(args: argparse.Namespace) -> CommandResult:
     """Backwards-compatible dispatcher for unit tests and direct callers."""
     cmd = getattr(args, "workflow_cmd", None)
     if not cmd or cmd == "list":
-        run_workflow_help(args)
-    elif cmd == "ui":
-        run_workflow_ui(args)
-    elif cmd == "approve":
-        run_workflow_approve(args)
-    elif cmd == "resume":
-        run_workflow_resume(args)
-    elif cmd == "run":
+        return run_workflow_help(args)
+    if cmd == "ui":
+        return run_workflow_ui(args)
+    if cmd == "approve":
+        return run_workflow_approve(args)
+    if cmd == "resume":
+        return run_workflow_resume(args)
+    if cmd == "run":
         wf_name = getattr(args, "target_workflow", "")
         if not wf_name and getattr(args, "workflow_args", []):
             wf_name = args.workflow_args[0]
             args.workflow_args = args.workflow_args[1:]
         args.workflow_target_name = wf_name
-        run_workflow_direct(args)
-    else:
-        run_workflow_direct(args)
+        return run_workflow_direct(args)
+    return run_workflow_direct(args)

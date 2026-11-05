@@ -36,9 +36,10 @@ emu-dev-cli docs lint
 | :------------------------------------------ | :-------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `playbook-index`                            | `playbooks/INDEX.md`                    | Master index and LLM Wiki workflow (`Query → Ingest → Lint`).                                                                                                                                |
 | `playbook-build-and-tidy`                   | `playbooks/build_and_tidy.md`           | Bazel RBE Windows cross-compilation (`--config=rbe-win-x64`), `clang_tidy.py` stack auditing (`mise tidy`), TSAN startup/suppression contracts, and asynchronous media test synchronization. |
-| `playbook-git-and-gerrit`                   | `playbooks/git_and_gerrit.md`           | Git-on-Borg `push.negotiate=false` hang prevention, Gerrit commit message rules (no `TAG=`/`CONV=`), branch splitting, and `mise presubmit`.                                                 |
+| `playbook-git-and-gerrit`                   | `playbooks/git_and_gerrit.md`           | Git-on-Borg `push.negotiate=false` hang fix, Gerrit commit message rules (no `TAG=`/`CONV=`), branch splits, `mise presubmit`, and `gerrit stack` (`pre-upload`, `status`, `sync`, `watch`). |
 | `playbook-threading-and-invariants`         | `playbooks/threading_and_invariants.md` | Concurrency invariants across QEMU BQL, Looper/EventLoop, gfxstream RenderThread, gRPC server threads, and Display Pipeline (`DisplaySource` / `DisplaySink` / `VideoRecorder`).             |
 | `playbook-crash-triage`                     | `playbooks/crash_triage.md`             | Production `qemu-next` crash discovery (`crash list-crashes` via F1 SQL + `blade:crash-queryapi`), Buganizer deduplication/filing, and `go/crash` annotation linking (`crash link-bug`).     |
+| `playbook-mcp-server`                       | `playbooks/mcp_server.md`               | `emu-dev-cli mcp serve`: MCP server that gives agents (Jetski, Claude Code) typed tools for Gerrit stacks and reviews, crash triage, `perf compare`, and `tidy check`.                       |
 
 ---
 

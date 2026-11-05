@@ -12,8 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import sys
-from typing import List
+from typing import Any, List
+
+from core.command import Command, CommandGroup, CommandResult
+from core.context import ExecutionContext
 from lib.emulator import calculate_mesh_ports
 from lib.mesh import (
     check_device_boot_completed,
@@ -51,151 +55,185 @@ def _resolve_target_serials(
     return [p["serial"] for p in ports]
 
 
-def register_parser(subparsers):
-    mesh_parser = subparsers.add_parser(
-        "mesh", help="Inspect and monitor emulator mesh instances and radio networks"
-    )
-    mesh_parser.set_defaults(
-        func=lambda args: mesh_parser.print_help() or sys.exit(0)
-    )
-    mesh_subparsers = mesh_parser.add_subparsers(
-        dest="mesh_cmd", help="Available mesh operations"
-    )
+class MeshWaitReadyCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Waits until all mesh nodes finish booting and verifies Netsim connectivity."""
 
-    # emu-dev-cli mesh wait-ready ...
-    wait_parser = mesh_subparsers.add_parser(
-        "wait-ready",
-        help="Wait until all mesh nodes finish booting and verify Netsim radio connectivity",
-    )
-    wait_parser.add_argument(
-        "--serials",
-        type=str,
-        default=None,
-        help="Comma-separated list of target serials (e.g. 'emulator-5554,emulator-5556')",
-    )
-    wait_parser.add_argument(
-        "--prefix",
-        type=str,
-        default="medium_phone",
-        help="Prefix of the AVD mesh instances (used to compute serials if --serials is omitted)",
-    )
-    wait_parser.add_argument(
-        "--count",
-        type=int,
-        default=2,
-        help="Number of mesh instances to wait for (default: 2)",
-    )
-    wait_parser.add_argument(
-        "--base-port",
-        type=int,
-        default=5554,
-        help="Base console port (default: 5554)",
-    )
-    wait_parser.add_argument(
-        "--timeout",
-        type=int,
-        default=180,
-        help="Timeout in seconds to wait for boot completion (default: 180s)",
-    )
-    wait_parser.add_argument(
-        "--poll-interval",
-        type=float,
-        default=2.0,
-        help="Polling interval in seconds between boot status checks (default: 2.0s)",
-    )
-    wait_parser.add_argument(
-        "--no-unlock",
-        action="store_true",
-        help="Skip automatic keyguard dismissal and screen wake",
-    )
-    wait_parser.add_argument(
-        "--no-netsim-check",
-        action="store_true",
-        help="Skip Netsim radio registration verification",
-    )
-    wait_parser.add_argument(
-        "--emulator-dir",
-        type=str,
-        default=None,
-        help="Directory containing extracted prebuilt emulator to locate netsim binary",
-    )
-    wait_parser.set_defaults(parser=wait_parser, func=run_wait_ready)
+    name = "wait-ready"
+    help = "Wait until all mesh nodes finish booting and verify Netsim radio connectivity"
 
-    # emu-dev-cli mesh status ...
-    status_parser = mesh_subparsers.add_parser(
-        "status",
-        help="Inspect immediate boot status, keyguard, and Netsim radio chips across mesh nodes",
-    )
-    status_parser.add_argument(
-        "--serials",
-        type=str,
-        default=None,
-        help="Comma-separated list of target serials (auto-discovers all online emulators if omitted)",
-    )
-    status_parser.add_argument(
-        "--emulator-dir",
-        type=str,
-        default=None,
-        help="Directory containing extracted prebuilt emulator to locate netsim binary",
-    )
-    status_parser.set_defaults(parser=status_parser, func=run_mesh_status)
-
-    # emu-dev-cli mesh teardown / stop ...
-    for cmd_name in ("teardown", "stop"):
-        td_parser = mesh_subparsers.add_parser(
-            cmd_name,
-            help="Gracefully stop mesh emulator instances and reset Netsim RF simulation",
-        )
-        td_parser.add_argument(
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
             "--serials",
             type=str,
             default=None,
-            help="Comma-separated list of target serials (auto-discovers all online emulators if omitted)",
+            help="Comma-separated list of target serials (e.g. 'emulator-5554,emulator-5556')",
         )
-        td_parser.add_argument(
+        parser.add_argument(
             "--prefix",
             type=str,
-            default=None,
+            default="medium_phone",
             help="Prefix of the AVD mesh instances (used to compute serials if --serials is omitted)",
         )
-        td_parser.add_argument(
+        parser.add_argument(
             "--count",
             type=int,
             default=2,
-            help="Number of mesh instances to stop (default: 2)",
+            help="Number of mesh instances to wait for (default: 2)",
         )
-        td_parser.add_argument(
+        parser.add_argument(
             "--base-port",
             type=int,
             default=5554,
             help="Base console port (default: 5554)",
         )
-        td_parser.add_argument(
-            "--all",
-            action="store_true",
-            help="Stop all connected emulator instances recognized by adb",
+        parser.add_argument(
+            "--timeout",
+            type=int,
+            default=180,
+            help="Timeout in seconds to wait for boot completion (default: 180s)",
         )
-        td_parser.add_argument(
-            "--no-netsim-reset",
-            action="store_true",
-            help="Skip resetting Netsim RF device scene",
+        parser.add_argument(
+            "--poll-interval",
+            type=float,
+            default=2.0,
+            help="Polling interval in seconds between boot status checks (default: 2.0s)",
         )
-        td_parser.add_argument(
+        parser.add_argument(
+            "--no-unlock",
+            action="store_true",
+            help="Skip automatic keyguard dismissal and screen wake",
+        )
+        parser.add_argument(
+            "--no-netsim-check",
+            action="store_true",
+            help="Skip Netsim radio registration verification",
+        )
+        parser.add_argument(
             "--emulator-dir",
             type=str,
             default=None,
             help="Directory containing extracted prebuilt emulator to locate netsim binary",
         )
-        td_parser.set_defaults(parser=td_parser, func=run_mesh_teardown)
+        parser.set_defaults(parser=parser)
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_wait_ready(args)
 
 
-def run_wait_ready(args):
+class MeshStatusCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Inspects immediate boot status, keyguard, and Netsim radio chips across mesh nodes."""
+
+    name = "status"
+    help = "Inspect immediate boot status, keyguard, and Netsim radio chips across mesh nodes"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--serials",
+            type=str,
+            default=None,
+            help="Comma-separated list of target serials (auto-discovers all online emulators if omitted)",
+        )
+        parser.add_argument(
+            "--emulator-dir",
+            type=str,
+            default=None,
+            help="Directory containing extracted prebuilt emulator to locate netsim binary",
+        )
+        parser.set_defaults(parser=parser)
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_mesh_status(args)
+
+
+class MeshTeardownCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Gracefully stops mesh emulator instances and resets Netsim RF simulation."""
+
+    help = "Gracefully stop mesh emulator instances and reset Netsim RF simulation"
+
+    def __init__(self, name: str = "teardown") -> None:
+        self.name = name
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--serials",
+            type=str,
+            default=None,
+            help="Comma-separated list of target serials (auto-discovers all online emulators if omitted)",
+        )
+        parser.add_argument(
+            "--prefix",
+            type=str,
+            default=None,
+            help="Prefix of the AVD mesh instances (used to compute serials if --serials is omitted)",
+        )
+        parser.add_argument(
+            "--count",
+            type=int,
+            default=2,
+            help="Number of mesh instances to stop (default: 2)",
+        )
+        parser.add_argument(
+            "--base-port",
+            type=int,
+            default=5554,
+            help="Base console port (default: 5554)",
+        )
+        parser.add_argument(
+            "--all",
+            action="store_true",
+            help="Stop all connected emulator instances recognized by adb",
+        )
+        parser.add_argument(
+            "--no-netsim-reset",
+            action="store_true",
+            help="Skip resetting Netsim RF device scene",
+        )
+        parser.add_argument(
+            "--emulator-dir",
+            type=str,
+            default=None,
+            help="Directory containing extracted prebuilt emulator to locate netsim binary",
+        )
+        parser.set_defaults(parser=parser)
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_mesh_teardown(args)
+
+
+class MeshCommand(CommandGroup):
+    """Parent command group for `emu-dev-cli mesh`."""
+
+    name = "mesh"
+    help = "Inspect and monitor emulator mesh instances and radio networks"
+    subcommand_dest = "mesh_cmd"
+    subcommands = (
+        MeshWaitReadyCommand(),
+        MeshStatusCommand(),
+        MeshTeardownCommand("teardown"),
+        MeshTeardownCommand("stop"),
+    )
+
+
+def register_parser(subparsers):
+    return MeshCommand().register(subparsers)
+
+
+def run_wait_ready(args) -> CommandResult[dict[str, Any]]:
     json_mode = getattr(args, "json", False)
 
     try:
         serials = _resolve_target_serials(args)
     except ValueError as e:
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "mesh wait-ready",
@@ -205,7 +243,6 @@ def run_wait_ready(args):
             json_mode=json_mode,
             is_error=True,
         )
-        sys.exit(1)
 
     timeout = getattr(args, "timeout", 180)
     poll_interval = getattr(args, "poll_interval", 2.0)
@@ -228,7 +265,7 @@ def run_wait_ready(args):
 
     if not res["all_ready"]:
         pending = ", ".join(res["pending_serials"])
-        print_result(
+        return print_result(
             {
                 "status": "timeout",
                 "action": "mesh wait-ready",
@@ -243,7 +280,6 @@ def run_wait_ready(args):
             json_mode=json_mode,
             is_error=True,
         )
-        sys.exit(1)
 
     table_rows = []
     for node in res["nodes"]:
@@ -264,7 +300,7 @@ def run_wait_ready(args):
     )
 
     summary_msg = f"All {res['total_nodes']} mesh node(s) are booted and ready in {res['elapsed_seconds']}s"
-    print_result(
+    return print_result(
         {
             "status": "success",
             "action": "mesh wait-ready",
@@ -282,7 +318,7 @@ def run_wait_ready(args):
     )
 
 
-def run_mesh_status(args):
+def run_mesh_status(args) -> CommandResult[dict[str, Any]]:
     json_mode = getattr(args, "json", False)
     raw_serials = getattr(args, "serials", None)
     if raw_serials:
@@ -291,7 +327,7 @@ def run_mesh_status(args):
         serials = get_connected_adb_devices()
 
     if not serials:
-        print_result(
+        return print_result(
             {
                 "status": "success",
                 "action": "mesh status",
@@ -303,7 +339,6 @@ def run_mesh_status(args):
             },
             json_mode=json_mode,
         )
-        return
 
     emu_dir = getattr(args, "emulator_dir", None)
     netsim_bin = find_netsim_binary(emu_dir)
@@ -342,7 +377,7 @@ def run_mesh_status(args):
     )
 
     summary_msg = f"Mesh Status ({len(serials)} node{'s' if len(serials) != 1 else ''} online)"
-    print_result(
+    return print_result(
         {
             "status": "success",
             "action": "mesh status",
@@ -358,13 +393,13 @@ def run_mesh_status(args):
     )
 
 
-def run_mesh_teardown(args):
+def run_mesh_teardown(args) -> CommandResult[dict[str, Any]]:
     json_mode = getattr(args, "json", False)
 
     try:
         serials = _resolve_target_serials(args, allow_auto_adb=True)
     except ValueError as e:
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "mesh teardown",
@@ -374,10 +409,9 @@ def run_mesh_teardown(args):
             json_mode=json_mode,
             is_error=True,
         )
-        sys.exit(1)
 
     if not serials:
-        print_result(
+        return print_result(
             {
                 "status": "success",
                 "action": "mesh teardown",
@@ -390,7 +424,6 @@ def run_mesh_teardown(args):
             },
             json_mode=json_mode,
         )
-        return
 
     emu_dir = getattr(args, "emulator_dir", None)
     reset_netsim = not getattr(args, "no_netsim_reset", False)
@@ -420,7 +453,7 @@ def run_mesh_teardown(args):
     if res.get("netsim_reset"):
         summary_msg += " & reset Netsim scene"
 
-    print_result(
+    return print_result(
         {
             "status": "success",
             "action": "mesh teardown",

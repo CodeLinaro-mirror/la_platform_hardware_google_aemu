@@ -24,7 +24,6 @@ import sys
 import time
 from typing import Optional, Tuple
 
-from lib.agent import AgentApiClient
 from lib.ath_api import FlakyTestRecord, fetch_invocation_artifacts
 from lib.markdown import extract_fenced_code_blocks
 from lib.workspace import WorkspacePathResolver, get_flakiness_sandbox_dir

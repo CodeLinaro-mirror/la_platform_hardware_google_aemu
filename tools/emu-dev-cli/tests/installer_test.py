@@ -198,9 +198,8 @@ class InstallerTest(unittest.TestCase):
         from commands.init_cmd import run_init
 
         args = argparse.Namespace(json=True)
-        with self.assertRaises(SystemExit) as cm:
-            run_init(args)
-        self.assertEqual(cm.exception.code, 1)
+        res = run_init(args)
+        self.assertEqual(res.exit_code, 1)
 
     @patch("commands.update_cmd.ensure_codesearch_urls_config")
     @patch("commands.update_cmd.install_skill")
@@ -240,9 +239,12 @@ class InstallerTest(unittest.TestCase):
             )
 
             # Should complete with successful exit code 0
-            with self.assertRaises(SystemExit) as cm:
-                run_update_cmd(args)
-            self.assertEqual(cm.exception.code, 0)
+            with patch(
+                "commands.update_cmd.get_release_package_directory",
+                return_value=str(tmp_path / "release"),
+            ):
+                res = run_update_cmd(args)
+            self.assertEqual(res.exit_code, 0)
 
             # Verify Bazel build was executed
             mock_subproc.assert_called_once()
@@ -275,10 +277,8 @@ class InstallerTest(unittest.TestCase):
             mock_subproc.return_value = MagicMock(returncode=2, stderr="Build failed")
 
             args = argparse.Namespace(path=None, json=True, verbose=False)
-            with self.assertRaises(SystemExit) as cm:
-                run_update_cmd(args)
-
-            self.assertEqual(cm.exception.code, 2)
+            res = run_update_cmd(args)
+            self.assertEqual(res.exit_code, 2)
 
     @patch("commands.update_cmd.resolve_built_artifact", return_value=None)
     @patch("commands.update_cmd.subprocess.run")
@@ -293,10 +293,8 @@ class InstallerTest(unittest.TestCase):
             mock_subproc.return_value = MagicMock(returncode=0)
 
             args = argparse.Namespace(path=None, json=True, verbose=False)
-            with self.assertRaises(SystemExit) as cm:
-                run_update_cmd(args)
-
-            self.assertEqual(cm.exception.code, 1)
+            res = run_update_cmd(args)
+            self.assertEqual(res.exit_code, 1)
 
     @patch("commands.update_cmd.os.getcwd", return_value="/nonexistent")
     @patch("commands.update_cmd.get_source_directory", return_value=None)
@@ -305,10 +303,8 @@ class InstallerTest(unittest.TestCase):
     ):
         """Verifies run_update_cmd exits when no valid source directory is found."""
         args = argparse.Namespace(path=None, json=True, verbose=False)
-        with self.assertRaises(SystemExit) as cm:
-            run_update_cmd(args)
-
-        self.assertEqual(cm.exception.code, 1)
+        res = run_update_cmd(args)
+        self.assertEqual(res.exit_code, 1)
 
     def test_cleanup_legacy_workspace_files_removes_matching_and_keeps_modified(self):
         """Verifies cleanup removes files matching legacy SHA-256 and keeps user-modified files."""

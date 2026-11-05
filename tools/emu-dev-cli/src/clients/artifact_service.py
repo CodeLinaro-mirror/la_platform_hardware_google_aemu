@@ -34,8 +34,8 @@ import zipfile
 
 from core.errors import AuthError, ExecutionError, UsageError
 from core.events import ArtifactDownloaded, EventBus
-from core.process import ProcessRunner
-from lib.oauth import OAuthTokenManager, get_quota_project, get_ssl_context
+from core.process import ProcessRunner, SubprocessRunner
+from clients.oauth import OAuthTokenManager, get_quota_project, get_ssl_context
 
 LOGGER = logging.getLogger(__name__)
 
@@ -86,6 +86,160 @@ AUTH_REMEDIATION = (
     "https://www.googleapis.com/auth/cloud-platform', or set ANDROID_BUILD_TOKEN."
 )
 
+AUTH_PROCEDURE_INSTRUCTIONS = """1. Generate Application Default Credentials (ADC) with the internal Android Build scope:
+   gcloud auth application-default login \\
+     --scopes=https://www.googleapis.com/auth/androidbuild.internal,https://www.googleapis.com/auth/cloud-platform
+
+2. (Optional) Set your quota project:
+   gcloud auth application-default set-quota-project emulator-builds
+
+Alternatively, provide an explicit access token via:
+   export ANDROID_BUILD_TOKEN="<token>"
+or pass the '--token "<token>"' flag."""
+
+
+def check_authentication_status(
+    token: str | None = None,
+    *,
+    process_runner: ProcessRunner | None = None,
+    fetch_artifact_bin: str | None = None,
+    token_manager_cls: type[OAuthTokenManager] = OAuthTokenManager,
+) -> dict[str, Any]:
+    """Verifies that authentication for Android Build (LOAS CLI or REST v4) is configured and valid."""
+    bin_candidate = fetch_artifact_bin or DEFAULT_FETCH_ARTIFACT_BIN
+    fetch_tool = (
+        bin_candidate
+        if os.path.exists(bin_candidate)
+        else shutil.which("fetch_artifact")
+    )
+
+    if fetch_tool and os.path.exists(GOOGLE_DATA_ROOT):
+        if shutil.which("gcertstatus"):
+            runner = process_runner or SubprocessRunner()
+            res = runner.run(["gcertstatus"], timeout_sec=5.0, check=False)
+            if not res.ok:
+                return {
+                    "valid": False,
+                    "auth_method": "FETCH_ARTIFACT_CLI",
+                    "file_path": fetch_tool,
+                    "file_exists": True,
+                    "error_message": "Corporate LOAS / gcert certificate is missing or expired.",
+                    "procedure": "Run 'gcert' in your terminal to renew your corporate authentication certificate.",
+                }
+        return {
+            "valid": True,
+            "auth_method": "FETCH_ARTIFACT_CLI",
+            "file_path": fetch_tool,
+            "file_exists": True,
+            "error_message": None,
+            "procedure": None,
+        }
+
+    auth_method = "ADC"
+    file_path: str | None = None
+    file_exists = False
+
+    if token:
+        auth_method = "EXPLICIT_TOKEN"
+    elif os.environ.get("ANDROID_BUILD_TOKEN") or os.environ.get("OAUTH2_TOKEN"):
+        auth_method = "ENV_VAR"
+    else:
+        file_path = os.environ.get(
+            "GOOGLE_APPLICATION_CREDENTIALS"
+        ) or os.path.expanduser(
+            "~/.config/gcloud/application_default_credentials.json"
+        )
+        file_exists = os.path.exists(file_path)
+        if not file_exists:
+            return {
+                "valid": False,
+                "auth_method": auth_method,
+                "file_path": file_path,
+                "file_exists": False,
+                "error_message": f"Application Default Credentials (ADC) file was not found at '{file_path}'.",
+                "procedure": AUTH_PROCEDURE_INSTRUCTIONS,
+            }
+
+    token_manager = token_manager_cls(
+        scopes=[ANDROID_BUILD_SCOPE],
+        env_vars=list(ANDROID_BUILD_TOKEN_ENV_VARS),
+    )
+    acquired_token = token_manager.get_token(user_token=token)
+    if not acquired_token:
+        return {
+            "valid": False,
+            "auth_method": auth_method,
+            "file_path": file_path,
+            "file_exists": file_exists,
+            "error_message": f"Could not acquire or refresh OAuth2 token from {auth_method}.",
+            "procedure": AUTH_PROCEDURE_INSTRUCTIONS,
+        }
+
+    quota_project = get_quota_project()
+    probe_url = (
+        f"{BUILD_API_BASE_URL}/builds?branches=git_emu-main-next"
+        f"&targets=emulator_mac_aarch64&buildType=SUBMITTED&pageSize=1"
+    )
+    headers = {
+        HEADER_AUTHORIZATION: f"Bearer {acquired_token}",
+        HEADER_ACCEPT: MIME_JSON,
+    }
+    if quota_project:
+        headers[HEADER_QUOTA_PROJECT] = quota_project
+
+    req = urllib.request.Request(probe_url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, context=get_ssl_context(), timeout=10.0) as resp:
+            if getattr(resp, "status", HTTP_OK) == HTTP_OK:
+                return {
+                    "valid": True,
+                    "auth_method": auth_method,
+                    "file_path": file_path,
+                    "file_exists": file_exists,
+                    "error_message": None,
+                    "procedure": None,
+                }
+    except urllib.error.HTTPError as exc:
+        error_body = _read_http_error_body(exc)
+        if (
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in error_body
+            or "insufficient authentication scopes" in error_body
+        ):
+            err_msg = (
+                f"Authentication file '{file_path}' exists, but lacks the required scope "
+                f"'{ANDROID_BUILD_SCOPE}'."
+            )
+        elif "quota project" in error_body.lower():
+            err_msg = "The Android Build API requires a quota project, which is not set or invalid."
+        else:
+            err_msg = f"Android Build API authentication check failed (HTTP {exc.code}: {exc.reason})."
+        return {
+            "valid": False,
+            "auth_method": auth_method,
+            "file_path": file_path,
+            "file_exists": file_exists,
+            "error_message": err_msg,
+            "procedure": AUTH_PROCEDURE_INSTRUCTIONS,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "valid": False,
+            "auth_method": auth_method,
+            "file_path": file_path,
+            "file_exists": file_exists,
+            "error_message": f"Preflight connection check to Android Build API failed: {exc}",
+            "procedure": AUTH_PROCEDURE_INSTRUCTIONS,
+        }
+
+    return {
+        "valid": True,
+        "auth_method": auth_method,
+        "file_path": file_path,
+        "file_exists": file_exists,
+        "error_message": None,
+        "procedure": None,
+    }
+
 
 def _candidate_branches(branch: str) -> tuple[str, ...]:
     """Returns candidate Android Build branch names (`branch` and `git_<branch>`)."""
@@ -111,15 +265,52 @@ def _validate_non_empty(param_name: str, value: str) -> str:
     return cleaned
 
 
+def _is_executable_zip_entry(entry_name: str, unix_mode: int) -> bool:
+    """Returns True if an extracted zip entry should have executable permissions on POSIX."""
+    if unix_mode & 0o111:
+        return True
+    parts = Path(entry_name).parts
+    filename = parts[-1] if parts else ""
+    parent = parts[-2] if len(parts) >= 2 else ""
+    return (
+        parent == "bin"
+        or filename.startswith(("emulator", "qemu-", "e2fsprogs", "mksdcard"))
+        or filename.endswith(".sh")
+    )
+
+
 def _extract_selected_zip_entries(
     zip_path: Path, out_dir: Path, zip_entries: Sequence[str]
 ) -> None:
-    """Extracts the requested `zip_entries` from `zip_path` into `out_dir`."""
+    """Extracts the requested `zip_entries` (exact or glob patterns) from `zip_path` into `out_dir`."""
+    resolved_out = out_dir.resolve()
     with zipfile.ZipFile(zip_path, "r") as archive:
-        available = set(archive.namelist())
-        for entry in zip_entries:
-            if entry in available:
-                archive.extract(entry, path=str(out_dir))
+        names = archive.namelist()
+        matched: list[str] = []
+        for pattern in zip_entries:
+            for name in names:
+                if (
+                    name == pattern or fnmatch.fnmatch(name, pattern)
+                ) and name not in matched:
+                    matched.append(name)
+
+        for entry in matched:
+            target_path = (resolved_out / entry).resolve()
+            if not target_path.is_relative_to(resolved_out):
+                raise ExecutionError(
+                    f"Refusing to extract unsafe zip entry '{entry}' outside '{out_dir}'.",
+                    remediation="Ensure the archive does not contain '..' path traversal entries.",
+                    error_code="UNSAFE_ZIP_ENTRY",
+                )
+            extracted_str = archive.extract(entry, path=str(out_dir))
+            info = archive.getinfo(entry)
+            if os.name != "nt" and not info.is_dir():
+                unix_mode = (info.external_attr >> 16) & 0o777
+                if _is_executable_zip_entry(entry, unix_mode):
+                    try:
+                        os.chmod(extracted_str, unix_mode if (unix_mode & 0o111) else 0o755)
+                    except OSError:
+                        pass
 
 
 @dataclass(frozen=True)
@@ -274,9 +465,15 @@ class UrllibHttpTransport(HttpTransport):
                 req, context=get_ssl_context(), timeout=timeout_sec
             ) as resp:
                 body = resp.read()
-                resp_headers = {str(k): str(v) for k, v in resp.headers.items()}
+                raw_status = getattr(resp, "status", HTTP_OK)
+                status_code = raw_status if isinstance(raw_status, int) else HTTP_OK
+                resp_headers = (
+                    {str(k): str(v) for k, v in resp.headers.items()}
+                    if hasattr(resp, "headers") and isinstance(resp.headers, Mapping)
+                    else {}
+                )
                 return HttpResponse(
-                    status_code=int(resp.status),
+                    status_code=status_code,
                     body=body,
                     headers=resp_headers,
                 )
@@ -310,7 +507,19 @@ class UrllibHttpTransport(HttpTransport):
             with urllib.request.urlopen(
                 req, context=get_ssl_context(), timeout=timeout_sec
             ) as resp:
-                total_size = int(resp.headers.get(HEADER_CONTENT_LENGTH, 0) or 0)
+                raw_len = (
+                    resp.headers.get(HEADER_CONTENT_LENGTH, 0)
+                    if hasattr(resp, "headers") and hasattr(resp.headers, "get")
+                    else 0
+                )
+                try:
+                    total_size = (
+                        int(raw_len or 0)
+                        if isinstance(raw_len, (int, str))
+                        else 0
+                    )
+                except ValueError:
+                    total_size = 0
                 return _stream_response_to_file(
                     resp, dest_file, total_size, progress_callback
                 )
@@ -495,6 +704,10 @@ class FakeHttpTransport(HttpTransport):
 class ArtifactService(ABC):
     """Abstract interface for querying and downloading Android Build (`go/ab`) artifacts."""
 
+    def check_auth(self, token: str | None = None) -> dict[str, Any]:
+        """Verifies Android Build authentication readiness."""
+        return check_authentication_status(token=token)
+
     @abstractmethod
     def resolve_build_id(
         self, branch: str, target: str, build_id: str | None = None
@@ -598,6 +811,14 @@ class ProdArtifactService(ArtifactService):
     def quota_project(self) -> str | None:
         """Returns the active quota project header value (Cleared after HTTP 403 retry)."""
         return self._quota_project
+
+    def check_auth(self, token: str | None = None) -> dict[str, Any]:
+        """Verifies Android Build authentication readiness using this service's runner."""
+        return check_authentication_status(
+            token=token if token is not None else self._token,
+            process_runner=self._process_runner,
+            fetch_artifact_bin=self._fetch_artifact_bin,
+        )
 
     def _ensure_token(self) -> str | None:
         if self._token:
@@ -859,10 +1080,17 @@ class ProdArtifactService(ArtifactService):
         ]
         if branch:
             cmd.extend(["--branch", branch])
-        if zip_entries:
+        has_glob_entries = bool(
+            zip_entries and any(ch in entry for entry in zip_entries for ch in "*?[")
+        )
+        if zip_entries and not has_glob_entries:
             cmd.extend(f"--zip_entry={entry}" for entry in zip_entries)
-        dest_target = out_dir if zip_entries else (out_dir / artifact)
-        if not zip_entries:
+        dest_target = (
+            out_dir
+            if (zip_entries and not has_glob_entries)
+            else (out_dir / artifact)
+        )
+        if not zip_entries or has_glob_entries:
             dest_target.parent.mkdir(parents=True, exist_ok=True)
         cmd.extend([artifact, str(dest_target)])
         result = self._process_runner.run(
@@ -874,6 +1102,11 @@ class ProdArtifactService(ArtifactService):
                 artifact,
                 result.returncode,
             )
+            return None
+        if zip_entries and has_glob_entries:
+            if dest_target.is_file() and dest_target.stat().st_size > 0:
+                _extract_selected_zip_entries(dest_target, out_dir, zip_entries)
+                return out_dir
             return None
         if zip_entries:
             return out_dir
@@ -1054,6 +1287,23 @@ class FakeArtifactService(ArtifactService):
         self._builds: list[BuildMetadata] = []
         self._artifacts: dict[tuple[str, str], dict[str, bytes]] = {}
         self.downloads: list[tuple[str, str, str, Path]] = []
+        self._auth_status: dict[str, Any] = {
+            "valid": True,
+            "auth_method": "FAKE",
+            "file_path": None,
+            "file_exists": True,
+            "error_message": None,
+            "procedure": None,
+        }
+
+    def set_auth_status(self, status: Mapping[str, Any]) -> None:
+        """Configures the fake authentication status returned by `check_auth()`."""
+        self._auth_status = dict(status)
+
+    def check_auth(self, token: str | None = None) -> dict[str, Any]:
+        """Returns the configured fake authentication readiness dictionary."""
+        del token
+        return dict(self._auth_status)
 
     def seed_build(self, build: BuildMetadata) -> None:
         """Seeds a BuildMetadata record into the fake service."""

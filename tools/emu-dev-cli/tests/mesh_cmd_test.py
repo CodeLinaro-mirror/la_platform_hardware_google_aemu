@@ -94,9 +94,9 @@ class MeshCmdTest(unittest.TestCase):
 
         with patch("commands.mesh.wait_for_mesh_ready", return_value=mock_timeout_res):
             with patch("commands.mesh.print_result") as mock_print:
-                with self.assertRaises(SystemExit):
-                    run_wait_ready(Args())
+                run_wait_ready(Args())
                 self.assertTrue(mock_print.called)
+                self.assertTrue(mock_print.call_args.kwargs.get("is_error"))
                 payload = mock_print.call_args[0][0]
                 self.assertEqual(payload["status"], "timeout")
                 self.assertEqual(payload["pending_serials"], ["emulator-5556"])

@@ -509,11 +509,13 @@ def evaluate_goldfish_doc_drift(
                     build_text = build_file.read_text(encoding="utf-8")
                 except OSError:
                     build_text = ""
-                if not docs._bazel_target_exists_in_build_file(target_name, build_text):
+                if not docs._bazel_label_target_exists(target_name, build_text, pkg_dir):
                     return (
                         False,
                         "Blocked by AEMU Harness Documentation Drift Guardrail: "
-                        f"Bazel target `{label}` in '{norm_path}' was not found in '{build_file}'.",
+                        f"Bazel target `{label}` in '{norm_path}' is neither declared in "
+                        f"'{build_file}' nor a file in '{pkg_dir}'. Fix the label, or add "
+                        "the missing target or file.",
                     )
 
     # 4. Prevent stripping the AGENTS.md cross-link from a co-located ARCHITECTURE.md

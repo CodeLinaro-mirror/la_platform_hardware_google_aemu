@@ -27,33 +27,21 @@ _SRC_DIR = os.path.join(_EMU_DEV_CLI_DIR, "src")
 
 
 from commands.workflow import find_workflow_target, list_available_workflows
+from testlib.workflows import WorkflowTestCase
 from workflows.core.yaml_runner import load_state_yaml, load_yaml
 
 
-class TestHelloWorldJokeRatingWorkflow(unittest.TestCase):
+class TestHelloWorldJokeRatingWorkflow(WorkflowTestCase):
 
     def setUp(self):
-        target = find_workflow_target("hello-world-joke-rating")
-        self.assertIsNotNone(target, "hello-world-joke-rating workflow target not found")
-        self.target_type, self.workflow_yaml = target
-        self.assertEqual(self.target_type, "yaml")
-        self.assertTrue(os.path.isfile(self.workflow_yaml))
-
-        self.yaml_runner_py = os.path.join(
-            _EMU_DEV_CLI_DIR, "workflows", "core", "yaml_runner.py"
-        )
+        self.setup_workflow("hello-world-joke-rating")
         self.verifier_py = os.path.join(
             _WORKFLOWS_DIR, "hello_world_joke_rating", "verify_joke_rating.py"
         )
         self.assertTrue(os.path.isfile(self.verifier_py))
 
     def test_workflow_discovery(self):
-        workflows = list_available_workflows()
-        self.assertIn("hello-world-joke-rating", workflows)
-        wf = workflows["hello-world-joke-rating"]
-        self.assertEqual(wf["name"], "hello-world-joke-rating")
-        self.assertEqual(wf["target_type"], "yaml")
-        self.assertTrue(os.path.isfile(wf["target_path"]))
+        self.assert_workflow_discovery("hello-world-joke-rating")
 
     def test_verifier_direct_validations(self):
         with tempfile.TemporaryDirectory() as tmpdir:

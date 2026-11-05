@@ -28,11 +28,12 @@ SRC_DIR = os.path.join(
 )
 
 from commands.crash.reproduce import (
+    CrashReproduceCommand,
     extract_reproduce_plan,
     register_reproduce_parser,
     resolve_qemu_engine_name,
-    run_reproduce,
 )
+from core.context import ExecutionContext
 
 
 class CrashReproduceTest(unittest.TestCase):
@@ -51,7 +52,9 @@ class CrashReproduceTest(unittest.TestCase):
         self.assertEqual(args.crash_id, "05d8356e2f800000")
         self.assertTrue(args.lldb)
         self.assertTrue(args.dry_run)
-        self.assertEqual(args.func, run_reproduce)
+        self.assertIsInstance(
+            getattr(args, "_command_instance"), CrashReproduceCommand
+        )
 
     def test_resolve_qemu_engine_name(self):
         """Tests resolving QEMU engine binary name from architecture."""
@@ -121,11 +124,8 @@ class CrashReproduceTest(unittest.TestCase):
             self.assertIn("-no-snapshot", plan["flags"])
             self.assertIn("-verbose", plan["flags"])
 
-    @patch("commands.crash.reproduce.run_crashadvisor_bazel")
-    @patch("commands.crash.reproduce.get_crashadvisor_sandbox_dir")
-    def test_run_reproduce_dry_run(self, mock_get_sandbox, mock_run_bazel):
+    def test_run_reproduce_dry_run(self):
         """Tests run_reproduce in dry-run mode."""
-        mock_run_bazel.return_value = MagicMock(returncode=0)
 
         metadata = {
             "report_proto": {
@@ -143,7 +143,6 @@ class CrashReproduceTest(unittest.TestCase):
         }
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            mock_get_sandbox.return_value = tmp_dir
             meta_file = Path(tmp_dir) / "metadata.json"
             meta_file.write_text(json.dumps(metadata), encoding="utf-8")
 
@@ -155,14 +154,16 @@ class CrashReproduceTest(unittest.TestCase):
                 dry_run=True,
                 json=False,
                 extra_args=None,
+                work_dir=tmp_dir,
             )
 
-            with self.assertRaises(SystemExit) as cm:
-                run_reproduce(args)
-            self.assertEqual(cm.exception.code, 0)
+            ctx = ExecutionContext.for_testing()
+            cmd = CrashReproduceCommand()
+            res = cmd.execute(args, ctx)
+            self.assertTrue(res.ok)
+            self.assertEqual(res.data["status"], "success")
+            self.assertEqual(res.data["plan"]["crash_id"], "05d8356e2f800000")
 
-    @patch("commands.crash.reproduce.run_crashadvisor_bazel")
-    @patch("commands.crash.reproduce.get_crashadvisor_sandbox_dir")
     @patch("subprocess.Popen")
     @patch("subprocess.run")
     @patch("os.killpg")
@@ -173,11 +174,8 @@ class CrashReproduceTest(unittest.TestCase):
         mock_killpg,
         mock_subproc_run,
         mock_popen,
-        mock_get_sandbox,
-        mock_run_bazel,
     ):
         """Tests that LLDB execution cleans up the entire emulator process group."""
-        mock_run_bazel.return_value = MagicMock(returncode=0)
         mock_proc = MagicMock()
         mock_proc.poll.return_value = None
         mock_proc.pid = 9999
@@ -194,7 +192,6 @@ class CrashReproduceTest(unittest.TestCase):
         }
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            mock_get_sandbox.return_value = tmp_dir
             meta_file = Path(tmp_dir) / "metadata.json"
             meta_file.write_text(json.dumps(metadata), encoding="utf-8")
 
@@ -206,15 +203,222 @@ class CrashReproduceTest(unittest.TestCase):
                 dry_run=False,
                 json=False,
                 extra_args=None,
+                work_dir=tmp_dir,
             )
 
-            run_reproduce(args)
+            ctx = ExecutionContext.for_testing()
+            cmd = CrashReproduceCommand()
+            res = cmd.execute(args, ctx)
+            self.assertTrue(res.ok)
 
             # Ensure Popen was started with start_new_session=True on POSIX
             if os.name != "nt":
                 _, kwargs = mock_popen.call_args
                 self.assertTrue(kwargs.get("start_new_session"))
                 mock_killpg.assert_called_once()
+
+    def test_run_reproduce_non_lldb_with_binary(self):
+        """Tests non-debugger execution with existing emulator binary."""
+        metadata = {
+            "report_proto": {
+                "ReportID": "05d8356e2f800000",
+                "product": {"Name": "AndroidEmulator", "Version": "35.2.1-15953806"},
+                "os": {"Name": "Linux", "Version": "6.17.0"},
+                "cpu": {"Architecture": "amd64"},
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            meta_file = Path(tmp_dir) / "metadata.json"
+            meta_file.write_text(json.dumps(metadata), encoding="utf-8")
+            ctx = ExecutionContext.for_testing()
+            emu_dir = ctx.config.cache_dir / "emulator-15953806" / "extracted" / "emulator"
+            emu_dir.mkdir(parents=True, exist_ok=True)
+            emu_bin = emu_dir / "emulator"
+            emu_bin.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            cmd = CrashReproduceCommand()
+            args = argparse.Namespace(
+                crash_id="05d8356e2f800000",
+                token=None,
+                avd="repro_avd",
+                lldb=False,
+                dry_run=False,
+                json=False,
+                extra_args=None,
+                work_dir=tmp_dir,
+            )
+            res = cmd.execute(args, ctx)
+            self.assertTrue(res.ok)
+            self.assertEqual(len(ctx.process_runner.calls), 1)
+            self.assertIn(str(emu_bin), ctx.process_runner.calls[0].args)
+
+    def test_run_reproduce_downloads_binary_when_missing(self):
+        """Tests downloading the emulator binary when not cached."""
+        metadata = {
+            "report_proto": {
+                "ReportID": "05d8356e2f800000",
+                "product": {"Name": "AndroidEmulator", "Version": "35.2.1-99999999"},
+                "os": {"Name": "Linux", "Version": "6.17.0"},
+                "cpu": {"Architecture": "amd64"},
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            meta_file = Path(tmp_dir) / "metadata.json"
+            meta_file.write_text(json.dumps(metadata), encoding="utf-8")
+            ctx = ExecutionContext.for_testing()
+            mock_art = MagicMock()
+            from core.context import SERVICE_ARTIFACT
+            ctx.services.register_instance(SERVICE_ARTIFACT, mock_art)
+
+            cmd = CrashReproduceCommand()
+            args = argparse.Namespace(
+                crash_id="05d8356e2f800000",
+                token=None,
+                avd="repro_avd",
+                lldb=False,
+                dry_run=False,
+                json=False,
+                extra_args=None,
+                work_dir=tmp_dir,
+            )
+            res = cmd.execute(args, ctx)
+            self.assertTrue(res.ok)
+            mock_art.download_artifact.assert_called_once()
+
+    def test_run_reproduce_handles_download_artifact_failure(self):
+        """Tests graceful handling when downloading binary fails."""
+        metadata = {
+            "report_proto": {
+                "ReportID": "05d8356e2f800000",
+                "product": {"Name": "AndroidEmulator", "Version": "35.2.1-88888888"},
+                "os": {"Name": "Linux", "Version": "6.17.0"},
+                "cpu": {"Architecture": "amd64"},
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            meta_file = Path(tmp_dir) / "metadata.json"
+            meta_file.write_text(json.dumps(metadata), encoding="utf-8")
+            ctx = ExecutionContext.for_testing()
+            from core.context import SERVICE_ARTIFACT
+            mock_art = MagicMock()
+            mock_art.download_artifact.side_effect = RuntimeError("network error")
+            ctx.services.register_instance(SERVICE_ARTIFACT, mock_art)
+
+            cmd = CrashReproduceCommand()
+            args = argparse.Namespace(
+                crash_id="05d8356e2f800000",
+                token=None,
+                avd="repro_avd",
+                lldb=False,
+                dry_run=False,
+                json=False,
+                extra_args=None,
+                work_dir=tmp_dir,
+            )
+            res = cmd.execute(args, ctx)
+            self.assertTrue(res.ok)
+
+    @patch("commands.crash.reproduce.CrashAdvisorRunner")
+    def test_run_reproduce_triggers_advisor_when_metadata_missing(self, mock_runner_cls):
+        """Tests that CrashAdvisorRunner is called if metadata.json is initially missing."""
+        metadata = {
+            "report_proto": {
+                "ReportID": "05d8356e2f800000",
+                "product": {"Name": "AndroidEmulator", "Version": "35.2.1-15953806"},
+                "os": {"Name": "Linux", "Version": "6.17.0"},
+                "cpu": {"Architecture": "amd64"},
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            meta_file = Path(tmp_dir) / "metadata.json"
+            def side_effect(*args, **kwargs):
+                meta_file.write_text(json.dumps(metadata), encoding="utf-8")
+            mock_runner = MagicMock()
+            mock_runner.run.side_effect = side_effect
+            mock_runner_cls.return_value = mock_runner
+
+            ctx = ExecutionContext.for_testing()
+            cmd = CrashReproduceCommand()
+            args = argparse.Namespace(
+                crash_id="05d8356e2f800000",
+                token="test-token",
+                avd="repro_avd",
+                lldb=False,
+                dry_run=True,
+                json=False,
+                extra_args=None,
+                work_dir=tmp_dir,
+            )
+            res = cmd.execute(args, ctx)
+            self.assertTrue(res.ok)
+            mock_runner.run.assert_called_once()
+
+    def test_root_json_flag_is_not_shadowed_by_subparser(self):
+        """Verifies `emu-dev-cli --json crash reproduce <id>` preserves `args.json == True`."""
+        from commands import crash
+
+        root_parser = argparse.ArgumentParser()
+        root_parser.add_argument("--json", action="store_true")
+        subparsers = root_parser.add_subparsers(dest="subcommand")
+        crash.register_parser(subparsers)
+
+        parsed = root_parser.parse_args(
+            ["--json", "crash", "reproduce", "05d8356e2f800000"]
+        )
+        self.assertTrue(parsed.json)
+
+    def test_run_reproduce_extracts_emulator_zip_entries_and_executes_binary_with_unicode(
+        self,
+    ):
+        """Tests that `crash reproduce` extracts `emulator/*` from the platform zip and executes the binary."""
+        metadata = {
+            "report_proto": {
+                "ReportID": "05d8356e2f800000",
+                "product": {"Name": "AndroidEmulator", "Version": "35.2.1-15950000"},
+                "os": {"Name": "Mac OS X", "Version": "15.1"},
+                "cpu": {"Architecture": "arm64"},
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            unicode_work = Path(tmp_dir) / "测试_🚀_é"
+            unicode_work.mkdir(parents=True)
+            meta_file = unicode_work / "metadata.json"
+            meta_file.write_text(json.dumps(metadata), encoding="utf-8")
+
+            ctx = ExecutionContext.for_testing(root_dir=unicode_work)
+            ctx.fake_artifact_service.seed_artifact(
+                build_id="15950000",
+                target="emulator_mac_aarch64",
+                artifact_name="sdk-repo-darwin_aarch64-emulator-15950000.zip",
+                zip_entries={
+                    "emulator/emulator": "#!/bin/sh\necho ok\n",
+                    "emulator/source.properties": "Pkg.Revision=35.2.1\n",
+                },
+            )
+            cmd = CrashReproduceCommand()
+            args = argparse.Namespace(
+                crash_id="05d8356e2f800000",
+                token=None,
+                avd="repro_测试_🚀_é",
+                lldb=False,
+                dry_run=False,
+                json=False,
+                extra_args=None,
+                work_dir=str(unicode_work),
+            )
+            res = cmd.execute(args, ctx)
+            self.assertTrue(res.ok)
+            expected_bin = (
+                unicode_work
+                / "cache"
+                / "emulator-15950000"
+                / "extracted"
+                / "emulator"
+                / "emulator"
+            )
+            self.assertTrue(expected_bin.is_file())
+            self.assertEqual(len(ctx.process_runner.calls), 1)
+            self.assertEqual(ctx.process_runner.calls[0].args[0], str(expected_bin))
 
 
 if __name__ == "__main__":

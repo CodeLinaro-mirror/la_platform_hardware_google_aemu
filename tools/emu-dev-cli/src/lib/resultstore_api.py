@@ -24,6 +24,8 @@ import subprocess
 import tempfile
 from typing import Any, Dict, List, Optional
 
+from core.process import ProcessRunner, SubprocessRunner
+
 logger = logging.getLogger(__name__)
 
 CORP_RESULTSTORE_BLADE = "blade:google.devtools.resultstore.v2.corpresultstoredownload-prod"
@@ -237,11 +239,10 @@ def query_resultstore_invocation(
             f'name:"invocations/{uuid}"',
         ]
         logger.debug("Executing Stubby ResultStore RPC: %s", " ".join(cmd))
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
+            check=False,
+            timeout_sec=timeout_seconds,
         )
         if res.returncode != 0:
             logger.warning(
@@ -281,11 +282,9 @@ def _run_sponge_json(
         return None
     cmd = [sponge_bin] + args_list + ["--json"]
     try:
-        res = subprocess.run(
+        res = SubprocessRunner().run(
             cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
+            timeout_sec=timeout_seconds,
             check=False,
         )
         if res.returncode != 0 or not res.stdout.strip():

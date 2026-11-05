@@ -13,42 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Helper script to retrieve current HEAD commit hash during workflow initialization."""
+"""Delegation shim to `workflows.common.git_commit.verifier_cli` (`--mode=get-base-commit`)."""
 
-import argparse
-import os
-import subprocess
-import sys
+from workflows.common.git_commit.verifier_cli import (
+    get_base_commit,
+    run_cli_entrypoint,
+)
 
-from workflows.common.git_commit import get_head_commit_hash
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Output current Git HEAD commit hash or 'EMPTY'.")
-    parser.add_argument("--cwd", default=None, help="Working directory for git commands.")
-    args = parser.parse_args()
-
-    if args.cwd:
-        if not os.path.isdir(args.cwd):
-            print(f"Error: Specified repository directory does not exist: '{args.cwd}'", file=sys.stderr)
-            return 1
-        try:
-            subprocess.run(
-                ["git", "rev-parse", "--git-dir"],
-                capture_output=True,
-                text=True,
-                check=True,
-                cwd=args.cwd,
-                timeout=30,
-            )
-        except Exception:
-            print(f"Error: Specified directory is not a Git repository: '{args.cwd}'", file=sys.stderr)
-            return 1
-
-    commit_hash = get_head_commit_hash(cwd=args.cwd)
-    print(commit_hash)
-    return 0
-
+__all__ = ["get_base_commit"]
 
 if __name__ == "__main__":
-    sys.exit(main())
+    run_cli_entrypoint(["--mode=get-base-commit"])

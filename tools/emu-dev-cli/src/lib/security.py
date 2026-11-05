@@ -18,7 +18,9 @@ import logging
 import os
 from pathlib import Path
 import stat
-from typing import Union
+from typing import Iterable, Optional, Union
+
+from core.web.security import resolve_within_roots
 
 logger = logging.getLogger(__name__)
 

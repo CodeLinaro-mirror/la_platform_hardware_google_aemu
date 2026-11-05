@@ -330,8 +330,8 @@ class ReviewSwarmTest(unittest.TestCase):
             verdict = evaluate_upload_command(cmd, review_swarm_cache_root=cache_root)
             self.assertFalse(verdict[0])  # type: ignore[index]
         buf = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", errors="strict")
-        with mock.patch.object(sys, "stdout", buf), self.assertRaises(SystemExit) as cm:
-            run_harness_review_swarm(
+        with mock.patch.object(sys, "stdout", buf):
+            res = run_harness_review_swarm(
                 argparse.Namespace(
                     cl=None,
                     commit="HEAD",
@@ -342,7 +342,7 @@ class ReviewSwarmTest(unittest.TestCase):
                     json=False,
                 )
             )
-        self.assertEqual(cm.exception.code, 0)
+        self.assertEqual(res.get("status"), "success")
         buf.flush()
         self.assertIn("cli_测试_🚀_é", buf.buffer.getvalue().decode("utf-8", errors="replace"))
         wf_src = (self.base_path / "cli_测试_🚀_é" / "run_review_swarm_workflow.py").read_text(encoding="utf-8")
@@ -356,11 +356,11 @@ class ReviewSwarmTest(unittest.TestCase):
         install_buf = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", errors="strict")
         with mock.patch("pathlib.Path.cwd", return_value=ws_unicode), mock.patch.object(
             sys, "stdout", install_buf
-        ), self.assertRaises(SystemExit) as install_cm:
-            run_harness_install(
+        ):
+            install_res = run_harness_install(
                 argparse.Namespace(scope="workspace", target_dir=None, json=False)
             )
-        self.assertEqual(install_cm.exception.code, 0)
+        self.assertEqual(install_res.get("status"), "success")
         win_cli = r'"C:\Users\测试_🚀_é\python.exe" "C:\tools\emu-dev-cli\src\__main__.py"'
         install_harness_plugin(scope="workspace", workspace_dir=ws_unicode, cli_command=win_cli)
         plugin_root = ws_unicode / ".agent" / "plugins" / "aemu-harness"
@@ -428,8 +428,8 @@ class ReviewSwarmTest(unittest.TestCase):
         )
         custom_out = self.base_path / "custom_swarm_out_测试_🚀_é"
         buf = io.TextIOWrapper(io.BytesIO(), encoding="utf-8", errors="strict")
-        with mock.patch.object(sys, "stdout", buf), self.assertRaises(SystemExit) as cm:
-            run_harness_review_swarm(
+        with mock.patch.object(sys, "stdout", buf):
+            res = run_harness_review_swarm(
                 argparse.Namespace(
                     target="HEAD",
                     cl=None,
@@ -442,7 +442,7 @@ class ReviewSwarmTest(unittest.TestCase):
                     json=True,
                 )
             )
-        self.assertEqual(cm.exception.code, 0)
+        self.assertEqual(res.get("status"), "success")
         self.assertTrue((custom_out / "review_swarm_report.md").is_file())
         self.assertTrue((custom_out / "gerrit_review_payload.json").is_file())
         self.assertTrue((custom_out / "review_swarm_metrics.json").is_file())
