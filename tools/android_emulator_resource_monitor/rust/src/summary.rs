@@ -1,14 +1,22 @@
 use std::collections::HashMap;
-use std::time::SystemTime;
 use std::fs::File;
+use std::time::SystemTime;
 // Deleted unused import
-use csv::Writer;
-use sysinfo::System;
 use chrono::{DateTime, Local};
+use csv::Writer;
 use regex::Regex;
+use sysinfo::System;
 
 pub fn get_val(s: &str, for_ts: bool) -> f32 {
-    if for_ts && (s.contains("N/A") || s.contains("Unsupported") || s.contains("Calculating") || s.contains("No ADB") || s.contains("Error") || s.contains("Timeout") || s.contains("Hang")) {
+    if for_ts
+        && (s.contains("N/A")
+            || s.contains("Unsupported")
+            || s.contains("Calculating")
+            || s.contains("No ADB")
+            || s.contains("Error")
+            || s.contains("Timeout")
+            || s.contains("Hang"))
+    {
         return f32::NAN;
     }
 
@@ -70,7 +78,18 @@ impl SessionSummary {
     }
 
     pub fn migrate_keys(&mut self, old_key: &str, new_key: &str) {
-        let metrics = ["emu_cpu_tot", "emu_cpu_adj", "emu_ram", "emu_swap", "emu_disk_pct", "emu_errs", "qemu_cpu", "qemu_ram", "qemu_cs", "qemu_gpu"];
+        let metrics = [
+            "emu_cpu_tot",
+            "emu_cpu_adj",
+            "emu_ram",
+            "emu_swap",
+            "emu_disk_pct",
+            "emu_errs",
+            "qemu_cpu",
+            "qemu_ram",
+            "qemu_cs",
+            "qemu_gpu",
+        ];
         for entry in &mut self.time_series {
             for metric in &metrics {
                 let old_full_key = format!("{}_{}", metric, old_key);
@@ -94,7 +113,8 @@ impl SessionSummary {
 }
 
 pub fn get_p95(time_series: &[HashMap<String, f32>], key: &str) -> f32 {
-    let mut vals: Vec<f32> = time_series.iter()
+    let mut vals: Vec<f32> = time_series
+        .iter()
         .filter_map(|entry| entry.get(key).cloned())
         .filter(|v| !v.is_nan())
         .collect();
@@ -110,7 +130,8 @@ pub fn get_p95(time_series: &[HashMap<String, f32>], key: &str) -> f32 {
 }
 
 pub fn get_avg(time_series: &[HashMap<String, f32>], key: &str) -> f32 {
-    let vals: Vec<f32> = time_series.iter()
+    let vals: Vec<f32> = time_series
+        .iter()
         .filter_map(|entry| entry.get(key).cloned())
         .filter(|v| !v.is_nan())
         .collect();
@@ -123,7 +144,8 @@ pub fn get_avg(time_series: &[HashMap<String, f32>], key: &str) -> f32 {
 }
 
 pub fn get_max(time_series: &[HashMap<String, f32>], key: &str) -> f32 {
-    let vals: Vec<f32> = time_series.iter()
+    let vals: Vec<f32> = time_series
+        .iter()
         .filter_map(|entry| entry.get(key).cloned())
         .filter(|v| !v.is_nan())
         .collect();
@@ -135,7 +157,10 @@ pub fn get_max(time_series: &[HashMap<String, f32>], key: &str) -> f32 {
     vals.iter().copied().reduce(f32::max).unwrap_or(0.0)
 }
 
-pub fn export_csv(summary: &SessionSummary, filename: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn export_csv(
+    summary: &SessionSummary,
+    filename: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut all_keys: Vec<String> = Vec::new();
     for entry in &summary.time_series {
         for key in entry.keys() {
@@ -168,7 +193,8 @@ pub fn export_csv(summary: &SessionSummary, filename: &str) -> Result<(), Box<dy
         for key in &all_keys {
             let val = if key == "time" {
                 let elapsed = entry.get(key).cloned().unwrap_or(0.0);
-                let system_time = summary.start_time + std::time::Duration::from_secs_f64(elapsed as f64);
+                let system_time =
+                    summary.start_time + std::time::Duration::from_secs_f64(elapsed as f64);
                 let datetime: chrono::DateTime<chrono::Local> = system_time.into();
                 datetime.format("%Y-%m-%d %H:%M:%S").to_string()
             } else if let Some(&v) = entry.get(key) {
@@ -187,10 +213,10 @@ pub fn export_csv(summary: &SessionSummary, filename: &str) -> Result<(), Box<dy
     Ok(())
 }
 
-
-
 pub fn get_chart_str(summary: &SessionSummary, key: &str, title: &str) -> Option<String> {
-    let points: Vec<(f32, f32)> = summary.time_series.iter()
+    let points: Vec<(f32, f32)> = summary
+        .time_series
+        .iter()
         .filter_map(|entry| {
             let t = entry.get("time").cloned()?;
             let v = entry.get(key).cloned()?;
@@ -198,34 +224,41 @@ pub fn get_chart_str(summary: &SessionSummary, key: &str, title: &str) -> Option
         })
         .collect();
 
-    if points.len() >= 2 {
-        Some(crate::chart::render_chart(&points, 60, 10, title))
-    } else {
-        None
-    }
+    if points.len() >= 2 { Some(crate::chart::render_chart(&points, 60, 10, title)) } else { None }
 }
 
-pub fn save_summary(summary: &SessionSummary, out_dir: &str, save_csv: bool, save_txt: bool, hardware_specs: &str, cpu_cores: usize, is_autosave: bool) {
+pub fn save_summary(
+    summary: &SessionSummary,
+    out_dir: &str,
+    save_csv: bool,
+    save_txt: bool,
+    hardware_specs: &str,
+    cpu_cores: usize,
+    is_autosave: bool,
+) {
     let end_time = SystemTime::now();
     let duration = end_time.duration_since(summary.start_time).unwrap_or_default().as_secs_f32();
 
     let start_chrono: DateTime<Local> = summary.start_time.into();
     let end_chrono: DateTime<Local> = end_time.into();
 
-    let os_info = format!("{} {} (kernel {})",
+    let os_info = format!(
+        "{} {} (kernel {})",
         System::name().unwrap_or_default(),
         System::os_version().unwrap_or_default(),
         System::kernel_version().unwrap_or_default()
     );
 
-    let adb_ver = match std::process::Command::new(crate::guest::find_adb()).arg("version").output() {
-        Ok(output) => String::from_utf8_lossy(&output.stdout).lines().next().unwrap_or("N/A").to_string(),
+    let adb_ver = match std::process::Command::new(crate::guest::find_adb()).arg("version").output()
+    {
+        Ok(output) => {
+            String::from_utf8_lossy(&output.stdout).lines().next().unwrap_or("N/A").to_string()
+        }
         Err(_) => "N/A".to_string(),
     };
 
-    let is_vm = std::fs::read_to_string("/proc/cpuinfo")
-        .map(|c| c.contains("hypervisor"))
-        .unwrap_or(false);
+    let is_vm =
+        std::fs::read_to_string("/proc/cpuinfo").map(|c| c.contains("hypervisor")).unwrap_or(false);
 
     let mut lines = Vec::new();
     lines.push("Android Emulator & Device Resource Monitor Session Summary".to_string());
@@ -291,7 +324,9 @@ pub fn save_summary(summary: &SessionSummary, out_dir: &str, save_csv: bool, sav
     for key in &raw_keys {
         if !key.contains('_') {
             let better_key_exists = raw_keys.iter().any(|k| k.ends_with(&format!("_{}", key)));
-            if better_key_exists { continue; }
+            if better_key_exists {
+                continue;
+            }
         }
         emulators.push(key.clone());
     }
@@ -355,16 +390,46 @@ pub fn save_summary(summary: &SessionSummary, out_dir: &str, save_csv: bool, sav
 
     // Charts
     let mut chart_lines = Vec::new();
-    if let Some(c) = get_chart_str(summary, "host_cpu", "HOST CPU HISTORY CHART") { chart_lines.push(c); chart_lines.push("".to_string()); }
-    if let Some(c) = get_chart_str(summary, "host_ram", "HOST RAM HISTORY CHART") { chart_lines.push(c); chart_lines.push("".to_string()); }
-    if let Some(c) = get_chart_str(summary, "host_swap", "HOST SWAP HISTORY CHART") { chart_lines.push(c); chart_lines.push("".to_string()); }
-    if let Some(c) = get_chart_str(summary, "host_disk_read", "HOST DISK READ HISTORY CHART") { chart_lines.push(c); chart_lines.push("".to_string()); }
-    if let Some(c) = get_chart_str(summary, "host_disk_write", "HOST DISK WRITE HISTORY CHART") { chart_lines.push(c); chart_lines.push("".to_string()); }
-    if let Some(c) = get_chart_str(summary, "netsim_cpu", "NETSIM CPU HISTORY CHART") { chart_lines.push(c); chart_lines.push("".to_string()); }
-    if let Some(c) = get_chart_str(summary, "netsim_ram", "NETSIM RAM HISTORY CHART") { chart_lines.push(c); chart_lines.push("".to_string()); }
-    if let Some(c) = get_chart_str(summary, "host_thermal", "HOST THERMAL HISTORY CHART") { chart_lines.push(c); chart_lines.push("".to_string()); }
-    if let Some(c) = get_chart_str(summary, "host_gpu", "HOST GPU LOAD HISTORY CHART") { chart_lines.push(c); chart_lines.push("".to_string()); }
-    if let Some(c) = get_chart_str(summary, "host_gpu_mem", "HOST GPU MEMORY HISTORY CHART") { chart_lines.push(c); chart_lines.push("".to_string()); }
+    if let Some(c) = get_chart_str(summary, "host_cpu", "HOST CPU HISTORY CHART") {
+        chart_lines.push(c);
+        chart_lines.push("".to_string());
+    }
+    if let Some(c) = get_chart_str(summary, "host_ram", "HOST RAM HISTORY CHART") {
+        chart_lines.push(c);
+        chart_lines.push("".to_string());
+    }
+    if let Some(c) = get_chart_str(summary, "host_swap", "HOST SWAP HISTORY CHART") {
+        chart_lines.push(c);
+        chart_lines.push("".to_string());
+    }
+    if let Some(c) = get_chart_str(summary, "host_disk_read", "HOST DISK READ HISTORY CHART") {
+        chart_lines.push(c);
+        chart_lines.push("".to_string());
+    }
+    if let Some(c) = get_chart_str(summary, "host_disk_write", "HOST DISK WRITE HISTORY CHART") {
+        chart_lines.push(c);
+        chart_lines.push("".to_string());
+    }
+    if let Some(c) = get_chart_str(summary, "netsim_cpu", "NETSIM CPU HISTORY CHART") {
+        chart_lines.push(c);
+        chart_lines.push("".to_string());
+    }
+    if let Some(c) = get_chart_str(summary, "netsim_ram", "NETSIM RAM HISTORY CHART") {
+        chart_lines.push(c);
+        chart_lines.push("".to_string());
+    }
+    if let Some(c) = get_chart_str(summary, "host_thermal", "HOST THERMAL HISTORY CHART") {
+        chart_lines.push(c);
+        chart_lines.push("".to_string());
+    }
+    if let Some(c) = get_chart_str(summary, "host_gpu", "HOST GPU LOAD HISTORY CHART") {
+        chart_lines.push(c);
+        chart_lines.push("".to_string());
+    }
+    if let Some(c) = get_chart_str(summary, "host_gpu_mem", "HOST GPU MEMORY HISTORY CHART") {
+        chart_lines.push(c);
+        chart_lines.push("".to_string());
+    }
 
     for serial in &emulators {
         chart_lines.push("\n".to_string());
@@ -374,15 +439,78 @@ pub fn save_summary(summary: &SessionSummary, out_dir: &str, save_csv: bool, sav
         chart_lines.push("=".repeat(80));
         chart_lines.push("\n".to_string());
 
-        if let Some(c) = get_chart_str(summary, &format!("emu_cpu_tot_{}", serial), &format!("GUEST CPU HISTORY ({})", serial)) { chart_lines.push(c); chart_lines.push("".to_string()); }
-        if let Some(c) = get_chart_str(summary, &format!("emu_ram_{}", serial), &format!("GUEST RAM HISTORY ({})", serial)) { chart_lines.push(c); chart_lines.push("".to_string()); }
-        if let Some(c) = get_chart_str(summary, &format!("emu_swap_{}", serial), &format!("GUEST SWAP MEMORY HISTORY ({})", serial)) { chart_lines.push(c); chart_lines.push("".to_string()); }
-        if let Some(c) = get_chart_str(summary, &format!("qemu_cpu_{}", serial), &format!("HOST QEMU CPU HISTORY ({})", serial)) { chart_lines.push(c); chart_lines.push("".to_string()); }
-        if let Some(c) = get_chart_str(summary, &format!("qemu_ram_{}", serial), &format!("HOST QEMU RAM HISTORY ({})", serial)) { chart_lines.push(c); chart_lines.push("".to_string()); }
-        if let Some(c) = get_chart_str(summary, &format!("emu_disk_pct_{}", serial), &format!("GUEST DATA PARTITION FULLNESS ({})", serial)) { chart_lines.push(c); chart_lines.push("".to_string()); }
-        if let Some(c) = get_chart_str(summary, &format!("emu_errs_{}", serial), &format!("GUEST LOGCAT ERRORS ({})", serial)) { chart_lines.push(c); chart_lines.push("".to_string()); }
-        if let Some(c) = get_chart_str(summary, &format!("qemu_cs_{}", serial), &format!("QEMU CONTEXT SWITCHES ({})", serial)) { chart_lines.push(c); chart_lines.push("".to_string()); }
-        if let Some(c) = get_chart_str(summary, &format!("qemu_gpu_{}", serial), &format!("HOST QEMU GPU LOAD HISTORY ({})", serial)) { chart_lines.push(c); chart_lines.push("".to_string()); }
+        if let Some(c) = get_chart_str(
+            summary,
+            &format!("emu_cpu_tot_{}", serial),
+            &format!("GUEST CPU HISTORY ({})", serial),
+        ) {
+            chart_lines.push(c);
+            chart_lines.push("".to_string());
+        }
+        if let Some(c) = get_chart_str(
+            summary,
+            &format!("emu_ram_{}", serial),
+            &format!("GUEST RAM HISTORY ({})", serial),
+        ) {
+            chart_lines.push(c);
+            chart_lines.push("".to_string());
+        }
+        if let Some(c) = get_chart_str(
+            summary,
+            &format!("emu_swap_{}", serial),
+            &format!("GUEST SWAP MEMORY HISTORY ({})", serial),
+        ) {
+            chart_lines.push(c);
+            chart_lines.push("".to_string());
+        }
+        if let Some(c) = get_chart_str(
+            summary,
+            &format!("qemu_cpu_{}", serial),
+            &format!("HOST QEMU CPU HISTORY ({})", serial),
+        ) {
+            chart_lines.push(c);
+            chart_lines.push("".to_string());
+        }
+        if let Some(c) = get_chart_str(
+            summary,
+            &format!("qemu_ram_{}", serial),
+            &format!("HOST QEMU RAM HISTORY ({})", serial),
+        ) {
+            chart_lines.push(c);
+            chart_lines.push("".to_string());
+        }
+        if let Some(c) = get_chart_str(
+            summary,
+            &format!("emu_disk_pct_{}", serial),
+            &format!("GUEST DATA PARTITION FULLNESS ({})", serial),
+        ) {
+            chart_lines.push(c);
+            chart_lines.push("".to_string());
+        }
+        if let Some(c) = get_chart_str(
+            summary,
+            &format!("emu_errs_{}", serial),
+            &format!("GUEST LOGCAT ERRORS ({})", serial),
+        ) {
+            chart_lines.push(c);
+            chart_lines.push("".to_string());
+        }
+        if let Some(c) = get_chart_str(
+            summary,
+            &format!("qemu_cs_{}", serial),
+            &format!("QEMU CONTEXT SWITCHES ({})", serial),
+        ) {
+            chart_lines.push(c);
+            chart_lines.push("".to_string());
+        }
+        if let Some(c) = get_chart_str(
+            summary,
+            &format!("qemu_gpu_{}", serial),
+            &format!("HOST QEMU GPU LOAD HISTORY ({})", serial),
+        ) {
+            chart_lines.push(c);
+            chart_lines.push("".to_string());
+        }
     }
 
     // Append charts to lines for file saving
@@ -520,13 +648,13 @@ mod tests {
         let content = std::fs::read_to_string(filename).unwrap();
         assert!(content.contains("time,host_cpu"));
         let start_chrono: DateTime<Local> = summary.start_time.into();
-        let expected_ts1 = (start_chrono + chrono::Duration::seconds(1)).format("%Y-%m-%d %H:%M:%S").to_string();
-        let expected_ts2 = (start_chrono + chrono::Duration::seconds(2)).format("%Y-%m-%d %H:%M:%S").to_string();
+        let expected_ts1 =
+            (start_chrono + chrono::Duration::seconds(1)).format("%Y-%m-%d %H:%M:%S").to_string();
+        let expected_ts2 =
+            (start_chrono + chrono::Duration::seconds(2)).format("%Y-%m-%d %H:%M:%S").to_string();
 
         assert!(content.contains(&format!("{},10", expected_ts1)));
         assert!(content.contains(&format!("{},20", expected_ts2)));
-
-
     }
 
     #[test]
@@ -554,10 +682,9 @@ mod tests {
         entry.insert("emu_ram_emulator-5554".to_string(), 20.0);
         entry.insert("qemu_cpu_emulator-5554".to_string(), 30.0);
         summary.time_series.push(entry);
-        summary.boot_logs.insert(
-            "emulator-5554".to_string(),
-            vec![("+0s".to_string(), "CPU: 10%".to_string())],
-        );
+        summary
+            .boot_logs
+            .insert("emulator-5554".to_string(), vec![("+0s".to_string(), "CPU: 10%".to_string())]);
 
         summary.migrate_keys("emulator-5554", "AI_Glasses_emulator-5554");
 
@@ -652,7 +779,8 @@ mod tests {
         let txt_path = dir.path().join("device_monitor_summary_autosave.txt");
         let content = std::fs::read_to_string(txt_path).unwrap();
 
-        let guest_mentions: Vec<&str> = content.lines().filter(|l| l.contains("GUEST SYSTEM (")).collect();
+        let guest_mentions: Vec<&str> =
+            content.lines().filter(|l| l.contains("GUEST SYSTEM (")).collect();
         assert_eq!(guest_mentions.len(), 1);
         assert!(guest_mentions[0].contains("Pixel_6"));
     }

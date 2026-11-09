@@ -23,7 +23,22 @@ fn visible_width(re_ansi: &Regex, s: &str) -> usize {
 
 pub fn build_dashboard(
     host_stats: &HostStats,
-    guest_results: &std::collections::HashMap<String, (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>, bool, bool)>,
+    guest_results: &std::collections::HashMap<
+        String,
+        (
+            String,
+            bool,
+            String,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            u32,
+            Option<f32>,
+            bool,
+            bool,
+        ),
+    >,
     prev_stats: &mut std::collections::HashMap<String, f32>,
     iter_count: u64,
     term_width: u16,
@@ -33,7 +48,6 @@ pub fn build_dashboard(
     online_indicator_until: &std::collections::HashMap<String, tokio::time::Instant>,
     netsim_snapshot: Option<&crate::netsim::NetsimDashboardSnapshot>,
 ) -> String {
-
     let mut buf = Vec::new();
 
     let width = term_width.saturating_sub(1).clamp(76, 120) as usize;
@@ -44,7 +58,8 @@ pub fn build_dashboard(
     let c2 = Colors::RESET;
 
     static RE_ANSI: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let re_ansi = RE_ANSI.get_or_init(|| Regex::new(r"(?i)\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])").unwrap());
+    let re_ansi =
+        RE_ANSI.get_or_init(|| Regex::new(r"(?i)\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])").unwrap());
 
     if !is_once {
         let esc = if _force_clear { "\x1b[2J\x1b[H" } else { "\x1b[H\x1b[J" };
@@ -52,26 +67,68 @@ pub fn build_dashboard(
     }
     buf.push(format!("{}┌{}┐{}", c1, "─".repeat(width - 2), c2));
 
-    let logo = format!("{}G{}o{}o{}g{}l{}e{}", Colors::BLUE, Colors::RED, Colors::YELLOW, Colors::BLUE, Colors::GREEN, Colors::RED, Colors::RESET);
+    let logo = format!(
+        "{}G{}o{}o{}g{}l{}e{}",
+        Colors::BLUE,
+        Colors::RED,
+        Colors::YELLOW,
+        Colors::BLUE,
+        Colors::GREEN,
+        Colors::RED,
+        Colors::RESET
+    );
     let title_text = "Android Emulator & Device Resource Monitor";
     let line_content = format!(" {}   {}", logo, title_text);
 
     let visible_len = visible_width(re_ansi, &line_content);
     let padding = (width - 2).saturating_sub(visible_len);
-    buf.push(format!("{}│{}{}{}{}{}{}│{}", c1, c2, Colors::BOLD, line_content, " ".repeat(padding), c2, c1, c2));
+    buf.push(format!(
+        "{}│{}{}{}{}{}{}│{}",
+        c1,
+        c2,
+        Colors::BOLD,
+        line_content,
+        " ".repeat(padding),
+        c2,
+        c1,
+        c2
+    ));
     buf.push(format!("{}├{}┤{}", c1, "─".repeat(width - 2), c2));
 
     let specs_text = format!(" Host Specs: {}", hardware_specs);
     let visible_specs_len = visible_width(re_ansi, &specs_text);
     let padding_specs = (width - 2).saturating_sub(visible_specs_len);
-    buf.push(format!("{}│{}{}{}{}{}│{}", c1, c2, Colors::DIM, specs_text, " ".repeat(padding_specs), c1, c2));
+    buf.push(format!(
+        "{}│{}{}{}{}{}│{}",
+        c1,
+        c2,
+        Colors::DIM,
+        specs_text,
+        " ".repeat(padding_specs),
+        c1,
+        c2
+    ));
     buf.push(format!("{}├{}┤{}", c1, "─".repeat(width - 2), c2));
 
     // Print Host Section
-    let section_title = format!(" HOST SYSTEM ({})", sysinfo::System::name().unwrap_or_else(|| "Unknown OS".to_string()));
+    let section_title = format!(
+        " HOST SYSTEM ({})",
+        sysinfo::System::name().unwrap_or_else(|| "Unknown OS".to_string())
+    );
     let visible_len = visible_width(re_ansi, &section_title);
     let padding = (width - 2).saturating_sub(visible_len);
-    buf.push(format!("{}│{}{}{}{}{}{}{}│{}", c1, c2, Colors::YELLOW, Colors::BOLD, section_title, " ".repeat(padding), c2, c1, c2));
+    buf.push(format!(
+        "{}│{}{}{}{}{}{}{}│{}",
+        c1,
+        c2,
+        Colors::YELLOW,
+        Colors::BOLD,
+        section_title,
+        " ".repeat(padding),
+        c2,
+        c1,
+        c2
+    ));
     buf.push(format!("{}├{}┬{}┤{}", c1, "─".repeat(32), "─".repeat(width - 35), c2));
 
     // Helper to get trend arrow
@@ -92,27 +149,38 @@ pub fn build_dashboard(
     let print_row = |label: &str, value_str: &str, value_pct: f32, buf: &mut Vec<String>| {
         let raw_val = crate::summary::get_val(value_str, false);
 
-        let is_placeholder = value_str.contains("Unsupported") ||
-                             value_str.contains("No ADB") ||
-                             value_str.contains("Error") ||
-                             value_str.contains("Timeout") ||
-                             value_str.contains("Hang") ||
-                             value_str.contains("Calculating") ||
-                             raw_val.is_nan();
+        let is_placeholder = value_str.contains("Unsupported")
+            || value_str.contains("No ADB")
+            || value_str.contains("Error")
+            || value_str.contains("Timeout")
+            || value_str.contains("Hang")
+            || value_str.contains("Calculating")
+            || raw_val.is_nan();
 
         let mut is_alert = false;
         let val_for_alert = if raw_val == 0.0 && value_pct > 0.0 { value_pct } else { raw_val };
 
         if label.contains("Battery") {
-            if val_for_alert <= 10.0 { is_alert = true; }
+            if val_for_alert <= 10.0 {
+                is_alert = true;
+            }
         } else if value_str.contains("°C") {
-            if val_for_alert > 85.0 { is_alert = true; }
+            if val_for_alert > 85.0 {
+                is_alert = true;
+            }
         } else if value_str.contains('%') {
-            let threshold = if label == "Total Device CPU Usage" ||
-                               label == "Host QEMU CPU" ||
-                               label == "Unmapped Emulator CPU" ||
-                               label == "Network Simulator CPU" { 750.0 } else { 90.0 };
-            if val_for_alert > threshold { is_alert = true; }
+            let threshold = if label == "Total Device CPU Usage"
+                || label == "Host QEMU CPU"
+                || label == "Unmapped Emulator CPU"
+                || label == "Network Simulator CPU"
+            {
+                750.0
+            } else {
+                90.0
+            };
+            if val_for_alert > threshold {
+                is_alert = true;
+            }
         }
 
         let color = if is_placeholder {
@@ -133,7 +201,10 @@ pub fn build_dashboard(
             } else {
                 Colors::GREEN
             }
-        } else if value_str.contains("pages/s") || value_str.contains("Out:") || value_str.contains("KB/s") {
+        } else if value_str.contains("pages/s")
+            || value_str.contains("Out:")
+            || value_str.contains("KB/s")
+        {
             if val_for_alert > 5000.0 {
                 "\x1b[91m\x1b[1m"
             } else if val_for_alert > 1000.0 {
@@ -144,10 +215,10 @@ pub fn build_dashboard(
         } else if !value_str.contains('%') {
             Colors::CYAN
         } else {
-            let is_special_cpu = label.contains("Total Device CPU") ||
-                                 label.contains("Host QEMU CPU") ||
-                                 label.contains("Unmapped Emulator CPU") ||
-                                 label.contains("Network Simulator");
+            let is_special_cpu = label.contains("Total Device CPU")
+                || label.contains("Host QEMU CPU")
+                || label.contains("Unmapped Emulator CPU")
+                || label.contains("Network Simulator");
 
             if is_special_cpu {
                 if val_for_alert > 750.0 {
@@ -183,20 +254,30 @@ pub fn build_dashboard(
         let has_bar = value_str.contains('%') || value_str.contains("°C");
 
         let bar = if has_bar {
-            let val_to_clamp = if is_placeholder { 0.0 } else { if raw_val == 0.0 && value_pct > 0.0 { value_pct } else { raw_val } };
+            let val_to_clamp = if is_placeholder {
+                0.0
+            } else {
+                if raw_val == 0.0 && value_pct > 0.0 { value_pct } else { raw_val }
+            };
             let clamped_val = val_to_clamp.clamp(0.0, 100.0);
             let filled = ((clamped_val / 100.0) * bar_width as f32) as usize;
-            let half = if ((clamped_val / 100.0) * bar_width as f32 - filled as f32) >= 0.5 { 1 } else { 0 };
-            format!("[{}{}{}]", "█".repeat(filled), if half == 1 { "▌" } else { "" }, " ".repeat(bar_width.saturating_sub(filled + half)))
+            let half = if ((clamped_val / 100.0) * bar_width as f32 - filled as f32) >= 0.5 {
+                1
+            } else {
+                0
+            };
+            format!(
+                "[{}{}{}]",
+                "█".repeat(filled),
+                if half == 1 { "▌" } else { "" },
+                " ".repeat(bar_width.saturating_sub(filled + half))
+            )
         } else {
             "".to_string()
         };
 
-        let value_str_with_alert = if is_alert {
-            format!("{} [!!]", value_str)
-        } else {
-            value_str.to_string()
-        };
+        let value_str_with_alert =
+            if is_alert { format!("{} [!!]", value_str) } else { value_str.to_string() };
 
         let visible_val_len = value_str_with_alert.chars().count();
         let val_display = if visible_val_len > val_width {
@@ -250,31 +331,58 @@ pub fn build_dashboard(
         buf.push(line);
     };
 
-    let cpu_str = format!("{:.1}% {}", host_stats.cpu_usage, get_trend_arrow("host_cpu", host_stats.cpu_usage));
+    let cpu_str = format!(
+        "{:.1}% {}",
+        host_stats.cpu_usage,
+        get_trend_arrow("host_cpu", host_stats.cpu_usage)
+    );
     print_row("Complete System CPU", &cpu_str, host_stats.cpu_usage, &mut buf);
-    let ram_str = format!("{:.1}% ({:.1}GB/{:.1}GB) {}", host_stats.ram_percent, host_stats.ram_used_gb, host_stats.ram_total_gb, get_trend_arrow("host_ram", host_stats.ram_percent));
+    let ram_str = format!(
+        "{:.1}% ({:.1}GB/{:.1}GB) {}",
+        host_stats.ram_percent,
+        host_stats.ram_used_gb,
+        host_stats.ram_total_gb,
+        get_trend_arrow("host_ram", host_stats.ram_percent)
+    );
     print_row("Complete System RAM", &ram_str, host_stats.ram_percent, &mut buf);
-    let swap_str = format!("{:.1}% ({:.1}GB/{:.1}GB) {}", host_stats.swap_percent, host_stats.swap_used_gb, host_stats.swap_total_gb, get_trend_arrow("host_swap", host_stats.swap_percent));
+    let swap_str = format!(
+        "{:.1}% ({:.1}GB/{:.1}GB) {}",
+        host_stats.swap_percent,
+        host_stats.swap_used_gb,
+        host_stats.swap_total_gb,
+        get_trend_arrow("host_swap", host_stats.swap_percent)
+    );
     print_row("Backup Memory (Swap) Usage", &swap_str, host_stats.swap_percent, &mut buf);
     print_row("Memory Swapping Activity", &host_stats.paging_str, 0.0, &mut buf);
 
-    let gpu_str = host_stats.gpu_percent.map(|g| format!("{:.1}%", g)).unwrap_or_else(|| "N/A (Requires sudo or nvidia-smi)".to_string());
+    let gpu_str = host_stats
+        .gpu_percent
+        .map(|g| format!("{:.1}%", g))
+        .unwrap_or_else(|| "N/A (Requires sudo or nvidia-smi)".to_string());
     print_row("Host GPU Load", &gpu_str, host_stats.gpu_percent.unwrap_or(0.0), &mut buf);
 
-    let gpu_mem_str = host_stats.gpu_memory_mb.map(|m| format!("{:.1}MB", m)).unwrap_or_else(|| "N/A".to_string());
+    let gpu_mem_str = host_stats
+        .gpu_memory_mb
+        .map(|m| format!("{:.1}MB", m))
+        .unwrap_or_else(|| "N/A".to_string());
     print_row("Host GPU Memory", &gpu_mem_str, 0.0, &mut buf);
 
-    let temp_str = host_stats.thermal_temp.map(|t| format!("{:.1}°C", t)).unwrap_or_else(|| "N/A".to_string());
+    let temp_str =
+        host_stats.thermal_temp.map(|t| format!("{:.1}°C", t)).unwrap_or_else(|| "N/A".to_string());
     print_row("Host Thermal Temperature", &temp_str, 0.0, &mut buf);
 
-    let disk_str = format!("Read: {:.1} MB/s | Write: {:.1} MB/s", host_stats.disk_read_mbs, host_stats.disk_write_mbs);
+    let disk_str = format!(
+        "Read: {:.1} MB/s | Write: {:.1} MB/s",
+        host_stats.disk_read_mbs, host_stats.disk_write_mbs
+    );
     print_row("Host Disk I/O Rate", &disk_str, 0.0, &mut buf);
 
     if host_stats.battery_str != "N/A" {
         print_row("Laptop Battery Status", &host_stats.battery_str, 0.0, &mut buf);
     }
 
-    let unmapped: Vec<&crate::host::EmulatorProcess> = host_stats.emulators.iter().filter(|e| e.port.is_none()).collect();
+    let unmapped: Vec<&crate::host::EmulatorProcess> =
+        host_stats.emulators.iter().filter(|e| e.port.is_none()).collect();
     if !unmapped.is_empty() {
         let sum_cpu: f32 = unmapped.iter().map(|e| e.cpu_usage).sum();
         let sum_ram: f64 = unmapped.iter().map(|e| e.ram_mb).sum();
@@ -284,15 +392,31 @@ pub fn build_dashboard(
         } else {
             pids.join(", ")
         };
-        print_row("Unmapped Emulator CPU", &format!("{:.1}% (PIDs: {})", sum_cpu, pid_str), sum_cpu, &mut buf);
-        print_row("Unmapped Emulator RAM", &format!("{:.1}MB (PIDs: {})", sum_ram, pid_str), 0.0, &mut buf);
+        print_row(
+            "Unmapped Emulator CPU",
+            &format!("{:.1}% (PIDs: {})", sum_cpu, pid_str),
+            sum_cpu,
+            &mut buf,
+        );
+        print_row(
+            "Unmapped Emulator RAM",
+            &format!("{:.1}MB (PIDs: {})", sum_ram, pid_str),
+            0.0,
+            &mut buf,
+        );
     }
 
     if host_stats.netsim_count > 0 {
-        let netsim_cpu_str = format!("{:.1}% ({} processes) {}", host_stats.netsim_cpu, host_stats.netsim_count, get_trend_arrow("netsim_cpu", host_stats.netsim_cpu));
+        let netsim_cpu_str = format!(
+            "{:.1}% ({} processes) {}",
+            host_stats.netsim_cpu,
+            host_stats.netsim_count,
+            get_trend_arrow("netsim_cpu", host_stats.netsim_cpu)
+        );
         print_row("Network Simulator CPU", &netsim_cpu_str, host_stats.netsim_cpu, &mut buf);
 
-        let netsim_ram_str = format!("{:.1}MB ({} processes)", host_stats.netsim_ram_mb, host_stats.netsim_count);
+        let netsim_ram_str =
+            format!("{:.1}MB ({} processes)", host_stats.netsim_ram_mb, host_stats.netsim_count);
         print_row("Network Simulator RAM", &netsim_ram_str, 0.0, &mut buf);
     } else {
         print_row("Network Simulator CPU", "N/A", 0.0, &mut buf);
@@ -315,20 +439,45 @@ pub fn build_dashboard(
         let section_title = " GUEST SYSTEM (ADB)";
         let visible_len = visible_width(re_ansi, &section_title);
         let padding = (width - 2).saturating_sub(visible_len);
-        buf.push(format!("{}│{}{}{}{}{}{}{}│{}", c1, c2, Colors::HEADER, Colors::BOLD, section_title, " ".repeat(padding), c2, c1, c2));
+        buf.push(format!(
+            "{}│{}{}{}{}{}{}{}│{}",
+            c1,
+            c2,
+            Colors::HEADER,
+            Colors::BOLD,
+            section_title,
+            " ".repeat(padding),
+            c2,
+            c1,
+            c2
+        ));
         buf.push(format!("{}├{}┬{}┤{}", c1, "─".repeat(32), "─".repeat(width - 35), c2));
         print_row("Guest CPU", "N/A (No devices connected)", 0.0, &mut buf);
         print_row("Guest RAM Usage", "N/A", 0.0, &mut buf);
         print_row("Guest Swap Memory", "N/A", 0.0, &mut buf);
     } else {
         static RE_MODEL_CLEAN: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-        let re_model_clean = RE_MODEL_CLEAN.get_or_init(|| Regex::new(r" \| Android [^|]+ \(API ([^|]+)\) \| Build: ([^|]+)").unwrap());
+        let re_model_clean = RE_MODEL_CLEAN.get_or_init(|| {
+            Regex::new(r" \| Android [^|]+ \(API ([^|]+)\) \| Build: ([^|]+)").unwrap()
+        });
 
         let mut guest_keys: Vec<&String> = guest_results.keys().collect();
         guest_keys.sort();
 
         for serial in guest_keys {
-            let (model, _is_booting, guest_diff, guest_real, guest_ram, data_space, guest_swap, err_count, _data_pct, is_disconnected, recording_boot_stats) = &guest_results[serial];
+            let (
+                model,
+                _is_booting,
+                guest_diff,
+                guest_real,
+                guest_ram,
+                data_space,
+                guest_swap,
+                err_count,
+                _data_pct,
+                is_disconnected,
+                recording_boot_stats,
+            ) = &guest_results[serial];
             buf.push(format!("{}├{}┴{}┤{}", c1, "─".repeat(32), "─".repeat(width - 35), c2));
 
             let clean_model = re_model_clean.replace(model, " | API $1 | $2");
@@ -344,9 +493,14 @@ pub fn build_dashboard(
                 }
             }
 
-            let display_name = if clean_model.is_empty() { avd_name_str } else { format!("{} | {}", avd_name_str, clean_model) };
+            let display_name = if clean_model.is_empty() {
+                avd_name_str
+            } else {
+                format!("{} | {}", avd_name_str, clean_model)
+            };
 
-            let is_online_flash = online_indicator_until.get(serial)
+            let is_online_flash = online_indicator_until
+                .get(serial)
                 .map(|&t| tokio::time::Instant::now() < t)
                 .unwrap_or(false);
 
@@ -387,7 +541,18 @@ pub fn build_dashboard(
 
             let padding = (width - 2).saturating_sub(v_title_len_final + v_badge_len);
 
-            buf.push(format!("{}│{}{}{}{}{}{}{}│{}", c1, c2, Colors::GREEN, Colors::BOLD, inside_text, badge_formatted, " ".repeat(padding), c1, c2));
+            buf.push(format!(
+                "{}│{}{}{}{}{}{}{}│{}",
+                c1,
+                c2,
+                Colors::GREEN,
+                Colors::BOLD,
+                inside_text,
+                badge_formatted,
+                " ".repeat(padding),
+                c1,
+                c2
+            ));
             buf.push(format!("{}├{}┬{}┤{}", c1, "─".repeat(32), "─".repeat(width - 35), c2));
 
             print_row("Total Device CPU Usage", guest_diff, 0.0, &mut buf);
@@ -395,7 +560,23 @@ pub fn build_dashboard(
             // Apply trend to guest adjusted CPU if it's a percentage
             let guest_real_trend = if guest_real.contains("%") {
                 if let Ok(val) = guest_real.split('%').next().unwrap_or("").parse::<f32>() {
-                    format!("{} {}", guest_real, if val > prev_stats.get(&format!("{}_real", serial)).cloned().unwrap_or(val) + 0.5 { "↑" } else if val < prev_stats.get(&format!("{}_real", serial)).cloned().unwrap_or(val) - 0.5 { "↓" } else { "→" })
+                    format!(
+                        "{} {}",
+                        guest_real,
+                        if val
+                            > prev_stats.get(&format!("{}_real", serial)).cloned().unwrap_or(val)
+                                + 0.5
+                        {
+                            "↑"
+                        } else if val
+                            < prev_stats.get(&format!("{}_real", serial)).cloned().unwrap_or(val)
+                                - 0.5
+                        {
+                            "↓"
+                        } else {
+                            "→"
+                        }
+                    )
                 } else {
                     guest_real.clone()
                 }
@@ -429,9 +610,19 @@ pub fn build_dashboard(
                 }
             }
 
-            let qemu_cpu_str = if found_qemu { format!("{:.1}%", qemu_cpu) } else { "N/A".to_string() };
-            let qemu_ram_str = if found_qemu { format!("{:.1} MB ({} thr, {} cs)", qemu_ram, qemu_threads, qemu_cs) } else { "N/A".to_string() };
-            print_row("Host QEMU CPU", &qemu_cpu_str, if found_qemu { qemu_cpu } else { 0.0 }, &mut buf);
+            let qemu_cpu_str =
+                if found_qemu { format!("{:.1}%", qemu_cpu) } else { "N/A".to_string() };
+            let qemu_ram_str = if found_qemu {
+                format!("{:.1} MB ({} thr, {} cs)", qemu_ram, qemu_threads, qemu_cs)
+            } else {
+                "N/A".to_string()
+            };
+            print_row(
+                "Host QEMU CPU",
+                &qemu_cpu_str,
+                if found_qemu { qemu_cpu } else { 0.0 },
+                &mut buf,
+            );
             print_row("Host QEMU RAM", &qemu_ram_str, 0.0, &mut buf);
 
             let swap_str = guest_swap.as_deref().unwrap_or("N/A");
@@ -444,9 +635,7 @@ pub fn build_dashboard(
             }
 
             print_row("Guest Logcat Errors", &format!("{} errs", err_count), 0.0, &mut buf);
-            if let Some(ns_row) =
-                netsim_snapshot.and_then(|snap| snap.emulator_rows.get(serial))
-            {
+            if let Some(ns_row) = netsim_snapshot.and_then(|snap| snap.emulator_rows.get(serial)) {
                 print_row("Netsim Status", ns_row, 0.0, &mut buf);
             }
         }
@@ -458,7 +647,11 @@ pub fn build_dashboard(
     let msg = if is_once {
         format!("Last Updated: {}", chrono::Local::now().format("%H:%M:%S"))
     } else {
-        format!("Press Ctrl+C to exit. Last Updated: {} | Refreshing{:<3}", chrono::Local::now().format("%H:%M:%S"), dots)
+        format!(
+            "Press Ctrl+C to exit. Last Updated: {} | Refreshing{:<3}",
+            chrono::Local::now().format("%H:%M:%S"),
+            dots
+        )
     };
     buf.push(format!("\n{}{}{}", Colors::YELLOW, msg, Colors::RESET));
 
@@ -467,7 +660,22 @@ pub fn build_dashboard(
 
 pub fn print_dashboard(
     host_stats: &HostStats,
-    guest_results: &std::collections::HashMap<String, (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>, bool, bool)>,
+    guest_results: &std::collections::HashMap<
+        String,
+        (
+            String,
+            bool,
+            String,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            u32,
+            Option<f32>,
+            bool,
+            bool,
+        ),
+    >,
     prev_stats: &mut std::collections::HashMap<String, f32>,
     iter_count: u64,
     term_width: u16,
@@ -477,14 +685,25 @@ pub fn print_dashboard(
     online_indicator_until: &std::collections::HashMap<String, tokio::time::Instant>,
     netsim_snapshot: Option<&crate::netsim::NetsimDashboardSnapshot>,
 ) {
-    let s = build_dashboard(host_stats, guest_results, prev_stats, iter_count, term_width, is_once, hardware_specs, force_clear, online_indicator_until, netsim_snapshot);
+    let s = build_dashboard(
+        host_stats,
+        guest_results,
+        prev_stats,
+        iter_count,
+        term_width,
+        is_once,
+        hardware_specs,
+        force_clear,
+        online_indicator_until,
+        netsim_snapshot,
+    );
     println!("{}", s);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::host::{HostStats, EmulatorProcess};
+    use crate::host::{EmulatorProcess, HostStats};
     use std::collections::HashMap;
 
     #[test]
@@ -531,7 +750,18 @@ mod tests {
         let mut prev_stats = HashMap::new();
         let online_indicator_until = HashMap::new();
 
-        let dashboard = build_dashboard(&stats, &guest_results, &mut prev_stats, 1, 80, true, "Specs", true, &online_indicator_until, None);
+        let dashboard = build_dashboard(
+            &stats,
+            &guest_results,
+            &mut prev_stats,
+            1,
+            80,
+            true,
+            "Specs",
+            true,
+            &online_indicator_until,
+            None,
+        );
 
         assert!(dashboard.contains("Unmapped Emulator CPU"));
         assert!(dashboard.contains("10.0% (PIDs: 1234)"));
@@ -582,7 +812,18 @@ mod tests {
         let mut prev_stats = HashMap::new();
         let online_indicator_until = HashMap::new();
 
-        let dashboard = build_dashboard(&stats, &guest_results, &mut prev_stats, 1, 120, true, "Specs", true, &online_indicator_until, None);
+        let dashboard = build_dashboard(
+            &stats,
+            &guest_results,
+            &mut prev_stats,
+            1,
+            120,
+            true,
+            "Specs",
+            true,
+            &online_indicator_until,
+            None,
+        );
 
         assert!(dashboard.contains("Unmapped Emulator CPU"));
         assert!(dashboard.contains("1000, 1001, 1002, 1003 ... (+1 more)"));
@@ -619,12 +860,35 @@ mod tests {
         let mut guest_results = HashMap::new();
         guest_results.insert(
             "emulator-5554".to_string(),
-            ("Mock Device".to_string(), false, "NaN%".to_string(), "NaN%".to_string(), "NaN%".to_string(), None, None, 0, None, false, false)
+            (
+                "Mock Device".to_string(),
+                false,
+                "NaN%".to_string(),
+                "NaN%".to_string(),
+                "NaN%".to_string(),
+                None,
+                None,
+                0,
+                None,
+                false,
+                false,
+            ),
         );
         let mut prev_stats = HashMap::new();
         let online_indicator_until = HashMap::new();
 
-        let dashboard = build_dashboard(&stats, &guest_results, &mut prev_stats, 1, 80, true, "Specs", true, &online_indicator_until, None);
+        let dashboard = build_dashboard(
+            &stats,
+            &guest_results,
+            &mut prev_stats,
+            1,
+            80,
+            true,
+            "Specs",
+            true,
+            &online_indicator_until,
+            None,
+        );
 
         assert!(dashboard.contains("Total Device CPU Usage"));
     }
@@ -661,12 +925,35 @@ mod tests {
         let long_val = "\x1b[91mVery Long String That Will Be Truncated\x1b[0m";
         guest_results.insert(
             "emulator-5554".to_string(),
-            ("Mock Device".to_string(), false, "10%".to_string(), "5%".to_string(), long_val.to_string(), None, None, 0, None, false, false)
+            (
+                "Mock Device".to_string(),
+                false,
+                "10%".to_string(),
+                "5%".to_string(),
+                long_val.to_string(),
+                None,
+                None,
+                0,
+                None,
+                false,
+                false,
+            ),
         );
         let mut prev_stats = HashMap::new();
         let online_indicator_until = HashMap::new();
 
-        let dashboard = build_dashboard(&stats, &guest_results, &mut prev_stats, 1, 80, true, "Specs", true, &online_indicator_until, None);
+        let dashboard = build_dashboard(
+            &stats,
+            &guest_results,
+            &mut prev_stats,
+            1,
+            80,
+            true,
+            "Specs",
+            true,
+            &online_indicator_until,
+            None,
+        );
 
         assert!(dashboard.contains("Very Long"));
     }

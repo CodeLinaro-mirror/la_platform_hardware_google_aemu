@@ -6,11 +6,7 @@ struct BrailleCanvas {
 
 impl BrailleCanvas {
     fn new(width: usize, height: usize) -> Self {
-        Self {
-            width,
-            height,
-            grid: vec![vec![false; width * 2]; height * 4],
-        }
+        Self { width, height, grid: vec![vec![false; width * 2]; height * 4] }
     }
 
     fn set(&mut self, x: usize, y: usize) {
@@ -31,7 +27,9 @@ impl BrailleCanvas {
 
         loop {
             self.set(x as usize, y as usize);
-            if x == x1 && y == y1 { break; }
+            if x == x1 && y == y1 {
+                break;
+            }
             let e2 = 2 * err;
             if e2 >= dy {
                 err += dy;
@@ -51,14 +49,30 @@ impl BrailleCanvas {
             let y_base = cy * 4;
             let x_base = cx * 2;
 
-            if self.grid[y_base][x_base] { offset |= 1; }
-            if self.grid[y_base + 1][x_base] { offset |= 2; }
-            if self.grid[y_base + 2][x_base] { offset |= 4; }
-            if self.grid[y_base][x_base + 1] { offset |= 8; }
-            if self.grid[y_base + 1][x_base + 1] { offset |= 16; }
-            if self.grid[y_base + 2][x_base + 1] { offset |= 32; }
-            if self.grid[y_base + 3][x_base] { offset |= 64; }
-            if self.grid[y_base + 3][x_base + 1] { offset |= 128; }
+            if self.grid[y_base][x_base] {
+                offset |= 1;
+            }
+            if self.grid[y_base + 1][x_base] {
+                offset |= 2;
+            }
+            if self.grid[y_base + 2][x_base] {
+                offset |= 4;
+            }
+            if self.grid[y_base][x_base + 1] {
+                offset |= 8;
+            }
+            if self.grid[y_base + 1][x_base + 1] {
+                offset |= 16;
+            }
+            if self.grid[y_base + 2][x_base + 1] {
+                offset |= 32;
+            }
+            if self.grid[y_base + 3][x_base] {
+                offset |= 64;
+            }
+            if self.grid[y_base + 3][x_base + 1] {
+                offset |= 128;
+            }
 
             let c = std::char::from_u32(0x2800 + offset).unwrap_or(' ');
             result.push(c);
@@ -76,7 +90,11 @@ pub fn render_chart(points: &[(f32, f32)], width: usize, height: usize, title: &
     let lower_title = title.to_lowercase();
     let y_label = if lower_title.contains("cpu") {
         "Usage (%)"
-    } else if lower_title.contains("ram") || lower_title.contains("gpu") || lower_title.contains("swap") || lower_title.contains("fullness") {
+    } else if lower_title.contains("ram")
+        || lower_title.contains("gpu")
+        || lower_title.contains("swap")
+        || lower_title.contains("fullness")
+    {
         "Usage (%)"
     } else if lower_title.contains("disk read") {
         "Read (MB/s)"
@@ -90,7 +108,8 @@ pub fn render_chart(points: &[(f32, f32)], width: usize, height: usize, title: &
         "Switches"
     } else {
         ""
-    }.to_string();
+    }
+    .to_string();
 
     let min_x = points.iter().map(|p| p.0).fold(f32::INFINITY, f32::min);
     let max_x = points.iter().map(|p| p.0).fold(f32::NEG_INFINITY, f32::max);
@@ -186,7 +205,9 @@ pub fn render_chart(points: &[(f32, f32)], width: usize, height: usize, title: &
         let val = if val.abs() < 0.001 { 0.0 } else { val };
         let val_str = format!("{:.7}", val);
         let mut val_str_clean = val_str.trim_end_matches('0').trim_end_matches('.').to_string();
-        if val_str_clean.is_empty() { val_str_clean = "0".to_string(); }
+        if val_str_clean.is_empty() {
+            val_str_clean = "0".to_string();
+        }
         if val_str_clean.len() > 9 {
             val_str_clean.truncate(9);
             if val_str_clean.ends_with('.') {

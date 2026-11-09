@@ -1,5 +1,5 @@
-use sysinfo::System;
 use std::ffi::OsString;
+use sysinfo::System;
 
 #[derive(Clone)]
 pub struct EmulatorProcess {
@@ -39,15 +39,10 @@ pub struct HostStats {
     pub battery_percent: Option<f32>,
 }
 
-
 fn extract_device_prop(s: &str, key: &str) -> Option<String> {
     if let Some(pos) = s.find(key) {
         let rest = &s[pos + key.len()..];
-        let val = if let Some(comma_pos) = rest.find(',') {
-            &rest[..comma_pos]
-        } else {
-            rest
-        };
+        let val = if let Some(comma_pos) = rest.find(',') { &rest[..comma_pos] } else { rest };
         let cleaned = val.trim_matches(|c| c == '\'' || c == '"');
         if !cleaned.is_empty() {
             return Some(cleaned.to_string());
@@ -90,7 +85,8 @@ pub fn parse_cmdline_with_no_netsim(cmdline: &[OsString]) -> (Option<u16>, Optio
                 port = Some(p);
             }
         } else if (arg == "-avd" || arg == "-name") && i + 1 < cmdline.len() {
-            let next_arg = cmdline[i + 1].to_str().unwrap_or("").trim_matches(|c| c == '\'' || c == '"');
+            let next_arg =
+                cmdline[i + 1].to_str().unwrap_or("").trim_matches(|c| c == '\'' || c == '"');
             let next_clean = if let Some(stripped) = next_arg.strip_prefix("guest=") {
                 stripped
             } else {
@@ -101,13 +97,12 @@ pub fn parse_cmdline_with_no_netsim(cmdline: &[OsString]) -> (Option<u16>, Optio
                 avd_name = Some(val.to_string());
             }
             skip_next = true;
-        } else if let Some(stripped) = arg.strip_prefix("-avd=").or_else(|| arg.strip_prefix("-name=")) {
+        } else if let Some(stripped) =
+            arg.strip_prefix("-avd=").or_else(|| arg.strip_prefix("-name="))
+        {
             let next_clean = stripped.trim_matches(|c| c == '\'' || c == '"');
-            let next_clean = if let Some(s) = next_clean.strip_prefix("guest=") {
-                s
-            } else {
-                next_clean
-            };
+            let next_clean =
+                if let Some(s) = next_clean.strip_prefix("guest=") { s } else { next_clean };
             let val = next_clean.split(',').next().unwrap_or("");
             if !val.is_empty() {
                 avd_name = Some(val.to_string());
@@ -131,8 +126,8 @@ pub fn parse_cmdline_with_no_netsim(cmdline: &[OsString]) -> (Option<u16>, Optio
         }
 
         if port.is_none() {
-            if let Some(p) = extract_device_prop(arg, "serial_number=")
-                .and_then(|val| val.parse::<u16>().ok())
+            if let Some(p) =
+                extract_device_prop(arg, "serial_number=").and_then(|val| val.parse::<u16>().ok())
             {
                 port = Some(p);
             }
@@ -274,10 +269,7 @@ pub fn get_listening_port(pid: u32) -> Option<u16> {
 
 #[cfg(target_os = "windows")]
 pub fn get_listening_port(pid: u32) -> Option<u16> {
-    let output = std::process::Command::new("netstat")
-        .args(&["-ano"])
-        .output()
-        .ok()?;
+    let output = std::process::Command::new("netstat").args(&["-ano"]).output().ok()?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     for line in stdout.lines() {
@@ -327,9 +319,17 @@ pub fn parse_vm_stat(stdout: &str) -> (u64, u64) {
     let mut pgout = 0;
     for line in stdout.lines() {
         if line.contains("Pages paged in:") || line.starts_with("Pageins:") {
-            pgin = line.split_whitespace().last().and_then(|s| s.trim_end_matches('.').parse::<u64>().ok()).unwrap_or(0);
+            pgin = line
+                .split_whitespace()
+                .last()
+                .and_then(|s| s.trim_end_matches('.').parse::<u64>().ok())
+                .unwrap_or(0);
         } else if line.contains("Pages paged out:") || line.starts_with("Pageouts:") {
-            pgout = line.split_whitespace().last().and_then(|s| s.trim_end_matches('.').parse::<u64>().ok()).unwrap_or(0);
+            pgout = line
+                .split_whitespace()
+                .last()
+                .and_then(|s| s.trim_end_matches('.').parse::<u64>().ok())
+                .unwrap_or(0);
         }
     }
     (pgin, pgout)
@@ -474,11 +474,7 @@ fn is_candidate_process(name: &str, exe: Option<&std::path::Path>, cmd: &[OsStri
     is_netsimd_process(name, exe, cmd) || is_emulator_process(name, exe, cmd)
 }
 
-fn is_descendant_of_self(
-    pid: u32,
-    self_pid: u32,
-    parent_of: &dyn Fn(u32) -> Option<u32>,
-) -> bool {
+fn is_descendant_of_self(pid: u32, self_pid: u32, parent_of: &dyn Fn(u32) -> Option<u32>) -> bool {
     if self_pid == 0 {
         return false;
     }
@@ -504,11 +500,14 @@ fn read_proc_status(pid: u32) -> (u64, u32) {
     if let Ok(status) = std::fs::read_to_string(format!("/proc/{}/status", pid)) {
         for line in status.lines() {
             if line.starts_with("Threads:") {
-                threads = line.split_whitespace().nth(1).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+                threads =
+                    line.split_whitespace().nth(1).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
             } else if line.starts_with("voluntary_ctxt_switches:") {
-                vol = line.split_whitespace().nth(1).and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                vol =
+                    line.split_whitespace().nth(1).and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
             } else if line.starts_with("nonvoluntary_ctxt_switches:") {
-                nonvol = line.split_whitespace().nth(1).and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
+                nonvol =
+                    line.split_whitespace().nth(1).and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
             }
         }
     }
@@ -526,11 +525,14 @@ pub fn aggregate_processes(
     lookups: &ProcessLookups,
     port_cache: &mut PortCache,
 ) -> ProcessAggregate {
-    let mut accumulated_emus: std::collections::HashMap<u16, EmulatorProcess> = std::collections::HashMap::new();
+    let mut accumulated_emus: std::collections::HashMap<u16, EmulatorProcess> =
+        std::collections::HashMap::new();
     let mut primary_rank_per_port: std::collections::HashMap<u16, (bool, f32, f64, u64)> =
         std::collections::HashMap::new();
-    let mut pids_per_port: std::collections::HashMap<u16, Vec<u32>> = std::collections::HashMap::new();
-    let mut no_netsim_per_port: std::collections::HashMap<u16, bool> = std::collections::HashMap::new();
+    let mut pids_per_port: std::collections::HashMap<u16, Vec<u32>> =
+        std::collections::HashMap::new();
+    let mut no_netsim_per_port: std::collections::HashMap<u16, bool> =
+        std::collections::HashMap::new();
     let mut netsim_endpoint_per_port: std::collections::HashMap<u16, String> =
         std::collections::HashMap::new();
     let mut unmapped_emus: Vec<EmulatorProcess> = Vec::new();
@@ -560,11 +562,7 @@ pub fn aggregate_processes(
                 parent_name,
                 start_time: sample.start_time,
                 exe: sample.exe.clone(),
-                cmd: sample
-                    .cmd
-                    .iter()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .collect(),
+                cmd: sample.cmd.iter().map(|s| s.to_string_lossy().into_owned()).collect(),
                 environ: (lookups.environ_of)(sample.pid),
                 cpu: sample.cpu,
                 ram_mb: sample.ram_mb,
@@ -600,10 +598,8 @@ pub fn aggregate_processes(
             by_pid.insert(s.pid, (*p, avd.clone(), *nn));
         }
         for i in 0..emu_samples.len() {
-            let parent_pid = emu_samples[i]
-                .0
-                .parent
-                .or_else(|| (lookups.parent_of)(emu_samples[i].0.pid));
+            let parent_pid =
+                emu_samples[i].0.parent.or_else(|| (lookups.parent_of)(emu_samples[i].0.pid));
             if let Some(pp) = parent_pid {
                 if let Some((pp_port, pp_avd, pp_nn)) = by_pid.get(&pp).cloned() {
                     if emu_samples[i].1.is_none() && pp_port.is_some() {
@@ -622,13 +618,7 @@ pub fn aggregate_processes(
         let snapshot: Vec<(u32, Option<u32>, Option<u16>, Option<String>, bool)> = emu_samples
             .iter()
             .map(|(s, p, a, nn, _)| {
-                (
-                    s.pid,
-                    s.parent.or_else(|| (lookups.parent_of)(s.pid)),
-                    *p,
-                    a.clone(),
-                    *nn,
-                )
+                (s.pid, s.parent.or_else(|| (lookups.parent_of)(s.pid)), *p, a.clone(), *nn)
             })
             .collect();
         for (_, parent_opt, c_port, c_avd, c_nn) in snapshot {
@@ -677,10 +667,8 @@ pub fn aggregate_processes(
             if let Some(endpoint) = parse_cmdline_netsim_endpoint(&sample.cmd) {
                 netsim_endpoint_per_port.entry(p).or_insert(endpoint);
             }
-            let prev_rank = primary_rank_per_port
-                .get(&p)
-                .copied()
-                .unwrap_or((false, -1.0, -1.0, 0));
+            let prev_rank =
+                primary_rank_per_port.get(&p).copied().unwrap_or((false, -1.0, -1.0, 0));
             let is_new_primary = (is_worker && !prev_rank.0)
                 || (is_worker == prev_rank.0
                     && (cpu > prev_rank.1 || (cpu == prev_rank.1 && emu.ram_mb > prev_rank.2)));
@@ -708,7 +696,8 @@ pub fn aggregate_processes(
                     }
                 })
                 .or_insert_with(|| {
-                    primary_rank_per_port.insert(p, (is_worker, cpu, emu.ram_mb, sample.start_time));
+                    primary_rank_per_port
+                        .insert(p, (is_worker, cpu, emu.ram_mb, sample.start_time));
                     emu.clone()
                 });
         } else {
@@ -723,10 +712,7 @@ pub fn aggregate_processes(
             let serial = format!("emulator-{}", p);
             let env = (lookups.environ_of)(e.pid);
             let pid_ini = crate::netsim::discover_emulator_pid_ini(e.pid, &env);
-            let avd_id = pid_ini
-                .get("avd.id")
-                .cloned()
-                .or_else(|| e.avd_name.clone());
+            let avd_id = pid_ini.get("avd.id").cloned().or_else(|| e.avd_name.clone());
             if e.avd_name.is_none() && avd_id.is_some() {
                 e.avd_name = avd_id.clone();
             }
@@ -768,7 +754,6 @@ pub fn aggregate_processes(
     }
 }
 
-
 pub struct RealHostProvider {
     pub sys: System,
     pub last_pgin: u64,
@@ -784,7 +769,6 @@ pub struct RealHostProvider {
     pub mac_gpu_fetching: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub mac_gpu_last_fetch: Option<std::time::Instant>,
 }
-
 
 impl crate::provider::HostProvider for RealHostProvider {
     fn get_cpu_cores(&self) -> usize {
@@ -822,176 +806,180 @@ impl crate::provider::HostProvider for RealHostProvider {
                 }),
         );
 
-    let current_keys: std::collections::HashSet<(u32, u64)> = sys.processes().iter().map(|(p, proc)| (p.as_u32(), proc.start_time())).collect();
-    self.pid_port_cache.retain(|k, _| current_keys.contains(k));
+        let current_keys: std::collections::HashSet<(u32, u64)> =
+            sys.processes().iter().map(|(p, proc)| (p.as_u32(), proc.start_time())).collect();
+        self.pid_port_cache.retain(|k, _| current_keys.contains(k));
 
-    let cpu_usage = sys.global_cpu_usage();
+        let cpu_usage = sys.global_cpu_usage();
 
-    let total_mem = sys.total_memory();
-    let used_mem = sys.used_memory();
+        let total_mem = sys.total_memory();
+        let used_mem = sys.used_memory();
 
-    let ram_used_gb = used_mem as f64 / (1024.0 * 1024.0 * 1024.0);
-    let ram_total_gb = total_mem as f64 / (1024.0 * 1024.0 * 1024.0);
-    let ram_percent = (used_mem as f32 / total_mem as f32) * 100.0;
+        let ram_used_gb = used_mem as f64 / (1024.0 * 1024.0 * 1024.0);
+        let ram_total_gb = total_mem as f64 / (1024.0 * 1024.0 * 1024.0);
+        let ram_percent = (used_mem as f32 / total_mem as f32) * 100.0;
 
-    let total_swap = sys.total_swap();
-    let used_swap = sys.used_swap();
+        let total_swap = sys.total_swap();
+        let used_swap = sys.used_swap();
 
-    let swap_used_gb = used_swap as f64 / (1024.0 * 1024.0 * 1024.0);
-    let swap_total_gb = total_swap as f64 / (1024.0 * 1024.0 * 1024.0);
-    let swap_percent = if total_swap > 0 { (used_swap as f32 / total_swap as f32) * 100.0 } else { 0.0 };
+        let swap_used_gb = used_swap as f64 / (1024.0 * 1024.0 * 1024.0);
+        let swap_total_gb = total_swap as f64 / (1024.0 * 1024.0 * 1024.0);
+        let swap_percent =
+            if total_swap > 0 { (used_swap as f32 / total_swap as f32) * 100.0 } else { 0.0 };
 
-    #[allow(unused_variables, unused_mut)]
-    let mut total_read_bytes = 0;
-    #[allow(unused_variables, unused_mut)]
-    let mut total_write_bytes = 0;
+        #[allow(unused_variables, unused_mut)]
+        let mut total_read_bytes = 0;
+        #[allow(unused_variables, unused_mut)]
+        let mut total_write_bytes = 0;
 
-    let mut emu_gpu_stats = std::collections::HashMap::new();
-    if !self.nvidia_smi_failed {
-        if let Ok(output) = std::process::Command::new("nvidia-smi")
-            .args(&["pmon", "-c", "1"])
-            .output()
-        {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                for line in stdout.lines() {
-                    let parts: Vec<&str> = line.split_whitespace().collect();
-                    if parts.len() >= 4 {
-                        if let Ok(pid) = parts[1].parse::<u32>() {
-                            let sm_str = parts[3];
-                            let sm_val = if sm_str != "-" && sm_str != "?" {
-                                sm_str.parse::<f32>().unwrap_or(0.0)
-                            } else {
-                                0.0
-                            };
-                            *emu_gpu_stats.entry(pid).or_insert(0.0) += sm_val;
+        let mut emu_gpu_stats = std::collections::HashMap::new();
+        if !self.nvidia_smi_failed {
+            if let Ok(output) =
+                std::process::Command::new("nvidia-smi").args(&["pmon", "-c", "1"]).output()
+            {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    for line in stdout.lines() {
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 4 {
+                            if let Ok(pid) = parts[1].parse::<u32>() {
+                                let sm_str = parts[3];
+                                let sm_val = if sm_str != "-" && sm_str != "?" {
+                                    sm_str.parse::<f32>().unwrap_or(0.0)
+                                } else {
+                                    0.0
+                                };
+                                *emu_gpu_stats.entry(pid).or_insert(0.0) += sm_val;
+                            }
                         }
                     }
+                } else {
+                    self.nvidia_smi_failed = true;
                 }
             } else {
                 self.nvidia_smi_failed = true;
             }
-        } else {
-            self.nvidia_smi_failed = true;
         }
-    }
 
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-    for process in sys.processes().values() {
-        let usage = process.disk_usage();
-        total_read_bytes += usage.read_bytes;
-        total_write_bytes += usage.written_bytes;
-    }
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        for process in sys.processes().values() {
+            let usage = process.disk_usage();
+            total_read_bytes += usage.read_bytes;
+            total_write_bytes += usage.written_bytes;
+        }
 
-    let parents: std::collections::HashMap<u32, u32> = sys
-        .processes()
-        .iter()
-        .filter(|(_, p)| p.thread_kind().is_none())
-        .filter_map(|(pid, p)| p.parent().map(|pp| (pid.as_u32(), pp.as_u32())))
-        .collect();
-    let samples: Vec<ProcSample> = sys
-        .processes()
-        .iter()
-        .filter(|(_, p)| {
-            p.thread_kind().is_none()
-                && is_candidate_process(&p.name().to_string_lossy(), p.exe(), p.cmd())
-        })
-        .map(|(pid, p)| ProcSample {
-            pid: pid.as_u32(),
-            parent: p.parent().map(|pp| pp.as_u32()),
-            name: p.name().to_string_lossy().into_owned(),
-            exe: p.exe().map(|e| e.to_path_buf()),
-            cmd: p.cmd().to_vec(),
-            start_time: p.start_time(),
-            cpu: p.cpu_usage(),
-            ram_mb: p.memory() as f64 / (1024.0 * 1024.0),
-            uid: process_uid(p),
-        })
-        .collect();
-    let self_uid = sys.process(sysinfo::Pid::from_u32(std::process::id())).and_then(process_uid);
-    let environ_of = |pid: u32| {
-        if cfg!(target_os = "linux") {
-            crate::netsim::read_proc_environ(pid)
-        } else {
+        let parents: std::collections::HashMap<u32, u32> = sys
+            .processes()
+            .iter()
+            .filter(|(_, p)| p.thread_kind().is_none())
+            .filter_map(|(pid, p)| p.parent().map(|pp| (pid.as_u32(), pp.as_u32())))
+            .collect();
+        let samples: Vec<ProcSample> = sys
+            .processes()
+            .iter()
+            .filter(|(_, p)| {
+                p.thread_kind().is_none()
+                    && is_candidate_process(&p.name().to_string_lossy(), p.exe(), p.cmd())
+            })
+            .map(|(pid, p)| ProcSample {
+                pid: pid.as_u32(),
+                parent: p.parent().map(|pp| pp.as_u32()),
+                name: p.name().to_string_lossy().into_owned(),
+                exe: p.exe().map(|e| e.to_path_buf()),
+                cmd: p.cmd().to_vec(),
+                start_time: p.start_time(),
+                cpu: p.cpu_usage(),
+                ram_mb: p.memory() as f64 / (1024.0 * 1024.0),
+                uid: process_uid(p),
+            })
+            .collect();
+        let self_uid =
+            sys.process(sysinfo::Pid::from_u32(std::process::id())).and_then(process_uid);
+        let environ_of = |pid: u32| {
+            if cfg!(target_os = "linux") {
+                crate::netsim::read_proc_environ(pid)
+            } else {
+                sys.process(sysinfo::Pid::from_u32(pid))
+                    .map(|p| {
+                        crate::netsim::parse_env_entries(
+                            p.environ().iter().map(|e| e.to_string_lossy()),
+                        )
+                    })
+                    .unwrap_or_default()
+            }
+        };
+        let name_of = |pid: u32| {
             sys.process(sysinfo::Pid::from_u32(pid))
-                .map(|p| {
-                    crate::netsim::parse_env_entries(
-                        p.environ().iter().map(|e| e.to_string_lossy()),
-                    )
-                })
-                .unwrap_or_default()
-        }
-    };
-    let name_of = |pid: u32| {
-        sys.process(sysinfo::Pid::from_u32(pid))
-            .map(|p| p.name().to_string_lossy().into_owned())
-    };
-    let lookups = ProcessLookups {
-        self_pid: std::process::id(),
-        self_uid,
-        gpu_by_pid: &emu_gpu_stats,
-        parent_of: &|pid| parents.get(&pid).copied(),
-        listening_port: &get_listening_port,
-        proc_status: &read_proc_status,
-        environ_of: &environ_of,
-        name_of: &name_of,
-    };
-    let ProcessAggregate {
-        emulators,
-        netsim_cpu,
-        netsim_ram_mb,
-        netsim_count,
-        netsim_daemons,
-        emu_groups,
-    } = aggregate_processes(&samples, &lookups, &mut self.pid_port_cache);
+                .map(|p| p.name().to_string_lossy().into_owned())
+        };
+        let lookups = ProcessLookups {
+            self_pid: std::process::id(),
+            self_uid,
+            gpu_by_pid: &emu_gpu_stats,
+            parent_of: &|pid| parents.get(&pid).copied(),
+            listening_port: &get_listening_port,
+            proc_status: &read_proc_status,
+            environ_of: &environ_of,
+            name_of: &name_of,
+        };
+        let ProcessAggregate {
+            emulators,
+            netsim_cpu,
+            netsim_ram_mb,
+            netsim_count,
+            netsim_daemons,
+            emu_groups,
+        } = aggregate_processes(&samples, &lookups, &mut self.pid_port_cache);
 
-    #[cfg(target_os = "linux")]
-    let (disk_read_mbs, disk_write_mbs) = {
-        let mut curr_read = 0;
-        let mut curr_write = 0;
-        if let Ok(diskstats) = std::fs::read_to_string("/proc/diskstats") {
-            for line in diskstats.lines() {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 10 {
-                    let dev = parts[2];
-                    let is_disk = dev.starts_with("sd") && dev.len() == 3 ||
-                                  dev.starts_with("nvme") && !dev.contains('p') ||
-                                  dev.starts_with("vd") && dev.len() == 3 ||
-                                  dev.starts_with("hd") && dev.len() == 3 ||
-                                  dev.starts_with("mmcblk") && !dev.contains('p');
+        #[cfg(target_os = "linux")]
+        let (disk_read_mbs, disk_write_mbs) = {
+            let mut curr_read = 0;
+            let mut curr_write = 0;
+            if let Ok(diskstats) = std::fs::read_to_string("/proc/diskstats") {
+                for line in diskstats.lines() {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 10 {
+                        let dev = parts[2];
+                        let is_disk = dev.starts_with("sd") && dev.len() == 3
+                            || dev.starts_with("nvme") && !dev.contains('p')
+                            || dev.starts_with("vd") && dev.len() == 3
+                            || dev.starts_with("hd") && dev.len() == 3
+                            || dev.starts_with("mmcblk") && !dev.contains('p');
 
-                    if is_disk {
-                        let sectors_read = parts[5].parse::<u64>().unwrap_or(0);
-                        let sectors_written = parts[9].parse::<u64>().unwrap_or(0);
-                        curr_read += sectors_read * 512;
-                        curr_write += sectors_written * 512;
+                        if is_disk {
+                            let sectors_read = parts[5].parse::<u64>().unwrap_or(0);
+                            let sectors_written = parts[9].parse::<u64>().unwrap_or(0);
+                            curr_read += sectors_read * 512;
+                            curr_write += sectors_written * 512;
+                        }
                     }
                 }
             }
-        }
 
-        let read_mb = if self.last_disk_read > 0 && elapsed_secs > 0.001 {
-            (curr_read.saturating_sub(self.last_disk_read) as f64 / (1024.0 * 1024.0)) / elapsed_secs
-        } else {
-            0.0
+            let read_mb = if self.last_disk_read > 0 && elapsed_secs > 0.001 {
+                (curr_read.saturating_sub(self.last_disk_read) as f64 / (1024.0 * 1024.0))
+                    / elapsed_secs
+            } else {
+                0.0
+            };
+            let write_mb = if self.last_disk_write > 0 && elapsed_secs > 0.001 {
+                (curr_write.saturating_sub(self.last_disk_write) as f64 / (1024.0 * 1024.0))
+                    / elapsed_secs
+            } else {
+                0.0
+            };
+
+            self.last_disk_read = curr_read;
+            self.last_disk_write = curr_write;
+
+            (read_mb, write_mb)
         };
-        let write_mb = if self.last_disk_write > 0 && elapsed_secs > 0.001 {
-            (curr_write.saturating_sub(self.last_disk_write) as f64 / (1024.0 * 1024.0)) / elapsed_secs
-        } else {
-            0.0
-        };
 
-        self.last_disk_read = curr_read;
-        self.last_disk_write = curr_write;
-
-        (read_mb, write_mb)
-    };
-
-    #[cfg(target_os = "windows")]
-    let (disk_read_mbs, disk_write_mbs) = {
-        let mut read_mb = 0.0;
-        let mut write_mb = 0.0;
-        if let Ok(output) = std::process::Command::new("powershell")
+        #[cfg(target_os = "windows")]
+        let (disk_read_mbs, disk_write_mbs) = {
+            let mut read_mb = 0.0;
+            let mut write_mb = 0.0;
+            if let Ok(output) = std::process::Command::new("powershell")
             .args(&["-NoProfile", "-NonInteractive", "-Command", "Get-Counter '\\PhysicalDisk(_Total)\\Disk Read Bytes/sec', '\\PhysicalDisk(_Total)\\Disk Write Bytes/sec' | Select-Object -ExpandProperty CounterSamples | ForEach-Object { $_.CookedValue }"])
             .output() {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1001,45 +989,55 @@ impl crate::provider::HostProvider for RealHostProvider {
                 write_mb = lines[1].trim().parse::<f64>().unwrap_or(0.0) / (1024.0 * 1024.0);
             }
         }
-        (read_mb, write_mb)
-    };
+            (read_mb, write_mb)
+        };
 
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-    let (disk_read_mbs, disk_write_mbs) = {
-        let read_mb = if elapsed_secs > 0.001 { (total_read_bytes as f64 / (1024.0 * 1024.0)) / elapsed_secs } else { 0.0 };
-        let write_mb = if elapsed_secs > 0.001 { (total_write_bytes as f64 / (1024.0 * 1024.0)) / elapsed_secs } else { 0.0 };
-        (read_mb, write_mb)
-    };
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        let (disk_read_mbs, disk_write_mbs) = {
+            let read_mb = if elapsed_secs > 0.001 {
+                (total_read_bytes as f64 / (1024.0 * 1024.0)) / elapsed_secs
+            } else {
+                0.0
+            };
+            let write_mb = if elapsed_secs > 0.001 {
+                (total_write_bytes as f64 / (1024.0 * 1024.0)) / elapsed_secs
+            } else {
+                0.0
+            };
+            (read_mb, write_mb)
+        };
 
-    let mut gpu_percent = if std::path::Path::new("/sys/class/drm/card0/device/gpu_busy_percent").exists() {
-        std::fs::read_to_string("/sys/class/drm/card0/device/gpu_busy_percent")
-            .ok()
-            .and_then(|s| s.trim().parse::<f32>().ok())
-    } else {
-        None
-    };
+        let mut gpu_percent =
+            if std::path::Path::new("/sys/class/drm/card0/device/gpu_busy_percent").exists() {
+                std::fs::read_to_string("/sys/class/drm/card0/device/gpu_busy_percent")
+                    .ok()
+                    .and_then(|s| s.trim().parse::<f32>().ok())
+            } else {
+                None
+            };
 
-    let mut gpu_memory_mb = None;
+        let mut gpu_memory_mb = None;
 
-    if gpu_percent.is_none() && !self.nvidia_smi_failed {
-        if let Ok(output) = std::process::Command::new("nvidia-smi")
-            .args(&["--query-gpu=utilization.gpu,memory.used", "--format=csv,noheader,nounits"])
-            .output() {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let (g, m) = parse_nvidia_smi(&stdout);
-                gpu_percent = g;
-                gpu_memory_mb = m;
+        if gpu_percent.is_none() && !self.nvidia_smi_failed {
+            if let Ok(output) = std::process::Command::new("nvidia-smi")
+                .args(&["--query-gpu=utilization.gpu,memory.used", "--format=csv,noheader,nounits"])
+                .output()
+            {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let (g, m) = parse_nvidia_smi(&stdout);
+                    gpu_percent = g;
+                    gpu_memory_mb = m;
+                } else {
+                    self.nvidia_smi_failed = true;
+                }
             } else {
                 self.nvidia_smi_failed = true;
             }
-        } else {
-            self.nvidia_smi_failed = true;
         }
-    }
 
-    if gpu_percent.is_none() && cfg!(target_os = "windows") {
-        if let Ok(output) = std::process::Command::new("powershell")
+        if gpu_percent.is_none() && cfg!(target_os = "windows") {
+            if let Ok(output) = std::process::Command::new("powershell")
             .args(&["-NoProfile", "-NonInteractive", "-Command", "Get-Counter '\\GPU Engine(*)\\Utilization Percentage' | Select-Object -ExpandProperty CounterSamples | Measure-Object -Property CookedValue -Maximum | Select-Object -ExpandProperty Maximum"])
             .output() {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1047,176 +1045,182 @@ impl crate::provider::HostProvider for RealHostProvider {
                 gpu_percent = Some(val);
             }
         }
-    }
+        }
 
-    if gpu_percent.is_none() && cfg!(target_os = "linux") && !self.intel_gpu_failed {
-        if let Ok(output) = std::process::Command::new("intel_gpu_top")
-            .args(&["-s", "1", "-n", "1"])
-            .output() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            static RE_INTEL: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-            let re_intel = RE_INTEL.get_or_init(|| regex::Regex::new(r"(?i)Render/3D:\s+(\d+)%").unwrap());
-            if let Some(caps) = re_intel.captures(&stdout) {
-                if let Ok(val) = caps[1].parse::<f32>() {
-                    gpu_percent = Some(val);
+        if gpu_percent.is_none() && cfg!(target_os = "linux") && !self.intel_gpu_failed {
+            if let Ok(output) =
+                std::process::Command::new("intel_gpu_top").args(&["-s", "1", "-n", "1"]).output()
+            {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                static RE_INTEL: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+                let re_intel =
+                    RE_INTEL.get_or_init(|| regex::Regex::new(r"(?i)Render/3D:\s+(\d+)%").unwrap());
+                if let Some(caps) = re_intel.captures(&stdout) {
+                    if let Ok(val) = caps[1].parse::<f32>() {
+                        gpu_percent = Some(val);
+                    }
+                } else {
+                    self.intel_gpu_failed = true;
                 }
             } else {
                 self.intel_gpu_failed = true;
             }
-        } else {
-            self.intel_gpu_failed = true;
         }
-    }
 
-    if gpu_percent.is_none() && cfg!(target_os = "macos") && !self.mac_gpu_failed {
-        let now = std::time::Instant::now();
-        let should_fetch = match self.mac_gpu_last_fetch {
-            Some(last) => now.duration_since(last).as_secs() >= 10,
-            None => true,
-        };
+        if gpu_percent.is_none() && cfg!(target_os = "macos") && !self.mac_gpu_failed {
+            let now = std::time::Instant::now();
+            let should_fetch = match self.mac_gpu_last_fetch {
+                Some(last) => now.duration_since(last).as_secs() >= 10,
+                None => true,
+            };
 
-        if should_fetch && !self.mac_gpu_fetching.load(std::sync::atomic::Ordering::SeqCst) {
-            self.mac_gpu_fetching.store(true, std::sync::atomic::Ordering::SeqCst);
-            self.mac_gpu_last_fetch = Some(now);
+            if should_fetch && !self.mac_gpu_fetching.load(std::sync::atomic::Ordering::SeqCst) {
+                self.mac_gpu_fetching.store(true, std::sync::atomic::Ordering::SeqCst);
+                self.mac_gpu_last_fetch = Some(now);
 
-            let cache_clone = self.mac_gpu_cache.clone();
-            let fetching_clone = self.mac_gpu_fetching.clone();
+                let cache_clone = self.mac_gpu_cache.clone();
+                let fetching_clone = self.mac_gpu_fetching.clone();
 
-            std::thread::spawn(move || {
-                if let Ok(output) = std::process::Command::new("powermetrics")
-                    .args(&["-i", "500", "-n", "1", "--samplers", "gpu_power"])
-                    .output() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    static RE_MAC: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-                    let re_mac = RE_MAC.get_or_init(|| regex::Regex::new(r"(?i)GPU (?:HW )?active residency:\s+([\d.]+)%").unwrap());
-                    if let Some(caps) = re_mac.captures(&stdout) {
-                        if let Ok(val) = caps[1].parse::<f32>() {
-                            let mut cache = cache_clone.lock().unwrap();
-                            *cache = Some(val);
+                std::thread::spawn(move || {
+                    if let Ok(output) = std::process::Command::new("powermetrics")
+                        .args(&["-i", "500", "-n", "1", "--samplers", "gpu_power"])
+                        .output()
+                    {
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        static RE_MAC: std::sync::OnceLock<regex::Regex> =
+                            std::sync::OnceLock::new();
+                        let re_mac = RE_MAC.get_or_init(|| {
+                            regex::Regex::new(r"(?i)GPU (?:HW )?active residency:\s+([\d.]+)%")
+                                .unwrap()
+                        });
+                        if let Some(caps) = re_mac.captures(&stdout) {
+                            if let Ok(val) = caps[1].parse::<f32>() {
+                                let mut cache = cache_clone.lock().unwrap();
+                                *cache = Some(val);
+                            }
                         }
                     }
-                }
-                fetching_clone.store(false, std::sync::atomic::Ordering::SeqCst);
-            });
+                    fetching_clone.store(false, std::sync::atomic::Ordering::SeqCst);
+                });
+            }
+
+            let cache = self.mac_gpu_cache.lock().unwrap();
+            gpu_percent = *cache;
         }
 
-        let cache = self.mac_gpu_cache.lock().unwrap();
-        gpu_percent = *cache;
-    }
-
-
-    let thermal_temp = {
-        let mut max_t: Option<f32> = None;
-        if cfg!(target_os = "linux") {
-            if let Ok(entries) = std::fs::read_dir("/sys/class/thermal") {
-                for entry in entries.flatten() {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    if name.starts_with("thermal_zone") {
-                        let temp_path = entry.path().join("temp");
-                        if let Ok(temp_str) = std::fs::read_to_string(temp_path) {
-                            if let Ok(t) = temp_str.trim().parse::<f32>() {
-                                let t_c = t / 1000.0;
-                                if t_c < 150.0 {
-                                    max_t = Some(max_t.map_or(t_c, |curr| curr.max(t_c)));
+        let thermal_temp = {
+            let mut max_t: Option<f32> = None;
+            if cfg!(target_os = "linux") {
+                if let Ok(entries) = std::fs::read_dir("/sys/class/thermal") {
+                    for entry in entries.flatten() {
+                        let name = entry.file_name().to_string_lossy().to_string();
+                        if name.starts_with("thermal_zone") {
+                            let temp_path = entry.path().join("temp");
+                            if let Ok(temp_str) = std::fs::read_to_string(temp_path) {
+                                if let Ok(t) = temp_str.trim().parse::<f32>() {
+                                    let t_c = t / 1000.0;
+                                    if t_c < 150.0 {
+                                        max_t = Some(max_t.map_or(t_c, |curr| curr.max(t_c)));
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+            max_t
+        };
+
+        let mut pgin = 0;
+        let mut pgout = 0;
+
+        if cfg!(target_os = "linux") {
+            if let Ok(vmstat) = std::fs::read_to_string("/proc/vmstat") {
+                let (i, o) = parse_vmstat(&vmstat);
+                pgin = i;
+                pgout = o;
+            }
+        } else if cfg!(target_os = "macos") {
+            if let Ok(output) = std::process::Command::new("vm_stat").output() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let (i, o) = parse_vm_stat(&stdout);
+                pgin = i;
+                pgout = o;
+            }
         }
-        max_t
-    };
 
-    let mut pgin = 0;
-    let mut pgout = 0;
-
-    if cfg!(target_os = "linux") {
-        if let Ok(vmstat) = std::fs::read_to_string("/proc/vmstat") {
-            let (i, o) = parse_vmstat(&vmstat);
-            pgin = i;
-            pgout = o;
+        let mut in_rate = 0.0;
+        let mut out_rate = 0.0;
+        let mut paging_str = "Calculating...".to_string();
+        if self.last_pgin > 0 || self.last_pgout > 0 {
+            in_rate = (pgin.saturating_sub(self.last_pgin)) as f64 / elapsed_secs;
+            out_rate = (pgout.saturating_sub(self.last_pgout)) as f64 / elapsed_secs;
+            let unit = if cfg!(target_os = "macos") { "pages/s" } else { "KB/s" };
+            paging_str = format!("In: {:.0} / Out: {:.0} ({})", in_rate, out_rate, unit);
         }
-    } else if cfg!(target_os = "macos") {
-        if let Ok(output) = std::process::Command::new("vm_stat").output() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let (i, o) = parse_vm_stat(&stdout);
-            pgin = i;
-            pgout = o;
-        }
-    }
+        self.last_pgin = pgin;
+        self.last_pgout = pgout;
 
-
-    let mut in_rate = 0.0;
-    let mut out_rate = 0.0;
-    let mut paging_str = "Calculating...".to_string();
-    if self.last_pgin > 0 || self.last_pgout > 0 {
-        in_rate = (pgin.saturating_sub(self.last_pgin)) as f64 / elapsed_secs;
-        out_rate = (pgout.saturating_sub(self.last_pgout)) as f64 / elapsed_secs;
-        let unit = if cfg!(target_os = "macos") { "pages/s" } else { "KB/s" };
-        paging_str = format!("In: {:.0} / Out: {:.0} ({})", in_rate, out_rate, unit);
-    }
-    self.last_pgin = pgin;
-    self.last_pgout = pgout;
-
-    let mut battery_str = "N/A".to_string();
-    let mut battery_percent = None;
-    if cfg!(target_os = "linux") {
-        if let Ok(entries) = std::fs::read_dir("/sys/class/power_supply") {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name.starts_with("BAT") {
-                    let cap_path = entry.path().join("capacity");
-                    let stat_path = entry.path().join("status");
-                    if let (Ok(cap), Ok(stat)) = (std::fs::read_to_string(cap_path), std::fs::read_to_string(stat_path)) {
-                        battery_str = format!("{}% ({})", cap.trim(), stat.trim());
-                        battery_percent = cap.trim().parse::<f32>().ok();
-                        break;
+        let mut battery_str = "N/A".to_string();
+        let mut battery_percent = None;
+        if cfg!(target_os = "linux") {
+            if let Ok(entries) = std::fs::read_dir("/sys/class/power_supply") {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.starts_with("BAT") {
+                        let cap_path = entry.path().join("capacity");
+                        let stat_path = entry.path().join("status");
+                        if let (Ok(cap), Ok(stat)) =
+                            (std::fs::read_to_string(cap_path), std::fs::read_to_string(stat_path))
+                        {
+                            battery_str = format!("{}% ({})", cap.trim(), stat.trim());
+                            battery_percent = cap.trim().parse::<f32>().ok();
+                            break;
+                        }
+                    }
+                }
+            }
+        } else if cfg!(target_os = "macos") {
+            if let Ok(output) = std::process::Command::new("pmset").args(&["-g", "batt"]).output() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if let Some(line) = stdout.lines().nth(1) {
+                    if let Some(idx) = line.find('%') {
+                        let pct = &line[..idx];
+                        let pct = pct.split_whitespace().last().unwrap_or("N/A");
+                        battery_percent = pct.parse::<f32>().ok();
+                        let status =
+                            if line.contains("discharging") { "Discharging" } else { "Plugged" };
+                        battery_str = format!("{}% ({})", pct, status);
                     }
                 }
             }
         }
-    } else if cfg!(target_os = "macos") {
-        if let Ok(output) = std::process::Command::new("pmset").args(&["-g", "batt"]).output() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            if let Some(line) = stdout.lines().nth(1) {
-                if let Some(idx) = line.find('%') {
-                    let pct = &line[..idx];
-                    let pct = pct.split_whitespace().last().unwrap_or("N/A");
-                    battery_percent = pct.parse::<f32>().ok();
-                    let status = if line.contains("discharging") { "Discharging" } else { "Plugged" };
-                    battery_str = format!("{}% ({})", pct, status);
-                }
-            }
+
+        HostStats {
+            cpu_usage,
+            ram_used_gb,
+            ram_total_gb,
+            ram_percent,
+            swap_used_gb,
+            swap_total_gb,
+            swap_percent,
+            disk_read_mbs,
+            disk_write_mbs,
+            emulators,
+            netsim_cpu,
+            netsim_ram_mb,
+            netsim_count,
+            netsim_daemons,
+            emu_groups,
+            gpu_percent,
+            gpu_memory_mb,
+            thermal_temp,
+            paging_str,
+            paging_in: in_rate,
+            paging_out: out_rate,
+            battery_str,
+            battery_percent,
         }
-    }
-
-    HostStats {
-        cpu_usage,
-        ram_used_gb,
-        ram_total_gb,
-        ram_percent,
-        swap_used_gb,
-        swap_total_gb,
-        swap_percent,
-        disk_read_mbs,
-        disk_write_mbs,
-        emulators,
-        netsim_cpu,
-        netsim_ram_mb,
-        netsim_count,
-        netsim_daemons,
-        emu_groups,
-        gpu_percent,
-        gpu_memory_mb,
-        thermal_temp,
-        paging_str,
-        paging_in: in_rate,
-        paging_out: out_rate,
-        battery_str,
-        battery_percent,
-    }
-
     }
 }
 
@@ -1231,7 +1235,8 @@ pub fn get_static_hardware_info() -> String {
     let mut gpu_str = "N/A".to_string();
     if let Ok(output) = std::process::Command::new("nvidia-smi")
         .args(&["--query-gpu=gpu_name,memory.total", "--format=csv,noheader,nounits"])
-        .output() {
+        .output()
+    {
         let stdout = String::from_utf8_lossy(&output.stdout);
         if let Some(line) = stdout.lines().next() {
             let parts: Vec<&str> = line.split(',').collect();
@@ -1267,10 +1272,7 @@ mod tests {
 
     #[test]
     fn test_parse_cmdline_concatenated_avd() {
-        let cmdline = vec![
-            OsString::from("emulator"),
-            OsString::from("-avdPixel_6_API_31"),
-        ];
+        let cmdline = vec![OsString::from("emulator"), OsString::from("-avdPixel_6_API_31")];
         let (port, avd) = parse_cmdline(&cmdline);
         assert_eq!(port, None);
         assert_eq!(avd, Some("Pixel_6_API_31".to_string()));
@@ -1278,9 +1280,9 @@ mod tests {
 
     #[test]
     fn test_parse_cmdline_concatenated_full() {
-        let cmdline = vec![
-            OsString::from("emulator-netdelaynone-netspeedfull-avdMedium_Phone_37_Pro-qt-hide-window"),
-        ];
+        let cmdline = vec![OsString::from(
+            "emulator-netdelaynone-netspeedfull-avdMedium_Phone_37_Pro-qt-hide-window",
+        )];
         let (port, avd) = parse_cmdline(&cmdline);
         assert_eq!(port, None);
         assert_eq!(avd, Some("Medium_Phone_37_Pro".to_string()));
@@ -1288,10 +1290,7 @@ mod tests {
 
     #[test]
     fn test_parse_cmdline_at_avd() {
-        let cmdline = vec![
-            OsString::from("emulator"),
-            OsString::from("@Pixel_6_API_31"),
-        ];
+        let cmdline = vec![OsString::from("emulator"), OsString::from("@Pixel_6_API_31")];
         let (port, avd) = parse_cmdline(&cmdline);
         assert_eq!(port, None);
         assert_eq!(avd, Some("Pixel_6_API_31".to_string()));
@@ -1351,11 +1350,8 @@ mod tests {
         assert_eq!(port, Some(5554));
         assert_eq!(avd, Some("Pixel_7".to_string()));
 
-        let cmdline_no_avd = vec![
-            OsString::from("fishtank"),
-            OsString::from("-fishtank"),
-            OsString::from("5556"),
-        ];
+        let cmdline_no_avd =
+            vec![OsString::from("fishtank"), OsString::from("-fishtank"), OsString::from("5556")];
         let (port, avd) = parse_cmdline(&cmdline_no_avd);
         assert_eq!(port, Some(5556));
         assert_eq!(avd, None);
@@ -1438,11 +1434,8 @@ mod tests {
         assert_eq!(port, Some(5554));
         assert_eq!(avd, Some("my-avd".to_string()));
 
-        let cmdline2 = vec![
-            OsString::from("emulator"),
-            OsString::from("-avd"),
-            OsString::from("my-avd-test"),
-        ];
+        let cmdline2 =
+            vec![OsString::from("emulator"), OsString::from("-avd"), OsString::from("my-avd-test")];
         let (_, avd2) = parse_cmdline(&cmdline2);
         assert_eq!(avd2, Some("my-avd-test".to_string()));
     }

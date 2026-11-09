@@ -1,14 +1,14 @@
-mod host;
-mod guest;
-mod ui;
 mod chart;
-mod summary;
-mod provider;
+mod guest;
+mod host;
 mod netsim;
+mod provider;
+mod summary;
+mod ui;
 
 use clap::Parser;
+use provider::{GuestProvider, HostProvider};
 use std::path::PathBuf;
-use provider::{HostProvider, GuestProvider};
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about = "Cross-platform Android Emulator & Device Resource Monitor", long_about = None)]
@@ -95,16 +95,24 @@ pub async fn run<H: HostProvider + 'static, G: GuestProvider + 'static>(
     let mut prev_stats = std::collections::HashMap::new();
     let mut summary = summary::SessionSummary::new();
 
-    let mut device_names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    let mut disconnect_times: std::collections::HashMap<String, tokio::time::Instant> = std::collections::HashMap::new();
+    let mut device_names: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    let mut disconnect_times: std::collections::HashMap<String, tokio::time::Instant> =
+        std::collections::HashMap::new();
     let mut serial_pids: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
-    let mut online_indicator_until: std::collections::HashMap<String, tokio::time::Instant> = std::collections::HashMap::new();
-    let mut last_status: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut online_indicator_until: std::collections::HashMap<String, tokio::time::Instant> =
+        std::collections::HashMap::new();
+    let mut last_status: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     let mut prev_term_width = 0;
-    let mut boot_completed: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
-    let mut boot_finished_time: std::collections::HashMap<String, tokio::time::Instant> = std::collections::HashMap::new();
-    let mut is_booting_state: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
-    let mut last_seen_time: std::collections::HashMap<String, tokio::time::Instant> = std::collections::HashMap::new();
+    let mut boot_completed: std::collections::HashMap<String, bool> =
+        std::collections::HashMap::new();
+    let mut boot_finished_time: std::collections::HashMap<String, tokio::time::Instant> =
+        std::collections::HashMap::new();
+    let mut is_booting_state: std::collections::HashMap<String, bool> =
+        std::collections::HashMap::new();
+    let mut last_seen_time: std::collections::HashMap<String, tokio::time::Instant> =
+        std::collections::HashMap::new();
 
     let mut stats = crate::host::HostStats {
         cpu_usage: 0.0,
@@ -146,14 +154,36 @@ pub async fn run<H: HostProvider + 'static, G: GuestProvider + 'static>(
     let guest_prov = std::sync::Arc::new(guest_prov);
 
     let mut active_host_task: Option<tokio::task::JoinHandle<crate::host::HostStats>> = None;
-    let mut active_devices_task: Option<tokio::task::JoinHandle<std::collections::HashMap<String, String>>> = None;
-    let mut active_guest_tasks: std::collections::HashMap<String, tokio::task::JoinHandle<(String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>)>> = std::collections::HashMap::new();
+    let mut active_devices_task: Option<
+        tokio::task::JoinHandle<std::collections::HashMap<String, String>>,
+    > = None;
+    let mut active_guest_tasks: std::collections::HashMap<
+        String,
+        tokio::task::JoinHandle<(
+            String,
+            bool,
+            String,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            u32,
+            Option<f32>,
+        )>,
+    > = std::collections::HashMap::new();
 
-    let mut last_guest_res: std::collections::HashMap<String, (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>)> = std::collections::HashMap::new();
-    let mut first_seen_times: std::collections::HashMap<String, tokio::time::Instant> = std::collections::HashMap::new();
-    let mut last_boot_log_times: std::collections::HashMap<String, tokio::time::Instant> = std::collections::HashMap::new();
-    let mut last_known_pids: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
-    let mut current_storage_keys: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut last_guest_res: std::collections::HashMap<
+        String,
+        (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>),
+    > = std::collections::HashMap::new();
+    let mut first_seen_times: std::collections::HashMap<String, tokio::time::Instant> =
+        std::collections::HashMap::new();
+    let mut last_boot_log_times: std::collections::HashMap<String, tokio::time::Instant> =
+        std::collections::HashMap::new();
+    let mut last_known_pids: std::collections::HashMap<String, u32> =
+        std::collections::HashMap::new();
+    let mut current_storage_keys: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     let mut last_host_task_start = tokio::time::Instant::now();
     let loop_start_time = tokio::time::Instant::now();
     let mut last_auto_save = tokio::time::Instant::now();
@@ -167,7 +197,9 @@ pub async fn run<H: HostProvider + 'static, G: GuestProvider + 'static>(
     let wait_shutdown = async {
         #[cfg(unix)]
         {
-            if let Ok(mut sigterm) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            if let Ok(mut sigterm) =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            {
                 tokio::select! {
                     _ = tokio::signal::ctrl_c() => {}
                     _ = sigterm.recv() => {}
@@ -615,7 +647,15 @@ pub async fn run<H: HostProvider + 'static, G: GuestProvider + 'static>(
         summary.netsim_summary_lines = lines;
     }
 
-    summary::save_summary(&summary, args.out_dir.to_str().unwrap_or("."), args.csv, !args.no_summary, &hardware_specs, cpu_cores, false);
+    summary::save_summary(
+        &summary,
+        args.out_dir.to_str().unwrap_or("."),
+        args.csv,
+        !args.no_summary,
+        &hardware_specs,
+        cpu_cores,
+        false,
+    );
     summary
 }
 
@@ -670,8 +710,8 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::host::{EmulatorProcess, HostStats};
     use std::collections::HashMap;
-    use crate::host::{HostStats, EmulatorProcess};
     #[test]
     fn test_calculate_sleep_duration() {
         assert_eq!(calculate_sleep_duration(2.0, 0.5), 1.5);
@@ -681,7 +721,9 @@ mod tests {
 
     struct MockHostProvider;
     impl provider::HostProvider for MockHostProvider {
-        fn get_cpu_cores(&self) -> usize { 4 }
+        fn get_cpu_cores(&self) -> usize {
+            4
+        }
         fn get_host_stats(&mut self, _: f64) -> HostStats {
             HostStats {
                 cpu_usage: 10.0,
@@ -708,7 +750,6 @@ mod tests {
                 battery_str: "N/A".to_string(),
                 battery_percent: None,
             }
-
         }
     }
 
@@ -719,8 +760,25 @@ mod tests {
             map.insert("emulator-5554".to_string(), "device".to_string());
             map
         }
-        async fn get_guest_stats(&self, _: &str, _: &str, _: bool, _: &str) -> (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>) {
-            ("Mock Model".to_string(), false, "50%".to_string(), "12.5% (over 4 cores)".to_string(), "50%".to_string(), Some("20%".to_string()), Some("0.0 MB".to_string()), 0, Some(20.0))
+        async fn get_guest_stats(
+            &self,
+            _: &str,
+            _: &str,
+            _: bool,
+            _: &str,
+        ) -> (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>)
+        {
+            (
+                "Mock Model".to_string(),
+                false,
+                "50%".to_string(),
+                "12.5% (over 4 cores)".to_string(),
+                "50%".to_string(),
+                Some("20%".to_string()),
+                Some("0.0 MB".to_string()),
+                0,
+                Some(20.0),
+            )
         }
     }
 
@@ -740,7 +798,8 @@ mod tests {
         };
 
         // If this finishes without hanging, dependency injection is working properly!
-        let summary = run(MockHostProvider, MockGuestProvider, args, "Mock Specs".to_string()).await;
+        let summary =
+            run(MockHostProvider, MockGuestProvider, args, "Mock Specs".to_string()).await;
         assert_eq!(summary.iterations, 2);
         assert_eq!(summary.time_series[0].get("host_cpu"), Some(&10.0));
         assert_eq!(summary.time_series[0].get("emu_cpu_tot_emulator-5554"), Some(&50.0));
@@ -787,8 +846,25 @@ mod tests {
             map.insert("emulator-5554".to_string(), "device".to_string());
             map
         }
-        async fn get_guest_stats(&self, _: &str, _: &str, _: bool, _: &str) -> (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>) {
-            ("Mock Model".to_string(), true, "50%".to_string(), "12.5% (over 4 cores)".to_string(), "50%".to_string(), Some("20%".to_string()), Some("0.0 MB".to_string()), 0, Some(20.0))
+        async fn get_guest_stats(
+            &self,
+            _: &str,
+            _: &str,
+            _: bool,
+            _: &str,
+        ) -> (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>)
+        {
+            (
+                "Mock Model".to_string(),
+                true,
+                "50%".to_string(),
+                "12.5% (over 4 cores)".to_string(),
+                "50%".to_string(),
+                Some("20%".to_string()),
+                Some("0.0 MB".to_string()),
+                0,
+                Some(20.0),
+            )
         }
     }
 
@@ -816,8 +892,25 @@ mod tests {
             map.insert("emulator-5554".to_string(), "offline".to_string());
             map
         }
-        async fn get_guest_stats(&self, _: &str, _: &str, _: bool, _: &str) -> (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>) {
-            ("Mock Model".to_string(), true, "N/A".to_string(), "N/A".to_string(), "N/A".to_string(), None, None, 0, None)
+        async fn get_guest_stats(
+            &self,
+            _: &str,
+            _: &str,
+            _: bool,
+            _: &str,
+        ) -> (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>)
+        {
+            (
+                "Mock Model".to_string(),
+                true,
+                "N/A".to_string(),
+                "N/A".to_string(),
+                "N/A".to_string(),
+                None,
+                None,
+                0,
+                None,
+            )
         }
     }
 
@@ -894,8 +987,34 @@ mod tests {
                 map.insert("emulator-5556".to_string(), "device".to_string());
                 map
             }
-            async fn get_guest_stats(&self, _: &str, _: &str, _: bool, _: &str) -> (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>) {
-                ("Mock Model".to_string(), false, "50%".to_string(), "12.5% (over 4 cores)".to_string(), "50%".to_string(), Some("20%".to_string()), Some("0.0 MB".to_string()), 0, Some(20.0))
+            async fn get_guest_stats(
+                &self,
+                _: &str,
+                _: &str,
+                _: bool,
+                _: &str,
+            ) -> (
+                String,
+                bool,
+                String,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                u32,
+                Option<f32>,
+            ) {
+                (
+                    "Mock Model".to_string(),
+                    false,
+                    "50%".to_string(),
+                    "12.5% (over 4 cores)".to_string(),
+                    "50%".to_string(),
+                    Some("20%".to_string()),
+                    Some("0.0 MB".to_string()),
+                    0,
+                    Some(20.0),
+                )
             }
         }
 
@@ -909,8 +1028,25 @@ mod tests {
             map.insert("HT4A12345678".to_string(), "device".to_string());
             map
         }
-        async fn get_guest_stats(&self, _: &str, _: &str, _: bool, _: &str) -> (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>) {
-            ("Pixel 6".to_string(), false, "10%".to_string(), "2.5% (over 4 cores)".to_string(), "20%".to_string(), Some("15%".to_string()), Some("0.0 MB".to_string()), 0, Some(15.0))
+        async fn get_guest_stats(
+            &self,
+            _: &str,
+            _: &str,
+            _: bool,
+            _: &str,
+        ) -> (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>)
+        {
+            (
+                "Pixel 6".to_string(),
+                false,
+                "10%".to_string(),
+                "2.5% (over 4 cores)".to_string(),
+                "20%".to_string(),
+                Some("15%".to_string()),
+                Some("0.0 MB".to_string()),
+                0,
+                Some(15.0),
+            )
         }
     }
 
@@ -928,7 +1064,8 @@ mod tests {
             netsim_pcap_max_mb: 500,
             no_netsim_log: true,
         };
-        run(MockHostProvider, MockPhysicalDeviceGuestProvider, args, "Mock Specs".to_string()).await;
+        run(MockHostProvider, MockPhysicalDeviceGuestProvider, args, "Mock Specs".to_string())
+            .await;
     }
 
     #[test]
@@ -1112,7 +1249,9 @@ mod tests {
 
     struct MockCollisionHostProvider;
     impl provider::HostProvider for MockCollisionHostProvider {
-        fn get_cpu_cores(&self) -> usize { 4 }
+        fn get_cpu_cores(&self) -> usize {
+            4
+        }
         fn get_host_stats(&mut self, _: f64) -> HostStats {
             HostStats {
                 cpu_usage: 10.0,
@@ -1171,11 +1310,38 @@ mod tests {
             map.insert("emulator-5556".to_string(), "device".to_string());
             map
         }
-        async fn get_guest_stats(&self, serial: &str, _: &str, _: bool, _: &str) -> (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>) {
+        async fn get_guest_stats(
+            &self,
+            serial: &str,
+            _: &str,
+            _: bool,
+            _: &str,
+        ) -> (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>)
+        {
             if serial == "emulator-5554" {
-                ("Pixel_6".to_string(), false, "50%".to_string(), "25%".to_string(), "50%".to_string(), None, Some("0.0 MB".to_string()), 0, None)
+                (
+                    "Pixel_6".to_string(),
+                    false,
+                    "50%".to_string(),
+                    "25%".to_string(),
+                    "50%".to_string(),
+                    None,
+                    Some("0.0 MB".to_string()),
+                    0,
+                    None,
+                )
             } else {
-                ("Pixel_6".to_string(), false, "60%".to_string(), "30%".to_string(), "60%".to_string(), None, Some("0.0 MB".to_string()), 0, None)
+                (
+                    "Pixel_6".to_string(),
+                    false,
+                    "60%".to_string(),
+                    "30%".to_string(),
+                    "60%".to_string(),
+                    None,
+                    Some("0.0 MB".to_string()),
+                    0,
+                    None,
+                )
             }
         }
     }
@@ -1195,7 +1361,13 @@ mod tests {
             no_netsim_log: true,
         };
 
-        let summary = run(MockCollisionHostProvider, MockCollisionGuestProvider, args, "Mock Specs".to_string()).await;
+        let summary = run(
+            MockCollisionHostProvider,
+            MockCollisionGuestProvider,
+            args,
+            "Mock Specs".to_string(),
+        )
+        .await;
         assert!(summary.device_names.contains_key("Pixel_6_emulator-5554"));
         assert!(summary.device_names.contains_key("Pixel_6_emulator-5556"));
         assert_eq!(summary.time_series[0].get("emu_cpu_tot_Pixel_6_emulator-5554"), Some(&50.0));
@@ -1207,7 +1379,9 @@ mod tests {
     }
 
     impl provider::HostProvider for MockDynamicHostProvider {
-        fn get_cpu_cores(&self) -> usize { 4 }
+        fn get_cpu_cores(&self) -> usize {
+            4
+        }
         fn get_host_stats(&mut self, _: f64) -> HostStats {
             let mut iter = self.iteration.lock().unwrap();
             *iter += 1;
@@ -1224,18 +1398,16 @@ mod tests {
                 swap_percent: 0.0,
                 disk_read_mbs: 0.0,
                 disk_write_mbs: 0.0,
-                emulators: vec![
-                    EmulatorProcess {
-                        pid,
-                        port: Some(5554),
-                        avd_name: Some("Pixel_6".to_string()),
-                        cpu_usage: 10.0,
-                        ram_mb: 100.0,
-                        threads: 4,
-                        context_switches: 100,
-                        gpu_load: None,
-                    }
-                ],
+                emulators: vec![EmulatorProcess {
+                    pid,
+                    port: Some(5554),
+                    avd_name: Some("Pixel_6".to_string()),
+                    cpu_usage: 10.0,
+                    ram_mb: 100.0,
+                    threads: 4,
+                    context_switches: 100,
+                    gpu_load: None,
+                }],
                 netsim_cpu: 0.0,
                 netsim_ram_mb: 0.0,
                 netsim_count: 0,
@@ -1263,14 +1435,41 @@ mod tests {
             map.insert("emulator-5554".to_string(), "device".to_string());
             map
         }
-        async fn get_guest_stats(&self, _: &str, _: &str, _: bool, _: &str) -> (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>) {
+        async fn get_guest_stats(
+            &self,
+            _: &str,
+            _: &str,
+            _: bool,
+            _: &str,
+        ) -> (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>)
+        {
             let mut iter = self.iteration.lock().unwrap();
             *iter += 1;
 
             if *iter == 1 {
-                ("Pixel_6".to_string(), false, "50%".to_string(), "25%".to_string(), "50%".to_string(), None, Some("0.0 MB".to_string()), 0, None)
+                (
+                    "Pixel_6".to_string(),
+                    false,
+                    "50%".to_string(),
+                    "25%".to_string(),
+                    "50%".to_string(),
+                    None,
+                    Some("0.0 MB".to_string()),
+                    0,
+                    None,
+                )
             } else {
-                ("Pixel_6".to_string(), true, "60%".to_string(), "30%".to_string(), "60%".to_string(), None, Some("0.0 MB".to_string()), 0, None)
+                (
+                    "Pixel_6".to_string(),
+                    true,
+                    "60%".to_string(),
+                    "30%".to_string(),
+                    "60%".to_string(),
+                    None,
+                    Some("0.0 MB".to_string()),
+                    0,
+                    None,
+                )
             }
         }
     }
@@ -1294,6 +1493,8 @@ mod tests {
         let guest_prov = MockDynamicGuestProvider { iteration: std::sync::Mutex::new(0) };
 
         let summary = run(host_prov, guest_prov, args, "Mock Specs".to_string()).await;
-        assert!(summary.boot_logs.get("Pixel_6_emulator-5554").map(|v| !v.is_empty()).unwrap_or(false));
+        assert!(
+            summary.boot_logs.get("Pixel_6_emulator-5554").map(|v| !v.is_empty()).unwrap_or(false)
+        );
     }
 }
