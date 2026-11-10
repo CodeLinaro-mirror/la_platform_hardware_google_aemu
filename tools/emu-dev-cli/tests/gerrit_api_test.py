@@ -227,6 +227,7 @@ class GerritApiTest(unittest.TestCase):
         client = GerritClient(
             host="https://googleplex-android-review.git.corp.google.com",
             token="fake-token",
+            urlopen=mock_urlopen,
         )
         client._request_json(
             "/a/changes/42713016/revisions/2/review",
@@ -262,7 +263,7 @@ class GerritApiTest(unittest.TestCase):
             stderr="",
         )
 
-        client = GerritClient(token="service-account-token")
+        client = GerritClient(token="service-account-token", urlopen=mock_urlopen)
         first = client._request_json("/a/changes/?q=status:open")
         second = client._request_json("/a/changes/43149874/detail")
 
@@ -282,7 +283,7 @@ class GerritApiTest(unittest.TestCase):
             hdrs=None,  # type: ignore[arg-type]
             fp=io.BytesIO(b"Not found: 99999999"),
         )
-        client = GerritClient(token="fake-token")
+        client = GerritClient(token="fake-token", urlopen=mock_urlopen)
         with self.assertRaises(RuntimeError) as ctx:
             client._request_json("/a/changes/99999999/detail")
         self.assertIn("HTTP 404", str(ctx.exception))

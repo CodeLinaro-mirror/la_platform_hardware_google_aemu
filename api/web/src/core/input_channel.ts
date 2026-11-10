@@ -200,39 +200,51 @@ export class InputChannel {
   }
 
   /**
+   * Returns the default contact pressure when a caller omits `pressure`.
+   *
+   * `POINTER_ACTION_DOWN` and `POINTER_ACTION_MOVE` default to `1.0`, whereas
+   * release and hover actions (`UP`, `CANCEL`, `HOVER_*`) default to `0.0` so
+   * the server releases the contact slot instead of keeping it held.
+   */
+  private static defaultPressureForAction(action: PointerAction): number | undefined {
+    switch (action) {
+      case PointerAction.POINTER_ACTION_DOWN:
+      case PointerAction.POINTER_ACTION_MOVE:
+        return 1.0;
+      case PointerAction.POINTER_ACTION_UP:
+      case PointerAction.POINTER_ACTION_CANCEL:
+      case PointerAction.POINTER_ACTION_HOVER_ENTER:
+      case PointerAction.POINTER_ACTION_HOVER_MOVE:
+      case PointerAction.POINTER_ACTION_HOVER_EXIT:
+        return 0.0;
+      default:
+        return undefined;
+    }
+  }
+
+  /**
    * Serializes a PointerEvent into InputEvent protobuf binary using ts-proto.
    */
   private encodePointerEvent(p: PointerEventPayload): Uint8Array {
+    const fallbackPressure = InputChannel.defaultPressureForAction(p.action);
+    const toProtoPointer = (
+      ptr: NonNullable<PointerEventPayload["pointers"]>[number]
+    ): PointerEvent_Pointer => ({
+      pointerId: ptr.pointerId ?? 0,
+      toolType: ptr.toolType ?? ToolType.TOOL_TYPE_FINGER,
+      x: ptr.x ?? 0,
+      y: ptr.y ?? 0,
+      pressure: ptr.pressure ?? fallbackPressure,
+      size: ptr.size ?? 0,
+      orientationRadians: ptr.orientationRadians ?? 0,
+      tiltRadians: ptr.tiltRadians ?? 0,
+      buttonMask: ptr.buttonMask ?? ButtonMask.BUTTON_MASK_NONE,
+      deltaX: ptr.deltaX ?? 0,
+      deltaY: ptr.deltaY ?? 0,
+    });
+
     const pointers: PointerEvent_Pointer[] =
-      p.pointers && p.pointers.length > 0
-        ? p.pointers.map((ptr) => ({
-            pointerId: ptr.pointerId ?? 0,
-            toolType: ptr.toolType ?? ToolType.TOOL_TYPE_FINGER,
-            x: ptr.x ?? 0,
-            y: ptr.y ?? 0,
-            pressure: ptr.pressure ?? 1.0,
-            size: ptr.size ?? 0,
-            orientationRadians: ptr.orientationRadians ?? 0,
-            tiltRadians: ptr.tiltRadians ?? 0,
-            buttonMask: ptr.buttonMask ?? ButtonMask.BUTTON_MASK_NONE,
-            deltaX: ptr.deltaX ?? 0,
-            deltaY: ptr.deltaY ?? 0,
-          }))
-        : [
-            {
-              pointerId: p.pointerId ?? 0,
-              toolType: p.toolType ?? ToolType.TOOL_TYPE_FINGER,
-              x: p.x ?? 0,
-              y: p.y ?? 0,
-              pressure: p.pressure ?? 1.0,
-              size: p.size ?? 0,
-              orientationRadians: p.orientationRadians ?? 0,
-              tiltRadians: p.tiltRadians ?? 0,
-              buttonMask: p.buttonMask ?? ButtonMask.BUTTON_MASK_NONE,
-              deltaX: p.deltaX ?? 0,
-              deltaY: p.deltaY ?? 0,
-            },
-          ];
+      p.pointers !== undefined ? p.pointers.map(toProtoPointer) : [toProtoPointer(p)];
 
     const inputEvent: InputEvent = {
       inputSourceId: HUMAN_INPUT_SOURCE_ID,

@@ -32,6 +32,8 @@ import threading
 import time
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
+from core.poller import poll_until
+
 logger = logging.getLogger(__name__)
 
 PERF_PROBE_PACKAGE = "com.android.emulator.perfprobe"
@@ -305,8 +307,7 @@ class PerfProbeSession:
                 f"{res.stderr.strip() or res.stdout.strip()}"
             )
 
-        deadline = time.perf_counter() + timeout_sec
-        while time.perf_counter() < deadline:
+        def _poll_scenario_logcat() -> Optional[Dict[str, Any]]:
             lc = self._adb(
                 ["logcat", "-d", "-s", f"{PERF_PROBE_LOG_TAG}:I"],
                 15.0,
@@ -320,7 +321,18 @@ class PerfProbeSession:
                                 f"PerfProbe scenario '{scenario}' failed in guest: {rec.get('error')}"
                             )
                         return rec
-            time.sleep(0.08)
+            return None
+
+        outcome = poll_until(
+            _poll_scenario_logcat,
+            timeout_sec=timeout_sec,
+            interval_sec=0.08,
+            sleep_fn=lambda s: time.sleep(s),
+            clock_fn=lambda: time.perf_counter(),
+            clamp_sleep_to_deadline=False,
+        )
+        if outcome.succeeded and outcome.value is not None:
+            return outcome.value
 
         raise TimeoutError(
             f"Timed out after {timeout_sec:.1f}s waiting for PerfProbeJson scenario='{scenario}' on {self.serial}"

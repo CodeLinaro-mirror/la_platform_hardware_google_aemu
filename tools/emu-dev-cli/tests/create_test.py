@@ -47,9 +47,9 @@ class CreateTest(unittest.TestCase):
 
         with patch("commands.create.find_cached_sysimg_dir", return_value=None):
             with patch("commands.create.print_result") as mock_print:
-                with self.assertRaises(SystemExit):
-                    run_create_avd(Args())
+                run_create_avd(Args())
                 self.assertTrue(mock_print.called)
+                self.assertTrue(mock_print.call_args.kwargs.get("is_error"))
                 payload = mock_print.call_args[0][0]
                 self.assertEqual(payload["status"], "error")
                 self.assertIn("suggestion", payload)

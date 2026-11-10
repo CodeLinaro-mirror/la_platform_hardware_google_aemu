@@ -96,65 +96,56 @@ def _bootstrap_emu_dev_cli_path() -> Path | None:
     return None
 
 
+WATCHED_GERRIT_MODULES: tuple[str, ...] = (
+    "lib.gerrit_api",
+    "lib.web_security",
+    "core.web.security",
+    "core.web.router",
+    "core.web.assets",
+    "core.web.handler",
+    "core.web.agent_proxy",
+    "core.web.server",
+    "core.web",
+    "commands.gerrit.ai_analysis",
+    "commands.gerrit.presubmit_targets",
+    "commands.gerrit.sidecar_updater",
+    "commands.gerrit.services.context",
+    "commands.gerrit.services.diff_parser",
+    "commands.gerrit.services.queue_service",
+    "commands.gerrit.services.vote_submit_service",
+    "commands.gerrit.services.inline_qa_service",
+    "commands.gerrit.services",
+    "commands.gerrit.handlers.ui_handler",
+    "commands.gerrit.handlers",
+    "commands.gerrit.ui_server",
+)
+
+
 def main() -> None:
     _bootstrap_emu_dev_cli_path()
-    import importlib
-    import threading
-    import commands.gerrit.ai_analysis as ai_analysis_mod
     import commands.gerrit.ui_server as ui_mod
-    import lib.gerrit_api as gerrit_api_mod
+    from core.web.server import HotReloadHandlerDispatcher
 
-    def _current_bundle_mtime() -> tuple[float, ...]:
-        pt_mod = sys.modules.get("commands.gerrit.presubmit_targets")
-        su_mod = sys.modules.get("commands.gerrit.sidecar_updater")
-        files = (
-            getattr(ui_mod, "__file__", None),
-            getattr(gerrit_api_mod, "__file__", None),
-            getattr(ai_analysis_mod, "__file__", None),
-            getattr(pt_mod, "__file__", None) if pt_mod is not None else None,
-            getattr(su_mod, "__file__", None) if su_mod is not None else None,
+    if not os.environ.get("ANTIGRAVITY_SIDECAR_UI_TOKEN"):
+        print(
+            "warning: ANTIGRAVITY_SIDECAR_UI_TOKEN is unset, so the AEMU Gerrit sidecar rejects "
+            "every API request. Start it from Jetski, which sets the token.",
+            file=sys.stderr,
         )
-        tpl_f = ui_mod.get_gerrit_ui_template_path()
-        mtimes: list[float] = []
-        for f in files:
-            mtimes.append(Path(f).stat().st_mtime if f and Path(f).is_file() else 0.0)
-        mtimes.append(tpl_f.stat().st_mtime if tpl_f.is_file() else 0.0)
-        return tuple(mtimes)
 
     viewer = os.environ.get("AEMU_GERRIT_VIEWER", "")
-    reload_lock = threading.Lock()
-    state: dict[str, object] = {
-        "mtime": _current_bundle_mtime(),
-        "handler_cls": ui_mod.make_gerrit_ui_handler(
+    dispatcher = HotReloadHandlerDispatcher(
+        module_names=WATCHED_GERRIT_MODULES,
+        handler_builder=lambda: ui_mod.make_gerrit_ui_handler(
             ui_mod.GerritUIService(default_viewer=viewer)
         ),
-    }
+        extra_paths_fn=lambda: tuple(
+            ui_mod.get_gerrit_ui_template_path(variant)
+            for variant in ("classic", "polygerrit")
+        ),
+    )
 
-    def _dispatch_handler(request, client_address, server_obj):
-        try:
-            if _current_bundle_mtime() != state["mtime"]:
-                with reload_lock:
-                    if _current_bundle_mtime() != state["mtime"]:
-                        importlib.reload(gerrit_api_mod)
-                        importlib.reload(ai_analysis_mod)
-                        for submod_name in (
-                            "commands.gerrit.presubmit_targets",
-                            "commands.gerrit.sidecar_updater",
-                        ):
-                            submod = sys.modules.get(submod_name)
-                            if submod is not None:
-                                importlib.reload(submod)
-                        importlib.reload(ui_mod)
-                        state["mtime"] = _current_bundle_mtime()
-                        state["handler_cls"] = ui_mod.make_gerrit_ui_handler(
-                            ui_mod.GerritUIService(default_viewer=viewer)
-                        )
-        except Exception:
-            pass
-        handler_cls = state["handler_cls"]
-        return handler_cls(request, client_address, server_obj)  # type: ignore[misc]
-
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), _dispatch_handler)  # type: ignore[arg-type]
+    server = ThreadingHTTPServer(("127.0.0.1", PORT), dispatcher)  # type: ignore[arg-type]
     server.serve_forever()
 
 

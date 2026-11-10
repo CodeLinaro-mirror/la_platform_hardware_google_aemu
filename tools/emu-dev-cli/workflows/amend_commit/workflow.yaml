@@ -15,7 +15,7 @@ init:
   proposed-msg-file: "{cache-dir}/proposed_commit_msg_{state_id}.txt"
   base-commit-file: "{cache-dir}/base_commit_{state_id}.txt"
   setup-files:
-    cmd: "python3 {workflow_dir}/setup_msg_files.py {current-msg-file} {proposed-msg-file}"
+    cmd: "python3 {workflow_dir}/../common/git_commit/verifier_cli.py --mode=setup-msg-files {current-msg-file} {proposed-msg-file}"
 
 steps:
   - step: 0
@@ -45,7 +45,7 @@ steps:
          - Include 'BREAKING CHANGE: <description>' in the footers if introducing breaking API changes
          - No 'Tag=' or 'CONV=' lines
          - No trailing spaces on any line, no leading spaces on subject or footer lines, no '#' comment lines, and no consecutive blank lines
-    verifier_cmd: "python3 {workflow_dir}/verify_proposed_msg.py {proposed-msg-file} --current-file {current-msg-file} --base-commit-file {base-commit-file} --cwd \"{repo}\""
+    verifier_cmd: "python3 {workflow_dir}/../common/git_commit/verifier_cli.py --mode=verify-proposed-msg {proposed-msg-file} --current-file {current-msg-file} --base-commit-file {base-commit-file} --cwd \"{repo}\""
     error_prompt: |
       Proposed commit message verification failed (attempt {retries} of {max_retries}):
       {verifier_error}
@@ -64,7 +64,7 @@ steps:
     prompt: |
       The proposed commit message in '{proposed-msg-file}' has been verified.
       Please amend the commit using the verified commit message.
-    verifier_cmd: "python3 {workflow_dir}/verify_amend.py --current-file {current-msg-file} --proposed-file {proposed-msg-file} --base-commit-file {base-commit-file} --commit HEAD --cwd \"{repo}\""
+    verifier_cmd: "python3 {workflow_dir}/../common/git_commit/verifier_cli.py --mode=verify-amend --current-file {current-msg-file} --proposed-file {proposed-msg-file} --base-commit-file {base-commit-file} --commit HEAD --cwd \"{repo}\""
     error_prompt: |
       Commit amendment verification failed (attempt {retries} of {max_retries}):
       {verifier_error}

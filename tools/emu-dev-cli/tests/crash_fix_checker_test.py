@@ -28,7 +28,6 @@ SRC_DIR = os.path.join(
 
 from commands.crash.fix_checker import (
     FixStatusResult,
-    check_buganizer_fixed_status,
     check_git_history_fixes,
     evaluate_crash_fix_status,
     extract_crash_version_info,
@@ -71,45 +70,6 @@ class CrashFixCheckerTest(unittest.TestCase):
         self.assertEqual(info["build_id"], "15900000")
         self.assertEqual(info["version_str"], "15900000")
 
-    def test_check_buganizer_fixed_status_finds_fixed(self):
-        """Tests detecting Buganizer issues with FIXED or VERIFIED status."""
-        mock_client = MagicMock()
-        mock_client.search_issue_by_signature.return_value = {
-            "issueId": "12345678",
-            "issueState": {
-                "title": "Crash in FrameBuffer",
-                "status": "FIXED",
-                "assignee": {"emailAddress": "dev@google.com"},
-            },
-        }
-
-        is_fixed, issues, reason = check_buganizer_fixed_status(
-            mock_client, stable_signature="android::FrameBuffer::post"
-        )
-        self.assertTrue(is_fixed)
-        self.assertEqual(len(issues), 1)
-        self.assertIn("FIXED", reason)
-        self.assertIn("12345678", reason)
-
-    def test_check_buganizer_fixed_status_open(self):
-        """Tests detecting Buganizer issues with ASSIGNED or OPEN status."""
-        mock_client = MagicMock()
-        mock_client.search_issue_by_signature.return_value = {
-            "issueId": "87654321",
-            "issueState": {
-                "title": "Open crash issue",
-                "status": "ASSIGNED",
-                "assignee": {"emailAddress": "triage@google.com"},
-            },
-        }
-
-        is_fixed, issues, reason = check_buganizer_fixed_status(
-            mock_client, stable_signature="android::FrameBuffer::post"
-        )
-        self.assertFalse(is_fixed)
-        self.assertEqual(len(issues), 1)
-        self.assertEqual(issues[0]["status"], "ASSIGNED")
-
     @patch("subprocess.run")
     def test_check_git_history_fixes(self, mock_subproc):
         """Tests checking local git log for recent fixes and commits."""
@@ -151,16 +111,6 @@ class CrashFixCheckerTest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            mock_client = MagicMock()
-            mock_client.search_issue_by_signature.return_value = {
-                "issueId": "12345678",
-                "issueState": {
-                    "title": "Crash in FrameBuffer",
-                    "status": "FIXED",
-                    "assignee": {"emailAddress": "alice@google.com"},
-                },
-            }
-
             res = evaluate_crash_fix_status(
                 crash_id="05d8356e2f800000",
                 metadata_path=meta_path,
@@ -169,7 +119,13 @@ class CrashFixCheckerTest(unittest.TestCase):
                     "target_function": "post",
                     "remediation_summary": "Null-check pointer",
                 },
-                buganizer_client=mock_client,
+                candidate_issues=[
+                    {
+                        "issue_id": "12345678",
+                        "title": "Crash in FrameBuffer",
+                        "status": "FIXED",
+                    }
+                ],
             )
 
             self.assertTrue(res.is_already_fixed)

@@ -100,9 +100,9 @@ clang_tidy_test(
             path="nonexistent/fake/package", build_file=None, targets=["fake"]
         )
         captured_stderr = StringIO()
-        with self.assertRaises(SystemExit):
-            with patch("sys.stderr", captured_stderr):
-                handle_tidy_add(args)
+        with patch("sys.stderr", captured_stderr):
+            res = handle_tidy_add(args)
+        self.assertEqual(res.exit_code, 1)
 
         error_output = captured_stderr.getvalue()
         self.assertIn("Error: Target BUILD.bazel file does not exist", error_output)

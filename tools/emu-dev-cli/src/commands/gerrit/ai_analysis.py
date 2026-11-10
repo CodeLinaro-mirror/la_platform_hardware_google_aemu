@@ -20,8 +20,9 @@ import json
 import os
 from pathlib import Path
 import re
-import subprocess
 from typing import Any
+
+from core.process import ProcessRunner, SubprocessRunner
 
 AI_ANALYSIS_PROMPT_HEADER: str = "[AEMU_INTANGIBLES_ANALYSIS v1"
 DEFAULT_ISSUES_CLI_BIN: str = "/google/bin/releases/issues-cli/issues"
@@ -89,18 +90,21 @@ def extract_bug_ids_from_text(text: str) -> list[str]:
 
 
 def fetch_buganizer_context(
-    bug_ids: list[str], issues_bin: str = DEFAULT_ISSUES_CLI_BIN
+    bug_ids: list[str],
+    issues_bin: str = DEFAULT_ISSUES_CLI_BIN,
+    runner: ProcessRunner | None = None,
 ) -> str:
     """Fetches read-only Buganizer title/description context for `bug_ids` if `issues` CLI is present."""
     if not bug_ids or not os.path.isfile(issues_bin) or not os.access(issues_bin, os.X_OK):
         return ""
 
+    proc_runner = runner or SubprocessRunner()
     blocks: list[str] = []
     for bug_id in bug_ids[:MAX_BUG_IDS]:
         if not bug_id.isdigit():
             continue
         try:
-            res = subprocess.run(
+            res = proc_runner.run(
                 [
                     issues_bin,
                     "readonly",
@@ -108,13 +112,10 @@ def fetch_buganizer_context(
                     bug_id,
                     "--fields=issue_id,title,type,priority,status,description",
                 ],
-                capture_output=True,
-                encoding="utf-8",
-                errors="replace",
                 check=False,
-                timeout=6,
+                timeout_sec=6,
             )
-        except (OSError, subprocess.SubprocessError):
+        except Exception:
             continue
         out = (res.stdout or "").strip()
         if res.returncode != 0 or not out:

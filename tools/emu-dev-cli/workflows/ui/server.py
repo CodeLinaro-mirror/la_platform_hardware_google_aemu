@@ -14,6 +14,7 @@
 
 """HTTP Server and API backend for the Workflow Visualizer Web UI."""
 
+import codecs
 import logging
 from datetime import datetime, timezone
 import http.server
@@ -41,12 +42,17 @@ import subprocess
 import time
 import uuid
 
+from workflows.core.state_store import (
+    WorkflowStateStore,
+    get_session_lock,
+)
 from workflows.core.yaml_runner import (
     _parse_args_spec,
     approve_workflow_session,
     execute_workflow_step,
     format_step_prompt,
     get_state_base_dir,
+    get_workflow_cache_root,
     init_workflow_session,
     interpolate,
     load_state_yaml,
@@ -57,18 +63,53 @@ from workflows.core.yaml_runner import (
 )
 import yaml
 from commands.workflow import find_workflow_target, list_available_workflows
+from core.web.assets import (
+    StaticAssetResolver,
+    read_bounded_utf8_preview,
+)
+from core.web.handler import JsonRequestHandler
+from core.web.router import Router, is_truthy_query_flag
+from core.web.security import (
+    UI_TOKEN_HEADER,
+    RequestRejected,
+    SecurityPolicy,
+    allowed_cors_origin,
+    mint_ui_token,
+    read_json_body,
+    require_ui_token,
+    resolve_within_roots,
+)
+from core.web.server import (
+    find_available_port as _core_find_available_port,
+    serve_http,
+)
+
+MAX_ARTIFACT_PREVIEW_BYTES = 128 * 1024
+# Linux caps a single command-line argument at 128 KiB, so prompts stay well below it.
+MAX_AGENT_PROMPT_BYTES = 64 * 1024
+_CONVERSATION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+_UI_TOKEN_HINT = (
+    "Open the visualizer through the URL printed by 'emu-dev-cli workflow ui' "
+    "(it ends with ?token=...)."
+)
+_WORKSPACE_ROOTS_HINT = (
+    "Start 'emu-dev-cli workflow ui' from the checkout that contains it, or add that checkout "
+    "with 'emu-dev-cli source-directory set <branch> <path>'. Your home directory and its "
+    "parents never count as a workspace."
+)
+
+
+def _describe_roots(roots: List[Path]) -> str:
+    """Formats allowed root directories for error messages."""
+    return ", ".join(f"'{root}'" for root in roots) or "none"
 
 
 def get_ui_html_path() -> Path:
     """Returns the path to index.html."""
-    candidates = [
+    return StaticAssetResolver([
         _CUR_DIR / "index.html",
         _CUR_DIR / "static" / "index.html",
-    ]
-    for c in candidates:
-        if c.is_file():
-            return c
-    return _CUR_DIR / "index.html"
+    ]).resolve_first_existing()
 
 
 def resolve_jetski_cli() -> Optional[str]:
@@ -173,6 +214,45 @@ def get_known_source_directories() -> List[Dict[str, Any]]:
         })
 
     return items
+
+
+def get_workspace_roots() -> List[Path]:
+    """Returns the server's working directory and the configured source directories.
+
+    Your home directory and its ancestors never count as workspace roots, so starting
+    the UI from `~` does not open up every file under it.
+    """
+    home = Path.home().resolve()
+    candidates = [os.getcwd()]
+    candidates += [item["path"] for item in get_known_source_directories() if item.get("exists")]
+    roots: List[Path] = []
+    for raw_path in candidates:
+        root = Path(raw_path).resolve()
+        if root not in roots and not home.is_relative_to(root):
+            roots.append(root)
+    return roots
+
+
+def get_artifact_roots() -> List[Path]:
+    """Returns the directories `/api/artifact` may read: workflow state, workflow cache and workspaces."""
+    return [get_state_base_dir(), get_workflow_cache_root()] + get_workspace_roots()
+
+
+def validate_agent_prompt(prompt: Any) -> Optional[str]:
+    """Returns why `prompt` cannot be passed to jetski_cli as one argument, or None if it can."""
+    if prompt is None:
+        return None
+    if not isinstance(prompt, str):
+        return f"Prompt must be a string, got {type(prompt).__name__}."
+    if "\x00" in prompt:
+        return "Prompt contains a NUL character, which cannot be passed on a command line."
+    try:
+        size = len(prompt.encode("utf-8"))
+    except UnicodeEncodeError:
+        return "Prompt is not valid Unicode text (it contains an unpaired surrogate)."
+    if size > MAX_AGENT_PROMPT_BYTES:
+        return f"Prompt is {size} bytes of UTF-8; the limit is {MAX_AGENT_PROMPT_BYTES} bytes."
+    return None
 
 
 # In-memory registry of background jetski_cli processes spawned by this UI server
@@ -822,32 +902,28 @@ def create_composed_session(
     if title and title.strip():
         init_args["_custom_title"] = title.strip()
 
-    old_env = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
-    if state_base_dir is not None:
-        os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = str(base_dir)
-    try:
-        created_id = init_workflow_session(spec_file, init_args, state_id_override=state_id)
-        # Immediately enter Step 0 so the session starts active (RUNNING or WAITING_HUMAN)
-        buf = io.StringIO()
-        old_stdout = sys.stdout
-        sys.stdout = buf
-        try:
-            execute_workflow_step(spec_file, created_id)
-            initial_prompt = buf.getvalue().strip()
-        finally:
-            sys.stdout = old_stdout
+    created_id = init_workflow_session(
+        spec_file,
+        init_args,
+        state_id_override=state_id,
+        state_base_dir=base_dir,
+    )
+    # Immediately enter Step 0 so the session starts active (RUNNING or WAITING_HUMAN)
+    buf = io.StringIO()
+    execute_workflow_step(
+        spec_file,
+        created_id,
+        state_base_dir=base_dir,
+        output_stream=buf,
+    )
+    initial_prompt = buf.getvalue().strip()
 
-        state_file = wf_state_dir / f"STATE-{created_id}.yaml"
-        if state_file.is_file() and initial_prompt:
+    state_file = wf_state_dir / f"STATE-{created_id}.yaml"
+    if state_file.is_file() and initial_prompt:
+        with get_session_lock(state_file):
             st = load_state_yaml(state_file)
             st.setdefault("metadata", {})["_last_step_prompt"] = initial_prompt
             save_state_yaml(state_file, st)
-    finally:
-        if state_base_dir is not None:
-            if old_env is not None:
-                os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = old_env
-            else:
-                os.environ.pop("EMU_DEV_CLI_WORKFLOW_STATE_DIR", None)
 
     result = {
         "workflow_name": workflow_name,
@@ -1401,6 +1477,41 @@ def scan_all_conversations(
     return conversations
 
 
+def resolve_workspace_dir(raw_path: str) -> Path:
+    """Returns `raw_path` resolved, if it is an existing directory inside a workspace root.
+
+    Raises:
+        ValueError: With the reason an agent may not run in that directory.
+    """
+    roots = get_workspace_roots()
+    workspace_dir = resolve_within_roots(raw_path, roots)
+    if workspace_dir is None:
+        raise ValueError(
+            f"Working directory '{raw_path}' is outside the workspace roots ({_describe_roots(roots)}). "
+            f"{_WORKSPACE_ROOTS_HINT}"
+        )
+    if not workspace_dir.is_dir():
+        raise ValueError(f"Working directory '{workspace_dir}' does not exist or is not a directory.")
+    return workspace_dir
+
+
+def _validate_poke_request(cid: str, prompt: Any, cwd: Optional[str]) -> Optional[Path]:
+    """Checks a poke request and returns its confined working directory (None if no cwd was given).
+
+    Raises:
+        ValueError: With the reason the poke must be rejected.
+    """
+    if not _CONVERSATION_ID_RE.match(cid):
+        raise ValueError(
+            f"Invalid conversation_id '{cid}': expected 1-128 letters, digits, '-' or '_', "
+            "starting with a letter or digit (for example a UUID)."
+        )
+    prompt_error = validate_agent_prompt(prompt)
+    if prompt_error:
+        raise ValueError(prompt_error)
+    return resolve_workspace_dir(str(cwd)) if cwd else None
+
+
 def poke_conversation(
     conversation_id: str,
     prompt: Optional[str] = None,
@@ -1411,8 +1522,10 @@ def poke_conversation(
     if not conversation_id or not str(conversation_id).strip():
         return False, "Missing conversation_id."
     cid = str(conversation_id).strip()
-    if "/" in cid or "\\" in cid or ".." in cid:
-        return False, "Invalid conversation_id."
+    try:
+        workspace_dir = _validate_poke_request(cid, prompt, cwd)
+    except ValueError as exc:
+        return False, str(exc)
 
     # Check if this conversation is attached to an active workflow session
     wf_sessions = scan_all_sessions(state_base_dir=state_base_dir, include_sub_workflows=True)
@@ -1440,8 +1553,8 @@ def poke_conversation(
 
     # Resolve working directory from explicit cwd, DB workspace_uris, or current working directory
     effective_cwd = os.getcwd()
-    if cwd and os.path.isdir(str(cwd)):
-        effective_cwd = str(Path(str(cwd)).resolve())
+    if workspace_dir is not None:
+        effective_cwd = str(workspace_dir)
     else:
         db_row = _query_conversation_summaries_db().get(cid)
         ws = (db_row or {}).get("workspace", "")
@@ -1487,6 +1600,8 @@ def poke_conversation(
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                 )
                 _ACTIVE_CONV_PROCS[cid] = proc
                 _STARTING_CONVS.discard(cid)
@@ -1524,6 +1639,10 @@ def launch_jetski_for_session(
     state_base_dir: Optional[Path] = None,
 ) -> Tuple[bool, str, Optional[str]]:
     """Spawns, resumes, or pokes a jetski_cli conversation in the background for a workflow session."""
+    for prompt_text in (feedback, custom_prompt):
+        prompt_error = validate_agent_prompt(prompt_text)
+        if prompt_error:
+            return False, prompt_error, None
     base_dir = state_base_dir or get_state_base_dir()
     state_file = base_dir / workflow_name / f"STATE-{state_id}.yaml"
     if not state_file.is_file():
@@ -1643,12 +1762,15 @@ def launch_jetski_for_session(
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                 )
                 _ACTIVE_AGENT_PROCS[state_id] = proc
                 try:
-                    st = load_state_yaml(state_file)
-                    st.setdefault("metadata", {})["_agent_pid"] = proc.pid
-                    save_state_yaml(state_file, st)
+                    with get_session_lock(state_file):
+                        st = load_state_yaml(state_file)
+                        st.setdefault("metadata", {})["_agent_pid"] = proc.pid
+                        save_state_yaml(state_file, st)
                 except Exception as exc:
                     logging.getLogger(__name__).debug("Ignored error in _run_and_monitor: %s", exc)
                 _STARTING_AGENTS.discard(state_id)
@@ -1669,9 +1791,10 @@ def launch_jetski_for_session(
                                 )
                                 if cid and not detected_conv_id:
                                     detected_conv_id = str(cid)
-                                    st = load_state_yaml(state_file)
-                                    st.setdefault("metadata", {})["conversation_id"] = detected_conv_id
-                                    save_state_yaml(state_file, st)
+                                    with get_session_lock(state_file):
+                                        st = load_state_yaml(state_file)
+                                        st.setdefault("metadata", {})["conversation_id"] = detected_conv_id
+                                        save_state_yaml(state_file, st)
                         except Exception as exc:
                             logging.getLogger(__name__).debug("Ignored error in _run_and_monitor: %s", exc)
 
@@ -1680,9 +1803,10 @@ def launch_jetski_for_session(
                             if new_cid:
                                 detected_conv_id = new_cid
                                 try:
-                                    st = load_state_yaml(state_file)
-                                    st.setdefault("metadata", {})["conversation_id"] = detected_conv_id
-                                    save_state_yaml(state_file, st)
+                                    with get_session_lock(state_file):
+                                        st = load_state_yaml(state_file)
+                                        st.setdefault("metadata", {})["conversation_id"] = detected_conv_id
+                                        save_state_yaml(state_file, st)
                                 except Exception as exc:
                                     logging.getLogger(__name__).debug("Ignored error in _run_and_monitor: %s", exc)
 
@@ -1695,30 +1819,32 @@ def launch_jetski_for_session(
                     if new_cid:
                         detected_conv_id = new_cid
 
-                st = load_state_yaml(state_file)
-                meta = st.setdefault("metadata", {})
-                meta.pop("_agent_pid", None)
-                if detected_conv_id:
-                    meta["conversation_id"] = detected_conv_id
-                is_interrupted, _ = _inspect_transcript_interruption(detected_conv_id)
-                if is_interrupted:
-                    meta["_agent_status"] = "INTERRUPTED"
-                elif proc.returncode == 0:
-                    meta["_agent_status"] = "IDLE"
-                else:
-                    meta["_agent_status"] = f"EXITED ({proc.returncode})"
-                save_state_yaml(state_file, st)
+                with get_session_lock(state_file):
+                    st = load_state_yaml(state_file)
+                    meta = st.setdefault("metadata", {})
+                    meta.pop("_agent_pid", None)
+                    if detected_conv_id:
+                        meta["conversation_id"] = detected_conv_id
+                    is_interrupted, _ = _inspect_transcript_interruption(detected_conv_id)
+                    if is_interrupted:
+                        meta["_agent_status"] = "INTERRUPTED"
+                    elif proc.returncode == 0:
+                        meta["_agent_status"] = "IDLE"
+                    else:
+                        meta["_agent_status"] = f"EXITED ({proc.returncode})"
+                    save_state_yaml(state_file, st)
                 log_f.write(f"\n=== jetski_cli finished (exit code {proc.returncode}) ===\n")
                 log_f.flush()
         except Exception as exc:
             try:
                 with open(log_path, "a", encoding="utf-8") as log_f:
                     log_f.write(f"\n=== Error running jetski_cli: {exc} ===\n")
-                st = load_state_yaml(state_file)
-                meta = st.setdefault("metadata", {})
-                meta.pop("_agent_pid", None)
-                meta["_agent_status"] = "ERROR"
-                save_state_yaml(state_file, st)
+                with get_session_lock(state_file):
+                    st = load_state_yaml(state_file)
+                    meta = st.setdefault("metadata", {})
+                    meta.pop("_agent_pid", None)
+                    meta["_agent_status"] = "ERROR"
+                    save_state_yaml(state_file, st)
             except Exception as exc:
                 logging.getLogger(__name__).debug("Ignored error in _run_and_monitor: %s", exc)
         finally:
@@ -1740,10 +1866,11 @@ def stop_session(workflow_name: str, state_id: str, state_base_dir: Optional[Pat
         state_file = base_dir / workflow_name / f"STATE-{state_id}{ext}"
         if state_file.is_file():
             try:
-                state_data = load_state_yaml(state_file)
-                state_data["state"] = "STOPPED"
-                state_data["stuck_reason"] = "Workflow stopped by user via Web UI"
-                save_state_yaml(state_file, state_data)
+                with get_session_lock(state_file):
+                    state_data = load_state_yaml(state_file)
+                    state_data["state"] = "STOPPED"
+                    state_data["stuck_reason"] = "Workflow stopped by user via Web UI"
+                    save_state_yaml(state_file, state_data)
                 return True
             except Exception:
                 return False
@@ -1753,22 +1880,10 @@ def stop_session(workflow_name: str, state_id: str, state_base_dir: Optional[Pat
 def delete_session(workflow_name: str, state_id: str, state_base_dir: Optional[Path] = None) -> bool:
     """Permanently removes a workflow session state file."""
     base_dir = state_base_dir or get_state_base_dir()
-    deleted = False
-    for ext in (".yaml", ".yml"):
-        state_file = base_dir / workflow_name / f"STATE-{state_id}{ext}"
-        if state_file.is_file():
-            try:
-                state_file.unlink(missing_ok=True)
-                deleted = True
-            except OSError as exc:
-                logging.getLogger(__name__).debug("Ignored error in delete_session: %s", exc)
-        spec_file = base_dir / workflow_name / f"WORKFLOW-{state_id}{ext}"
-        if spec_file.is_file():
-            try:
-                spec_file.unlink(missing_ok=True)
-            except OSError as exc:
-                logging.getLogger(__name__).debug("Ignored error in delete_session: %s", exc)
-    return deleted
+    return WorkflowStateStore(base_dir).delete_session(
+        session_id=state_id,
+        workflow_name=workflow_name,
+    )
 
 
 def clear_sessions(filter_type: str, state_base_dir: Optional[Path] = None) -> Dict[str, int]:
@@ -1828,99 +1943,34 @@ def clear_sessions(filter_type: str, state_base_dir: Optional[Path] = None) -> D
 
 def find_available_port(host: str = "127.0.0.1", start_port: int = 8080, max_attempts: int = 50) -> int:
     """Finds the first available TCP port starting from start_port."""
-    for p in range(start_port, start_port + max_attempts):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            try:
-                s.bind((host, p))
-                return p
-            except OSError as exc:
-                logging.getLogger(__name__).debug("Ignored error in find_available_port: %s", exc)
-                continue
-    return start_port
+    return _core_find_available_port(
+        host=host,
+        start_port=start_port,
+        max_attempts=max_attempts,
+        fallback_to_start=True,
+    )
 
 
-class WorkflowUIHandler(http.server.BaseHTTPRequestHandler):
+_WORKFLOW_UI_ROUTER = Router()
+
+
+class WorkflowUIHandler(JsonRequestHandler):
     """HTTP handler serving REST API endpoints and single-page web visualizer."""
 
-    def log_message(self, format, *args):
-        # Suppress verbose HTTP polling logs in CLI console
-        pass
-
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.end_headers()
-
-    def read_post_json(self) -> Dict[str, Any]:
-        content_len = int(self.headers.get("Content-Length", 0))
-        if content_len > 0:
-            raw_body = self.rfile.read(content_len).decode("utf-8")
-            try:
-                return json.loads(raw_body)
-            except Exception:
-                return {}
-        return {}
-
-    def do_POST(self):
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
-        body = self.read_post_json()
-
-        if path == "/api/session/stop":
-            self.handle_api_session_stop(body)
-        elif path == "/api/session/delete":
-            self.handle_api_session_delete(body)
-        elif path == "/api/sessions/clear":
-            self.handle_api_sessions_clear(body)
-        elif path == "/api/session/create":
-            self.handle_api_session_create(body)
-        elif path == "/api/session/approve":
-            self.handle_api_session_approve(body)
-        elif path in ("/api/session/launch_agent", "/api/session/poke"):
-            if path == "/api/session/poke":
-                body["poke"] = True
-                body["resume"] = True
-            self.handle_api_session_launch_agent(body)
-        elif path == "/api/conversation/poke":
-            self.handle_api_conversation_poke(body)
-        else:
-            self.send_error(404, "Endpoint not found")
-
-    def do_GET(self):
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
-        params = urllib.parse.parse_qs(parsed.query)
-
-        if path == "/api/sessions":
-            self.handle_api_sessions(params)
-        elif path == "/api/conversations":
-            self.handle_api_conversations(params)
-        elif path == "/api/session":
-            wf = params.get("workflow", [None])[0]
-            sid = params.get("id", [None])[0]
-            self.handle_api_session_detail(wf, sid)
-        elif path == "/api/transcript":
-            wf = params.get("workflow", [None])[0]
-            sid = params.get("id", [None])[0]
-            cid = params.get("conversation_id", [None])[0]
-            self.handle_api_transcript(wf, sid, cid)
-        elif path == "/api/workflows":
-            self.handle_api_workflows()
-        elif path == "/api/artifact":
-            file_path = params.get("path", [None])[0]
-            self.handle_api_artifact(file_path)
-        elif path in ("", "/", "/index.html"):
-            self.handle_serve_index()
-        else:
-            self.send_error(404, "Endpoint not found")
+    security_policy = SecurityPolicy(
+        expected_token="",
+        token_hint=_UI_TOKEN_HINT,
+        public_get_routes=frozenset({"", "/", "/index.html"}),
+        protected_get_prefixes=("/api/",),
+        enable_cors=True,
+    )
+    router = _WORKFLOW_UI_ROUTER
+    json_indent = 2
+    default_cache_control = None
+    unknown_route_as_json = False
 
     def handle_api_sessions(self, params: Optional[Dict[str, List[str]]] = None):
-        include_subs = False
-        if params and "include_sub_workflows" in params:
-            include_subs = params["include_sub_workflows"][0].lower() in ("true", "1", "yes")
+        include_subs = bool(params and is_truthy_query_flag(params, "include_sub_workflows"))
         sessions = scan_all_sessions(include_sub_workflows=include_subs)
         self.send_json({"sessions": sessions, "count": len(sessions)})
 
@@ -1933,8 +1983,7 @@ class WorkflowUIHandler(http.server.BaseHTTPRequestHandler):
                     limit = max(1, min(200, int(params["limit"][0])))
                 except (ValueError, TypeError, IndexError) as exc:
                     logging.getLogger(__name__).debug("Ignored error in handle_api_conversations: %s", exc)
-            if "include_subagents" in params:
-                include_subagents = params["include_subagents"][0].lower() in ("true", "1", "yes")
+            include_subagents = is_truthy_query_flag(params, "include_subagents")
         conversations = scan_all_conversations(
             limit=limit,
             include_subagents=include_subagents,
@@ -1997,21 +2046,32 @@ class WorkflowUIHandler(http.server.BaseHTTPRequestHandler):
         if not file_path:
             self.send_json({"error": "Missing path parameter"}, status=400)
             return
-        p = Path(os.path.expanduser(file_path)).resolve()
-        if not p.is_file():
-            self.send_json({"error": "File not found"}, status=404)
+        roots = get_artifact_roots()
+        p = resolve_within_roots(file_path, roots)
+        if p is None:
+            self.send_json({
+                "error": (
+                    f"Artifact path '{file_path}' is outside the directories the viewer can read "
+                    f"({_describe_roots(roots)}). {_WORKSPACE_ROOTS_HINT}"
+                )
+            }, status=403)
             return
         try:
-            # Read first 128KB safely
-            content = p.read_text(encoding="utf-8", errors="replace")[:131072]
-            self.send_json({
-                "path": str(p),
-                "filename": p.name,
-                "size": p.stat().st_size,
-                "content": content,
-            })
-        except Exception as e:
-            self.send_json({"error": f"Failed to read file: {e}"}, status=500)
+            preview = read_bounded_utf8_preview(
+                p,
+                roots,
+                max_bytes=MAX_ARTIFACT_PREVIEW_BYTES,
+            )
+            if preview is None:
+                self.send_json({"error": f"Artifact '{p}' is outside allowed roots."}, status=403)
+                return
+            self.send_json(preview)
+        except FileNotFoundError:
+            self.send_json(
+                {"error": f"Artifact '{p}' does not exist or is not a regular file."}, status=404
+            )
+        except OSError as e:
+            self.send_json({"error": f"Failed to read artifact '{p}': {e}"}, status=500)
 
     def handle_api_session_create(self, body: Dict[str, Any]):
         steps = body.get("steps", [])
@@ -2022,6 +2082,13 @@ class WorkflowUIHandler(http.server.BaseHTTPRequestHandler):
         if not isinstance(steps, list) or len(steps) == 0:
             self.send_json({"error": "Please add at least one step to the workflow."}, status=400)
             return
+        # The session's repo becomes the agent's working directory.
+        if isinstance(args, dict) and args.get("repo"):
+            try:
+                args = {**args, "repo": str(resolve_workspace_dir(str(args["repo"])))}
+            except ValueError as exc:
+                self.send_json({"error": str(exc)}, status=400)
+                return
 
         try:
             created = create_composed_session(
@@ -2049,19 +2116,15 @@ class WorkflowUIHandler(http.server.BaseHTTPRequestHandler):
 
         base_dir = get_state_base_dir()
         buf = io.StringIO()
-        old_stdout = sys.stdout
-        sys.stdout = buf
-        try:
-            ok, msg = approve_workflow_session(
-                state_id=sid,
-                workflow_name=wf,
-                feedback=feedback,
-                state_base_dir=base_dir,
-                advance=True,
-            )
-            next_prompt = buf.getvalue().strip()
-        finally:
-            sys.stdout = old_stdout
+        ok, msg = approve_workflow_session(
+            state_id=sid,
+            workflow_name=wf,
+            feedback=feedback,
+            state_base_dir=base_dir,
+            advance=True,
+            output_stream=buf,
+        )
+        next_prompt = buf.getvalue().strip()
 
         if not ok:
             self.send_json({"error": msg}, status=404)
@@ -2070,9 +2133,10 @@ class WorkflowUIHandler(http.server.BaseHTTPRequestHandler):
         if wf and next_prompt:
             state_file = base_dir / wf / f"STATE-{sid}.yaml"
             if state_file.is_file():
-                st = load_state_yaml(state_file)
-                st.setdefault("metadata", {})["_last_step_prompt"] = next_prompt
-                save_state_yaml(state_file, st)
+                with get_session_lock(state_file):
+                    st = load_state_yaml(state_file)
+                    st.setdefault("metadata", {})["_last_step_prompt"] = next_prompt
+                    save_state_yaml(state_file, st)
 
         agent_resumed = False
         agent_msg = ""
@@ -2155,32 +2219,66 @@ class WorkflowUIHandler(http.server.BaseHTTPRequestHandler):
         html_path = get_ui_html_path()
         if html_path.is_file():
             try:
-                content = html_path.read_bytes()
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Content-Length", str(len(content)))
-                self.end_headers()
-                self.wfile.write(content)
+                self.send_html(html_path.read_bytes())
                 return
             except Exception as exc:
                 logging.getLogger(__name__).debug("Ignored error in handle_serve_index: %s", exc)
 
-        # Fallback minimal HTML if template file is missing
-        fallback = b"""<!DOCTYPE html><html><head><title>Workflow Visualizer</title></head><body><h1>Workflow Visualizer</h1><p>UI template not found.</p></body></html>"""
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(fallback)))
-        self.end_headers()
-        self.wfile.write(fallback)
+        fallback = (
+            b"<!DOCTYPE html><html><head><title>Workflow Visualizer</title></head>"
+            b"<body><h1>Workflow Visualizer</h1><p>UI template not found.</p></body></html>"
+        )
+        self.send_html(fallback)
 
-    def send_json(self, data: Any, status: int = 200):
-        body = json.dumps(data, indent=2).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(body)
+
+def _register_workflow_ui_routes(router: Router) -> None:
+    """Registers all Workflow Visualizer GET and POST routes on `router`."""
+    router.add_get(["", "/", "/index.html"], lambda h, _r: h.handle_serve_index())
+    router.add_get("/api/sessions", lambda h, r: h.handle_api_sessions(dict(r.query_params)))
+    router.add_get(
+        "/api/conversations", lambda h, r: h.handle_api_conversations(dict(r.query_params))
+    )
+    router.add_get(
+        "/api/session",
+        lambda h, r: h.handle_api_session_detail(
+            r.query_str("workflow") or None, r.query_str("id") or None
+        ),
+    )
+    router.add_get(
+        "/api/transcript",
+        lambda h, r: h.handle_api_transcript(
+            r.query_str("workflow") or None,
+            r.query_str("id") or None,
+            r.query_str("conversation_id") or None,
+        ),
+    )
+    router.add_get("/api/workflows", lambda h, _r: h.handle_api_workflows())
+    router.add_get(
+        "/api/artifact", lambda h, r: h.handle_api_artifact(r.query_str("path") or None)
+    )
+
+    router.add_post("/api/session/stop", lambda h, r: h.handle_api_session_stop(dict(r.body)))
+    router.add_post("/api/session/delete", lambda h, r: h.handle_api_session_delete(dict(r.body)))
+    router.add_post("/api/sessions/clear", lambda h, r: h.handle_api_sessions_clear(dict(r.body)))
+    router.add_post("/api/session/create", lambda h, r: h.handle_api_session_create(dict(r.body)))
+    router.add_post(
+        "/api/session/approve", lambda h, r: h.handle_api_session_approve(dict(r.body))
+    )
+    router.add_post(
+        "/api/session/launch_agent", lambda h, r: h.handle_api_session_launch_agent(dict(r.body))
+    )
+    router.add_post(
+        "/api/session/poke",
+        lambda h, r: h.handle_api_session_launch_agent(
+            {**dict(r.body), "poke": True, "resume": True}
+        ),
+    )
+    router.add_post(
+        "/api/conversation/poke", lambda h, r: h.handle_api_conversation_poke(dict(r.body))
+    )
+
+
+_register_workflow_ui_routes(_WORKFLOW_UI_ROUTER)
 
 
 def start_server(
@@ -2188,25 +2286,27 @@ def start_server(
     port: int = 8080,
     open_browser: bool = True,
     block: bool = True,
+    ui_token: Optional[str] = None,
 ) -> Tuple[http.server.HTTPServer, int]:
-    """Starts the visualizer HTTP server."""
-    actual_port = find_available_port(host=host, start_port=port)
-    server_address = (host, actual_port)
-    httpd = http.server.ThreadingHTTPServer(server_address, WorkflowUIHandler)
+    """Starts the visualizer HTTP server.
 
-    url = f"http://{host}:{actual_port}"
-    print(f"🚀 emu-dev-cli Workflow Visualizer running at:\n   {url}\n")
-    print("Press Ctrl+C to stop the server.")
-
-    if open_browser:
-        threading.Timer(0.3, lambda: webbrowser.open_new_tab(url)).start()
-
-    if block:
-        try:
-            httpd.serve_forever()
-        except KeyboardInterrupt:
-            print("\nServer stopped.")
-        finally:
-            httpd.server_close()
-
-    return httpd, actual_port
+    Every `/api/` request must carry `ui_token` (a fresh random token by default),
+    so the printed and auto-opened URL includes it as `?token=`.
+    """
+    return serve_http(
+        WorkflowUIHandler,
+        host=host,
+        port=port,
+        ui_token=ui_token,
+        open_browser=open_browser,
+        browser_delay_sec=0.3,
+        block=block,
+        port_finder=find_available_port,
+        server_cls=http.server.ThreadingHTTPServer,
+        browser_opener=webbrowser.open_new_tab,
+        banner_fn=lambda url, _port: (
+            f"🚀 emu-dev-cli Workflow Visualizer running at:\n   {url}\n\n"
+            "Press Ctrl+C to stop the server."
+        ),
+        shutdown_message="\nServer stopped.",
+    )

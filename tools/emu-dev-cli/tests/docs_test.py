@@ -291,6 +291,47 @@ class DocsWikiTest(unittest.TestCase):
             self.assertIn("unlinked_agents_md", hal_issues)
             self.assertIn("unrouted_agents_md", hal_issues)
 
+    def test_lint_wiki_documents_accepts_bzl_file_labels_and_third_party_qemu(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "测试_🚀_é"
+            clang_tidy = root / "hardware" / "google" / "aemu" / "tools" / "clang_tidy"
+            clang_tidy.mkdir(parents=True)
+            (clang_tidy / "BUILD.bazel").write_text(
+                'py_binary(\n    name = "run_clang_tidy",\n)\n', encoding="utf-8"
+            )
+            (clang_tidy / "defs.bzl").write_text(
+                "def clang_tidy_test(name):\n    pass\n", encoding="utf-8"
+            )
+            # emu-main-next keeps qemu-next in third_party/qemu, not external/qemu.
+            rutabaga = root / "third_party" / "qemu" / "google" / "rutabaga"
+            rutabaga.mkdir(parents=True)
+            (rutabaga / "BUILD.bazel").write_text(
+                'cc_library(\n    name = "rutabaga_ffi_lazy",\n)\n', encoding="utf-8"
+            )
+            hal_dir = root / "hardware" / "generic" / "goldfish" / "emulator" / "plugin" / "hal"
+            hal_dir.mkdir(parents=True)
+            (hal_dir / "BUILD.bazel").write_text(
+                'cc_library(\n    name = "hal_core",\n)\n', encoding="utf-8"
+            )
+            (hal_dir / "ARCHITECTURE.md").write_text(
+                "# Component: HAL\n\n"
+                "**Location:** `emulator/plugin/hal/`\n"
+                "Load `clang_tidy_test` from `@aemu//tools/clang_tidy:defs.bzl`, link "
+                "`@qemu//google/rutabaga:rutabaga_ffi_lazy`, but not "
+                "`@aemu//tools/clang_tidy:missing.bzl`.\n",
+                encoding="utf-8",
+            )
+
+            report = docs.lint_wiki_documents([str(root)])
+            flagged_labels = {
+                iss.get("label")
+                for iss in report["issues"]
+                if iss["kind"] in ("missing_bazel_package", "missing_bazel_target")
+            }
+            self.assertEqual(flagged_labels, {"@aemu//tools/clang_tidy:missing.bzl"})
+
 
 if __name__ == "__main__":
     unittest.main()

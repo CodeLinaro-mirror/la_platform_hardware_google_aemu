@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import argparse
 import sys
 import unittest
 import os
@@ -113,6 +114,51 @@ class TestCommandLineReconstructor(unittest.TestCase):
         """Test get_cwd when BAZEL_WORKSPACE_DIRECTORY is set."""
         reconstructor = CommandLineReconstructor()
         self.assertEqual(reconstructor.get_cwd(), "/bazel/workspace")
+        mock_getcwd.assert_not_called()
+
+    @patch("os.getcwd", return_value="/ephemeral/amc.runfiles/_main")
+    @patch.dict(
+        os.environ,
+        {
+            "BUILD_WORKING_DIRECTORY": "/bazel/workspace/subdir",
+            "BUILD_WORKSPACE_DIRECTORY": "/bazel/workspace",
+        },
+        clear=True,
+    )
+    def test_get_cwd_prefers_build_working_directory(self, mock_getcwd):
+        """Test get_cwd prefers BUILD_WORKING_DIRECTORY over BUILD_WORKSPACE_DIRECTORY."""
+        reconstructor = CommandLineReconstructor()
+        self.assertEqual(reconstructor.get_cwd(), "/bazel/workspace/subdir")
+        mock_getcwd.assert_not_called()
+
+    @patch("os.getcwd", return_value="/ephemeral/amc.runfiles/_main")
+    @patch.dict(
+        os.environ,
+        {"BUILD_WORKING_DIRECTORY": "/bazel/workspace/测试_🚀_é"},
+        clear=True,
+    )
+    def test_resolve_path_relative_and_unicode(self, mock_getcwd):
+        """Test resolve_path and resolve_cli_paths resolve relative paths against BUILD_WORKING_DIRECTORY."""
+        reconstructor = CommandLineReconstructor()
+        self.assertEqual(
+            reconstructor.resolve_path("out/qemu-bld"),
+            Path("/bazel/workspace/测试_🚀_é/out/qemu-bld"),
+        )
+        self.assertEqual(
+            reconstructor.resolve_path("/abs/path/qemu-bld"),
+            Path("/abs/path/qemu-bld"),
+        )
+        args = argparse.Namespace(
+            out="out/qemu-bld",
+            release="dist/trusty.zip",
+            config="/abs/qemu-trusty-build-config.jsonc",
+            aosp=None,
+        )
+        reconstructor.resolve_cli_paths(args)
+        self.assertEqual(args.out, Path("/bazel/workspace/测试_🚀_é/out/qemu-bld"))
+        self.assertEqual(args.release, "/bazel/workspace/测试_🚀_é/dist/trusty.zip")
+        self.assertEqual(args.config, "/abs/qemu-trusty-build-config.jsonc")
+        self.assertIsNone(args.aosp)
         mock_getcwd.assert_not_called()
 
     @patch("os.getcwd", side_effect=FileNotFoundError)

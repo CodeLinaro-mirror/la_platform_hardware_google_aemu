@@ -42,9 +42,27 @@ export interface RtcControllerOptions {
   sensorsChannel?: SensorsChannel;
   peerConnectionConfig?: RTCConfiguration;
   createPeerConnection?: (config?: RTCConfiguration) => RTCPeerConnection;
+  /**
+   * Offer a sendrecv audio transceiver so the browser microphone can be sent
+   * later; the emulator then lists a `WEBRTC` input named "webrtc" for the
+   * whole session (silent while the mic is off). Defaults to false.
+   */
+  microphone?: boolean;
+  /** Opens the browser microphone. Defaults to `navigator.mediaDevices.getUserMedia`. */
+  getUserMedia?: (constraints: MediaStreamConstraints) => Promise<MediaStream>;
 }
 
 type EventListener = (...args: any[]) => void;
+
+function defaultGetUserMedia(constraints: MediaStreamConstraints): Promise<MediaStream> {
+  const mediaDevices = (globalThis as any).navigator?.mediaDevices;
+  if (!mediaDevices?.getUserMedia) {
+    return Promise.reject(
+      new Error("navigator.mediaDevices is unavailable (the page is not a secure context)")
+    );
+  }
+  return mediaDevices.getUserMedia(constraints);
+}
 
 /**
  * Coordinates WebRTC signaling, JSEP offer/answer, and media stream tracks.
@@ -65,6 +83,13 @@ export class RtcController {
   private pendingRemoteCandidates: any[] = [];
   private isRemoteDescriptionSet = false;
   private jsepProcessingChain: Promise<void> = Promise.resolve();
+  private readonly microphone: boolean;
+  private readonly getUserMediaFn: (c: MediaStreamConstraints) => Promise<MediaStream>;
+  private audioTransceiver: RTCRtpTransceiver | null = null;
+  private micTrack: MediaStreamTrack | null = null;
+  // Enable and disable run one at a time, so a disable issued while getUserMedia
+  // is pending still ends with the microphone off.
+  private micChain: Promise<void> = Promise.resolve();
 
   constructor(options: RtcControllerOptions) {
     this.rpc = new RtcServiceClientImpl(options.transport);
@@ -74,6 +99,8 @@ export class RtcController {
     this.createPcFn =
       options.createPeerConnection ||
       ((config) => new (window as any).RTCPeerConnection(config));
+    this.microphone = options.microphone ?? false;
+    this.getUserMediaFn = options.getUserMedia || defaultGetUserMedia;
   }
 
   public get state(): RtcConnectionState {
@@ -84,8 +111,13 @@ export class RtcController {
     return this.mediaStream;
   }
 
+  /** True while the browser microphone is sent to the emulator. */
+  public get microphoneEnabled(): boolean {
+    return this.micTrack !== null;
+  }
+
   /**
-   * Subscribes to events ("stateChange", "stream", "error").
+   * Subscribes to events ("stateChange", "stream", "error", "microphoneChange").
    */
   public on(event: string, listener: EventListener) {
     if (!this.listeners.has(event)) {
@@ -179,10 +211,19 @@ export class RtcController {
 
       // 5. Create local SDP Offer and inject 127.0.0.1 loopback active TCP candidate
       // so Chrome's Port::CanPairWith() pairs with the device's 127.0.0.1 adb forward passive candidate.
-      const offer = await this.peerConnection.createOffer({
+      // With `microphone`, the audio transceiver is sendrecv from the start, so
+      // the microphone can later be attached with replaceTrack, without renegotiating.
+      let offerOptions: RTCOfferOptions = {
         offerToReceiveVideo: true,
         offerToReceiveAudio: true,
-      });
+      };
+      if (this.microphone) {
+        this.audioTransceiver = this.peerConnection.addTransceiver("audio", {
+          direction: "sendrecv",
+        });
+        offerOptions = { offerToReceiveVideo: true };
+      }
+      const offer = await this.peerConnection.createOffer(offerOptions);
       if (offer.sdp) {
         offer.sdp = this.injectLoopbackActiveCandidate(offer.sdp);
       }
@@ -258,12 +299,112 @@ export class RtcController {
       this.peerConnection = null;
     }
 
+    this.audioTransceiver = null;
+    if (this.micTrack) {
+      this.micTrack.stop();
+      this.micTrack = null;
+      this.emit("microphoneChange", false);
+    }
+
     this.mediaStream = null;
     this.sessionGuid = null;
     this.pendingRemoteCandidates = [];
     this.isRemoteDescriptionSet = false;
     this.jsepProcessingChain = Promise.resolve();
     this.setState(RtcConnectionState.DISCONNECTED);
+  }
+
+  /**
+   * Sends the browser microphone to the emulator over the current session.
+   *
+   * Opens the microphone with `getUserMedia` (the browser's echo cancellation
+   * and noise suppression stay on unless `constraints` say otherwise) and
+   * attaches it to the sendrecv audio transceiver offered at connect. There is
+   * no renegotiation. Requires the `microphone` option. Does nothing when on.
+   */
+  public enableMicrophone(constraints?: MediaTrackConstraints): Promise<void> {
+    return this.queueMicOperation(() => this.startMicrophone(constraints));
+  }
+
+  /**
+   * Stops sending the browser microphone and releases it. Does nothing when off.
+   */
+  public disableMicrophone(): Promise<void> {
+    return this.queueMicOperation(() => this.stopMicrophone());
+  }
+
+  private queueMicOperation(op: () => Promise<void>): Promise<void> {
+    const result = this.micChain.then(op);
+    this.micChain = result.catch(() => {});
+    return result;
+  }
+
+  private async startMicrophone(constraints?: MediaTrackConstraints): Promise<void> {
+    if (this.micTrack) {
+      return;
+    }
+    if (!this.microphone) {
+      throw new DeviceError(
+        "Cannot enable the microphone: this session has no microphone transceiver. " +
+          "Create the DeviceClient (or RtcController) with `microphone: true` and reconnect."
+      );
+    }
+    const transceiver = this.audioTransceiver;
+    if (!transceiver) {
+      throw new DeviceError(
+        "Cannot enable the microphone: there is no WebRTC session. Call connect() first."
+      );
+    }
+
+    let stream: MediaStream;
+    try {
+      stream = await this.getUserMediaFn({ audio: constraints ?? true });
+    } catch (err: any) {
+      const error = new DeviceError(
+        `Could not open the browser microphone: ${err?.name ?? "Error"}: ${err?.message ?? err}. ` +
+          "Allow microphone access for this page (served over https or from localhost) " +
+          "and try again."
+      );
+      this.emit("error", error);
+      throw error;
+    }
+
+    const [track, ...extra] = stream.getAudioTracks();
+    extra.forEach((t) => t.stop());
+    if (!track) {
+      throw new DeviceError(
+        "getUserMedia returned no audio track. Check that a microphone is connected."
+      );
+    }
+    if (this.audioTransceiver !== transceiver) {
+      track.stop();
+      throw new DeviceError("Microphone enable aborted: the WebRTC session closed meanwhile.");
+    }
+
+    try {
+      await transceiver.sender.replaceTrack(track);
+    } catch (err: any) {
+      track.stop();
+      const error = new DeviceError(`Could not send the microphone to the emulator: ${err.message}`);
+      this.emit("error", error);
+      throw error;
+    }
+    this.micTrack = track;
+    this.emit("microphoneChange", true);
+  }
+
+  private async stopMicrophone(): Promise<void> {
+    const track = this.micTrack;
+    if (!track) {
+      return;
+    }
+    this.micTrack = null;
+    try {
+      await this.audioTransceiver?.sender.replaceTrack(null);
+    } finally {
+      track.stop();
+      this.emit("microphoneChange", false);
+    }
   }
 
   private setupPeerConnectionEvents(pc: RTCPeerConnection) {

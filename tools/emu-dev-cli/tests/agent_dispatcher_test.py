@@ -76,7 +76,7 @@ class AgentDispatcherTest(unittest.TestCase):
         dispatcher.verify_environment()
 
     @patch.dict(os.environ, {"ANTIGRAVITY_LS_ADDRESS": "localhost:32977"})
-    @patch("lib.agent_dispatcher.AgentApiClient.start_conversation")
+    @patch("lib.agent_dispatcher.ProdAgentRuntimeService.start_conversation")
     def test_dispatch_investigation_agent_session_mode(self, mock_start):
         def create_rca(*args, **kwargs):
             rca_file = self.sandbox_dir / "rca_summary.md"

@@ -40,23 +40,37 @@ export interface DeviceProviderProps {
    */
   auth?: AuthProvider;
 
+  /**
+   * Lets the browser microphone be sent over WebRTC (see
+   * `DeviceClientOptions.microphone`). Used if client is not explicitly provided.
+   */
+  microphone?: boolean;
+
   children: ReactNode;
 }
 
 /**
  * Top-level React Context Provider for Android Device Streaming.
  */
-export function DeviceProvider({ client, uri, token, auth, children }: DeviceProviderProps) {
+export function DeviceProvider({
+  client,
+  uri,
+  token,
+  auth,
+  microphone,
+  children,
+}: DeviceProviderProps) {
   const instance = useMemo(() => {
     if (client) return client;
     if (uri) {
       return DeviceClient.create({
         endpoint: uri,
         authProvider: auth || token,
+        microphone,
       });
     }
     throw new Error('DeviceProvider requires either a "client" or a "uri" prop.');
-  }, [client, uri, token, auth]);
+  }, [client, uri, token, auth, microphone]);
 
   return (
     <DeviceContext.Provider value={instance}>

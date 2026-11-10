@@ -16,6 +16,7 @@
 
 import argparse
 import os
+from pathlib import Path
 import sys
 import tempfile
 import unittest
@@ -25,11 +26,13 @@ SRC_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"
 )
 
-from commands.crash.autofix import register_autofix_parser, run_autofix
+from commands.crash.autofix import CrashAutofixCommand, register_autofix_parser
+from core.context import ExecutionContext
+from core.errors import CommandValidationError
 
 
 class CrashAutofixTest(unittest.TestCase):
-    """Tests for crash autofix parser registration and execution handler."""
+    """Tests for crash autofix parser registration and Command execution."""
 
     def test_register_autofix_parser(self):
         """Tests ArgumentParser registration for `autofix` subcommand."""
@@ -41,21 +44,24 @@ class CrashAutofixTest(unittest.TestCase):
         self.assertEqual(args.crash_cmd, "autofix")
         self.assertEqual(args.crash_id, "05d8356e2f800000")
         self.assertTrue(args.dry_run)
-        self.assertEqual(args.func, run_autofix)
+        self.assertIsInstance(
+            getattr(args, "_command_instance"), CrashAutofixCommand
+        )
 
-    @patch("subprocess.run")
-    @patch("commands.crash.autofix.get_crashadvisor_sandbox_dir")
-    @patch("commands.crash.autofix.run_crashadvisor_bazel")
+    def test_validate_rejects_empty_crash_id(self):
+        ctx = ExecutionContext.for_testing()
+        cmd = CrashAutofixCommand()
+        args = argparse.Namespace(crash_id="   ")
+        with self.assertRaises(CommandValidationError):
+            cmd.validate(args, ctx)
+
+    @patch("commands.crash.autofix.CrashAdvisorRunner.run")
     @patch("commands.crash.autofix.acquire_auth_token")
-    def test_run_autofix_dry_run(
-        self, mock_acquire_token, mock_run_bazel, mock_get_sandbox, mock_subprocess_run
-    ):
-        """Tests run_autofix handler in dry-run mode."""
+    def test_run_autofix_dry_run(self, mock_acquire_token, mock_runner_run):
+        """Tests autofix command execution in dry-run mode."""
         mock_acquire_token.return_value = "token_abc"
-        mock_run_bazel.return_value = MagicMock(returncode=0)
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            mock_get_sandbox.return_value = tmp_dir
             rca_file = os.path.join(tmp_dir, "rca_summary.md")
             with open(rca_file, "w", encoding="utf-8") as f:
                 f.write(
@@ -69,33 +75,31 @@ actionability:
 """
                 )
 
+            ctx = ExecutionContext.for_testing()
+            cmd = CrashAutofixCommand()
             args = argparse.Namespace(
                 crash_id="05d8356e2f800000",
                 token="token_abc",
                 dry_run=True,
+                force=False,
+                work_dir=tmp_dir,
             )
 
-            with self.assertRaises(SystemExit) as cm:
-                run_autofix(args)
-            self.assertEqual(cm.exception.code, 0)
-            mock_subprocess_run.assert_not_called()
+            res = cmd.execute(args, ctx)
+            self.assertEqual(res.status, "dry_run")
+            self.assertEqual(res.action, "crash autofix")
+            self.assertTrue(res.data["fixable"])
+            self.assertEqual(res.data["target_file"], "android/FrameBuffer.cpp")
 
-    @patch("lib.agent.AgentApiClient.start_conversation")
-    @patch("commands.crash.autofix.get_crashadvisor_sandbox_dir")
-    @patch("commands.crash.autofix.run_crashadvisor_bazel")
+    @patch("commands.crash.autofix.CrashAdvisorRunner.run")
     @patch("commands.crash.autofix.acquire_auth_token")
     def test_run_autofix_dispatch(
-        self, mock_acquire_token, mock_run_bazel, mock_get_sandbox, mock_start_conv
+        self, mock_acquire_token, mock_runner_run
     ):
-        """Tests run_autofix handler successfully dispatching agent conversation."""
+        """Tests autofix command successfully dispatching agent conversation."""
         mock_acquire_token.return_value = "token_abc"
-        mock_run_bazel.return_value = MagicMock(returncode=0)
-        mock_start_conv.return_value = MagicMock(
-            returncode=0, stdout="Conversation ID: 1234"
-        )
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            mock_get_sandbox.return_value = tmp_dir
             rca_file = os.path.join(tmp_dir, "rca_summary.md")
             with open(rca_file, "w", encoding="utf-8") as f:
                 f.write(
@@ -109,36 +113,32 @@ actionability:
 """
                 )
 
+            ctx = ExecutionContext.for_testing()
+            cmd = CrashAutofixCommand()
             args = argparse.Namespace(
                 crash_id="05d8356e2f800000",
                 token="token_abc",
                 dry_run=False,
                 force=True,
+                work_dir=tmp_dir,
             )
 
-            run_autofix(args)
-            mock_start_conv.assert_called_once()
-            prompt_called = mock_start_conv.call_args[1]["prompt"]
-            self.assertIn("BEFORE WRITING CODE", prompt_called)
-            self.assertIn("git log", prompt_called.lower())
-            self.assertIn("older version", prompt_called.lower())
+            res = cmd.execute(args, ctx)
+            self.assertEqual(res.status, "dispatched")
+            self.assertEqual(res.action, "crash autofix")
+            self.assertIn("00000000", res.data["conversation_id"])
 
     @patch("commands.crash.autofix.evaluate_crash_fix_status")
-    @patch("lib.agent.AgentApiClient.start_conversation")
-    @patch("commands.crash.autofix.get_crashadvisor_sandbox_dir")
-    @patch("commands.crash.autofix.run_crashadvisor_bazel")
+    @patch("commands.crash.autofix.CrashAdvisorRunner.run")
     @patch("commands.crash.autofix.acquire_auth_token")
     def test_run_autofix_halts_when_already_fixed(
         self,
         mock_acquire_token,
-        mock_run_bazel,
-        mock_get_sandbox,
-        mock_start_conv,
+        mock_runner_run,
         mock_eval_fix,
     ):
-        """Tests run_autofix halts without dispatching when bug is already fixed and --force is not passed."""
+        """Tests autofix halts without dispatching when bug is already fixed and --force is not passed."""
         mock_acquire_token.return_value = "token_abc"
-        mock_run_bazel.return_value = MagicMock(returncode=0)
         mock_eval_fix.return_value = MagicMock(
             is_already_fixed=True,
             fix_status="FIXED",
@@ -149,7 +149,6 @@ actionability:
         )
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            mock_get_sandbox.return_value = tmp_dir
             rca_file = os.path.join(tmp_dir, "rca_summary.md")
             with open(rca_file, "w", encoding="utf-8") as f:
                 f.write(
@@ -163,17 +162,86 @@ actionability:
 """
                 )
 
+            ctx = ExecutionContext.for_testing()
+            cmd = CrashAutofixCommand()
             args = argparse.Namespace(
                 crash_id="05d8356e2f800000",
                 token="token_abc",
                 dry_run=False,
                 force=False,
+                work_dir=tmp_dir,
             )
 
-            with self.assertRaises(SystemExit) as cm:
-                run_autofix(args)
-            self.assertEqual(cm.exception.code, 0)
-            mock_start_conv.assert_not_called()
+            res = cmd.execute(args, ctx)
+            self.assertEqual(res.status, "already_fixed")
+            self.assertEqual(res.data["fix_reason"], "Buganizer b/12345678 is FIXED")
+
+    @patch("commands.crash.autofix.CrashAdvisorRunner.run")
+    @patch("commands.crash.autofix.acquire_auth_token")
+    def test_run_autofix_generates_rca_and_halts_unfixable(
+        self, mock_acquire_token, mock_runner_run
+    ):
+        """Tests autofix triggers CrashAdvisor when rca_summary is missing and halts on unfixable crash."""
+        mock_acquire_token.return_value = "token_abc"
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            work_dir = Path(tmp_dir)
+
+            def create_rca(*args, **kwargs):
+                (work_dir / "rca_summary.md").write_text(
+                    """
+actionability:
+  fixable: false
+  target_file: android/FrameBuffer.cpp
+  target_function: android::FrameBuffer::post
+""",
+                    encoding="utf-8",
+                )
+
+            mock_runner_run.side_effect = create_rca
+
+            fake_src = work_dir / "src_repo"
+            fake_src.mkdir()
+            (fake_src / "android").mkdir()
+            (fake_src / "android" / "FrameBuffer.cpp").write_text("// C++ code", encoding="utf-8")
+
+            ctx = ExecutionContext.for_testing(
+                source_directories={"emu-main-next": str(fake_src)}
+            )
+            cmd = CrashAutofixCommand()
+            args = argparse.Namespace(
+                crash_id="05d8356e2f800000",
+                token="token_abc",
+                dry_run=False,
+                force=False,
+                work_dir=str(work_dir),
+            )
+
+            res = cmd.execute(args, ctx)
+            self.assertEqual(res.status, "halted")
+            self.assertEqual(res.data["fixable"], False)
+            self.assertEqual(res.data["target_file"], "android/FrameBuffer.cpp")
+
+    def test_run_autofix_halts_when_no_actionability_block(self):
+        """Tests autofix halts when rca_summary has no actionability yaml block."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            work_dir = Path(tmp_dir)
+            (work_dir / "rca_summary.md").write_text(
+                "## Root Cause\nJust raw markdown without actionability block.\n",
+                encoding="utf-8",
+            )
+            ctx = ExecutionContext.for_testing()
+            cmd = CrashAutofixCommand()
+            args = argparse.Namespace(
+                crash_id="05d8356e2f800000",
+                token="token_abc",
+                dry_run=False,
+                force=False,
+                work_dir=str(work_dir),
+            )
+            res = cmd.execute(args, ctx)
+            self.assertEqual(res.status, "halted")
+            self.assertEqual(res.data["reason"], "no_actionability_block")
 
 
 if __name__ == "__main__":

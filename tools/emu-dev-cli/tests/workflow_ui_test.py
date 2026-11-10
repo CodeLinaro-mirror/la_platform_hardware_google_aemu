@@ -14,6 +14,7 @@
 
 """Unit tests for the Workflow Web UI Visualizer."""
 
+import http.client
 import io
 import json
 import os
@@ -24,6 +25,8 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
+import urllib.error
 import urllib.parse
 import urllib.request
 import yaml
@@ -49,6 +52,34 @@ from workflows.ui.server import (
     WorkflowUIHandler,
 )
 from commands.workflow import register_parser, run_workflow_command
+from lib.web_security import MAX_JSON_BODY_BYTES
+
+
+class _FakeJetskiProc:
+    """`subprocess.Popen` stand-in for a jetski_cli process that exits at once."""
+
+    pid = 999999
+    returncode = 0
+
+    def __init__(self):
+        self.stdout = iter([])
+
+    def poll(self):
+        return 0
+
+    def wait(self):
+        return 0
+
+
+def _write_state_file(state_dir: Path, workflow_name: str, state_id: str, **fields) -> Path:
+    """Writes `<state_dir>/<workflow_name>/STATE-<state_id>.yaml` and returns its path."""
+    wf_dir = state_dir / workflow_name
+    wf_dir.mkdir(parents=True, exist_ok=True)
+    state_file = wf_dir / f"STATE-{state_id}.yaml"
+    data = {"state": "RUNNING", "step": 1, "retries": 0, "stuck_reason": "", "metadata": {}, **fields}
+    with open(state_file, "w", encoding="utf-8") as f:
+        yaml.dump(data, f)
+    return state_file
 
 
 class WorkflowUITest(unittest.TestCase):
@@ -71,19 +102,16 @@ class WorkflowUITest(unittest.TestCase):
         stuck_reason: str = "",
         metadata: dict = None,
     ):
-        wf_dir = self.state_dir / workflow_name
-        wf_dir.mkdir(parents=True, exist_ok=True)
-        state_file = wf_dir / f"STATE-{state_id}.yaml"
-        data = {
-            "state": state,
-            "step": step,
-            "retries": retries,
-            "stuck_reason": stuck_reason,
-            "metadata": metadata or {},
-        }
-        with open(state_file, "w", encoding="utf-8") as f:
-            yaml.dump(data, f)
-        return state_file
+        return _write_state_file(
+            self.state_dir,
+            workflow_name,
+            state_id,
+            state=state,
+            step=step,
+            retries=retries,
+            stuck_reason=stuck_reason,
+            metadata=metadata or {},
+        )
 
     def test_scan_all_sessions_empty(self):
         sessions = scan_all_sessions(state_base_dir=self.state_dir)
@@ -375,10 +403,12 @@ class WorkflowUITest(unittest.TestCase):
         server_thread.start()
 
         base_url = f"http://127.0.0.1:{actual_port}"
+        auth = {"X-Sidecar-Token": httpd.ui_token}
+        json_auth = {"Content-Type": "application/json", **auth}
 
         try:
             # 1. GET /api/sessions
-            with urllib.request.urlopen(f"{base_url}/api/sessions") as resp:
+            with urllib.request.urlopen(urllib.request.Request(f"{base_url}/api/sessions", headers=auth)) as resp:
                 self.assertEqual(resp.status, 200)
                 data = json.loads(resp.read().decode("utf-8"))
                 self.assertIn("sessions", data)
@@ -388,7 +418,7 @@ class WorkflowUITest(unittest.TestCase):
             req = urllib.request.Request(
                 f"{base_url}/api/session/stop",
                 data=json.dumps({"workflow": "hello-world-example", "id": "http_sess"}).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
+                headers=json_auth,
                 method="POST",
             )
             with urllib.request.urlopen(req) as resp:
@@ -398,7 +428,7 @@ class WorkflowUITest(unittest.TestCase):
 
             # Verify session is now STOPPED
             detail_url = f"{base_url}/api/session?workflow=hello-world-example&id=http_sess"
-            with urllib.request.urlopen(detail_url) as resp:
+            with urllib.request.urlopen(urllib.request.Request(detail_url, headers=auth)) as resp:
                 self.assertEqual(resp.status, 200)
                 detail = json.loads(resp.read().decode("utf-8"))
                 self.assertEqual(detail["state"], "STOPPED")
@@ -407,7 +437,7 @@ class WorkflowUITest(unittest.TestCase):
             req_del = urllib.request.Request(
                 f"{base_url}/api/session/delete",
                 data=json.dumps({"workflow": "hello-world-example", "id": "http_sess"}).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
+                headers=json_auth,
                 method="POST",
             )
             with urllib.request.urlopen(req_del) as resp:
@@ -420,7 +450,7 @@ class WorkflowUITest(unittest.TestCase):
             req_clear = urllib.request.Request(
                 f"{base_url}/api/sessions/clear",
                 data=json.dumps({"filter": "done"}).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
+                headers=json_auth,
                 method="POST",
             )
             with urllib.request.urlopen(req_clear) as resp:
@@ -687,17 +717,6 @@ class WorkflowUITest(unittest.TestCase):
         captured_cmds = []
         spawned_event = threading.Event()
 
-        class FakeProc:
-            pid = 999999
-            returncode = 0
-            stdout = iter([])
-
-            def poll(self):
-                return 0
-
-            def wait(self):
-                return 0
-
         old_resolve = server_module.resolve_jetski_cli
         old_popen = server_module.subprocess.Popen
         server_module.resolve_jetski_cli = lambda: "/fake/jetski_cli"
@@ -705,7 +724,7 @@ class WorkflowUITest(unittest.TestCase):
         def fake_popen(cmd, **kwargs):
             captured_cmds.append(cmd)
             spawned_event.set()
-            return FakeProc()
+            return _FakeJetskiProc()
 
         server_module.subprocess.Popen = fake_popen
         try:
@@ -862,24 +881,13 @@ class WorkflowUITest(unittest.TestCase):
             captured_cmds = []
             poke_event = threading.Event()
 
-            class FakeProc:
-                pid = 888888
-                returncode = 0
-                stdout = iter([])
-
-                def poll(self):
-                    return 0
-
-                def wait(self):
-                    return 0
-
             old_resolve = server_module.resolve_jetski_cli
             old_popen = server_module.subprocess.Popen
             server_module.resolve_jetski_cli = lambda: "/fake/jetski_cli"
             server_module.subprocess.Popen = lambda cmd, **kw: (
                 captured_cmds.append(cmd),
                 poke_event.set(),
-                FakeProc(),
+                _FakeJetskiProc(),
             )[2]
             try:
                 ok, msg = poke_conversation(
@@ -900,6 +908,325 @@ class WorkflowUITest(unittest.TestCase):
                 os.environ["JETSKI_BRAIN_DIR"] = old_brain
             else:
                 os.environ.pop("JETSKI_BRAIN_DIR", None)
+
+
+class WorkflowUISecurityTest(unittest.TestCase):
+    """HTTP-level checks for the token, CORS, request body and path rules of `workflow ui`."""
+
+    TOKEN = "workflow-ui-test-token"
+
+    def setUp(self):
+        import workflows.ui.server as server_module
+
+        self.server_module = server_module
+        self.temp_dir = Path(tempfile.mkdtemp(prefix="workflow_ui_security_")).resolve()
+        self.state_dir = self.temp_dir / "state"
+        self.cache_dir = self.temp_dir / "cache"
+        self.workspace = self.temp_dir / "workspace"
+        self.outside = self.temp_dir / "outside"
+        for directory in (self.state_dir, self.cache_dir, self.workspace, self.outside):
+            directory.mkdir()
+        self.secret = self.outside / "secret.txt"
+        self.secret.write_text("top secret", encoding="utf-8")
+
+        for name, value in (
+            ("get_state_base_dir", lambda: self.state_dir),
+            ("get_workflow_cache_root", lambda: self.cache_dir),
+            ("get_workspace_roots", lambda: [self.workspace]),
+        ):
+            patcher = mock.patch.object(server_module, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        env_patcher = mock.patch.dict(os.environ, {"JETSKI_BRAIN_DIR": str(self.temp_dir / "brain")})
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
+
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            self.httpd, port = server_module.start_server(
+                host="127.0.0.1",
+                port=server_module.find_available_port("127.0.0.1", start_port=19190),
+                open_browser=False,
+                block=False,
+                ui_token=self.TOKEN,
+            )
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        self.base_url = f"http://127.0.0.1:{port}"
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def request(self, path, method="GET", body=None, headers=None, token=TOKEN):
+        """Sends a request and returns (status, response headers, parsed JSON or raw text)."""
+        all_headers = {"X-Sidecar-Token": token} if token is not None else {}
+        all_headers.update(headers or {})
+        data = body if isinstance(body, bytes) or body is None else json.dumps(body).encode("utf-8")
+        if data is not None:
+            all_headers.setdefault("Content-Type", "application/json")
+        req = urllib.request.Request(self.base_url + path, data=data, headers=all_headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                status, resp_headers, raw = resp.status, resp.headers, resp.read()
+        except urllib.error.HTTPError as err:
+            status, resp_headers, raw = err.code, err.headers, err.read()
+        text = raw.decode("utf-8")
+        try:
+            return status, resp_headers, json.loads(text)
+        except ValueError:
+            return status, resp_headers, text
+
+    def make_done_session(self, state_id="done1"):
+        return _write_state_file(self.state_dir, "wf", state_id, state="DONE")
+
+    def test_api_requires_token_but_page_shell_does_not(self):
+        for token in (None, "", "wrong-token"):
+            with self.subTest(token=token):
+                status, _, data = self.request("/api/sessions", token=token)
+                self.assertEqual(status, 401)
+                self.assertIn("?token=", data["error"])
+        self.assertEqual(self.request("/api/sessions")[0], 200)
+        self.assertEqual(self.request(f"/api/sessions?token={self.TOKEN}", token=None)[0], 200)
+        status, headers, _ = self.request("/", token=None)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers.get("Referrer-Policy"), "no-referrer")
+
+    def test_server_without_token_fails_closed(self):
+        server = self.server_module.http.server.ThreadingHTTPServer(
+            ("127.0.0.1", 0), self.server_module.WorkflowUIHandler
+        )
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_address[1]}/api/sessions",
+                headers={"X-Sidecar-Token": ""},
+            )
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(req, timeout=5)
+            self.assertEqual(ctx.exception.code, 401)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_unauthenticated_post_has_no_side_effects(self):
+        state_file = self.make_done_session()
+        status, _, _ = self.request("/api/sessions/clear", "POST", {"filter": "done"}, token="wrong")
+        self.assertEqual(status, 401)
+        self.assertTrue(state_file.is_file())
+
+    def test_post_requires_json_content_type(self):
+        state_file = self.make_done_session()
+        for content_type in ("text/plain", "application/x-www-form-urlencoded"):
+            with self.subTest(content_type=content_type):
+                status, _, data = self.request(
+                    "/api/sessions/clear", "POST", b'{"filter": "done"}', {"Content-Type": content_type}
+                )
+                self.assertEqual(status, 415)
+                self.assertIn("application/json", data["error"])
+        self.assertTrue(state_file.is_file())
+
+    def test_malformed_json_is_rejected_instead_of_using_defaults(self):
+        state_file = self.make_done_session()
+        for body in (b"", b"not json", b"[]"):
+            with self.subTest(body=body):
+                status, _, _ = self.request("/api/sessions/clear", "POST", body)
+                self.assertEqual(status, 400)
+        self.assertTrue(state_file.is_file())
+
+    def test_oversized_body_is_rejected(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.httpd.server_address[1], timeout=5)
+        try:
+            conn.putrequest("POST", "/api/sessions/clear")
+            conn.putheader("X-Sidecar-Token", self.TOKEN)
+            conn.putheader("Content-Type", "application/json")
+            conn.putheader("Content-Length", str(MAX_JSON_BODY_BYTES + 1))
+            conn.endheaders(b"{}")
+            resp = conn.getresponse()
+            self.assertEqual(resp.status, 413)
+        finally:
+            conn.close()
+
+    def test_cors_is_never_wildcard(self):
+        status, headers, _ = self.request("/api/sessions", "OPTIONS", headers={"Origin": "https://evil.example.com"})
+        self.assertEqual(status, 403)
+        self.assertIsNone(headers.get("Access-Control-Allow-Origin"))
+
+        local = "http://localhost:3000"
+        status, headers, _ = self.request("/api/sessions", "OPTIONS", headers={"Origin": local}, token=None)
+        self.assertEqual(status, 204)
+        self.assertEqual(headers.get("Access-Control-Allow-Origin"), local)
+        self.assertEqual(headers.get("Vary"), "Origin")
+        self.assertIn("X-Sidecar-Token", headers.get("Access-Control-Allow-Headers"))
+
+        for origin, expected in ((None, None), ("https://evil.example.com", None), (local, local)):
+            with self.subTest(origin=origin):
+                extra = {"Origin": origin} if origin else {}
+                _, headers, _ = self.request("/api/sessions", headers=extra)
+                self.assertEqual(headers.get("Access-Control-Allow-Origin"), expected)
+                self.assertNotEqual(headers.get("Access-Control-Allow-Origin"), "*")
+
+    def artifact(self, raw_path):
+        return self.request("/api/artifact?path=" + urllib.parse.quote(str(raw_path), safe=""))
+
+    def test_artifact_reads_files_under_allowed_roots(self):
+        report = self.cache_dir / "wf" / "测试_🚀_é.md"
+        report.parent.mkdir()
+        report.write_text("# 报告 ✅", encoding="utf-8")
+        status, _, data = self.artifact(report)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["content"], "# 报告 ✅")
+        self.assertEqual(data["filename"], "测试_🚀_é.md")
+
+        for root in (self.state_dir, self.workspace):
+            artifact = root / "notes.txt"
+            artifact.write_text(f"from {root.name}", encoding="utf-8")
+            with self.subTest(root=root.name):
+                self.assertEqual(self.artifact(artifact)[2]["content"], f"from {root.name}")
+
+        self.assertEqual(self.artifact(self.state_dir / "missing.txt")[0], 404)
+
+    def test_artifact_blocks_path_traversal(self):
+        for raw_path in (
+            "/etc/passwd",
+            self.secret,
+            f"{self.state_dir}/../outside/secret.txt",
+            f"{self.workspace}/../../{self.temp_dir.name}/outside/secret.txt",
+            "~/.ssh/id_rsa",
+        ):
+            with self.subTest(raw_path=str(raw_path)):
+                status, _, data = self.artifact(raw_path)
+                self.assertEqual(status, 403)
+                self.assertNotIn("content", data)
+
+    def test_artifact_blocks_symlink_escape(self):
+        link = self.workspace / "escape.txt"
+        try:
+            link.symlink_to(self.secret)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symlinks are not available: {exc}")
+        status, _, data = self.artifact(link)
+        self.assertEqual(status, 403)
+        self.assertNotIn("top secret", json.dumps(data))
+
+    def test_artifact_preview_is_capped(self):
+        big = self.state_dir / "big.log"
+        big.write_bytes(b"a" * (self.server_module.MAX_ARTIFACT_PREVIEW_BYTES + 100))
+        status, _, data = self.artifact(big)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(data["content"]), self.server_module.MAX_ARTIFACT_PREVIEW_BYTES)
+        self.assertEqual(data["size"], self.server_module.MAX_ARTIFACT_PREVIEW_BYTES + 100)
+
+    def test_artifact_preview_does_not_split_utf8(self):
+        big = self.state_dir / "big_测试.log"
+        big.write_bytes(("测" * (self.server_module.MAX_ARTIFACT_PREVIEW_BYTES // 3 + 1)).encode("utf-8"))
+        status, _, data = self.artifact(big)
+        self.assertEqual(status, 200)
+        self.assertNotIn("\ufffd", data["content"])
+        self.assertEqual(set(data["content"]), {"测"})
+
+    def test_artifact_rejection_names_the_allowed_roots(self):
+        status, _, data = self.artifact(self.secret)
+        self.assertEqual(status, 403)
+        for root in (self.state_dir, self.cache_dir, self.workspace):
+            self.assertIn(str(root), data["error"])
+        self.assertIn("source-directory set", data["error"])
+
+    def test_session_create_confines_repo_to_workspace(self):
+        steps = [{"type": "custom_step", "custom_instructions": "Say hello 测试_🚀_é"}]
+        for repo in (str(self.outside), "/", f"{self.workspace}/../outside"):
+            with self.subTest(repo=repo):
+                status, _, data = self.request("/api/session/create", "POST", {"steps": steps, "args": {"repo": repo}})
+                self.assertEqual(status, 400)
+                self.assertIn("outside the workspace roots", data["error"])
+        self.assertEqual(list(self.state_dir.glob("*/STATE-*.yaml")), [])
+
+        status, _, data = self.request("/api/session/create", "POST", {"steps": steps, "args": {"repo": str(self.workspace)}})
+        self.assertEqual(status, 200, data)
+        self.assertFalse(data["agent_launched"])
+
+    def poke(self, **body):
+        body.setdefault("conversation_id", "11111111-2222-3333-4444-555555555555")
+        return self.request("/api/conversation/poke", "POST", body)
+
+    def test_conversation_poke_validates_cwd_prompt_and_id(self):
+        popen = mock.Mock()
+        with (
+            mock.patch.object(self.server_module, "resolve_jetski_cli", return_value="/fake/jetski_cli"),
+            mock.patch.object(self.server_module.subprocess, "Popen", popen),
+        ):
+            for body in (
+                {"cwd": str(self.outside)},
+                {"cwd": str(self.workspace / "missing")},
+                {"cwd": f"{self.workspace}/../outside"},
+                {"cwd": "/"},
+                {"prompt": 42},
+                {"prompt": "nul\x00byte"},
+                {"prompt": "测" * (self.server_module.MAX_AGENT_PROMPT_BYTES // 3 + 1)},
+                {"conversation_id": "../../etc"},
+                {"conversation_id": "-h"},
+                {"conversation_id": "C:evil"},
+            ):
+                with self.subTest(body={k: str(v)[:40] for k, v in body.items()}):
+                    status, _, data = self.poke(**body)
+                    self.assertEqual(status, 400)
+                    self.assertIn("error", data)
+        popen.assert_not_called()
+
+    def test_conversation_poke_runs_in_workspace(self):
+        spawned = threading.Event()
+        captured = {}
+
+        def fake_popen(cmd, **kwargs):
+            captured.update(cmd=cmd, **kwargs)
+            spawned.set()
+            return _FakeJetskiProc()
+
+        project = self.workspace / "项目_🚀"
+        project.mkdir()
+        with (
+            mock.patch.object(self.server_module, "resolve_jetski_cli", return_value="/fake/jetski_cli"),
+            mock.patch.object(self.server_module.subprocess, "Popen", side_effect=fake_popen),
+        ):
+            status, _, data = self.poke(cwd=str(project), prompt="继续 ✅")
+            self.assertEqual(status, 200, data)
+            self.assertTrue(spawned.wait(timeout=5))
+        self.assertEqual(captured["cwd"], str(project))
+        self.assertIn("继续 ✅", captured["cmd"])
+
+
+class WorkflowUIPathRulesTest(unittest.TestCase):
+    """Unit tests for workspace roots and prompt validation."""
+
+    def test_workspace_roots_exclude_home_and_its_ancestors(self):
+        import workflows.ui.server as server_module
+
+        temp_dir = Path(tempfile.mkdtemp(prefix="workflow_ui_roots_")).resolve()
+        self.addCleanup(shutil.rmtree, temp_dir, ignore_errors=True)
+        home = temp_dir / "home"
+        checkout = home / "work" / "emu-main-dev"
+        checkout.mkdir(parents=True)
+        source_dirs = [
+            {"path": str(checkout), "exists": True},
+            {"path": str(temp_dir), "exists": True},
+            {"path": str(home / "gone"), "exists": False},
+        ]
+        with (
+            mock.patch.object(Path, "home", return_value=home),
+            mock.patch.object(server_module.os, "getcwd", return_value=str(home)),
+            mock.patch.object(server_module, "get_known_source_directories", return_value=source_dirs),
+        ):
+            self.assertEqual(server_module.get_workspace_roots(), [checkout])
+
+    def test_validate_agent_prompt(self):
+        from workflows.ui.server import MAX_AGENT_PROMPT_BYTES, validate_agent_prompt
+
+        self.assertIsNone(validate_agent_prompt(None))
+        self.assertIsNone(validate_agent_prompt("Please continue 测试_🚀_é"))
+        self.assertIsNone(validate_agent_prompt("a" * MAX_AGENT_PROMPT_BYTES))
+        self.assertIn("string", validate_agent_prompt(["list"]))
+        self.assertIn("NUL", validate_agent_prompt("a\x00b"))
+        self.assertIn("surrogate", validate_agent_prompt("bad \ud800"))
+        self.assertIn(str(MAX_AGENT_PROMPT_BYTES), validate_agent_prompt("a" * (MAX_AGENT_PROMPT_BYTES + 1)))
 
 
 if __name__ == "__main__":

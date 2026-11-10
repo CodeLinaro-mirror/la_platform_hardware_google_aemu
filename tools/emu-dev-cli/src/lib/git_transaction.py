@@ -12,23 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Git-native transaction manager for automated progressive refactoring.
-
-Uses Git commit trailers (Tidy-Transaction, Tidy-Anchor, Tidy-Level, Tidy-Symbol)
-to store transactional state directly in the Git log without creating untracked files.
-"""
+"""Git-Native Transaction & Checkpointing Manager for emu-dev-cli tidy."""
 
 from dataclasses import dataclass
-import logging
-import os
 from pathlib import Path
-import subprocess
 from typing import Dict, List, Optional
 
-from commands.source_directory import get_all_source_directories, get_source_directory
+from core.git import GitService, ProdGitService
+from core.process import ProcessRunner, SubprocessRunner
 
-logger = logging.getLogger(__name__)
-
+# Git trailer keys used for stateless crash recovery
 TRAILER_TRANSACTION = "Tidy-Transaction"
 TRAILER_ANCHOR = "Tidy-Anchor"
 TRAILER_LEVEL = "Tidy-Level"
@@ -37,306 +30,239 @@ TRAILER_SYMBOL_NEW = "Tidy-Symbol-New"
 TRAILER_STATUS = "Tidy-Status"
 
 
+def resolve_git_repo_for_target(
+    target: str,
+    root_hint: Optional[Path] = None,
+    *,
+    git_service: Optional[GitService] = None,
+    process_runner: Optional[ProcessRunner] = None,
+) -> Path:
+    """Resolves the Git repository directory corresponding to a Bazel target or workspace."""
+    root = (root_hint or Path.cwd()).resolve()
+    git = git_service or ProdGitService(process_runner)
+    runner = process_runner or (
+        git.process_runner if isinstance(git, ProdGitService) else SubprocessRunner()
+    )
+
+    if target.startswith("@goldfish//"):
+        goldfish_dir = root / "hardware" / "generic" / "goldfish"
+        if (goldfish_dir / ".git").exists():
+            return goldfish_dir
+
+    # Check if root itself is inside a git repo
+    top = git.top_level(cwd=root)
+    if top is not None:
+        return top
+
+    # Try resolving the target package path via bazel query --output=location
+    base_target = (
+        target[:-5]
+        if target.endswith("_tidy")
+        else (target[:-5] if target.endswith(":tidy") else target)
+    )
+    res = runner.run(
+        ["bazel", "query", "--output=location", base_target],
+        cwd=root,
+        check=False,
+    )
+    if res.returncode == 0 and res.stdout.strip():
+        first_line = res.stdout.strip().splitlines()[0]
+        build_path = Path(first_line.split(":")[0]).resolve()
+        curr = build_path.parent if build_path.is_file() else build_path
+        while curr != curr.parent:
+            if (curr / ".git").exists():
+                return curr
+            curr = curr.parent
+
+    # Fallback: check common Android Emulator subprojects under superproject root
+    for sub in [
+        "hardware/generic/goldfish",
+        "hardware/google/aemu",
+        "external/qemu",
+    ]:
+        sub_dir = root / sub
+        if (sub_dir / ".git").exists():
+            return sub_dir
+
+    return root
+
+
 @dataclass
 class ActiveTransaction:
-    anchor_commit: str
+    """Represents an in-progress refactoring transaction discovered from Git history."""
+
     target: str
+    anchor_commit: str
     level: int
     latest_symbol_old: Optional[str] = None
     latest_symbol_new: Optional[str] = None
     status: str = "IN_PROGRESS"
 
 
-def resolve_git_repo_for_target(
-    target: Optional[str], root_hint: Optional[Path] = None
-) -> Path:
-    """Resolves the git repository root for a given Bazel target in repo superprojects or standalone sub-repos."""
-    base = root_hint or Path(get_source_directory("emu-main-next") or os.getcwd())
-
-    # 1. Resolve top-level Git root for base by checking .git upwards
-    git_root = base
-    curr = base.resolve()
-    while curr != curr.parent:
-        if (curr / ".git").exists():
-            git_root = curr
-            break
-        curr = curr.parent
-
-    if git_root == base:
-        try:
-            res = subprocess.run(
-                ["git", "rev-parse", "--show-toplevel"],
-                cwd=base,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if res.returncode == 0 and res.stdout.strip():
-                git_root = Path(res.stdout.strip())
-        except Exception:
-            git_root = base
-
-    if not target:
-        return git_root
-
-    # 2. Map Bazel target natively via bazel query --output=location
-    try:
-        res = subprocess.run(
-            ["bazel", "query", "--output=location", target],
-            cwd=base,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if res.returncode == 0 and res.stdout.strip():
-            location = res.stdout.strip().split(":")[0]
-            curr = Path(location).resolve().parent
-            while curr != curr.parent:
-                if (curr / ".git").exists():
-                    return curr
-                curr = curr.parent
-    except Exception as exc:
-        logging.getLogger(__name__).debug("Ignored error in resolve_git_repo_for_target: %s", exc)
-
-    return git_root
-
-
 class GitTransactionContext:
-    """Manages Git-native transactions with anchor tracking, step commits, and squashing."""
+    """Manages atomic Git commits, trailers, and rollback for clang-tidy refactorings."""
 
     def __init__(
-        self, workspace_root: Optional[Path] = None, target: Optional[str] = None
-    ) -> None:
-        self.workspace_root = resolve_git_repo_for_target(
-            target, root_hint=workspace_root
+        self,
+        workspace_root: Optional[Path] = None,
+        *,
+        target: Optional[str] = None,
+        git_service: Optional[GitService] = None,
+    ):
+        self.workspace_root = (workspace_root or Path.cwd()).resolve()
+        self._git: GitService = git_service or ProdGitService(
+            default_cwd=self.workspace_root
         )
         self._anchor_commit: Optional[str] = None
         self._target: Optional[str] = target
-        self._level: int = 1
+        self._level: Optional[int] = None
         self._step_commits: List[str] = []
+
+    @property
+    def git_service(self) -> GitService:
+        """Returns the underlying `GitService`."""
+        return self._git
 
     @property
     def anchor_commit(self) -> Optional[str]:
         return self._anchor_commit
 
-    def is_tree_clean(self, ignore_untracked: bool = False) -> bool:
-        """Returns True if the working tree has no uncommitted changes."""
-        cmd = ["git", "status", "--porcelain"]
-        if ignore_untracked:
-            cmd.append("-uno")
-        res = subprocess.run(
-            cmd,
-            cwd=self.workspace_root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        return not bool(res.stdout.strip())
+    def _run_git(self, args: List[str], check: bool = True) -> str:
+        """Executes a git command via GitService and returns stripped stdout."""
+        result = self._git.run_git(args, cwd=self.workspace_root, check=check)
+        return result.stdout.strip()
+
+    def is_tree_clean(self) -> bool:
+        """Checks if the working tree has uncommitted changes to tracked files."""
+        return self._git.is_clean(cwd=self.workspace_root, untracked=False)
+
+    def get_current_head(self) -> str:
+        """Returns the full SHA-1 hash of HEAD."""
+        return self._git.head_sha(cwd=self.workspace_root, check=True)
 
     def start_transaction(
-        self, target: str, level: int = 1, force: bool = False
+        self, target: str, level: int, force: bool = False
     ) -> str:
-        """Records the baseline clean commit hash as the transaction anchor."""
+        """Begins a refactoring transaction and records the anchor commit."""
         if not force and not self.is_tree_clean():
             raise RuntimeError(
-                "Uncommitted changes detected in repository. Commit or stash them before starting a transaction."
+                "Working tree has uncommitted changes. Commit or stash them before running tidy fix, or pass --force."
             )
-
-        res = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=self.workspace_root,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        self._anchor_commit = res.stdout.strip()
         self._target = target
         self._level = level
-        self._step_commits = []
-        logger.info(
-            "Started Git transaction with anchor %s for target %s (level=%d)",
-            self._anchor_commit,
-            target,
-            level,
-        )
+        self._anchor_commit = self.get_current_head()
+        self._step_commits.clear()
         return self._anchor_commit
 
     def commit_step(
         self,
         symbol_old: str,
         symbol_new: str,
-        message: Optional[str] = None,
+        message: str,
         status: str = "IN_PROGRESS",
-    ) -> str:
-        """Commits an individual verified refactoring step with structured Git trailers."""
-        if not self._anchor_commit or not self._target:
-            raise RuntimeError("Cannot commit step: No active transaction anchor.")
+    ) -> Optional[str]:
+        """Stages all modified tracked files and creates an atomic step commit with trailers."""
+        if not self._anchor_commit or not self._target or self._level is None:
+            raise RuntimeError("Transaction has not been started.")
 
-        if self.is_tree_clean(ignore_untracked=True):
-            logger.info(
-                "Working tree already clean for symbol %s -> %s. Skipping duplicate commit.",
-                symbol_old,
-                symbol_new,
-            )
-            res = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=self.workspace_root,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            return res.stdout.strip()
-
-        desc = message or f"refactor: Rename '{symbol_old}' to '{symbol_new}'"
-        commit_msg = (
-            f"{desc}\n\n"
-            f"{TRAILER_TRANSACTION}: {self._target}\n"
-            f"{TRAILER_ANCHOR}: {self._anchor_commit}\n"
-            f"{TRAILER_LEVEL}: {self._level}\n"
-            f"{TRAILER_SYMBOL_OLD}: {symbol_old}\n"
-            f"{TRAILER_SYMBOL_NEW}: {symbol_new}\n"
-            f"{TRAILER_STATUS}: {status}\n"
+        self._git.add(
+            cwd=self.workspace_root, update_only=True, check=True
         )
 
-        subprocess.run(["git", "add", "-u"], cwd=self.workspace_root, check=True)
-        subprocess.run(
-            ["git", "commit", "-m", commit_msg], cwd=self.workspace_root, check=True
+        status_out = self._git.status_porcelain(
+            cwd=self.workspace_root, untracked=False
         )
+        if not status_out.strip():
+            return None
 
-        res = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=self.workspace_root,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        commit_hash = res.stdout.strip()
+        trailers = [
+            f"{TRAILER_TRANSACTION}: {self._target}",
+            f"{TRAILER_ANCHOR}: {self._anchor_commit}",
+            f"{TRAILER_LEVEL}: {self._level}",
+            f"{TRAILER_SYMBOL_OLD}: {symbol_old}",
+            f"{TRAILER_SYMBOL_NEW}: {symbol_new}",
+            f"{TRAILER_STATUS}: {status}",
+        ]
+        full_msg = f"{message.strip()}\n\n" + "\n".join(trailers)
+        self._git.commit(full_msg, cwd=self.workspace_root, check=True)
+        commit_hash = self.get_current_head()
         self._step_commits.append(commit_hash)
-        logger.info(
-            "Committed step %s for symbol %s -> %s",
-            commit_hash[:8],
-            symbol_old,
-            symbol_new,
-        )
         return commit_hash
 
-    def rollback_step(self) -> None:
-        """Discards uncommitted working tree changes and rolls back to the latest clean commit."""
-        subprocess.run(
-            ["git", "reset", "--hard", "HEAD"], cwd=self.workspace_root, check=True
+    def rollback_last_step(self) -> None:
+        """Rolls back the most recent step or working tree changes."""
+        if not self.is_tree_clean():
+            self._git.reset("HEAD", cwd=self.workspace_root, mode="hard")
+        elif self._step_commits:
+            self._git.reset("HEAD~1", cwd=self.workspace_root, mode="hard")
+            self._step_commits.pop()
+
+    def rollback_to_anchor(self) -> None:
+        """Aborts the entire transaction and resets hard to the anchor commit."""
+        if not self._anchor_commit:
+            raise RuntimeError("No anchor commit recorded to rollback to.")
+        self._git.reset(
+            self._anchor_commit, cwd=self.workspace_root, mode="hard"
         )
-        logger.warning("Rolled back uncommitted changes to HEAD.")
+        self._step_commits.clear()
 
-    def abort_transaction(self, anchor_commit: Optional[str] = None) -> None:
-        """Aborts the entire active transaction and rolls back to the anchor commit."""
-        anchor = anchor_commit or self._anchor_commit
-        if not anchor:
-            active = self.get_active_transaction(workspace_root=self.workspace_root)
-            if active:
-                anchor = active.anchor_commit
+    def finalize_and_squash(self, final_commit_msg: str) -> Optional[str]:
+        """Squashes all intermediate step commits since anchor into a single clean commit."""
+        if not self._anchor_commit:
+            raise RuntimeError("No anchor commit recorded.")
 
-        if not anchor:
-            raise RuntimeError("No active transaction anchor found to abort.")
+        current_head = self.get_current_head()
+        if current_head == self._anchor_commit and self.is_tree_clean():
+            return None
 
-        subprocess.run(
-            ["git", "reset", "--hard", anchor], cwd=self.workspace_root, check=True
+        self._git.reset(
+            self._anchor_commit, cwd=self.workspace_root, mode="soft"
         )
-        self._anchor_commit = None
-        self._step_commits = []
-        logger.info(
-            "Successfully aborted transaction and restored working tree to anchor %s",
-            anchor,
+        self._git.add(
+            cwd=self.workspace_root, update_only=True, check=True
         )
-
-    def finalize_and_squash(
-        self, final_commit_msg: str, anchor_commit: Optional[str] = None
-    ) -> str:
-        """Soft-resets all intermediate step commits back to the anchor and commits the final atomic changelist."""
-        anchor = anchor_commit or self._anchor_commit
-        if not anchor:
-            active = self.get_active_transaction(workspace_root=self.workspace_root)
-            if active:
-                anchor = active.anchor_commit
-
-        if not anchor:
-            raise RuntimeError("No active transaction anchor found to finalize.")
-
-        # Check if HEAD is ahead of anchor
-        current_head = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=self.workspace_root,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-
-        if current_head == anchor:
-            logger.info("HEAD is already at anchor %s. Nothing to squash.", anchor)
-            return anchor
-
-        subprocess.run(
-            ["git", "reset", "--soft", anchor], cwd=self.workspace_root, check=True
+        self._git.commit(
+            final_commit_msg.strip(), cwd=self.workspace_root, check=True
         )
-        subprocess.run(
-            ["git", "commit", "-m", final_commit_msg],
-            cwd=self.workspace_root,
-            check=True,
-        )
-
-        final_hash = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=self.workspace_root,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-        logger.info(
-            "Successfully finalized and squashed transaction to atomic commit %s",
-            final_hash,
-        )
-        return final_hash
+        self._step_commits.clear()
+        return self.get_current_head()
 
     @classmethod
     def get_active_transaction(
-        cls, workspace_root: Optional[Path] = None
+        cls,
+        workspace_root: Optional[Path] = None,
+        *,
+        git_service: Optional[GitService] = None,
     ) -> Optional[ActiveTransaction]:
-        """Inspects the latest git commit for active Tidy-Transaction trailers."""
-        root = workspace_root or Path.cwd()
-        res = subprocess.run(
-            ["git", "log", "-1", "--pretty=format:%B"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=False,
+        """Inspects HEAD commit trailers to see if an interrupted transaction is active."""
+        root = (workspace_root or Path.cwd()).resolve()
+        git = git_service or ProdGitService(default_cwd=root)
+        res = git.run_git(
+            ["log", "-1", "--format=%B", "HEAD"], cwd=root, check=False
         )
-        if res.returncode != 0 or not res.stdout:
-            return None
-
-        body = res.stdout
-        if TRAILER_TRANSACTION not in body or TRAILER_ANCHOR not in body:
+        if res.returncode != 0 or not res.stdout.strip():
             return None
 
         trailers: Dict[str, str] = {}
-        for line in body.splitlines():
+        for line in res.stdout.splitlines():
             if ":" in line:
                 key, val = line.split(":", 1)
-                trailers[key.strip()] = val.strip()
+                key = key.strip()
+                if key.startswith("Tidy-"):
+                    trailers[key] = val.strip()
 
-        anchor = trailers.get(TRAILER_ANCHOR)
-        target = trailers.get(TRAILER_TRANSACTION)
-        if not anchor or not target:
+        if TRAILER_TRANSACTION not in trailers or TRAILER_ANCHOR not in trailers:
             return None
 
-        try:
-            level = int(trailers.get(TRAILER_LEVEL, "1"))
-        except ValueError:
-            level = 1
+        status = trailers.get(TRAILER_STATUS, "IN_PROGRESS")
+        if status != "IN_PROGRESS":
+            return None
 
         return ActiveTransaction(
-            anchor_commit=anchor,
-            target=target,
-            level=level,
+            target=trailers[TRAILER_TRANSACTION],
+            anchor_commit=trailers[TRAILER_ANCHOR],
+            level=int(trailers.get(TRAILER_LEVEL, "1")),
             latest_symbol_old=trailers.get(TRAILER_SYMBOL_OLD),
             latest_symbol_new=trailers.get(TRAILER_SYMBOL_NEW),
-            status=trailers.get(TRAILER_STATUS, "IN_PROGRESS"),
+            status=status,
         )

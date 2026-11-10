@@ -25,6 +25,16 @@ import "google/api/field_behavior.proto";
 //     - AudioService: raw PCM for programmatic audio consumers that cannot decode Opus.
 //   `DeviceCapabilities.rtc.supported_tracks` states which tracks this device can
 //   actually negotiate; it is not the same set on every device.
+//
+// NEGOTIATION:
+//   The client is always the offerer and the device always answers, so offers never
+//   collide. The client offers a receive-only transceiver for the screen tracks. To be
+//   able to send its microphone (`TRACK_TYPE_AUDIO_MICROPHONE`), the client offers its
+//   audio transceiver as `sendrecv` from the start, and otherwise as `recvonly`. It then
+//   turns the microphone on and off with `RTCRtpSender.replaceTrack`, without
+//   renegotiating. While such a session is connected, the device lists one
+//   `MicrophoneInput.Kind.WEBRTC` input (`source_id = "webrtc"`, see
+//   `AudioService.GetAudioState`), which is silent while no track is attached.
 service RtcService {
   // Allocates a new WebRTC signaling session and returns ICE server configuration and track bindings.
   //
@@ -40,6 +50,9 @@ service RtcService {
   //
   // Expected gRPC status codes:
   //   - NOT_FOUND: `handle.session_id` does not match an active WebRTC session.
+  //   - UNIMPLEMENTED: The device does not change tracks on its own. The emulator returns this
+  //     for any non-empty `added_tracks` or `removed_tracks`; renegotiate from the client
+  //     instead (see NEGOTIATION above).
   rpc UpdateRtcStream(RtcStreamUpdateRequest) returns (UpdateRtcStreamResponse);
 
   // Explicitly tears down an active WebRTC PeerConnection session and releases encoder resources.
@@ -48,20 +61,22 @@ service RtcService {
   //   - NOT_FOUND: `handle.session_id` does not match an active WebRTC session.
   rpc CloseRtcStream(CloseRtcStreamRequest) returns (CloseRtcStreamResponse);
 
-  // Sends a client JSEP signaling message (SDP Answer or ICE Candidate) to the emulator peer connection.
+  // Sends a client JSEP signaling message (SDP Offer, including renegotiation offers, or ICE
+  // Candidate) to the emulator peer connection.
   //
   // Expected gRPC status codes:
   //   - INVALID_ARGUMENT: Missing payload or malformed SDP in `message`.
   //   - NOT_FOUND: `handle.session_id` does not match an active WebRTC session.
   rpc SendJsepMessage(JsepMessage) returns (SendJsepMessageResponse);
 
-  // Streams server-originated JSEP signaling messages (SDP Offers and ICE Candidates) for a session.
+  // Streams server-originated JSEP signaling messages (SDP Answers and ICE Candidates) for a session.
   //
   // STREAM LIFECYCLE:
   //   1. Client calls `RequestRtcStream` to obtain an `RtcSession` handle.
   //   2. Client opens `ReceiveJsepMessageStream(handle)`.
-  //   3. Server emits the initial SDP Offer followed by trickle ICE candidates as they are gathered.
-  //   4. Client responds to offers and candidates via `SendJsepMessage`.
+  //   3. Client sends its SDP Offer, then trickle ICE candidates, via `SendJsepMessage`.
+  //   4. Server emits the SDP Answer for each offer, followed by trickle ICE candidates as they
+  //      are gathered.
   //   5. Canceling or closing this signaling stream detaches the stream observer WITHOUT tearing down
   //      the underlying WebRTC PeerConnection or active UDP/TURN media flows. Clients may re-subscribe
   //      `ReceiveJsepMessageStream(handle)` to an active session for ICE restarts or track renegotiation.
@@ -160,9 +175,11 @@ message RtcStreamResponse {
 message RtcStreamUpdateRequest {
   // Handle identifying the active WebRTC session to modify.
   RtcSession handle = 1 [(google.api.field_behavior) = REQUIRED];
-  // Media tracks to add to the peer connection (triggers server SDP renegotiation).
+  // Media tracks to add to the peer connection (triggers server SDP renegotiation where
+  // supported; see `UpdateRtcStream`).
   repeated TrackType added_tracks = 2;
-  // Media tracks to remove from the peer connection (triggers server SDP renegotiation).
+  // Media tracks to remove from the peer connection (triggers server SDP renegotiation where
+  // supported; see `UpdateRtcStream`).
   repeated TrackType removed_tracks = 3;
 }
 

@@ -43,7 +43,10 @@ enum TrackType {
   TRACK_TYPE_SCREEN_SECONDARY = 2;
   // Device speaker output audio track (Opus encoded).
   TRACK_TYPE_AUDIO_SPEAKER = 3;
-  // Client-to-device microphone injection audio track.
+  // Client-to-device microphone audio track (Opus). Sent on the client's audio transceiver,
+  // offered as `sendrecv` at connect and toggled with `replaceTrack` (see `RtcService`);
+  // feeds the virtual microphone through the shared `MicrophoneInput.Kind.WEBRTC` input
+  // (`source_id = "webrtc"`).
   TRACK_TYPE_AUDIO_MICROPHONE = 4;
 }
 

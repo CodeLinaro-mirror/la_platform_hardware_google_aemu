@@ -398,12 +398,11 @@ class ScreencastCommandTest(unittest.TestCase):
                 patch("commands.screencast.ensure_utf8_stdio") as mock_utf8,
                 patch("commands.screencast.upload_screencast", return_value=fake_res),
                 patch("sys.stdout", stdout_buf),
-                self.assertRaises(SystemExit) as cm,
             ):
-                args.func(args)
+                res = args._command_instance.execute(args)
 
             mock_utf8.assert_called_once()
-            self.assertEqual(cm.exception.code, 0)
+            self.assertEqual(res.exit_code, 0)
             payload = json.loads(stdout_buf.getvalue())
             self.assertEqual(payload["status"], "success")
             self.assertEqual(

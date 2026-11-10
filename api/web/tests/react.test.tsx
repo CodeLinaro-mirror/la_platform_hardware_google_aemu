@@ -17,8 +17,9 @@ import React from 'react';
 import { renderToString } from 'react-dom/server';
 import { DeviceClient } from '../src/core/client';
 import { DeviceProvider, useDeviceClient } from '../src/react/context';
-import { useDevice, useSensors, useVm } from '../src/react/hooks';
+import { useAudio, useDevice, useMicrophone, useSensors, useVm } from '../src/react/hooks';
 import { DeviceView, computeNormalizedCoordinates } from '../src/react/DeviceView';
+import { AudioState } from '../src/core/audio';
 
 describe('React Integration (TDD)', () => {
   let client: DeviceClient;
@@ -110,6 +111,68 @@ describe('React Integration (TDD)', () => {
     expect(computeNormalizedCoordinates(500, 750, rect, 1000, 500)).toEqual({
       x: 0.5,
       y: 1,
+    });
+  });
+
+  it('useMicrophone renders the controller state and drives enable, disable, and toggle', async () => {
+    const enableSpy = vi.spyOn(client.rtc, 'enableMicrophone').mockResolvedValue(undefined);
+    const disableSpy = vi.spyOn(client.rtc, 'disableMicrophone').mockResolvedValue(undefined);
+    const captured: { mic?: ReturnType<typeof useMicrophone> } = {};
+
+    function Probe() {
+      captured.mic = useMicrophone();
+      return <span>{captured.mic.enabled ? 'mic-on' : 'mic-off'}</span>;
+    }
+
+    const html = renderToString(
+      <DeviceProvider client={client}>
+        <Probe />
+      </DeviceProvider>
+    );
+    expect(html).toContain('mic-off');
+
+    await captured.mic!.enable({ deviceId: '测试_🚀_é' });
+    expect(enableSpy).toHaveBeenCalledWith({ deviceId: '测试_🚀_é' });
+
+    // The controller still reports the microphone off, so toggle enables.
+    await captured.mic!.toggle();
+    expect(enableSpy).toHaveBeenCalledTimes(2);
+
+    await captured.mic!.disable();
+    expect(disableSpy).toHaveBeenCalledTimes(1);
+
+    enableSpy.mockRejectedValue(new Error('NotAllowedError'));
+    await expect(captured.mic!.enable()).rejects.toThrow('NotAllowedError');
+  });
+
+  it('useAudio maps mute and gain controls onto UpdateAudioState', async () => {
+    const updateSpy = vi
+      .spyOn(client.audio, 'UpdateAudioState')
+      .mockResolvedValue(AudioState.fromPartial({ microphoneMuted: true }));
+    const captured: { audio?: ReturnType<typeof useAudio> } = {};
+
+    function Probe() {
+      captured.audio = useAudio({ stream: false });
+      return null;
+    }
+
+    renderToString(
+      <DeviceProvider client={client}>
+        <Probe />
+      </DeviceProvider>
+    );
+
+    const state = await captured.audio!.setMicrophoneMuted(true);
+    expect(state.microphoneMuted).toBe(true);
+    await captured.audio!.setInputMuted('host', false);
+    await captured.audio!.setInputGain('测试_🚀_é', 2);
+
+    expect(updateSpy).toHaveBeenCalledWith({ microphoneMuted: true });
+    expect(updateSpy).toHaveBeenCalledWith({
+      microphoneInputs: [{ sourceId: 'host', muted: false }],
+    });
+    expect(updateSpy).toHaveBeenCalledWith({
+      microphoneInputs: [{ sourceId: '测试_🚀_é', gain: 2 }],
     });
   });
 });

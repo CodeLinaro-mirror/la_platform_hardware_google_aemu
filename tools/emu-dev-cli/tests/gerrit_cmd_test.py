@@ -67,7 +67,7 @@ class GerritCommandTest(unittest.TestCase):
         args = parser.parse_args(["--json", "gerrit", "list", "--unresolved-only"])
         buf = io.StringIO()
         with mock.patch("sys.stdout", buf):
-            args.func(args)
+            args._command_instance.execute(args)
         payload = json.loads(buf.getvalue())
         self.assertEqual(payload["status"], "success")
         self.assertEqual(len(payload["changes"]), 1)
@@ -123,7 +123,7 @@ class GerritCommandTest(unittest.TestCase):
         args = parser.parse_args(["gerrit", "comments", "42659931"])
         buf = io.StringIO()
         with mock.patch("sys.stdout", buf):
-            args.func(args)
+            args._command_instance.execute(args)
         output = buf.getvalue()
         self.assertIn("CL 42659931", output)
         self.assertIn("Use from __future__ import annotations", output)
@@ -176,7 +176,7 @@ class GerritCommandTest(unittest.TestCase):
                 ]
             )
             with mock.patch("sys.stdout", io.StringIO()):
-                stage_args.func(stage_args)
+                stage_args._command_instance.execute(stage_args)
 
             updated = json.loads(q_file.read_text(encoding="utf-8"))
             self.assertEqual(
@@ -189,7 +189,7 @@ class GerritCommandTest(unittest.TestCase):
                 ["gerrit", "reply", "--from-queue", str(q_file)]
             )
             with mock.patch("sys.stdout", io.StringIO()):
-                pub_args.func(pub_args)
+                pub_args._command_instance.execute(pub_args)
 
             mock_client.post_review_replies.assert_called_once()
             published_q = json.loads(q_file.read_text(encoding="utf-8"))
@@ -244,7 +244,7 @@ class GerritCommandTest(unittest.TestCase):
         )
         buf = io.StringIO()
         with mock.patch("sys.stdout", buf):
-            args.func(args)
+            args._command_instance.execute(args)
         payload = json.loads(buf.getvalue())
         self.assertEqual(payload["event"], "new_comments")
         self.assertEqual(payload["unresolved_count"], 1)
@@ -285,7 +285,7 @@ class GerritCommandTest(unittest.TestCase):
         args = parser.parse_args(["--json", "gerrit", "resume", "42659931"])
         buf = io.StringIO()
         with mock.patch("sys.stdout", buf):
-            args.func(args)
+            args._command_instance.execute(args)
         payload = json.loads(buf.getvalue())
         self.assertEqual(payload["status"], "success")
         self.assertEqual(payload["state_id"], "abc12345")

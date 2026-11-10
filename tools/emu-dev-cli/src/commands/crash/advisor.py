@@ -18,25 +18,56 @@ Provides environment discovery, import stubs, and execution helpers
 for the CrashAdvisor tool component.
 """
 
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 import logging
 from pathlib import Path
-import subprocess
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, Optional
 
-from lib.bazel import BazelRunner
+from core.context import ExecutionContext
+from core.errors import ExecutionError
+from core.process import ProcessResult
+from lib.bazel import find_bazel_cmd
 from lib.workspace import WorkspacePathResolver
 
 logger = logging.getLogger(__name__)
 
 ADVISOR_REL_DIR = "hardware/generic/goldfish/emulator/crashreport/tool/advisor"
 LIBS_PYTHON_REL_DIR = "hardware/google/aemu/tools/libs_python"
+AEMU_REL_DIR = "hardware/google/aemu"
 ADVISOR_BAZEL_TARGET = "@goldfish//emulator/crashreport/tool/advisor:advisor"
+ADVISOR_RUN_TARGET = "@goldfish//emulator/crashreport/tool/advisor"
+ADVISOR_BINARY_NAME = "advisor"
+# hardware/google/aemu is three levels below the checkout root.
+CHECKOUT_ROOT_PARENT_INDEX = 2
+
+CHECKOUT_REMEDIATION = (
+    "Register your emu-main-next checkout with "
+    "'emu-dev-cli source-directory set emu-main-next /path/to/src', then retry."
+)
+ADVISOR_RUN_REMEDIATION = (
+    "Check the CrashAdvisor output for the failing step. Pass --token (or set "
+    "BUGANIZER_TOKEN) if downloads fail with an auth error. "
+    + CHECKOUT_REMEDIATION
+)
 
 _resolver = WorkspacePathResolver("emu-main-next")
 
 
 def ensure_crashadvisor_imports() -> Dict[str, Any]:
+    """Ensures CrashAdvisor modules can be imported and returns them.
+
+    Returns:
+        Dictionary mapping CrashAdvisor module names ('api', 'buganizer', 'client', etc.) to imported modules.
+
+    Raises:
+        ExecutionError: If the CrashAdvisor checkout or its modules cannot be found.
+    """
+    return load_crashadvisor_modules()
+
+
+def load_crashadvisor_modules() -> Dict[str, Any]:
     """Ensures crashadvisor and libs_python directories are in sys.path and returns imported modules.
 
     Configures fallback stubs for missing optional packages (tqdm, googleapiclient, etc.)
@@ -44,14 +75,16 @@ def ensure_crashadvisor_imports() -> Dict[str, Any]:
 
     Returns:
         Dictionary mapping CrashAdvisor module names ('api', 'buganizer', 'client', etc.) to imported modules.
+
+    Raises:
+        ExecutionError: If the CrashAdvisor checkout or its modules cannot be found.
     """
     advisor_dir = _resolver.find_directory(ADVISOR_REL_DIR)
     if not advisor_dir or not advisor_dir.exists():
-        sys.stderr.write(
-            f"❌ ERROR: Could not locate CrashAdvisor at {ADVISOR_REL_DIR}.\n"
-            "Ensure your workspace source directory is registered via `emu-dev-cli source-directory set emu-main-next /path/to/src`.\n"
+        raise ExecutionError(
+            f"Could not locate CrashAdvisor at {ADVISOR_REL_DIR} in any registered source directory.",
+            remediation=CHECKOUT_REMEDIATION,
         )
-        sys.exit(1)
 
     advisor_dir_str = str(advisor_dir)
     if advisor_dir_str not in sys.path:
@@ -165,57 +198,102 @@ def ensure_crashadvisor_imports() -> Dict[str, Any]:
             "advisor": advisor,
         }
     except ImportError as e:
-        sys.stderr.write(f"❌ ERROR: Failed to import CrashAdvisor modules: {e}\n")
-        sys.exit(1)
+        raise ExecutionError(
+            f"Failed to import CrashAdvisor modules from '{advisor_dir}': {e}.",
+            remediation=CHECKOUT_REMEDIATION,
+            cause=e,
+        ) from e
 
 
-def run_crashadvisor_bazel(
-    args_list: List[str], check: bool = True
-) -> subprocess.CompletedProcess:
-    """Executes CrashAdvisor via compiled executable binary or falls back to Bazel target.
-
-    Args:
-        args_list: Command line argument list to pass to CrashAdvisor.
-        check: Whether to raise CalledProcessError on non-zero exit.
-
-    Returns:
-        CompletedProcess instance from subprocess.run execution.
-    """
-    advisor_bin = _resolver.find_tool_binary(
-        "advisor", bazel_target=ADVISOR_BAZEL_TARGET
+def create_crash_bug_tracker(
+    token: Optional[str], qa_mode: bool, verbose: bool
+) -> Any:
+    """Returns CrashAdvisor's BuganizerClient (crash hotlists, QA tracker, duplicate checks)."""
+    buganizer_mod = load_crashadvisor_modules()["buganizer"]
+    client_cls = getattr(buganizer_mod, "BuganizerClient", None)
+    if client_cls is None:
+        raise ExecutionError(
+            "CrashAdvisor buganizer module does not expose BuganizerClient.",
+            remediation=CHECKOUT_REMEDIATION,
+        )
+    return client_cls(
+        token=token, qa_mode=qa_mode, verbose=verbose
     )
-    try:
-        if advisor_bin:
-            cmd = [str(advisor_bin)] + args_list
-            return subprocess.run(cmd, check=check)
 
-        src_dir = _resolver.find_directory("hardware/google/aemu")
-        source_dir_str = (
-            str(src_dir.parent.parent.parent) if src_dir else str(Path.cwd())
-        )
 
-        runner = BazelRunner(source_dir=source_dir_str)
-        return runner.run(
-            target="@goldfish//emulator/crashreport/tool/advisor",
-            args=args_list,
-            cwd=source_dir_str,
+@dataclass(frozen=True)
+class AdvisorLaunch:
+    """Command prefix (and working directory) that starts the CrashAdvisor tool."""
+
+    command: tuple[str, ...]
+    cwd: Optional[Path] = None
+
+
+def resolve_advisor_launch(
+    resolver: WorkspacePathResolver = _resolver,
+    find_bazel: Callable[[Optional[Path]], str] = find_bazel_cmd,
+) -> AdvisorLaunch:
+    """Prefers a prebuilt advisor binary, else `bazel run` from the checkout root."""
+    advisor_bin = resolver.find_tool_binary(
+        ADVISOR_BINARY_NAME, bazel_target=ADVISOR_BAZEL_TARGET
+    )
+    if advisor_bin:
+        return AdvisorLaunch(command=(str(advisor_bin),))
+
+    aemu_dir = resolver.find_directory(AEMU_REL_DIR)
+    source_root = (
+        aemu_dir.parents[CHECKOUT_ROOT_PARENT_INDEX] if aemu_dir else Path.cwd()
+    )
+    return AdvisorLaunch(
+        command=(find_bazel(source_root), "run", ADVISOR_RUN_TARGET, "--"),
+        cwd=source_root,
+    )
+
+
+class CrashAdvisorRunner:
+    """Runs the CrashAdvisor tool for one crash through the context's ProcessRunner."""
+
+    def __init__(
+        self,
+        *,
+        resolve_launch: Callable[[], AdvisorLaunch] = resolve_advisor_launch,
+    ) -> None:
+        self._resolve_launch = resolve_launch
+
+    def run(
+        self,
+        ctx: ExecutionContext,
+        crash_id: str,
+        work_dir: Path,
+        *,
+        flags: Sequence[str] = (),
+        token: Optional[str] = None,
+        check: bool = False,
+    ) -> ProcessResult:
+        """Runs the advisor on `crash_id` with artifacts written to `work_dir`.
+
+        Output streams to the terminal like it always did, except in JSON
+        mode, where it is captured so stdout stays pure JSON.
+        """
+        launch = self._resolve_launch()
+        cmd = [*launch.command, crash_id, *flags, "--work-dir", str(work_dir)]
+        if token:
+            cmd.extend(["--token", token])
+        return ctx.process_runner.run(
+            cmd,
+            cwd=launch.cwd,
+            timeout_sec=None,
             check=check,
-        )
-    except subprocess.CalledProcessError as e:
-        sys.stderr.write(
-            f"⚠️ CrashAdvisor execution returned non-zero exit code {e.returncode}.\n"
-        )
-        if check:
-            raise
-        return subprocess.CompletedProcess(
-            args=getattr(e, "cmd", []),
-            returncode=e.returncode,
-            stdout=getattr(e, "stdout", None),
-            stderr=getattr(e, "stderr", None),
+            remediation=ADVISOR_RUN_REMEDIATION,
+            stream_output=not ctx.config.json_mode,
         )
 
 
 __all__ = [
+    "AdvisorLaunch",
+    "CrashAdvisorRunner",
+    "create_crash_bug_tracker",
     "ensure_crashadvisor_imports",
-    "run_crashadvisor_bazel",
+    "load_crashadvisor_modules",
+    "resolve_advisor_launch",
 ]

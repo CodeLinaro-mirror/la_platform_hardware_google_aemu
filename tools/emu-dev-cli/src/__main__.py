@@ -16,7 +16,6 @@
 import argparse
 
 import os
-import platform
 import sys
 
 MIN_PYTHON = (3, 10)
@@ -52,6 +51,7 @@ from commands import (
     harness,
     init_cmd,
     launch,
+    mcp,
     mesh,
     perf,
     sbom,
@@ -62,6 +62,9 @@ from commands import (
     update_prebuilt,
     workflow,
 )
+from core.command import COMMAND_INSTANCE_ATTR, bind_command
+from core.context import detect_host_platform
+from core.dispatcher import CliDispatcher
 from install import installer
 from lib.logging_config import setup_logging
 from lib.output import ensure_utf8_stdio, print_result
@@ -69,15 +72,7 @@ from lib.version import UNKNOWN_COMMIT, format_version_display, read_installed_v
 
 
 def detect_default_host():
-    system = platform.system().lower()
-    machine = platform.machine().lower()
-    if system == "linux":
-        return "linux-x64"
-    elif system == "darwin":
-        return "mac-arm64" if machine in ("arm64", "aarch64") else "mac-x64"
-    elif system == "windows":
-        return "windows-x64"
-    return "linux-x64"
+    return detect_host_platform()
 
 
 def _handle_version_flag(args) -> None:
@@ -102,8 +97,8 @@ def _handle_version_flag(args) -> None:
             payload["commit_short"] = UNKNOWN_COMMIT
             payload["summary"] = "No installed version record found"
         print_result(payload, json_mode=True)
-
-    print(format_version_display(installed))
+    else:
+        print(format_version_display(installed))
     sys.exit(0)
 
 
@@ -150,6 +145,7 @@ def main():
     init_cmd.register_parser(subparsers)
     installer.register_parser(subparsers)
     launch.register_parser(subparsers)
+    bind_command(subparsers, mcp.McpCommand())
     mesh.register_parser(subparsers)
     perf.register_parser(subparsers)
     sbom.register_parser(subparsers)
@@ -170,11 +166,13 @@ def main():
     if getattr(args, "version", False):
         _handle_version_flag(args)
 
-    if not args.subcommand or not hasattr(args, "func"):
+    if not args.subcommand or not hasattr(args, COMMAND_INSTANCE_ATTR):
         parser.print_help()
         sys.exit(1)
 
-    args.func(args)
+    exit_code = CliDispatcher().dispatch(args)
+    if exit_code != 0:
+        sys.exit(exit_code)
 
 
 if __name__ == "__main__":

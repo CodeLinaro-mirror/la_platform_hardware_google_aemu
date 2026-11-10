@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
 import argparse
+from collections.abc import Callable, Sequence
+import logging
 import os
 from pathlib import Path
 import re
@@ -21,21 +22,39 @@ import shlex
 import subprocess
 import sys
 import tempfile
-from typing import Any, Dict, List, Optional, Tuple, Union
+import threading
+from typing import Any, Dict, List, Optional, TextIO, Tuple, Union
 import uuid
 
 import yaml
+
+try:
+    from .state_store import (
+        SessionMetadata,
+        StateYamlDumper,
+        WorkflowState,
+        WorkflowStateStore,
+        get_session_lock,
+        load_state_file_atomic,
+        resolve_default_state_base_dir,
+        save_state_file_atomic,
+    )
+except ImportError:
+    from workflows.core.state_store import (
+        SessionMetadata,
+        StateYamlDumper,
+        WorkflowState,
+        WorkflowStateStore,
+        get_session_lock,
+        load_state_file_atomic,
+        resolve_default_state_base_dir,
+        save_state_file_atomic,
+    )
 
 _CORE_DIR = Path(__file__).resolve().parent
 _WORKFLOWS_DIR = _CORE_DIR.parent
 _EMU_DEV_CLI_DIR = _WORKFLOWS_DIR.parent
 _SRC_DIR = _EMU_DEV_CLI_DIR / "src"
-
-for _p in (str(_WORKFLOWS_DIR), str(_EMU_DEV_CLI_DIR), str(_SRC_DIR)):
-    if _p in sys.path:
-        sys.path.remove(_p)
-    if os.path.isdir(_p):
-        sys.path.insert(0, _p)
 
 
 def _build_subprocess_env(base_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
@@ -54,7 +73,83 @@ def _build_subprocess_env(base_env: Optional[Dict[str, str]] = None) -> Dict[str
     return env
 
 
-os.environ["PYTHONPATH"] = _build_subprocess_env().get("PYTHONPATH", "")
+class WorkflowRegistry:
+    """In-memory cache of discovered workflows with directory and file mtime invalidation."""
+
+    _lock = threading.Lock()
+    _cached_fingerprint: Optional[Tuple[Any, ...]] = None
+    _cached_workflows: Dict[str, Dict[str, str]] = {}
+
+    @classmethod
+    def compute_fingerprint(
+        cls, candidate_dirs: Sequence[Union[str, Path]]
+    ) -> Tuple[Any, ...]:
+        """Computes a structural + mtime fingerprint across `candidate_dirs`."""
+        items: List[Any] = []
+        for raw_dir in candidate_dirs:
+            d_str = str(raw_dir)
+            try:
+                dir_stat = os.stat(d_str)
+            except OSError:
+                items.append((d_str, None))
+                continue
+            sub_entries: List[Tuple[str, int, int]] = []
+            try:
+                with os.scandir(d_str) as it:
+                    for entry in it:
+                        if entry.name in ("core", "tests", "__pycache__", "ui"):
+                            continue
+                        try:
+                            if not entry.is_dir():
+                                continue
+                            e_mtime = entry.stat().st_mtime_ns
+                        except OSError:
+                            continue
+                        t_mtime = 0
+                        for fname in (
+                            "workflow.yaml",
+                            "workflow.yml",
+                            "main.py",
+                            "README.md",
+                        ):
+                            try:
+                                t_mtime = max(
+                                    t_mtime,
+                                    os.stat(os.path.join(entry.path, fname)).st_mtime_ns,
+                                )
+                            except OSError:
+                                pass
+                        sub_entries.append((entry.name, e_mtime, t_mtime))
+            except OSError:
+                pass
+            sub_entries.sort()
+            items.append((d_str, dir_stat.st_mtime_ns, tuple(sub_entries)))
+        return tuple(items)
+
+    @classmethod
+    def get_or_scan(
+        cls,
+        candidate_dirs: Sequence[Union[str, Path]],
+        scanner_fn: Callable[[Sequence[str]], Dict[str, Dict[str, str]]],
+    ) -> Dict[str, Dict[str, str]]:
+        """Returns cached workflows if `candidate_dirs` mtimes match, else invokes `scanner_fn`."""
+        norm_dirs = [str(d) for d in candidate_dirs]
+        fp = cls.compute_fingerprint(norm_dirs)
+        with cls._lock:
+            if cls._cached_fingerprint == fp:
+                return {k: dict(v) for k, v in cls._cached_workflows.items()}
+        scanned = scanner_fn(norm_dirs)
+        with cls._lock:
+            cls._cached_fingerprint = fp
+            cls._cached_workflows = {k: dict(v) for k, v in scanned.items()}
+            return {k: dict(v) for k, v in cls._cached_workflows.items()}
+
+    @classmethod
+    def clear(cls) -> None:
+        """Clears the cached workflow registry."""
+        with cls._lock:
+            cls._cached_fingerprint = None
+            cls._cached_workflows = {}
 
 
 class WorkflowError(Exception):
@@ -79,31 +174,26 @@ class WorkflowTargetNotFoundError(WorkflowError):
 
 def get_state_base_dir() -> Path:
     """Returns the base state directory for workflow runtime sessions."""
+    return resolve_default_state_base_dir()
+
+
+def get_workflow_cache_root() -> Path:
+    """Returns the directory that holds every per-workflow cache directory."""
+    custom_cache_dir = os.environ.get("EMU_DEV_CLI_WORKFLOW_CACHE_DIR")
+    if custom_cache_dir:
+        return Path(custom_cache_dir).expanduser().resolve()
     custom_state_dir = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
     if custom_state_dir:
-        base = Path(custom_state_dir).expanduser().resolve()
-    else:
-        cache_home = os.environ.get("XDG_CACHE_HOME")
-        base = (Path(cache_home) if cache_home else Path.home() / ".cache") / "emu-dev-cli" / "workflows" / "state"
-    base.mkdir(parents=True, exist_ok=True, mode=0o700)
-    return base
+        return Path(custom_state_dir).expanduser().resolve()
+    xdg_cache = os.environ.get("XDG_CACHE_HOME")
+    if xdg_cache:
+        return Path(xdg_cache).expanduser().resolve() / "emu-dev-cli" / "workflows"
+    return Path.home() / ".cache" / "emu-dev-cli" / "workflows"
 
 
 def get_workflow_cache_dir(workflow_name: str) -> Path:
     """Returns the isolated, generic cache directory for a given workflow name."""
-    custom_cache_dir = os.environ.get("EMU_DEV_CLI_WORKFLOW_CACHE_DIR")
-    if custom_cache_dir:
-        base = Path(custom_cache_dir).expanduser().resolve() / workflow_name
-    else:
-        custom_state_dir = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
-        if custom_state_dir:
-            base = Path(custom_state_dir).expanduser().resolve() / workflow_name
-        else:
-            xdg_cache = os.environ.get("XDG_CACHE_HOME")
-            if xdg_cache:
-                base = Path(xdg_cache).expanduser().resolve() / "emu-dev-cli" / "workflows" / workflow_name
-            else:
-                base = Path.home() / ".cache" / "emu-dev-cli" / "workflows" / workflow_name
+    base = get_workflow_cache_root() / workflow_name
     base.mkdir(parents=True, exist_ok=True, mode=0o700)
     return base
 
@@ -168,30 +258,14 @@ def load_yaml(content_or_path: Union[str, Path]) -> Dict[str, Any]:
 
 
 def load_state_yaml(filepath: Union[str, Path]) -> Dict[str, Any]:
+    p = Path(filepath) if isinstance(filepath, str) else filepath
+    if isinstance(p, Path) and p.is_file():
+        return load_state_file_atomic(p)
     return load_yaml(filepath)
 
 
 def save_state_yaml(filepath: Union[str, Path], data: Dict[str, Any]) -> None:
-    path = Path(filepath)
-    parent_dir = path.parent
-    parent_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fd, tmp_file = tempfile.mkstemp(dir=str(parent_dir), prefix="state_", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            yaml.dump(
-                data,
-                f,
-                Dumper=StateYamlDumper,
-                sort_keys=False,
-                default_flow_style=False,
-            )
-        os.chmod(tmp_file, 0o600)
-        os.replace(tmp_file, path)
-        os.chmod(path, 0o600)
-    except Exception:
-        if os.path.isfile(tmp_file):
-            os.remove(tmp_file)
-        raise
+    save_state_file_atomic(filepath, data)
 
 
 def get_nested_context_val(ctx: Dict[str, Any], path: str) -> Any:
@@ -326,6 +400,8 @@ def execute_init(init_spec: Dict[str, Any], init_context: Optional[Dict[str, Any
                     cmd_args,
                     shell=False,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     env=_build_subprocess_env(),
                     timeout=120,
                 ).strip()
@@ -466,6 +542,8 @@ def init_workflow_session(
     args_input: Optional[Union[List[str], Dict[str, Any]]] = None,
     parent_context: Optional[Dict[str, Any]] = None,
     state_id_override: Optional[str] = None,
+    *,
+    state_base_dir: Optional[Union[str, Path]] = None,
 ) -> str:
     """Initializes a workflow session programmatically and returns its state_id."""
     path = Path(spec_path).resolve()
@@ -585,7 +663,8 @@ def init_workflow_session(
         "stuck_reason": "",
         "metadata": initial_metadata,
     }
-    state_dir = get_state_base_dir() / wf_name
+    base_dir = resolve_default_state_base_dir(state_base_dir)
+    state_dir = base_dir / wf_name
     state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     state_file = state_dir / f"STATE-{unique_id}.yaml"
     save_state_yaml(state_file, initial_state)
@@ -699,9 +778,11 @@ def resume_workflow_session(
         woke = False
         if os.environ.get("ANTIGRAVITY_LS_ADDRESS") and conv_id != detected_cid:
             try:
-                from lib.agent import AgentApiClient
-                AgentApiClient().send_message(
-                    recipient_id=conv_id,
+                from clients.agent_runtime_service import ProdAgentRuntimeService
+                from core.process import SubprocessRunner
+
+                ProdAgentRuntimeService(SubprocessRunner()).send_message(
+                    conversation_id=conv_id,
                     message=effective_msg,
                     title=f"Resume {resolved_wf_name} ({clean_id})",
                 )
@@ -770,9 +851,12 @@ def approve_workflow_session(
     feedback: Optional[str] = None,
     state_base_dir: Optional[Path] = None,
     advance: bool = False,
+    *,
+    output_stream: Optional[TextIO] = None,
+    error_stream: Optional[TextIO] = None,
 ) -> Tuple[bool, str]:
     """Approves a workflow session (and any active child sub-workflow) paused at a human verification barrier."""
-    base_dir = state_base_dir or get_state_base_dir()
+    base_dir = resolve_default_state_base_dir(state_base_dir)
     target_state_file: Optional[Path] = None
     resolved_wf_name = workflow_name
 
@@ -809,6 +893,8 @@ def approve_workflow_session(
             feedback=feedback,
             state_base_dir=base_dir,
             advance=False,
+            output_stream=output_stream,
+            error_stream=error_stream,
         )
 
     approved_steps = metadata.setdefault("_approved_steps", [])
@@ -828,17 +914,13 @@ def approve_workflow_session(
         spec_path_str = metadata.get("_workflow_spec_path")
         spec_file = Path(spec_path_str) if spec_path_str and Path(spec_path_str).is_file() else resolve_workflow_file(resolved_wf_name)
         if spec_file and spec_file.is_file():
-            old_env = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
-            if state_base_dir is not None:
-                os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = str(base_dir)
-            try:
-                execute_workflow_step(spec_file, clean_id)
-            finally:
-                if state_base_dir is not None:
-                    if old_env is not None:
-                        os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = old_env
-                    else:
-                        os.environ.pop("EMU_DEV_CLI_WORKFLOW_STATE_DIR", None)
+            execute_workflow_step(
+                spec_file,
+                clean_id,
+                state_base_dir=base_dir,
+                output_stream=output_stream,
+                error_stream=error_stream,
+            )
 
     return True, f"Approved workflow '{resolved_wf_name}' (session {state_id}) at step {current_step}."
 
@@ -847,16 +929,32 @@ def execute_workflow_step(
     spec_path: Union[str, Path],
     state_arg: str,
     continuation_cmd: Optional[str] = None,
+    *,
+    state_base_dir: Optional[Union[str, Path]] = None,
+    output_stream: Optional[TextIO] = None,
+    error_stream: Optional[TextIO] = None,
 ) -> int:
-    """Executes a single step of a workflow, delegating sub-workflows when encountered."""
+    """Executes a single step of a workflow using polymorphic WorkflowStep handlers."""
+    try:
+        from .steps import StepExecutionContext, WorkflowStepFactory
+    except ImportError:
+        try:
+            from workflows.core.steps import StepExecutionContext, WorkflowStepFactory
+        except ImportError:
+            from steps import StepExecutionContext, WorkflowStepFactory
+
     path = Path(spec_path).resolve()
     spec = load_yaml(path)
     wf_name = spec.get("name", path.stem).replace("_", "-")
-    state_dir = get_state_base_dir() / wf_name
+    effective_base_dir = resolve_default_state_base_dir(state_base_dir)
+    state_dir = effective_base_dir / wf_name
 
     clean_id, state_file = resolve_state_file(state_dir, state_arg)
     if not state_file or not state_file.is_file():
-        print(f"Error: State file '{state_file}' does not exist.", file=sys.stderr)
+        print(
+            f"Error: State file '{state_file}' does not exist.",
+            file=error_stream or sys.stderr,
+        )
         return 1
 
     state_data = load_state_yaml(state_file)
@@ -879,7 +977,7 @@ def execute_workflow_step(
     retries = state_data.get("retries", 0)
     iteration = int(state_data.get("iteration", 0) or 0)
 
-    active_continuation = continuation_cmd or f'emu-dev-cli workflow {wf_name} --state={clean_id}'
+    active_continuation = continuation_cmd or f"emu-dev-cli workflow {wf_name} --state={clean_id}"
 
     # Build context for template interpolation
     context = dict(metadata)
@@ -901,355 +999,36 @@ def execute_workflow_step(
     if "output_dir" not in context:
         context["output_dir"] = context["cache-dir"]
 
-    def _advance_to_step(next_step_idx: int) -> int:
-        state_data["step"] = next_step_idx
-        state_data["retries"] = 0
-        state_data["stuck_reason"] = ""
-        state_data["state"] = "RUNNING"
-        save_state_yaml(state_file, state_data)
-
-        context["step"] = next_step_idx
-        context["retries"] = 0
-
-        if next_step_idx >= len(steps):
-            state_data["state"] = "DONE"
-            save_state_yaml(state_file, state_data)
-            print(f"Workflow '{wf_name}' completed successfully!")
-            return 0
-
-        next_spec = steps[next_step_idx]
-
-        # If next step is a sub-workflow, automatically execute its first step
-        if "workflow" in next_spec:
-            return execute_workflow_step(path, clean_id, continuation_cmd=active_continuation)
-
-        # If next step is a human verification barrier, enter WAITING_HUMAN
-        if _is_human_verify_step(next_spec):
-            state_data["state"] = "WAITING_HUMAN"
-            save_state_yaml(state_file, state_data)
-            prompt = format_step_prompt(next_spec, context)
-            print(_format_human_verify_prompt(prompt, active_continuation, clean_id))
-            return 0
-
-        # Passive completion step
-        if not next_spec.get("verifier_cmd"):
-            state_data["state"] = "DONE"
-            save_state_yaml(state_file, state_data)
-            print(format_step_prompt(next_spec, context))
-            return 0
-
-        # Active atomic step
-        prompt = format_step_prompt(next_spec, context)
-        if metadata.pop("_human_feedback", None) is not None:
-            context.pop("_human_feedback", None)
-            save_state_yaml(state_file, state_data)
-        print(format_prompt_with_suffix(prompt, active_continuation, "for next steps."))
-        return 0
-
-    # Check terminal condition
     if current_step_index >= len(steps):
         state_data["state"] = "DONE"
         save_state_yaml(state_file, state_data)
-        print(f"Workflow '{wf_name}' completed successfully!")
-        return 0
-
-    step_spec = steps[current_step_index]
-
-    # -------------------------------------------------------------
-    # Case 0: Human Verification Barrier Step ('human_verify: true')
-    # -------------------------------------------------------------
-    if _is_human_verify_step(step_spec):
-        approved_steps = metadata.get("_approved_steps", [])
-        if current_step_index in approved_steps:
-            return _advance_to_step(current_step_index + 1)
-
-        state_data["state"] = "WAITING_HUMAN"
-        save_state_yaml(state_file, state_data)
-        prompt = format_step_prompt(step_spec, context)
-        print(_format_human_verify_prompt(prompt, active_continuation, clean_id))
-        return 0
-
-    # -------------------------------------------------------------
-    # Case 1: Sub-Workflow Step ('workflow' key present in step_spec)
-    # -------------------------------------------------------------
-    if "workflow" in step_spec:
-        sub_wf_def = step_spec["workflow"]
-        if isinstance(sub_wf_def, str):
-            sub_name = sub_wf_def
-            sub_args_raw = {}
-            sub_outputs = {}
-        elif isinstance(sub_wf_def, dict):
-            sub_name = sub_wf_def.get("name", "")
-            sub_args_raw = sub_wf_def.get("args", {})
-            sub_outputs = sub_wf_def.get("outputs", {})
-        else:
-            print(f"Error: Invalid workflow step definition: {sub_wf_def}", file=sys.stderr)
-            return 1
-
-        step_custom_instr = step_spec.get("custom_instructions", "")
-        if not step_custom_instr and isinstance(sub_wf_def, dict):
-            step_custom_instr = sub_wf_def.get("custom_instructions", "")
-
-        sub_wf_meta = metadata.get("_sub_workflow")
-        if not sub_wf_meta or sub_wf_meta.get("parent_step") != current_step_index:
-            call_stack = list(metadata.get("_call_stack", [wf_name]))
-            if sub_name in call_stack:
-                raise WorkflowRecursionError(
-                    f"Circular workflow dependency detected: {' -> '.join(call_stack)} -> {sub_name}"
-                )
-            if len(call_stack) >= 5:
-                raise WorkflowRecursionError(
-                    f"Maximum workflow composition depth (5) exceeded: {' -> '.join(call_stack)}"
-                )
-
-            child_file = resolve_workflow_file(sub_name, path)
-            if not child_file:
-                raise WorkflowTargetNotFoundError(f"Sub-workflow '{sub_name}' not found.")
-
-            if isinstance(sub_args_raw, dict):
-                child_args = {k: interpolate(str(v), context) for k, v in sub_args_raw.items()}
-            elif isinstance(sub_args_raw, list):
-                child_args = [interpolate(str(a), context) for a in sub_args_raw]
-            else:
-                child_args = {}
-
-            child_spec = load_yaml(child_file)
-            # Auto-forward shared arguments from parent context if child declares them
-            if isinstance(child_args, dict):
-                child_arg_defs = _parse_args_spec(
-                    child_spec.get("args") or child_spec.get("init", {}).get("args") or []
-                )
-                for c_arg in child_arg_defs:
-                    c_name = c_arg.get("name")
-                    if c_name and c_name not in child_args:
-                        inherited_val = get_nested_context_val(context, c_name)
-                        if inherited_val is None:
-                            inherited_val = get_nested_context_val(context, c_name.replace("-", "_"))
-                        if inherited_val is not None and str(inherited_val).strip() != "":
-                            child_args[c_name] = str(inherited_val)
-
-            child_parent_ctx = dict(context)
-            if step_custom_instr:
-                child_parent_ctx["_custom_instructions"] = interpolate(str(step_custom_instr), context)
-
-            child_wf_name = child_spec.get("name", child_file.stem).replace("_", "-")
-            child_state_id = init_workflow_session(child_file, child_args, parent_context=child_parent_ctx)
-            sub_wf_meta = {
-                "name": child_wf_name,
-                "state_id": child_state_id,
-                "parent_step": current_step_index,
-            }
-            metadata["_sub_workflow"] = sub_wf_meta
-            save_state_yaml(state_file, state_data)
-            if metadata.pop("_human_feedback", None) is not None:
-                save_state_yaml(state_file, state_data)
-
-        child_wf_name = sub_wf_meta.get("name", sub_name)
-        child_state_id = sub_wf_meta["state_id"]
-        child_file = resolve_workflow_file(sub_name, path)
-        if not child_file:
-            raise WorkflowTargetNotFoundError(f"Sub-workflow '{sub_name}' not found.")
-
-        # Delegate execution to child step
-        child_rc = execute_workflow_step(child_file, child_state_id, continuation_cmd=active_continuation)
-
-        # Inspect child state
-        child_state_dir = get_state_base_dir() / child_wf_name
-        _, child_state_path = resolve_state_file(child_state_dir, child_state_id)
-        child_state = load_state_yaml(child_state_path)
-
-        if child_state.get("state") == "DONE":
-            # Extract outputs strictly and nest under workflow name
-            child_metadata = child_state.get("metadata", {})
-            wf_meta = metadata.setdefault(child_wf_name, {})
-            # Copy all child non-private metadata into workflow namespace
-            for k, v in child_metadata.items():
-                if not k.startswith("_"):
-                    wf_meta[k] = v
-
-            if child_metadata.get("_human_feedback") and not metadata.get("_human_feedback"):
-                metadata["_human_feedback"] = child_metadata["_human_feedback"]
-                context["_human_feedback"] = child_metadata["_human_feedback"]
-
-            for child_k, parent_k in sub_outputs.items():
-                if child_k not in child_metadata:
-                    available = ", ".join(child_metadata.keys())
-                    raise WorkflowOutputError(
-                        f"Sub-workflow '{child_wf_name}' completed but output key '{child_k}' was not found in metadata. "
-                        f"Available keys: [{available}]"
-                    )
-                wf_meta[parent_k] = child_metadata[child_k]
-
-            context[child_wf_name] = wf_meta
-
-            # Archive completed sub-workflow
-            history = metadata.setdefault("_sub_workflow_history", [])
-            history.append({
-                "name": sub_name,
-                "state_id": child_state_id,
-                "parent_step": current_step_index,
-                "status": "DONE",
-            })
-            metadata.pop("_sub_workflow", None)
-
-            return _advance_to_step(current_step_index + 1)
-
-        elif child_state.get("state") == "WAITING_HUMAN":
-            state_data["state"] = "WAITING_HUMAN"
-            state_data["stuck_reason"] = ""
-            save_state_yaml(state_file, state_data)
-            return child_rc
-        elif child_state.get("state") == "STUCK":
-            state_data["state"] = "STUCK"
-            state_data["stuck_reason"] = f"Sub-workflow '{sub_name}' is STUCK: {child_state.get('stuck_reason', '')}"
-            save_state_yaml(state_file, state_data)
-            return 1
-        else:
-            state_data["state"] = "RUNNING"
-            state_data["stuck_reason"] = ""
-            save_state_yaml(state_file, state_data)
-            return child_rc
-
-    # -------------------------------------------------------------
-    # Case 2: Atomic Step
-    # -------------------------------------------------------------
-    verifier_cmd = step_spec.get("verifier_cmd")
-    max_retries = step_spec.get("max_retries", 3)
-    context["max_retries"] = max_retries
-
-    # Case 2A: Passive Step (verifier_cmd is null/empty)
-    if not verifier_cmd:
-        state_data["state"] = "DONE"
-        state_data["stuck_reason"] = ""
-        state_data["retries"] = 0
-        save_state_yaml(state_file, state_data)
-
-        prompt = format_step_prompt(step_spec, context)
-        print(prompt)
-        return 0
-
-    # Case 2B: Step 0 freshly started from INIT with active verifier
-    if current_step_index == 0 and current_state == "INIT":
-        state_data["state"] = "RUNNING"
-        prompt = format_step_prompt(step_spec, context)
-        if metadata.pop("_human_feedback", None) is not None:
-            context.pop("_human_feedback", None)
-        save_state_yaml(state_file, state_data)
-
-        print(format_prompt_with_suffix(prompt, active_continuation, "for next steps."))
-        return 0
-
-    # Case 2C: Active Step with verifier_cmd executed safely with shell=False
-    try:
-        eval_cmd = build_cmd_args(verifier_cmd, context)
-        step_timeout = float(step_spec.get("timeout", 600))
-        check_res = subprocess.run(
-            eval_cmd,
-            shell=False,
-            text=True,
-            capture_output=True,
-            env=_build_subprocess_env(),
-            timeout=step_timeout,
+        print(
+            f"Workflow '{wf_name}' completed successfully!",
+            file=output_stream or sys.stdout,
         )
-    except FileNotFoundError as e:
-        check_res = subprocess.CompletedProcess(
-            args=verifier_cmd,
-            returncode=127,
-            stdout="",
-            stderr=str(e),
-        )
+        return 0
 
-    verifier_out = (check_res.stdout.strip() or check_res.stderr.strip())
-    context["verifier_output"] = verifier_out
-
-    if step_spec.get("loop_to_step") is not None:
-        loop_exit_code = int(step_spec.get("loop_exit_code", 2))
-        max_iterations = int(step_spec.get("max_iterations", 5))
-        if check_res.returncode == loop_exit_code:
-            next_iter = iteration + 1
-            if next_iter >= max_iterations:
-                state_data["state"] = "STUCK"
-                state_data["stuck_reason"] = (
-                    f"Reached maximum loop iterations ({max_iterations}) at step {current_step_index}: {verifier_out}"
-                )
-                save_state_yaml(state_file, state_data)
-                print(
-                    format_prompt_with_suffix(
-                        state_data["stuck_reason"], active_continuation, "to resume."
-                    ),
-                    file=sys.stderr,
-                )
-                return 1
-
-            target_step_idx = int(step_spec["loop_to_step"])
-            state_data["iteration"] = next_iter
-            state_data["step"] = target_step_idx
-            state_data["retries"] = 0
-            state_data["stuck_reason"] = ""
-            state_data["state"] = "RUNNING"
-            save_state_yaml(state_file, state_data)
-
-            context["iteration"] = next_iter
-            context["step"] = target_step_idx
-            context["retries"] = 0
-
-            loop_header = ""
-            if "loop_prompt" in step_spec:
-                raw_lp = (
-                    " ".join(step_spec["loop_prompt"])
-                    if isinstance(step_spec["loop_prompt"], list)
-                    else str(step_spec["loop_prompt"])
-                )
-                loop_header = interpolate(raw_lp, context).strip()
-
-            target_spec = steps[target_step_idx] if 0 <= target_step_idx < len(steps) else step_spec
-            target_prompt = format_step_prompt(target_spec, context)
-            combined_prompt = (
-                f"{loop_header}\n\n{target_prompt}".strip()
-                if loop_header
-                else target_prompt
-            )
-            print(format_prompt_with_suffix(combined_prompt, active_continuation, "for next steps."))
-            return 0
-
-    if check_res.returncode != 0:
-        retries += 1
-        state_data["retries"] = retries
-        context["retries"] = retries
-        verifier_msg = (check_res.stderr.strip() or check_res.stdout.strip())
-        context["verifier_error"] = verifier_msg
-
-        if retries >= max_retries:
-            state_data["state"] = "STUCK"
-            if "stuck_reason" in step_spec:
-                reason = interpolate(step_spec["stuck_reason"], context)
-            else:
-                reason = f"Failed to find required input in step {current_step_index} after {retries} retries."
-            state_data["stuck_reason"] = reason
-            save_state_yaml(state_file, state_data)
-
-            if "stuck_prompt" in step_spec:
-                raw_prompt = " ".join(step_spec["stuck_prompt"]) if isinstance(step_spec["stuck_prompt"], list) else step_spec["stuck_prompt"]
-            else:
-                raw_prompt = f"Error: Step {current_step_index} verification failed. Workflow is now STUCK (retries reached {retries})."
-            prompt = interpolate(raw_prompt, context)
-            print(format_prompt_with_suffix(prompt, active_continuation, "to resume."), file=sys.stderr)
-            return 1
-        else:
-            state_data["state"] = "RUNNING"
-            state_data["stuck_reason"] = ""
-            save_state_yaml(state_file, state_data)
-
-            if "error_prompt" in step_spec:
-                raw_prompt = " ".join(step_spec["error_prompt"]) if isinstance(step_spec["error_prompt"], list) else step_spec["error_prompt"]
-            else:
-                raw_prompt = f"Error: Verification failed for step {current_step_index} (attempt {retries} of {max_retries})."
-            prompt = interpolate(raw_prompt, context)
-            print(format_prompt_with_suffix(prompt, active_continuation, "for next steps."), file=sys.stderr)
-            return 1
-
-    # Step Passed -> Advance to next step
-    return _advance_to_step(current_step_index + 1)
+    exec_ctx = StepExecutionContext(
+        wf_name=wf_name,
+        spec_path=path,
+        state_id=clean_id,
+        state_file=state_file,
+        state_data=state_data,
+        metadata=metadata,
+        steps=steps,
+        current_step_index=current_step_index,
+        current_state=current_state,
+        retries=retries,
+        iteration=iteration,
+        active_continuation=active_continuation,
+        context=context,
+        execute_step_fn=execute_workflow_step,
+        state_base_dir=effective_base_dir if state_base_dir is not None else None,
+        output_stream=output_stream,
+        error_stream=error_stream,
+    )
+    step_handler = WorkflowStepFactory.create_step(steps[current_step_index])
+    return step_handler.execute(exec_ctx)
 
 
 def run_yaml_workflow(spec_path: Union[str, Path], argv: Optional[List[str]] = None) -> int:
@@ -1324,6 +1103,23 @@ def run_yaml_workflow(spec_path: Union[str, Path], argv: Optional[List[str]] = N
         return 0
 
     return execute_workflow_step(path, args.state_id)
+
+
+def __getattr__(name: str) -> Any:
+    if name in (
+        "AtomicVerifierStep",
+        "HumanVerifyStep",
+        "LoopStep",
+        "PassiveStep",
+        "StepExecutionContext",
+        "SubWorkflowStep",
+        "WorkflowStep",
+        "WorkflowStepFactory",
+    ):
+        from . import steps
+
+        return getattr(steps, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 if __name__ == "__main__":

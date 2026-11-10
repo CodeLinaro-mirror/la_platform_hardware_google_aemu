@@ -16,8 +16,10 @@
 
 import argparse
 import unittest
-from unittest.mock import MagicMock, patch
+from clients.buganizer_service import BuganizerIssue
 from commands import flakiness
+from core.context import ExecutionContext
+from core.errors import ExecutionError
 
 
 class FlakinessFixTest(unittest.TestCase):
@@ -27,15 +29,17 @@ class FlakinessFixTest(unittest.TestCase):
         self.parser.add_argument("--json", action="store_true")
         subparsers = self.parser.add_subparsers(dest="subcommand")
         flakiness.register_parser(subparsers)
+        self.ctx = ExecutionContext.for_testing()
 
-    @patch("lib.buganizer.BuganizerClient.fetch_all_component_open_bugs")
-    @patch("commands.flakiness.fix.print_result")
-    def test_handle_flakiness_fix_resolved_from_bug(
-        self, mock_print_result, mock_bugs
-    ):
-        mock_bugs.return_value = [
-            "Issue 123456789: [Flaky Test] @goldfish//emulator/libs/async:loop_handoff_test failing on emulator_linux_x64_tsan (20.0% flake rate)"
-        ]
+    def test_handle_flakiness_fix_resolved_from_bug(self):
+        self.ctx.fake_buganizer_service.seed_issue(
+            BuganizerIssue(
+                issue_id="123456789",
+                title="[Flaky Test] @goldfish//emulator/libs/async:loop_handoff_test failing on emulator_linux_x64_tsan (20.0% flake rate)",
+                component_id=1016880,
+                status="ASSIGNED",
+            )
+        )
         args = self.parser.parse_args(
             [
                 "flakiness",
@@ -47,9 +51,10 @@ class FlakinessFixTest(unittest.TestCase):
                 "--dry-run",
             ]
         )
-        flakiness.handle_flakiness_fix(args)
-        mock_print_result.assert_called_once()
-        data = mock_print_result.call_args[0][0]
+        cmd = flakiness.FlakinessFixCommand()
+        res = cmd.execute(args, self.ctx)
+        self.assertTrue(res.ok)
+        data = res.data
         self.assertTrue(data["dry_run"])
         self.assertEqual(data["bug_id"], "123456789")
         self.assertEqual(
@@ -57,12 +62,15 @@ class FlakinessFixTest(unittest.TestCase):
             "@goldfish//emulator/libs/async:loop_handoff_test",
         )
 
-    @patch("lib.buganizer.BuganizerClient.fetch_all_component_open_bugs")
-    @patch("commands.flakiness.fix.print_result")
-    def test_handle_flakiness_fix_unresolved_target_error(
-        self, mock_print_result, mock_bugs
-    ):
-        mock_bugs.return_value = ["Issue 999999: Some other unrelated bug"]
+    def test_handle_flakiness_fix_unresolved_target_error(self):
+        self.ctx.fake_buganizer_service.seed_issue(
+            BuganizerIssue(
+                issue_id="999999",
+                title="Some other unrelated bug without bazel target",
+                component_id=1016880,
+                status="ASSIGNED",
+            )
+        )
         args = self.parser.parse_args(
             [
                 "flakiness",
@@ -72,16 +80,12 @@ class FlakinessFixTest(unittest.TestCase):
                 "--dry-run",
             ]
         )
-        flakiness.handle_flakiness_fix(args)
-        mock_print_result.assert_called_once()
-        data = mock_print_result.call_args[0][0]
-        self.assertEqual(data["error"], "UNRESOLVED_TEST_TARGET")
-        self.assertTrue(mock_print_result.call_args[1].get("is_error", False))
+        cmd = flakiness.FlakinessFixCommand()
+        with self.assertRaises(ExecutionError) as ctx_err:
+            cmd.execute(args, self.ctx)
+        self.assertEqual(ctx_err.exception.error_code, "UNRESOLVED_TEST_TARGET")
 
-    @patch("commands.flakiness.fix.print_result")
-    def test_handle_flakiness_fix_dry_run_explicit_test(
-        self, mock_print_result
-    ):
+    def test_handle_flakiness_fix_dry_run_explicit_test(self):
         args = self.parser.parse_args(
             [
                 "flakiness",
@@ -95,9 +99,10 @@ class FlakinessFixTest(unittest.TestCase):
                 "--dry-run",
             ]
         )
-        flakiness.handle_flakiness_fix(args)
-        mock_print_result.assert_called_once()
-        data = mock_print_result.call_args[0][0]
+        cmd = flakiness.FlakinessFixCommand()
+        res = cmd.execute(args, self.ctx)
+        self.assertTrue(res.ok)
+        data = res.data
         self.assertTrue(data["dry_run"])
         self.assertEqual(data["bug_id"], "123456789")
         self.assertEqual(
@@ -105,20 +110,18 @@ class FlakinessFixTest(unittest.TestCase):
             "//emulator/videobridge:in_process_media_provider_test",
         )
 
-    @patch("subprocess.run")
-    @patch("lib.buganizer.BuganizerClient.fetch_all_component_open_bugs")
-    @patch("commands.flakiness.fix.print_result")
-    def test_handle_flakiness_fix_success_upload(
-        self, mock_print_result, mock_bugs, mock_run
-    ):
-        mock_bugs.return_value = [
-            "123456789: [Flaky Test] @goldfish//emulator/libs/async:loop_handoff_test"
-        ]
-        mock_proc = MagicMock()
-        mock_proc.returncode = 0
-        mock_proc.stdout = "PASSED 50/50 iterations"
-        mock_run.return_value = mock_proc
-
+    def test_handle_flakiness_fix_success_upload(self):
+        self.ctx.fake_buganizer_service.seed_issue(
+            BuganizerIssue(
+                issue_id="123456789",
+                title="[Flaky Test] @goldfish//emulator/libs/async:loop_handoff_test",
+                component_id=1016880,
+                status="ASSIGNED",
+            )
+        )
+        self.ctx.fake_process_runner.queue_response(
+            returncode=0, stdout="PASSED 50/50 iterations"
+        )
         args = self.parser.parse_args(
             [
                 "flakiness",
@@ -130,9 +133,10 @@ class FlakinessFixTest(unittest.TestCase):
                 "--upload",
             ]
         )
-        flakiness.handle_flakiness_fix(args)
-        mock_print_result.assert_called_once()
-        data = mock_print_result.call_args[0][0]
+        cmd = flakiness.FlakinessFixCommand()
+        res = cmd.execute(args, self.ctx)
+        self.assertTrue(res.ok)
+        data = res.data
         self.assertTrue(data["test_passed"])
         self.assertEqual(data["bug_id"], "123456789")
         self.assertEqual(
@@ -141,20 +145,18 @@ class FlakinessFixTest(unittest.TestCase):
         )
         self.assertTrue(data["upload"])
 
-    @patch("subprocess.run")
-    @patch("lib.buganizer.BuganizerClient.fetch_all_component_open_bugs")
-    @patch("commands.flakiness.fix.print_result")
-    def test_handle_flakiness_fix_failure(
-        self, mock_print_result, mock_bugs, mock_run
-    ):
-        mock_bugs.return_value = [
-            "123456789: [Flaky Test] @goldfish//emulator/libs/async:loop_handoff_test"
-        ]
-        mock_proc = MagicMock()
-        mock_proc.returncode = 1
-        mock_proc.stdout = "FAILED on iteration 12"
-        mock_run.return_value = mock_proc
-
+    def test_handle_flakiness_fix_failure(self):
+        self.ctx.fake_buganizer_service.seed_issue(
+            BuganizerIssue(
+                issue_id="123456789",
+                title="[Flaky Test] @goldfish//emulator/libs/async:loop_handoff_test",
+                component_id=1016880,
+                status="ASSIGNED",
+            )
+        )
+        self.ctx.fake_process_runner.queue_response(
+            returncode=1, stdout="FAILED on iteration 12"
+        )
         args = self.parser.parse_args(
             [
                 "flakiness",
@@ -166,11 +168,50 @@ class FlakinessFixTest(unittest.TestCase):
                 "--upload",
             ]
         )
-        flakiness.handle_flakiness_fix(args)
-        mock_print_result.assert_called_once()
-        data = mock_print_result.call_args[0][0]
+        cmd = flakiness.FlakinessFixCommand()
+        res = cmd.execute(args, self.ctx)
+        self.assertFalse(res.ok)
+        data = res.data
         self.assertFalse(data["test_passed"])
-        self.assertTrue(mock_print_result.call_args[1].get("is_error", False))
+
+    def test_handle_flakiness_fix_upload_failure_does_not_report_false_green(self):
+        self.ctx.fake_buganizer_service.seed_issue(
+            BuganizerIssue(
+                issue_id="123456789",
+                title="[Flaky Test] @goldfish//emulator/libs/async:loop_handoff_test",
+                component_id=1016880,
+                status="ASSIGNED",
+            )
+        )
+        # 1. Bazel stress test passes; 2. git status shows Unicode dirty file; 3. repo upload fails
+        self.ctx.fake_process_runner.queue_response(
+            returncode=0, stdout="PASSED 50/50 iterations"
+        )
+        self.ctx.fake_process_runner.queue_response(
+            returncode=0, stdout=" M emulator/libs/async/测试_🚀_é.cc\n"
+        )
+        self.ctx.fake_process_runner.queue_response(
+            returncode=1, stderr="ERROR: no branches ready for upload (测试_🚀_é)"
+        )
+        args = self.parser.parse_args(
+            [
+                "flakiness",
+                "fix",
+                "--bug",
+                "b/123456789",
+                "--iterations",
+                "50",
+                "--upload",
+            ]
+        )
+        cmd = flakiness.FlakinessFixCommand()
+        res = cmd.execute(args, self.ctx)
+        self.assertFalse(res.ok)
+        self.assertEqual(res.exit_code, 1)
+        self.assertTrue(res.data["test_passed"])
+        self.assertTrue(res.data["patch_applied"])
+        self.assertFalse(res.data["uploaded"])
+        self.assertIn("❌ UPLOAD FAILED", res.data["markdown_table"])
 
 
 if __name__ == "__main__":

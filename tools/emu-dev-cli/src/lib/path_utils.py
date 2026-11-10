@@ -13,11 +13,15 @@
 # limitations under the License.
 
 import itertools
+import json
 import os
 from pathlib import Path
 import re
-import subprocess
 import threading
+from typing import Any, Dict, Optional
+
+from core.git import GitService, ProdGitService
+from core.process import ProcessResult
 
 _ATOMIC_WRITE_SEQ = itertools.count()
 DEFAULT_GIT_READONLY_TIMEOUT_SEC: float = 15.0
@@ -37,23 +41,27 @@ def atomic_write_text(dest_path: Path, content: str) -> None:
         raise
 
 
+def read_json_dict(path: Path) -> Optional[Dict[str, Any]]:
+    """Reads `path` as a JSON object, returning None if missing or malformed."""
+    if not path.is_file():
+        return None
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
 def run_git_readonly(
     args: list[str],
     cwd: Path,
     timeout: float = DEFAULT_GIT_READONLY_TIMEOUT_SEC,
-) -> subprocess.CompletedProcess[str]:
-    """Executes a read-only UTF-8 git subprocess isolated from stdin with a bounded timeout."""
-    return subprocess.run(
-        ["git", *args],
-        cwd=str(cwd),
-        stdin=subprocess.DEVNULL,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=timeout,
-    )
+    *,
+    git_service: Optional[GitService] = None,
+) -> ProcessResult:
+    """Executes a read-only UTF-8 git subprocess via GitService with a bounded timeout."""
+    git = git_service or ProdGitService()
+    return git.run_git(args, cwd=str(cwd), timeout_sec=timeout, check=False)
 
 
 def normalize_build_path(raw_path: str) -> str:

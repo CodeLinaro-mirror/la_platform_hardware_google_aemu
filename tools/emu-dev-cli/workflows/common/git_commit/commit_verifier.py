@@ -23,9 +23,9 @@ import logging
 import os
 from pathlib import Path
 import re
-import subprocess
 from typing import List, Optional
 
+from core.git import GitService, ProdGitService
 from workflows.common.git_commit.gerrit_formatter import (
     detect_formatting_errors_in_string,
     parse_commit_message_string,
@@ -61,9 +61,12 @@ BUG_LINE_PATTERN = re.compile(r"(?im)^\s*Bug:\s*(?:b/)?(\d+|N/A|None)\s*$")
 # Regular expression to validate Test: line (command or N/A)
 TEST_LINE_PATTERN = re.compile(r"(?im)^\s*Test:\s*(\S.*?)\s*$")
 
-# Forbidden tags: Tag= and CONV=
+# Forbidden agent tags: Tag=, CONV= / CONVERSATION=, and the AGY= / ORIGINAL_AUTHOR=
+# trailers banned by docs/playbooks/git_and_gerrit.md. Trailers start a line, so prose
+# that mentions them is not flagged.
 FORBIDDEN_TAG_PATTERN = re.compile(r"(?i)\bTAG\s*=")
-FORBIDDEN_CONV_PATTERN = re.compile(r"(?i)\bCONV\s*=")
+FORBIDDEN_CONV_PATTERN = re.compile(r"(?im)^\s*CONV(?:ERSATION)?\s*=")
+FORBIDDEN_AGENT_TRAILER_PATTERN = re.compile(r"(?im)^\s*(AGY|ORIGINAL_AUTHOR)\s*=")
 
 
 # Regular expression to match any Change-Id line header
@@ -126,11 +129,20 @@ def validate_commit_message(
             "(explain what and why vs. how)."
         )
 
-    # 3. Forbidden Tags Check (No Tag= or CONV=)
+    # 3. Forbidden Tags Check (No Tag=, CONV=, CONVERSATION=, AGY=, or ORIGINAL_AUTHOR=)
     if FORBIDDEN_TAG_PATTERN.search(msg):
         errors.append("Commit message contains forbidden tag 'Tag=' ('Tag=' and 'CONV=' are not allowed).")
     if FORBIDDEN_CONV_PATTERN.search(msg):
-        errors.append("Commit message contains forbidden tag 'CONV=' ('Tag=' and 'CONV=' are not allowed).")
+        errors.append(
+            "Commit message contains forbidden tag 'CONV=' or 'CONVERSATION=' "
+            "('Tag=' and 'CONV=' are not allowed)."
+        )
+    agent_trailer = FORBIDDEN_AGENT_TRAILER_PATTERN.search(msg)
+    if agent_trailer:
+        errors.append(
+            f"Commit message contains forbidden trailer '{agent_trailer.group(1)}=' "
+            "(agent trailers are not allowed in Gerrit commit messages)."
+        )
 
     # 2. Bug: line check (either a bug number like 'Bug: 12345678' or 'Bug: N/A')
     if not BUG_LINE_PATTERN.search(msg):
@@ -227,45 +239,50 @@ def messages_match(
     return False
 
 
-def get_head_commit_hash(cwd: Optional[str] = None) -> str:
+def _git(git_service: Optional[GitService] = None) -> GitService:
+    return git_service or ProdGitService()
+
+
+def get_head_commit_hash(
+    cwd: Optional[str] = None, *, git_service: Optional[GitService] = None
+) -> str:
     """Returns the current HEAD commit hash, or 'EMPTY' if repository has no commits."""
     try:
-        res = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-            cwd=cwd,
-            timeout=_DEFAULT_GIT_TIMEOUT_SECS,
-        )
-        return res.stdout.strip()
+        sha = _git(git_service).head_sha(cwd=cwd, check=True)
+        return sha or "EMPTY"
     except Exception:
         return "EMPTY"
 
 
-def get_commit_message(commit_ref: str = "HEAD", cwd: Optional[str] = None) -> str:
+def get_commit_message(
+    commit_ref: str = "HEAD",
+    cwd: Optional[str] = None,
+    *,
+    git_service: Optional[GitService] = None,
+) -> str:
     """Returns the full commit message for the specified commit reference."""
-    res = subprocess.run(
-        ["git", "log", "-1", "--format=%B", commit_ref],
-        capture_output=True,
-        text=True,
-        check=True,
+    res = _git(git_service).run_git(
+        ["log", "-1", "--format=%B", commit_ref],
         cwd=cwd,
-        timeout=_DEFAULT_GIT_TIMEOUT_SECS,
+        check=True,
+        timeout_sec=float(_DEFAULT_GIT_TIMEOUT_SECS),
     )
     return res.stdout.strip()
 
 
-def get_commit_parents(commit_ref: str = "HEAD", cwd: Optional[str] = None) -> List[str]:
+def get_commit_parents(
+    commit_ref: str = "HEAD",
+    cwd: Optional[str] = None,
+    *,
+    git_service: Optional[GitService] = None,
+) -> List[str]:
     """Returns a list of parent commit hashes for the specified commit reference."""
     try:
-        res = subprocess.run(
-            ["git", "log", "-1", "--format=%P", commit_ref],
-            capture_output=True,
-            text=True,
-            check=True,
+        res = _git(git_service).run_git(
+            ["log", "-1", "--format=%P", commit_ref],
             cwd=cwd,
-            timeout=_DEFAULT_GIT_TIMEOUT_SECS,
+            check=True,
+            timeout_sec=float(_DEFAULT_GIT_TIMEOUT_SECS),
         )
         output = res.stdout.strip()
         return output.split() if output else []
@@ -273,73 +290,75 @@ def get_commit_parents(commit_ref: str = "HEAD", cwd: Optional[str] = None) -> L
         return []
 
 
-def resolve_commit_hash(commit_ref: str = "HEAD", cwd: Optional[str] = None) -> str:
+def resolve_commit_hash(
+    commit_ref: str = "HEAD",
+    cwd: Optional[str] = None,
+    *,
+    git_service: Optional[GitService] = None,
+) -> str:
     """Resolves a commit reference (hash, branch, tag, rev) to its 40-character SHA hash.
 
     Returns 'EMPTY' if the repository or commit cannot be resolved.
     """
     try:
-        res = subprocess.run(
-            ["git", "rev-parse", "--verify", f"{commit_ref}^{{commit}}"],
-            capture_output=True,
-            text=True,
-            check=True,
+        res = _git(git_service).run_git(
+            ["rev-parse", "--verify", f"{commit_ref}^{{commit}}"],
             cwd=cwd,
-            timeout=_DEFAULT_GIT_TIMEOUT_SECS,
+            check=True,
+            timeout_sec=float(_DEFAULT_GIT_TIMEOUT_SECS),
         )
         return res.stdout.strip()
     except Exception:
         return "EMPTY"
 
 
-def find_commit_by_change_id(change_id: str, cwd: Optional[str] = None) -> Optional[str]:
+def find_commit_by_change_id(
+    change_id: str,
+    cwd: Optional[str] = None,
+    *,
+    git_service: Optional[GitService] = None,
+) -> Optional[str]:
     """Finds the commit hash containing the specified Change-Id in HEAD history or all refs."""
     if not change_id or change_id == "NONE":
         return None
-    try:
-        res = subprocess.run(
-            ["git", "log", "-1", f"--grep=^Change-Id: {change_id}", "--format=%H", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-            cwd=cwd,
-            timeout=_DEFAULT_GIT_TIMEOUT_SECS,
-        )
-        commit_hash = res.stdout.strip()
-        if commit_hash:
-            return commit_hash
-    except Exception as exc:
-        logging.getLogger(__name__).debug("Ignored error in find_commit_by_change_id: %s", exc)
-
-    try:
-        res = subprocess.run(
-            ["git", "log", "-1", f"--grep=^Change-Id: {change_id}", "--format=%H", "--all"],
-            capture_output=True,
-            text=True,
-            check=True,
-            cwd=cwd,
-            timeout=_DEFAULT_GIT_TIMEOUT_SECS,
-        )
-        commit_hash = res.stdout.strip()
-        if commit_hash:
-            return commit_hash
-    except Exception as exc:
-        logging.getLogger(__name__).debug("Ignored error in find_commit_by_change_id: %s", exc)
-
+    git = _git(git_service)
+    for rev_scope in ("HEAD", "--all"):
+        try:
+            res = git.run_git(
+                [
+                    "log",
+                    "-1",
+                    f"--grep=^Change-Id: {change_id}",
+                    "--format=%H",
+                    rev_scope,
+                ],
+                cwd=cwd,
+                check=True,
+                timeout_sec=float(_DEFAULT_GIT_TIMEOUT_SECS),
+            )
+            commit_hash = res.stdout.strip()
+            if commit_hash:
+                return commit_hash
+        except Exception as exc:
+            logging.getLogger(__name__).debug(
+                "Ignored error in find_commit_by_change_id (%s): %s",
+                rev_scope,
+                exc,
+            )
     return None
 
 
-def is_ancestor_commit(ancestor: str, descendant: str, cwd: Optional[str] = None) -> bool:
+def is_ancestor_commit(
+    ancestor: str,
+    descendant: str,
+    cwd: Optional[str] = None,
+    *,
+    git_service: Optional[GitService] = None,
+) -> bool:
     """Returns True if 'ancestor' is an ancestor of 'descendant' in the Git commit graph."""
     if not ancestor or not descendant or ancestor == descendant:
         return False
     try:
-        res = subprocess.run(
-            ["git", "merge-base", "--is-ancestor", ancestor, descendant],
-            capture_output=True,
-            cwd=cwd,
-            timeout=_DEFAULT_GIT_TIMEOUT_SECS,
-        )
-        return res.returncode == 0
+        return _git(git_service).is_ancestor(ancestor, descendant, cwd=cwd)
     except Exception:
         return False

@@ -23,8 +23,9 @@ from lib.agent_dispatcher import AgentDispatcher
 from lib.bazel import BazelRunner
 from lib.compiler_oracle import CompilerOracle
 from lib.git_transaction import GitTransactionContext, resolve_git_repo_for_target
+from lib.refactoring.base_engine import BaseRefactoringEngine
 import lib.tidy_runner
-from lib.tidy_types import TidyDiagnostic
+from lib.tidy_types import RefactoringConfig, TidyDiagnostic
 
 # Submodule imports
 from lib.tidy_utils import (
@@ -42,7 +43,7 @@ from lib.tidy_prompts import (
 logger = logging.getLogger(__name__)
 
 
-class GitNativeRefactoringEngine:
+class GitNativeRefactoringEngine(BaseRefactoringEngine):
     """Orchestrates Levels 2-4 semantic refactoring using a Compiler-Guided Git-Native Transaction Loop."""
 
     def __init__(
@@ -52,28 +53,48 @@ class GitNativeRefactoringEngine:
         dispatcher: AgentDispatcher,
         source_dir: str,
     ):
-        self.runner = runner
-        self.oracle = oracle
-        self.dispatcher = dispatcher
-        self.source_dir = Path(source_dir)
+        super().__init__(runner, oracle, dispatcher, source_dir, logger=logger)
+
+    def run_pipeline(self, *args, **kwargs) -> None:
+        """Template method hook delegating to run_refactoring_loop."""
+        return self.run_refactoring_loop(*args, **kwargs)
 
     def run_refactoring_loop(
         self,
-        target: str,
-        compilation_targets: List[str],
-        level_diags: List[TidyDiagnostic],
-        tx: GitTransactionContext,
-        level: int,
-        model: str,
-        report_target: str,
+        target: str | RefactoringConfig,
+        compilation_targets: Optional[List[str]] = None,
+        level_diags: Optional[List[TidyDiagnostic]] = None,
+        tx: Optional[GitTransactionContext] = None,
+        level: int = 2,
+        model: str = "auto",
+        report_target: str = "",
         test_target: Optional[str] = None,
         checks: Optional[str] = None,
         force: bool = False,
+        *,
+        config: Optional[RefactoringConfig] = None,
     ) -> None:
         """Executes the loop iterating over all diagnostics, checking them with the compiler and agent."""
-        repo_dir = resolve_git_repo_for_target(target, root_hint=self.source_dir)
+        cfg = config or (target if isinstance(target, RefactoringConfig) else None)
+        if cfg is not None:
+            target = cfg.target
+            compilation_targets = list(
+                compilation_targets
+                if compilation_targets is not None
+                else cfg.compilation_targets
+            )
+            level = cfg.level
+            model = cfg.model
+            report_target = report_target or cfg.report_target
+            test_target = test_target if test_target is not None else cfg.test_target
+            checks = checks if checks is not None else cfg.checks
+            force = force or cfg.force
+        compilation_targets = list(compilation_targets or [])
+        level_diags = list(level_diags or [])
+        assert tx is not None, "GitTransactionContext `tx` is required for run_refactoring_loop"
+        repo_dir = self.resolve_repo_dir(target)
 
-        try:
+        def _loop_body() -> None:
             idx = 1
             total_diags = len(level_diags)
             failed_symbols = set()
@@ -133,9 +154,7 @@ class GitNativeRefactoringEngine:
                     old_symbol,
                     new_symbol,
                 )
-                decl_path = repo_dir / diag.file_path
-                if not decl_path.exists():
-                    decl_path = self.source_dir / diag.file_path
+                decl_path = self.resolve_declaration_path(repo_dir, diag.file_path)
 
                 # 1. Apply seed rename strictly at the declaration site to trigger compiler breakage
                 applied = _apply_seed_declaration_rename(
@@ -159,9 +178,7 @@ class GitNativeRefactoringEngine:
                 # 2. Compiler oracle: verify compilation of the actual library/test target closure
                 targets_str = ", ".join(compilation_targets)
                 logger.info("  [Oracle] Checking compilation for %s...", targets_str)
-                report = self.oracle.run_compilation_check(
-                    compilation_targets, workspace_root=self.source_dir
-                )
+                report = self.verify_compilation(compilation_targets)
 
                 if not report.success:
                     logger.info(
@@ -182,39 +199,25 @@ class GitNativeRefactoringEngine:
                     logger.info(
                         "  [Agent] Dispatching call-site refactor (model=%s)...", model
                     )
-                    step_ok = self.dispatcher.dispatch_refactor_step(
+                    self.dispatcher.dispatch_refactor_step(
                         prompt=prompt,
                         title=f"Refactor {old_symbol} -> {new_symbol}",
                         model=model,
                     )
 
-                    _run_clang_format(repo_dir)
-                    # Verification check
-                    verify = self.oracle.run_compilation_check(
-                        compilation_targets, workspace_root=self.source_dir
+                    self.format_code(repo_dir)
+                    self.verify_compilation_or_rollback(
+                        tx,
+                        compilation_targets,
+                        f"Verification failed for symbol '{old_symbol}'. Automating transactional rollback.",
                     )
-                    if not verify.success:
-                        logger.error(
-                            "Verification failed for symbol '%s'. Automating transactional rollback.",
-                            old_symbol,
-                        )
-                        tx.rollback_step()
-                        sys.exit(1)
 
                 # 4. Run test gate if test target is provided
-                if test_target:
-                    logger.info("  [Test Gate] Verifying test suite %s...", test_target)
-                    test_res = self.runner.test([test_target], check=False)
-                    if test_res.returncode != 0:
-                        logger.error(
-                            "Unit tests failed for %s. Automating transactional rollback.",
-                            test_target,
-                        )
-                        tx.rollback_step()
-                        sys.exit(1)
+                self.verify_test_gate_or_rollback(tx, test_target)
 
                 # 5. Commit verified step into Git transaction
-                tx.commit_step(
+                self.commit_verified_step(
+                    tx,
                     symbol_old=old_symbol,
                     symbol_new=new_symbol,
                     message=f"style: Modernize identifier '{old_symbol}' to '{new_symbol}'",
@@ -224,21 +227,10 @@ class GitNativeRefactoringEngine:
                     old_symbol,
                     new_symbol,
                 )
-                failed_symbols.remove(old_symbol)  # Success! Remove from failed set
+                failed_symbols.remove(old_symbol)
                 idx += 1
 
-        except Exception as e:
-            logger.error(
-                "Fatal orchestration error: %s. Automating transactional rollback.", e
-            )
-            tx.rollback_step()
-            raise
-        except KeyboardInterrupt:
-            logger.warning(
-                "Transaction cancelled by user. Automating transactional rollback."
-            )
-            tx.rollback_step()
-            sys.exit(130)
+        self.execute_with_transaction_guard(tx, _loop_body)
 
 
-__all__ = ["GitNativeRefactoringEngine", "finalize_transaction"]
+__all__ = ["GitNativeRefactoringEngine", "RefactoringConfig", "finalize_transaction"]

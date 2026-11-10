@@ -265,6 +265,36 @@ class V2ServicesIntegrationTest(unittest.TestCase):
         self.assertGreaterEqual(len(cam_state.sensors), 1)
 
         # Audio
+        initial_audio = self.audio.GetAudioState(audio_pb.GetAudioStateRequest())
+        self.assertFalse(initial_audio.microphone_muted)
+        self.assertEqual(initial_audio.microphone_inputs[0].source_id, "host")
+        self.assertFalse(initial_audio.microphone_inputs[0].muted)
+        muted_audio = self.audio.UpdateAudioState(
+            audio_pb.UpdateAudioStateRequest(
+                microphone_muted=True,
+                microphone_inputs=[
+                    audio_pb.MicrophoneInputUpdate(source_id="host", muted=True)
+                ],
+            )
+        )
+        self.assertTrue(muted_audio.microphone_muted)
+        self.assertEqual(muted_audio.microphone_inputs[0].source_id, "host")
+        self.assertTrue(muted_audio.microphone_inputs[0].muted)
+        for reserved in ("host", "webrtc"):
+            with self.assertRaises(grpc.RpcError) as reserved_ctx:
+                self.audio.InjectAudioClip(
+                    audio_pb.AudioChunk(
+                        sample_rate_hz=48000,
+                        channel_count=1,
+                        format=common_pb2.SAMPLE_FORMAT_PCM16_BIT,
+                        pcm_data=b"\x00\x00",
+                        source_id=reserved,
+                    )
+                )
+            self.assertEqual(
+                reserved_ctx.exception.code(), grpc.StatusCode.INVALID_ARGUMENT
+            )
+
         speaker_stream = self.audio.StreamSpeakerAudio(
             audio_pb.StreamSpeakerAudioRequest(sample_rate_hz=48000, channel_count=2)
         )

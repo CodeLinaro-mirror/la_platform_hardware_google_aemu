@@ -437,7 +437,7 @@ def bazel_command(args: argparse.Namespace) -> None:
 
 def main() -> None:
     """The main entry point of the script."""
-    aosp_root = find_aosp_root()
+    aosp_root = find_aosp_root(CommandLineReconstructor().get_cwd())
     parser = argparse.ArgumentParser(
         formatter_class=CustomFormatter,
         description=f"""
@@ -661,10 +661,9 @@ def main() -> None:
     lvl = logging.DEBUG if args.verbose else logging.INFO
     configure_logging(lvl)
 
-    # Make sure we use absolute paths, so we do not get
-    # confused.
-    if hasattr(args, "out") and args.out:
-        args.out = Path(args.out).absolute()
+    # Make sure we use absolute paths resolved against the invoking working
+    # directory rather than Bazel's ephemeral .runfiles directory.
+    CommandLineReconstructor().resolve_cli_paths(args)
 
     # Call the function associated with the selected subcommand
     if hasattr(args, "func"):

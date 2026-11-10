@@ -16,11 +16,12 @@
 
 import argparse
 import json
+import logging
 from pathlib import Path
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-from commands.harness.constants import HookEvent
+from commands.harness.constants import HookDecision, HookEvent
 from commands.harness.guardrails import (
     discover_active_workflows,
     dispatch_hook_event,
@@ -45,11 +46,285 @@ from commands.harness.review_swarm import (
     prepare_review_swarm_bundle,
 )
 from commands.harness.review_targets import sanitize_target_id
+from commands.harness.terminal_title import TerminalTitleUpdater
+from core.command import (
+    Command,
+    CommandResult,
+    CommandValidationError,
+    META_KEY_ALREADY_RENDERED,
+    bind_command,
+)
+from core.context import ExecutionContext
 from lib.output import ensure_utf8_stdio, print_result
+
+LOGGER = logging.getLogger(__name__)
 
 REPORT_MD_FILENAME: str = "review_swarm_report.md"
 GERRIT_PAYLOAD_FILENAME: str = "gerrit_review_payload.json"
 JSON_INDENT_SPACES: int = 2
+VALID_SCOPES = frozenset({"global", "workspace"})
+VALID_SWARM_MODES = frozenset({"workflow", "swarm"})
+
+
+class HarnessInstallCommand(Command[argparse.Namespace, Dict[str, Any]]):
+    """Command implementation for `emu-dev-cli harness install`."""
+
+    name = "harness install"
+    description = "Install the aemu-harness plugin into ~/.gemini/config/plugins/aemu-harness"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--scope", choices=["global", "workspace"], default="global",
+            help="Install scope: 'global' (~/.gemini/config/plugins) or 'workspace' (<workspace>/.agent/plugins)",
+        )
+        parser.add_argument(
+            "--global", dest="scope", action="store_const", const="global",
+            help="Shorthand for --scope global (default: installs into ~/.gemini/config/plugins/aemu-harness)",
+        )
+        parser.add_argument(
+            "--workspace", dest="scope", action="store_const", const="workspace",
+            help="Shorthand for --scope workspace (installs into <workspace>/.agent/plugins/aemu-harness)",
+        )
+        parser.add_argument(
+            "--target-dir", type=str, default=None, help="Override target plugin installation directory",
+        )
+
+    def validate(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> argparse.Namespace:
+        del ctx
+        scope = getattr(args, "scope", "global") or "global"
+        if scope not in VALID_SCOPES:
+            raise CommandValidationError(
+                f"Invalid '--scope' value for 'harness install': expected one of "
+                f"{sorted(VALID_SCOPES)}, got {scope!r}. Pass '--scope global' or '--scope workspace'."
+            )
+        return args
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[Dict[str, Any]]:
+        del ctx
+        payload = run_harness_install(args, render_output=False)
+        if payload.get("status") == "error":
+            return CommandResult.failure(
+                payload.get("summary", "Failed to install aemu-harness plugin."),
+                exit_code=int(payload.get("exit_code", 1)),
+                data=payload,
+            )
+        return CommandResult.success(payload, summary=payload.get("summary", ""))
+
+
+class HarnessUninstallCommand(Command[argparse.Namespace, Dict[str, Any]]):
+    """Command implementation for `emu-dev-cli harness uninstall`."""
+
+    name = "harness uninstall"
+    description = "Uninstall the aemu-harness plugin from ~/.gemini/config/plugins/aemu-harness"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--target-dir", type=str, default=None, help="Override target plugin directory")
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[Dict[str, Any]]:
+        del ctx
+        payload = run_harness_uninstall(args, render_output=False)
+        return CommandResult.success(payload, summary=payload.get("summary", ""))
+
+
+class HarnessStatusCommand(Command[argparse.Namespace, Dict[str, Any]]):
+    """Command implementation for `emu-dev-cli harness status`."""
+
+    name = "harness status"
+    description = "Show plugin installation status, active workflows, and session ledger telemetry"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--conversation", type=str, default=None, help="Inspect ledger for a specific conversation ID")
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[Dict[str, Any]]:
+        del ctx
+        payload = run_harness_status(args, render_output=False)
+        return CommandResult.success(payload, summary=payload.get("summary", ""))
+
+
+class HarnessHookCommand(Command[argparse.Namespace, Dict[str, Any]]):
+    """Command implementation for `emu-dev-cli harness hook`."""
+
+    name = "harness hook"
+    description = "Internal Jetski lifecycle hook entrypoint (reads JSON from stdin, writes JSON to stdout)"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--event", required=True, choices=[e.value for e in HookEvent], help="Hook lifecycle event name")
+
+    def validate(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> argparse.Namespace:
+        del ctx
+        event = getattr(args, "event", None)
+        valid_events = {e.value for e in HookEvent}
+        if event not in valid_events:
+            raise CommandValidationError(
+                f"Invalid '--event' value for 'harness hook': expected one of "
+                f"{sorted(valid_events)}, got {event!r}. Pass a valid HookEvent name."
+            )
+        return args
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[Dict[str, Any]]:
+        del ctx
+        payload = run_harness_hook(args)
+        return CommandResult.success(
+            payload,
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
+
+
+class HarnessClearCommand(Command[argparse.Namespace, Dict[str, Any]]):
+    """Command implementation for `emu-dev-cli harness clear`."""
+
+    name = "harness clear"
+    description = "Clear stored session ledger history"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--conversation", type=str, default=None, help="Clear only the specified conversation ID")
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[Dict[str, Any]]:
+        del ctx
+        payload = run_harness_clear(args, render_output=False)
+        return CommandResult.success(payload, summary=payload.get("summary", ""))
+
+
+class HarnessMcpServerCommand(Command[argparse.Namespace, Dict[str, Any]]):
+    """Command implementation for `emu-dev-cli harness mcp-server`."""
+
+    name = "harness mcp-server"
+    description = "Run the Stdio Model Context Protocol (MCP) server"
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[Dict[str, Any]]:
+        del args, ctx
+        run_stdio_mcp_server()
+        return CommandResult.success(
+            {"status": "success", "action": "harness mcp-server"},
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
+
+
+class HarnessPresetsCommand(Command[argparse.Namespace, Dict[str, Any]]):
+    """Command implementation for `emu-dev-cli harness presets`."""
+
+    name = "harness presets"
+    description = "List multi-agent swarm and workflow presets"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--name", type=str, default=None, help="Filter by preset name (e.g. parallel-code-review)")
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[Dict[str, Any]]:
+        del ctx
+        payload = run_harness_presets(args, render_output=False)
+        return CommandResult.success(payload, summary=payload.get("summary", ""))
+
+
+class HarnessReviewSwarmCommand(Command[argparse.Namespace, Dict[str, Any]]):
+    """Command implementation for `emu-dev-cli harness review-swarm`."""
+
+    name = "harness review-swarm"
+    description = "Prepare or aggregate the 8-Specialist Single-Wave Parallel Code-Review Swarm"
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--target", type=str, default=None, help="Unified Gerrit CL ID/URL/Change-Id or git commit ref")
+        parser.add_argument("--cl", type=str, default=None, help="Gerrit CL number, ag/<id>, or URL")
+        parser.add_argument("--commit", type=str, default="HEAD", help="Local git commit ref (default: HEAD)")
+        parser.add_argument("--mode", choices=["workflow", "swarm"], default="workflow", help="Orchestration mode")
+        parser.add_argument("--repo", "--repo-dir", dest="repo", type=str, default=None, help="Local git repo path")
+        parser.add_argument("--output-dir", type=str, default=None, help="Bundle output directory")
+        parser.add_argument("--aggregate-from", type=str, default=None, help="Raw specialist outputs JSON file")
+        parser.add_argument(
+            "--full",
+            action="store_true",
+            help="Force a full 8-specialist review pass ignoring cached iteration history",
+        )
+
+    def validate(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> argparse.Namespace:
+        del ctx
+        mode = getattr(args, "mode", "workflow") or "workflow"
+        if mode not in VALID_SWARM_MODES:
+            raise CommandValidationError(
+                f"Invalid '--mode' value for 'harness review-swarm': expected one of "
+                f"{sorted(VALID_SWARM_MODES)}, got {mode!r}. Pass '--mode workflow' or '--mode swarm'."
+            )
+        return args
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[Dict[str, Any]]:
+        del ctx
+        payload = run_harness_review_swarm(args, render_output=False)
+        if payload.get("status") == "error":
+            return CommandResult.failure(
+                payload.get("summary", "Failed to run harness review-swarm."),
+                exit_code=int(payload.get("exit_code", 1)),
+                data=payload,
+            )
+        return CommandResult.success(payload, summary=payload.get("summary", ""))
+
+
+class HarnessCommand(Command[argparse.Namespace, Dict[str, Any]]):
+    """Composite Command implementation for `emu-dev-cli harness`."""
+
+    name = "harness"
+    description = "Manage the Android Emulator Custom Agent Harness (Jetski Web & CLI plugin, hooks, and ledger)"
+
+    def __init__(self, parser: Optional[argparse.ArgumentParser] = None) -> None:
+        self._parser = parser
+        self._subcommands: Dict[str, Command[argparse.Namespace, Any]] = {
+            "install": HarnessInstallCommand(),
+            "uninstall": HarnessUninstallCommand(),
+            "status": HarnessStatusCommand(),
+            "hook": HarnessHookCommand(),
+            "clear": HarnessClearCommand(),
+            "mcp-server": HarnessMcpServerCommand(),
+            "presets": HarnessPresetsCommand(),
+            "review-swarm": HarnessReviewSwarmCommand(),
+        }
+
+    def validate(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> argparse.Namespace:
+        action = getattr(args, "harness_action", None)
+        if action in self._subcommands:
+            return self._subcommands[action].validate(args, ctx)
+        if self._parser is not None:
+            self._parser.print_help()
+        raise CommandValidationError(
+            f"Unknown or missing harness action {action!r}: expected one of "
+            f"{sorted(self._subcommands)}, got {action!r}. "
+            "Run 'emu-dev-cli harness --help' to inspect available actions."
+        )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[Dict[str, Any]]:
+        action = getattr(args, "harness_action", None)
+        if action in self._subcommands:
+            return self._subcommands[action].execute(args, ctx)
+        if self._parser is not None:
+            self._parser.print_help()
+        return CommandResult.failure(
+            "Unknown or missing harness action.",
+            exit_code=1,
+            data={"status": "error", "action": "harness", "exit_code": 1},
+        )
 
 
 def _register_install_parser(harness_subparsers: Any) -> Any:
@@ -58,22 +333,7 @@ def _register_install_parser(harness_subparsers: Any) -> Any:
         "install",
         help="Install the aemu-harness plugin into ~/.gemini/config/plugins/aemu-harness",
     )
-    install_p.add_argument(
-        "--scope", choices=["global", "workspace"], default="global",
-        help="Install scope: 'global' (~/.gemini/config/plugins) or 'workspace' (<workspace>/.agent/plugins)",
-    )
-    install_p.add_argument(
-        "--global", dest="scope", action="store_const", const="global",
-        help="Shorthand for --scope global (default: installs into ~/.gemini/config/plugins/aemu-harness)",
-    )
-    install_p.add_argument(
-        "--workspace", dest="scope", action="store_const", const="workspace",
-        help="Shorthand for --scope workspace (installs into <workspace>/.agent/plugins/aemu-harness)",
-    )
-    install_p.add_argument(
-        "--target-dir", type=str, default=None, help="Override target plugin installation directory",
-    )
-    install_p.set_defaults(func=run_harness_install)
+    bind_command(install_p, HarnessInstallCommand())
     return install_p
 
 
@@ -82,31 +342,26 @@ def _register_core_subparsers(harness_subparsers: Any) -> list[Any]:
     uninstall_p = harness_subparsers.add_parser(
         "uninstall", help="Uninstall the aemu-harness plugin from ~/.gemini/config/plugins/aemu-harness"
     )
-    uninstall_p.add_argument("--target-dir", type=str, default=None, help="Override target plugin directory")
-    uninstall_p.set_defaults(func=run_harness_uninstall)
+    bind_command(uninstall_p, HarnessUninstallCommand())
 
     status_p = harness_subparsers.add_parser(
         "status", help="Show plugin installation status, active workflows, and session ledger telemetry"
     )
-    status_p.add_argument("--conversation", type=str, default=None, help="Inspect ledger for a specific conversation ID")
-    status_p.set_defaults(func=run_harness_status)
+    bind_command(status_p, HarnessStatusCommand())
 
     hook_p = harness_subparsers.add_parser(
         "hook", help="Internal Jetski lifecycle hook entrypoint (reads JSON from stdin, writes JSON to stdout)"
     )
-    hook_p.add_argument("--event", required=True, choices=[e.value for e in HookEvent], help="Hook lifecycle event name")
-    hook_p.set_defaults(func=run_harness_hook)
+    bind_command(hook_p, HarnessHookCommand())
 
     clear_p = harness_subparsers.add_parser("clear", help="Clear stored session ledger history")
-    clear_p.add_argument("--conversation", type=str, default=None, help="Clear only the specified conversation ID")
-    clear_p.set_defaults(func=run_harness_clear)
+    bind_command(clear_p, HarnessClearCommand())
 
     mcp_p = harness_subparsers.add_parser("mcp-server", help="Run the Stdio Model Context Protocol (MCP) server")
-    mcp_p.set_defaults(func=lambda _args: run_stdio_mcp_server())
+    bind_command(mcp_p, HarnessMcpServerCommand())
 
     presets_p = harness_subparsers.add_parser("presets", help="List multi-agent swarm and workflow presets")
-    presets_p.add_argument("--name", type=str, default=None, help="Filter by preset name (e.g. parallel-code-review)")
-    presets_p.set_defaults(func=run_harness_presets)
+    bind_command(presets_p, HarnessPresetsCommand())
     return [uninstall_p, status_p, clear_p, presets_p]
 
 
@@ -117,13 +372,18 @@ def register_parser(subparsers: Any) -> None:
         help="Manage the Android Emulator Custom Agent Harness (Jetski Web & CLI plugin, hooks, and ledger)",
     )
     harness_subparsers = harness_parser.add_subparsers(dest="harness_action", help="Harness actions")
-    harness_parser.set_defaults(func=lambda args: harness_parser.print_help())
+    bind_command(harness_parser, HarnessCommand(parser=harness_parser))
 
     install_p = _register_install_parser(harness_subparsers)
     core_parsers = _register_core_subparsers(harness_subparsers)
     swarm_p = _register_review_swarm_parser(harness_subparsers)
     for sub_p in (install_p, *core_parsers, swarm_p):
-        sub_p.add_argument("--json", action="store_true", help="Output results in machine-readable JSON format")
+        sub_p.add_argument(
+            "--json",
+            action="store_true",
+            default=argparse.SUPPRESS,
+            help="Output results in machine-readable JSON format",
+        )
 
 
 def _register_review_swarm_parser(harness_subparsers: Any) -> Any:
@@ -132,76 +392,78 @@ def _register_review_swarm_parser(harness_subparsers: Any) -> Any:
         "review-swarm",
         help="Prepare or aggregate the 8-Specialist Single-Wave Parallel Code-Review Swarm",
     )
-    swarm_p.add_argument("--target", type=str, default=None, help="Unified Gerrit CL ID/URL/Change-Id or git commit ref")
-    swarm_p.add_argument("--cl", type=str, default=None, help="Gerrit CL number, ag/<id>, or URL")
-    swarm_p.add_argument("--commit", type=str, default="HEAD", help="Local git commit ref (default: HEAD)")
-    swarm_p.add_argument("--mode", choices=["workflow", "swarm"], default="workflow", help="Orchestration mode")
-    swarm_p.add_argument("--repo", "--repo-dir", dest="repo", type=str, default=None, help="Local git repo path")
-    swarm_p.add_argument("--output-dir", type=str, default=None, help="Bundle output directory")
-    swarm_p.add_argument("--aggregate-from", type=str, default=None, help="Raw specialist outputs JSON file")
-    swarm_p.add_argument(
-        "--full",
-        action="store_true",
-        help="Force a full 8-specialist review pass ignoring cached iteration history",
-    )
-    swarm_p.set_defaults(func=run_harness_review_swarm)
+    bind_command(swarm_p, HarnessReviewSwarmCommand())
     return swarm_p
 
 
-def run_harness_install(args: argparse.Namespace) -> None:
+def run_harness_install(
+    args: argparse.Namespace, *, render_output: bool = True
+) -> Dict[str, Any]:
     """CLI handler for `emu-dev-cli harness install`."""
     json_mode = getattr(args, "json", False)
     scope = getattr(args, "scope", "global") or "global"
     target_dir = Path(args.target_dir) if getattr(args, "target_dir", None) else None
     report = install_harness_plugin(target_dir=target_dir, scope=scope)
     if not report.get("installed"):
-        print_result(
-            {
-                "status": "error",
-                "action": "harness install",
-                "summary": report.get("error", "Failed to install aemu-harness plugin"),
-                "details": report,
-                "exit_code": 1,
-            },
-            json_mode=json_mode,
-            is_error=True,
-        )
-        return
-
-    print_result(
-        {
-            "status": "success",
+        err_payload = {
+            "status": "error",
             "action": "harness install",
-            "summary": f"Installed aemu-harness plugin to {report['plugin_dir']}",
-            "plugin_dir": report["plugin_dir"],
-            "cli_command": report["cli_command"],
-            "installed_files": report["installed_files"],
-        },
-        json_mode=json_mode,
-    )
+            "summary": report.get("error", "Failed to install aemu-harness plugin"),
+            "details": report,
+            "exit_code": 1,
+        }
+        if render_output:
+            print_result(
+                err_payload,
+                json_mode=json_mode,
+                is_error=True,
+            )
+        return err_payload
+
+    res_payload = {
+        "status": "success",
+        "action": "harness install",
+        "summary": f"Installed aemu-harness plugin to {report['plugin_dir']}",
+        "plugin_dir": report["plugin_dir"],
+        "cli_command": report["cli_command"],
+        "installed_files": report["installed_files"],
+    }
+    if render_output:
+        print_result(
+            res_payload,
+            json_mode=json_mode,
+        )
+    return res_payload
 
 
-def run_harness_uninstall(args: argparse.Namespace) -> None:
+def run_harness_uninstall(
+    args: argparse.Namespace, *, render_output: bool = True
+) -> Dict[str, Any]:
     """CLI handler for `emu-dev-cli harness uninstall`."""
     json_mode = getattr(args, "json", False)
     target_dir = Path(args.target_dir) if getattr(args, "target_dir", None) else None
     report = uninstall_harness_plugin(target_dir=target_dir)
-    print_result(
-        {
-            "status": "success",
-            "action": "harness uninstall",
-            "summary": (
-                f"Removed aemu-harness plugin from {report['plugin_dir']}"
-                if report.get("removed")
-                else f"No plugin directory found at {report['plugin_dir']}"
-            ),
-            "details": report,
-        },
-        json_mode=json_mode,
-    )
+    res_payload = {
+        "status": "success",
+        "action": "harness uninstall",
+        "summary": (
+            f"Removed aemu-harness plugin from {report['plugin_dir']}"
+            if report.get("removed")
+            else f"No plugin directory found at {report['plugin_dir']}"
+        ),
+        "details": report,
+    }
+    if render_output:
+        print_result(
+            res_payload,
+            json_mode=json_mode,
+        )
+    return res_payload
 
 
-def run_harness_status(args: argparse.Namespace) -> None:
+def run_harness_status(
+    args: argparse.Namespace, *, render_output: bool = True
+) -> Dict[str, Any]:
     """CLI handler for `emu-dev-cli harness status`."""
     json_mode = getattr(args, "json", False)
     conv_id = getattr(args, "conversation", None)
@@ -211,26 +473,29 @@ def run_harness_status(args: argparse.Namespace) -> None:
     ledgers = [store.load(conv_id)] if conv_id else store.list_all_ledgers()
     recent_metrics = load_recent_swarm_metrics(get_harness_base_dir() / REVIEW_SWARM_SUBDIR)
 
-    print_result(
-        {
-            "status": "success",
-            "action": "harness status",
-            "summary": (
-                f"aemu-harness plugin installed={plugin_status['installed']}, "
-                f"active_workflows={len(active_workflows)}, "
-                f"tracked_sessions={len(ledgers)}, "
-                f"recent_swarm_runs={len(recent_metrics)}"
-            ),
-            "plugin": plugin_status,
-            "active_workflows": active_workflows,
-            "recent_review_swarm_metrics": recent_metrics,
-            "sessions": ledgers[:10],
-        },
-        json_mode=json_mode,
-    )
+    res_payload = {
+        "status": "success",
+        "action": "harness status",
+        "summary": (
+            f"aemu-harness plugin installed={plugin_status['installed']}, "
+            f"active_workflows={len(active_workflows)}, "
+            f"tracked_sessions={len(ledgers)}, "
+            f"recent_swarm_runs={len(recent_metrics)}"
+        ),
+        "plugin": plugin_status,
+        "active_workflows": active_workflows,
+        "recent_review_swarm_metrics": recent_metrics,
+        "sessions": ledgers[:10],
+    }
+    if render_output:
+        print_result(
+            res_payload,
+            json_mode=json_mode,
+        )
+    return res_payload
 
 
-def run_harness_hook(args: argparse.Namespace) -> None:
+def run_harness_hook(args: argparse.Namespace) -> Dict[str, Any]:
     """CLI handler for `emu-dev-cli harness hook --event <event>`."""
     ensure_utf8_stdio()
     raw_stdin = sys.stdin.read() if not sys.stdin.isatty() else ""
@@ -243,42 +508,65 @@ def run_harness_hook(args: argparse.Namespace) -> None:
         except Exception:
             payload = {}
 
-    response = dispatch_hook_event(args.event, payload)
+    try:
+        response = dispatch_hook_event(args.event, payload)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        LOGGER.warning(
+            "Failed to dispatch harness hook event %r: %s; falling back to "
+            '\'{"decision": "allow"}\'. Run \'emu-dev-cli --verbose harness status\' '
+            "to inspect harness state.",
+            getattr(args, "event", None),
+            exc,
+        )
+        response = {"decision": HookDecision.ALLOW.value}
+
     sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
     sys.stdout.flush()
+    return response
 
 
-def run_harness_clear(args: argparse.Namespace) -> None:
+def run_harness_clear(
+    args: argparse.Namespace, *, render_output: bool = True
+) -> Dict[str, Any]:
     """CLI handler for `emu-dev-cli harness clear`."""
     json_mode = getattr(args, "json", False)
     conv_id = getattr(args, "conversation", None)
     store = SessionLedgerStore()
     removed = store.clear(conversation_id=conv_id)
-    print_result(
-        {
-            "status": "success",
-            "action": "harness clear",
-            "summary": f"Cleared {removed} session ledger(s)",
-            "removed": removed,
-        },
-        json_mode=json_mode,
-    )
+    TerminalTitleUpdater(base_dir=store.base_dir).clear_state(conversation_id=conv_id)
+    res_payload = {
+        "status": "success",
+        "action": "harness clear",
+        "summary": f"Cleared {removed} session ledger(s)",
+        "removed": removed,
+    }
+    if render_output:
+        print_result(
+            res_payload,
+            json_mode=json_mode,
+        )
+    return res_payload
 
 
-def run_harness_presets(args: argparse.Namespace) -> None:
+def run_harness_presets(
+    args: argparse.Namespace, *, render_output: bool = True
+) -> Dict[str, Any]:
     """CLI handler for `emu-dev-cli harness presets`."""
     json_mode = getattr(args, "json", False)
     preset_name = getattr(args, "name", None)
     presets = list_harness_presets(name=preset_name)
-    print_result(
-        {
-            "status": "success",
-            "action": "harness presets",
-            "summary": f"Found {len(presets)} multi-agent harness preset(s)",
-            "presets": presets,
-        },
-        json_mode=json_mode,
-    )
+    res_payload = {
+        "status": "success",
+        "action": "harness presets",
+        "summary": f"Found {len(presets)} multi-agent harness preset(s)",
+        "presets": presets,
+    }
+    if render_output:
+        print_result(
+            res_payload,
+            json_mode=json_mode,
+        )
+    return res_payload
 
 
 def _persist_cli_aggregated_artifacts(
@@ -364,7 +652,9 @@ def _attach_cli_aggregation(
     )
 
 
-def run_harness_review_swarm(args: argparse.Namespace) -> None:
+def run_harness_review_swarm(
+    args: argparse.Namespace, *, render_output: bool = True
+) -> Dict[str, Any]:
     """CLI handler for `emu-dev-cli harness review-swarm`."""
     json_mode = getattr(args, "json", False)
     target = getattr(args, "target", None)
@@ -397,19 +687,24 @@ def run_harness_review_swarm(args: argparse.Namespace) -> None:
             _attach_cli_aggregation(
                 result_payload, agg_from, bundle.get("changed_lines_by_file") or {}
             )
-        print_result(result_payload, json_mode=json_mode)
+        if render_output:
+            print_result(result_payload, json_mode=json_mode)
+        return result_payload
     except Exception as exc:
-        print_result(
-            {
-                "status": "error",
-                "action": "harness review-swarm",
-                "summary": (
-                    f"Failed to {stage_desc}: {exc}. "
-                    "Verify `--cl`/`--commit`, `--repo`, and `--aggregate-from` arguments and retry."
-                ),
-                "exit_code": 1,
-            },
-            json_mode=json_mode,
-            is_error=True,
-        )
+        err_payload = {
+            "status": "error",
+            "action": "harness review-swarm",
+            "summary": (
+                f"Failed to {stage_desc}: {exc}. "
+                "Verify `--cl`/`--commit`, `--repo`, and `--aggregate-from` arguments and retry."
+            ),
+            "exit_code": 1,
+        }
+        if render_output:
+            print_result(
+                err_payload,
+                json_mode=json_mode,
+                is_error=True,
+            )
+        return err_payload
 
