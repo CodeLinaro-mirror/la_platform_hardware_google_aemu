@@ -318,14 +318,23 @@ class WorkspacePathResolver:
                             if is_windows or os.access(match, os.X_OK):
                                 return match
 
-        # 4. Check pre-installed binary in ~/.android/emu-dev-cli/lib/bin/
-        installed_bin = (
-            Path.home() / ".android" / "emu-dev-cli" / "lib" / "bin" / exe_name
-        )
-        if installed_bin.is_file() and (
-            is_windows or os.access(installed_bin, os.X_OK)
-        ):
-            return installed_bin
+        # 4. Check pre-installed binary in release lib/bin/ (or ~/.android/emu-dev-cli/lib/bin/)
+        installed_candidates = [
+            Path.home() / ".android" / "emu-dev-cli" / "lib" / "bin" / exe_name,
+        ]
+        if is_windows:
+            local_appdata = os.environ.get(
+                "LOCALAPPDATA", str(Path.home() / "AppData" / "Local")
+            )
+            installed_candidates.insert(
+                0,
+                Path(local_appdata) / "Google" / "EmuDevCLI" / "lib" / "bin" / exe_name,
+            )
+        for installed_bin in installed_candidates:
+            if installed_bin.is_file() and (
+                is_windows or os.access(installed_bin, os.X_OK)
+            ):
+                return installed_bin
 
         # 5. Check system PATH
         on_path = shutil.which(binary_name)

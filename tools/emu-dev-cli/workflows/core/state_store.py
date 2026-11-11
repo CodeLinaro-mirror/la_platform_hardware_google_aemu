@@ -26,6 +26,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Union
 import yaml
 
 _SAFE_TOKEN_RE = re.compile(r"^[a-zA-Z0-9_.-]+$")
+_PRIVATE_DIR_MODE = 0o777 if os.name == "nt" else 0o700
 
 _SESSION_LOCKS_GUARD = threading.Lock()
 _SESSION_LOCKS: Dict[str, threading.RLock] = {}
@@ -67,7 +68,7 @@ def resolve_default_state_base_dir(
                 / "workflows"
                 / "state"
             )
-    base.mkdir(parents=True, exist_ok=True, mode=0o700)
+    base.mkdir(parents=True, exist_ok=True, mode=_PRIVATE_DIR_MODE)
     return base
 
 
@@ -207,7 +208,7 @@ def save_state_file_atomic(
 ) -> Path:
     """Atomically writes `state_data` to `state_file` under its per-file reentrant lock."""
     path = Path(state_file)
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=_PRIVATE_DIR_MODE)
     lock = get_session_lock(path.resolve())
     plain_dict = (
         state_data.to_dict()

@@ -39,6 +39,20 @@ for _dir in _path_dirs:
     if os.path.exists(_dir):
         sys.path.insert(0, _dir)
 
+_fallback_lib_dirs = [
+    os.path.join(os.path.expanduser("~"), ".android", "emu-dev-cli", "lib"),
+]
+if sys.platform.startswith("win"):
+    _local_appdata = os.environ.get(
+        "LOCALAPPDATA", os.path.join(os.path.expanduser("~"), "AppData", "Local")
+    )
+    _fallback_lib_dirs.insert(
+        0, os.path.join(_local_appdata, "Google", "EmuDevCLI", "lib")
+    )
+for _fb_dir in _fallback_lib_dirs:
+    if os.path.isdir(_fb_dir) and _fb_dir not in sys.path:
+        sys.path.append(_fb_dir)
+
 from commands import (
     build_times,
     crash,

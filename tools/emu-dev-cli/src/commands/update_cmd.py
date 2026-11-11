@@ -133,6 +133,7 @@ def _run_bazel_build(
     cmd = [
         bazel_cmd,
         "build",
+        "--build_runfile_links",
         BAZEL_TARGET,
         ADVISOR_BAZEL_TARGET,
         CRASHREPORT_BAZEL_TARGET,

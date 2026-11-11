@@ -170,7 +170,10 @@ def _find_workspace_root() -> Optional[str]:
             os.path.join(cur, "hardware", "google", "aemu")
         ):
             return cur
-        cur = os.path.dirname(cur)
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
     try:
         from commands.source_directory import get_source_directory
 
@@ -387,7 +390,7 @@ def _restore_extracted_executable_permissions(emu_subdir: str) -> None:
 def _get_perf_cache_dir() -> str:
     """Returns the user-specific cache directory (`~/.cache/emu-dev-cli/perf`) with 0700 permissions."""
     cache_dir = os.path.expanduser("~/.cache/emu-dev-cli/perf")
-    os.makedirs(cache_dir, mode=0o700, exist_ok=True)
+    os.makedirs(cache_dir, mode=(0o777 if os.name == "nt" else 0o700), exist_ok=True)
     return cache_dir
 
 
@@ -404,7 +407,9 @@ def _resolve_stable_target(
     extracted_dir = os.path.join(dest_root, "extracted")
     emu_subdir = os.path.join(extracted_dir, "emulator")
     if not os.path.isdir(emu_subdir):
-        os.makedirs(extracted_dir, mode=0o700, exist_ok=True)
+        os.makedirs(
+            extracted_dir, mode=(0o777 if os.name == "nt" else 0o700), exist_ok=True
+        )
         zip_path = os.path.join(dest_root, zip_name)
         if not os.path.isfile(zip_path):
             dl_url = f"https://dl.google.com/android/repository/{zip_name}"

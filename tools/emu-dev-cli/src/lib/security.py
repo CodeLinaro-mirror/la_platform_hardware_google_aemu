@@ -67,7 +67,7 @@ def is_path_secure_user_owned(
                 current_uid,
             )
             return False
-        if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        if current_uid is not None and (st.st_mode & (stat.S_IWGRP | stat.S_IWOTH)):
             logger.debug(
                 "Security check failed: Path '%s' is group or world writable (mode: %o)",
                 raw_p,
@@ -84,11 +84,11 @@ def is_path_secure_user_owned(
                 # If parent component is a symlink:
                 if os.path.islink(str(curr)):
                     # Allow ONLY root-owned system root links (e.g. /var -> private/var on macOS)
-                    if pst.st_uid != 0 or curr.parent != curr.parent.parent:
+                    if current_uid is None or pst.st_uid != 0 or curr.parent != curr.parent.parent:
                         return False
 
                 # If directory is world-writable, it MUST have sticky bit set (e.g. /tmp, /var/tmp)
-                if pst.st_mode & stat.S_IWOTH:
+                if current_uid is not None and (pst.st_mode & stat.S_IWOTH):
                     if not (pst.st_mode & stat.S_ISVTX):
                         return False
                 elif current_uid is not None and pst.st_uid not in (0, current_uid):

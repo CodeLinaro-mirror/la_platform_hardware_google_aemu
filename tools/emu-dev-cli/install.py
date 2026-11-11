@@ -149,10 +149,10 @@ def run_install(argv=None):
         "@goldfish//emulator/crashreport/tool/advisor:advisor",
         "@goldfish//emulator/crashreport/tool:crashreport",
     ]
-    res = subprocess.run([bazel_cmd, "build"] + targets, cwd=source_root, check=False)
+    res = subprocess.run([bazel_cmd, "build", "--build_runfile_links"] + targets, cwd=source_root, check=False)
     if res.returncode != 0:
         print("Retrying build with primary emu-dev-cli target...")
-        res = subprocess.run([bazel_cmd, "build", "@aemu//tools/emu-dev-cli:emu-dev-cli"], cwd=source_root, check=False)
+        res = subprocess.run([bazel_cmd, "build", "--build_runfile_links", "@aemu//tools/emu-dev-cli:emu-dev-cli"], cwd=source_root, check=False)
         if res.returncode != 0:
             sys.stderr.write("  ! Error: Bazel build failed for emu-dev-cli.\n")
             return res.returncode

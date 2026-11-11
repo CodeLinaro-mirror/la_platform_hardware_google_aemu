@@ -55,6 +55,7 @@ _CORE_DIR = Path(__file__).resolve().parent
 _WORKFLOWS_DIR = _CORE_DIR.parent
 _EMU_DEV_CLI_DIR = _WORKFLOWS_DIR.parent
 _SRC_DIR = _EMU_DEV_CLI_DIR / "src"
+_PRIVATE_DIR_MODE = 0o777 if os.name == "nt" else 0o700
 
 
 def _build_subprocess_env(base_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
@@ -194,7 +195,7 @@ def get_workflow_cache_root() -> Path:
 def get_workflow_cache_dir(workflow_name: str) -> Path:
     """Returns the isolated, generic cache directory for a given workflow name."""
     base = get_workflow_cache_root() / workflow_name
-    base.mkdir(parents=True, exist_ok=True, mode=0o700)
+    base.mkdir(parents=True, exist_ok=True, mode=_PRIVATE_DIR_MODE)
     return base
 
 
@@ -556,7 +557,7 @@ def init_workflow_session(
 
     unique_id = state_id_override or uuid.uuid4().hex[:8]
     workflow_cache_dir = get_workflow_cache_dir(wf_name)
-    workflow_cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    workflow_cache_dir.mkdir(parents=True, exist_ok=True, mode=_PRIVATE_DIR_MODE)
 
     init_ctx: Dict[str, Any] = {
         "workflow_name": wf_name,
@@ -665,7 +666,7 @@ def init_workflow_session(
     }
     base_dir = resolve_default_state_base_dir(state_base_dir)
     state_dir = base_dir / wf_name
-    state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    state_dir.mkdir(parents=True, exist_ok=True, mode=_PRIVATE_DIR_MODE)
     state_file = state_dir / f"STATE-{unique_id}.yaml"
     save_state_yaml(state_file, initial_state)
     return unique_id

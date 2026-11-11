@@ -91,9 +91,10 @@ Crashing Thread:
             self.assertTrue(is_path_secure_user_owned(tmp_dir, is_dir=True))
             self.assertFalse(is_path_secure_user_owned(tmp_dir, is_dir=False))
 
-            os.chmod(tmp_dir, 0o777)
-            self.assertFalse(is_path_secure_user_owned(tmp_dir, is_dir=True))
-            os.chmod(tmp_dir, 0o700)
+            if os.name != "nt":
+                os.chmod(tmp_dir, 0o777)
+                self.assertFalse(is_path_secure_user_owned(tmp_dir, is_dir=True))
+                os.chmod(tmp_dir, 0o700)
 
             test_file = os.path.join(tmp_dir, "test.sh")
             with open(test_file, "w") as f:
