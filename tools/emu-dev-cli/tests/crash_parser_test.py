@@ -23,14 +23,14 @@ SRC_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"
 )
 
-from commands.crash.analyze import run_analyze
-from commands.crash.autofix import run_autofix
-from commands.crash.file_bug import run_file_bug
-from commands.crash.find_bug import run_find_bug
-from commands.crash.link_bug import run_link_bug
-from commands.crash.list_crashes import run_list_crashes
+from commands.crash.analyze import CrashAnalyzeCommand
+from commands.crash.autofix import CrashAutofixCommand
+from commands.crash.file_bug import CrashFileBugCommand
+from commands.crash.find_bug import CrashFindBugCommand
+from commands.crash.link_bug import CrashLinkBugCommand
+from commands.crash.list_crashes import CrashListCrashesCommand
 from commands.crash.parser import register_parser
-from commands.crash.reproduce import run_reproduce
+from commands.crash.reproduce import CrashReproduceCommand
 
 
 class CrashParserTest(unittest.TestCase):
@@ -53,7 +53,9 @@ class CrashParserTest(unittest.TestCase):
         self.assertTrue(args.json)
         self.assertEqual(args.exclude_modules, r"Qt6|libandroid-emu|adb|netsimd")
         self.assertEqual(args.version_regex, r"0\.0\.1-|37")
-        self.assertEqual(args.func, run_list_crashes)
+        self.assertIsInstance(
+            getattr(args, "_command_instance"), CrashListCrashesCommand
+        )
 
     def test_link_bug_subcommand(self):
         """Tests parsing `crash link-bug` arguments."""
@@ -71,7 +73,9 @@ class CrashParserTest(unittest.TestCase):
         self.assertEqual(args.target, "virtio_gpu_rutabaga_load-e709a6ba")
         self.assertEqual(args.bug, "b/567125517")
         self.assertTrue(args.unlink)
-        self.assertEqual(args.func, run_link_bug)
+        self.assertIsInstance(
+            getattr(args, "_command_instance"), CrashLinkBugCommand
+        )
 
     def test_find_bug_subcommand(self):
         """Tests parsing `crash find-bug` arguments."""
@@ -82,7 +86,9 @@ class CrashParserTest(unittest.TestCase):
         self.assertEqual(args.crash_cmd, "find-bug")
         self.assertEqual(args.crash_id, "123456")
         self.assertEqual(args.component_id, 999)
-        self.assertEqual(args.func, run_find_bug)
+        self.assertIsInstance(
+            getattr(args, "_command_instance"), CrashFindBugCommand
+        )
 
     def test_file_bug_subcommand(self):
         """Tests parsing `crash file-bug` arguments."""
@@ -90,7 +96,9 @@ class CrashParserTest(unittest.TestCase):
         self.assertEqual(args.subcommand, "crash")
         self.assertEqual(args.crash_cmd, "file-bug")
         self.assertTrue(args.qa)
-        self.assertEqual(args.func, run_file_bug)
+        self.assertIsInstance(
+            getattr(args, "_command_instance"), CrashFileBugCommand
+        )
 
     def test_autofix_subcommand(self):
         """Tests parsing `crash autofix` arguments."""
@@ -98,7 +106,9 @@ class CrashParserTest(unittest.TestCase):
         self.assertEqual(args.subcommand, "crash")
         self.assertEqual(args.crash_cmd, "autofix")
         self.assertTrue(args.dry_run)
-        self.assertEqual(args.func, run_autofix)
+        self.assertIsInstance(
+            getattr(args, "_command_instance"), CrashAutofixCommand
+        )
 
     def test_reproduce_subcommand(self):
         """Tests parsing `crash reproduce` arguments."""
@@ -109,7 +119,9 @@ class CrashParserTest(unittest.TestCase):
         self.assertEqual(args.crash_cmd, "reproduce")
         self.assertTrue(args.lldb)
         self.assertTrue(args.dry_run)
-        self.assertEqual(args.func, run_reproduce)
+        self.assertIsInstance(
+            getattr(args, "_command_instance"), CrashReproduceCommand
+        )
 
     def test_analyze_subcommand(self):
         """Tests parsing `crash analyze` arguments."""
@@ -117,7 +129,9 @@ class CrashParserTest(unittest.TestCase):
         self.assertEqual(args.subcommand, "crash")
         self.assertEqual(args.crash_cmd, "analyze")
         self.assertTrue(args.auto_run)
-        self.assertEqual(args.func, run_analyze)
+        self.assertIsInstance(
+            getattr(args, "_command_instance"), CrashAnalyzeCommand
+        )
 
 
 if __name__ == "__main__":

@@ -14,7 +14,12 @@
 
 """Domain services for AEMU Fast Gerrit UI (`emu-dev-cli gerrit ui`)."""
 
+from commands.gerrit.services.context import (
+    CONTEXT_SHARED_ATTRS,
+    GerritWorkspaceContext,
+)
 from commands.gerrit.services.diff_parser import (
+    DiffService,
     GerritDiffService,
     GerritServiceBase,
     build_code_search_file_url,
@@ -29,6 +34,7 @@ from commands.gerrit.services.diff_parser import (
 )
 from commands.gerrit.services.inline_qa_service import (
     GerritInlineQaService,
+    InlineQaService,
     build_code_followup_prompt,
     build_code_question_prompt,
     discover_transcript_code_questions,
@@ -36,6 +42,8 @@ from commands.gerrit.services.inline_qa_service import (
 )
 from commands.gerrit.services.queue_service import (
     GerritQueueService,
+    ReviewQueueService,
+    _enrich_change_messages,
     build_approval_slots,
     build_viewer_gerrit_query,
     enrich_change_for_ui,
@@ -44,6 +52,7 @@ from commands.gerrit.services.queue_service import (
     group_changes_into_stacks,
     is_agent_authored_or_uploaded,
     is_agent_or_bot_email,
+    is_cc_reviewer,
     is_explicit_reviewer,
     is_team_review_agent,
     parse_gerrit_timestamp,
@@ -52,15 +61,25 @@ from commands.gerrit.services.queue_service import (
 from commands.gerrit.services.vote_submit_service import (
     GerritVoteSubmitService,
     OWNER_NOTIFY_HANDLING,
+    ReviewBatchConfig,
+    VoteSubmitService,
 )
 
 __all__ = [
+    "CONTEXT_SHARED_ATTRS",
+    "DiffService",
     "GerritDiffService",
     "GerritInlineQaService",
     "GerritQueueService",
     "GerritServiceBase",
     "GerritVoteSubmitService",
+    "GerritWorkspaceContext",
+    "InlineQaService",
     "OWNER_NOTIFY_HANDLING",
+    "ReviewBatchConfig",
+    "ReviewQueueService",
+    "VoteSubmitService",
+    "_enrich_change_messages",
     "build_approval_slots",
     "build_code_followup_prompt",
     "build_code_question_prompt",
@@ -79,6 +98,7 @@ __all__ = [
     "group_changes_into_stacks",
     "is_agent_authored_or_uploaded",
     "is_agent_or_bot_email",
+    "is_cc_reviewer",
     "is_explicit_reviewer",
     "is_team_review_agent",
     "parse_code_questions_from_transcript_lines",

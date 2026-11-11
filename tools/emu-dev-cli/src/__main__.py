@@ -51,6 +51,7 @@ from commands import (
     harness,
     init_cmd,
     launch,
+    mcp,
     mesh,
     perf,
     sbom,
@@ -68,24 +69,6 @@ from install import installer
 from lib.logging_config import setup_logging
 from lib.output import ensure_utf8_stdio, print_result
 from lib.version import UNKNOWN_COMMIT, format_version_display, read_installed_version
-
-
-MIGRATED_COMMANDS = (
-    build_times.BuildTimesCommand,
-    crash.CrashCommand,
-    cts.CtsCommand,
-    flakiness.FlakinessCommand,
-    harness.HarnessCommand,
-    update_prebuilt.UpdatePrebuiltCommand,
-)
-
-
-def create_cli_dispatcher() -> CliDispatcher:
-    """Builds a `CliDispatcher` with all Command-pattern subcommands registered."""
-    dispatcher = CliDispatcher()
-    for cmd_cls in MIGRATED_COMMANDS:
-        dispatcher.register_command(cmd_cls())
-    return dispatcher
 
 
 def detect_default_host():
@@ -114,8 +97,8 @@ def _handle_version_flag(args) -> None:
             payload["commit_short"] = UNKNOWN_COMMIT
             payload["summary"] = "No installed version record found"
         print_result(payload, json_mode=True)
-
-    print(format_version_display(installed))
+    else:
+        print(format_version_display(installed))
     sys.exit(0)
 
 
@@ -162,6 +145,7 @@ def main():
     init_cmd.register_parser(subparsers)
     installer.register_parser(subparsers)
     launch.register_parser(subparsers)
+    bind_command(subparsers, mcp.McpCommand())
     mesh.register_parser(subparsers)
     perf.register_parser(subparsers)
     sbom.register_parser(subparsers)
@@ -182,13 +166,11 @@ def main():
     if getattr(args, "version", False):
         _handle_version_flag(args)
 
-    if not args.subcommand or (
-        not hasattr(args, "func") and not hasattr(args, COMMAND_INSTANCE_ATTR)
-    ):
+    if not args.subcommand or not hasattr(args, COMMAND_INSTANCE_ATTR):
         parser.print_help()
         sys.exit(1)
 
-    exit_code = create_cli_dispatcher().dispatch(args)
+    exit_code = CliDispatcher().dispatch(args)
     if exit_code != 0:
         sys.exit(exit_code)
 

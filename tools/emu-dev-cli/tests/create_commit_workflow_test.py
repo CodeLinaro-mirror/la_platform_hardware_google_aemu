@@ -28,6 +28,8 @@ _SRC_DIR = os.path.join(_EMU_DEV_CLI_DIR, "src")
 
 
 from commands.workflow import find_workflow_target, list_available_workflows
+from testlib.git_repo import TempGitRepo
+from testlib.workflows import WorkflowTestCase
 from workflows.common.git_commit import (
     get_head_commit_hash,
     messages_match,
@@ -42,16 +44,10 @@ from workflows.core.yaml_runner import (
 )
 
 
-class TestCreateCommitWorkflowIntegration(unittest.TestCase):
+class TestCreateCommitWorkflowIntegration(WorkflowTestCase):
 
     def setUp(self):
-        target = find_workflow_target("create-commit")
-        self.assertIsNotNone(target, "create-commit workflow target not found")
-        self.target_type, self.workflow_yaml = target
-        self.assertEqual(self.target_type, "yaml")
-        self.assertTrue(os.path.isfile(self.workflow_yaml))
-
-        self.workflow_dir = os.path.dirname(self.workflow_yaml)
+        self.setup_workflow("create-commit")
         self.verifier_py = os.path.join(self.workflow_dir, "verify_commit.py")
         self.verify_proposed_msg_py = os.path.join(self.workflow_dir, "verify_proposed_msg.py")
         self.setup_msg_files_py = os.path.join(self.workflow_dir, "setup_msg_files.py")
@@ -62,49 +58,13 @@ class TestCreateCommitWorkflowIntegration(unittest.TestCase):
         self.assertTrue(os.path.isfile(self.get_base_commit_py))
 
     def test_workflow_discovery(self):
-        workflows = list_available_workflows()
-        self.assertIn("create-commit", workflows)
-        wf = workflows["create-commit"]
-        self.assertEqual(wf["name"], "create-commit")
-        self.assertEqual(wf["target_type"], "yaml")
-        self.assertTrue(os.path.isfile(wf["target_path"]))
+        self.assert_workflow_discovery("create-commit")
 
     def test_no_git_commands_in_instructions(self):
-        local_yaml = os.path.join(_WORKFLOWS_DIR, "create_commit", "workflow.yaml")
-        spec = load_yaml(local_yaml)
-        disallowed_commands = [
-            r"\bgit\s+commit\b",
-            r"\bgit\s+add\b",
-            r"\bgit\s+push\b",
-            r"\bgit\s+checkout\b",
-            r"\bgit\s+diff\b",
-            r"\bgit\s+status\b",
-            r"\bgit\s+rebase\b",
-            r"\bgit\s+reset\b",
-        ]
-
-        for step in spec.get("steps", []):
-            for field in ("prompt", "error_prompt", "stuck_prompt", "stuck_reason"):
-                val = step.get(field, "")
-                if isinstance(val, list):
-                    text = " ".join(val)
-                else:
-                    text = str(val or "")
-                for pattern in disallowed_commands:
-                    self.assertIsNone(
-                        re.search(pattern, text, re.IGNORECASE),
-                        f"Found forbidden git command matching '{pattern}' in step {step.get('step')} field '{field}': {text}",
-                    )
+        self.assert_no_git_commands_in_instructions()
 
     def test_semantic_commit_rules_in_workflow_prompt(self):
-        local_yaml = os.path.join(_WORKFLOWS_DIR, "create_commit", "workflow.yaml")
-        spec = load_yaml(local_yaml)
-        step0_prompt = spec["steps"][0]["prompt"]
-        self.assertIn("<type>[optional scope]: <description>", step0_prompt)
-        self.assertIn("50 characters", step0_prompt)
-        self.assertIn("feat, fix, build, docs, chore, test, refactor, perf, style", step0_prompt)
-        self.assertIn("imperative mood", step0_prompt)
-        self.assertIn("BREAKING CHANGE:", step0_prompt)
+        self.assert_semantic_commit_rules_in_prompt()
 
     def test_commit_verifier_validations(self):
         # Empty commit message
@@ -123,6 +83,29 @@ class TestCreateCommitWorkflowIntegration(unittest.TestCase):
         self.assertEqual(len(errors), 2)
         self.assertTrue(any("Tag=" in e for e in errors))
         self.assertTrue(any("CONV=" in e for e in errors))
+
+        # Agent conversation and authorship trailers are rejected as well
+        msg_with_agent_trailers = (
+            "feat: Test title\n\n"
+            "Description.\n\n"
+            "Bug: 12345678\n"
+            "Test: Presubmit\n"
+            "CONVERSATION=https://jetski.example/c/1\n"
+            "AGY=1\n"
+        )
+        errors = validate_commit_message(msg_with_agent_trailers)
+        self.assertEqual(len(errors), 2)
+        self.assertTrue(any("'CONVERSATION='" in e for e in errors))
+        self.assertTrue(any("forbidden trailer 'AGY='" in e for e in errors))
+
+        # Prose that names a banned trailer is not a trailer
+        msg_mentioning_trailers = (
+            "feat: Test title\n\n"
+            "Rejects the CONV= and AGY= trailers.\n\n"
+            "Bug: 12345678\n"
+            "Test: Presubmit\n"
+        )
+        self.assertEqual(validate_commit_message(msg_mentioning_trailers), [])
 
         # Missing Bug: line
         msg_missing_bug = "feat: Test title\n\nDescription.\n\nTest: Presubmit\n"
@@ -213,31 +196,11 @@ class TestCreateCommitWorkflowIntegration(unittest.TestCase):
             self.assertIn("verified successfully", res.stdout)
 
     def test_workflow_lifecycle_in_git_repo(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            repo_dir = Path(tmpdir) / "repo"
-            state_root = Path(tmpdir) / "state"
-            cache_root = Path(tmpdir) / "cache"
-            repo_dir.mkdir()
-
-            subprocess.run(["git", "init"], cwd=str(repo_dir), check=True, capture_output=True)
-            subprocess.run(["git", "config", "user.name", "Test User"], cwd=str(repo_dir), check=True)
-            subprocess.run(["git", "config", "user.email", "test@google.com"], cwd=str(repo_dir), check=True)
-
-            dummy_file = repo_dir / "initial.txt"
-            dummy_file.write_text("initial content", encoding="utf-8")
-            subprocess.run(["git", "add", "initial.txt"], cwd=str(repo_dir), check=True)
-            subprocess.run(["git", "commit", "-m", "Initial commit\n\nBug: 1\nTest: N/A"], cwd=str(repo_dir), check=True)
-
-            base_commit = get_head_commit_hash(cwd=str(repo_dir))
+        with TempGitRepo() as repo:
+            base_commit = get_head_commit_hash(cwd=str(repo.path))
             self.assertNotEqual(base_commit, "EMPTY")
 
-            old_cwd = os.getcwd()
-            old_state = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
-            old_cache = os.environ.get("EMU_DEV_CLI_WORKFLOW_CACHE_DIR")
-            try:
-                os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = str(state_root)
-                os.environ["EMU_DEV_CLI_WORKFLOW_CACHE_DIR"] = str(cache_root)
-                os.chdir(str(repo_dir))
+            with self.isolated_workflow_env(cwd=repo.path) as (_, state_root, _):
                 state_id = init_workflow_session(self.workflow_yaml, [])
                 self.assertIsNotNone(state_id)
 
@@ -268,24 +231,11 @@ class TestCreateCommitWorkflowIntegration(unittest.TestCase):
 
                 self.assertEqual(execute_workflow_step(self.workflow_yaml, state_id), 1)
 
-                file2 = repo_dir / "feature.txt"
-                file2.write_text("new feature", encoding="utf-8")
-                subprocess.run(["git", "add", "feature.txt"], cwd=str(repo_dir), check=True)
-                subprocess.run(["git", "commit", "-m", commit_msg], cwd=str(repo_dir), check=True)
+                repo.commit_file("feature.txt", "new feature", commit_msg)
 
                 self.assertEqual(execute_workflow_step(self.workflow_yaml, state_id), 0)
                 state_data = load_state_yaml(state_file)
                 self.assertEqual(state_data["state"], "DONE")
-            finally:
-                os.chdir(old_cwd)
-                if old_state is not None:
-                    os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = old_state
-                else:
-                    os.environ.pop("EMU_DEV_CLI_WORKFLOW_STATE_DIR", None)
-                if old_cache is not None:
-                    os.environ["EMU_DEV_CLI_WORKFLOW_CACHE_DIR"] = old_cache
-                else:
-                    os.environ.pop("EMU_DEV_CLI_WORKFLOW_CACHE_DIR", None)
 
     def test_no_arguments_allowed(self):
         with self.assertRaises(SystemExit):

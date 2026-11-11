@@ -12,20 +12,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import glob
 import logging
 import os
 import platform
 import re
 import shutil
-import subprocess
+from typing import Any, Optional
 import zipfile
 
+from clients.artifact_service import (
+    DEFAULT_FETCH_ARTIFACT_BIN as FETCH_ARTIFACT_BIN,
+    ArtifactService,
+    ProdArtifactService,
+    check_authentication_status,
+)
+from core.command import (
+    Command,
+    CommandResult,
+    META_KEY_ALREADY_RENDERED,
+    bind_command,
+)
+from core.context import ExecutionContext
+from core.process import ProcessRunner, SubprocessRunner
 from lib.output import print_result
 
 logger = logging.getLogger(__name__)
-
-FETCH_ARTIFACT_BIN = "/google/data/ro/projects/android/fetch_artifact"
 
 HOST_BRANCH_TARGET_MAP = {
     "linux-x64": {
@@ -83,6 +96,30 @@ HOST_CANDIDATES = {
 }
 
 
+class FetchEmulatorCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Fetches Android Emulator binaries from Android Build."""
+
+    name = "emulator"
+    help = "Fetch Android Emulator binaries"
+
+    def __init__(self, parser: Optional[argparse.ArgumentParser] = None) -> None:
+        self._parser = parser
+
+    def execute(
+        self, args: argparse.Namespace, ctx: Optional[ExecutionContext] = None
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        if not getattr(args, "build_id", None) and not getattr(args, "latest", False):
+            if self._parser is not None:
+                self._parser.print_help()
+            return CommandResult.success(
+                {},
+                action="fetch-build emulator",
+                metadata={META_KEY_ALREADY_RENDERED: True},
+            )
+        return run_emulator_fetch(args)
+
+
 def register_parser(subparser, default_host):
     parser = subparser.add_parser(
         "emulator",
@@ -132,26 +169,26 @@ def register_parser(subparser, default_host):
         action="store_true",
         help="Skip preflight authentication readiness check"
     )
-
-    def handler(args):
-        if not args.build_id and not args.latest:
-            parser.print_help()
-            return
-        run_emulator_fetch(args)
-
-    parser.set_defaults(func=handler)
+    bind_command(parser, FetchEmulatorCommand(parser=parser))
+    return parser
 
 
-def run_emulator_fetch(args):
+def run_emulator_fetch(
+    args,
+    *,
+    artifact_service: Optional[ArtifactService] = None,
+    runner: Optional[ProcessRunner] = None,
+    render_output: bool = True,
+) -> CommandResult[dict[str, Any]]:
     host = args.host.lower()
     build_id = getattr(args, "build_id", None)
     is_latest = getattr(args, "latest", False)
     branch = getattr(args, "branch", "emu-main-next")
     json_mode = getattr(args, "json", False)
     token = getattr(args, "token", None)
+    proc_runner = runner or SubprocessRunner()
 
     if not getattr(args, "skip_auth_check", False):
-        from lib.android_build_client import check_authentication_status
         auth_status = check_authentication_status(token=token)
         if not auth_status["valid"]:
             res_data = {
@@ -166,8 +203,14 @@ def run_emulator_fetch(args):
             if auth_status.get("file_path"):
                 res_data["auth_file"] = auth_status["file_path"]
                 res_data["file_exists"] = auth_status["file_exists"]
-            print_result(res_data, json_mode=json_mode, is_error=True)
-            return
+            if not render_output:
+                return CommandResult.failure(
+                    res_data["summary"],
+                    data=res_data,
+                    action="fetch-build emulator",
+                    metadata={META_KEY_ALREADY_RENDERED: True},
+                )
+            return print_result(res_data, json_mode=json_mode, is_error=True)
 
     fetch_tool = FETCH_ARTIFACT_BIN if os.path.exists(FETCH_ARTIFACT_BIN) else shutil.which("fetch_artifact")
 
@@ -191,7 +234,7 @@ def run_emulator_fetch(args):
             patterns = HOST_ARTIFACT_PATTERNS.get(host, HOST_ARTIFACT_PATTERNS["linux-x64"])["latest"]
             for pattern in patterns:
                 cmd = [fetch_tool, "--branch", branch, "--target", target_name, "--latest", pattern, dest_dir]
-                res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                res = proc_runner.run(cmd, check=False)
                 if res.returncode == 0 and glob.glob(os.path.join(dest_dir, "*.zip")):
                     successful_target = target_name
                     successful_branch = branch
@@ -204,7 +247,7 @@ def run_emulator_fetch(args):
             for c in candidates:
                 target_name, branch_name = c["target"], c["branch"]
                 cmd = [fetch_tool, "--bid", build_id, "--target", target_name, pattern, dest_dir]
-                res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                res = proc_runner.run(cmd, check=False)
                 if res.returncode == 0 and glob.glob(os.path.join(dest_dir, "*.zip")):
                     successful_target = target_name
                     successful_branch = branch_name
@@ -217,23 +260,27 @@ def run_emulator_fetch(args):
     # Strategy 2: Direct Android Build v4 REST API fallback (e.g. macOS workstations)
     if not successful_target and not fetch_tool:
         try:
-            from lib.android_build_client import AndroidBuildClient
-            client = AndroidBuildClient(token=token)
+            service = artifact_service or ProdArtifactService(
+                proc_runner,
+                token=token,
+                use_fetch_artifact_cli=False,
+            )
 
             if is_latest:
                 target_map = HOST_BRANCH_TARGET_MAP.get(host, HOST_BRANCH_TARGET_MAP["mac-arm64" if host == "mac-arm64" else "linux-x64"])
                 target_name = target_map.get(branch, "emulator_mac_aarch64" if host == "mac-arm64" else "emulator_linux_x64")
-                resolved_build_id = client.get_latest_build_id(branch, target_name)
+                resolved_build_id = service.resolve_build_id(branch, target_name)
                 patterns = HOST_ARTIFACT_PATTERNS.get(host, HOST_ARTIFACT_PATTERNS["mac-arm64" if host == "mac-arm64" else "linux-x64"])["latest"]
-                matched_art = client.find_matching_artifact(resolved_build_id, target_name, patterns)
+                matched_art = service.find_matching_artifact(resolved_build_id, target_name, patterns)
                 if not matched_art:
                     # Fallback search for any non-symbols emulator zip
-                    for art in client.list_artifacts(resolved_build_id, target_name):
+                    for art_meta in service.list_artifacts(resolved_build_id, target_name):
+                        art = art_meta.name if hasattr(art_meta, "name") else str(art_meta)
                         if "emulator" in art and art.endswith(".zip") and "symbols" not in art and "breakpad" not in art:
                             matched_art = art
                             break
                 if matched_art:
-                    client.download_artifact(resolved_build_id, target_name, matched_art, dest_dir)
+                    service.download_artifact(resolved_build_id, target_name, matched_art, dest_dir)
                     successful_target = target_name
                     successful_branch = branch
                 else:
@@ -245,9 +292,9 @@ def run_emulator_fetch(args):
                 for c in candidates:
                     target_name, branch_name = c["target"], c["branch"]
                     try:
-                        matched_art = client.find_matching_artifact(resolved_build_id, target_name, [pattern, f"*-emulator-{build_id}.zip"])
+                        matched_art = service.find_matching_artifact(resolved_build_id, target_name, [pattern, f"*-emulator-{build_id}.zip"])
                         if matched_art:
-                            client.download_artifact(resolved_build_id, target_name, matched_art, dest_dir)
+                            service.download_artifact(resolved_build_id, target_name, matched_art, dest_dir)
                             successful_target = target_name
                             successful_branch = branch_name
                             break
@@ -258,13 +305,21 @@ def run_emulator_fetch(args):
 
     if not successful_target:
         desc = f"latest on branch {branch}" if is_latest else f"build {build_id}"
-        print_result({
+        err_data = {
             "status": "error",
             "action": "fetch-build emulator",
             "summary": f"Failed to fetch emulator artifact for {desc} (host: {host})",
             "error_message": last_err or "Artifact download failed.",
-            "exit_code": 1
-        }, json_mode=json_mode, is_error=True)
+            "exit_code": 1,
+        }
+        if not render_output:
+            return CommandResult.failure(
+                err_data["summary"],
+                data=err_data,
+                action="fetch-build emulator",
+                metadata={META_KEY_ALREADY_RENDERED: True},
+            )
+        return print_result(err_data, json_mode=json_mode, is_error=True)
 
     all_zips = glob.glob(os.path.join(dest_dir, "*.zip"))
     zips = [z for z in all_zips if "symbols" not in os.path.basename(z) and "breakpad" not in os.path.basename(z)]
@@ -344,4 +399,11 @@ def run_emulator_fetch(args):
     if binary_path:
         result_data["emulator_binary"] = binary_path
 
-    print_result(result_data, json_mode=json_mode)
+    if not render_output:
+        return CommandResult.success(
+            result_data,
+            summary=summary_desc,
+            action="fetch-build emulator",
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
+    return print_result(result_data, json_mode=json_mode)

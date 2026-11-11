@@ -204,6 +204,105 @@ steps:
         with self.assertRaises(WorkflowRecursionError):
             execute_workflow_step(wf_file, state_id)
 
+    def test_workflow_state_store_atomic_crud_and_registry_mtime_cache(self):
+        import time
+        from workflows.core.state_store import WorkflowState, WorkflowStateStore
+        from workflows.core.yaml_runner import WorkflowRegistry
+
+        custom_state_dir = self.base_path / "isolated_state_测试_🚀_é"
+        store = WorkflowStateStore(custom_state_dir)
+
+        # 1. Save, load, update, list, and delete via WorkflowStateStore
+        initial = WorkflowState(
+            state="RUNNING",
+            step=1,
+            retries=0,
+            metadata={"owner": "测试_🚀_é", "_custom_title": "Unicode Session"},
+        )
+        saved_path = store.save_session_state(
+            "sess01", initial, workflow_name="demo-wf"
+        )
+        self.assertTrue(saved_path.is_file())
+
+        loaded = store.load_session_state("sess01", workflow_name="demo-wf")
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded.state, "RUNNING")
+        self.assertEqual(loaded.step, 1)
+        self.assertEqual(loaded.metadata["owner"], "测试_🚀_é")
+
+        updated = store.update_session_state(
+            "sess01",
+            lambda st: (
+                setattr(st, "state", "DONE"),
+                st.metadata.__setitem__("verified", True),
+            ),
+            workflow_name="demo-wf",
+        )
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.state, "DONE")
+        self.assertTrue(updated.metadata["verified"])
+
+        listed = store.list_sessions()
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0].state_id, "sess01")
+        self.assertEqual(listed[0].custom_title, "Unicode Session")
+
+        self.assertTrue(store.delete_session("sess01", workflow_name="demo-wf"))
+        self.assertIsNone(store.load_session_state("sess01", workflow_name="demo-wf"))
+
+        # 2. Explicit state_base_dir and output_stream work without mutating os.environ or sys.stdout
+        wf_file = self.base_path / "stream_wf.yaml"
+        wf_file.write_text(
+            """
+name: stream-wf
+steps:
+  - name: step0
+    prompt: "Stream prompt 测试_🚀_é"
+""",
+            encoding="utf-8",
+        )
+        sid = init_workflow_session(
+            wf_file,
+            {},
+            state_id_override="stream01",
+            state_base_dir=custom_state_dir,
+        )
+        self.assertEqual(sid, "stream01")
+        buf = StringIO()
+        rc = execute_workflow_step(
+            wf_file,
+            sid,
+            state_base_dir=custom_state_dir,
+            output_stream=buf,
+        )
+        self.assertEqual(rc, 0)
+        self.assertIn("Stream prompt 测试_🚀_é", buf.getvalue())
+
+        # 3. WorkflowRegistry caches scan results and invalidates when mtime changes
+        wf_catalog_dir = self.base_path / "catalog_dir"
+        sample_wf_dir = wf_catalog_dir / "sample_wf"
+        sample_wf_dir.mkdir(parents=True)
+        sample_yaml = sample_wf_dir / "workflow.yaml"
+        sample_yaml.write_text("name: sample-wf\ndescription: v1\n", encoding="utf-8")
+
+        WorkflowRegistry.clear()
+        scan_calls = []
+
+        def _fake_scanner(dirs):
+            scan_calls.append(list(dirs))
+            return {"sample-wf": {"description": sample_yaml.read_text(encoding="utf-8")}}
+
+        res1 = WorkflowRegistry.get_or_scan([str(wf_catalog_dir)], _fake_scanner)
+        res2 = WorkflowRegistry.get_or_scan([str(wf_catalog_dir)], _fake_scanner)
+        self.assertEqual(len(scan_calls), 1)
+        self.assertEqual(res1, res2)
+
+        # Touch workflow.yaml mtime to trigger cache invalidation
+        new_ns = sample_yaml.stat().st_mtime_ns + 10_000_000
+        os.utime(sample_yaml, ns=(new_ns, new_ns))
+        WorkflowRegistry.get_or_scan([str(wf_catalog_dir)], _fake_scanner)
+        self.assertEqual(len(scan_calls), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

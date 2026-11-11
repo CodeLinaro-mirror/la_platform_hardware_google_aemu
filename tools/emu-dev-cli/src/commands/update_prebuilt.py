@@ -28,6 +28,7 @@ import sys
 from types import ModuleType
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from clients.artifact_service import check_authentication_status
 from core.command import (
     Command,
     CommandResult,
@@ -42,8 +43,7 @@ from core.context import (
     SERVICE_PROCESS_RUNNER,
 )
 from core.errors import ExitCode
-from lib.android_build_client import check_authentication_status
-from lib.output import format_markdown_table, print_result
+from lib.output import format_markdown_table
 from lib.prebuilt_updater import (
     SUPPORTED_TARGETS,
     log_progress,
@@ -210,9 +210,8 @@ def run_prebuilt_module(
     *,
     artifact_service: Optional[Any] = None,
     runner: Optional[Any] = None,
-    render_output: bool = True,
 ) -> Dict[str, Any]:
-    """Executes a discovered prebuilt plugin module from parsed CLI arguments."""
+    """Executes a discovered prebuilt plugin module and returns its result payload."""
     action_name = f"update-prebuilt {name}"
     supported_targets = _get_module_supported_targets(mod)
     raw_target = getattr(args, "target", None) or "all"
@@ -222,18 +221,18 @@ def run_prebuilt_module(
     is_latest = getattr(args, "latest", False)
     branch = getattr(args, "branch", None) or _get_module_default_branch(mod)
     dry_run = getattr(args, "dry_run", False)
-    json_mode = getattr(args, "json", False)
     token = getattr(args, "token", None)
     dest_dir = getattr(args, "dest_dir", None)
 
     if not getattr(args, "skip_auth_check", False):
         auth_status = (
             artifact_service.check_auth(token=token)
-            if artifact_service is not None and hasattr(artifact_service, "check_auth")
+            if artifact_service is not None
+            and hasattr(artifact_service, "check_auth")
             else check_authentication_status(token=token)
         )
         if not auth_status["valid"]:
-            err_payload = {
+            return {
                 "status": "error",
                 "action": action_name,
                 "prebuilt": name,
@@ -243,13 +242,6 @@ def run_prebuilt_module(
                 "procedure": auth_status["procedure"],
                 "exit_code": 1,
             }
-            if render_output:
-                print_result(
-                    err_payload,
-                    json_mode=json_mode,
-                    is_error=True,
-                )
-            return err_payload
 
     bid_label = f"go/ab/{build_number}" if build_number else f"latest ({branch or 'default'})"
     mode_tag = " [dry-run]" if dry_run else ""
@@ -272,9 +264,6 @@ def run_prebuilt_module(
     )
 
     if isinstance(res, dict):
-        is_err = res.get("status") == "error"
-        if render_output:
-            print_result(res, json_mode=json_mode, is_error=is_err)
         return res
     return {
         "status": "success",
@@ -403,7 +392,6 @@ class UpdatePrebuiltModuleCommand(Command[argparse.Namespace, Dict[str, Any]]):
             args,
             artifact_service=artifact_svc,
             runner=runner,
-            render_output=False,
         )
         is_err = payload.get("status") == STATUS_ERROR
         return CommandResult(
@@ -506,22 +494,7 @@ class UpdatePrebuiltCommand(Command[argparse.Namespace, Dict[str, Any]]):
             self._module_commands[name] = mod_cmd
             for alias in aliases:
                 self._module_commands[alias] = mod_cmd
-
-            def _make_handler(bound_name: str, bound_mod: ModuleType, bound_parser):
-                def _handle(args):
-                    if not args.build_number and not args.latest:
-                        bound_parser.print_help()
-                        sys.exit(1)
-                    run_prebuilt_module(bound_name, bound_mod, args)
-
-                return _handle
-
-            bind_command(
-                sub,
-                mod_cmd,
-                configure=True,
-                legacy_func=_make_handler(name, mod, sub),
-            )
+            bind_command(sub, mod_cmd)
 
     def _resolve_module_command(
         self, args: argparse.Namespace
@@ -585,23 +558,7 @@ def register_parser(subparsers, default_host: str = "linux-x64"):
         help="Update checked-in prebuilt packages from Android Build (go/ab)",
     )
     discovered = get_prebuilt_modules()
-    root_cmd = UpdatePrebuiltCommand(discovered=discovered, parser=update_parser)
-
-    def handle_root(args):
-        if getattr(args, "list", False):
-            payload = _format_discovered_prebuilts(discovered)
-            print_result(
-                payload,
-                json_mode=getattr(args, "json", False),
-            )
-            return
-        if not getattr(args, "prebuilt_name", None):
-            update_parser.print_help()
-            sys.exit(1)
-
     bind_command(
         update_parser,
-        root_cmd,
-        configure=True,
-        legacy_func=handle_root,
+        UpdatePrebuiltCommand(discovered=discovered, parser=update_parser),
     )

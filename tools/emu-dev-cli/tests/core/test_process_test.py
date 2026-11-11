@@ -137,6 +137,21 @@ class ProcessTest(unittest.TestCase):
                     check=True,
                 )
 
+    def test_stream_output_skips_capture_and_is_recorded_by_fake(self) -> None:
+        streamed = SubprocessRunner().run(
+            [sys.executable, "-c", "import sys; sys.exit(3)"],
+            stream_output=True,
+        )
+        self.assertEqual(streamed.returncode, 3)
+        self.assertEqual(streamed.stdout, "")
+        self.assertEqual(streamed.stderr, "")
+
+        fake = FakeProcessRunner()
+        fake.run(["bazel", "run", "//emulator:测试_🚀"], stream_output=True)
+        fake.run(["adb", "devices"])
+        self.assertTrue(fake.calls[0].stream_output)
+        self.assertFalse(fake.calls[1].stream_output)
+
 
 if __name__ == "__main__":
     unittest.main()

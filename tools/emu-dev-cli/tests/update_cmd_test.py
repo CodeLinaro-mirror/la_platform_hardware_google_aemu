@@ -102,10 +102,8 @@ class UpdateCmdVersioningTest(unittest.TestCase):
             "commands.update_cmd.ensure_codesearch_urls_config"
         ), patch(
             "sys.stdout", stdout_buf
-        ), self.assertRaises(
-            SystemExit
-        ) as cm:
-            run_update_cmd(
+        ):
+            res = run_update_cmd(
                 argparse.Namespace(
                     path=str(root / "bin" / "emu-dev-cli"),
                     force=force,
@@ -113,7 +111,7 @@ class UpdateCmdVersioningTest(unittest.TestCase):
                     verbose=False,
                 )
             )
-        return cm.exception.code, stdout_buf.getvalue(), mock_bazel_run, mock_install
+        return res.exit_code, stdout_buf.getvalue(), mock_bazel_run, mock_install
 
     def test_register_parser_supports_force_flags(self):
         """Verifies `update` registers both `--force` and `-f`."""

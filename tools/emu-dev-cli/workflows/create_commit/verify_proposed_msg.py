@@ -13,37 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Verifier for proposed commit message in create-commit workflow."""
+"""Delegation shim to `workflows.common.git_commit.verifier_cli` (`--mode=verify-proposed-msg`)."""
 
-import argparse
-import os
-from pathlib import Path
-import sys
+from workflows.common.git_commit.verifier_cli import (
+    run_cli_entrypoint,
+    verify_proposed_msg,
+)
 
-from workflows.common.git_commit import validate_commit_message_file
-
-
-def verify_proposed_msg(filepath: str) -> int:
-    """Verifies that the proposed commit message file satisfies Gerrit rules."""
-    errors = validate_commit_message_file(filepath)
-    if errors:
-        for err in errors:
-            print(f"Error: {err}", file=sys.stderr)
-        return 1
-
-    print("Proposed commit message verified successfully.")
-    return 0
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Verify proposed commit message file for create-commit workflow."
-    )
-    parser.add_argument("proposed_msg_file", help="Path to the proposed commit message file.")
-    args = parser.parse_args()
-
-    return verify_proposed_msg(filepath=args.proposed_msg_file)
-
+__all__ = ["verify_proposed_msg"]
 
 if __name__ == "__main__":
-    sys.exit(main())
+    run_cli_entrypoint(["--mode=verify-proposed-msg"])

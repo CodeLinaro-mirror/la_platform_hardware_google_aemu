@@ -18,7 +18,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from lib.batched_engine import BatchedRefactoringEngine
+from core.errors import ExecutionError
 from lib.compiler_oracle import CompilerOracleReport
 from lib.level1_engine import Level1RefactoringEngine
 from lib.refactoring import BaseRefactoringEngine
@@ -44,7 +44,6 @@ class BaseRefactoringEngineTest(unittest.TestCase):
     def test_all_tidy_engines_inherit_from_base_engine(self):
         self.assertTrue(issubclass(Level1RefactoringEngine, BaseRefactoringEngine))
         self.assertTrue(issubclass(GitNativeRefactoringEngine, BaseRefactoringEngine))
-        self.assertTrue(issubclass(BatchedRefactoringEngine, BaseRefactoringEngine))
 
     def test_resolve_declaration_path_with_unicode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -78,7 +77,7 @@ class BaseRefactoringEngineTest(unittest.TestCase):
         self.mock_oracle.run_compilation_check.return_value = CompilerOracleReport(
             success=False
         )
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(ExecutionError):
             engine.verify_compilation_or_rollback(
                 self.mock_tx, ["//foo:bar"], "Compile failed"
             )
@@ -86,7 +85,7 @@ class BaseRefactoringEngineTest(unittest.TestCase):
 
         self.mock_tx.reset_mock()
         self.mock_runner.test.return_value = MagicMock(returncode=1)
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(ExecutionError):
             engine.verify_test_gate_or_rollback(self.mock_tx, "//foo:bar_test")
         self.mock_tx.rollback_step.assert_called_once()
 
@@ -107,9 +106,9 @@ class BaseRefactoringEngineTest(unittest.TestCase):
         def _raise_kb():
             raise KeyboardInterrupt()
 
-        with self.assertRaises(SystemExit) as cm:
+        with self.assertRaises(ExecutionError) as cm:
             engine.execute_with_transaction_guard(self.mock_tx, _raise_kb)
-        self.assertEqual(cm.exception.code, 130)
+        self.assertEqual(cm.exception.exit_code, 130)
         self.mock_tx.rollback_step.assert_called_once()
 
 

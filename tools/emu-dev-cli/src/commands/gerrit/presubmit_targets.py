@@ -21,9 +21,10 @@ import json
 from pathlib import Path
 import re
 import shutil
-import subprocess
 from typing import Any
 import urllib.parse
+
+from core.process import ProcessRunner, SubprocessRunner
 
 DEFAULT_STUBBY_BIN = "/usr/bin/stubby"
 PRESUBMIT_READ_BLADE_TARGET = "blade:android-presubmit-prod"
@@ -638,27 +639,24 @@ def query_presubmit_targets_via_stubby(
         f"change_number: {int(cl_id)}, patchset: {int(patchset)} }} }}, "
         "optional_fields: { presubmit_requirements: true }"
     )
-    try:
-        proc = subprocess.run(
-            [
-                resolved_stubby,
-                "call",
-                "--output_json",
-                PRESUBMIT_READ_BLADE_TARGET,
-                PRESUBMIT_LIST_RPC,
-                req_proto,
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=PRESUBMIT_RPC_TIMEOUT_SEC,
-        )
-    except subprocess.TimeoutExpired as exc:
+    proc = SubprocessRunner().run(
+        [
+            resolved_stubby,
+            "call",
+            "--output_json",
+            PRESUBMIT_READ_BLADE_TARGET,
+            PRESUBMIT_LIST_RPC,
+            req_proto,
+        ],
+        check=False,
+        timeout_sec=PRESUBMIT_RPC_TIMEOUT_SEC,
+    )
+    if proc.timed_out:
         raise RuntimeError(
             f"Failed to query TreeHugger presubmit targets for ag/{cl_id} (PS{patchset}): "
             f"`stubby` RPC to '{PRESUBMIT_READ_BLADE_TARGET}' timed out after "
             f"{PRESUBMIT_RPC_TIMEOUT_SEC}s. Run `gcert` and retry, or open {checks_url}."
-        ) from exc
+        )
 
     if proc.returncode != 0:
         err_detail = (proc.stderr or proc.stdout or f"exit code {proc.returncode}").strip()

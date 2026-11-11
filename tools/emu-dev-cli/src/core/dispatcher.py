@@ -33,11 +33,26 @@ from core.command import (
     STATUS_SUCCESS,
 )
 from core.context import ExecutionContext
-from core.errors import EmuCliError, ExitCode, UsageError
+from core.errors import (
+    ERROR_CODE_EXECUTION,
+    EmuCliError,
+    ExitCode,
+    UsageError,
+    redact_sensitive_text,
+)
 from core.events import StepCompleted, StepStarted
-from lib.output import ensure_utf8_stdio
 
 LOGGER = logging.getLogger(__name__)
+
+
+def ensure_utf8_stdio() -> None:
+    """Reconfigures CLI stdin/stdout/stderr to UTF-8 so non-ASCII paths never fail on Windows."""
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
 
 _REDUNDANT_TABLE_KEYS: frozenset[str] = frozenset({
     "nodes",
@@ -352,3 +367,31 @@ class CliDispatcher:
                 )
             )
             return int(ExitCode.INTERRUPTED)
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            duration = time.monotonic() - start_time
+            _safe_rollback(command, args, active_ctx, exc)
+            clean_msg = redact_sensitive_text(str(exc).strip()) or type(exc).__name__
+            error_payload: dict[str, Any] = {
+                "status": STATUS_ERROR,
+                "action": step_name,
+                "summary": clean_msg,
+                "error": clean_msg,
+                "error_type": type(exc).__name__,
+                "error_code": ERROR_CODE_EXECUTION,
+                "error_message": clean_msg,
+                "exit_code": int(ExitCode.FAILURE),
+            }
+            self._renderer.render_payload(
+                error_payload,
+                json_mode=json_mode,
+                is_error=True,
+            )
+            active_ctx.event_bus.publish(
+                StepCompleted(
+                    step_name=step_name,
+                    status=STATUS_ERROR,
+                    duration_sec=duration,
+                    exit_code=int(ExitCode.FAILURE),
+                )
+            )
+            return int(ExitCode.FAILURE)

@@ -16,9 +16,9 @@
 from abc import ABC, abstractmethod
 import logging
 from pathlib import Path
-import sys
 from typing import Any, Callable, Optional, Sequence, TypeVar, Union
 
+from core.errors import ExecutionError, ExitCode
 from lib.agent_dispatcher import AgentDispatcher
 from lib.bazel import BazelRunner
 from lib.compiler_oracle import CompilerOracle, CompilerOracleReport
@@ -121,10 +121,12 @@ class BaseRefactoringEngine(ABC):
         error_message: str,
         exit_code: int = 1,
     ) -> None:
-        """Logs an error, rolls back the current transactional step, and exits."""
+        """Logs an error, rolls back the current transactional step, and raises ExecutionError."""
         self._logger.error(error_message)
         tx.rollback_step()
-        sys.exit(exit_code)
+        exc = ExecutionError(error_message, exit_code=exit_code)
+        setattr(exc, "_already_rolled_back", True)
+        raise exc
 
     def execute_with_transaction_guard(
         self,
@@ -135,17 +137,22 @@ class BaseRefactoringEngine(ABC):
         try:
             return operation()
         except Exception as exc:
+            if getattr(exc, "_already_rolled_back", False):
+                raise
             self._logger.error(
                 "Fatal orchestration error: %s. Automating transactional rollback.", exc
             )
             tx.rollback_step()
             raise
-        except KeyboardInterrupt:
+        except KeyboardInterrupt as exc:
             self._logger.warning(
                 "Transaction cancelled by user. Automating transactional rollback."
             )
             tx.rollback_step()
-            sys.exit(130)
+            raise ExecutionError(
+                "Transaction cancelled by user. Automating transactional rollback.",
+                exit_code=ExitCode.INTERRUPTED,
+            ) from exc
 
     @abstractmethod
     def run_pipeline(self, *args: Any, **kwargs: Any) -> Any:

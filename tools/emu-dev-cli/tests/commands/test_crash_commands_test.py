@@ -25,6 +25,7 @@ _SRC_DIR = str(Path(__file__).resolve().parents[2] / "src")
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
+from clients.buganizer_service import FakeBuganizerService
 from commands.crash import (
     CrashAnalyzeCommand,
     CrashAutofixCommand,
@@ -85,79 +86,6 @@ class _FakeF1Client:
         return list(self.jsonl_rows)
 
 
-class _FakeBuganizerClient:
-    """In-memory fake BuganizerService for crash command tests."""
-
-    def __init__(self, *, created_bug_id: str = "599887766") -> None:
-        self.created_bug_id = created_bug_id
-        self.created_bugs: List[Dict[str, Any]] = []
-        self.comments: List[Dict[str, Any]] = []
-
-    def create_bug(
-        self,
-        *,
-        title: str,
-        description: str,
-        component_id: int | str,
-        assignee: Optional[str] = None,
-        priority: str = "P2",
-        issue_type: str = "BUG",
-        status: Optional[str] = None,
-        cc: Optional[Sequence[str]] = None,
-    ) -> str:
-        self.created_bugs.append(
-            {
-                "title": title,
-                "description": description,
-                "component_id": str(component_id),
-                "assignee": assignee,
-                "priority": priority,
-                "issue_type": issue_type,
-                "status": status,
-                "cc": list(cc or ()),
-            }
-        )
-        return self.created_bug_id
-
-    def add_comment(self, bug_id: int | str, comment: str) -> bool:
-        self.comments.append({"bug_id": str(bug_id), "comment": comment})
-        return True
-
-    def search_issues(
-        self, query: str, *, limit: int = 25, **kwargs: Any
-    ) -> List[Dict[str, Any]]:
-        del query, limit, kwargs
-        return []
-
-
-class _FakeAgentRuntime:
-    """In-memory fake AgentRuntimeService for crash autofix tests."""
-
-    def __init__(self) -> None:
-        self.sent_prompts: List[Dict[str, Any]] = []
-
-    def send_prompt(
-        self,
-        prompt: str,
-        *,
-        conversation_id: Optional[str] = None,
-        timeout_sec: float = 60.0,
-    ) -> ProcessResult:
-        self.sent_prompts.append(
-            {
-                "prompt": prompt,
-                "conversation_id": conversation_id,
-                "timeout_sec": timeout_sec,
-            }
-        )
-        return ProcessResult(
-            args=("agentapi", "send_message"),
-            returncode=0,
-            stdout='{"status": "ok"}',
-            stderr="",
-        )
-
-
 class _FakeArtifactService:
     """In-memory fake ArtifactService for crash reproduce tests."""
 
@@ -165,28 +93,28 @@ class _FakeArtifactService:
         self.files_to_write = dict(files_to_write or {})
         self.fetch_calls: List[Dict[str, Any]] = []
 
-    def fetch_artifact(
+    def download_artifact(
         self,
-        *,
         build_id: str,
         target: str,
-        artifact_name: str,
+        artifact: str,
         dest_dir: str | Path,
-        zip_entry: Optional[str] = None,
-        output_filename: Optional[str] = None,
-        branch: Optional[str] = None,
+        *,
+        zip_entries: Optional[Sequence[str]] = None,
+        progress_callback: Optional[Any] = None,
     ) -> Path:
+        del progress_callback
         self.fetch_calls.append(
             {
                 "build_id": build_id,
                 "target": target,
-                "artifact_name": artifact_name,
-                "zip_entry": zip_entry,
+                "artifact_name": artifact,
+                "zip_entries": list(zip_entries or ()),
             }
         )
         dest_path = Path(dest_dir)
         dest_path.mkdir(parents=True, exist_ok=True)
-        out_name = output_filename or Path(zip_entry or artifact_name).name
+        out_name = Path(artifact).name
         out_file = dest_path / out_name
         payload = self.files_to_write.get(out_name, b"ELF_FAKE_BINARY")
         out_file.write_bytes(payload)
@@ -288,7 +216,7 @@ class CrashCommandsTest(unittest.TestCase):
     def test_crash_file_bug_creates_and_links_via_injected_services_with_unicode(
         self,
     ) -> None:
-        fake_buganizer = _FakeBuganizerClient(created_bug_id="588112233")
+        fake_buganizer = FakeBuganizerService(next_issue_id=588112233)
         fake_f1 = _FakeF1Client(csv_rows=[])
         fake_runner = FakeProcessRunner()
         fake_runner.register_prefix(
@@ -302,8 +230,8 @@ class CrashCommandsTest(unittest.TestCase):
         )
         factory = FakeServiceFactory(
             process_runner=fake_runner,
+            buganizer_service=fake_buganizer,
             services={
-                SERVICE_BUGANIZER: fake_buganizer,
                 SERVICE_F1_SQL: fake_f1,
             },
         )
@@ -336,8 +264,8 @@ class CrashCommandsTest(unittest.TestCase):
             self.assertTrue(res.ok)
             self.assertEqual(res.exit_code, 0)
 
-        self.assertEqual(len(fake_buganizer.created_bugs), 1)
-        self.assertIn("测试_🚀_é", fake_buganizer.created_bugs[0]["title"])
+        self.assertEqual(len(fake_buganizer.created_requests), 1)
+        self.assertIn("测试_🚀_é", fake_buganizer.created_requests[0].title)
         self.assertEqual(len(fake_runner.calls), 1)
 
     def test_crash_autofix_find_bug_reproduce_and_analyze_validation(self) -> None:

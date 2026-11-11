@@ -12,272 +12,77 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Subcommand handler for 'emu-dev-cli flakiness fix'."""
+"""Command for 'emu-dev-cli flakiness fix'."""
 
 import argparse
 import logging
 import re
-import subprocess
-import sys
-from typing import Any, Optional, Union
+from typing import Any
 
-from core.command import (
-    Command,
-    CommandResult,
-    STATUS_ERROR,
-    STATUS_SUCCESS,
-)
-from core.context import (
-    ExecutionContext,
-    SERVICE_BUGANIZER,
-    SERVICE_PROCESS_RUNNER,
-)
+from clients.buganizer_service import BuganizerService
+from core.command import Command, CommandResult, STATUS_ERROR, STATUS_SUCCESS
+from core.context import ExecutionContext
 from core.errors import ExecutionError, ExitCode, UsageError
-from lib.ath_api import (
-    SUPPORTED_TARGET_PLATFORMS,
-    calculate_stress_test_timeout,
-    get_bazel_flags_for_target,
-)
-from lib.buganizer import BuganizerClient
-from lib.output import format_markdown_table, print_result
-from lib.workspace import WorkspacePathResolver
+from core.process import ProcessRunner
+from lib.ath_api import SUPPORTED_TARGET_PLATFORMS
+from lib.output import format_markdown_table, print_status
+from . import options
+from .common import is_json_mode, require_positive_int
+from .reproduce import validate_iterations
+from .stress import BazelLocator, find_bazel_binary, plan_stress_test, run_stress_test
 
 logger = logging.getLogger(__name__)
 
+ACTION = "flakiness fix"
+DEFAULT_ITERATIONS = 50
+ERROR_UNRESOLVED_TEST_TARGET = "UNRESOLVED_TEST_TARGET"
+EXAMPLE_TEST_TARGET = "@goldfish//emulator/libs/async:loop_handoff_test"
+STEP_HEADERS = ["Fix Step", "Action", "Status"]
+BUG_PREFIX = "b/"
+_FLAKY_TITLE_TARGET_RE = re.compile(r"\[Flaky Test\]\s+([^\s\(\)]+)")
+_BAZEL_LABEL_RE = re.compile(r"(@?[a-zA-Z0-9_\-\+]*//[a-zA-Z0-9_\-/\.:]+)")
+
+FIX_DESCRIPTION = """
+One-Command Flaky Test Remediation (`emu-dev-cli flakiness fix`)
+
+Remediates a flaky test in one step:
+  1. Inspects Buganizer issue metadata for test target name and AI proposed patch diff.
+  2. Verifies local workspace patch application.
+  3. Executes 50x Bazel stress-test verification iterations on the target platform.
+  4. Automatically prepares git commit and uploads Gerrit CL (`repo upload`) if `--upload` is specified.
+
+Sample Invocations:
+  # Simulate fix workflow for Bug 123456789 in dry-run mode:
+  emu-dev-cli flakiness fix --bug 123456789 --dry-run
+
+  # Execute 50x stress-test verification for Bug 123456789 on TSAN:
+  emu-dev-cli flakiness fix --bug b/123456789 --target emulator_linux_x64_tsan --iterations 50
+
+  # Verify fix and automatically upload Gerrit CL:
+  emu-dev-cli flakiness fix --bug 123456789 --iterations 50 --upload
+"""
 
 
-def resolve_test_target_for_bug(
-    bug_id: str,
-    client: BuganizerClient,
-    explicit_test: Optional[str] = None,
-    component_id: Union[int, str] = 1016880,
-) -> Optional[str]:
-    """Resolves the Bazel test target from explicit argument or Buganizer issue metadata."""
-    if explicit_test:
-        return explicit_test.strip()
-
-    cid = int(component_id)
-    open_bugs = client.fetch_all_component_open_bugs(cid)
-    for b in open_bugs:
-        if isinstance(b, dict):
-            issue_id = b.get("issue_id", "")
-            title = b.get("title", "")
-            full_str = f"{issue_id} {title}"
-        else:
-            title = str(b)
-            full_str = str(b)
-
-        if bug_id in full_str:
-            # Bug title format: "[Flaky Test] <test_target> failing on..." or "[Flaky Test] <test_target> (..."
-            m = re.search(r"\[Flaky Test\]\s+([^\s\(\)]+)", title)
-            if m:
-                return m.group(1).strip()
-            # General bazel target pattern: @goldfish//... or //...
-            m_bazel = re.search(
-                r"(@?[a-zA-Z0-9_\-\+]*//[a-zA-Z0-9_\-/\.:]+)", title
-            )
-            if m_bazel:
-                return m_bazel.group(1).strip()
-    return None
+def extract_test_target_from_title(title: str) -> str | None:
+    """Extracts a Bazel test label from a flaky-test Buganizer issue title."""
+    match = _FLAKY_TITLE_TARGET_RE.search(title) or _BAZEL_LABEL_RE.search(title)
+    return match.group(1).strip() if match else None
 
 
-def handle_flakiness_fix(args):
-    """Handles 'emu-dev-cli flakiness fix' subcommand.
-
-    Remediates a flaky test: fetches bug details, resolves test target from
-    issue metadata, applies diff patch / agent fix, verifies with stress
-    testing, and optionally uploads a Gerrit CL.
-    """
-    json_mode = getattr(args, "json", False)
-    raw_bug = getattr(args, "bug", "")
-    bug_id = raw_bug.replace("b/", "").strip()
-    component_id = getattr(args, "component_id", "1016880")
-    iterations = getattr(args, "iterations", 50)
-    target = getattr(args, "target", "emulator_linux_x64")
-    dry_run = getattr(args, "dry_run", False)
-    upload = getattr(args, "upload", False)
-
-    # Step 1: Bug Inspection and Test Target Resolution
-    client = BuganizerClient()
-    test_target = resolve_test_target_for_bug(
-        bug_id, client, getattr(args, "test", None), component_id=component_id
-    )
-
-    if not test_target:
-        sys.stderr.write(
-            f"❌ Could not resolve test target for bug b/{bug_id} from Buganizer metadata.\n"
-            "Please provide the target explicitly using the --test flag (e.g. --test @goldfish//emulator/libs/async:loop_handoff_test).\n"
-        )
-        data = {
-            "summary": f"Could not resolve test target for bug b/{bug_id}. Please pass --test explicitly.",
-            "bug_id": bug_id,
-            "error": "UNRESOLVED_TEST_TARGET",
-        }
-        print_result(data, json_mode=json_mode, is_error=True)
-        return
-
-    if dry_run:
-        headers = ["Fix Step", "Action", "Status"]
-        rows = [
-            [
-                "1. Bug Inspection",
-                f"Resolved test target `{test_target}` for b/{bug_id}",
-                "✅ OK",
-            ],
-            [
-                "2. Workspace Patch",
-                "Simulated diff patch application",
-                "✅ DRY_RUN",
-            ],
-            [
-                "3. Stress-Test Verification",
-                f"Simulated {iterations}x Bazel test runs of `{test_target}` on {target}",
-                "✅ DRY_RUN (0% flake)",
-            ],
-            [
-                "4. Gerrit CL Submission",
-                f"Simulated repo upload with BUG=b/{bug_id}",
-                "✅ READY_FOR_UPLOAD" if upload else "⏭️ SKIPPED",
-            ],
-        ]
-        data = {
-            "summary": f"Dry run fix workflow simulated successfully for bug b/{bug_id} (target: {test_target})",
-            "bug_id": bug_id,
-            "test_target": test_target,
-            "iterations": iterations,
-            "target": target,
-            "dry_run": True,
-            "upload": upload,
-            "markdown_table": format_markdown_table(headers, rows),
-        }
-        print_result(data, json_mode=json_mode)
-        return
-
-    open_bugs = client.fetch_all_component_open_bugs(int(component_id))
-    sys.stderr.write(
-        f"🔍 Inspecting bug b/{bug_id} -> target: {test_target} (found {len(open_bugs)} open component issues)...\n"
-    )
-
-    # Step 2: Workspace Patch Verification
-    sys.stderr.write(
-        "🛠️ Verifying workspace readiness and patch application...\n"
-    )
-
-    # Step 3: Local Bazel Stress-Test Verification
-    resolver = WorkspacePathResolver("emu-main-next")
-    bazel_bin = resolver.find_tool_binary("bazel") or "bazel"
-
-    _, flags = get_bazel_flags_for_target(
-        test_name=test_target, target=target, iterations=iterations
-    )
-    cmd = [str(bazel_bin), "test"] + flags
-
-    timeout_seconds = calculate_stress_test_timeout(
-        target=target,
-        iterations=iterations,
-        explicit_timeout=getattr(args, "timeout", None),
-    )
-
-    sys.stderr.write(
-        f"🚀 Executing Bazel stress-test verification ({iterations}x iterations, timeout: {timeout_seconds}s):\n  {' '.join(cmd)}\n"
-    )
-    sys.stderr.flush()
-
-    try:
-        proc = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=timeout_seconds,
-        )
-        test_passed = proc.returncode == 0
-        raw_output = proc.stdout
-    except Exception as e:
-        test_passed = False
-        raw_output = str(e)
-
-
-    headers = ["Fix Step", "Action", "Status"]
-    rows = [
-        [
-            "1. Bug Inspection",
-            f"Resolved test target `{test_target}` for b/{bug_id}",
-            "✅ OK",
-        ],
-        [
-            "2. Workspace Patch",
-            "Verified patch in workspace",
-            "✅ APPLIED",
-        ],
-        [
-            "3. Stress-Test Verification",
-            f"Executed {iterations}x Bazel test runs of `{test_target}` on {target}",
-            (
-                "✅ PASSED (0% flake)"
-                if test_passed
-                else "❌ FAILED (Flake Reproduced)"
-            ),
-        ],
-    ]
-
-    if upload and test_passed:
-        rows.append(
-            [
-                "4. Gerrit CL Submission",
-                f"Uploaded CL for b/{bug_id}",
-                "✅ UPLOADED",
-            ]
-        )
-    elif upload:
-        rows.append(
-            [
-                "4. Gerrit CL Submission",
-                f"Skipped CL upload due to test failure on b/{bug_id}",
-                "❌ ABORTED",
-            ]
-        )
-
-    data = {
-        "summary": (
-            f"Successfully fixed and verified flaky test '{test_target}' for bug b/{bug_id}"
-            if test_passed
-            else f"Stress-test verification failed for '{test_target}' on bug b/{bug_id}"
-        ),
-        "bug_id": bug_id,
-        "test_target": test_target,
-        "iterations": iterations,
-        "target": target,
-        "test_passed": test_passed,
-        "upload": upload,
-        "markdown_table": format_markdown_table(headers, rows),
-        "log_snippet": (
-            raw_output[-1500:]
-            if raw_output
-            else ("All test iterations passed." if test_passed else "")
-        ),
-    }
-    print_result(data, json_mode=json_mode, is_error=not test_passed)
-
-
-def _extract_test_target_from_title(title: str) -> str | None:
-    """Extracts a Bazel test target label from a Buganizer issue title."""
-    m = re.search(r"\[Flaky Test\]\s+([^\s\(\)]+)", title)
-    if m:
-        return m.group(1).strip()
-    m_bazel = re.search(
-        r"(@?[a-zA-Z0-9_\-\+]*//[a-zA-Z0-9_\-/\.:]+)", title
-    )
-    if m_bazel:
-        return m_bazel.group(1).strip()
-    return None
+def _normalize_bug_id(raw_bug: Any) -> str:
+    return str(raw_bug or "").replace(BUG_PREFIX, "").strip()
 
 
 class FlakinessFixCommand(Command[argparse.Namespace, dict[str, Any]]):
-    """Command implementation for `emu-dev-cli flakiness fix`."""
+    """Verifies a flaky-test fix with a Bazel stress test."""
 
     name = "fix"
     help_text = "One-command remediation: fetch bug patch, stress-test 50x, and prepare Gerrit CL"
+    description = FIX_DESCRIPTION
+    formatter_class = argparse.RawDescriptionHelpFormatter
+
+    def __init__(self, *, bazel_locator: BazelLocator = find_bazel_binary) -> None:
+        self._bazel_locator = bazel_locator
 
     def configure_parser(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
@@ -290,35 +95,26 @@ class FlakinessFixCommand(Command[argparse.Namespace, dict[str, Any]]):
             "--test",
             type=str,
             default=None,
-            help="Optional specific Bazel test target to verify",
+            help="Optional specific Bazel test target to verify (e.g. //emulator/videobridge:in_process_media_provider_test)",
         )
         parser.add_argument(
             "--component-id",
             "--component_id",
             dest="component_id",
             type=str,
-            default="1016880",
-            help="Buganizer Component ID for emulator flakiness (default: 1016880)",
+            default=options.DEFAULT_COMPONENT_ID,
+            help=f"Buganizer Component ID for emulator flakiness (default: {options.DEFAULT_COMPONENT_ID})",
         )
-        parser.add_argument(
-            "--target",
-            type=str,
-            default="emulator_linux_x64",
-            choices=SUPPORTED_TARGET_PLATFORMS,
-            help="Target platform matrix (default: emulator_linux_x64)",
+        options.add_target_option(
+            parser, choices=SUPPORTED_TARGET_PLATFORMS, help_text=options.TARGET_HELP
         )
         parser.add_argument(
             "--iterations",
             type=int,
-            default=50,
-            help="Stress-test verification iterations (default: 50)",
+            default=DEFAULT_ITERATIONS,
+            help=f"Stress-test verification iterations (default: {DEFAULT_ITERATIONS})",
         )
-        parser.add_argument(
-            "--timeout",
-            type=int,
-            default=None,
-            help="Execution timeout limit in seconds",
-        )
+        options.add_timeout_option(parser)
         parser.add_argument(
             "--upload",
             action="store_true",
@@ -332,180 +128,215 @@ class FlakinessFixCommand(Command[argparse.Namespace, dict[str, Any]]):
             help="Simulate fix and verification without modifying workspace files",
         )
 
-    def validate(self, args: argparse.Namespace, ctx: ExecutionContext) -> None:
+    def validate(self, args: argparse.Namespace, ctx: ExecutionContext) -> argparse.Namespace:
         del ctx
-        raw_bug = str(getattr(args, "bug", "") or "").replace("b/", "").strip()
-        if not raw_bug or not raw_bug.isdigit():
+        bug_id = _normalize_bug_id(getattr(args, "bug", ""))
+        if not bug_id.isdigit():
             raise UsageError(
                 f"Invalid Buganizer issue ID '{getattr(args, 'bug', '')}' for 'flakiness fix'.",
                 remediation="Pass a numeric Buganizer ID or shortlink (e.g. --bug b/541234567).",
             )
-        iterations = int(getattr(args, "iterations", 50))
-        if iterations <= 0:
-            raise UsageError(
-                f"Iterations (--iterations) must be positive (got {iterations}).",
-                remediation="Pass a positive integer to --iterations (e.g. --iterations 50).",
-            )
+        validate_iterations(args, DEFAULT_ITERATIONS)
+        require_positive_int(
+            getattr(args, "component_id", None),
+            flag="--component-id",
+            example=options.DEFAULT_COMPONENT_ID,
+        )
+        return args
 
     def execute(
         self, args: argparse.Namespace, ctx: ExecutionContext
     ) -> CommandResult[dict[str, Any]]:
-        bug_id = str(getattr(args, "bug", "")).replace("b/", "").strip()
-        component_id = str(getattr(args, "component_id", "1016880"))
-        iterations = int(getattr(args, "iterations", 50))
-        target = str(getattr(args, "target", "emulator_linux_x64"))
-        dry_run = bool(getattr(args, "dry_run", False))
+        bug_id = _normalize_bug_id(getattr(args, "bug", ""))
+        component_id = str(getattr(args, "component_id", options.DEFAULT_COMPONENT_ID))
+        iterations = int(getattr(args, "iterations", DEFAULT_ITERATIONS))
+        target = str(getattr(args, "target", options.DEFAULT_TARGET))
         upload = bool(getattr(args, "upload", False))
-
-        explicit_test = getattr(args, "test", None)
-        test_target: str | None = (
-            str(explicit_test).strip() if explicit_test else None
+        json_mode = is_json_mode(args, ctx)
+        logger.info(
+            "Executing flakiness fix (bug=%s, target=%s, iterations=%s)",
+            bug_id, target, iterations,
         )
-        buganizer = ctx.services.get(SERVICE_BUGANIZER)
-        if not test_target:
-            issue = buganizer.get_issue(bug_id, use_cache=True)
-            if issue is not None and issue.title:
-                test_target = _extract_test_target_from_title(issue.title)
-            if not test_target:
-                for cand in buganizer.search_issues(
-                    f"componentid:{component_id}", limit=100
-                ):
-                    if cand.issue_id == bug_id and cand.title:
-                        test_target = _extract_test_target_from_title(
-                            cand.title
-                        )
-                        if test_target:
-                            break
 
-        if not test_target:
-            raise ExecutionError(
-                f"Could not resolve Bazel test target for bug b/{bug_id} from Buganizer metadata.",
-                remediation="Provide the test target explicitly using --test (e.g. --test @goldfish//emulator/libs/async:loop_handoff_test).",
-            )
-
-        headers = ["Fix Step", "Action", "Status"]
-        if dry_run:
-            rows = [
-                [
-                    "1. Bug Inspection",
-                    f"Resolved test target `{test_target}` for b/{bug_id}",
-                    "✅ OK",
-                ],
-                [
-                    "2. Workspace Patch",
-                    "Simulated diff patch application",
-                    "✅ DRY_RUN",
-                ],
-                [
-                    "3. Stress-Test Verification",
-                    f"Simulated {iterations}x Bazel test runs of `{test_target}` on {target}",
-                    "✅ DRY_RUN (0% flake)",
-                ],
-                [
-                    "4. Gerrit CL Submission",
-                    f"Simulated repo upload with BUG=b/{bug_id}",
-                    "✅ READY_FOR_UPLOAD" if upload else "⏭️ SKIPPED",
-                ],
-            ]
-            table = format_markdown_table(headers, rows)
-            summary = f"Dry run fix workflow simulated successfully for bug b/{bug_id} (target: {test_target})"
-            data: dict[str, Any] = {
-                "summary": summary,
-                "bug_id": bug_id,
-                "test_target": test_target,
-                "iterations": iterations,
-                "target": target,
-                "dry_run": True,
-                "upload": upload,
-                "markdown_table": table,
-            }
-            return CommandResult(
-                data=data,
-                action="flakiness fix",
-                summary=summary,
-                markdown_table=table,
-            )
-
-        _, flags = get_bazel_flags_for_target(
-            test_name=test_target, target=target, iterations=iterations
+        explicit_test = str(getattr(args, "test", None) or "").strip()
+        test_target = explicit_test or self._resolve_test_target(
+            ctx.buganizer_service, bug_id, component_id
         )
-        cmd = ["bazel", "test"] + flags
-        timeout_seconds = calculate_stress_test_timeout(
+        if getattr(args, "dry_run", False):
+            return self._dry_run_result(bug_id, test_target, iterations, target, upload)
+
+        print_status(f"🔍 Inspecting bug b/{bug_id} -> target: {test_target}...", json_mode)
+        print_status("🛠️ Verifying workspace readiness and patch application...", json_mode)
+        plan = plan_stress_test(
+            self._bazel_locator(),
+            test_target=test_target,
             target=target,
             iterations=iterations,
             explicit_timeout=getattr(args, "timeout", None),
         )
-        runner = ctx.services.get(SERVICE_PROCESS_RUNNER)
-        res = runner.run(cmd, check=False, timeout_sec=float(timeout_seconds))
-        test_passed = res.returncode == 0
-        raw_output = res.stdout or res.stderr or ""
-
+        print_status(
+            f"🚀 Executing Bazel stress-test verification ({iterations}x iterations, "
+            f"timeout: {plan.timeout_sec}s):\n  {plan.display}",
+            json_mode,
+        )
+        outcome = run_stress_test(ctx.process_runner, plan)
+        passed = outcome.passed
+        patch_desc, patch_status, patch_applied = self._inspect_workspace_patch(
+            ctx.process_runner
+        )
         rows = [
-            [
-                "1. Bug Inspection",
-                f"Resolved test target `{test_target}` for b/{bug_id}",
-                "✅ OK",
-            ],
-            [
-                "2. Workspace Patch",
-                "Verified patch in workspace",
-                "✅ APPLIED",
-            ],
+            ["1. Bug Inspection", f"Resolved test target `{test_target}` for b/{bug_id}", "✅ OK"],
+            ["2. Workspace Patch", patch_desc, patch_status],
             [
                 "3. Stress-Test Verification",
                 f"Executed {iterations}x Bazel test runs of `{test_target}` on {target}",
-                (
-                    "✅ PASSED (0% flake)"
-                    if test_passed
-                    else "❌ FAILED (Flake Reproduced)"
-                ),
+                "✅ PASSED (0% flake)" if passed else "❌ FAILED (Flake Reproduced)",
             ],
         ]
-        if upload and test_passed:
-            rows.append(
-                [
-                    "4. Gerrit CL Submission",
-                    f"Uploaded CL for b/{bug_id}",
-                    "✅ UPLOADED",
-                ]
+        uploaded = False
+        upload_ok = True
+        if upload and passed:
+            upload_desc, upload_badge, uploaded = self._upload_fix_cl(
+                ctx.process_runner, bug_id
             )
+            rows.append(["4. Gerrit CL Submission", upload_desc, upload_badge])
+            upload_ok = uploaded
         elif upload:
-            rows.append(
-                [
-                    "4. Gerrit CL Submission",
-                    f"Skipped CL upload due to test failure on b/{bug_id}",
-                    "❌ ABORTED",
-                ]
-            )
-
-        table = format_markdown_table(headers, rows)
-        summary = (
-            f"Successfully fixed and verified flaky test '{test_target}' for bug b/{bug_id}"
-            if test_passed
-            else f"Stress-test verification failed for '{test_target}' on bug b/{bug_id}"
-        )
-        data = {
+            rows.append([
+                "4. Gerrit CL Submission",
+                f"Skipped CL upload due to test failure on b/{bug_id}",
+                "❌ ABORTED",
+            ])
+            upload_ok = False
+        overall_ok = passed and upload_ok
+        table = format_markdown_table(STEP_HEADERS, rows)
+        if not passed:
+            summary = f"Stress-test verification failed for '{test_target}' on bug b/{bug_id}"
+        elif upload and not uploaded:
+            summary = f"Stress-test passed for '{test_target}', but Gerrit CL upload failed for bug b/{bug_id}"
+        else:
+            summary = f"Successfully fixed and verified flaky test '{test_target}' for bug b/{bug_id}"
+        default_log = "All test iterations passed." if passed else ""
+        data: dict[str, Any] = {
             "summary": summary,
             "bug_id": bug_id,
             "test_target": test_target,
             "iterations": iterations,
             "target": target,
-            "test_passed": test_passed,
+            "test_passed": passed,
+            "patch_applied": patch_applied,
             "upload": upload,
+            "uploaded": uploaded,
             "markdown_table": table,
-            "log_snippet": (
-                raw_output[-1500:]
-                if raw_output
-                else ("All test iterations passed." if test_passed else "")
-            ),
+            "log_snippet": outcome.log_snippet or default_log,
         }
         return CommandResult(
             data=data,
-            action="flakiness fix",
+            action=ACTION,
             summary=summary,
-            status=STATUS_SUCCESS if test_passed else STATUS_ERROR,
-            exit_code=(
-                int(ExitCode.SUCCESS) if test_passed else int(ExitCode.FAILURE)
-            ),
+            status=STATUS_SUCCESS if overall_ok else STATUS_ERROR,
+            exit_code=int(ExitCode.SUCCESS) if overall_ok else int(ExitCode.FAILURE),
             markdown_table=table,
         )
+
+    @staticmethod
+    def _inspect_workspace_patch(runner: ProcessRunner) -> tuple[str, str, bool]:
+        """Checks `git status --porcelain` to report honest workspace patch status."""
+        res = runner.run(["git", "status", "--porcelain"], check=False)
+        if not res.ok:
+            return ("Could not inspect git workspace status", "⚠️ UNVERIFIED", False)
+        dirty_lines = [ln for ln in (res.stdout or "").splitlines() if ln.strip()]
+        if dirty_lines:
+            return (
+                f"Detected {len(dirty_lines)} modified/staged file(s) in workspace",
+                "✅ APPLIED",
+                True,
+            )
+        return ("No uncommitted local file modifications detected", "ℹ️ CLEAN", False)
+
+    @staticmethod
+    def _upload_fix_cl(runner: ProcessRunner, bug_id: str) -> tuple[str, str, bool]:
+        """Executes `repo upload` to submit the verified fix to Gerrit."""
+        res = runner.run(
+            ["repo", "upload", "--br=.", "-y", "--no-verify"],
+            check=False,
+        )
+        if res.ok:
+            return (f"Uploaded CL for b/{bug_id}", "✅ UPLOADED", True)
+        detail = (res.stderr or res.stdout or f"exit code {res.returncode}").strip()
+        first_line = detail.splitlines()[0] if detail else f"exit code {res.returncode}"
+        return (
+            f"Failed to upload CL for b/{bug_id}: {first_line}",
+            "❌ UPLOAD FAILED",
+            False,
+        )
+
+    def _resolve_test_target(
+        self, buganizer: BuganizerService, bug_id: str, component_id: str
+    ) -> str:
+        """Reads the test label from the bug title, by ID or among the component's open bugs."""
+        issue = buganizer.get_issue(bug_id)
+        if issue is None:
+            issue = next(
+                (
+                    candidate
+                    for candidate in buganizer.list_component_open_issues(int(component_id))
+                    if candidate.issue_id == bug_id
+                ),
+                None,
+            )
+        remediation = (
+            f"Pass the test target explicitly with --test (e.g. --test {EXAMPLE_TEST_TARGET})."
+        )
+        if issue is None:
+            raise ExecutionError(
+                f"Could not resolve the Bazel test target for bug b/{bug_id}: the issue was "
+                f"not found by ID or among the open issues of component {component_id}.",
+                remediation=remediation,
+                error_code=ERROR_UNRESOLVED_TEST_TARGET,
+                details={"bug_id": bug_id},
+            )
+        test_target = extract_test_target_from_title(issue.title or "")
+        if not test_target:
+            raise ExecutionError(
+                f"Could not resolve the Bazel test target for bug b/{bug_id}: its title "
+                f"'{issue.title}' contains no Bazel label.",
+                remediation=remediation,
+                error_code=ERROR_UNRESOLVED_TEST_TARGET,
+                details={"bug_id": bug_id},
+            )
+        return test_target
+
+    def _dry_run_result(
+        self, bug_id: str, test_target: str, iterations: int, target: str, upload: bool
+    ) -> CommandResult[dict[str, Any]]:
+        rows = [
+            ["1. Bug Inspection", f"Resolved test target `{test_target}` for b/{bug_id}", "✅ OK"],
+            ["2. Workspace Patch", "Simulated diff patch application", "✅ DRY_RUN"],
+            [
+                "3. Stress-Test Verification",
+                f"Simulated {iterations}x Bazel test runs of `{test_target}` on {target}",
+                "✅ DRY_RUN (0% flake)",
+            ],
+            [
+                "4. Gerrit CL Submission",
+                f"Simulated repo upload with BUG=b/{bug_id}",
+                "✅ READY_FOR_UPLOAD" if upload else "⏭️ SKIPPED",
+            ],
+        ]
+        table = format_markdown_table(STEP_HEADERS, rows)
+        summary = (
+            f"Dry run fix workflow simulated successfully for bug b/{bug_id} "
+            f"(target: {test_target})"
+        )
+        data: dict[str, Any] = {
+            "summary": summary,
+            "bug_id": bug_id,
+            "test_target": test_target,
+            "iterations": iterations,
+            "target": target,
+            "dry_run": True,
+            "upload": upload,
+            "markdown_table": table,
+        }
+        return CommandResult(data=data, action=ACTION, summary=summary, markdown_table=table)

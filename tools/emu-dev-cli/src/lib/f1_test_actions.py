@@ -14,14 +14,13 @@
 
 """F1 SQL (`android_devtools_infra.TestActions`) integration for Studio & Android Device Hub flakiness."""
 
-import json
 import logging
 import os
-from pathlib import Path
-import subprocess
-import tempfile
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from clients.f1_sql_client import ProdF1SqlClient
+from core.errors import EmuCliError
+from core.process import ProcessRunner, SubprocessRunner
 from lib.ath_api import FlakyTestRecord, TestHistoryEntry, sanitize_bazel_target
 from lib.workspace import get_flakiness_sandbox_dir
 
@@ -368,67 +367,28 @@ def execute_f1_jsonl_query(
     f1_sql_bin: str = DEFAULT_F1_SQL_BIN,
     accounting_group: Optional[str] = None,
     timeout: int = 300,
+    runner: Optional[ProcessRunner] = None,
 ) -> List[Dict[str, Any]]:
-    """Executes a read-only F1 SQL query via --input_file / --output_file and parses JSONL rows."""
+    """Executes a read-only F1 SQL query via `ProdF1SqlClient.query_jsonl` and returns parsed JSONL rows."""
     if not os.path.exists(f1_sql_bin):
         raise FileNotFoundError(
             f"f1-sql binary not found at '{f1_sql_bin}'. Ensure you are running on a GLinux host."
         )
 
     sandbox_base = get_flakiness_sandbox_dir("f1_sql")
-    with tempfile.TemporaryDirectory(dir=str(sandbox_base), prefix="query_") as tmpdir:
-        tmp_path = Path(tmpdir)
-        sql_path = tmp_path / "query.sql"
-        out_path = tmp_path / "output.jsonl"
-        rio_path = tmp_path / "query_info.rio"
-
-        normalized_sql = sql.strip()
-        if not normalized_sql.endswith(";"):
-            normalized_sql += ";"
-        sql_path.write_text(normalized_sql + "\n", encoding="utf-8")
-
-        cmd = [
-            f1_sql_bin,
-            "readonly",
-            f"--input_file={sql_path}",
-            f"--output_file={out_path}",
-            f"--query_info_output_file={rio_path}",
-            "--quiet=true",
-            "--pager_output=false",
-            "--f1_sql_show_query_progress=false",
-            "--jsonl_output=true",
-            "--print_queries=false",
-            "--f1_sql_force_output_profile_link=true",
-        ]
-        if accounting_group:
-            cmd.append(f"--f1_sql_accounting_group={accounting_group}")
-
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+    client = ProdF1SqlClient(
+        runner or SubprocessRunner(),
+        f1_sql_bin=f1_sql_bin,
+        scratch_dir=sandbox_base,
+    )
+    try:
+        return client.query_jsonl(
+            sql,
+            accounting_group=accounting_group,
+            timeout_sec=float(timeout),
         )
-        try:
-            outs, errs = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired as exc:
-            proc.kill()
-            proc.communicate()
-            raise RuntimeError(
-                f"f1-sql query timed out after {timeout} seconds."
-            ) from exc
-
-        if proc.returncode != 0:
-            err_msg = (errs or outs or f"Exit code {proc.returncode}").strip()
-            raise RuntimeError(f"f1-sql query failed: {err_msg}")
-
-        rows: List[Dict[str, Any]] = []
-        if out_path.is_file():
-            for line in out_path.read_text(encoding="utf-8").splitlines():
-                stripped = line.strip()
-                if stripped:
-                    rows.append(json.loads(stripped))
-        return rows
+    except EmuCliError as exc:
+        raise RuntimeError(exc.message) from exc
 
 
 def _module_name_from_target(target_id: str) -> str:

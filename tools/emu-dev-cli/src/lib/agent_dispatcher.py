@@ -18,27 +18,22 @@ import logging
 import os
 from pathlib import Path
 import shlex
-import shutil
-import subprocess
 import sys
 import time
 from typing import Any, Optional
 
-from lib.agent import AgentApiClient, resolve_agentapi_binary
+from clients.agent_runtime_service import (
+    AgentDispatchRequest,
+    AgentRuntimeService,
+    ProdAgentRuntimeService,
+    is_complete_rca_summary,
+    resolve_agentapi_binary,
+    resolve_standalone_cli_binary,
+)
+from core.poller import poll_until
+from core.process import ProcessRunner, SubprocessRunner
 
 logger = logging.getLogger(__name__)
-
-
-def _is_complete_rca_summary(text: str) -> bool:
-    """Returns True if rca_summary.md contains a diff or explicitly states Reproducible: No."""
-    if "```diff" in text or "Proposed Code Patch" in text:
-        return True
-    for line in text.splitlines():
-        if "**Reproducible:**" in line:
-            val = line.split("**Reproducible:**", 1)[1].strip().lower()
-            if val.startswith("no") or val.startswith("false"):
-                return True
-    return False
 
 
 class AgentDispatcher:
@@ -46,10 +41,20 @@ class AgentDispatcher:
     or directly via Jetski CLI when running in standalone mode.
     """
 
-    def __init__(self, cli_binary: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        cli_binary: Optional[str] = None,
+        *,
+        runtime_service: Optional[AgentRuntimeService] = None,
+        process_runner: Optional[ProcessRunner] = None,
+    ) -> None:
         """Initializes AgentDispatcher."""
         self.cli_binary = cli_binary or resolve_agentapi_binary() or "agentapi"
-        self.agent_client = AgentApiClient(cli_binary=self.cli_binary)
+        self._runner = process_runner or SubprocessRunner()
+        self._runtime = runtime_service or ProdAgentRuntimeService(
+            self._runner,
+            agentapi_bin=self.cli_binary,
+        )
 
     def is_agent_session_active(self) -> bool:
         """Returns True if running within an active Antigravity/Jetski agent session (ANTIGRAVITY_LS_ADDRESS is set)."""
@@ -57,16 +62,7 @@ class AgentDispatcher:
 
     def resolve_standalone_cli(self) -> Optional[str]:
         """Resolves the executable path to standalone jetski or gemini CLI for direct invocation."""
-        if shutil.which("jetski"):
-            return shutil.which("jetski")
-        paths = [
-            "/google/bin/releases/jetski-devs/tools/cli",
-            "/google/bin/releases/gemini-cli/tools/gemini",
-        ]
-        for path in paths:
-            if os.path.exists(path) and os.access(path, os.X_OK):
-                return path
-        return shutil.which("gemini")
+        return resolve_standalone_cli_binary()
 
     def verify_environment(self) -> None:
         """Verifies upfront that either an active agent session is present or a standalone CLI binary is available.
@@ -135,7 +131,7 @@ class AgentDispatcher:
             existing_text = rca_summary_path.read_text(
                 encoding="utf-8", errors="replace"
             )
-            if _is_complete_rca_summary(existing_text):
+            if is_complete_rca_summary(existing_text):
                 return
             try:
                 rca_summary_path.unlink()
@@ -158,41 +154,53 @@ class AgentDispatcher:
             )
 
             agentapi_model = "pro" if model in ("Gemini Next", "pro") else model
-            client = AgentApiClient(cli_binary=self.cli_binary)
-            client.start_conversation(
-                prompt=prompt,
-                model=agentapi_model,
-                profile=profile,
-                title=f"{title}: {record.test_identifier}",
+            self._runtime.start_conversation(
+                AgentDispatchRequest(
+                    prompt=prompt,
+                    model=agentapi_model,
+                    profile=profile,
+                    title=f"{title}: {record.test_identifier}",
+                )
             )
 
             # Poll for completion
             start_time = time.time()
-            elapsed = 0.0
-            agent_completed = False
 
-            while elapsed < wait_timeout:
+            def _check_rca_complete() -> bool:
                 if rca_summary_path.exists():
                     text = rca_summary_path.read_text(
                         encoding="utf-8", errors="replace"
                     )
-                    if _is_complete_rca_summary(text):
+                    if is_complete_rca_summary(text):
+                        elapsed_now = time.time() - start_time
                         logger.info(
                             "Subagent completed RCA investigation for %s in %.1fs",
                             record.test_identifier,
-                            elapsed,
+                            elapsed_now,
                         )
                         sys.stderr.write(
-                            f"\n✅ Subagent completed RCA investigation in {elapsed:.1f}s!\n"
+                            f"\n✅ Subagent completed RCA investigation in {elapsed_now:.1f}s!\n"
                         )
-                        agent_completed = True
-                        break
-                time.sleep(poll_interval)
-                elapsed = time.time() - start_time
+                        return True
+                return False
+
+            def _on_poll(_attempts: int, _elapsed: float) -> None:
+                elapsed_now = time.time() - start_time
                 sys.stderr.write(
-                    f"⏳ Polling subagent progress ({elapsed:.0f}s / {wait_timeout:.0f}s)... (Analysis can take up to 10 minutes)\r"
+                    f"⏳ Polling subagent progress ({elapsed_now:.0f}s / {wait_timeout:.0f}s)... (Analysis can take up to 10 minutes)\r"
                 )
                 sys.stderr.flush()
+
+            outcome = poll_until(
+                _check_rca_complete,
+                timeout_sec=wait_timeout,
+                interval_sec=poll_interval,
+                sleep_fn=lambda s: time.sleep(s),
+                clock_fn=lambda: time.time(),
+                clamp_sleep_to_deadline=False,
+                on_poll_fn=_on_poll,
+            )
+            agent_completed = outcome.succeeded
             sys.stderr.write("\n")
 
             if not agent_completed:
@@ -252,7 +260,7 @@ class AgentDispatcher:
                 f"⏳ Executing Jetski CLI to generate root cause analysis...\n"
             )
 
-            res = subprocess.run(cmd_args, capture_output=True, text=True, check=False)
+            res = SubprocessRunner().run(cmd_args, check=False)
             if res.returncode != 0 and not rca_summary_path.exists():
                 sys.stderr.write(
                     f"\n❌ Error: Standalone Jetski CLI execution failed with exit code {res.returncode}.\n"
@@ -278,7 +286,7 @@ class AgentDispatcher:
                     "Executing standalone agent CLI %s for %s", standalone_bin, title
                 )
                 cmd = [standalone_bin, f"--model={model}", "--prompt", prompt]
-                res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                res = SubprocessRunner().run(cmd, check=False)
                 return res.returncode == 0
             logger.info(
                 "Standalone mode: No active agent session (ANTIGRAVITY_LS_ADDRESS unset) and no standalone CLI."
@@ -292,36 +300,26 @@ class AgentDispatcher:
             model_tier,
             profile,
         )
-        client = AgentApiClient(cli_binary=self.cli_binary)
 
         try:
-            res = client.start_conversation(
-                prompt=prompt,
-                model=model_tier,
-                profile=profile,
-                title=title,
-                retries=retries,
-            )
-            return res.returncode == 0
-        except Exception as e:
-            if model == "auto" and model_tier != "pro":
-                logger.warning(
-                    "Fast tier failed (%s). Escalating to Pro reasoning tier...", e
+            if model == "auto":
+                res = self._runtime.dispatch_with_tier_escalation(
+                    prompt,
+                    title=title,
+                    profile=profile,
+                    retries=retries,
                 )
-                sys.stderr.write(
-                    "\n⚠️ Fast tier failed. Escalating to Pro reasoning model...\n"
-                )
-                try:
-                    res = client.start_conversation(
+            else:
+                res = self._runtime.start_conversation(
+                    AgentDispatchRequest(
                         prompt=prompt,
-                        model="pro",
+                        model=model_tier,
                         profile=profile,
-                        title=f"{title} (Pro Escalation)",
+                        title=title,
                         retries=retries,
                     )
-                    return res.returncode == 0
-                except Exception as e2:
-                    logger.error("Pro escalation also failed: %s", e2)
-                    return False
+                )
+            return res.returncode == 0
+        except Exception as e:
             logger.error("Refactor step dispatch failed: %s", e)
             return False

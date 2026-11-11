@@ -56,7 +56,7 @@ class CommandResult(Generic[TResult]):
     @classmethod
     def success(
         cls,
-        data: TResult,
+        data: TResult | None = None,
         *,
         summary: str = "",
         action: str = "",
@@ -104,6 +104,10 @@ class CommandResult(Generic[TResult]):
             and self.status != STATUS_ERROR
         )
 
+    def __int__(self) -> int:
+        """Returns the integer exit code of this CommandResult."""
+        return int(self.exit_code)
+
     @property
     def already_rendered(self) -> bool:
         """Returns True if a legacy command already printed its output before exiting."""
@@ -146,6 +150,10 @@ class Command(ABC, Generic[TArgs, TResult]):
     name: str = ""
     aliases: Sequence[str] = ()
     help_text: str = ""
+    # Long `--help` text and its argparse formatter, used by register().
+    description: str = ""
+    epilog: str = ""
+    formatter_class: type[argparse.HelpFormatter] | None = None
 
     def configure_parser(self, parser: argparse.ArgumentParser) -> None:
         """Registers command-specific arguments on `parser`."""
@@ -176,55 +184,134 @@ class Command(ABC, Generic[TArgs, TResult]):
         kwargs: dict[str, Any] = {"help": self.help_text}
         if self.aliases:
             kwargs["aliases"] = list(self.aliases)
+        if self.description:
+            kwargs["description"] = self.description
+        if self.epilog:
+            kwargs["epilog"] = self.epilog
+        if self.formatter_class is not None:
+            kwargs["formatter_class"] = self.formatter_class
+        elif self.epilog:
+            kwargs["formatter_class"] = argparse.RawDescriptionHelpFormatter
         parser = subparsers.add_parser(self.name, **kwargs)
         self.configure_parser(parser)
         self.bind_parser(parser)
         return parser
 
-    def bind_parser(
-        self,
-        parser: argparse.ArgumentParser,
-        *,
-        legacy_func: Callable[[argparse.Namespace], Any] | None = None,
-    ) -> None:
-        """Attaches this Command instance to `parser` defaults."""
-        from core.dispatcher import CliDispatcher
-
-        def _legacy_entrypoint(parsed_args: argparse.Namespace) -> int:
-            return CliDispatcher().dispatch(parsed_args)
-
-        parser.set_defaults(
-            **{
-                COMMAND_INSTANCE_ATTR: self,
-                "func": (
-                    legacy_func if legacy_func is not None else _legacy_entrypoint
-                ),
-            }
-        )
+    def bind_parser(self, parser: argparse.ArgumentParser) -> None:
+        """Attaches this Command instance to `parser` defaults for CliDispatcher."""
+        parser.set_defaults(**{COMMAND_INSTANCE_ATTR: self})
 
 
 def bind_command(
     target: Any,
     command: Command[Any, Any],
-    *,
-    configure: bool = True,
-    legacy_func: Callable[[argparse.Namespace], Any] | None = None,
 ) -> argparse.ArgumentParser:
     """Registers or binds `command` on a subparsers action or an ArgumentParser."""
     if hasattr(target, "add_parser"):
-        parser = command.register(target)
-        if legacy_func is not None:
-            command.bind_parser(parser, legacy_func=legacy_func)
-        return parser
+        return command.register(target)
     if isinstance(target, argparse.ArgumentParser):
-        if configure:
-            command.configure_parser(target)
-        command.bind_parser(target, legacy_func=legacy_func)
+        command.configure_parser(target)
+        command.bind_parser(target)
         return target
     raise UsageError(
         f"Cannot bind command '{command.name}' to unsupported target type {type(target).__name__}.",
         remediation="Pass an argparse subparsers action or ArgumentParser to bind_command().",
     )
+
+
+class CommandGroup(Command[argparse.Namespace, Any]):
+    """A command that hands its work to one of its named subcommands.
+
+    Running the group without a subcommand prints the group's help, the way
+    the procedural `print_help()` handlers did. In JSON mode it reports a
+    usage error instead, so callers never get help text where JSON belongs.
+    """
+
+    # Namespace attribute that argparse fills with the chosen subcommand name.
+    subcommand_dest: str = ""
+    subcommand_help: str = ""
+    subcommands: Sequence[Command[Any, Any]] = ()
+
+    def __init__(
+        self, subcommands: Sequence[Command[Any, Any]] | None = None
+    ) -> None:
+        resolved = (
+            subcommands
+            if subcommands is not None
+            else getattr(self, "subcommands", ())
+        )
+        self._subcommands = tuple(resolved)
+        self.subcommands = self._subcommands
+        self._by_name: dict[str, Command[Any, Any]] = {}
+        for sub_cmd in self._subcommands:
+            for key in (sub_cmd.name, *sub_cmd.aliases):
+                self._by_name[key] = sub_cmd
+        self._parser: argparse.ArgumentParser | None = None
+
+    def configure_group_parser(self, parser: argparse.ArgumentParser) -> None:
+        """Optional hook to register group-level arguments before subparsers."""
+        del parser
+
+    def configure_parser(self, parser: argparse.ArgumentParser) -> None:
+        self._parser = parser
+        self.configure_group_parser(parser)
+        subparsers = parser.add_subparsers(
+            dest=self.subcommand_dest, help=self.subcommand_help
+        )
+        for sub_cmd in self._subcommands:
+            sub_cmd.register(subparsers)
+
+    def _usage_remediation(self) -> str:
+        names = ", ".join(sub_cmd.name for sub_cmd in self._subcommands)
+        return (
+            f"Use one of: {names}. "
+            f"Run 'emu-dev-cli {self.name} --help' for details."
+        )
+
+    def resolve_subcommand(
+        self, args: argparse.Namespace
+    ) -> Command[Any, Any] | None:
+        """Returns the chosen subcommand, or None when none was given."""
+        sub_name = str(getattr(args, self.subcommand_dest, "") or "").strip()
+        if not sub_name:
+            return None
+        sub_cmd = self._by_name.get(sub_name)
+        if sub_cmd is None:
+            raise UsageError(
+                f"Unknown '{self.name}' subcommand '{sub_name}'.",
+                remediation=self._usage_remediation(),
+            )
+        return sub_cmd
+
+    def validate(self, args: argparse.Namespace, ctx: ExecutionContext) -> Any:
+        sub_cmd = self.resolve_subcommand(args)
+        if sub_cmd is None:
+            return args
+        return sub_cmd.validate(args, ctx)
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext | None = None
+    ) -> CommandResult[Any]:
+        sub_cmd = self.resolve_subcommand(args)
+        if sub_cmd is not None:
+            return sub_cmd.execute(args, ctx)  # type: ignore[arg-type]
+        json_mode = (
+            ctx.config.json_mode
+            if ctx is not None
+            else bool(getattr(args, "json", False))
+        )
+        if json_mode or self._parser is None:
+            raise UsageError(
+                f"Missing '{self.name}' subcommand.",
+                remediation=self._usage_remediation(),
+            )
+        self._parser.print_help()
+        return CommandResult.success(
+            {},
+            action=self.name,
+            summary=self.name,
+            metadata={META_KEY_ALREADY_RENDERED: True},
+        )
 
 
 class LegacyCommandAdapter(Command[argparse.Namespace, dict[str, Any]]):

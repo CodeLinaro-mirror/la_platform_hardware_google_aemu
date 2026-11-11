@@ -55,9 +55,9 @@ rather than dispatch (§2.9).
 | `HypervisorService` | `hypervisor_service.proto` | `android.emulation.v2.HypervisorService` | **Served (Snapshots)** | VM lifecycle (`PauseVm`, `ResumeVm`, `ResetVm`, `HardResetVm`, `StopVm`) + snapshot CRUD & LROs (`CreateSnapshot`, `RestoreSnapshot`, `UpdateSnapshot`, `DeleteSnapshot`, `SetQuickbootTarget`, `ExportSnapshot`, `ImportSnapshot`). |
 | `Operations` | `google/longrunning/operations.proto` | `google.longrunning.Operations` | **Served** | Registered alongside `HypervisorService` snapshot LROs. |
 | `RtcService` | `webrtc_service.proto` | `android.emulation.v2.RtcService` | **Served** | WebRTC session lifecycle (`RequestRtcStream`, `UpdateRtcStream`, `CloseRtcStream`) and strongly-typed JSEP SDP/ICE signaling. |
-| `InputService` | `input_service.proto` | `android.emulation.v2.InputService` | Schema + Core C++ | Core C++ `InputSession` logic implemented in `plugin/grpc/input`. |
+| `InputService` | `input_service.proto` | `android.emulation.v2.InputService` | **Served** | Registered unconditionally (`SendInputEvents`, `StreamInputEvents`, `StreamInputActivity`) backed by `InputDispatcher` in `plugin/grpc/input`. |
 | `DisplayService` | `display_service.proto` | `android.emulation.v2.DisplayService` | Schema only (`UNIMPLEMENTED`) | Multi-display lifecycle (`ListDisplays`, `GetDisplay`, `StreamDisplays`, `UpdateDisplay`, `CreateDisplay`, `DeleteDisplay`) and screenshots (`GetScreenshot`, `StreamScreenshots`). |
-| `AudioService` | `audio_service.proto` | `android.emulation.v2.AudioService` | **Served** | Virtual microphone mixer state (`Get/Stream/UpdateAudioState`), raw PCM speaker capture (`StreamSpeakerAudio`), unary clip injection (`InjectAudioClip`), and streaming mic injection (`StreamMicrophoneAudio`). |
+| `AudioService` | `audio_service.proto` | `android.emulation.v2.AudioService` | **Served** | Virtual microphone mixer and wired headset jack state (`Get/Stream/UpdateAudioState`), raw PCM speaker capture (`StreamSpeakerAudio`), unary clip injection (`InjectAudioClip`), and streaming mic injection (`StreamMicrophoneAudio`). |
 | `BatteryService` | `battery_service.proto` | `android.emulation.v2.BatteryService` | Schema only (`UNIMPLEMENTED`) | Charge level, charger source, and thermal health (`GetBatteryState`, `StreamBatteryState`, `UpdateBatteryState`). |
 | `CameraService` | `camera_service.proto` | `android.emulation.v2.CameraService` | Schema only (`UNIMPLEMENTED`) | Camera sensor state observation (`GetCameraState`, `StreamCameraState`) and 2D still/video frame injection (`InjectFrame`, `StreamCameraFrames`, `ResetCamera`). |
 | `LocationService` | `location_service.proto` | `android.emulation.v2.LocationService` | Schema only (`UNIMPLEMENTED`) | WGS84 GNSS fixes (`GetLocationState`, `StreamLocationState`, `UpdateLocationState`) and server-paced route playback (`PlayRoute`). |
@@ -134,15 +134,19 @@ whose mutable fields are marked `optional`.
      `SensorType`, `PostureType`, `FoldAxis` in `sensors_service.proto`) live in
      their owning service `.proto`.
 
-### 2.3 Normalized 2D Geometry (`NormalizedRect` & `Pointer.size`)
+### 2.3 Normalized 2D Geometry (`NormalizedRect`, `Pointer.x`/`Pointer.y` & `Pointer.size`)
 
-- All 2D display coordinates (`x`, `y`) use normalized `[0.0, 1.0]` floating-point
-  coordinates relative to logical display dimensions (`x = pixel_x / width`,
-  `y = pixel_y / height`).
-- Coordinates outside `[0.0, 1.0]` (e.g., `-0.05` or `1.05`) are explicitly
-  permitted and never clamped to support bezel-originating system gestures.
-- `Pointer.size` is normalized in `[0.0, 1.0]` relative to the **shorter display
-  edge** (`min(width, height)`).
+- Display cutouts and bounds (`NormalizedRect`) use normalized `[0.0, 1.0]`
+  floating-point coordinates relative to the display panel's dimensions.
+- Input coordinates (`Pointer.x`, `Pointer.y`) use normalized `[0.0, 1.0]`
+  coordinates in the display panel's **natural (unrotated, `ROTATION_DEG0`)**
+  coordinate frame (`DisplayHardware.width` $\times$ `DisplayHardware.height`),
+  matching physical touchscreen digitizers and `EmulatorController` v1 input.
+  Values outside `[0.0, 1.0]` are **clamped** to `[0.0, 1.0]` (panel edge
+  gestures such as system back and notification shade originate at `0.0` or
+  `1.0`).
+- `Pointer.size` is normalized in `[0.0, 1.0]` relative to the **shorter panel
+  edge** (`min(width, height)`), clamped to `[0.0, 1.0]`.
 
 ### 2.4 Display Orientation Divergence Model (`rotation` vs. `user_rotation`)
 

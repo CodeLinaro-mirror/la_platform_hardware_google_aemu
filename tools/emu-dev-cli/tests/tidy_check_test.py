@@ -112,6 +112,33 @@ class TidyCheckTest(unittest.TestCase):
         self.assertIn("readability-identifier-naming", output)
         self.assertIn('"total": 1', output)
 
+    @patch("commands.tidy.check_cmd.BazelRunner")
+    @patch("commands.tidy.check_cmd.Path.exists", return_value=False)
+    def test_handle_tidy_check_raises_when_report_build_fails_without_yaml(
+        self, mock_exists, mock_bazel
+    ):
+        from core.errors import ExecutionError
+
+        mock_runner = MagicMock()
+        mock_runner.build.return_value = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="ERROR: BUILD.bazel:10: syntax error in 测试_🚀_é",
+        )
+        mock_bazel.return_value = mock_runner
+        args = argparse.Namespace(
+            target="@goldfish//emulator/libs/测试_🚀_é:tidy",
+            target_flag=None,
+            level=4,
+            json=False,
+            diff=False,
+            file=None,
+        )
+        with self.assertRaises(ExecutionError) as err_ctx:
+            handle_tidy_check(args)
+        self.assertEqual(err_ctx.exception.error_code, "TIDY_REPORT_BUILD_FAILED")
+        self.assertIn("测试_🚀_é", str(err_ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

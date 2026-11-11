@@ -78,7 +78,13 @@ def build_apk(
             input_jar,
         ]
         res_d8 = subprocess.run(
-            d8_cmd, capture_output=True, text=True, check=False, timeout=_BUILD_TOOL_TIMEOUT_SECS
+            d8_cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=_BUILD_TOOL_TIMEOUT_SECS,
         )
         if res_d8.returncode != 0:
             raise RuntimeError(
@@ -97,7 +103,13 @@ def build_apk(
             android_jar,
         ]
         res_aapt2 = subprocess.run(
-            aapt2_cmd, capture_output=True, text=True, check=False, timeout=_BUILD_TOOL_TIMEOUT_SECS
+            aapt2_cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=_BUILD_TOOL_TIMEOUT_SECS,
         )
         if res_aapt2.returncode != 0:
             raise RuntimeError(
@@ -159,7 +171,13 @@ def build_apk(
             str(unsigned_apk),
         ]
         res_sign = subprocess.run(
-            sign_cmd, capture_output=True, text=True, check=False, timeout=_BUILD_TOOL_TIMEOUT_SECS
+            sign_cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=_BUILD_TOOL_TIMEOUT_SECS,
         )
         if res_sign.returncode != 0:
             raise RuntimeError(

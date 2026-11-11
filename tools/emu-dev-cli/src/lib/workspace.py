@@ -49,6 +49,18 @@ from lib.bazel import BazelRunner
 
 logger = logging.getLogger(__name__)
 
+# Workspace-relative checkout directories of each Bazel repository alias, in lookup
+# order. qemu-next lives in third_party/qemu (emu-main-next) and QEMU2 in
+# external/qemu (emu-main-dev).
+BAZEL_REPO_DIRS: dict[str, tuple[str, ...]] = {
+    "@goldfish//": ("hardware/generic/goldfish",),
+    "@aemu//": ("hardware/google/aemu",),
+    "@gfxstream//": ("hardware/google/gfxstream",),
+    "@goldfish_build//": ("build/bazel",),
+    "@qemu//": ("third_party/qemu", "external/qemu"),
+    "@goldfish_test//": ("third_party/adt-infra",),
+}
+
 
 class WorkspacePathResolver:
     """Unified locator for workspace repositories, components, and tools."""
@@ -151,12 +163,7 @@ class WorkspacePathResolver:
             r"^@@?([a-zA-Z0-9_\-]+)\+?//", r"@\1//", target_label.strip()
         )
         repo_prefix_map = {
-            "@goldfish//": "hardware/generic/goldfish",
-            "@aemu//": "hardware/google/aemu",
-            "@gfxstream//": "hardware/google/gfxstream",
-            "@goldfish_build//": "build/bazel",
-            "@qemu//": "third_party/qemu",
-            "@goldfish_test//": "third_party/adt-infra",
+            prefix: repo_dirs[0] for prefix, repo_dirs in BAZEL_REPO_DIRS.items()
         }
         preferred_repo_dir: Optional[str] = None
         for prefix, repo_dir in repo_prefix_map.items():

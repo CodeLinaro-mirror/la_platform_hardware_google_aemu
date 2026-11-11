@@ -25,20 +25,21 @@ SRC_DIR = os.path.join(
 )
 
 from commands.crash.link_bug import (
+    CrashLinkBugCommand,
     is_crash_report_id,
     normalize_bug_url_and_id,
     parse_search_annotations_output,
     resolve_signature_from_report_id,
-    run_link_bug,
 )
 from commands.crash.list_crashes import (
     DEFAULT_INCLUDE_MODULES,
+    CrashListCrashesCommand,
     build_f1_crashes_query,
     extract_build_ids_from_versions,
     merge_and_normalize_rows,
     parse_f1_csv_output,
-    run_list_crashes,
 )
+from core.context import ExecutionContext
 
 
 class CrashListAndLinkTest(unittest.TestCase):
@@ -185,7 +186,7 @@ annotations {
         )
         self.assertFalse(is_crash_report_id("virtio_gpu_rutabaga_load-e709a6ba"))
 
-    @patch("commands.crash.link_bug.subprocess.run")
+    @patch("subprocess.run")
     def test_resolve_signature_from_report_id_handles_null_and_quotes(
         self, mock_subproc
     ):
@@ -205,26 +206,9 @@ annotations {
         )
 
     @patch("commands.crash.list_crashes.search_crash_annotations")
-    @patch("commands.crash.list_crashes.execute_f1_query")
-    @patch("commands.crash.list_crashes.print_result")
     def test_run_list_crashes_json(
-        self, mock_print_res, mock_exec_f1, mock_search_anno
+        self, mock_search_anno
     ):
-        mock_exec_f1.return_value = [
-            {
-                "stable_signature": "FailWithoutStackTrace-7a37e8e9",
-                "occurrences": "3",
-                "latest_report_id": "190d58d170400000",
-                "versions": "37.1.3-16373346",
-                "os_names": "Mac OS X",
-                "crash_location": "Flush (log_message.cc:498)",
-                "internal_msg": "",
-                "looper_registrations": "1=LauncherLoop;",
-                "list_annotations": "",
-                "bug_urls": "",
-                "bug_ids": "",
-            }
-        ]
         mock_search_anno.return_value = {}
 
         args = argparse.Namespace(
@@ -237,11 +221,30 @@ annotations {
             limit=25,
             accounting_group=None,
             print_sql=False,
-            json=True,
         )
-        run_list_crashes(args)
-        mock_print_res.assert_called_once()
-        payload = mock_print_res.call_args[0][0]
+        ctx = ExecutionContext.for_testing()
+        f1_client = ctx.services.get("f1_sql_client")
+        f1_client.queue_csv_rows(
+            [
+                {
+                    "stable_signature": "FailWithoutStackTrace-7a37e8e9",
+                    "occurrences": "3",
+                    "latest_report_id": "190d58d170400000",
+                    "versions": "37.1.3-16373346",
+                    "os_names": "Mac OS X",
+                    "crash_location": "Flush (log_message.cc:498)",
+                    "internal_msg": "",
+                    "looper_registrations": "1=LauncherLoop;",
+                    "list_annotations": "",
+                    "bug_urls": "",
+                    "bug_ids": "",
+                }
+            ]
+        )
+        cmd = CrashListCrashesCommand()
+        res = cmd.execute(args, ctx)
+        self.assertTrue(res.ok)
+        payload = res.data
         self.assertEqual(payload["status"], "success")
         self.assertEqual(payload["hours"], 168)
         self.assertEqual(payload["count"], 1)
@@ -252,9 +255,8 @@ annotations {
 
     @patch("commands.crash.link_bug.search_crash_annotations")
     @patch("commands.crash.link_bug.update_crash_annotation")
-    @patch("commands.crash.link_bug.print_result")
     def test_run_link_bug_json(
-        self, mock_print_res, mock_update_anno, mock_search_anno
+        self, mock_update_anno, mock_search_anno
     ):
         mock_update_anno.return_value = (True, "status { status_code: SUCCESS }")
         mock_search_anno.return_value = {
@@ -271,17 +273,19 @@ annotations {
             bug="b/567125517",
             unlink=False,
             product="AndroidEmulator",
-            json=True,
         )
-        run_link_bug(args)
+        ctx = ExecutionContext.for_testing()
+        cmd = CrashLinkBugCommand()
+        res = cmd.execute(args, ctx)
+        self.assertTrue(res.ok)
         mock_update_anno.assert_called_once_with(
             stable_signature="virtio_gpu_rutabaga_load-e709a6ba",
             bug_url="https://b.corp.google.com/issues/567125517",
             unlink=False,
             product_name="AndroidEmulator",
+            runner=ctx.process_runner,
         )
-        mock_print_res.assert_called_once()
-        payload = mock_print_res.call_args[0][0]
+        payload = res.data
         self.assertEqual(payload["status"], "success")
         self.assertEqual(payload["bug_id"], "567125517")
 

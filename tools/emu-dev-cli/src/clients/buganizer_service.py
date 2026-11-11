@@ -289,22 +289,29 @@ def _apply_field_line(line: str, cur: dict[str, str]) -> bool:
     return False
 
 
-def _build_issue_from_cursor(cur: Mapping[str, str]) -> BuganizerIssue | None:
+def _build_issue_from_cursor(
+    cur: Mapping[str, str], *, include_defaults: bool = True
+) -> BuganizerIssue | None:
     """Constructs a BuganizerIssue from accumulated cursor fields if an `id` is present."""
     issue_id = cur.get("id", "").strip()
     if not issue_id:
         return None
+    default_status = DEFAULT_STATUS_NEW if include_defaults else ""
+    default_priority = DEFAULT_PRIORITY if include_defaults else ""
+    default_severity = DEFAULT_SEVERITY if include_defaults else ""
     return BuganizerIssue(
         issue_id=issue_id,
         title=cur.get("title", ""),
-        status=cur.get("status", DEFAULT_STATUS_NEW) or DEFAULT_STATUS_NEW,
-        priority=cur.get("priority", DEFAULT_PRIORITY) or DEFAULT_PRIORITY,
-        severity=cur.get("severity", DEFAULT_SEVERITY) or DEFAULT_SEVERITY,
+        status=cur.get("status", default_status) or default_status,
+        priority=cur.get("priority", default_priority) or default_priority,
+        severity=cur.get("severity", default_severity) or default_severity,
         assignee=cur.get("assignee", ""),
     )
 
 
-def parse_issues_cli_output(raw_text: str) -> list[BuganizerIssue]:
+def parse_issues_cli_output(
+    raw_text: str, *, include_defaults: bool = True
+) -> list[BuganizerIssue]:
     """Parses `issues readonly search` or `issues get` output into typed `BuganizerIssue` objects."""
     cleaned = strip_ansi(raw_text)
     if not cleaned.strip():
@@ -312,9 +319,12 @@ def parse_issues_cli_output(raw_text: str) -> list[BuganizerIssue]:
 
     issues: list[BuganizerIssue] = []
     cur: dict[str, str] = {}
+    default_status = DEFAULT_STATUS_NEW if include_defaults else ""
+    default_priority = DEFAULT_PRIORITY if include_defaults else ""
+    default_severity = DEFAULT_SEVERITY if include_defaults else ""
 
     def _flush() -> None:
-        built = _build_issue_from_cursor(cur)
+        built = _build_issue_from_cursor(cur, include_defaults=include_defaults)
         if built is not None:
             issues.append(built)
         cur.clear()
@@ -344,6 +354,7 @@ def parse_issues_cli_output(raw_text: str) -> list[BuganizerIssue]:
                     title=m_batch.group(2).strip(),
                     status=m_batch.group(3).strip(),
                     priority=m_batch.group(4).upper(),
+                    severity=default_severity,
                 )
             )
             continue
@@ -355,11 +366,30 @@ def parse_issues_cli_output(raw_text: str) -> list[BuganizerIssue]:
                 BuganizerIssue(
                     issue_id=m_compact.group(1).strip(),
                     title=m_compact.group(2).strip(),
+                    status=default_status,
+                    priority=default_priority,
+                    severity=default_severity,
                 )
             )
 
     _flush()
     return issues
+
+
+def parse_issues_search_map(raw_text: str) -> dict[str, dict[str, str]]:
+    """Parses `issues` CLI output into a dictionary keyed by issue ID with empty-string defaults."""
+    return {
+        issue.issue_id: {
+            "id": issue.issue_id,
+            "url": issue.url,
+            "title": issue.title,
+            "priority": issue.priority,
+            "severity": issue.severity,
+            "status": issue.status,
+            "assignee": issue.assignee,
+        }
+        for issue in parse_issues_cli_output(raw_text, include_defaults=False)
+    }
 
 
 def _locate_issues_binary(explicit_bin: str | None = None) -> str:

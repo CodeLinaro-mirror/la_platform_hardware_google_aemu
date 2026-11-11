@@ -25,11 +25,16 @@ import os
 from pathlib import Path
 import shutil
 import statistics
-import subprocess
 import tempfile
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from lib.android_build_client import AndroidBuildClient
+from clients.artifact_service import (
+    ArtifactService,
+    BuildMetadata,
+    ProdArtifactService,
+)
+from core.errors import EmuCliError
+from core.process import ProcessRunner, SubprocessRunner
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +73,26 @@ def resolve_stage_metadata(artifact_path: str) -> Tuple[str, str, int]:
     return (stem_clean or "bazel", display_name, 100)
 
 
+def _normalize_build_record(
+    meta: BuildMetadata | Dict[str, Any] | None,
+) -> Dict[str, Any]:
+    """Converts a `BuildMetadata` or dictionary into a normalized Android Build v4 dictionary."""
+    if meta is None:
+        return {}
+    if isinstance(meta, BuildMetadata):
+        record = dict(meta.raw)
+        record.setdefault("buildId", meta.build_id)
+        record.setdefault("target", {"name": meta.target})
+        record.setdefault("branch", meta.branch)
+        record.setdefault("buildAttemptStatus", meta.status)
+        record.setdefault("successful", meta.successful)
+        record.setdefault("creationTimestamp", meta.creation_timestamp)
+        record.setdefault("completionTimestamp", meta.completion_timestamp)
+        record.setdefault("machineName", meta.machine_name)
+        return record
+    return dict(meta)
+
+
 def discover_bazel_profile_artifacts(
     ab_client: Any,
     build_id: str,
@@ -81,7 +106,8 @@ def discover_bazel_profile_artifacts(
         try:
             all_artifacts = ab_client.list_artifacts(str(build_id), target) or []
             for art in all_artifacts:
-                norm = str(art).strip()
+                raw_name = art.name if hasattr(art, "name") else str(art)
+                norm = str(raw_name).strip()
                 if not norm.startswith("logs/bazel/"):
                     continue
                 base = os.path.basename(norm).lower()
@@ -726,8 +752,8 @@ def analyze_single_build(
     build_id: str,
     target: str,
     branch: str = "git_emu-main-next",
-    build_record: Optional[Dict[str, Any]] = None,
-    client: Optional[AndroidBuildClient] = None,
+    build_record: Optional[Dict[str, Any] | BuildMetadata] = None,
+    client: Optional[ArtifactService | Any] = None,
     token: Optional[str] = None,
     use_cache: bool = True,
 ) -> BuildProfileMetrics:
@@ -742,21 +768,28 @@ def analyze_single_build(
         except Exception as e:
             logger.debug("Cache read skipped for %s/%s: %s", build_id, target, e)
 
-    ab_client = client or AndroidBuildClient(token=token)
+    ab_client = client or ProdArtifactService(SubprocessRunner(), token=token)
     if build_record is None:
-        build_record = ab_client.get_build(build_id, target) or {}
+        try:
+            raw_meta = ab_client.get_build(str(build_id), target)
+        except Exception as e:
+            logger.debug("Build metadata unavailable for %s/%s: %s", build_id, target, e)
+            raw_meta = None
+        record = _normalize_build_record(raw_meta)
+    else:
+        record = _normalize_build_record(build_record)
 
-    status = str(build_record.get("buildAttemptStatus") or "COMPLETE")
-    successful = bool(build_record.get("successful", True))
-    machine_name = str(build_record.get("machineName") or "")
+    status = str(record.get("buildAttemptStatus") or "COMPLETE")
+    successful = bool(record.get("successful", True))
+    machine_name = str(record.get("machineName") or "")
     free_disk_gb = str(
-        (build_record.get("diskSpaceStat") or {}).get("freeSpaceBeforeBuild")
-        or build_record.get("buildbotAvailableSpaceGb")
+        (record.get("diskSpaceStat") or {}).get("freeSpaceBeforeBuild")
+        or record.get("buildbotAvailableSpaceGb")
         or ""
     )
-    base_build_id = str(build_record.get("baseBuild") or "")
-    creation_time = str(build_record.get("creationTimestamp") or "")
-    completion_time = str(build_record.get("completionTimestamp") or "")
+    base_build_id = str(record.get("baseBuild") or "")
+    creation_time = str(record.get("creationTimestamp") or "")
+    completion_time = str(record.get("completionTimestamp") or "")
 
     t0 = _parse_iso_ts(creation_time)
     t1 = _parse_iso_ts(completion_time)
@@ -770,7 +803,7 @@ def analyze_single_build(
     metrics = BuildProfileMetrics(
         build_id=str(build_id),
         target=target,
-        branch=str(build_record.get("branch") or branch),
+        branch=str(record.get("branch") or branch),
         status=status,
         successful=successful,
         machine_name=machine_name,
@@ -786,7 +819,9 @@ def analyze_single_build(
     try:
         # 1. Download and parse BUILD_INFO if available
         try:
-            bi_file = ab_client.download_artifact(build_id, target, "BUILD_INFO", tmp_dir)
+            bi_file = str(
+                ab_client.download_artifact(str(build_id), target, "BUILD_INFO", tmp_dir)
+            )
             if os.path.exists(bi_file):
                 bi_data = parse_build_info(bi_file)
                 if bi_data.get("hostname") and not metrics.machine_name:
@@ -808,8 +843,10 @@ def analyze_single_build(
         parsed_stages: List[StageProfileMetrics] = []
         for artifact_path in profile_artifacts:
             try:
-                prof_file = ab_client.download_artifact(
-                    build_id, target, artifact_path, tmp_dir
+                prof_file = str(
+                    ab_client.download_artifact(
+                        str(build_id), target, artifact_path, tmp_dir
+                    )
                 )
                 if os.path.exists(prof_file):
                     prof_data = parse_bazel_profile(prof_file)
@@ -961,10 +998,18 @@ def fetch_target_history(
     token: Optional[str] = None,
     use_cache: bool = True,
     progress_callback: Optional[Callable[[str], None]] = None,
+    client: Optional[ArtifactService | Any] = None,
 ) -> List[BuildProfileMetrics]:
     """Fetches and analyzes the last N submitted builds for a target in parallel."""
-    client = AndroidBuildClient(token=token)
-    builds = client.list_builds(branch=branch, target=target, limit=limit, include_building=False)
+    client = client or ProdArtifactService(SubprocessRunner(), token=token)
+    try:
+        raw_builds = client.list_builds(
+            branch=branch, target=target, limit=limit, include_building=False
+        )
+    except EmuCliError as exc:
+        logger.debug("list_builds(%s, %s) failed: %s", branch, target, exc)
+        return []
+    builds = [_normalize_build_record(b) for b in (raw_builds or [])]
     if not builds:
         return []
 
@@ -1005,6 +1050,7 @@ def _get_git_commits_between(
     old_sha: str,
     new_sha: str,
     max_commits: int = 10,
+    runner: Optional[Any] = None,
 ) -> List[str]:
     """Runs git log --oneline old_sha..new_sha in source_root/repo_path if available locally."""
     if not source_root or not repo_path or not old_sha or not new_sha or old_sha == new_sha:
@@ -1012,14 +1058,10 @@ def _get_git_commits_between(
     full_dir = os.path.join(source_root, repo_path)
     if not os.path.isdir(full_dir):
         return []
+    cmd = ["git", "log", "--oneline", "-n", str(max_commits), f"{old_sha}..{new_sha}"]
     try:
-        res = subprocess.run(
-            ["git", "log", "--oneline", "-n", str(max_commits), f"{old_sha}..{new_sha}"],
-            cwd=full_dir,
-            capture_output=True,
-            text=True,
-            timeout=5.0,
-        )
+        proc_runner: ProcessRunner = runner or SubprocessRunner()
+        res = proc_runner.run(cmd, cwd=full_dir, timeout_sec=5.0, check=False)
         if res.returncode == 0 and res.stdout.strip():
             return [line.strip() for line in res.stdout.strip().splitlines() if line.strip()]
     except Exception as exc:
@@ -1031,8 +1073,12 @@ def compare_build_profiles(
     baseline: BuildProfileMetrics,
     regressed: BuildProfileMetrics,
     source_root: Optional[str] = None,
+    runner: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """Compares a regressed build against a fast baseline build and attributes root causes."""
+    """Compares a regressed build against a fast baseline build and attributes root causes.
+
+    `runner` (a core.process.ProcessRunner) runs the local `git log` lookups when given.
+    """
     deltas = {
         "total_ci_sec": round(regressed.total_ci_sec - baseline.total_ci_sec, 2),
         "queue_sec": round(regressed.queue_sec - baseline.queue_sec, 2),
@@ -1152,7 +1198,9 @@ def compare_build_profiles(
             old_sha = older.repo_revisions.get(repo_name)
             if old_sha and old_sha != new_sha:
                 repo_path = newer.repo_paths.get(repo_name) or older.repo_paths.get(repo_name, "")
-                commits = _get_git_commits_between(source_root, repo_path, old_sha, new_sha)
+                commits = _get_git_commits_between(
+                    source_root, repo_path, old_sha, new_sha, runner=runner
+                )
                 changed_repos.append({
                     "repo": repo_name,
                     "path": repo_path,

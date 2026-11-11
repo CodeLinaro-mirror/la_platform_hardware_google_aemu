@@ -3,7 +3,6 @@ import hashlib
 import os
 from pathlib import Path
 import platform
-import py_compile
 import shlex
 import shutil
 import signal
@@ -977,22 +976,40 @@ def print_path_instructions(installed_bin_path):
     print("-" * 50)
 
 
+class InstallCommand:
+    """Deferred placeholder replaced below after core.command import."""
+
+
+from core.command import Command, CommandResult, bind_command
+from core.context import ExecutionContext
+
+
+class InstallCommand(Command):  # type: ignore[no-redef]
+    """Installs the global emu-dev-cli launcher, agent skills, and harness plugin."""
+
+    name = "install"
+    help = "Install emu-dev-cli global launcher and agent SKILL.md into user environment"
+
+    def configure_parser(self, parser) -> None:
+        default_path = detect_default_install_path()
+        parser.add_argument(
+            "--path",
+            type=str,
+            default=default_path,
+            help=f"Destination executable path (defaults to '{default_path}')",
+        )
+
+    def execute(self, args, ctx: ExecutionContext) -> CommandResult:
+        del ctx
+        return run_install_cmd(args)
+
+
 def register_parser(subparsers):
-    install_parser = subparsers.add_parser(
-        "install",
-        help="Install emu-dev-cli global launcher and agent SKILL.md into user environment",
-    )
-    default_path = detect_default_install_path()
-    install_parser.add_argument(
-        "--path",
-        type=str,
-        default=default_path,
-        help=f"Destination executable path (defaults to '{default_path}')",
-    )
-    install_parser.set_defaults(func=run_install_cmd)
+    cmd = InstallCommand()
+    return cmd.register(subparsers)
 
 
-def run_install_cmd(args):
+def run_install_cmd(args) -> CommandResult:
     json_mode = getattr(args, "json", False)
     dest_path = getattr(args, "path", None) or detect_default_install_path()
 
@@ -1044,7 +1061,7 @@ def run_install_cmd(args):
                 s_path, quiet=json_mode
             )
 
-    print_result(
+    result = print_result(
         {
             "status": "success",
             "action": "install",
@@ -1057,5 +1074,6 @@ def run_install_cmd(args):
         json_mode=json_mode,
     )
 
-    if final_installed:
+    if final_installed and not json_mode:
         print_path_instructions(final_installed)
+    return result

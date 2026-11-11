@@ -1907,6 +1907,31 @@
     outline: 2px solid var(--g-accent);
     outline-offset: 2px;
   }
+  .aemu-map-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #ffe08a;
+    background: rgba(242, 153, 74, 0.14);
+    border: 1px solid rgba(242, 153, 74, 0.45);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+  .aemu-map-pill:hover {
+    background: rgba(242, 153, 74, 0.26);
+    border-color: #f2c94c;
+    color: #ffffff;
+    text-decoration: none;
+  }
+  .aemu-map-pill:focus-visible {
+    outline: 2px solid #f2c94c;
+    outline-offset: 2px;
+  }
   .commit-msg-panel {
     background: #181a1e;
     border-bottom: 1px solid var(--g-border);
@@ -2472,6 +2497,13 @@
   .tok-macro {
     color: #ffa657;
     font-weight: 600;
+  }
+  .tok-attr {
+    color: #79c0ff;
+    font-weight: 500;
+  }
+  .tok-op {
+    color: #8b949e;
   }
   .tok-rev-flow {
     color: #ffb86b;
@@ -4398,6 +4430,13 @@
         onclick="event.stopPropagation(); onUpdateAvailableClick()"
         title="New Gerrit UI / sidecar changes available in hardware/google/aemu"
       ><span id="btnUpdateAvailableLabel">⬇ Update Available</span></button>
+      <button
+        id="btnSwitchToPolygerritUi"
+        type="button"
+        class="nudge-btn"
+        onclick="event.stopPropagation(); switchUiVariant('polygerrit')"
+        title="Switch to the PolyGerrit-styled UI (Dark &amp; Light themes)"
+      >🏛️ PolyGerrit UI</button>
       <button id="cliffToggleBtn" class="nudge-btn" onclick="event.stopPropagation(); toggleCliffRadar()">Show Radar ▾</button>
     </div>
   </div>
@@ -4665,7 +4704,10 @@
         <strong>Harness &amp; Gerrit Bridge:</strong>
         <span id="drawerStatus" style="color:var(--g-muted);">Ready · Shortcuts: [ (sidebar), j/k (next/prev), x (select CL), 1/2/0 (stage CR), p (stage PR+1), u (stage AS+1), Enter (send vote), s (Swarm)</span>
       </div>
-      <a id="openGerritLink" href="#" target="_blank" style="color:var(--g-accent);font-weight:600;text-decoration:none;">Open in Gerrit ↗</a>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <a id="openAemuMapLink" href="http://go/aemu-map" target="_blank" rel="noopener noreferrer" style="color:#f2c94c;font-weight:600;text-decoration:none;" title="Visualize active CL blast radius and call flows on go/aemu-map">🗺️ Architecture Map ↗</a>
+        <a id="openGerritLink" href="#" target="_blank" style="color:var(--g-accent);font-weight:600;text-decoration:none;">Open in Gerrit ↗</a>
+      </div>
     </div>
     <div id="diffPaneOverlay" class="pane-loading-overlay" aria-hidden="true">
       <div class="pane-loading-card">
@@ -4726,7 +4768,13 @@
 <script>
   window.__GERRIT_UI_VERSION__ = "__GERRIT_UI_VERSION__";
   window.__GERRIT_UI_BOOTSTRAP__ = __GERRIT_UI_BOOTSTRAP_JSON__;
-  const _sidecarUrlParams = new URLSearchParams(window.location.search);
+  const _sidecarUrlParams = {
+    get: function(key) {
+      const search = (typeof window !== "undefined" && window.location && window.location.search) || "";
+      const match = search.match(new RegExp("[?&]" + key + "=([^&]*)"));
+      return match ? decodeURIComponent(match[1].replace(/\+/g, " ")) : null;
+    }
+  };
   const sidecarUiToken = _sidecarUrlParams.get("token") || "";
 
   function sidecarFetch(path, options = {}) {
@@ -4869,6 +4917,24 @@
   const SIDEBAR_WIDTH_STORAGE_KEY = "gerrit_ui_sidebar_width_px";
   const SIDEBAR_COLLAPSED_STORAGE_KEY = "gerrit_ui_sidebar_collapsed";
   const DIFF_COLOR_SCHEME_STORAGE_KEY = "gerrit_ui_diff_color_scheme";
+  const GERRIT_UI_VARIANT_STORAGE_KEY = "gerrit_ui_variant";
+
+  function switchUiVariant(variant) {
+    try {
+      const storage = (typeof window !== "undefined" && window.localStorage) || (typeof localStorage !== "undefined" ? localStorage : null);
+      if (storage) storage.setItem(GERRIT_UI_VARIANT_STORAGE_KEY, variant);
+    } catch (_) {}
+    const url = new URL(window.location.href);
+    if (url.pathname === "/polygerrit" || url.pathname === "/classic") {
+      url.pathname = "/";
+    }
+    if (variant === "classic") {
+      url.searchParams.set("ui", "classic");
+    } else {
+      url.searchParams.delete("ui");
+    }
+    window.location.href = url.toString();
+  }
 
   function clampSidebarWidth(rawPx) {
     const wsEl = document.getElementById("workspaceContainer");
@@ -7793,6 +7859,10 @@
     }
     const primary = commits.find(c => c.number === state.selectedClNumber) || commits[0];
     document.getElementById("openGerritLink").href = primary.url;
+    const openAemuMapEl = document.getElementById("openAemuMapLink");
+    if (openAemuMapEl) {
+      openAemuMapEl.href = buildAemuMapCommitUrl(primary, state.diffsByCl[primary.number]);
+    }
     const isBootstrap = Boolean(window.__GERRIT_UI_BOOTSTRAP__ && window.__GERRIT_UI_BOOTSTRAP__.changes);
     const pNum = Number(primary.number);
     if (!isBootstrap && !state.autoExpandedPresubmitCls.has(pNum)) {
@@ -7811,6 +7881,9 @@
         trackLoading: true,
         label: `Fetching unified diff for ${missing.map(n => "ag/" + n).join(", ")}…`,
       });
+      if (openAemuMapEl) {
+        openAemuMapEl.href = buildAemuMapCommitUrl(primary, state.diffsByCl[primary.number]);
+      }
       syncActiveActionButtons(getActiveCommitsForDiff(), false);
       renderDiffPane({ preserveScroll: Boolean(opts.preserveScroll) });
     } else {
@@ -9381,6 +9454,36 @@
     return `<a class="file-cs-link" href="${escapeHtml(csUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" title="Open ${escapeHtml(filePath)}${escapeHtml(lineHint)} in Code Search ↗">${escapeHtml(label)}<span class="file-cs-link-icon" aria-hidden="true">↗</span></a>`;
   }
 
+  const AEMU_MAP_BASE_URL = "http://go/aemu-map";
+
+  function buildAemuMapCommitUrl(c, bundle = null) {
+    if (!c || !c.number) return AEMU_MAP_BASE_URL;
+    const rawFiles = (bundle && Array.isArray(bundle.files) && bundle.files.length > 0)
+      ? bundle.files.map(f => f && f.file)
+      : (Array.isArray(c.files) ? c.files : []);
+    const cleaned = [];
+    const seen = new Set();
+    for (const item of rawFiles) {
+      const raw = String(item || "").trim();
+      if (!raw || GERRIT_MAGIC_FILES.has(raw)) continue;
+      const rel = raw.replace(/^\/+/, "");
+      if (!rel || rel === "dev/null" || GERRIT_MAGIC_FILES.has(rel) || GERRIT_MAGIC_FILES.has("/" + rel)) continue;
+      if (!seen.has(rel)) {
+        seen.add(rel);
+        cleaned.push(rel);
+      }
+    }
+    if (cleaned.length === 0 && c.aemu_map_url) {
+      return c.aemu_map_url;
+    }
+    const encodedCl = encodeURIComponent(String(c.number));
+    if (cleaned.length === 0) {
+      return `${AEMU_MAP_BASE_URL}#ag=${encodedCl}`;
+    }
+    const encodedFiles = cleaned.map(p => p.split("/").map(seg => encodeURIComponent(seg)).join("/")).join(",");
+    return `${AEMU_MAP_BASE_URL}#ag=${encodedCl}&files=${encodedFiles}`;
+  }
+
   const DIFF_COLOR_SCHEMES = [
     { id: "syntax_intraline", label: "🎨 Syntax + Word Diff" },
     { id: "intraline_focus", label: "🔍 Word Diff Only" },
@@ -9393,20 +9496,24 @@
     "if", "else", "elif", "for", "while", "do", "switch", "case", "default",
     "break", "continue", "return", "co_await", "co_return", "co_yield", "goto",
     "def", "class", "fn", "pub", "impl", "struct", "enum", "union", "trait",
-    "let", "mut", "const", "constexpr", "consteval", "static", "inline", "extern",
+    "let", "mut", "const", "constexpr", "consteval", "constinit", "static", "inline", "extern",
     "virtual", "override", "final", "explicit", "friend", "operator", "noexcept",
     "namespace", "using", "template", "typename", "concept", "requires",
     "import", "from", "as", "async", "await", "try", "catch", "except", "finally",
     "raise", "throw", "with", "yield", "lambda", "pass", "del", "in", "is", "not",
     "and", "or", "func", "package", "defer", "go", "select", "interface", "type",
-    "var", "function", "export", "new", "delete", "sizeof", "alignof", "static_assert",
+    "var", "function", "export", "new", "delete", "sizeof", "alignof", "alignas", "static_assert",
+    "decltype", "thread_local", "static_cast", "dynamic_cast", "reinterpret_cast", "const_cast",
     "private", "protected", "public", "match", "where", "ref", "move", "unsafe",
+    "crate", "mod", "dyn", "loop", "assert", "global", "nonlocal", "range", "fallthrough", "chan",
+    "load", "rule", "provider", "aspect", "depset", "fail", "exports_files", "licenses", "alias", "subrules", "Label",
   ]);
 
   const DIFF_SYNTAX_TYPES_AND_CONSTS = new Set([
     "void", "bool", "char", "short", "int", "long", "float", "double", "signed",
     "unsigned", "auto", "size_t", "ssize_t", "int8_t", "int16_t", "int32_t", "int64_t",
     "uint8_t", "uint16_t", "uint32_t", "uint64_t", "uintptr_t", "intptr_t", "ptrdiff_t",
+    "char8_t", "char16_t", "char32_t", "wchar_t", "nullptr_t", "intmax_t", "uintmax_t",
     "string", "string_view", "wstring", "u8string", "vector", "map", "unordered_map",
     "set", "unordered_set", "optional", "variant", "span", "unique_ptr", "shared_ptr",
     "weak_ptr", "Status", "StatusOr", "StatusCode", "Path", "Any", "Optional", "Union",
@@ -9416,6 +9523,10 @@
     "True", "False", "None", "null", "nullptr", "undefined", "NaN", "Infinity", "nil",
     "self", "this", "cls", "super", "Self", "Result", "Option", "Some", "Ok", "Err",
     "String", "Vec", "Box", "Arc", "Rc", "Mutex", "RwLock",
+    "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize", "f32", "f64",
+    "byte", "rune", "any", "error", "complex64", "complex128", "uint",
+    "isinstance", "issubclass", "len", "range", "enumerate", "zip", "print", "iter", "next", "repr", "min", "max", "sum",
+    "make", "cap", "append", "copy", "close", "panic", "recover",
   ]);
 
   const DIFF_REVIEW_FLOW_TOKENS = new Set([
@@ -9480,7 +9591,7 @@
     const base = raw.split("/").pop() || "";
     const lowerBase = base.toLowerCase();
     if (lowerBase === "build" || lowerBase === "build.bazel" || lowerBase === "workspace" || lowerBase.endsWith(".bzl") || lowerBase.endsWith(".bazel")) {
-      return { id: "python", badge: "Bazel" };
+      return { id: "bazel", badge: "Bazel" };
     }
     if (lowerBase === "cmakelists.txt" || lowerBase.endsWith(".cmake")) {
       return { id: "config", badge: "CMake" };
@@ -9636,7 +9747,7 @@
     return map;
   }
 
-  function classifyIdentifierToken(ident, nextChar, scheme, langId) {
+  function classifyIdentifierToken(ident, nextContext, scheme, langId) {
     if (scheme === "semantic_review") {
       if (DIFF_REVIEW_FLOW_TOKENS.has(ident)) return "tok-rev-flow";
       if (DIFF_REVIEW_SAFETY_TOKENS.has(ident)) return "tok-rev-safety";
@@ -9648,9 +9759,15 @@
     if (scheme === "intraline_focus") return "";
     if (DIFF_SYNTAX_KEYWORDS.has(ident)) return "tok-keyword";
     if (DIFF_SYNTAX_TYPES_AND_CONSTS.has(ident)) return "tok-type";
+    const ctx = String(nextContext || "");
+    if (ctx.startsWith("::")) return "tok-type";
+    if (ctx.startsWith("!")) return "tok-macro";
+    if ((langId === "bazel" || langId === "python") && /^\s*=/.test(ctx) && !/^\s*==/.test(ctx)) {
+      return "tok-attr";
+    }
     if (/^[A-Z][A-Z0-9_]{2,}$/.test(ident)) return "tok-type";
     if (/^[A-Z][A-Za-z0-9_]*$/.test(ident) && langId !== "markup") return "tok-type";
-    if (nextChar === "(") return "tok-func";
+    if (ctx.startsWith("(")) return "tok-func";
     return "";
   }
 
@@ -9667,7 +9784,7 @@
     if (!body) return spans;
 
     if (scheme === "intraline_focus") {
-      const commentIdx = langId === "python" || langId === "config"
+      const commentIdx = langId === "python" || langId === "bazel" || langId === "config"
         ? body.indexOf("#")
         : body.indexOf("//");
       if (commentIdx === 0 || (commentIdx > 0 && /\s/.test(body[commentIdx - 1]))) {
@@ -9687,6 +9804,7 @@
         "|(@[A-Za-z_][A-Za-z0-9_.]*)",
         "|(\\b(?:0[xX][0-9a-fA-F_]+|\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?[uUlLfF]*)\\b)",
         "|([A-Za-z_\\u0080-\\uffff][A-Za-z0-9_\\u0080-\\uffff]*)",
+        "|(::|->|=>|===|!==|==|!=|<=|>=|&&|\\|\\||\\+=|-=|\\*=|\\/=|%=|&=|\\|=|\\^=|<<|>>|\\.\\.\\.)",
       ].join(""),
       "g"
     );
@@ -9704,15 +9822,26 @@
         tokCls = "tok-comment";
       } else if (match[2]) {
         const trimmedBefore = body.slice(0, mStart).trim();
-        if (langId === "cpp" && trimmedBefore === "" && /^#\s*(?:include|define|ifdef|ifndef|endif|if|elif|else|pragma|undef|error)\b/.test(match[2])) {
+        if (langId === "cpp" && trimmedBefore === "" && /^#\s*(?:include|define|ifdef|ifndef|endif|if|elif|else|pragma|undef|error|warning|line)\b/.test(match[2])) {
           const dirMatch = match[2].match(/^#\s*[a-zA-Z_]+/);
           const dirLen = dirMatch ? dirMatch[0].length : 1;
           spans.push({ start: offset + mStart, end: offset + mStart + dirLen, cls: "tok-macro" });
+          const restOfDirective = match[2].slice(dirLen);
+          const headerAngleMatch = restOfDirective.match(/^(\s*)(<[^>\n\r]+>)/);
+          if (dirMatch[0].includes("include") && headerAngleMatch) {
+            const wsLen = headerAngleMatch[1].length;
+            const hLen = headerAngleMatch[2].length;
+            const hStart = offset + mStart + dirLen + wsLen;
+            spans.push({ start: hStart, end: hStart + hLen, cls: "tok-string" });
+            tokenRe.lastIndex = mStart + dirLen + wsLen + hLen;
+            cursor = mStart + dirLen + wsLen + hLen;
+            continue;
+          }
           tokenRe.lastIndex = mStart + dirLen;
           cursor = mStart + dirLen;
           continue;
         }
-        if (langId === "python" || langId === "config" || langId === "generic") {
+        if (langId === "python" || langId === "bazel" || langId === "config" || langId === "generic") {
           tokCls = "tok-comment";
         }
       } else if (match[3]) {
@@ -9722,8 +9851,10 @@
       } else if (match[5]) {
         tokCls = scheme === "semantic_review" ? "" : "tok-number";
       } else if (match[6]) {
-        const nextCh = body[mEnd] || "";
-        tokCls = classifyIdentifierToken(match[6], nextCh, scheme, langId);
+        const nextContext = body.slice(mEnd);
+        tokCls = classifyIdentifierToken(match[6], nextContext, scheme, langId);
+      } else if (match[7]) {
+        tokCls = scheme === "semantic_review" ? "" : "tok-op";
       }
       spans.push({ start: offset + mStart, end: offset + mEnd, cls: tokCls });
       cursor = mEnd;
@@ -10551,6 +10682,7 @@
       const aiAnalysisPanelHtml = renderCommitAiAnalysisPanelHtml(c);
 
       const gerritUrl = c.url || `https://googleplex-android-review.git.corp.google.com/c/${c.number}`;
+      const aemuMapUrl = buildAemuMapCommitUrl(c, bundle);
 
       return `<div class="commit-section">
         <div class="commit-sec-header">
@@ -10567,6 +10699,7 @@
             <span style="font-size:11.5px;color:var(--g-muted);">${escapeHtml(c.project_short)} · PS${c.patch_set}</span>
             ${renderDiffColorSchemeSelectHtml()}
             ${renderCommitNavButtonsHtml()}
+            <a class="aemu-map-pill" href="${escapeHtml(aemuMapUrl)}" target="_blank" rel="noopener noreferrer" title="Visualize ag/${c.number} blast radius, call flows, and critical paths on go/aemu-map">🗺️ Architecture Map ↗</a>
             <a class="external-gerrit-pill" href="${escapeHtml(gerritUrl)}" target="_blank" rel="noopener noreferrer" title="Open ag/${c.number} in external Gerrit in a new tab">Open in Gerrit ↗</a>
             ${renderCommitSubmitButtonHtml(c)}
             ${renderCommitHarnessActionsHtml(c)}

@@ -1,5 +1,6 @@
+import argparse
 from pathlib import Path
-import sys
+from typing import Any
 
 from commands.harness.plugin_installer import install_harness_plugin
 from commands.source_directory import (
@@ -7,19 +8,38 @@ from commands.source_directory import (
     load_config,
     run_first_time_setup,
 )
+from core.command import Command, CommandResult, bind_command
+from core.context import ExecutionContext
 from install.installer import install_skill
 from lib.output import print_result
+
+
+class InitCommand(Command[argparse.Namespace, dict[str, Any]]):
+    """Installs global agent skills and runs first-time source directory setup."""
+
+    name = "init"
+    help = (
+        "Install global agent skill (SKILL.md) and run first-time source directory "
+        "setup if ~/.android/emu-dev-cli.json is missing"
+    )
+
+    def execute(
+        self, args: argparse.Namespace, ctx: ExecutionContext
+    ) -> CommandResult[dict[str, Any]]:
+        del ctx
+        return run_init(args)
 
 
 def register_parser(subparsers):
     init_parser = subparsers.add_parser(
         "init",
-        help="Install global agent skill (SKILL.md) and run first-time source directory setup if ~/.android/emu-dev-cli.json is missing",
+        help=InitCommand.help,
     )
-    init_parser.set_defaults(func=run_init)
+    bind_command(init_parser, InitCommand())
+    return init_parser
 
 
-def run_init(args):
+def run_init(args) -> CommandResult[dict[str, Any]]:
     json_mode = getattr(args, "json", False)
 
     cfg = load_config()
@@ -29,7 +49,7 @@ def run_init(args):
     installed_files = install_skill()
 
     if not installed_files:
-        print_result(
+        return print_result(
             {
                 "status": "error",
                 "action": "init",
@@ -44,7 +64,6 @@ def run_init(args):
             json_mode=json_mode,
             is_error=True,
         )
-        sys.exit(1)
 
     home_dir = Path.home()
     harness_report = install_harness_plugin(
@@ -55,7 +74,7 @@ def run_init(args):
         )
     )
 
-    print_result(
+    return print_result(
         {
             "status": "success",
             "action": "init",
