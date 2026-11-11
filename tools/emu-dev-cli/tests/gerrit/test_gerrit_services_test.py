@@ -119,14 +119,14 @@ class GerritDiffServiceTest(unittest.TestCase):
         )
         self.assertEqual(
             map_url,
-            f"{AEMU_MAP_BASE_URL}?ag=43351736&files="
+            f"{AEMU_MAP_BASE_URL}#ag=43351736&files="
             "emulator/net/async_socket_adapter.cc,"
             "emulator/net/async_socket_adapter.h,"
             "src/%E6%B5%8B%E8%AF%95_%F0%9F%9A%80_%C3%A9.cc",
         )
         self.assertEqual(
             build_aemu_map_commit_url(43351736, ["/COMMIT_MSG", "/dev/null"]),
-            f"{AEMU_MAP_BASE_URL}?ag=43351736",
+            f"{AEMU_MAP_BASE_URL}#ag=43351736",
         )
 
     def test_extract_symbol_from_code_line(self):
@@ -161,7 +161,7 @@ class GerritQueueServiceTest(unittest.TestCase):
         self.assertTrue(enriched["approved_by_viewer"])
         self.assertEqual(
             enriched["aemu_map_url"],
-            "http://go/aemu-map?ag=43351736&files=tools/emu-dev-cli/src/commands/gerrit/ui_server.py",
+            "http://go/aemu-map#ag=43351736&files=tools/emu-dev-cli/src/commands/gerrit/ui_server.py",
         )
 
     def test_extract_bug_ids_from_change(self):

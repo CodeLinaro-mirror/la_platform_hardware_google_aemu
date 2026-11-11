@@ -9478,10 +9478,10 @@
     }
     const encodedCl = encodeURIComponent(String(c.number));
     if (cleaned.length === 0) {
-      return `${AEMU_MAP_BASE_URL}?ag=${encodedCl}`;
+      return `${AEMU_MAP_BASE_URL}#ag=${encodedCl}`;
     }
     const encodedFiles = cleaned.map(p => p.split("/").map(seg => encodeURIComponent(seg)).join("/")).join(",");
-    return `${AEMU_MAP_BASE_URL}?ag=${encodedCl}&files=${encodedFiles}`;
+    return `${AEMU_MAP_BASE_URL}#ag=${encodedCl}&files=${encodedFiles}`;
   }
 
   const DIFF_COLOR_SCHEMES = [

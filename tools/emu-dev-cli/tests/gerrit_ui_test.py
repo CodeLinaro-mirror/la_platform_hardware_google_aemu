@@ -9151,13 +9151,15 @@ class GerritUIHandlerSecurityTest(unittest.TestCase):
         )
         self.assertEqual(
             url,
-            f"{AEMU_MAP_BASE_URL}?ag=43351736&files="
+            f"{AEMU_MAP_BASE_URL}#ag=43351736&files="
             "emulator/net/async_socket_adapter.cc,"
             "emulator/net/async_socket_adapter.h,"
             "src/%E6%B5%8B%E8%AF%95_%F0%9F%9A%80_%C3%A9.cc",
         )
         html = render_static_gerrit_ui_html()
         self.assertIn("buildAemuMapCommitUrl", html)
+        self.assertIn("${AEMU_MAP_BASE_URL}#ag=${encodedCl}&files=${encodedFiles}", html)
+        self.assertNotIn("${AEMU_MAP_BASE_URL}?", html)
         self.assertIn("openAemuMapLink", html)
         self.assertIn("aemu-map-pill", html)
         self.assertIn("🗺️ Architecture Map ↗", html)
@@ -37585,14 +37587,14 @@ const c2 = {
 
 // 1. Verify buildAemuMapCommitUrl URL construction & Unicode encoding
 const url1 = ctx.buildAemuMapCommitUrl(c1);
-assert.ok(url1.startsWith("http://go/aemu-map?ag=101&files="), "URL must point to go/aemu-map with ag=101");
+assert.ok(url1.startsWith("http://go/aemu-map#ag=101&files="), "URL must point to go/aemu-map with ag=101");
 assert.ok(url1.includes("tools/emu-dev-cli/src/main.py"), "Files must include relative source paths");
 assert.ok(!url1.includes("COMMIT_MSG"), "Must filter out /COMMIT_MSG magic file");
 assert.ok(!url1.includes("dev/null"), "Must filter out dev/null");
 assert.ok(url1.includes(encodeURIComponent("测试_🚀_é.cc")), "Must safely URL-encode Unicode file paths");
 
 const url2 = ctx.buildAemuMapCommitUrl(c2);
-assert.strictEqual(url2, "http://go/aemu-map?ag=102", "When no files exist, URL must be go/aemu-map?ag=102");
+assert.strictEqual(url2, "http://go/aemu-map#ag=102", "When no files exist, URL must be go/aemu-map#ag=102");
 
 // 2. Verify renderCommitHarnessActionsHtml and renderCommitAemuMapButtonHtml
 const harnessHtml = ctx.renderCommitHarnessActionsHtml(c1, null);
