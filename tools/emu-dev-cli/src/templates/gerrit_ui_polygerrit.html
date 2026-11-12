@@ -10420,6 +10420,148 @@
     background: #e8f0fe;
     color: #1a73e8;
   }
+
+  /* PolyGerrit Buganizer Issue Hovercard (gr-buganizer-hovercard) */
+  .pg-bug-hovercard {
+    position: fixed;
+    z-index: 1250;
+    width: 300px;
+    box-sizing: content-box;
+    max-width: calc(100vw - 48px);
+    padding: 20px;
+    border-radius: 4px;
+    background-color: var(--background-color-primary, #202124);
+    border: 1px solid #3c4043;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    color: var(--primary-text-color, #e8eaed);
+    font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+    pointer-events: auto;
+  }
+  [data-pg-theme="light"] .pg-bug-hovercard {
+    background-color: #ffffff;
+    border: 1px solid #ccc;
+    box-shadow: 0 2px 10px rgba(60, 64, 67, 0.22);
+    color: #202124;
+  }
+  .pg-bug-hovercard .hovercard-content {
+    display: flex;
+    flex-direction: column;
+  }
+  .pg-bug-hovercard .hovercard-content > div {
+    margin-bottom: 5px;
+    display: flex;
+    align-items: center;
+  }
+  .pg-bug-hovercard .hovercard-content > div.hovercard-item-title {
+    font-size: 1.1em;
+    margin-bottom: 10px;
+    align-items: baseline;
+  }
+  .pg-bug-hovercard .hovercard-item-title strong {
+    font-weight: bold;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .pg-bug-hovercard .hovercard-item-component span,
+  .pg-bug-hovercard .hovercard-item-assignee span {
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .pg-bug-hovercard .hovercard-item-status {
+    color: var(--secondary-text-color, #9aa0a6);
+  }
+  [data-pg-theme="light"] .pg-bug-hovercard .hovercard-item-status {
+    color: #5f6368;
+  }
+  .pg-bug-hovercard .hovercard-item-assignee strong,
+  .pg-bug-hovercard .hovercard-item-type strong {
+    font-weight: normal;
+    color: var(--secondary-text-color, #9aa0a6);
+    flex-shrink: 0;
+  }
+  [data-pg-theme="light"] .pg-bug-hovercard .hovercard-item-assignee strong,
+  [data-pg-theme="light"] .pg-bug-hovercard .hovercard-item-type strong {
+    color: #5f6368;
+  }
+  .pg-bug-hovercard .hovercard-item-links a {
+    color: var(--link-color, #8ab4f8);
+    text-decoration: underline;
+  }
+  [data-pg-theme="light"] .pg-bug-hovercard .hovercard-item-links a {
+    color: #1a73e8;
+  }
+  .pg-bug-hovercard .hovercard-item-copy-content {
+    margin-top: 10px;
+    padding: 2px 5px 2px 0;
+    color: var(--link-color, #8ab4f8);
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font: inherit;
+  }
+  [data-pg-theme="light"] .pg-bug-hovercard .hovercard-item-copy-content {
+    color: #1a73e8;
+  }
+  .pg-bug-hovercard .hovercard-item-copy-content span:last-child {
+    text-decoration: underline;
+  }
+  .pg-bug-hovercard .hovercard-item-copy-content:hover {
+    background-color: var(--chip-selected-background-color, rgba(138, 180, 248, 0.16));
+  }
+  [data-pg-theme="light"] .pg-bug-hovercard .hovercard-item-copy-content:hover {
+    background-color: #e8f0fe;
+  }
+  .pg-bug-hovercard .hovercard-item-copy-content:focus {
+    outline: none;
+  }
+  .pg-bug-hovercard .hovercard-front-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-right: 12px;
+    color: var(--secondary-text-color, #9aa0a6);
+    flex-shrink: 0;
+  }
+  .pg-bug-hovercard .hovercard-copy-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-right: 7px;
+    color: var(--secondary-text-color, #9aa0a6);
+    flex-shrink: 0;
+  }
+  .pg-bug-hovercard .hovercard-dot-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    color: currentColor;
+    flex-shrink: 0;
+  }
+  [data-pg-theme="light"] .pg-bug-hovercard .hovercard-front-icon,
+  [data-pg-theme="light"] .pg-bug-hovercard .hovercard-copy-icon {
+    color: #5f6368;
+  }
+  .pg-diff-bug-ref {
+    text-decoration: underline dotted rgba(138, 180, 248, 0.65);
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+  [data-pg-theme="light"] .pg-diff-bug-ref {
+    text-decoration-color: rgba(26, 115, 232, 0.65);
+  }
   .pg-turn-badge.is-hoverable {
     cursor: pointer;
     transition: transform 0.15s ease, filter 0.15s ease;
@@ -31823,10 +31965,13 @@
       if (status) tooltipParts.push(`(${status})`);
       if (title) tooltipParts.push(`— ${title}`);
       const tooltip = tooltipParts.join(" ");
+      const hoverAttrs = bugId
+        ? ` data-bug-id="${escapeHtml(bugId)}" onmouseenter="showPgBugHovercard(event, '${escapeHtml(bugId)}')" onmouseleave="scheduleHidePgBugHovercard()"`
+        : "";
       if (!interactive) {
-        return `<span class="bug-chip" title="${escapeHtml(tooltip)}">🐛 b/${escapeHtml(bugId)}${priTagHtml}</span>`;
+        return `<span class="bug-chip"${hoverAttrs} title="${escapeHtml(tooltip)}">🐛 b/${escapeHtml(bugId)}${priTagHtml}</span>`;
       }
-      return `<a class="bug-chip" href="${escapeHtml(bugUrl)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(tooltip)}" onclick="event.stopPropagation()">🐛 b/${escapeHtml(bugId)} ↗${priTagHtml}</a>`;
+      return `<a class="bug-chip"${hoverAttrs} href="${escapeHtml(bugUrl)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(tooltip)}" onclick="event.stopPropagation()">🐛 b/${escapeHtml(bugId)} ↗${priTagHtml}</a>`;
     }).join(" ");
   }
 
@@ -39961,7 +40106,11 @@
 
     // 5. Footers checklist
     if (metrics.hasBugFooter) {
-      chips.push(`<span class="pg-commit-metric-chip chip-footer-bug is-valid" title="Bug footer present: ${escapeHtml(metrics.bugId)}">✓ Bug</span>`);
+      const mBugNum = String(metrics.bugId || "").match(/(\d{6,12})/);
+      const bugHoverAttrs = mBugNum
+        ? ` data-bug-id="${escapeHtml(mBugNum[1])}" onmouseenter="showPgBugHovercard(event, '${escapeHtml(mBugNum[1])}')" onmouseleave="scheduleHidePgBugHovercard()"`
+        : "";
+      chips.push(`<span class="pg-commit-metric-chip chip-footer-bug is-valid"${bugHoverAttrs} title="Bug footer present: ${escapeHtml(metrics.bugId)}">✓ Bug</span>`);
     } else {
       chips.push(`<span class="pg-commit-metric-chip chip-footer-bug is-warning" title="Missing Bug: footer (use Bug: N/A if none)">▲ Bug</span>`);
     }
@@ -45035,6 +45184,12 @@
       if (showTabs && escaped.includes("\t")) {
         escaped = escaped.replace(/\t/g, '<span class="pg-tab-marker" title="Tab (\\t)"><span class="pg-tab-arrow">→</span>\t</span>');
       }
+      if (!isTrailing && escaped.includes("b/")) {
+        escaped = escaped.replace(
+          /\bb\/(\d{6,12})\b/gi,
+          '<span class="pg-diff-bug-ref" data-bug-id="$1" onmouseenter="showPgBugHovercard(event, \'$1\')" onmouseleave="scheduleHidePgBugHovercard()">b/$1</span>'
+        );
+      }
       if (isTrailing && sliceText.length > 0) {
         return `<span class="pg-ws-error pg-trailing-ws" title="Trailing whitespace error">${escaped}</span>`;
       }
@@ -45089,6 +45244,12 @@
       let sliceEscaped = escapeHtml(text.slice(segStart, segEnd));
       if (showTabs && sliceEscaped.includes("\t")) {
         sliceEscaped = sliceEscaped.replace(/\t/g, '<span class="pg-tab-marker" title="Tab (\\t)"><span class="pg-tab-arrow">→</span>\t</span>');
+      }
+      if (!isTrailing && sliceEscaped.includes("b/")) {
+        sliceEscaped = sliceEscaped.replace(
+          /\bb\/(\d{6,12})\b/gi,
+          '<span class="pg-diff-bug-ref" data-bug-id="$1" onmouseenter="showPgBugHovercard(event, \'$1\')" onmouseleave="scheduleHidePgBugHovercard()">b/$1</span>'
+        );
       }
       html += combinedCls ? `<span class="${combinedCls}">${sliceEscaped}</span>` : sliceEscaped;
     }
@@ -59370,6 +59531,17 @@
     return "";
   }
 
+  function _extractBugIdFromUrl(url) {
+    const m = String(url || "").match(/(?:b\.corp\.google\.com\/issues\/|issuetracker\.google\.com\/issues\/|https?:\/\/b\/)(\d{6,12})(?:[/?#]|$)/i);
+    return m ? m[1] : "";
+  }
+
+  function _buildBugHoverAttrs(bugId) {
+    const cleanId = String(bugId || "").replace(/\D+/g, "");
+    if (!cleanId) return "";
+    return ` data-bug-id="${cleanId}" onmouseenter="showPgBugHovercard(event, '${cleanId}')" onmouseleave="scheduleHidePgBugHovercard()"`;
+  }
+
   function renderInlineMarkdownHtml(rawText, isBugFooter = false) {
     const tokens = [];
     const stash = html => {
@@ -59389,21 +59561,23 @@
     });
 
     // 2. Explicit Markdown links [label](https://...) or [label](file:///...)
-    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, (_m, label, url) =>
-      stash(`<a class="ag-link" href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`)
-    );
+    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, (_m, label, url) => {
+      const bugId = _extractBugIdFromUrl(url);
+      return stash(`<a class="ag-link" href="${url}" target="_blank" rel="noopener noreferrer"${_buildBugHoverAttrs(bugId)}>${label}</a>`);
+    });
     s = s.replace(/\[([^\]]+)\]\((file:\/\/[^\s)]+)\)/gi, (_m, label, url) =>
       stash(`<span class="ag-link" title="${url}">${label}</span>`)
     );
 
     // 3. Bare http/https URLs
-    s = s.replace(/\b(https?:\/\/[^\s<)]+)/gi, (_m, url) =>
-      stash(`<a class="ag-link" href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`)
-    );
+    s = s.replace(/\b(https?:\/\/[^\s<)]+)/gi, (_m, url) => {
+      const bugId = _extractBugIdFromUrl(url);
+      return stash(`<a class="ag-link" href="${url}" target="_blank" rel="noopener noreferrer"${_buildBugHoverAttrs(bugId)}>${url}</a>`);
+    });
 
     // 4. Google & internal shortlinks (b/123456, ag/123456, go/slug, cl/123456, crbug.com/...)
     s = s.replace(/\bb\/(\d{6,12})\b/gi, (_m, id) =>
-      stash(`<a class="ag-link" href="https://b.corp.google.com/issues/${id}" target="_blank" rel="noopener noreferrer">b/${id}</a>`)
+      stash(`<a class="ag-link" href="https://b.corp.google.com/issues/${id}" target="_blank" rel="noopener noreferrer"${_buildBugHoverAttrs(id)}>b/${id}</a>`)
     );
     s = s.replace(/\bag\/(\d{5,12})\b/gi, (_m, id) =>
       stash(`<a class="ag-link" href="https://googleplex-android-review.git.corp.google.com/q/${id}" target="_blank" rel="noopener noreferrer">ag/${id}</a>`)
@@ -59433,7 +59607,7 @@
 
     if (isBugFooter) {
       s = s.replace(/(^|[\s,])(\d{6,12})(?=$|[\s,])/g, (_m, pre, id) =>
-        `${pre}${stash(`<a class="ag-link" href="https://b.corp.google.com/issues/${id}" target="_blank" rel="noopener noreferrer">b/${id}</a>`)}`
+        `${pre}${stash(`<a class="ag-link" href="https://b.corp.google.com/issues/${id}" target="_blank" rel="noopener noreferrer"${_buildBugHoverAttrs(id)}>b/${id}</a>`)}`
       );
     }
 
@@ -73808,6 +73982,403 @@
     }, 120);
   }
 
+  // --- Bug Hovercard Overlay (PolyGerrit gr-buganizer-hovercard) ---
+  let pgBugHovercardHideTimer = null;
+  let pgActiveBugHovercardId = "";
+  let pgActiveBugHovercardAnchor = null;
+  const pgBugDetailsCache = new Map();
+  const pgBugDetailsInflight = new Map();
+
+  const PG_HUCKLE_ICONS = {
+    folderOpen: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg>',
+    accessTime: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>',
+    infoOutline: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg>',
+    solidCircleSmall: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="1.5"/></svg>',
+    link: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>',
+    contentCopy: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>',
+    check: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>',
+  };
+
+  const PG_KNOWN_BUG_COMPONENTS = {
+    "29601": "Android > Android OS & Apps > Android Studio > Emulator",
+    "111786": "Android > Android OS & Apps > Android Studio > Emulator > Emulator System Images",
+    "137632": "SwiftShader > Android Emulator",
+    "192708": "Android Public Tracker > App Development > Android Studio",
+    "192727": "Android Public Tracker > App Development > Android Studio > Emulator",
+    "816693": "Android > Android OS & Apps > Android Studio > Emulator > Embedded Emulator",
+    "1016880": "Android > Non-OS Projects > Enterprise > Bedstead",
+    "2289192": "Android > Android OS & Apps > Android Studio > Emulator > Android Device Hub",
+  };
+
+  function _escapeBugJsSingleQuote(val) {
+    return String(val || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  }
+
+  function normalizePgBugId(rawBugId) {
+    return String(rawBugId || "").trim().replace(/^b\//i, "").replace(/\D+/g, "");
+  }
+
+  function formatBugStatusOrType(str) {
+    const raw = String(str || "").trim();
+    if (!raw) return "";
+    return raw
+      .toLowerCase()
+      .split("_")
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+  }
+
+  function removeGoogleDomain(account) {
+    const raw = String(account || "").trim();
+    if (!raw || raw.toLowerCase() === "none") return "Unassigned";
+    return raw.replace("@google.com", "");
+  }
+
+  function resolvePgBugComponentFullName(bugData) {
+    if (!bugData || typeof bugData !== "object") return "Android > Android OS & Apps > Android Studio > Emulator";
+    const explicitFull = String(bugData.component_full_name || "").trim();
+    if (explicitFull) return explicitFull;
+    const compId = String(bugData.component_id || "").trim();
+    if (compId && PG_KNOWN_BUG_COMPONENTS[compId]) {
+      return PG_KNOWN_BUG_COMPONENTS[compId];
+    }
+    if (compId) return `Component #${compId}`;
+    return "Android > Android OS & Apps > Android Studio > Emulator";
+  }
+
+  function getPgBugStatusClass(status) {
+    const up = String(status || "").trim().toUpperCase();
+    if (!up) return "";
+    if (["FIXED", "VERIFIED", "CLOSED"].includes(up)) return "status-fixed";
+    if (["WONT_FIX", "OBSOLETE", "INFEASIBLE", "INTENDED_BEHAVIOR", "DUPLICATE", "NOT_REPRODUCIBLE"].some(k => up.includes(k))) {
+      return "status-closed";
+    }
+    if (["NEW", "ASSIGNED", "ACCEPTED", "OPEN", "REOPENED", "IN_PROGRESS"].includes(up)) {
+      return "status-open";
+    }
+    return "";
+  }
+
+  function formatPgBugTimestampShort(rawTs) {
+    const s = String(rawTs || "").trim();
+    if (!s) return "";
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})(?:[T\s]+(\d{2}:\d{2}))?/);
+    if (m) return m[2] ? `${m[1]} ${m[2]}` : m[1];
+    return s;
+  }
+
+  function _mergeBugFieldsInto(target, src) {
+    if (!src || typeof src !== "object") return;
+    const fields = [
+      "title", "priority", "severity", "status", "assignee", "reporter",
+      "verifier", "component_id", "component_full_name", "type", "created_time",
+      "modified_time", "description", "url",
+    ];
+    for (const k of fields) {
+      if (src[k]) target[k] = String(src[k]);
+    }
+    if (Array.isArray(src.cc) && src.cc.length > 0) target.cc = src.cc.slice();
+    if (Array.isArray(src.gerrit_changes) && src.gerrit_changes.length > 0) {
+      target.gerrit_changes = src.gerrit_changes.slice();
+    }
+    if (src.details_loaded) target.details_loaded = true;
+  }
+
+  function resolvePgBugMetadata(bugId) {
+    const cleanId = normalizePgBugId(bugId);
+    const result = {
+      id: cleanId,
+      url: `https://b.corp.google.com/issues/${cleanId}`,
+      title: "",
+      priority: "",
+      severity: "",
+      status: "",
+      assignee: "",
+      reporter: "",
+      verifier: "",
+      component_id: "",
+      component_full_name: "",
+      type: "",
+      created_time: "",
+      modified_time: "",
+      description: "",
+      cc: [],
+      gerrit_changes: [],
+      linkedCls: [],
+      details_loaded: false,
+    };
+    if (!cleanId) return result;
+    const allChanges = Array.isArray(state.changes) ? state.changes : [];
+    const seenCls = new Set();
+    for (const cl of allChanges) {
+      const bugs = Array.isArray(cl && cl.bugs) ? cl.bugs : [];
+      for (const b of bugs) {
+        const bid = normalizePgBugId(b && typeof b === "object" ? b.id : b);
+        if (bid !== cleanId) continue;
+        if (b && typeof b === "object") _mergeBugFieldsInto(result, b);
+        const clNum = Number(cl.number || cl._number || 0);
+        if (clNum && !seenCls.has(clNum)) {
+          seenCls.add(clNum);
+          result.linkedCls.push({
+            number: clNum,
+            subject: String(cl.subject || ""),
+            status: String(cl.status || "NEW"),
+            owner: String(cl.owner_short || cl.owner_name || ""),
+            url: String(cl.url || `https://android-review.googlesource.com/c/${clNum}`),
+          });
+        }
+      }
+    }
+    if (pgBugDetailsCache.has(cleanId)) {
+      _mergeBugFieldsInto(result, pgBugDetailsCache.get(cleanId));
+    }
+    return result;
+  }
+
+  function renderPgBugHovercardContentHtml(bugData, isLoading = false) {
+    const cleanId = normalizePgBugId(bugData && bugData.id);
+    const bugUrl = (bugData && bugData.url) || `https://b.corp.google.com/issues/${cleanId}`;
+    const gerritOrigin = "https://googleplex-android-review.git.corp.google.com";
+    const relatedClsUrl = `${gerritOrigin}/q/Bug:${encodeURIComponent(cleanId)}`;
+    const rawTitle = String((bugData && bugData.title) || "").trim();
+    const titleDisplay = rawTitle || (isLoading ? `Loading b/${cleanId}…` : `b/${cleanId}`);
+    const componentFullName = resolvePgBugComponentFullName(bugData);
+    const statusText = formatBugStatusOrType((bugData && bugData.status) || (isLoading ? "Loading" : "Assigned"));
+    const assigneeText = removeGoogleDomain(bugData && bugData.assignee);
+    const typeText = formatBugStatusOrType((bugData && bugData.type) || "BUG");
+    const prioText = String((bugData && bugData.priority) || "P2").trim().toUpperCase();
+    const sevText = String((bugData && bugData.severity) || "S2").trim().toUpperCase();
+
+    return `
+      <div class="hovercard-content">
+        <div class="hovercard-item-title">
+          <strong>${escapeHtml(titleDisplay)}</strong>
+        </div>
+        <div class="hovercard-item-component">
+          <span class="hovercard-front-icon">${PG_HUCKLE_ICONS.folderOpen}</span>
+          <span>${escapeHtml(componentFullName)}</span>
+        </div>
+        <div class="hovercard-item-status">
+          <span class="hovercard-front-icon">${PG_HUCKLE_ICONS.accessTime}</span>
+          <span>${escapeHtml(statusText)}</span>
+        </div>
+        <div class="hovercard-item-assignee">
+          <span class="hovercard-front-icon">${PG_HUCKLE_ICONS.infoOutline}</span>
+          <strong>Assignee</strong>&nbsp;<span>${escapeHtml(assigneeText)}</span>
+        </div>
+        <div class="hovercard-item-type">
+          <span class="hovercard-front-icon" style="visibility: hidden;">${PG_HUCKLE_ICONS.infoOutline}</span>
+          <strong>Type</strong>&nbsp;<span>${escapeHtml(typeText)}</span>
+          <span class="hovercard-dot-icon">${PG_HUCKLE_ICONS.solidCircleSmall}</span>
+          <span>${escapeHtml(prioText)}</span>
+          <span class="hovercard-dot-icon">${PG_HUCKLE_ICONS.solidCircleSmall}</span>
+          <span>${escapeHtml(sevText)}</span>
+        </div>
+        <div class="hovercard-item-links">
+          <span class="hovercard-front-icon">${PG_HUCKLE_ICONS.link}</span>
+          <a target="_blank" rel="noopener noreferrer" href="${escapeHtml(bugUrl)}">Buganizer</a>
+          <span class="hovercard-dot-icon">${PG_HUCKLE_ICONS.solidCircleSmall}</span>
+          <a target="_blank" rel="noopener noreferrer" href="${escapeHtml(relatedClsUrl)}" onclick="onPgBugRelatedClsClick(event, '${_escapeBugJsSingleQuote(cleanId)}')">Related CLs</a>
+        </div>
+        <div>
+          <button type="button" class="hovercard-item-copy-content" onclick="copyPgBugHovercardId('${_escapeBugJsSingleQuote(cleanId)}', this)">
+            <span class="hovercard-copy-icon">${PG_HUCKLE_ICONS.contentCopy}</span>
+            <span>b/${escapeHtml(cleanId)}</span>
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  function ensurePgBugHovercardEl() {
+    let hovercard = document.getElementById("pgBugHovercard");
+    if (!hovercard && typeof document.createElement === "function") {
+      hovercard = document.createElement("div");
+      hovercard.id = "pgBugHovercard";
+      hovercard.className = "pg-bug-hovercard";
+      hovercard.style.display = "none";
+      hovercard.setAttribute("onmouseenter", "cancelHidePgBugHovercard()");
+      hovercard.setAttribute("onmouseleave", "scheduleHidePgBugHovercard()");
+      if (document.body && typeof document.body.appendChild === "function") {
+        document.body.appendChild(hovercard);
+      }
+    }
+    return hovercard;
+  }
+
+  function positionPgBugHovercard(anchorEl, cardEl) {
+    if (!anchorEl || !cardEl || typeof anchorEl.getBoundingClientRect !== "function") return;
+    const rect = anchorEl.getBoundingClientRect();
+    const vw = window.innerWidth || 1280;
+    const vh = window.innerHeight || 800;
+    const cardWidth = (typeof cardEl.offsetWidth === "number" && cardEl.offsetWidth > 40) ? cardEl.offsetWidth : 342;
+    const cardHeight = (typeof cardEl.offsetHeight === "number" && cardEl.offsetHeight > 40) ? cardEl.offsetHeight : 220;
+    let left = rect.right + 8;
+    if (left + cardWidth + 12 > vw) {
+      if (rect.left - cardWidth - 8 >= 12) {
+        left = rect.left - cardWidth - 8;
+      } else {
+        left = Math.max(12, vw - cardWidth - 12);
+      }
+    }
+    let top = rect.top + (rect.height / 2) - (cardHeight / 2);
+    top = Math.max(12, Math.min(vh - cardHeight - 12, top));
+    cardEl.style.left = `${Math.round(left)}px`;
+    cardEl.style.top = `${Math.round(top)}px`;
+  }
+
+  async function fetchPgBugDetailsAsync(bugId, opts = {}) {
+    const cleanId = normalizePgBugId(bugId);
+    if (!cleanId) return null;
+    if (!opts.force && pgBugDetailsCache.has(cleanId)) {
+      return pgBugDetailsCache.get(cleanId);
+    }
+    if (pgBugDetailsInflight.has(cleanId)) {
+      return pgBugDetailsInflight.get(cleanId);
+    }
+    const reqPromise = (async () => {
+      try {
+        const refreshParam = opts.force ? "&refresh=1" : "";
+        const res = await fetch(`/api/gerrit/bug?id=${encodeURIComponent(cleanId)}${refreshParam}`);
+        if (!res || !res.ok) return null;
+        const payload = await res.json();
+        const bugObj = (payload && payload.bug && typeof payload.bug === "object") ? payload.bug : null;
+        if (bugObj && bugObj.id) {
+          pgBugDetailsCache.set(cleanId, bugObj);
+          const cardEl = document.getElementById("pgBugHovercard");
+          if (cardEl && cardEl.style.display === "block" && pgActiveBugHovercardId === cleanId) {
+            const merged = resolvePgBugMetadata(cleanId);
+            cardEl.innerHTML = renderPgBugHovercardContentHtml(merged, false);
+            if (pgActiveBugHovercardAnchor) {
+              positionPgBugHovercard(pgActiveBugHovercardAnchor, cardEl);
+            }
+          }
+          return bugObj;
+        }
+      } catch (_) {
+        // Ignore network errors and retain cached/basic metadata in the hovercard.
+      } finally {
+        pgBugDetailsInflight.delete(cleanId);
+      }
+      return null;
+    })();
+    pgBugDetailsInflight.set(cleanId, reqPromise);
+    return reqPromise;
+  }
+
+  function _suppressAnchorNativeTitle(anchorEl) {
+    if (!anchorEl || typeof anchorEl.getAttribute !== "function") return;
+    const existingTitle = anchorEl.getAttribute("title");
+    if (existingTitle) {
+      anchorEl.setAttribute("data-saved-bug-title", existingTitle);
+      anchorEl.removeAttribute("title");
+    }
+  }
+
+  function showPgBugHovercard(event, bugId) {
+    if (event && typeof event.stopPropagation === "function") event.stopPropagation();
+    cancelHidePgBugHovercard();
+    const cleanId = normalizePgBugId(bugId);
+    if (!cleanId) return;
+    if (typeof hidePgAttentionHovercard === "function") hidePgAttentionHovercard();
+    if (typeof hidePgOwnerTooltip === "function") hidePgOwnerTooltip();
+
+    const anchor = (event && (event.currentTarget || event.target)) ||
+      (typeof document.querySelector === "function" ? document.querySelector(`[data-bug-id="${cleanId}"]`) : null);
+    _suppressAnchorNativeTitle(anchor);
+
+    pgActiveBugHovercardId = cleanId;
+    pgActiveBugHovercardAnchor = anchor;
+    const resolved = resolvePgBugMetadata(cleanId);
+    const needsFetch = !resolved.details_loaded && !pgBugDetailsCache.has(cleanId);
+    const hovercard = ensurePgBugHovercardEl();
+    if (!hovercard) return;
+    hovercard.setAttribute("data-bug-id", cleanId);
+    hovercard.innerHTML = renderPgBugHovercardContentHtml(resolved, needsFetch);
+    hovercard.style.display = "block";
+    if (anchor) {
+      positionPgBugHovercard(anchor, hovercard);
+    }
+    if (needsFetch) {
+      fetchPgBugDetailsAsync(cleanId);
+    }
+  }
+
+  function hidePgBugHovercard() {
+    clearTimeout(pgBugHovercardHideTimer);
+    pgActiveBugHovercardId = "";
+    pgActiveBugHovercardAnchor = null;
+    const hovercard = document.getElementById("pgBugHovercard");
+    if (hovercard) hovercard.style.display = "none";
+  }
+
+  function scheduleHidePgBugHovercard() {
+    clearTimeout(pgBugHovercardHideTimer);
+    pgBugHovercardHideTimer = setTimeout(() => {
+      hidePgBugHovercard();
+    }, 220);
+  }
+
+  function cancelHidePgBugHovercard() {
+    clearTimeout(pgBugHovercardHideTimer);
+  }
+
+  async function copyPgBugHovercardId(bugId, btnEl = null) {
+    const cleanId = normalizePgBugId(bugId);
+    if (!cleanId) return;
+    const text = `b/${cleanId}`;
+    const iconSpan = btnEl && typeof btnEl.querySelector === "function" ? btnEl.querySelector(".hovercard-copy-icon") : null;
+    if (iconSpan) {
+      iconSpan.innerHTML = PG_HUCKLE_ICONS.check;
+      setTimeout(() => {
+        iconSpan.innerHTML = PG_HUCKLE_ICONS.contentCopy;
+      }, 1000);
+    }
+    showToast(`✓ Copied ${text} to clipboard!`);
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      }
+    } catch (_) {}
+  }
+
+  function filterPgByBugId(bugId) {
+    const cleanId = normalizePgBugId(bugId);
+    if (!cleanId) return;
+    hidePgBugHovercard();
+    const token = `bug:${cleanId}`;
+    state.searchQuery = token;
+    const searchInp = document.getElementById("searchInput");
+    if (searchInp) searchInp.value = token;
+    if (typeof onSearchInput === "function") {
+      onSearchInput(token);
+    } else if (typeof applyFilters === "function") {
+      applyFilters();
+    }
+    showToast(`Filtered CLs by ${token}`);
+  }
+
+  function onPgBugRelatedClsClick(event, bugId) {
+    if (event && (event.ctrlKey || event.metaKey || event.shiftKey || event.button === 1)) {
+      return;
+    }
+    if (event && typeof event.preventDefault === "function") event.preventDefault();
+    filterPgByBugId(bugId);
+  }
+
+  function onPgBugCardClClick(event, clNum, fallbackUrl) {
+    if (event && (event.ctrlKey || event.metaKey || event.shiftKey || event.button === 1)) {
+      return;
+    }
+    const num = Number(clNum);
+    const existsInState = Array.isArray(state.changes) && state.changes.some(c => Number(c.number || c._number) === num);
+    if (num && existsInState && typeof selectCommit === "function") {
+      if (event && typeof event.preventDefault === "function") event.preventDefault();
+      hidePgBugHovercard();
+      selectCommit(num);
+    }
+  }
+
   function renderPgAttentionSetRowHtml(c) {
     if (!c) return "";
     const items = getPgAttentionSetParticipants(c);
@@ -75667,6 +76238,12 @@
       return;
     }
     if (e.key === "Escape") {
+      const bugCard = document.getElementById("pgBugHovercard");
+      if (bugCard && bugCard.style && bugCard.style.display === "block") {
+        e.preventDefault();
+        hidePgBugHovercard();
+        return;
+      }
       const ownerTt = document.getElementById("pgOwnerTooltip");
       if (ownerTt && ownerTt.classList && ownerTt.classList.contains("is-visible")) {
         e.preventDefault();
@@ -77183,6 +77760,13 @@
           hidePgAttentionHovercard();
         }
       }
+      const bugHovercard = document.getElementById("pgBugHovercard");
+      if (bugHovercard && bugHovercard.style && bugHovercard.style.display === "block") {
+        const isInsideBugCard = e.target && e.target.closest && (e.target.closest("#pgBugHovercard") || e.target.closest("[data-bug-id]"));
+        if (!isInsideBugCard) {
+          hidePgBugHovercard();
+        }
+      }
       const ownerTt = document.getElementById("pgOwnerTooltip");
       if (ownerTt && ownerTt.style && ownerTt.style.display === "block") {
         const isInsideTt = e.target && e.target.closest && (e.target.closest("#pgOwnerTooltip") || e.target.closest(".pg-owner-badge"));
@@ -77357,6 +77941,26 @@
     window.applyPgBlameToDomTable = applyPgBlameToDomTable;
     window.onPgBlameCellMouseEnter = onPgBlameCellMouseEnter;
     window.onPgBlameCellMouseLeave = onPgBlameCellMouseLeave;
+    window.normalizePgBugId = normalizePgBugId;
+    window.formatBugStatusOrType = formatBugStatusOrType;
+    window.removeGoogleDomain = removeGoogleDomain;
+    window.resolvePgBugComponentFullName = resolvePgBugComponentFullName;
+    window.getPgBugStatusClass = getPgBugStatusClass;
+    window.formatPgBugTimestampShort = formatPgBugTimestampShort;
+    window.resolvePgBugMetadata = resolvePgBugMetadata;
+    window.renderPgBugHovercardContentHtml = renderPgBugHovercardContentHtml;
+    window.ensurePgBugHovercardEl = ensurePgBugHovercardEl;
+    window.positionPgBugHovercard = positionPgBugHovercard;
+    window.fetchPgBugDetailsAsync = fetchPgBugDetailsAsync;
+    window.showPgBugHovercard = showPgBugHovercard;
+    window.hidePgBugHovercard = hidePgBugHovercard;
+    window.scheduleHidePgBugHovercard = scheduleHidePgBugHovercard;
+    window.cancelHidePgBugHovercard = cancelHidePgBugHovercard;
+    window.copyPgBugHovercardId = copyPgBugHovercardId;
+    window.filterPgByBugId = filterPgByBugId;
+    window.onPgBugRelatedClsClick = onPgBugRelatedClsClick;
+    window.onPgBugCardClClick = onPgBugCardClClick;
+    window.pgBugDetailsCache = pgBugDetailsCache;
   }
 
   applyPgDiffPreferences();

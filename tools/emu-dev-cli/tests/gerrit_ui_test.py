@@ -43834,6 +43834,244 @@ ctx.window.executePgRevert().then(() => {
         for selector in expected_selectors:
             self.assertIn(selector, pg_html)
 
+    def test_polygerrit_bug_hovercard_overlay_and_async_details(self):
+        """Verify hovering over any bug ID renders the PolyGerrit gr-buganizer-hovercard overlay."""
+        import os
+        import subprocess
+        import tempfile
+        from commands.gerrit.ui_server import render_static_gerrit_ui_html
+
+        pg_html = render_static_gerrit_ui_html(variant="polygerrit")
+        for marker in (
+            ".pg-bug-hovercard {",
+            '[data-pg-theme="light"] .pg-bug-hovercard {',
+            ".pg-bug-hovercard .hovercard-content {",
+            ".pg-bug-hovercard .hovercard-item-title strong {",
+            ".pg-bug-hovercard .hovercard-item-component span,",
+            ".pg-bug-hovercard .hovercard-item-status {",
+            ".pg-bug-hovercard .hovercard-item-assignee strong,",
+            ".pg-bug-hovercard .hovercard-item-type strong {",
+            ".pg-bug-hovercard .hovercard-item-links a {",
+            ".pg-bug-hovercard .hovercard-item-copy-content {",
+            "function formatBugStatusOrType(str)",
+            "function removeGoogleDomain(account)",
+            "function showPgBugHovercard(event, bugId)",
+            "function hidePgBugHovercard()",
+            "function resolvePgBugMetadata(bugId)",
+            "function renderPgBugHovercardContentHtml(bugData, isLoading = false)",
+            "function fetchPgBugDetailsAsync(bugId, opts = {})",
+            "function filterPgByBugId(bugId)",
+        ):
+            self.assertIn(marker, pg_html)
+
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", pg_html, flags=re.S)
+        self.assertTrue(scripts)
+        js_body = scripts[-1]
+        for boot_call in (
+            "loadSidebarLayoutPrefs();",
+            "initWorkspaceSplitter();",
+            "initDiffCodeSelectionListeners();",
+            "initPgFileListRangeDragListeners();",
+            "initPgDashboardRangeDragListeners();",
+            "initImagePanListeners();",
+            "initApp();",
+        ):
+            js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+function makeMockEl(id = "") {
+  const attrs = {};
+  return {
+    id,
+    className: "",
+    innerHTML: "",
+    textContent: "",
+    value: "",
+    offsetWidth: 342,
+    offsetHeight: 220,
+    style: { display: "none", left: "", top: "", setProperty() {} },
+    classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    removeAttribute(k) { delete attrs[k]; },
+    getAttribute(k) { return attrs[k] || ""; },
+    getBoundingClientRect() { return { left: 120, top: 80, right: 200, bottom: 104, width: 80, height: 24 }; },
+  };
+}
+const domMap = new Proxy({}, {
+  get(target, prop) {
+    if (typeof prop !== "string") return undefined;
+    if (!target[prop]) target[prop] = makeMockEl(prop);
+    return target[prop];
+  }
+});
+window.location = { search: "", href: "http://127.0.0.1:8080/", pathname: "/" };
+window.localStorage = { getItem() { return null; }, setItem() {} };
+document.documentElement = { setAttribute() {}, clientWidth: 1440, clientHeight: 900 };
+document.getElementById = (id) => domMap[id] || null;
+document.createElement = (tag) => makeMockEl("pgBugHovercard");
+document.body.appendChild = (el) => { if (el && el.id) domMap[el.id] = el; };
+document.querySelector = () => null;
+document.querySelectorAll = () => [];
+"""
+            + js_body
+            + r"""
+state.changes = [
+  {
+    number: 43486125,
+    subject: "feat(gerrit): Default PolyGerrit UI 测试_🚀_é",
+    status: "NEW",
+    owner_short: "joshuaduong",
+    url: "https://android-review.googlesource.com/c/platform/hardware/google/aemu/+/43486125",
+    bugs: [
+      {
+        id: "499640155",
+        url: "https://b.corp.google.com/issues/499640155",
+        priority: "P1",
+        severity: "S2",
+        status: "ASSIGNED",
+        type: "BUG",
+        title: "Hovercard overlay for bug IDs 测试_🚀_é",
+        assignee: "joshuaduong@google.com",
+        component_id: "1016880",
+      },
+    ],
+  },
+];
+
+// 1. Verify PolyGerrit gr-buganizer-hovercard formatting helpers:
+assert.equal(formatBugStatusOrType("ASSIGNED"), "Assigned");
+assert.equal(formatBugStatusOrType("IN_PROGRESS"), "In Progress");
+assert.equal(formatBugStatusOrType("BUG"), "Bug");
+assert.equal(removeGoogleDomain("joshuaduong@google.com"), "joshuaduong");
+assert.equal(removeGoogleDomain(""), "Unassigned");
+
+// 2. Verify .bug-chip badges, inline Markdown b/<id>, and diff line b/<id> all wire showPgBugHovercard:
+const badgeHtml = renderBugBadgesHtml(state.changes[0], { interactive: true });
+assert.equal(badgeHtml.includes('showPgBugHovercard(event, \'499640155\')'), true);
+assert.equal(badgeHtml.includes('data-bug-id="499640155"'), true);
+
+const mdHtml = renderInlineMarkdownHtml("Fixes b/499640155 and Bug: 572839247", true);
+assert.equal(mdHtml.includes("showPgBugHovercard(event, '499640155')"), true);
+assert.equal(mdHtml.includes("showPgBugHovercard(event, '572839247')"), true);
+
+const diffHtml = renderHighlightedDiffLineHtml("// See b/499640155 for Unicode 测试_🚀_é", "add", "cpp", "syntax_intraline", []);
+assert.equal(diffHtml.includes('class="pg-diff-bug-ref"'), true);
+assert.equal(diffHtml.includes("showPgBugHovercard(event, '499640155')"), true);
+
+// 3. Hovering a bug chip suppresses native title, opens #pgBugHovercard with PolyGerrit's 7-row layout:
+const anchorEl = makeMockEl("bugAnchor");
+anchorEl.setAttribute("title", "b/499640155 [P1 · S2] — Hovercard overlay");
+showPgBugHovercard({ currentTarget: anchorEl, stopPropagation() {} }, "b/499640155");
+
+const cardEl = document.getElementById("pgBugHovercard");
+assert.equal(cardEl.style.display, "block");
+assert.equal(anchorEl.getAttribute("title"), "");
+assert.equal(anchorEl.getAttribute("data-saved-bug-title"), "b/499640155 [P1 · S2] — Hovercard overlay");
+assert.equal(cardEl.innerHTML.includes('class="hovercard-content"'), true);
+assert.equal(cardEl.innerHTML.includes('class="hovercard-item-title"'), true);
+assert.equal(cardEl.innerHTML.includes("<strong>Hovercard overlay for bug IDs 测试_🚀_é</strong>"), true);
+assert.equal(cardEl.innerHTML.includes('class="hovercard-item-component"'), true);
+assert.equal(cardEl.innerHTML.includes("Android &gt; Non-OS Projects &gt; Enterprise &gt; Bedstead"), true);
+assert.equal(cardEl.innerHTML.includes('class="hovercard-item-status"'), true);
+assert.equal(cardEl.innerHTML.includes("<span>Assigned</span>"), true);
+assert.equal(cardEl.innerHTML.includes('class="hovercard-item-assignee"'), true);
+assert.equal(cardEl.innerHTML.includes("<strong>Assignee</strong>&nbsp;<span>joshuaduong</span>"), true);
+assert.equal(cardEl.innerHTML.includes('class="hovercard-item-type"'), true);
+assert.equal(cardEl.innerHTML.includes("<strong>Type</strong>&nbsp;<span>Bug</span>"), true);
+assert.equal(cardEl.innerHTML.includes("<span>P1</span>"), true);
+assert.equal(cardEl.innerHTML.includes("<span>S2</span>"), true);
+assert.equal(cardEl.innerHTML.includes('class="hovercard-item-links"'), true);
+assert.equal(cardEl.innerHTML.includes(">Buganizer</a>"), true);
+assert.equal(cardEl.innerHTML.includes(">Related CLs</a>"), true);
+assert.equal(cardEl.innerHTML.includes('class="hovercard-item-copy-content"'), true);
+assert.equal(cardEl.innerHTML.includes("<span>b/499640155</span>"), true);
+
+// 4. Async fetchPgBugDetailsAsync enriches the open hovercard with live severity & component_full_name:
+(async () => {
+  await fetchPgBugDetailsAsync("499640155", { force: true });
+  assert.equal(cardEl.innerHTML.includes("<span>S1</span>"), true);
+  assert.equal(cardEl.innerHTML.includes("Android &gt; Android OS &amp; Apps &gt; Android Studio &gt; Emulator"), true);
+
+  // 5. Clicking Related CLs (onPgBugRelatedClsClick) filters dashboard by bug:<id> and hides the hovercard:
+  onPgBugRelatedClsClick({ preventDefault() {} }, "499640155");
+  assert.equal(state.searchQuery, "bug:499640155");
+  assert.equal(cardEl.style.display, "none");
+  console.log("POLYGERRIT_BUG_HOVERCARD_OK");
+})();
+"""
+        )
+        vm_wrapper = (
+            'const fs = require("node:fs");\n'
+            'const vm = require("node:vm");\n'
+            "const code = fs.readFileSync(process.argv[2], 'utf8');\n"
+            "const storageMap = {};\n"
+            "const storageObj = {\n"
+            "  getItem(k) { return Object.prototype.hasOwnProperty.call(storageMap, k) ? storageMap[k] : null; },\n"
+            "  setItem(k, v) { storageMap[k] = String(v); },\n"
+            "};\n"
+            "const sandbox = {\n"
+            "  require,\n"
+            "  console,\n"
+            "  setTimeout,\n"
+            "  clearTimeout,\n"
+            "  URL,\n"
+            "  URLSearchParams,\n"
+            "  window: { addEventListener() {}, innerWidth: 1440, innerHeight: 900, localStorage: storageObj },\n"
+            "  document: { getElementById() { return null; }, addEventListener() {}, body: { classList: { toggle() {} }, appendChild() {} } },\n"
+            "  localStorage: storageObj,\n"
+            "  navigator: { clipboard: { writeText: async () => {} } },\n"
+            "  fetch: async () => ({\n"
+            "    ok: true,\n"
+            "    json: async () => ({\n"
+            "      status: 'ok',\n"
+            "      bug: {\n"
+            "        id: '499640155',\n"
+            "        priority: 'P1',\n"
+            "        severity: 'S1',\n"
+            "        status: 'ASSIGNED',\n"
+            "        type: 'BUG',\n"
+            "        title: 'Hovercard overlay for bug IDs 测试_🚀_é',\n"
+            "        assignee: 'joshuaduong@google.com',\n"
+            "        reporter: 'jansene@google.com',\n"
+            "        component_id: '29601',\n"
+            "        component_full_name: 'Android > Android OS & Apps > Android Studio > Emulator',\n"
+            "        modified_time: '2026-04-20T18:10:00Z',\n"
+            "        description: 'Detailed Buganizer description preview 测试_🚀_é',\n"
+            "        cc: ['rkir@google.com', 'corakwue@google.com'],\n"
+            "        details_loaded: true,\n"
+            "      },\n"
+            "    }),\n"
+            "  }),\n"
+            "};\n"
+            "vm.runInNewContext(code, sandbox);\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            js_path = Path(tmp_dir) / "pg_bug_hovercard_harness.js"
+            runner_path = Path(tmp_dir) / "run_vm.js"
+            js_path.write_text(harness_js, encoding="utf-8")
+            runner_path.write_text(vm_wrapper, encoding="utf-8")
+            proc = subprocess.run(
+                [node_bin, str(runner_path), str(js_path)],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+            self.assertEqual(
+                proc.returncode,
+                0,
+                msg=f"PolyGerrit bug hovercard harness failed:\n{proc.stderr}\n{proc.stdout}",
+            )
+            self.assertIn("POLYGERRIT_BUG_HOVERCARD_OK", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

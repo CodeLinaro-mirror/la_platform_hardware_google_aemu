@@ -240,6 +240,56 @@ class BuganizerServiceTest(unittest.TestCase):
         with self.assertRaises(ExecutionError):
             fake.add_comment("999999999", "Missing bug")
 
+    def test_parse_issues_cli_output_preserves_fields_after_blank_lines(self) -> None:
+        from clients.buganizer_service import parse_issues_search_map
+
+        raw_cli_output = (
+            "Issue ID: 499640155\n"
+            "Reporter: reporter_测试@google.com\n"
+            "Assignee: jansene@google.com\n"
+            "Component ID: 1016880\n"
+            "Status: ASSIGNED\n"
+            "Type: BUG\n"
+            "Priority: P2\n"
+            "Title: [webrtc] Migrate UI to modern library 测试_🚀_é\n"
+            "\n"
+            "Severity: S2\n"
+            "Created Time: 2026-04-06T23:44:27.498Z\n"
+            "Modified Time: 2026-04-20T18:10:00.123Z\n"
+            "---\n"
+            "Issue ID: 500368186\n"
+            "Priority: P1\n"
+            "Status: FIXED\n"
+            "Title: Second issue after separator\n"
+            "\n"
+            "Severity: S1\n"
+        )
+        issues = parse_issues_cli_output(raw_cli_output)
+        self.assertEqual(len(issues), 2)
+        self.assertEqual(issues[0].issue_id, "499640155")
+        self.assertEqual(issues[0].priority, "P2")
+        self.assertEqual(issues[0].severity, "S2")
+        self.assertEqual(issues[0].status, "ASSIGNED")
+        self.assertEqual(issues[0].assignee, "jansene@google.com")
+        self.assertEqual(issues[0].reporter, "reporter_测试@google.com")
+        self.assertEqual(issues[0].component_id, 1016880)
+        self.assertEqual(issues[0].issue_type, "BUG")
+        self.assertEqual(issues[0].created_time, "2026-04-06T23:44:27.498Z")
+        self.assertEqual(issues[0].modified_time, "2026-04-20T18:10:00.123Z")
+        self.assertEqual(
+            issues[0].title, "[webrtc] Migrate UI to modern library 测试_🚀_é"
+        )
+        self.assertEqual(issues[1].issue_id, "500368186")
+        self.assertEqual(issues[1].severity, "S1")
+
+        search_map = parse_issues_search_map(raw_cli_output)
+        self.assertEqual(search_map["499640155"]["severity"], "S2")
+        self.assertEqual(search_map["499640155"]["component_id"], "1016880")
+        self.assertEqual(search_map["499640155"]["type"], "BUG")
+        self.assertEqual(
+            search_map["499640155"]["modified_time"], "2026-04-20T18:10:00.123Z"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
