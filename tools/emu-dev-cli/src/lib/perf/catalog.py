@@ -151,10 +151,11 @@ BUILTIN_SUITES: Dict[str, Dict[str, Any]] = {
     },
     "boot": {
         "description": (
-            "Cold boot wall-clock duration and guest boot phase breakdown (ro.boottime.init/zygote, uptime)"
+            "Cold boot wall-clock duration and guest boot phase breakdown (Factory First-Boot + Warm-Disk Cold Boot)"
         ),
         "workloads": [
             "cold_boot",
+            "cold_boot_warm_disk",
         ],
     },
     "snapshot": {

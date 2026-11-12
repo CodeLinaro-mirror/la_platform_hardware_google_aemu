@@ -24,7 +24,13 @@ from core.poller import poll_until
 from core.process import ProcessRunner
 from lib.perf.adb import AdbDevice
 from lib.perf.catalog import DEFAULT_ADB_BIN
-from lib.perf_telemetry import sample_host_cpu_pct
+from lib.perf_telemetry import (
+    ProcSnapshot,
+    compute_proc_telemetry,
+    find_emulator_pid,
+    sample_host_cpu_pct,
+    take_proc_snapshot,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -230,6 +236,68 @@ def _wait_for_host_cpu_quiescence(
             quiet_streak = 0
 
 
+def _extract_qemu_cmdline_info(pid: Optional[int]) -> Dict[str, str]:
+    """Extracts key QEMU configuration flags (`exe`, `accel`, `cpu`, `memory`, `smp`, `drive_cache`) from `pid`."""
+    if not pid:
+        return {}
+    cmdline: List[str] = []
+    proc_cmdline = f"/proc/{pid}/cmdline"
+    if os.path.isfile(proc_cmdline):
+        try:
+            with open(proc_cmdline, "rb") as f:
+                cmdline = [
+                    p.decode("utf-8", errors="replace")
+                    for p in f.read().split(b"\x00")
+                    if p
+                ]
+        except OSError as exc:
+            LOGGER.debug("Ignored error reading %s: %s", proc_cmdline, exc)
+    if not cmdline:
+        try:
+            import psutil
+
+            cmdline = psutil.Process(pid).cmdline()
+        except Exception as exc:
+            LOGGER.debug("Ignored psutil cmdline error for pid %s: %s", pid, exc)
+            return {}
+    if not cmdline:
+        return {}
+
+    info: Dict[str, str] = {"exe": os.path.basename(cmdline[0])}
+    for idx, arg in enumerate(cmdline):
+        nxt = cmdline[idx + 1] if idx + 1 < len(cmdline) else ""
+        if arg == "-accel" and nxt:
+            info["accel"] = nxt
+        elif arg in ("-enable-kvm", "-enable-whpx", "-enable-hvf", "-enable-aehd"):
+            info.setdefault("accel", arg.replace("-enable-", ""))
+        elif arg == "-cpu" and nxt:
+            info["cpu"] = nxt
+        elif arg == "-m" and nxt:
+            info["memory"] = nxt
+        elif arg == "-smp" and nxt:
+            info["smp"] = nxt
+        elif arg == "-drive" and nxt and "drive_cache" not in info:
+            drive_cache = next(
+                (p.split("=", 1)[1] for p in nxt.split(",") if p.startswith("cache=")),
+                None,
+            )
+            if drive_cache:
+                info["drive_cache"] = drive_cache
+    return info
+
+
+def _parse_guest_uptime_ms(uptime_str: str) -> float:
+    """Parses the first token of `/proc/uptime` (seconds) into milliseconds."""
+    tokens = (uptime_str or "").strip().split()
+    if not tokens:
+        return 0.0
+    try:
+        val_s = float(tokens[0])
+        return round(max(0.0, val_s * 1000.0), 2)
+    except ValueError:
+        return 0.0
+
+
 def wait_for_guest_and_host_settled(
     serial: str,
     emu_pid: Optional[int],
@@ -246,7 +314,16 @@ def wait_for_guest_and_host_settled(
     adb = adb_device or AdbDevice(
         serial, adb_bin=adb_bin, process_runner=process_runner
     )
+    discovered_pid: Optional[int] = emu_pid
+    boot_snap_start: Optional[ProcSnapshot] = (
+        take_proc_snapshot(discovered_pid) if discovered_pid else None
+    )
+    qemu_config: Dict[str, str] = (
+        _extract_qemu_cmdline_info(discovered_pid) if discovered_pid else {}
+    )
+
     def _check_boot_completed() -> bool:
+        nonlocal discovered_pid, boot_snap_start, qemu_config
         if proc is not None and proc.poll() is not None:
             log_tail = _read_log_tail(log_path)
             raise RuntimeError(
@@ -254,6 +331,11 @@ def wait_for_guest_and_host_settled(
                 + (f":\n{log_tail}" if log_tail else "")
                 + ". Inspect the emulator log file or verify KVM/HVF acceleration."
             )
+        if discovered_pid is None and process_runner is None:
+            discovered_pid = find_emulator_pid(serial)
+            if discovered_pid:
+                boot_snap_start = take_proc_snapshot(discovered_pid)
+                qemu_config = _extract_qemu_cmdline_info(discovered_pid)
         return adb.getprop("sys.boot_completed", timeout=5.0) == "1"
 
     boot_outcome = poll_until(
@@ -265,12 +347,33 @@ def wait_for_guest_and_host_settled(
         clamp_sleep_to_deadline=False,
     )
     booted = boot_outcome.succeeded
+    boot_completed_perf_counter = time.perf_counter()
 
     if not booted:
         raise TimeoutError(
             f"Timed out after {timeout_sec}s waiting for {serial} sys.boot_completed=1. "
             "Check `adb devices` or increase `--settle-seconds`."
         )
+
+    if discovered_pid is None and process_runner is None:
+        discovered_pid = find_emulator_pid(serial)
+        if discovered_pid and not qemu_config:
+            qemu_config = _extract_qemu_cmdline_info(discovered_pid)
+
+    boot_snap_end: Optional[ProcSnapshot] = (
+        take_proc_snapshot(discovered_pid) if discovered_pid else None
+    )
+    boot_telemetry = (
+        compute_proc_telemetry(boot_snap_start, boot_snap_end)
+        if (boot_snap_start and boot_snap_end)
+        else None
+    )
+
+    uptime_res = adb.shell("cat /proc/uptime", timeout=10.0)
+    guest_uptime_str = (
+        uptime_res.stdout.strip() if uptime_res.returncode == 0 else ""
+    )
+    guest_uptime_ms = _parse_guest_uptime_ms(guest_uptime_str)
 
     stabilize_info: Dict[str, Any] = {}
     if settle_seconds > 0:
@@ -281,19 +384,26 @@ def wait_for_guest_and_host_settled(
             adb_device=adb,
         )
         _wait_for_host_cpu_quiescence(
-            emu_pid=emu_pid,
+            emu_pid=discovered_pid or emu_pid,
             settle_seconds=settle_seconds,
             target_host_cpu_pct=target_host_cpu_pct,
         )
 
-    uptime_res = adb.shell("cat /proc/uptime", timeout=10.0)
     load_res = adb.shell("cat /proc/loadavg", timeout=10.0)
-    return {
-        "guest_uptime": (
-            uptime_res.stdout.strip() if uptime_res.returncode == 0 else ""
-        ),
+    out: Dict[str, Any] = {
+        "guest_uptime": guest_uptime_str,
+        "guest_uptime_ms": guest_uptime_ms,
         "guest_loadavg": (
             load_res.stdout.strip() if load_res.returncode == 0 else ""
         ),
+        "boot_completed_perf_counter": boot_completed_perf_counter,
+        "boot_poll_elapsed_ms": round(boot_outcome.elapsed_sec * 1000.0, 2),
         **stabilize_info,
     }
+    if discovered_pid:
+        out["emulator_pid"] = discovered_pid
+    if boot_telemetry and boot_telemetry.wall_duration_s > 0:
+        out["boot_telemetry"] = boot_telemetry.to_dict()
+    if qemu_config:
+        out["qemu_config"] = qemu_config
+    return out
