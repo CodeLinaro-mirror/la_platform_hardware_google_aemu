@@ -140,7 +140,17 @@ def resolve_emulator_executable(
 def prepare_environment(emu_dir: str) -> Dict[str, str]:
     """Constructs LD_LIBRARY_PATH and Qt environment variables for emulator execution."""
     env = os.environ.copy()
+    env.setdefault("AEMU_NO_TRAMPOLINE", "1")
     system = platform.system().lower()
+
+    sdk_root = env.get("ANDROID_SDK_ROOT") or env.get("ANDROID_HOME")
+    if not sdk_root:
+        from lib.avd import discover_android_sdk_root
+
+        sdk_root = discover_android_sdk_root()
+    if sdk_root:
+        env.setdefault("ANDROID_SDK_ROOT", sdk_root)
+        env.setdefault("ANDROID_HOME", sdk_root)
 
     if system == "linux":
         lib64 = os.path.join(emu_dir, "lib64")

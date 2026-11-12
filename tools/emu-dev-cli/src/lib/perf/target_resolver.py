@@ -145,22 +145,25 @@ def _build_emulator_dir_target(
 
 
 def _try_resolve_json_target(spec: str) -> Optional[ResolvedPerfTarget]:
-    if ".json" not in spec or (not os.path.isfile(spec) and ":" not in spec):
+    if ".json" not in spec:
         return None
-    base_path = spec.split(":", 1)[0]
-    if not os.path.isfile(base_path):
-        return None
-    lbl = (
-        spec.split(":", 1)[1]
-        if ":" in spec
-        else os.path.splitext(os.path.basename(base_path))[0]
-    )
-    return ResolvedPerfTarget(
-        spec=spec,
-        kind="json",
-        label=lbl,
-        json_path=spec,
-    )
+    if os.path.isfile(spec):
+        return ResolvedPerfTarget(
+            spec=spec,
+            kind="json",
+            label=os.path.splitext(os.path.basename(spec))[0],
+            json_path=spec,
+        )
+    if ":" in spec:
+        base_path, lbl = spec.rsplit(":", 1)
+        if os.path.isfile(base_path):
+            return ResolvedPerfTarget(
+                spec=spec,
+                kind="json",
+                label=lbl,
+                json_path=spec,
+            )
+    return None
 
 
 def _find_workspace_root() -> Optional[str]:
@@ -183,7 +186,7 @@ def _find_workspace_root() -> Optional[str]:
 
 
 def _find_built_release_zip(ws_root: str, require_opt: bool = True) -> Optional[str]:
-    candidates = (
+    candidates = [
         os.path.join(
             ws_root,
             "bazel-bin",
@@ -193,6 +196,20 @@ def _find_built_release_zip(ws_root: str, require_opt: bool = True) -> Optional[
             "release.zip",
         ),
         os.path.join(ws_root, "bazel-bin", "emulator-repo-release.zip"),
+    ]
+    candidates.extend(
+        glob.glob(
+            os.path.join(
+                ws_root,
+                "bazel-out",
+                "*-opt*",
+                "bin",
+                "external",
+                "goldfish+",
+                "emulator",
+                "release.zip",
+            )
+        )
     )
     for cand in candidates:
         if not os.path.isfile(cand):

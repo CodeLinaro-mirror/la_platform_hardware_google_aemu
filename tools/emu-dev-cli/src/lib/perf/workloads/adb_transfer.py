@@ -128,9 +128,23 @@ class AdbTransferWorkloadStrategy(MeasuredWorkloadTemplate):
         direction, size_str, storage = match.groups()
         size_mib = int(size_str)
         total_bytes = size_mib * MIB
-        remote_base = (
-            REMOTE_TMPFS_DIR if storage == "tmpfs" else REMOTE_DISK_DIR
-        )
+        if storage == "tmpfs":
+            probe = ctx.adb.shell(
+                "if [ -d /tmp ] && [ -w /tmp ]; then echo /tmp; "
+                "elif [ -d /dev/shm ] && [ -w /dev/shm ]; then echo /dev/shm; "
+                f"else echo {REMOTE_DISK_DIR}; fi",
+                timeout=5.0,
+            )
+            out_lines = (probe.stdout or "").strip().splitlines()
+            remote_base = (
+                out_lines[-1].strip()
+                if probe.returncode == 0
+                and out_lines
+                and out_lines[-1].strip().startswith("/")
+                else REMOTE_TMPFS_DIR
+            )
+        else:
+            remote_base = REMOTE_DISK_DIR
         remote_path = f"{remote_base}/emu_perf_{size_mib}m.bin"
         host_src = _create_host_payload_file(work_dir, size_mib)
         host_dst = os.path.join(work_dir, "pulled.bin")

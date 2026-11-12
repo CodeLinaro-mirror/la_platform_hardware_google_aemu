@@ -108,7 +108,7 @@ def _try_kill_pid(pid: int | str) -> None:
     if not clean_pid.isdigit():
         return
     try:
-        os.kill(int(clean_pid), signal.SIGKILL)
+        os.kill(int(clean_pid), getattr(signal, "SIGKILL", signal.SIGTERM))
     except OSError as exc:
         logger.debug("Ignored error killing session process %s: %s", clean_pid, exc)
 
@@ -118,9 +118,25 @@ def _find_session_child_pids(
 ) -> List[int]:
     """Finds child processes belonging to the benchmark session (`ppid`, `pgrp`, or `session` in `root_pids`)."""
     valid_roots = {int(pid) for pid in root_pids if pid and int(pid) > 0}
-    if not valid_roots or not os.path.isdir(proc_root):
+    if not valid_roots:
         return []
     matched: List[int] = []
+    if not os.path.isdir(proc_root):
+        if proc_root == "/proc":
+            try:
+                import psutil
+
+                for p in psutil.process_iter(["pid", "ppid"]):
+                    pid = int(p.info["pid"])
+                    ppid = int(p.info.get("ppid") or 0)
+                    if pid not in valid_roots and ppid in valid_roots:
+                        matched.append(pid)
+            except Exception as exc:
+                logger.debug(
+                    "Ignored psutil error scanning for session children: %s",
+                    exc,
+                )
+        return matched
     try:
         for entry in os.listdir(proc_root):
             if not entry.isdigit():
@@ -254,7 +270,14 @@ def _kill_emulator_process_tree(
     child_pids = _find_session_child_pids(root_pids)
     try:
         if hasattr(os, "killpg") and getattr(proc, "pid", None):
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            os.killpg(os.getpgid(proc.pid), getattr(signal, "SIGKILL", signal.SIGTERM))
+        elif os.name == "nt" and getattr(proc, "pid", None):
+            runner = process_runner or SubprocessRunner()
+            runner.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                check=False,
+                timeout_sec=5.0,
+            )
     except Exception as exc:
         logger.debug("Ignored killpg error in _kill_emulator_process_tree: %s", exc)
     try:
@@ -302,11 +325,18 @@ def _parse_avd_config_ini(
     if kv is None:
         return None
     sysdir = kv.get("image.sysdir.1", "")
-    cand_sysimg = (
-        find_actual_sysimg_dir(sysdir)
-        if sysdir and os.path.isdir(sysdir)
-        else None
-    )
+    cand_sysimg: Optional[str] = None
+    if sysdir:
+        if os.path.isdir(sysdir):
+            cand_sysimg = find_actual_sysimg_dir(sysdir)
+        else:
+            from lib.avd import discover_android_sdk_root
+
+            sdk_root = discover_android_sdk_root()
+            if sdk_root:
+                rel_cand = os.path.join(sdk_root, sysdir)
+                if os.path.isdir(rel_cand):
+                    cand_sysimg = find_actual_sysimg_dir(rel_cand)
     ram_str = kv.get("hw.ramSize", "")
     cand_ram = int(ram_str) if ram_str.isdigit() else default_ram
     cores_str = kv.get("hw.cpu.ncore", "")

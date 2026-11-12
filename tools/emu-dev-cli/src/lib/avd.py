@@ -110,6 +110,32 @@ def find_actual_sysimg_dir(sysimg_dir: str) -> str:
     return sysimg_dir
 
 
+def discover_android_sdk_root() -> Optional[str]:
+    """Discovers the Android SDK root from environment variables, `adb` on PATH, or standard SDK paths."""
+    for env_var in ("ANDROID_SDK_ROOT", "ANDROID_HOME"):
+        val = os.environ.get(env_var)
+        if val and os.path.isdir(os.path.expanduser(val)):
+            return os.path.abspath(os.path.expanduser(val))
+
+    adb_bin = shutil.which("adb")
+    if adb_bin:
+        parent = os.path.dirname(os.path.abspath(adb_bin))
+        if os.path.basename(parent).lower() == "platform-tools":
+            sdk_cand = os.path.dirname(parent)
+            if os.path.isdir(sdk_cand):
+                return sdk_cand
+
+    for std_path in (
+        "~/AppData/Local/Android/Sdk",
+        "~/Library/Android/sdk",
+        "~/Android/Sdk",
+    ):
+        expanded = os.path.expanduser(std_path)
+        if os.path.isdir(expanded):
+            return os.path.abspath(expanded)
+    return None
+
+
 def find_cached_sysimg_dir(arch: Optional[str] = None) -> Optional[str]:
     """
     Scans /tmp and standard locations for existing extracted system-image directories.
@@ -127,12 +153,18 @@ def find_cached_sysimg_dir(arch: Optional[str] = None) -> Optional[str]:
         os.path.expanduser("~/Library/Android/sdk/system-images/*/*/*"),
         os.path.expanduser("~/Android/Sdk/system-images/*/*/*"),
     ]
+    sdk_roots = set()
     for env_var in ("ANDROID_SDK_ROOT", "ANDROID_HOME"):
         sdk_root = os.environ.get(env_var)
         if sdk_root:
-            search_patterns.append(
-                os.path.join(os.path.expanduser(sdk_root), "system-images", "*", "*", "*")
-            )
+            sdk_roots.add(os.path.expanduser(sdk_root))
+    discovered_sdk = discover_android_sdk_root()
+    if discovered_sdk:
+        sdk_roots.add(discovered_sdk)
+    for sdk_root in sdk_roots:
+        search_patterns.append(
+            os.path.join(sdk_root, "system-images", "*", "*", "*")
+        )
 
     for pattern in search_patterns:
         for p in glob.glob(pattern):
@@ -230,8 +262,24 @@ def create_single_avd(
     ram_size = ram if ram else profile["ram"]
     disk_size_val = disk_size if disk_size else profile["disk"]
 
-    # Ensure trailing slash on sysdir for emulator parser
-    sysimg_dir_slash = sysimg_dir if sysimg_dir.endswith("/") else sysimg_dir + "/"
+    # Ensure trailing slash on sysdir for emulator parser; on Windows, use SDK-relative
+    # path when sysimg_dir lives under the Android SDK root so QEMU2 does not prepend
+    # a second drive letter (sdkRoot + "\\" + sysdir).
+    sysimg_for_ini = sysimg_dir
+    if os.name == "nt":
+        sdk_root = discover_android_sdk_root()
+        if sdk_root:
+            try:
+                abs_sys = os.path.abspath(sysimg_dir)
+                abs_sdk = os.path.abspath(sdk_root)
+                if os.path.commonpath([abs_sys, abs_sdk]).lower() == abs_sdk.lower():
+                    sysimg_for_ini = os.path.relpath(abs_sys, abs_sdk).replace("\\", "/")
+            except ValueError:
+                pass
+        sysimg_for_ini = sysimg_for_ini.replace("\\", "/")
+    sysimg_dir_slash = (
+        sysimg_for_ini if sysimg_for_ini.endswith("/") else sysimg_for_ini + "/"
+    )
 
     # 1. Write <name>.ini pointer file
     with open(ini_file, "w", encoding="utf-8") as f:

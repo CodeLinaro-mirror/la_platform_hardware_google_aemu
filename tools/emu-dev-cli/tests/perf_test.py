@@ -1188,7 +1188,9 @@ class PerfStrategiesAndSessionsTest(unittest.TestCase):
             os.makedirs(os.path.join(emu_dir, "lib", "qemu"), exist_ok=True)
             with open(os.path.join(emu_dir, "source.properties"), "w", encoding="utf-8") as f:
                 f.write("Pkg.Revision=36.2.1\n")
-            emu_bin_path = os.path.join(emu_dir, "emulator")
+            emu_bin_path = os.path.join(
+                emu_dir, "emulator.exe" if os.name == "nt" else "emulator"
+            )
             with open(emu_bin_path, "w", encoding="utf-8") as f:
                 f.write("#!/bin/sh\n")
             os.chmod(emu_bin_path, 0o755)
@@ -1405,7 +1407,9 @@ class PerfStrategiesAndSessionsTest(unittest.TestCase):
                     os.unlink(fp)
 
         with tempfile.TemporaryDirectory() as fake_home:
-            with patch.dict(os.environ, {"HOME": fake_home}):
+            with patch.dict(
+                os.environ, {"HOME": fake_home, "USERPROFILE": fake_home}
+            ):
                 cache_dir = _get_perf_cache_dir()
                 self.assertTrue(cache_dir.startswith(fake_home))
                 self.assertTrue(os.path.isdir(cache_dir))
