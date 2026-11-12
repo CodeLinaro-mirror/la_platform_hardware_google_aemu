@@ -25883,6 +25883,148 @@
     border-bottom: 1px solid var(--g-border, #2c3650);
     color: var(--g-muted, #9aa5ce);
   }
+
+  /* PolyGerrit Rendered HTML File Viewer (<gr-html-viewer>) */
+  .pg-html-header-mode-group {
+    display: inline-flex;
+    align-items: center;
+    background: var(--g-panel-alt, #161b22);
+    border: 1px solid var(--g-border, #30363d);
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .pg-html-mode-btn {
+    appearance: none;
+    background: transparent;
+    border: none;
+    color: var(--g-muted, #8b949e);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .pg-html-mode-btn:hover {
+    color: var(--g-text, #e6edf3);
+    background: rgba(177, 186, 196, 0.12);
+  }
+  .pg-html-mode-btn.is-active {
+    background: rgba(56, 139, 253, 0.2);
+    color: #79c0ff;
+    box-shadow: inset 0 0 0 1px rgba(56, 139, 253, 0.45);
+  }
+  [data-pg-theme="light"] .pg-html-mode-btn.is-active {
+    background: #e8f0fe;
+    color: #1967d2;
+    box-shadow: inset 0 0 0 1px rgba(25, 103, 210, 0.35);
+  }
+  .pg-html-file-workspace {
+    display: block;
+    width: 100%;
+  }
+  .pg-html-file-workspace.is-mode-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .pg-html-file-workspace.is-mode-split > .pg-html-diff-pane {
+    border-right: 1px solid var(--g-border, #30363d);
+    min-width: 0;
+    overflow-x: auto;
+  }
+  .pg-html-file-workspace.is-mode-split > .pg-html-viewer-pane {
+    min-width: 0;
+  }
+  .pg-html-viewer {
+    background: var(--g-bg, #0f131c);
+    color: var(--g-text, #e5e9f0);
+    border-top: 1px solid var(--g-border, #2c3650);
+  }
+  [data-pg-theme="light"] .pg-html-viewer {
+    background: #f6f8fa;
+    color: #1f2328;
+  }
+  .pg-html-viewer-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 8px 16px;
+    background: var(--g-panel-alt, #171d2b);
+    border-bottom: 1px solid var(--g-border, #2c3650);
+    font-size: 12px;
+  }
+  [data-pg-theme="light"] .pg-html-viewer-toolbar {
+    background: #f6f8fa;
+    border-bottom-color: #d0d7de;
+  }
+  .pg-html-toolbar-left,
+  .pg-html-toolbar-right {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .pg-html-title-pill {
+    font-size: 11px;
+    color: #9ece6a;
+    background: rgba(158, 206, 106, 0.1);
+    border: 1px solid rgba(158, 206, 106, 0.28);
+    padding: 2px 9px;
+    border-radius: 999px;
+    max-width: 360px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  [data-pg-theme="light"] .pg-html-title-pill {
+    color: #137333;
+    background: #e6f4ea;
+    border-color: #a8dab5;
+  }
+  .pg-html-stage {
+    display: flex;
+    justify-content: center;
+    padding: 0;
+    background: #0b0e14;
+    transition: padding 0.15s ease, background 0.15s ease;
+  }
+  .pg-html-stage.bg-light {
+    background: #ffffff;
+  }
+  .pg-html-stage.viewport-tablet,
+  .pg-html-stage.viewport-mobile {
+    padding: 18px 16px;
+    background: #090c12;
+  }
+  .pg-html-preview-iframe {
+    width: 100%;
+    min-height: 760px;
+    border: 0;
+    display: block;
+    background: transparent;
+  }
+  .pg-html-stage.viewport-tablet .pg-html-preview-iframe {
+    max-width: 768px;
+    border: 1px solid var(--g-border, #2c3650);
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  }
+  .pg-html-stage.viewport-mobile .pg-html-preview-iframe {
+    max-width: 375px;
+    border: 1px solid var(--g-border, #2c3650);
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  }
+  .pg-html-preview-iframe.is-expanded {
+    min-height: 1600px;
+  }
 </style>
 </head>
 <body>
@@ -60478,6 +60620,356 @@
     }
   }
 
+  /* PolyGerrit Rendered HTML File Viewer (<gr-html-viewer>) */
+  const PG_HTML_EXTENSIONS = new Set(["html", "htm", "xhtml"]);
+  if (typeof window !== "undefined") {
+    window.PG_HTML_EXTENSIONS = PG_HTML_EXTENSIONS;
+  }
+
+  function isPgHtmlFile(filePath) {
+    const raw = String(filePath || "").trim().toLowerCase();
+    const dotIdx = raw.lastIndexOf(".");
+    const ext = dotIdx >= 0 ? raw.slice(dotIdx + 1) : "";
+    return PG_HTML_EXTENSIONS.has(ext);
+  }
+
+  function getPgHtmlViewMode(clNum, filePath) {
+    if (!state.htmlViewModeByFile) state.htmlViewModeByFile = {};
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const key = `${num}:${String(filePath || "")}`;
+    return state.htmlViewModeByFile[key] || "preview";
+  }
+
+  function getPgHtmlPreviewSide(clNum, filePath) {
+    if (!state.htmlPreviewSideByFile) state.htmlPreviewSideByFile = {};
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const key = `${num}:${String(filePath || "")}`;
+    return state.htmlPreviewSideByFile[key] || "new";
+  }
+
+  function getPgHtmlViewportPreset(clNum, fileId) {
+    if (!state.htmlViewportByFile) state.htmlViewportByFile = {};
+    return state.htmlViewportByFile[`${clNum}:${fileId}`] || "desktop";
+  }
+
+  function extractPgHtmlMetadata(rawHtml) {
+    const html = String(rawHtml == null ? "" : rawHtml);
+    const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const title = titleMatch ? titleMatch[1].replace(/\s+/g, " ").trim() : "";
+    const headingCount = (html.match(/<h[1-4]\b[^>]*>/gi) || []).length;
+    const tableCount = (html.match(/<table\b[^>]*>/gi) || []).length;
+    const preCount = (html.match(/<pre\b[^>]*>/gi) || []).length;
+    const isFullDocument = /<!DOCTYPE\s+html|<html\b|<body\b/i.test(html);
+    return {
+      title,
+      headingCount,
+      tableCount,
+      preCount,
+      isFullDocument,
+    };
+  }
+
+  function renderPgHtmlHeaderToggleHtml(clNum, safeFile, safeFileId, htmlMode, viewMode, isSbs) {
+    return `<div class="pg-html-header-mode-group" id="pgHtmlHeaderModeGroup-${clNum}-${safeFileId}" role="group" aria-label="HTML view mode" onclick="event.stopPropagation()">
+      <button type="button" class="pg-html-mode-btn ${htmlMode === "preview" ? "is-active" : ""}" data-html-mode="preview" onclick="setPgHtmlViewMode(event, ${clNum}, '${safeFile}', 'preview')" title="Rendered HTML preview">
+        <span aria-hidden="true">🌐</span> <span>Preview</span>
+      </button>
+      <button type="button" class="pg-html-mode-btn ${htmlMode === "split" ? "is-active" : ""}" data-html-mode="split" onclick="setPgHtmlViewMode(event, ${clNum}, '${safeFile}', 'split')" title="Side-by-side Code Diff + Rendered HTML preview">
+        <span aria-hidden="true">◫</span> <span>Split</span>
+      </button>
+      <button type="button" class="pg-html-mode-btn ${htmlMode === "diff" ? "is-active" : ""}" data-html-mode="diff" onclick="setPgHtmlViewMode(event, ${clNum}, '${safeFile}', 'diff')" title="Raw HTML code diff">
+        <span aria-hidden="true">📝</span> <span>Diff</span>
+      </button>
+    </div>
+    <button
+      type="button"
+      class="pg-file-diff-mode-btn"
+      onclick="togglePgFileDiffMode(event, ${clNum}, '${safeFile}')"
+      title="Toggle Side-by-side / Unified diff table (Shortcut: v)"
+    ><span class="pg-diff-mode-icon" aria-hidden="true">${isSbs ? "☷" : "☰"}</span> <span>${isSbs ? "Side-by-side" : "Unified"}</span></button>`;
+  }
+
+  function renderPgHtmlStageHtml(clNum, ps, safeFile, safeFileId, side, viewport, oldSource, newSource, activeSource) {
+    if (side === "compare" && oldSource.hasOldLines && newSource.hasNewLines) {
+      return `<div class="pg-md-compare-grid">
+        <div class="pg-md-compare-col">
+          <div class="pg-md-compare-col-header">Base (Old · ${oldSource.lineCount} lines)</div>
+          <div class="pg-html-stage viewport-${escapeHtml(viewport)}">
+            <iframe class="pg-html-preview-iframe" id="pgHtmlIframeOld-${clNum}-${safeFileId}" sandbox="allow-same-origin" srcdoc="${escapeHtml(oldSource.text)}" title="HTML Preview (Base): ${safeFile}" onload="onPgHtmlPreviewIframeLoad(this, ${clNum}, '${safeFileId}')"></iframe>
+          </div>
+        </div>
+        <div class="pg-md-compare-col">
+          <div class="pg-md-compare-col-header">Patchset ${ps} (New · ${newSource.lineCount} lines)</div>
+          <div class="pg-html-stage viewport-${escapeHtml(viewport)}">
+            <iframe class="pg-html-preview-iframe" id="pgHtmlIframe-${clNum}-${safeFileId}" sandbox="allow-same-origin" srcdoc="${escapeHtml(newSource.text)}" title="HTML Preview (Patchset ${ps}): ${safeFile}" onload="onPgHtmlPreviewIframeLoad(this, ${clNum}, '${safeFileId}')"></iframe>
+          </div>
+        </div>
+      </div>`;
+    }
+    return `<div class="pg-html-stage viewport-${escapeHtml(viewport)}" id="pgHtmlStage-${clNum}-${safeFileId}">
+      <iframe class="pg-html-preview-iframe" id="pgHtmlIframe-${clNum}-${safeFileId}" sandbox="allow-same-origin" srcdoc="${escapeHtml(activeSource.text)}" title="HTML Preview: ${safeFile}" onload="onPgHtmlPreviewIframeLoad(this, ${clNum}, '${safeFileId}')"></iframe>
+    </div>`;
+  }
+
+  function renderPgHtmlToolbarHtml(clNum, ps, safeFile, safeFileId, status, htmlMode, side, viewport, oldSource, newSource, activeSource, meta) {
+    const canCompareSides = status === "M" && oldSource.hasOldLines && newSource.hasNewLines;
+    const sideSelectorHtml = canCompareSides
+      ? `<div class="pg-html-header-mode-group" role="group" aria-label="HTML revision side">
+          <button type="button" class="pg-html-mode-btn ${side === "new" ? "is-active" : ""}" data-html-side="new" onclick="setPgHtmlPreviewSide(event, ${clNum}, '${safeFile}', ${ps}, 'new')">Patchset ${ps}</button>
+          <button type="button" class="pg-html-mode-btn ${side === "old" ? "is-active" : ""}" data-html-side="old" onclick="setPgHtmlPreviewSide(event, ${clNum}, '${safeFile}', ${ps}, 'old')">Base</button>
+          <button type="button" class="pg-html-mode-btn ${side === "compare" ? "is-active" : ""}" data-html-side="compare" onclick="setPgHtmlPreviewSide(event, ${clNum}, '${safeFile}', ${ps}, 'compare')">Old vs New</button>
+        </div>`
+      : "";
+    const viewportSelectorHtml = `<div class="pg-html-header-mode-group" id="pgHtmlViewportGroup-${clNum}-${safeFileId}" role="group" aria-label="HTML preview viewport size">
+      <button type="button" class="pg-html-mode-btn ${viewport === "desktop" ? "is-active" : ""}" data-viewport="desktop" onclick="setPgHtmlViewportPreset(event, ${clNum}, '${safeFileId}', 'desktop')" title="Full-width desktop viewport (100%)">🖥️ 100%</button>
+      <button type="button" class="pg-html-mode-btn ${viewport === "tablet" ? "is-active" : ""}" data-viewport="tablet" onclick="setPgHtmlViewportPreset(event, ${clNum}, '${safeFileId}', 'tablet')" title="Tablet viewport (768px)">📱 768px</button>
+      <button type="button" class="pg-html-mode-btn ${viewport === "mobile" ? "is-active" : ""}" data-viewport="mobile" onclick="setPgHtmlViewportPreset(event, ${clNum}, '${safeFileId}', 'mobile')" title="Mobile viewport (375px)">📱 375px</button>
+    </div>`;
+    const titleBadgeHtml = meta.title
+      ? `<span class="pg-html-title-pill" title="HTML &lt;title&gt;: ${escapeHtml(meta.title)}">🌐 ${escapeHtml(meta.title)}</span>`
+      : "";
+    const statsParts = [];
+    if (meta.headingCount > 0) statsParts.push(`${meta.headingCount} section${meta.headingCount === 1 ? "" : "s"}`);
+    if (meta.tableCount > 0) statsParts.push(`${meta.tableCount} table${meta.tableCount === 1 ? "" : "s"}`);
+    if (meta.preCount > 0) statsParts.push(`${meta.preCount} code block${meta.preCount === 1 ? "" : "s"}`);
+    statsParts.push(`${activeSource.lineCount} lines`);
+    const loadFullBtnHtml = activeSource.isPartial
+      ? `<button type="button" class="pg-md-code-copy-btn pg-html-load-full-btn" onclick="loadPgHtmlFullFile(event, ${clNum}, '${safeFile}', ${ps})" title="Diff contains partial hunks — click to fetch and render the complete HTML file">↕ Load full file</button>`
+      : "";
+
+    return `<div class="pg-html-viewer-toolbar">
+      <div class="pg-html-toolbar-left">
+        <div class="pg-html-header-mode-group" role="group" aria-label="HTML viewer mode">
+          <button type="button" class="pg-html-mode-btn ${htmlMode === "preview" ? "is-active" : ""}" data-html-mode="preview" onclick="setPgHtmlViewMode(event, ${clNum}, '${safeFile}', 'preview')">🌐 Rendered HTML</button>
+          <button type="button" class="pg-html-mode-btn ${htmlMode === "split" ? "is-active" : ""}" data-html-mode="split" onclick="setPgHtmlViewMode(event, ${clNum}, '${safeFile}', 'split')">◫ Split (Diff + Preview)</button>
+          <button type="button" class="pg-html-mode-btn ${htmlMode === "diff" ? "is-active" : ""}" data-html-mode="diff" onclick="setPgHtmlViewMode(event, ${clNum}, '${safeFile}', 'diff')">📝 Code Diff</button>
+        </div>
+        ${sideSelectorHtml}
+        ${viewportSelectorHtml}
+      </div>
+      <div class="pg-html-toolbar-right">
+        ${titleBadgeHtml}
+        <span class="pg-md-stats-pill">${escapeHtml(statsParts.join(" · "))}</span>
+        ${loadFullBtnHtml}
+        <button type="button" class="pg-md-code-copy-btn" onclick="togglePgHtmlIframeExpand(event, ${clNum}, '${safeFileId}')" title="Toggle expanded iframe height">⤢ Expand</button>
+        <button type="button" class="pg-md-code-copy-btn" onclick="openPgHtmlPreviewInNewTab(event, ${clNum}, '${safeFile}', ${ps})" title="Open rendered HTML document in a new browser tab">↗ New Tab</button>
+        <button type="button" class="pg-md-code-copy-btn" onclick="copyPgHtmlSource(event, ${clNum}, '${safeFile}', ${ps})" title="Copy raw HTML source to clipboard">📋 Copy HTML</button>
+      </div>
+    </div>`;
+  }
+
+  function renderPgHtmlViewerHtml(f, clNum, ps, safeFile, safeFileId, status, htmlMode) {
+    const side = getPgHtmlPreviewSide(clNum, f.file);
+    const viewport = getPgHtmlViewportPreset(clNum, safeFileId);
+    const newSource = extractPgFileSourceFromDiff(f, clNum, ps, "new");
+    const oldSource = extractPgFileSourceFromDiff(f, clNum, ps, "old");
+    const activeSource = side === "old" ? oldSource : newSource;
+    const meta = extractPgHtmlMetadata(activeSource.text);
+    const toolbarHtml = renderPgHtmlToolbarHtml(clNum, ps, safeFile, safeFileId, status, htmlMode, side, viewport, oldSource, newSource, activeSource, meta);
+    const stageContentHtml = renderPgHtmlStageHtml(clNum, ps, safeFile, safeFileId, side, viewport, oldSource, newSource, activeSource);
+
+    return `<div class="pg-html-viewer" id="pgHtmlViewer-${clNum}-${safeFileId}" data-cl="${clNum}" data-ps="${ps}" data-file="${safeFile}" data-html-mode="${escapeHtml(htmlMode)}" data-html-side="${escapeHtml(side)}" data-is-partial="${activeSource.isPartial ? "true" : "false"}">
+      ${toolbarHtml}
+      ${stageContentHtml}
+    </div>`;
+  }
+
+  function setPgHtmlViewMode(event, clNum, filePath, mode) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const validMode = (mode === "split" || mode === "diff") ? mode : "preview";
+    const num = Number(clNum || state.selectedClNumber || 0);
+    if (!state.htmlViewModeByFile) state.htmlViewModeByFile = {};
+    state.htmlViewModeByFile[`${num}:${filePath}`] = validMode;
+
+    const safeFileId = String(filePath || "").replace(/[^a-zA-Z0-9_-]/g, "_");
+    if (typeof document !== "undefined") {
+      const workspace = document.getElementById(`pgHtmlWorkspace-${num}-${safeFileId}`);
+      const viewerPane = document.getElementById(`pgHtmlViewerPane-${num}-${safeFileId}`);
+      const diffPane = document.getElementById(`pgHtmlDiffPane-${num}-${safeFileId}`);
+      const fileBlock = document.getElementById(`file-diff-${num}-${safeFileId}`);
+
+      if (workspace) {
+        workspace.classList.remove("is-mode-preview", "is-mode-split", "is-mode-diff");
+        workspace.classList.add(`is-mode-${validMode}`);
+        workspace.setAttribute("data-html-mode", validMode);
+      }
+      if (viewerPane) {
+        viewerPane.style.display = validMode === "diff" ? "none" : "";
+      }
+      if (diffPane) {
+        diffPane.style.display = validMode === "preview" ? "none" : "";
+      }
+      if (fileBlock && typeof fileBlock.querySelectorAll === "function") {
+        fileBlock.querySelectorAll("[data-html-mode]").forEach(btn => {
+          if (btn.tagName === "BUTTON") {
+            btn.classList.toggle("is-active", btn.getAttribute("data-html-mode") === validMode);
+          }
+        });
+      }
+    }
+    return validMode;
+  }
+
+  function setPgHtmlPreviewSide(event, clNum, filePath, ps, side) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const validSide = (side === "old" || side === "compare") ? side : "new";
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const patchSet = Number(ps || (state.diffsByCl && state.diffsByCl[num] && state.diffsByCl[num].patch_set) || 1);
+    if (!state.htmlPreviewSideByFile) state.htmlPreviewSideByFile = {};
+    state.htmlPreviewSideByFile[`${num}:${filePath}`] = validSide;
+
+    const bundle = state.diffsByCl && state.diffsByCl[num];
+    const fileObj = bundle && Array.isArray(bundle.files) ? bundle.files.find(f => f && f.file === filePath) : null;
+    const safeFile = escapeHtml(filePath);
+    const safeFileId = escapeHtml(String(filePath || "").replace(/[^a-zA-Z0-9_-]/g, "_"));
+    if (fileObj && typeof document !== "undefined") {
+      const viewerPane = document.getElementById(`pgHtmlViewerPane-${num}-${safeFileId}`);
+      if (viewerPane) {
+        const status = getPgFileStatus(fileObj);
+        const htmlMode = getPgHtmlViewMode(num, filePath);
+        viewerPane.innerHTML = renderPgHtmlViewerHtml(fileObj, num, patchSet, safeFile, safeFileId, status, htmlMode);
+      }
+    }
+    return validSide;
+  }
+
+  function setPgHtmlViewportPreset(event, clNum, safeFileId, preset) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const validPreset = (preset === "tablet" || preset === "mobile") ? preset : "desktop";
+    if (!state.htmlViewportByFile) state.htmlViewportByFile = {};
+    state.htmlViewportByFile[`${clNum}:${safeFileId}`] = validPreset;
+    if (typeof document !== "undefined") {
+      const stage = document.getElementById(`pgHtmlStage-${clNum}-${safeFileId}`);
+      if (stage && stage.classList) {
+        stage.classList.remove("viewport-desktop", "viewport-tablet", "viewport-mobile");
+        stage.classList.add(`viewport-${validPreset}`);
+      }
+      const group = document.getElementById(`pgHtmlViewportGroup-${clNum}-${safeFileId}`);
+      if (group && typeof group.querySelectorAll === "function") {
+        group.querySelectorAll("[data-viewport]").forEach(btn => {
+          btn.classList.toggle("is-active", btn.getAttribute("data-viewport") === validPreset);
+        });
+      }
+    }
+    return validPreset;
+  }
+
+  function onPgHtmlPreviewIframeLoad(iframeEl, _clNum, _safeFileId) {
+    if (!iframeEl) return;
+    try {
+      const doc = iframeEl.contentDocument || (iframeEl.contentWindow && iframeEl.contentWindow.document);
+      if (doc && doc.documentElement) {
+        const h = Math.max(
+          doc.documentElement.scrollHeight || 0,
+          (doc.body && doc.body.scrollHeight) || 0
+        );
+        if (h > 300) {
+          iframeEl.style.height = `${Math.min(h + 24, 2400)}px`;
+        }
+      }
+    } catch (_e) {}
+  }
+
+  function togglePgHtmlIframeExpand(event, clNum, safeFileId) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    if (typeof document === "undefined") return false;
+    const iframe = document.getElementById(`pgHtmlIframe-${clNum}-${safeFileId}`);
+    if (!iframe || !iframe.classList) return false;
+    const expanded = iframe.classList.toggle("is-expanded");
+    if (expanded) {
+      iframe.style.height = "1800px";
+    } else {
+      onPgHtmlPreviewIframeLoad(iframe, clNum, safeFileId);
+    }
+    return expanded;
+  }
+
+  function openPgHtmlPreviewInNewTab(event, clNum, filePath, ps) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const bundle = state.diffsByCl && state.diffsByCl[num];
+    const fileObj = bundle && Array.isArray(bundle.files) ? bundle.files.find(f => f && f.file === filePath) : null;
+    const side = getPgHtmlPreviewSide(num, filePath);
+    const extracted = extractPgFileSourceFromDiff(fileObj || { file: filePath, lines: [] }, num, ps, side === "old" ? "old" : "new");
+    if (typeof Blob !== "undefined" && typeof URL !== "undefined" && typeof URL.createObjectURL === "function" && typeof window !== "undefined" && typeof window.open === "function") {
+      const blob = new Blob([extracted.text], { type: "text/html;charset=utf-8" });
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, "_blank", "noopener,noreferrer");
+      return blobUrl;
+    }
+    return "";
+  }
+
+  function copyPgHtmlSource(event, clNum, filePath, ps) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const bundle = state.diffsByCl && state.diffsByCl[num];
+    const fileObj = bundle && Array.isArray(bundle.files) ? bundle.files.find(f => f && f.file === filePath) : null;
+    const side = getPgHtmlPreviewSide(num, filePath);
+    const extracted = extractPgFileSourceFromDiff(fileObj || { file: filePath, lines: [] }, num, ps, side === "old" ? "old" : "new");
+    if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      navigator.clipboard.writeText(extracted.text).catch(() => {});
+    }
+    if (typeof showToast === "function") {
+      showToast(`Copied HTML source (${extracted.lineCount} lines) ✓`);
+    }
+  }
+
+  async function loadPgHtmlFullFile(event, clNum, filePath, ps) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const patchSet = Number(ps || (state.diffsByCl && state.diffsByCl[num] && state.diffsByCl[num].patch_set) || 1);
+    const cacheKey = `${num}:${patchSet}:${filePath}`;
+    if (typeof sidecarFetch === "function") {
+      try {
+        const resp = await sidecarFetch(`/api/gerrit/file-content?cl=${num}&file=${encodeURIComponent(filePath)}&ps=${patchSet}`);
+        if (resp && resp.ok) {
+          const data = await resp.json();
+          if (data && Array.isArray(data.lines)) {
+            if (!state.fileContentCache) state.fileContentCache = {};
+            state.fileContentCache[cacheKey] = data.lines;
+          }
+        }
+      } catch (_e) {}
+    }
+    const bundle = state.diffsByCl && state.diffsByCl[num];
+    const fileObj = bundle && Array.isArray(bundle.files) ? bundle.files.find(f => f && f.file === filePath) : null;
+    if (fileObj && typeof document !== "undefined") {
+      const safeFile = escapeHtml(filePath);
+      const safeFileId = escapeHtml(String(filePath || "").replace(/[^a-zA-Z0-9_-]/g, "_"));
+      const viewerPane = document.getElementById(`pgHtmlViewerPane-${num}-${safeFileId}`);
+      if (viewerPane) {
+        const status = getPgFileStatus(fileObj);
+        const htmlMode = getPgHtmlViewMode(num, filePath);
+        viewerPane.innerHTML = renderPgHtmlViewerHtml(fileObj, num, patchSet, safeFile, safeFileId, status, htmlMode);
+        if (typeof showToast === "function") {
+          showToast(`Loaded full HTML file for ${safeFile} ✓`);
+        }
+      }
+    }
+  }
+
   function renderFileDiffBlock(f, defaultClNum, patchSet, isVisible = true, navInfo = null) {
     const firstTaggedCl = Array.isArray(f.lines)
       ? (f.lines.find(l => Number(l.clNum || 0) > 0) || {}).clNum
@@ -60672,6 +61164,7 @@
     const sim = getPgFileSimilarity(f);
     const isPureRename = (status === "R" || status === "C") && oldPath && (sim === 100 || (Number(f.additions || 0) === 0 && Number(f.deletions || 0) === 0 && (!f.lines || f.lines.length === 0 || f.lines.every(l => l.type === "hunk"))));
     const isMd = !isImg && !isBin && !isPureRename && isPgMarkdownFile(f.file);
+    const isHtml = !isImg && !isBin && !isPureRename && !isMd && isPgHtmlFile(f.file);
 
     if (isImg) {
       hintText = "🖼️ Image comparison · 2-up, Swipe, and Onion skin modes (Shift+M)";
@@ -60704,6 +61197,19 @@
       bodyHtml = `<div class="pg-md-file-workspace is-mode-${escapeHtml(mdMode)}" id="pgMdWorkspace-${fallbackCl}-${safeFileId}" data-cl="${fallbackCl}" data-file="${safeFile}" data-md-mode="${escapeHtml(mdMode)}"${codeTableDisplay}>
         <div class="pg-md-diff-pane" id="pgMdDiffPane-${fallbackCl}-${safeFileId}"${diffDisplay}>${codeTableHtml}</div>
         <div class="pg-markdown-viewer-pane" id="pgMdViewerPane-${fallbackCl}-${safeFileId}"${viewerDisplay}>${mdViewerHtml}</div>
+      </div>`;
+    } else if (isHtml) {
+      const htmlMode = getPgHtmlViewMode(fallbackCl, f.file);
+      hintText = "🌐 HTML file · Toggle Sandboxed Preview, Split, or Code Diff";
+      modeActionHtml = renderPgHtmlHeaderToggleHtml(fallbackCl, safeFile, safeFileId, htmlMode, viewMode, isSbs);
+      const blameClass = isBlameActive ? " has-blame" : "";
+      const codeTableHtml = `<div class="code-table scheme-${escapeHtml(scheme)} diff-mode-${escapeHtml(viewMode)}${blameClass}" data-cl="${fallbackCl}" data-file="${safeFile}"${colStyle}>${linesHtml}${truncHtml}</div>`;
+      const htmlViewerHtml = renderPgHtmlViewerHtml(f, fallbackCl, ps, safeFile, safeFileId, status, htmlMode);
+      const viewerDisplay = htmlMode === "diff" ? ' style="display:none;"' : "";
+      const diffDisplay = htmlMode === "preview" ? ' style="display:none;"' : "";
+      bodyHtml = `<div class="pg-html-file-workspace is-mode-${escapeHtml(htmlMode)}" id="pgHtmlWorkspace-${fallbackCl}-${safeFileId}" data-cl="${fallbackCl}" data-file="${safeFile}" data-html-mode="${escapeHtml(htmlMode)}"${codeTableDisplay}>
+        <div class="pg-html-diff-pane" id="pgHtmlDiffPane-${fallbackCl}-${safeFileId}"${diffDisplay}>${codeTableHtml}</div>
+        <div class="pg-html-viewer-pane" id="pgHtmlViewerPane-${fallbackCl}-${safeFileId}"${viewerDisplay}>${htmlViewerHtml}</div>
       </div>`;
     } else {
       modeActionHtml = `<button

@@ -44072,189 +44072,136 @@ assert.equal(cardEl.innerHTML.includes("<span>b/499640155</span>"), true);
             )
             self.assertIn("POLYGERRIT_BUG_HOVERCARD_OK", proc.stdout)
 
-    def test_polygerrit_markdown_file_viewer(self) -> None:
-        """Verifies the rendered Markdown file viewer (Preview, Split, and Diff modes) for .md files like ag/43741371."""
-        html = render_static_gerrit_ui_html(
-            {"items": [], "stacks": [], "total_open": 0},
-            variant="polygerrit",
-        )
-        self.assertIn("pg-markdown-viewer", html)
-        self.assertIn("function renderPgMarkdownDocumentHtml", html)
-        self.assertIn("function renderPgMarkdownViewerHtml", html)
-        self.assertIn("function setPgMarkdownViewMode", html)
-
+    def _run_polygerrit_viewer_vm(self, html: str, assertions_js: str) -> str:
+        """Executes assertions_js against the PolyGerrit UI script inside a Node VM."""
         node_bin = _resolve_node_bin(self)
         if not node_bin:
-            return
-
-        script_matches = re.findall(
-            r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, flags=re.S
-        )
+            return ""
+        script_matches = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, flags=re.S)
         self.assertTrue(script_matches)
-        js_body = script_matches[-1]
+        js_body = script_matches[-1].replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
         for boot_call in (
-            "loadSidebarLayoutPrefs();",
-            "initWorkspaceSplitter();",
-            "initDiffCodeSelectionListeners();",
-            "initPgFileListRangeDragListeners();",
-            "initPgDashboardRangeDragListeners();",
-            "initImagePanListeners();",
-            "initApp();",
+            "loadSidebarLayoutPrefs();", "initWorkspaceSplitter();", "initDiffCodeSelectionListeners();",
+            "initPgFileListRangeDragListeners();", "initPgDashboardRangeDragListeners();",
+            "initImagePanListeners();", "initApp();",
         ):
             js_body = js_body.replace(boot_call, f"// {boot_call}")
-        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
-
-        harness_js = (
-            r"""
-const assert = require("node:assert/strict");
-function makeMockEl(id) {
-  const attrs = {};
-  const classes = new Set();
-  return {
-    id,
-    tagName: "DIV",
-    className: "",
-    innerHTML: "",
-    textContent: "",
-    style: { display: "" },
-    classList: {
-      add(...cs) { cs.forEach(c => classes.add(c)); },
-      remove(...cs) { cs.forEach(c => classes.delete(c)); },
-      toggle(c, force) {
-        if (force === undefined) {
-          if (classes.has(c)) { classes.delete(c); return false; }
-          classes.add(c); return true;
-        }
-        if (force) classes.add(c); else classes.delete(c);
-        return !!force;
-      },
-      contains(c) { return classes.has(c); },
-    },
-    setAttribute(k, v) { attrs[k] = String(v); },
-    getAttribute(k) { return attrs[k] || ""; },
-    querySelectorAll() { return []; },
-  };
-}
-const domMap = new Proxy({}, {
-  get(target, prop) {
-    if (typeof prop !== "string") return undefined;
-    if (!target[prop]) target[prop] = makeMockEl(prop);
-    return target[prop];
-  }
-});
-window.location = { search: "", href: "http://127.0.0.1:8080/", pathname: "/" };
-window.localStorage = { getItem() { return null; }, setItem() {} };
-document.documentElement = { setAttribute() {}, clientWidth: 1440, clientHeight: 900 };
-document.getElementById = (id) => domMap[id] || null;
-document.querySelector = () => null;
-document.querySelectorAll = () => [];
-"""
-            + js_body
-            + r"""
-// 1. Verify Markdown file extension detection
-assert.equal(isPgMarkdownFile("cli/android-device-hub/electron/e2e/e2e-test.md"), true);
-assert.equal(isPgMarkdownFile("docs/GUIDE.MARKDOWN"), true);
-assert.equal(isPgMarkdownFile("docs/component.mdx"), true);
-assert.equal(isPgMarkdownFile("cli/android-device-hub/electron/e2e/e2e-test.html"), false);
-assert.equal(isPgMarkdownFile("emulator/libs/file/file.cc"), false);
-
-// 2. Verify GFM Markdown rendering on ag/43741371 e2e-test.md constructs (including Unicode 测试_🚀_é)
-const mdFile = {
-  file: "cli/android-device-hub/electron/e2e/e2e-test.md",
-  status: "A",
-  additions: 28,
-  deletions: 0,
-  lines: [
-    { type: "hunk", old: "", new: "", text: "@@ -0,0 +1,28 @@" },
-    { type: "add", old: "", new: "1", text: "+# Writing End-to-End (E2E) Tests for Android Device Hub 测试_🚀_é" },
-    { type: "add", old: "", new: "2", text: "+" },
-    { type: "add", old: "", new: "3", text: "+This guide covers **real Android Emulator** (`:e2e_emulator_test`) and b/499640155." },
-    { type: "add", old: "", new: "4", text: "+" },
-    { type: "add", old: "", new: "5", text: "+---" },
-    { type: "add", old: "", new: "6", text: "+" },
-    { type: "add", old: "", new: "7", text: "+## 1. Overview of E2E Backends & Bazel Targets" },
-    { type: "add", old: "", new: "8", text: "+" },
-    { type: "add", old: "", new: "9", text: "+| Backend (`ADH_E2E_BACKEND`) | Bazel Target | Primary Use Case |" },
-    { type: "add", old: "", new: "10", text: "+|---|---|---|" },
-    { type: "add", old: "", new: "11", text: "+| `mock` *(default)* | `:e2e_test` | Fast presubmit verification |" },
-    { type: "add", old: "", new: "12", text: "+| `emulator` | `:e2e_emulator_test` | Full-stack gRPC verification |" },
-    { type: "add", old: "", new: "13", text: "+" },
-    { type: "add", old: "", new: "14", text: "+### A. `pointer` Mode (`PointerProbeView.kt`)" },
-    { type: "add", old: "", new: "15", text: "+- Renders 5 screen-space target zones with `#7AA2F7` blue and `#F7768E` coral:" },
-    { type: "add", old: "", new: "16", text: "+  - **`layout` event (`ProbeLayoutEvent`)**: Emitted on startup." },
-    { type: "add", old: "", new: "17", text: "+  - **`motion` event (`ProbeMotionEvent`)**: Emitted on touch:" },
-    { type: "add", old: "", new: "18", text: "+    - Primary pointer: `screenX`, `screenY`." },
-    { type: "add", old: "", new: "19", text: "+" },
-    { type: "add", old: "", new: "20", text: "+1. **Run the real-emulator test**:" },
-    { type: "add", old: "", new: "21", text: "+   ```bash" },
-    { type: "add", old: "", new: "22", text: "+   tools/base/bazel/bazel test //tools/vendor/google/cli/android-device-hub/electron:e2e_emulator_test" },
-    { type: "add", old: "", new: "23", text: "+   ```" },
-  ],
-};
-
-state.selectedClNumber = 43741371;
-state.diffsByCl[43741371] = { patch_set: 2, files: [mdFile] };
-
-const blockHtml = renderFileDiffBlock(mdFile, 43741371, 2);
-assert.equal(blockHtml.includes('class="pg-markdown-viewer"'), true);
-assert.equal(blockHtml.includes('class="pg-md-table"'), true);
-assert.equal(blockHtml.includes('class="pg-md-code-block" data-lang="bash"'), true);
-assert.equal(blockHtml.includes('class="pg-md-color-swatch" style="background-color:#7AA2F7;"'), true);
-assert.equal(blockHtml.includes("showPgBugHovercard(event, '499640155')"), true);
-assert.equal(blockHtml.includes("Writing End-to-End (E2E) Tests for Android Device Hub 测试_🚀_é"), true);
-assert.equal(blockHtml.includes("1 table · 1 code block · 23 lines"), true);
-
-// 3. Verify mode switching (preview -> split -> diff)
-const safeId = "cli_android-device-hub_electron_e2e_e2e-test_md";
-assert.equal(getPgMarkdownViewMode(43741371, mdFile.file), "preview");
-setPgMarkdownViewMode(null, 43741371, mdFile.file, "split");
-assert.equal(getPgMarkdownViewMode(43741371, mdFile.file), "split");
-assert.equal(domMap[`pgMdWorkspace-43741371-${safeId}`].classList.contains("is-mode-split"), true);
-
-setPgMarkdownViewMode(null, 43741371, mdFile.file, "diff");
-assert.equal(getPgMarkdownViewMode(43741371, mdFile.file), "diff");
-assert.equal(domMap[`pgMdViewerPane-43741371-${safeId}`].style.display, "none");
-assert.equal(domMap[`pgMdDiffPane-43741371-${safeId}`].style.display, "");
-
-console.log("POLYGERRIT_MARKDOWN_VIEWER_OK");
-"""
+        preamble = (
+            'const assert = require("node:assert/strict");\n'
+            'function makeMockEl(id) { const attrs = {}, classes = new Set(); return {\n'
+            '  id, tagName: "DIV", className: "", innerHTML: "", textContent: "", style: { display: "", height: "" },\n'
+            '  classList: { add(...cs) { cs.forEach(c => classes.add(c)); }, remove(...cs) { cs.forEach(c => classes.delete(c)); },\n'
+            '    toggle(c, f) { const next = f === undefined ? !classes.has(c) : !!f; if (next) classes.add(c); else classes.delete(c); return next; },\n'
+            '    contains(c) { return classes.has(c); } },\n'
+            '  setAttribute(k, v) { attrs[k] = String(v); }, getAttribute(k) { return attrs[k] || ""; }, querySelectorAll() { return []; }\n'
+            '}; }\n'
+            'const domMap = new Proxy({}, { get(t, p) { if (typeof p !== "string") return undefined; if (!t[p]) t[p] = makeMockEl(p); return t[p]; } });\n'
+            'window.location = { search: "", href: "http://127.0.0.1:8080/", pathname: "/" };\n'
+            'window.localStorage = { getItem() { return null; }, setItem() {} };\n'
+            'document.documentElement = { setAttribute() {}, clientWidth: 1440, clientHeight: 900 };\n'
+            'document.getElementById = (id) => domMap[id] || null; document.querySelector = () => null; document.querySelectorAll = () => [];\n'
         )
         vm_wrapper = (
-            'const fs = require("node:fs");\n'
-            'const vm = require("node:vm");\n'
-            "const code = fs.readFileSync(process.argv[2], 'utf8');\n"
-            "const sandbox = {\n"
-            "  require,\n"
-            "  console,\n"
-            "  setTimeout,\n"
-            "  clearTimeout,\n"
-            "  URL,\n"
-            "  URLSearchParams,\n"
-            "  window: { addEventListener() {}, innerWidth: 1440, innerHeight: 900 },\n"
-            "  document: { getElementById() { return null; }, addEventListener() {} },\n"
-            "  navigator: { clipboard: { writeText: async () => {} } },\n"
-            "};\n"
-            "vm.runInNewContext(code, sandbox);\n"
+            'const fs = require("node:fs"), vm = require("node:vm");\n'
+            'vm.runInNewContext(fs.readFileSync(process.argv[2], "utf8"), {\n'
+            '  require, console, setTimeout, clearTimeout, URL, URLSearchParams,\n'
+            '  window: { addEventListener() {}, innerWidth: 1440, innerHeight: 900 },\n'
+            '  document: { getElementById() { return null; }, addEventListener() {} },\n'
+            '  navigator: { clipboard: { writeText: async () => {} } },\n'
+            '});\n'
         )
         with tempfile.TemporaryDirectory() as tmp_dir:
-            js_path = Path(tmp_dir) / "pg_md_viewer_harness.js"
-            runner_path = Path(tmp_dir) / "run_vm.js"
-            js_path.write_text(harness_js, encoding="utf-8")
+            js_path, runner_path = Path(tmp_dir) / "harness.js", Path(tmp_dir) / "run_vm.js"
+            js_path.write_text(preamble + js_body + "\n" + assertions_js, encoding="utf-8")
             runner_path.write_text(vm_wrapper, encoding="utf-8")
-            proc = subprocess.run(
-                [node_bin, str(runner_path), str(js_path)],
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=10,
-            )
-            self.assertEqual(
-                proc.returncode,
-                0,
-                msg=f"PolyGerrit Markdown viewer harness failed:\n{proc.stderr}\n{proc.stdout}",
-            )
-            self.assertIn("POLYGERRIT_MARKDOWN_VIEWER_OK", proc.stdout)
+            proc = subprocess.run([node_bin, str(runner_path), str(js_path)], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=10)
+            self.assertEqual(proc.returncode, 0, msg=f"Viewer VM failed:\n{proc.stderr}\n{proc.stdout}")
+            return proc.stdout
+
+    def test_polygerrit_markdown_file_viewer(self) -> None:
+        """Verifies the rendered Markdown file viewer (Preview, Split, and Diff modes) for .md files like ag/43741371."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for marker in ("pg-markdown-viewer", "function renderPgMarkdownDocumentHtml", "function renderPgMarkdownViewerHtml", "function setPgMarkdownViewMode"):
+            self.assertIn(marker, html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+assert.equal(isPgMarkdownFile("cli/android-device-hub/electron/e2e/e2e-test.md"), true);
+assert.equal(isPgMarkdownFile("docs/GUIDE.MARKDOWN"), true);
+assert.equal(isPgMarkdownFile("cli/android-device-hub/electron/e2e/e2e-test.html"), false);
+const mdFile = {
+  file: "cli/android-device-hub/electron/e2e/e2e-test.md", status: "A", additions: 14, deletions: 0,
+  lines: [
+    { type: "hunk", old: "", new: "", text: "@@ -0,0 +1,14 @@" },
+    { type: "add", old: "", new: "1", text: "+# Writing End-to-End (E2E) Tests for Android Device Hub 测试_🚀_é" },
+    { type: "add", old: "", new: "2", text: "+This guide covers **real Android Emulator** (`:e2e_emulator_test`) and b/499640155." },
+    { type: "add", old: "", new: "3", text: "+| Backend (`ADH_E2E_BACKEND`) | Bazel Target |" },
+    { type: "add", old: "", new: "4", text: "+|---|---|" },
+    { type: "add", old: "", new: "5", text: "+| `emulator` | `:e2e_emulator_test` |" },
+    { type: "add", old: "", new: "6", text: "+- Target zones with `#7AA2F7` blue:" },
+    { type: "add", old: "", new: "7", text: "+  - **`layout` event**: Emitted on startup." },
+    { type: "add", old: "", new: "8", text: "+1. **Run test**:" },
+    { type: "add", old: "", new: "9", text: "+   ```bash" },
+    { type: "add", old: "", new: "10", text: "+   bazel test //tools/vendor/google/cli/android-device-hub/electron:e2e_emulator_test" },
+    { type: "add", old: "", new: "11", text: "+   ```" },
+  ],
+};
+state.selectedClNumber = 43741371;
+state.diffsByCl[43741371] = { patch_set: 2, files: [mdFile] };
+const blockHtml = renderFileDiffBlock(mdFile, 43741371, 2);
+for (const expected of ['class="pg-markdown-viewer"', 'class="pg-md-table"', 'data-lang="bash"', 'background-color:#7AA2F7;', "showPgBugHovercard(event, '499640155')", "测试_🚀_é"]) {
+  assert.equal(blockHtml.includes(expected), true, `Missing: ${expected}`);
+}
+const safeId = "cli_android-device-hub_electron_e2e_e2e-test_md";
+setPgMarkdownViewMode(null, 43741371, mdFile.file, "split");
+assert.equal(domMap[`pgMdWorkspace-43741371-${safeId}`].classList.contains("is-mode-split"), true);
+setPgMarkdownViewMode(null, 43741371, mdFile.file, "diff");
+assert.equal(domMap[`pgMdViewerPane-43741371-${safeId}`].style.display, "none");
+console.log("POLYGERRIT_MARKDOWN_VIEWER_OK");
+""",
+        )
+        if out:
+            self.assertIn("POLYGERRIT_MARKDOWN_VIEWER_OK", out)
+
+    def test_polygerrit_html_file_viewer(self) -> None:
+        """Verifies the rendered HTML file viewer (Sandboxed iframe preview, Split, Diff, and viewport presets) for .html files like ag/43741371."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for marker in ("pg-html-viewer", "pg-html-preview-iframe", "function renderPgHtmlViewerHtml", "function setPgHtmlViewMode", "function setPgHtmlViewportPreset"):
+            self.assertIn(marker, html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+assert.equal(isPgHtmlFile("cli/android-device-hub/electron/e2e/e2e-test.html"), true);
+assert.equal(isPgHtmlFile("docs/index.htm"), true);
+assert.equal(isPgHtmlFile("cli/android-device-hub/electron/e2e/e2e-test.md"), false);
+const htmlFile = {
+  file: "cli/android-device-hub/electron/e2e/e2e-test.html", status: "A", additions: 8, deletions: 0,
+  lines: [
+    { type: "hunk", old: "", new: "", text: "@@ -0,0 +1,8 @@" },
+    { type: "add", old: "", new: "1", text: "+<!DOCTYPE html><html><head>" },
+    { type: "add", old: "", new: "2", text: "+<title>Writing End-to-End (E2E) Tests for Android Device Hub 测试_🚀_é</title></head><body>" },
+    { type: "add", old: "", new: "3", text: "+<h1>Writing End-to-End (E2E) Tests</h1><h2>1. Overview</h2>" },
+    { type: "add", old: "", new: "4", text: "+<table><tr><td>mock</td></tr></table><pre><code>bazel test</code></pre></body></html>" },
+  ],
+};
+state.selectedClNumber = 43741371;
+state.diffsByCl[43741371] = { patch_set: 2, files: [htmlFile] };
+const blockHtml = renderFileDiffBlock(htmlFile, 43741371, 2);
+for (const expected of ['class="pg-html-viewer"', 'class="pg-html-preview-iframe"', 'sandbox="allow-same-origin"', "🌐 Writing End-to-End (E2E) Tests for Android Device Hub 测试_🚀_é", "2 sections · 1 table · 1 code block · 4 lines"]) {
+  assert.equal(blockHtml.includes(expected), true, `Missing: ${expected}`);
+}
+const safeId = "cli_android-device-hub_electron_e2e_e2e-test_html";
+setPgHtmlViewportPreset(null, 43741371, safeId, "tablet");
+assert.equal(domMap[`pgHtmlStage-43741371-${safeId}`].classList.contains("viewport-tablet"), true);
+setPgHtmlViewMode(null, 43741371, htmlFile.file, "split");
+assert.equal(domMap[`pgHtmlWorkspace-43741371-${safeId}`].classList.contains("is-mode-split"), true);
+setPgHtmlViewMode(null, 43741371, htmlFile.file, "diff");
+assert.equal(domMap[`pgHtmlViewerPane-43741371-${safeId}`].style.display, "none");
+console.log("POLYGERRIT_HTML_VIEWER_OK");
+""",
+        )
+        if out:
+            self.assertIn("POLYGERRIT_HTML_VIEWER_OK", out)
 
 
 if __name__ == "__main__":

@@ -4611,6 +4611,50 @@
     font-family: monospace;
     font-size: 12.5px;
   }
+  .pg-html-header-mode-group {
+    display: inline-flex;
+    align-items: center;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .pg-html-mode-btn {
+    appearance: none;
+    background: transparent;
+    border: none;
+    color: #8b949e;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .pg-html-mode-btn.is-active {
+    background: rgba(56, 139, 253, 0.2);
+    color: #79c0ff;
+  }
+  .pg-html-file-workspace.is-mode-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .pg-html-viewer {
+    background: #0f131c;
+    color: #e5e9f0;
+    border-top: 1px solid #2c3650;
+  }
+  .pg-html-preview-iframe {
+    width: 100%;
+    min-height: 760px;
+    border: 0;
+    display: block;
+    background: transparent;
+  }
 </style>
 </head>
 <body>
@@ -10230,6 +10274,33 @@
     }
     return validMode;
   }
+  const PG_HTML_EXTENSIONS = new Set(["html", "htm", "xhtml"]);
+  function isPgHtmlFile(filePath) {
+    const raw = String(filePath || "").trim().toLowerCase();
+    const dotIdx = raw.lastIndexOf(".");
+    const ext = dotIdx >= 0 ? raw.slice(dotIdx + 1) : "";
+    return PG_HTML_EXTENSIONS.has(ext);
+  }
+  function getPgHtmlViewMode(clNum, filePath) {
+    if (!state.htmlViewModeByFile) state.htmlViewModeByFile = {};
+    const num = Number(clNum || state.selectedClNumber || 0);
+    return state.htmlViewModeByFile[`${num}:${String(filePath || "")}`] || "preview";
+  }
+  function setPgHtmlViewMode(event, clNum, filePath, mode) {
+    if (event && typeof event.stopPropagation === "function") event.stopPropagation();
+    const validMode = (mode === "split" || mode === "diff") ? mode : "preview";
+    const num = Number(clNum || state.selectedClNumber || 0);
+    if (!state.htmlViewModeByFile) state.htmlViewModeByFile = {};
+    state.htmlViewModeByFile[`${num}:${filePath}`] = validMode;
+    const safeFileId = String(filePath || "").replace(/[^a-zA-Z0-9_-]/g, "_");
+    if (typeof document !== "undefined") {
+      const viewerPane = document.getElementById(`pgHtmlViewerPane-${num}-${safeFileId}`);
+      const diffPane = document.getElementById(`pgHtmlDiffPane-${num}-${safeFileId}`);
+      if (viewerPane) viewerPane.style.display = validMode === "diff" ? "none" : "";
+      if (diffPane) diffPane.style.display = validMode === "preview" ? "none" : "";
+    }
+    return validMode;
+  }
 
   function renderFileDiffBlock(f, defaultClNum) {
     const firstTaggedCl = Array.isArray(f.lines)
@@ -10298,6 +10369,34 @@
                 <div class="pg-markdown-viewer-pane" id="pgMdViewerPane-${fallbackCl}-${safeFileId}"${viewerDisplay}>
                   <div class="pg-markdown-viewer" id="pgMarkdownViewer-${fallbackCl}-${safeFileId}">
                     <div class="pg-markdown-body">${rendered.html}</div>
+                  </div>
+                </div>
+              </div>`;
+    }
+    if (isPgHtmlFile(f.file)) {
+      const htmlMode = getPgHtmlViewMode(fallbackCl, f.file);
+      const src = extractPgFileSourceFromDiff(f, fallbackCl, 1, "new");
+      const viewerDisplay = htmlMode === "diff" ? ' style="display:none;"' : "";
+      const diffDisplay = htmlMode === "preview" ? ' style="display:none;"' : "";
+      return `<div class="file-header">
+                <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+                  ${renderCodeSearchFileLinkHtml(fallbackCl, f.file)}
+                  ${langBadgeHtml}
+                </div>
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <div class="pg-html-header-mode-group">
+                    <button type="button" class="pg-html-mode-btn ${htmlMode === "preview" ? "is-active" : ""}" onclick="setPgHtmlViewMode(event, ${fallbackCl}, '${safeFile}', 'preview')">🌐 Preview</button>
+                    <button type="button" class="pg-html-mode-btn ${htmlMode === "split" ? "is-active" : ""}" onclick="setPgHtmlViewMode(event, ${fallbackCl}, '${safeFile}', 'split')">◫ Split</button>
+                    <button type="button" class="pg-html-mode-btn ${htmlMode === "diff" ? "is-active" : ""}" onclick="setPgHtmlViewMode(event, ${fallbackCl}, '${safeFile}', 'diff')">📝 Diff</button>
+                  </div>
+                  <span>+${f.additions} / -${f.deletions}</span>
+                </div>
+              </div>
+              <div class="pg-html-file-workspace is-mode-${escapeHtml(htmlMode)}" id="pgHtmlWorkspace-${fallbackCl}-${safeFileId}">
+                <div class="pg-html-diff-pane" id="pgHtmlDiffPane-${fallbackCl}-${safeFileId}"${diffDisplay}>${codeTableHtml}</div>
+                <div class="pg-html-viewer-pane" id="pgHtmlViewerPane-${fallbackCl}-${safeFileId}"${viewerDisplay}>
+                  <div class="pg-html-viewer" id="pgHtmlViewer-${fallbackCl}-${safeFileId}">
+                    <iframe class="pg-html-preview-iframe" sandbox="allow-same-origin" srcdoc="${escapeHtml(src.text)}" title="HTML Preview: ${safeFile}"></iframe>
                   </div>
                 </div>
               </div>`;
