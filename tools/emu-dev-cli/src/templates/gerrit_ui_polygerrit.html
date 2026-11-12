@@ -25463,6 +25463,426 @@
   @keyframes pgChecksSpin {
     100% { transform: rotate(360deg); }
   }
+
+  /* PolyGerrit Rendered Markdown File Viewer */
+  .pg-md-header-mode-group {
+    display: inline-flex;
+    align-items: center;
+    background: var(--g-panel-alt, #161b22);
+    border: 1px solid var(--g-border, #30363d);
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .pg-md-mode-btn {
+    appearance: none;
+    background: transparent;
+    border: none;
+    color: var(--g-muted, #8b949e);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .pg-md-mode-btn:hover {
+    color: var(--g-text, #e6edf3);
+    background: rgba(177, 186, 196, 0.12);
+  }
+  .pg-md-mode-btn.is-active {
+    background: rgba(56, 139, 253, 0.2);
+    color: #79c0ff;
+    box-shadow: inset 0 0 0 1px rgba(56, 139, 253, 0.45);
+  }
+  [data-pg-theme="light"] .pg-md-mode-btn.is-active {
+    background: #e8f0fe;
+    color: #1967d2;
+    box-shadow: inset 0 0 0 1px rgba(25, 103, 210, 0.35);
+  }
+  .pg-md-file-workspace {
+    display: block;
+    width: 100%;
+  }
+  .pg-md-file-workspace.is-mode-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .pg-md-file-workspace.is-mode-split > .pg-md-diff-pane {
+    border-right: 1px solid var(--g-border, #30363d);
+    min-width: 0;
+    overflow-x: auto;
+  }
+  .pg-md-file-workspace.is-mode-split > .pg-markdown-viewer-pane {
+    min-width: 0;
+  }
+  .pg-markdown-viewer {
+    background: var(--g-bg, #0f131c);
+    color: var(--g-text, #e5e9f0);
+    border-top: 1px solid var(--g-border, #2c3650);
+  }
+  [data-pg-theme="light"] .pg-markdown-viewer {
+    background: #ffffff;
+    color: #1f2328;
+  }
+  .pg-markdown-viewer-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 8px 16px;
+    background: var(--g-panel-alt, #171d2b);
+    border-bottom: 1px solid var(--g-border, #2c3650);
+    font-size: 12px;
+  }
+  [data-pg-theme="light"] .pg-markdown-viewer-toolbar {
+    background: #f6f8fa;
+    border-bottom-color: #d0d7de;
+  }
+  .pg-md-toolbar-left,
+  .pg-md-toolbar-right {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .pg-md-stats-pill {
+    font-size: 11px;
+    color: var(--g-muted, #9aa5ce);
+    background: rgba(122, 162, 247, 0.1);
+    border: 1px solid rgba(122, 162, 247, 0.25);
+    padding: 2px 8px;
+    border-radius: 999px;
+  }
+  [data-pg-theme="light"] .pg-md-stats-pill {
+    color: #57606a;
+    background: #eef2f7;
+    border-color: #d0d7de;
+  }
+  .pg-md-toc-strip {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 16px;
+    background: rgba(23, 29, 43, 0.72);
+    border-bottom: 1px solid var(--g-border-subtle, #232b3e);
+    font-size: 11px;
+  }
+  [data-pg-theme="light"] .pg-md-toc-strip {
+    background: #fbfcfd;
+    border-bottom-color: #e5e9f0;
+  }
+  .pg-md-toc-label {
+    color: var(--g-muted, #9aa5ce);
+    font-weight: 600;
+    white-space: nowrap;
+    margin-right: 2px;
+  }
+  .pg-md-toc-chip {
+    appearance: none;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--g-border, #2c3650);
+    color: var(--g-text, #e5e9f0);
+    border-radius: 999px;
+    padding: 2px 9px;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.12s ease, border-color 0.12s ease;
+  }
+  .pg-md-toc-chip:hover {
+    background: rgba(122, 162, 247, 0.16);
+    border-color: #7aa2f7;
+    color: #ffffff;
+  }
+  [data-pg-theme="light"] .pg-md-toc-chip {
+    background: #ffffff;
+    border-color: #d0d7de;
+    color: #24292f;
+  }
+  [data-pg-theme="light"] .pg-md-toc-chip:hover {
+    background: #e8f0fe;
+    border-color: #1a73e8;
+    color: #174ea6;
+  }
+  .pg-markdown-body {
+    max-width: 1020px;
+    margin: 0 auto;
+    padding: 28px 36px 44px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14.5px;
+    line-height: 1.65;
+    color: var(--g-text, #e5e9f0);
+    overflow-wrap: break-word;
+  }
+  .pg-md-file-workspace.is-mode-split .pg-markdown-body {
+    max-width: none;
+    padding: 20px 22px 32px;
+  }
+  [data-pg-theme="light"] .pg-markdown-body {
+    color: #1f2328;
+  }
+  .pg-md-heading {
+    position: relative;
+    line-height: 1.3;
+    scroll-margin-top: 72px;
+  }
+  .pg-md-h1 {
+    margin: 0 0 16px;
+    font-size: 26px;
+    font-weight: 700;
+    color: #ffffff;
+    border-bottom: 1px solid var(--g-border, #2c3650);
+    padding-bottom: 12px;
+  }
+  [data-pg-theme="light"] .pg-md-h1 {
+    color: #111827;
+    border-bottom-color: #d0d7de;
+  }
+  .pg-md-h2 {
+    margin: 30px 0 14px;
+    font-size: 19.5px;
+    font-weight: 600;
+    color: #7aa2f7;
+    border-bottom: 1px solid var(--g-border, #2c3650);
+    padding-bottom: 7px;
+  }
+  [data-pg-theme="light"] .pg-md-h2 {
+    color: #1967d2;
+    border-bottom-color: #d8dee4;
+  }
+  .pg-md-h3 {
+    margin: 22px 0 10px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #9ece6a;
+  }
+  [data-pg-theme="light"] .pg-md-h3 {
+    color: #137333;
+  }
+  .pg-md-h4,
+  .pg-md-h5,
+  .pg-md-h6 {
+    margin: 16px 0 8px;
+    font-size: 14.5px;
+    font-weight: 600;
+    color: var(--g-text, #e5e9f0);
+  }
+  .pg-md-heading-anchor {
+    opacity: 0;
+    color: var(--g-muted, #8b949e);
+    text-decoration: none;
+    margin-right: 6px;
+    font-weight: 400;
+    transition: opacity 0.12s ease;
+  }
+  .pg-md-heading:hover .pg-md-heading-anchor {
+    opacity: 0.85;
+  }
+  .pg-md-p {
+    margin: 0 0 14px;
+  }
+  .pg-md-hr {
+    border: 0;
+    border-top: 1px solid var(--g-border, #2c3650);
+    margin: 26px 0;
+  }
+  .pg-md-ul,
+  .pg-md-ol {
+    margin: 6px 0 14px;
+    padding-left: 24px;
+  }
+  .pg-md-li {
+    margin: 5px 0;
+  }
+  .pg-md-li > .pg-md-ul,
+  .pg-md-li > .pg-md-ol {
+    margin-top: 4px;
+    margin-bottom: 6px;
+  }
+  .pg-md-inline-code {
+    font-family: "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+    font-size: 0.88em;
+    background: #111622;
+    color: #e0af68;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid #2c3650;
+  }
+  [data-pg-theme="light"] .pg-md-inline-code {
+    background: #f6f8fa;
+    color: #9a6700;
+    border-color: #d0d7de;
+  }
+  .pg-md-color-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    margin-left: 5px;
+    vertical-align: middle;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+  }
+  .pg-md-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    margin: 14px 0 22px;
+    border-radius: 8px;
+    border: 1px solid var(--g-border, #2c3650);
+    background: #171d2b;
+  }
+  [data-pg-theme="light"] .pg-md-table-wrap {
+    background: #ffffff;
+    border-color: #d0d7de;
+  }
+  .pg-md-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  .pg-md-table th,
+  .pg-md-table td {
+    text-align: left;
+    padding: 10px 13px;
+    border-bottom: 1px solid var(--g-border, #2c3650);
+    vertical-align: top;
+  }
+  .pg-md-table th {
+    background: #1e2638;
+    color: #ffffff;
+    font-weight: 600;
+  }
+  [data-pg-theme="light"] .pg-md-table th {
+    background: #f6f8fa;
+    color: #1f2328;
+    border-bottom-color: #d0d7de;
+  }
+  [data-pg-theme="light"] .pg-md-table td {
+    border-bottom-color: #e5e9f0;
+  }
+  .pg-md-table tr:last-child td {
+    border-bottom: none;
+  }
+  .pg-md-code-block {
+    margin: 12px 0 18px;
+    border: 1px solid var(--g-border, #2c3650);
+    border-radius: 8px;
+    overflow: hidden;
+    background: #111622;
+  }
+  [data-pg-theme="light"] .pg-md-code-block {
+    background: #f6f8fa;
+    border-color: #d0d7de;
+  }
+  .pg-md-code-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--g-border, #2c3650);
+    font-size: 11px;
+    color: var(--g-muted, #9aa5ce);
+  }
+  [data-pg-theme="light"] .pg-md-code-header {
+    background: #eef2f6;
+    border-bottom-color: #d0d7de;
+    color: #57606a;
+  }
+  .pg-md-code-lang {
+    font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #7aa2f7;
+  }
+  [data-pg-theme="light"] .pg-md-code-lang {
+    color: #1967d2;
+  }
+  .pg-md-code-copy-btn {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--g-border, #2c3650);
+    color: var(--g-muted, #9aa5ce);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .pg-md-code-copy-btn:hover {
+    color: var(--g-text, #ffffff);
+    border-color: #7aa2f7;
+  }
+  .pg-md-code-pre {
+    margin: 0;
+    padding: 13px 16px;
+    overflow-x: auto;
+    font-family: "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--g-text, #e5e9f0);
+  }
+  [data-pg-theme="light"] .pg-md-code-pre {
+    color: #1f2328;
+  }
+  .pg-md-blockquote,
+  .pg-md-alert {
+    margin: 14px 0 18px;
+    padding: 12px 16px;
+    border-left: 4px solid #7aa2f7;
+    background: rgba(23, 29, 43, 0.85);
+    border-radius: 0 6px 6px 0;
+  }
+  [data-pg-theme="light"] .pg-md-blockquote,
+  [data-pg-theme="light"] .pg-md-alert {
+    background: #f6f8fa;
+  }
+  .pg-md-alert-title {
+    font-weight: 600;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .pg-md-alert-tip { border-left-color: #9ece6a; }
+  .pg-md-alert-important { border-left-color: #bb9af7; }
+  .pg-md-alert-warning { border-left-color: #e0af68; }
+  .pg-md-alert-caution { border-left-color: #f7768e; }
+  .pg-md-link {
+    color: #7aa2f7;
+    text-decoration: none;
+  }
+  .pg-md-link:hover {
+    text-decoration: underline;
+  }
+  [data-pg-theme="light"] .pg-md-link {
+    color: #0969da;
+  }
+  .pg-md-compare-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0;
+  }
+  .pg-md-compare-col {
+    min-width: 0;
+  }
+  .pg-md-compare-col + .pg-md-compare-col {
+    border-left: 1px solid var(--g-border, #2c3650);
+  }
+  .pg-md-compare-col-header {
+    padding: 6px 16px;
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--g-border, #2c3650);
+    color: var(--g-muted, #9aa5ce);
+  }
 </style>
 </head>
 <body>
@@ -59201,6 +59621,863 @@
     }
   }
 
+  /* PolyGerrit Rendered Markdown File Viewer (<gr-markdown-viewer>) */
+  const PG_MARKDOWN_EXTENSIONS = new Set(["md", "markdown", "mdx", "mdown", "mkd"]);
+  if (typeof window !== "undefined") {
+    window.PG_MARKDOWN_EXTENSIONS = PG_MARKDOWN_EXTENSIONS;
+  }
+
+  function isPgMarkdownFile(filePath) {
+    const raw = String(filePath || "").trim().toLowerCase();
+    const dotIdx = raw.lastIndexOf(".");
+    const ext = dotIdx >= 0 ? raw.slice(dotIdx + 1) : "";
+    return PG_MARKDOWN_EXTENSIONS.has(ext);
+  }
+
+  function getPgMarkdownViewMode(clNum, filePath) {
+    if (!state.markdownViewModeByFile) state.markdownViewModeByFile = {};
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const key = `${num}:${String(filePath || "")}`;
+    return state.markdownViewModeByFile[key] || "preview";
+  }
+
+  function getPgMarkdownPreviewSide(clNum, filePath) {
+    if (!state.markdownPreviewSideByFile) state.markdownPreviewSideByFile = {};
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const key = `${num}:${String(filePath || "")}`;
+    return state.markdownPreviewSideByFile[key] || "new";
+  }
+
+  function stripPgDiffLinePrefix(rawText, lineType) {
+    const text = String(rawText == null ? "" : rawText);
+    if (lineType === "add") {
+      return text.startsWith("+") ? text.slice(1) : text;
+    }
+    if (lineType === "del") {
+      return text.startsWith("-") ? text.slice(1) : text;
+    }
+    if (lineType === "ctx") {
+      return text.startsWith(" ") ? text.slice(1) : text;
+    }
+    return text;
+  }
+
+  function extractPgFileSourceFromDiff(f, clNum, ps, side = "new") {
+    const fileObj = f || {};
+    const filePath = String(fileObj.file || "");
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const patchSet = Number(ps || (state.diffsByCl && state.diffsByCl[num] && state.diffsByCl[num].patch_set) || 1);
+    const cacheKey = `${num}:${patchSet}:${filePath}`;
+
+    if (side === "new") {
+      if (typeof fileObj.raw_content === "string") {
+        const lines = fileObj.raw_content.split("\n");
+        return { text: fileObj.raw_content, lineCount: lines.length, isPartial: false, hasOldLines: false, hasNewLines: true };
+      }
+      if (typeof fileObj.content === "string") {
+        const lines = fileObj.content.split("\n");
+        return { text: fileObj.content, lineCount: lines.length, isPartial: false, hasOldLines: false, hasNewLines: true };
+      }
+      if (state.fileContentCache && Array.isArray(state.fileContentCache[cacheKey])) {
+        const cachedLines = state.fileContentCache[cacheKey];
+        return {
+          text: cachedLines.join("\n"),
+          lineCount: cachedLines.length,
+          isPartial: false,
+          hasOldLines: Number(fileObj.deletions || 0) > 0,
+          hasNewLines: true,
+        };
+      }
+    } else if (side === "old" && typeof fileObj.old_content === "string") {
+      const lines = fileObj.old_content.split("\n");
+      return { text: fileObj.old_content, lineCount: lines.length, isPartial: false, hasOldLines: true, hasNewLines: false };
+    }
+
+    const rawLines = Array.isArray(fileObj.lines) ? fileObj.lines : [];
+    const newLines = [];
+    const oldLines = [];
+    let hunkCount = 0;
+    let firstNewLn = 0;
+    let firstOldLn = 0;
+
+    for (let i = 0; i < rawLines.length; i++) {
+      const ln = rawLines[i];
+      if (!ln) continue;
+      const t = ln.type || "ctx";
+      if (t === "hunk") {
+        if (String(ln.text || "").startsWith("@@")) {
+          hunkCount++;
+        }
+        continue;
+      }
+      if (t === "add" || t === "ctx") {
+        if (!firstNewLn && Number(ln.new) > 0) firstNewLn = Number(ln.new);
+        newLines.push(stripPgDiffLinePrefix(ln.text, t));
+      }
+      if (t === "del" || t === "ctx") {
+        if (!firstOldLn && Number(ln.old) > 0) firstOldLn = Number(ln.old);
+        oldLines.push(stripPgDiffLinePrefix(ln.text, t));
+      }
+    }
+
+    const status = (typeof getPgFileStatus === "function") ? getPgFileStatus(fileObj) : String(fileObj.status || "M");
+    const chosenLines = side === "old" ? oldLines : (newLines.length > 0 || status !== "D" ? newLines : oldLines);
+    const firstLn = side === "old" ? firstOldLn : firstNewLn;
+    const isPartial = Boolean(
+      status !== "A" &&
+      status !== "D" &&
+      (hunkCount > 1 || (firstLn > 1) || Boolean(fileObj.truncated))
+    );
+
+    return {
+      text: chosenLines.join("\n"),
+      lineCount: chosenLines.length,
+      isPartial,
+      hasOldLines: oldLines.length > 0,
+      hasNewLines: newLines.length > 0,
+    };
+  }
+
+  function slugifyPgMarkdownHeading(rawText) {
+    return String(rawText || "")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/[*_~[\]()]/g, "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^\w\u0080-\uffff\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "") || "section";
+  }
+
+  function extractPgMarkdownHeadings(rawMd) {
+    const lines = String(rawMd || "").replace(/\r\n/g, "\n").split("\n");
+    const headings = [];
+    let inFence = false;
+    let fenceMarker = "";
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const fenceMatch = line.match(/^\s{0,8}(`{3,}|~{3,})/);
+      if (fenceMatch) {
+        const marker = fenceMatch[1];
+        if (!inFence) {
+          inFence = true;
+          fenceMarker = marker[0];
+        } else if (marker[0] === fenceMarker && line.trim() === marker) {
+          inFence = false;
+          fenceMarker = "";
+        }
+        continue;
+      }
+      if (inFence) continue;
+      const m = line.match(/^\s{0,3}(#{1,4})\s+(.+?)\s*#*$/);
+      if (m) {
+        const level = m[1].length;
+        const rawTitle = m[2].trim();
+        const cleanTitle = rawTitle.replace(/`([^`]+)`/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*([^*]+)\*/g, "$1");
+        headings.push({
+          level,
+          text: cleanTitle,
+          rawText: rawTitle,
+          slug: slugifyPgMarkdownHeading(rawTitle),
+          line: i + 1,
+        });
+      }
+    }
+    return headings;
+  }
+
+  function mapPgMarkdownCodeFenceLang(rawLang) {
+    const lang = String(rawLang || "").trim().toLowerCase();
+    if (!lang) return { id: "generic", label: "TEXT" };
+    if (["ts", "tsx", "typescript"].includes(lang)) return { id: "js", label: "TYPESCRIPT" };
+    if (["js", "jsx", "mjs", "cjs", "javascript"].includes(lang)) return { id: "js", label: "JAVASCRIPT" };
+    if (["py", "python", "starlark", "bazel", "bzl"].includes(lang)) return { id: "python", label: lang.toUpperCase() };
+    if (["sh", "bash", "zsh", "shell", "console"].includes(lang)) return { id: "config", label: lang.toUpperCase() };
+    if (["c", "cc", "cpp", "cxx", "h", "hpp", "java", "kt", "kotlin", "objc"].includes(lang)) return { id: "cpp", label: lang.toUpperCase() };
+    if (["rs", "rust"].includes(lang)) return { id: "rust", label: "RUST" };
+    if (["go", "golang"].includes(lang)) return { id: "go", label: "GO" };
+    if (["html", "htm", "xml", "svg"].includes(lang)) return { id: "markup", label: lang.toUpperCase() };
+    if (["json", "jsonl", "yaml", "yml", "toml", "ini", "proto", "textproto", "pbtxt", "css"].includes(lang)) {
+      return { id: "config", label: lang.toUpperCase() };
+    }
+    return { id: "generic", label: lang.toUpperCase() };
+  }
+
+  function renderPgMarkdownCodeBlockHtml(codeLines, rawLang, scheme = "syntax_intraline") {
+    const langInfo = mapPgMarkdownCodeFenceLang(rawLang);
+    const rawCode = codeLines.join("\n");
+    const highlightedLines = codeLines.map(ln => {
+      if (typeof renderHighlightedDiffLineHtml === "function" && langInfo.id !== "generic") {
+        return renderHighlightedDiffLineHtml(ln, "ctx", langInfo.id, scheme, null);
+      }
+      return escapeHtml(ln);
+    });
+    const encodedRaw = escapeHtml(rawCode);
+    const lineCountLabel = `${codeLines.length} line${codeLines.length === 1 ? "" : "s"}`;
+    return `<div class="pg-md-code-block" data-lang="${escapeHtml(langInfo.label.toLowerCase())}">
+      <div class="pg-md-code-header">
+        <span><span class="pg-md-code-lang">${escapeHtml(langInfo.label)}</span> · ${lineCountLabel}</span>
+        <button type="button" class="pg-md-code-copy-btn" data-code="${encodedRaw}" onclick="copyPgMarkdownCodeBlock(event, this)" title="Copy code block to clipboard">📋 Copy</button>
+      </div>
+      <pre class="pg-md-code-pre"><code>${highlightedLines.join("\n")}</code></pre>
+    </div>`;
+  }
+
+  function renderPgMarkdownInlineHtml(rawText, clNum = 0) {
+    const text = String(rawText == null ? "" : rawText);
+    if (!text) return "";
+
+    const tokens = [];
+    const saveToken = (html) => {
+      const idx = tokens.length;
+      tokens.push(html);
+      return `\u0000PGMDTOK${idx}\u0000`;
+    };
+
+    // 1. Protect inline code spans (`...`) first
+    let working = text.replace(/`([^`\n]+)`/g, (_m, codeContent) => {
+      const trimmed = String(codeContent || "").trim();
+      const escapedCode = escapeHtml(codeContent);
+      const isHexColor = /^#[0-9a-fA-F]{6}$/.test(trimmed);
+      const swatchHtml = isHexColor
+        ? `<span class="pg-md-color-swatch" style="background-color:${escapeHtml(trimmed)};" title="${escapeHtml(trimmed)}"></span>`
+        : "";
+      const tokCls = (typeof _classifyInlineCodeSpanClass === "function") ? _classifyInlineCodeSpanClass(trimmed) : "";
+      return saveToken(`<code class="pg-md-inline-code${tokCls}">${escapedCode}${swatchHtml}</code>`);
+    });
+
+    // 2. Escape HTML entities on remaining text
+    working = escapeHtml(working);
+
+    // 3. Inline images ![alt](url)
+    working = working.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_m, altText, rawUrl) => {
+      const cleanUrl = String(rawUrl || "").trim();
+      if (!/^(?:https?:\/\/|data:image\/|\/)/i.test(cleanUrl)) {
+        return escapeHtml(_m);
+      }
+      return saveToken(`<img class="pg-md-inline-img" src="${cleanUrl}" alt="${altText}" loading="lazy" style="max-width:100%;border-radius:6px;" />`);
+    });
+
+    // 4. Inline links [label](url)
+    working = working.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, rawUrl) => {
+      const cleanUrl = String(rawUrl || "").trim();
+      if (/^javascript:/i.test(cleanUrl)) return label;
+      return saveToken(`<a class="pg-md-link" href="${cleanUrl}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+    });
+
+    // 5. Bold + Italic, Bold, Italic, Strikethrough
+    working = working.replace(/\*\*\*([^*]+)\*\*\*/g, "<strong><em>$1</em></strong>");
+    working = working.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    working = working.replace(/__([^_]+)__/g, "<strong>$1</strong>");
+    working = working.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+    working = working.replace(/(^|[^\w])_([^_\n]+)_([^\w]|$)/g, "$1<em>$2</em>$3");
+    working = working.replace(/~~([^~]+)~~/g, "<del>$1</del>");
+
+    // 6. Buganizer references (b/123456789) with PolyGerrit hovercard
+    working = working.replace(
+      /\bb\/(\d{6,12})\b/gi,
+      (_m, bugId) => saveToken(
+        `<a class="pg-md-link pg-diff-bug-ref" href="https://b.corp.google.com/issues/${bugId}" target="_blank" rel="noopener noreferrer" data-bug-id="${bugId}" onmouseenter="showPgBugHovercard(event, '${bugId}')" onmouseleave="scheduleHidePgBugHovercard()">b/${bugId}</a>`
+      )
+    );
+
+    // 7. Bare URLs & go/ shortlinks
+    working = working.replace(
+      /\b(https?:\/\/[^\s<)"']+)/gi,
+      (_m, url) => saveToken(`<a class="pg-md-link" href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`)
+    );
+    working = working.replace(
+      /(^|[\s(])(go\/[a-zA-Z0-9_/-]+)/g,
+      (_m, pre, goLink) => `${pre}${saveToken(`<a class="pg-md-link" href="http://${goLink}" target="_blank" rel="noopener noreferrer">${goLink}</a>`)}`
+    );
+
+    // Restore tokens (supports nested tokens inside links)
+    for (let pass = 0; pass < 2; pass++) {
+      working = working.replace(/\u0000PGMDTOK(\d+)\u0000/g, (_m, idxStr) => tokens[Number(idxStr)] || "");
+    }
+    return working;
+  }
+
+  function splitPgMarkdownTableRow(line) {
+    let trimmed = String(line || "").trim();
+    if (trimmed.startsWith("|")) trimmed = trimmed.slice(1);
+    if (trimmed.endsWith("|") && !trimmed.endsWith("\\|")) trimmed = trimmed.slice(0, -1);
+    const cells = [];
+    let cur = "";
+    let inCode = false;
+    for (let i = 0; i < trimmed.length; i++) {
+      const ch = trimmed[i];
+      if (ch === "\\" && i + 1 < trimmed.length) {
+        cur += ch + trimmed[i + 1];
+        i++;
+        continue;
+      }
+      if (ch === "`") {
+        inCode = !inCode;
+        cur += ch;
+        continue;
+      }
+      if (ch === "|" && !inCode) {
+        cells.push(cur.trim());
+        cur = "";
+        continue;
+      }
+      cur += ch;
+    }
+    cells.push(cur.trim());
+    return cells;
+  }
+
+  function isPgMarkdownTableSeparator(line) {
+    const trimmed = String(line || "").trim();
+    if (!trimmed.includes("|") || !trimmed.includes("-")) return false;
+    const cells = splitPgMarkdownTableRow(trimmed);
+    if (cells.length === 0) return false;
+    return cells.every(c => /^:?-{2,}:?$/.test(c.trim()));
+  }
+
+  function parsePgMarkdownListBlock(lines, startIdx, baseIndent, clNum, scheme) {
+    const items = [];
+    let i = startIdx;
+    let listType = "ul";
+    let startNumber = 1;
+
+    const firstMatch = String(lines[startIdx] || "").match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
+    if (firstMatch && /^\d+\.$/.test(firstMatch[2])) {
+      listType = "ol";
+      startNumber = parseInt(firstMatch[2], 10) || 1;
+    }
+
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!line.trim()) {
+        // Look ahead to see if the list continues at >= baseIndent
+        let nextNonEmpty = i + 1;
+        while (nextNonEmpty < lines.length && !lines[nextNonEmpty].trim()) nextNonEmpty++;
+        if (nextNonEmpty >= lines.length) break;
+        const nextLine = lines[nextNonEmpty];
+        const nextIndent = (nextLine.match(/^(\s*)/) || ["", ""])[1].length;
+        const nextBullet = nextLine.match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
+        if (nextIndent > baseIndent || (nextBullet && nextBullet[1].length === baseIndent)) {
+          i = nextNonEmpty;
+          continue;
+        }
+        break;
+      }
+
+      const m = line.match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
+      if (!m) break;
+      const indent = m[1].length;
+      if (indent < baseIndent) break;
+      if (indent > baseIndent) {
+        // Attach nested list to previous item if present
+        if (items.length > 0) {
+          const nested = parsePgMarkdownListBlock(lines, i, indent, clNum, scheme);
+          items[items.length - 1].subHtml.push(nested.html);
+          i = nested.nextIdx;
+          continue;
+        }
+      }
+
+      const itemIsOrdered = /^\d+\.$/.test(m[2]);
+      if (items.length > 0 && ((listType === "ol") !== itemIsOrdered) && indent === baseIndent) {
+        break;
+      }
+
+      let headText = m[3];
+      let taskCheckboxHtml = "";
+      const taskMatch = headText.match(/^\[([ xX])\]\s+(.*)$/);
+      if (taskMatch) {
+        const checked = taskMatch[1].toLowerCase() === "x";
+        taskCheckboxHtml = `<input type="checkbox" disabled ${checked ? "checked" : ""} style="margin-right:6px;vertical-align:middle;" />`;
+        headText = taskMatch[2];
+      }
+
+      const currentItem = {
+        headHtml: taskCheckboxHtml + renderPgMarkdownInlineHtml(headText, clNum),
+        subHtml: [],
+      };
+      items.push(currentItem);
+      i++;
+
+      // Consume continuation lines, nested lists, or indented fenced code blocks belonging to this item
+      while (i < lines.length) {
+        const subLine = lines[i];
+        if (!subLine.trim()) {
+          let look = i + 1;
+          while (look < lines.length && !lines[look].trim()) look++;
+          if (look >= lines.length) {
+            i = look;
+            break;
+          }
+          const lookIndent = (lines[look].match(/^(\s*)/) || ["", ""])[1].length;
+          if (lookIndent > baseIndent) {
+            i = look;
+            continue;
+          }
+          break;
+        }
+
+        const subIndent = (subLine.match(/^(\s*)/) || ["", ""])[1].length;
+        const subFence = subLine.match(/^(\s*)(`{3,}|~{3,})\s*([^\s`~]*)/);
+        if (subFence && subFence[1].length > baseIndent) {
+          const fenceIndent = subFence[1].length;
+          const fenceMarker = subFence[2];
+          const fenceLang = subFence[3] || "";
+          const codeLines = [];
+          i++;
+          while (i < lines.length) {
+            const clLine = lines[i];
+            const closeMatch = clLine.match(/^\s*(`{3,}|~{3,})\s*$/);
+            if (closeMatch && closeMatch[1][0] === fenceMarker[0] && closeMatch[1].length >= fenceMarker.length) {
+              i++;
+              break;
+            }
+            codeLines.push(clLine.startsWith(" ".repeat(fenceIndent)) ? clLine.slice(fenceIndent) : clLine.replace(/^\s{1,4}/, ""));
+            i++;
+          }
+          currentItem.subHtml.push(renderPgMarkdownCodeBlockHtml(codeLines, fenceLang, scheme));
+          continue;
+        }
+
+        const subBullet = subLine.match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
+        if (subBullet) {
+          if (subBullet[1].length > baseIndent) {
+            const nested = parsePgMarkdownListBlock(lines, i, subBullet[1].length, clNum, scheme);
+            currentItem.subHtml.push(nested.html);
+            i = nested.nextIdx;
+            continue;
+          }
+          break;
+        }
+
+        if (subIndent > baseIndent) {
+          currentItem.subHtml.push(`<div class="pg-md-li-cont">${renderPgMarkdownInlineHtml(subLine.trim(), clNum)}</div>`);
+          i++;
+          continue;
+        }
+        break;
+      }
+    }
+
+    const tag = listType === "ol" ? "ol" : "ul";
+    const startAttr = (listType === "ol" && startNumber !== 1) ? ` start="${startNumber}"` : "";
+    const itemsHtml = items.map(it => `<li class="pg-md-li">${it.headHtml}${it.subHtml.join("")}</li>`).join("");
+    return {
+      html: `<${tag} class="pg-md-${tag}"${startAttr}>${itemsHtml}</${tag}>`,
+      nextIdx: i,
+    };
+  }
+
+  function renderPgMarkdownDocumentHtml(rawMd, opts = {}) {
+    const clNum = Number(opts.clNum || state.selectedClNumber || 0);
+    const scheme = opts.scheme || state.diffColorScheme || "syntax_intraline";
+    const lines = String(rawMd == null ? "" : rawMd).replace(/\r\n/g, "\n").split("\n");
+    const blocks = [];
+    let i = 0;
+    let tableCount = 0;
+    let codeBlockCount = 0;
+
+    while (i < lines.length) {
+      const line = lines[i];
+      const trimmed = line.trim();
+
+      if (!trimmed) {
+        i++;
+        continue;
+      }
+
+      // 1. Fenced code block (```lang or ~~~lang)
+      const fenceMatch = line.match(/^(\s{0,3})(`{3,}|~{3,})\s*([^\s`~]*)/);
+      if (fenceMatch) {
+        const fenceIndent = fenceMatch[1].length;
+        const fenceMarker = fenceMatch[2];
+        const fenceLang = fenceMatch[3] || "";
+        const codeLines = [];
+        i++;
+        while (i < lines.length) {
+          const curLine = lines[i];
+          const closeMatch = curLine.match(/^\s{0,4}(`{3,}|~{3,})\s*$/);
+          if (closeMatch && closeMatch[1][0] === fenceMarker[0] && closeMatch[1].length >= fenceMarker.length) {
+            i++;
+            break;
+          }
+          codeLines.push(fenceIndent > 0 && curLine.startsWith(" ".repeat(fenceIndent)) ? curLine.slice(fenceIndent) : curLine);
+          i++;
+        }
+        codeBlockCount++;
+        blocks.push(renderPgMarkdownCodeBlockHtml(codeLines, fenceLang, scheme));
+        continue;
+      }
+
+      // 2. Horizontal rule (---, ***, ___)
+      if (/^\s{0,3}(?:-\s*-\s*-[- ]*|\*\s*\*\s*\*[* ]*|_\s*_\s*_[_ ]*)$/.test(line)) {
+        blocks.push('<hr class="pg-md-hr" />');
+        i++;
+        continue;
+      }
+
+      // 3. ATX Heading (# H1 .. ###### H6)
+      const headingMatch = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*$/);
+      if (headingMatch) {
+        const level = headingMatch[1].length;
+        const rawTitle = headingMatch[2].trim();
+        const slug = slugifyPgMarkdownHeading(rawTitle);
+        const inlineHtml = renderPgMarkdownInlineHtml(rawTitle, clNum);
+        blocks.push(
+          `<h${level} class="pg-md-heading pg-md-h${level}" id="pg-md-h-${escapeHtml(slug)}" data-line="${i + 1}">` +
+          `<a class="pg-md-heading-anchor" href="#pg-md-h-${escapeHtml(slug)}" onclick="scrollToPgMarkdownHeading(event, 'pg-md-h-${escapeHtml(slug)}')" title="Jump to section">#</a>` +
+          `${inlineHtml}</h${level}>`
+        );
+        i++;
+        continue;
+      }
+
+      // 4. GFM Table (Header row + |---|---| separator row)
+      if (trimmed.includes("|") && i + 1 < lines.length && isPgMarkdownTableSeparator(lines[i + 1])) {
+        const headers = splitPgMarkdownTableRow(line);
+        const aligns = splitPgMarkdownTableRow(lines[i + 1]).map(sep => {
+          const s = sep.trim();
+          if (s.startsWith(":") && s.endsWith(":")) return "center";
+          if (s.endsWith(":")) return "right";
+          return "left";
+        });
+        i += 2;
+        const rows = [];
+        while (i < lines.length && lines[i].trim() && lines[i].includes("|")) {
+          rows.push(splitPgMarkdownTableRow(lines[i]));
+          i++;
+        }
+        const thHtml = headers.map((h, colIdx) => {
+          const align = aligns[colIdx] || "left";
+          const styleAttr = align !== "left" ? ` style="text-align:${align};"` : "";
+          return `<th${styleAttr}>${renderPgMarkdownInlineHtml(h, clNum)}</th>`;
+        }).join("");
+        const tbodyHtml = rows.map(r => {
+          const tdHtml = headers.map((_h, colIdx) => {
+            const cellText = r[colIdx] !== undefined ? r[colIdx] : "";
+            const align = aligns[colIdx] || "left";
+            const styleAttr = align !== "left" ? ` style="text-align:${align};"` : "";
+            return `<td${styleAttr}>${renderPgMarkdownInlineHtml(cellText, clNum)}</td>`;
+          }).join("");
+          return `<tr>${tdHtml}</tr>`;
+        }).join("");
+        tableCount++;
+        blocks.push(`<div class="pg-md-table-wrap"><table class="pg-md-table"><thead><tr>${thHtml}</tr></thead><tbody>${tbodyHtml}</tbody></table></div>`);
+        continue;
+      }
+
+      // 5. Blockquote / GitHub Alert (> [!NOTE], > [!TIP], > [!IMPORTANT], > [!WARNING], > [!CAUTION])
+      if (/^\s{0,3}>/.test(line)) {
+        const quoteLines = [];
+        while (i < lines.length && /^\s{0,3}>/.test(lines[i])) {
+          quoteLines.push(lines[i].replace(/^\s{0,3}>\s?/, ""));
+          i++;
+        }
+        const alertMatch = (quoteLines[0] || "").match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/i);
+        if (alertMatch) {
+          const alertKind = alertMatch[1].toLowerCase();
+          const icons = { note: "ℹ️", tip: "💡", important: "🟣", warning: "⚠️", caution: "🛑" };
+          const titles = { note: "Note", tip: "Tip", important: "Important", warning: "Warning", caution: "Caution" };
+          const bodyLines = quoteLines.slice(1);
+          if (alertMatch[2]) bodyLines.unshift(alertMatch[2]);
+          const bodyHtml = bodyLines.map(ql => renderPgMarkdownInlineHtml(ql, clNum)).join("<br/>");
+          blocks.push(
+            `<div class="pg-md-alert pg-md-alert-${alertKind}">` +
+            `<div class="pg-md-alert-title"><span>${icons[alertKind] || "ℹ️"}</span> <span>${titles[alertKind] || "Note"}</span></div>` +
+            `<div class="pg-md-alert-body">${bodyHtml}</div></div>`
+          );
+        } else {
+          const quoteHtml = quoteLines.map(ql => renderPgMarkdownInlineHtml(ql, clNum)).join("<br/>");
+          blocks.push(`<blockquote class="pg-md-blockquote">${quoteHtml}</blockquote>`);
+        }
+        continue;
+      }
+
+      // 6. Ordered or Unordered List
+      const listMatch = line.match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
+      if (listMatch) {
+        const parsedList = parsePgMarkdownListBlock(lines, i, listMatch[1].length, clNum, scheme);
+        blocks.push(parsedList.html);
+        i = parsedList.nextIdx;
+        continue;
+      }
+
+      // 7. Standard Paragraph
+      const paraLines = [];
+      while (i < lines.length) {
+        const pLine = lines[i];
+        const pTrim = pLine.trim();
+        if (!pTrim) break;
+        if (/^\s{0,3}(`{3,}|~{3,})/.test(pLine)) break;
+        if (/^\s{0,3}(#{1,6})\s+/.test(pLine)) break;
+        if (/^\s{0,3}(?:-\s*-\s*-[- ]*|\*\s*\*\s*\*[* ]*|_\s*_\s*_[_ ]*)$/.test(pLine)) break;
+        if (/^\s{0,3}>/.test(pLine)) break;
+        if (/^(\s*)([-*+]|\d+\.)\s+/.test(pLine)) break;
+        if (pTrim.includes("|") && i + 1 < lines.length && isPgMarkdownTableSeparator(lines[i + 1])) break;
+        paraLines.push(pTrim);
+        i++;
+      }
+      if (paraLines.length > 0) {
+        blocks.push(`<p class="pg-md-p">${renderPgMarkdownInlineHtml(paraLines.join(" "), clNum)}</p>`);
+      } else {
+        i++;
+      }
+    }
+
+    return {
+      html: blocks.join("\n"),
+      tableCount,
+      codeBlockCount,
+      lineCount: lines.length,
+    };
+  }
+
+  function renderPgMarkdownHeaderToggleHtml(clNum, safeFile, safeFileId, mdMode, viewMode, isSbs) {
+    return `<div class="pg-md-header-mode-group" id="pgMdHeaderModeGroup-${clNum}-${safeFileId}" role="group" aria-label="Markdown view mode" onclick="event.stopPropagation()">
+      <button type="button" class="pg-md-mode-btn ${mdMode === "preview" ? "is-active" : ""}" data-md-mode="preview" onclick="setPgMarkdownViewMode(event, ${clNum}, '${safeFile}', 'preview')" title="Rendered Markdown preview">
+        <span aria-hidden="true">📖</span> <span>Preview</span>
+      </button>
+      <button type="button" class="pg-md-mode-btn ${mdMode === "split" ? "is-active" : ""}" data-md-mode="split" onclick="setPgMarkdownViewMode(event, ${clNum}, '${safeFile}', 'split')" title="Side-by-side Code Diff + Rendered Markdown preview">
+        <span aria-hidden="true">◫</span> <span>Split</span>
+      </button>
+      <button type="button" class="pg-md-mode-btn ${mdMode === "diff" ? "is-active" : ""}" data-md-mode="diff" onclick="setPgMarkdownViewMode(event, ${clNum}, '${safeFile}', 'diff')" title="Raw Markdown code diff">
+        <span aria-hidden="true">📝</span> <span>Diff</span>
+      </button>
+    </div>
+    <button
+      type="button"
+      class="pg-file-diff-mode-btn"
+      onclick="togglePgFileDiffMode(event, ${clNum}, '${safeFile}')"
+      title="Toggle Side-by-side / Unified diff table (Shortcut: v)"
+    ><span class="pg-diff-mode-icon" aria-hidden="true">${isSbs ? "☷" : "☰"}</span> <span>${isSbs ? "Side-by-side" : "Unified"}</span></button>`;
+  }
+
+  function renderPgMarkdownViewerHtml(f, clNum, ps, safeFile, safeFileId, status, mdMode) {
+    const side = getPgMarkdownPreviewSide(clNum, f.file);
+    const newSource = extractPgFileSourceFromDiff(f, clNum, ps, "new");
+    const oldSource = extractPgFileSourceFromDiff(f, clNum, ps, "old");
+    const activeSource = side === "old" ? oldSource : newSource;
+    const headings = extractPgMarkdownHeadings(activeSource.text);
+    const rendered = renderPgMarkdownDocumentHtml(activeSource.text, { clNum });
+
+    let bodyContentHtml = "";
+    if (side === "compare" && oldSource.hasOldLines && newSource.hasNewLines) {
+      const renderedOld = renderPgMarkdownDocumentHtml(oldSource.text, { clNum });
+      const renderedNew = renderPgMarkdownDocumentHtml(newSource.text, { clNum });
+      bodyContentHtml = `<div class="pg-md-compare-grid">
+        <div class="pg-md-compare-col">
+          <div class="pg-md-compare-col-header">Base (Old · ${oldSource.lineCount} lines)</div>
+          <div class="pg-markdown-body">${renderedOld.html}</div>
+        </div>
+        <div class="pg-md-compare-col">
+          <div class="pg-md-compare-col-header">Patchset ${ps} (New · ${newSource.lineCount} lines)</div>
+          <div class="pg-markdown-body">${renderedNew.html}</div>
+        </div>
+      </div>`;
+    } else {
+      bodyContentHtml = `<div class="pg-markdown-body" id="pgMarkdownBody-${clNum}-${safeFileId}">${rendered.html}</div>`;
+    }
+
+    const tocHtml = headings.length > 1
+      ? `<div class="pg-md-toc-strip" id="pgMdTocStrip-${clNum}-${safeFileId}" role="navigation" aria-label="Markdown document outline">
+          <span class="pg-md-toc-label">📑 Sections (${headings.length}):</span>
+          ${headings.map(h => `<button type="button" class="pg-md-toc-chip level-${h.level}" onclick="scrollToPgMarkdownHeading(event, 'pg-md-h-${escapeHtml(h.slug)}')" title="Jump to ${escapeHtml(h.text)} (L${h.line})">${escapeHtml(h.text)}</button>`).join("")}
+        </div>`
+      : "";
+
+    const canCompareSides = status === "M" && oldSource.hasOldLines && newSource.hasNewLines;
+    const sideSelectorHtml = canCompareSides
+      ? `<div class="pg-md-header-mode-group" role="group" aria-label="Markdown revision side">
+          <button type="button" class="pg-md-mode-btn ${side === "new" ? "is-active" : ""}" data-md-side="new" onclick="setPgMarkdownPreviewSide(event, ${clNum}, '${safeFile}', ${ps}, 'new')" title="Render Patchset ${ps} (New)">Patchset ${ps}</button>
+          <button type="button" class="pg-md-mode-btn ${side === "old" ? "is-active" : ""}" data-md-side="old" onclick="setPgMarkdownPreviewSide(event, ${clNum}, '${safeFile}', ${ps}, 'old')" title="Render Base (Old)">Base</button>
+          <button type="button" class="pg-md-mode-btn ${side === "compare" ? "is-active" : ""}" data-md-side="compare" onclick="setPgMarkdownPreviewSide(event, ${clNum}, '${safeFile}', ${ps}, 'compare')" title="Compare Base vs Patchset ${ps} rendered side-by-side">Old vs New</button>
+        </div>`
+      : "";
+
+    const loadFullBtnHtml = activeSource.isPartial
+      ? `<button type="button" class="pg-md-code-copy-btn pg-md-load-full-btn" onclick="loadPgMarkdownFullFile(event, ${clNum}, '${safeFile}', ${ps})" title="Diff contains partial hunks — click to fetch and render the complete Markdown file">↕ Load full file</button>`
+      : "";
+
+    const statsParts = [];
+    if (headings.length > 0) statsParts.push(`${headings.length} section${headings.length === 1 ? "" : "s"}`);
+    if (rendered.tableCount > 0) statsParts.push(`${rendered.tableCount} table${rendered.tableCount === 1 ? "" : "s"}`);
+    if (rendered.codeBlockCount > 0) statsParts.push(`${rendered.codeBlockCount} code block${rendered.codeBlockCount === 1 ? "" : "s"}`);
+    statsParts.push(`${activeSource.lineCount} lines`);
+
+    return `<div class="pg-markdown-viewer" id="pgMarkdownViewer-${clNum}-${safeFileId}" data-cl="${clNum}" data-ps="${ps}" data-file="${safeFile}" data-md-mode="${escapeHtml(mdMode)}" data-md-side="${escapeHtml(side)}" data-is-partial="${activeSource.isPartial ? "true" : "false"}">
+      <div class="pg-markdown-viewer-toolbar">
+        <div class="pg-md-toolbar-left">
+          <div class="pg-md-header-mode-group" role="group" aria-label="Markdown viewer mode">
+            <button type="button" class="pg-md-mode-btn ${mdMode === "preview" ? "is-active" : ""}" data-md-mode="preview" onclick="setPgMarkdownViewMode(event, ${clNum}, '${safeFile}', 'preview')">📖 Rendered Markdown</button>
+            <button type="button" class="pg-md-mode-btn ${mdMode === "split" ? "is-active" : ""}" data-md-mode="split" onclick="setPgMarkdownViewMode(event, ${clNum}, '${safeFile}', 'split')">◫ Split (Diff + Preview)</button>
+            <button type="button" class="pg-md-mode-btn ${mdMode === "diff" ? "is-active" : ""}" data-md-mode="diff" onclick="setPgMarkdownViewMode(event, ${clNum}, '${safeFile}', 'diff')">📝 Code Diff</button>
+          </div>
+          ${sideSelectorHtml}
+        </div>
+        <div class="pg-md-toolbar-right">
+          <span class="pg-md-stats-pill">${escapeHtml(statsParts.join(" · "))}</span>
+          ${loadFullBtnHtml}
+          <button type="button" class="pg-md-code-copy-btn" onclick="copyPgMarkdownSource(event, ${clNum}, '${safeFile}', ${ps})" title="Copy raw Markdown source to clipboard">📋 Copy Markdown</button>
+        </div>
+      </div>
+      ${tocHtml}
+      ${bodyContentHtml}
+    </div>`;
+  }
+
+  function setPgMarkdownViewMode(event, clNum, filePath, mode) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const validMode = (mode === "split" || mode === "diff") ? mode : "preview";
+    const num = Number(clNum || state.selectedClNumber || 0);
+    if (!state.markdownViewModeByFile) state.markdownViewModeByFile = {};
+    state.markdownViewModeByFile[`${num}:${filePath}`] = validMode;
+
+    const safeFileId = String(filePath || "").replace(/[^a-zA-Z0-9_-]/g, "_");
+    if (typeof document !== "undefined") {
+      const workspace = document.getElementById(`pgMdWorkspace-${num}-${safeFileId}`);
+      const viewerPane = document.getElementById(`pgMdViewerPane-${num}-${safeFileId}`);
+      const diffPane = document.getElementById(`pgMdDiffPane-${num}-${safeFileId}`);
+      const fileBlock = document.getElementById(`file-diff-${num}-${safeFileId}`);
+
+      if (workspace) {
+        workspace.classList.remove("is-mode-preview", "is-mode-split", "is-mode-diff");
+        workspace.classList.add(`is-mode-${validMode}`);
+        workspace.setAttribute("data-md-mode", validMode);
+      }
+      if (viewerPane) {
+        viewerPane.style.display = validMode === "diff" ? "none" : "";
+      }
+      if (diffPane) {
+        diffPane.style.display = validMode === "preview" ? "none" : "";
+      }
+      if (fileBlock && typeof fileBlock.querySelectorAll === "function") {
+        fileBlock.querySelectorAll("[data-md-mode]").forEach(btn => {
+          if (btn.tagName === "BUTTON") {
+            btn.classList.toggle("is-active", btn.getAttribute("data-md-mode") === validMode);
+          }
+        });
+      }
+    }
+    return validMode;
+  }
+
+  function setPgMarkdownPreviewSide(event, clNum, filePath, ps, side) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const validSide = (side === "old" || side === "compare") ? side : "new";
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const patchSet = Number(ps || (state.diffsByCl && state.diffsByCl[num] && state.diffsByCl[num].patch_set) || 1);
+    if (!state.markdownPreviewSideByFile) state.markdownPreviewSideByFile = {};
+    state.markdownPreviewSideByFile[`${num}:${filePath}`] = validSide;
+
+    const bundle = state.diffsByCl && state.diffsByCl[num];
+    const fileObj = bundle && Array.isArray(bundle.files) ? bundle.files.find(f => f && f.file === filePath) : null;
+    const safeFile = escapeHtml(filePath);
+    const safeFileId = escapeHtml(String(filePath || "").replace(/[^a-zA-Z0-9_-]/g, "_"));
+    if (fileObj && typeof document !== "undefined") {
+      const viewerPane = document.getElementById(`pgMdViewerPane-${num}-${safeFileId}`);
+      if (viewerPane) {
+        const status = getPgFileStatus(fileObj);
+        const mdMode = getPgMarkdownViewMode(num, filePath);
+        viewerPane.innerHTML = renderPgMarkdownViewerHtml(fileObj, num, patchSet, safeFile, safeFileId, status, mdMode);
+      }
+    }
+    return validSide;
+  }
+
+  async function loadPgMarkdownFullFile(event, clNum, filePath, ps) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const patchSet = Number(ps || (state.diffsByCl && state.diffsByCl[num] && state.diffsByCl[num].patch_set) || 1);
+    const cacheKey = `${num}:${patchSet}:${filePath}`;
+    if (typeof sidecarFetch === "function") {
+      try {
+        const resp = await sidecarFetch(`/api/gerrit/file-content?cl=${num}&file=${encodeURIComponent(filePath)}&ps=${patchSet}`);
+        if (resp && resp.ok) {
+          const data = await resp.json();
+          if (data && Array.isArray(data.lines)) {
+            if (!state.fileContentCache) state.fileContentCache = {};
+            state.fileContentCache[cacheKey] = data.lines;
+          }
+        }
+      } catch (_e) {}
+    }
+    const bundle = state.diffsByCl && state.diffsByCl[num];
+    const fileObj = bundle && Array.isArray(bundle.files) ? bundle.files.find(f => f && f.file === filePath) : null;
+    if (fileObj && typeof document !== "undefined") {
+      const safeFile = escapeHtml(filePath);
+      const safeFileId = escapeHtml(String(filePath || "").replace(/[^a-zA-Z0-9_-]/g, "_"));
+      const viewerPane = document.getElementById(`pgMdViewerPane-${num}-${safeFileId}`);
+      if (viewerPane) {
+        const status = getPgFileStatus(fileObj);
+        const mdMode = getPgMarkdownViewMode(num, filePath);
+        viewerPane.innerHTML = renderPgMarkdownViewerHtml(fileObj, num, patchSet, safeFile, safeFileId, status, mdMode);
+        if (typeof showToast === "function") {
+          showToast(`Loaded full Markdown file for ${safeFile} ✓`);
+        }
+      }
+    }
+  }
+
+  function scrollToPgMarkdownHeading(event, headingId) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    if (typeof document === "undefined") return;
+    const el = document.getElementById(headingId);
+    if (el && typeof el.scrollIntoView === "function") {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
+  function copyPgMarkdownCodeBlock(event, btnEl) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const code = btnEl && typeof btnEl.getAttribute === "function" ? btnEl.getAttribute("data-code") || "" : "";
+    if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      navigator.clipboard.writeText(code).catch(() => {});
+    }
+    if (btnEl) {
+      const orig = btnEl.textContent;
+      btnEl.textContent = "✓ Copied";
+      setTimeout(() => { btnEl.textContent = orig || "📋 Copy"; }, 1500);
+    }
+    if (typeof showToast === "function") {
+      showToast("Copied Markdown code block to clipboard ✓");
+    }
+  }
+
+  function copyPgMarkdownSource(event, clNum, filePath, ps) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const bundle = state.diffsByCl && state.diffsByCl[num];
+    const fileObj = bundle && Array.isArray(bundle.files) ? bundle.files.find(f => f && f.file === filePath) : null;
+    const side = getPgMarkdownPreviewSide(num, filePath);
+    const extracted = extractPgFileSourceFromDiff(fileObj || { file: filePath, lines: [] }, num, ps, side === "old" ? "old" : "new");
+    if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      navigator.clipboard.writeText(extracted.text).catch(() => {});
+    }
+    if (typeof showToast === "function") {
+      showToast(`Copied Markdown source (${extracted.lineCount} lines) ✓`);
+    }
+  }
+
   function renderFileDiffBlock(f, defaultClNum, patchSet, isVisible = true, navInfo = null) {
     const firstTaggedCl = Array.isArray(f.lines)
       ? (f.lines.find(l => Number(l.clNum || 0) > 0) || {}).clNum
@@ -59394,6 +60671,7 @@
 
     const sim = getPgFileSimilarity(f);
     const isPureRename = (status === "R" || status === "C") && oldPath && (sim === 100 || (Number(f.additions || 0) === 0 && Number(f.deletions || 0) === 0 && (!f.lines || f.lines.length === 0 || f.lines.every(l => l.type === "hunk"))));
+    const isMd = !isImg && !isBin && !isPureRename && isPgMarkdownFile(f.file);
 
     if (isImg) {
       hintText = "🖼️ Image comparison · 2-up, Swipe, and Onion skin modes (Shift+M)";
@@ -59413,6 +60691,19 @@
           <span class="pg-pure-rename-title">File ${isCopy ? "copied" : "renamed"} with no content changes</span>
           <span class="pg-pure-rename-sub"><code>${escapeHtml(oldPath)}</code> ➔ <code>${safeFile}</code> · <span class="pg-file-similarity-pill is-pure" title="100% match">100% match</span></span>
         </div>
+      </div>`;
+    } else if (isMd) {
+      const mdMode = getPgMarkdownViewMode(fallbackCl, f.file);
+      hintText = "📖 Markdown file · Toggle Preview, Split, or Code Diff";
+      modeActionHtml = renderPgMarkdownHeaderToggleHtml(fallbackCl, safeFile, safeFileId, mdMode, viewMode, isSbs);
+      const blameClass = isBlameActive ? " has-blame" : "";
+      const codeTableHtml = `<div class="code-table scheme-${escapeHtml(scheme)} diff-mode-${escapeHtml(viewMode)}${blameClass}" data-cl="${fallbackCl}" data-file="${safeFile}"${colStyle}>${linesHtml}${truncHtml}</div>`;
+      const mdViewerHtml = renderPgMarkdownViewerHtml(f, fallbackCl, ps, safeFile, safeFileId, status, mdMode);
+      const viewerDisplay = mdMode === "diff" ? ' style="display:none;"' : "";
+      const diffDisplay = mdMode === "preview" ? ' style="display:none;"' : "";
+      bodyHtml = `<div class="pg-md-file-workspace is-mode-${escapeHtml(mdMode)}" id="pgMdWorkspace-${fallbackCl}-${safeFileId}" data-cl="${fallbackCl}" data-file="${safeFile}" data-md-mode="${escapeHtml(mdMode)}"${codeTableDisplay}>
+        <div class="pg-md-diff-pane" id="pgMdDiffPane-${fallbackCl}-${safeFileId}"${diffDisplay}>${codeTableHtml}</div>
+        <div class="pg-markdown-viewer-pane" id="pgMdViewerPane-${fallbackCl}-${safeFileId}"${viewerDisplay}>${mdViewerHtml}</div>
       </div>`;
     } else {
       modeActionHtml = `<button

@@ -83,7 +83,8 @@ DEFAULT_EMULATOR_GERRIT_QUERY = (
     "project:platform/hardware/google/aemu OR "
     "project:platform/external/qemu OR "
     "project:platform/hardware/google/gfxstream OR "
-    "project:platform/build/bazel"
+    "project:platform/build/bazel OR "
+    "project:platform/tools/vendor/google"
     ")"
 )
 

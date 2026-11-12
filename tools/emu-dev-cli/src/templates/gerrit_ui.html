@@ -4514,6 +4514,103 @@
     cursor: pointer;
     border-bottom: 1px dotted rgba(96, 165, 250, 0.65);
   }
+  .pg-md-header-mode-group {
+    display: inline-flex;
+    align-items: center;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .pg-md-mode-btn {
+    appearance: none;
+    background: transparent;
+    border: none;
+    color: #8b949e;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .pg-md-mode-btn.is-active {
+    background: rgba(56, 139, 253, 0.2);
+    color: #79c0ff;
+  }
+  .pg-md-file-workspace.is-mode-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .pg-markdown-viewer {
+    background: #0f131c;
+    color: #e5e9f0;
+    border-top: 1px solid #2c3650;
+  }
+  .pg-markdown-viewer-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 8px 16px;
+    background: #171d2b;
+    border-bottom: 1px solid #2c3650;
+    font-size: 12px;
+  }
+  .pg-markdown-body {
+    max-width: 1020px;
+    margin: 0 auto;
+    padding: 24px 32px 36px;
+    line-height: 1.65;
+  }
+  .pg-md-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    margin: 14px 0 22px;
+    border-radius: 8px;
+    border: 1px solid #2c3650;
+    background: #171d2b;
+  }
+  .pg-md-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  .pg-md-table th,
+  .pg-md-table td {
+    text-align: left;
+    padding: 10px 13px;
+    border-bottom: 1px solid #2c3650;
+    vertical-align: top;
+  }
+  .pg-md-code-block {
+    margin: 12px 0 18px;
+    border: 1px solid #2c3650;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #111622;
+  }
+  .pg-md-code-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    border-bottom: 1px solid #2c3650;
+    font-size: 11px;
+    color: #9aa5ce;
+  }
+  .pg-md-code-pre {
+    margin: 0;
+    padding: 13px 16px;
+    overflow-x: auto;
+    font-family: monospace;
+    font-size: 12.5px;
+  }
 </style>
 </head>
 <body>
@@ -10039,6 +10136,101 @@
     return `<span class="hunk-range-pill">${rangePart}</span><span class="hunk-context-sig">${ctxPart}</span>`;
   }
 
+  const PG_MARKDOWN_EXTENSIONS = new Set(["md", "markdown", "mdx", "mdown", "mkd"]);
+  function isPgMarkdownFile(filePath) {
+    const raw = String(filePath || "").trim().toLowerCase();
+    const dotIdx = raw.lastIndexOf(".");
+    const ext = dotIdx >= 0 ? raw.slice(dotIdx + 1) : "";
+    return PG_MARKDOWN_EXTENSIONS.has(ext);
+  }
+  function getPgMarkdownViewMode(clNum, filePath) {
+    if (!state.markdownViewModeByFile) state.markdownViewModeByFile = {};
+    const num = Number(clNum || state.selectedClNumber || 0);
+    return state.markdownViewModeByFile[`${num}:${String(filePath || "")}`] || "preview";
+  }
+  function stripPgDiffLinePrefix(rawText, lineType) {
+    const text = String(rawText == null ? "" : rawText);
+    if (lineType === "add") return text.startsWith("+") ? text.slice(1) : text;
+    if (lineType === "del") return text.startsWith("-") ? text.slice(1) : text;
+    if (lineType === "ctx") return text.startsWith(" ") ? text.slice(1) : text;
+    return text;
+  }
+  function extractPgFileSourceFromDiff(f, _clNum, _ps, side = "new") {
+    const fileObj = f || {};
+    if (side === "new" && typeof fileObj.raw_content === "string") {
+      const lines = fileObj.raw_content.split("\n");
+      return { text: fileObj.raw_content, lineCount: lines.length, isPartial: false, hasOldLines: false, hasNewLines: true };
+    }
+    const rawLines = Array.isArray(fileObj.lines) ? fileObj.lines : [];
+    const out = [];
+    for (let i = 0; i < rawLines.length; i++) {
+      const ln = rawLines[i];
+      if (!ln || ln.type === "hunk") continue;
+      if (side === "old" && (ln.type === "del" || ln.type === "ctx")) {
+        out.push(stripPgDiffLinePrefix(ln.text, ln.type));
+      } else if (side !== "old" && (ln.type === "add" || ln.type === "ctx")) {
+        out.push(stripPgDiffLinePrefix(ln.text, ln.type));
+      }
+    }
+    return { text: out.join("\n"), lineCount: out.length, isPartial: false, hasOldLines: false, hasNewLines: out.length > 0 };
+  }
+  function renderPgMarkdownDocumentHtml(rawMd, opts = {}) {
+    const lines = String(rawMd == null ? "" : rawMd).replace(/\r\n/g, "\n").split("\n");
+    const blocks = [];
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      const trimmed = line.trim();
+      if (!trimmed) { i++; continue; }
+      const fenceMatch = line.match(/^(\s{0,3})(`{3,}|~{3,})\s*([^\s`~]*)/);
+      if (fenceMatch) {
+        const fenceMarker = fenceMatch[2];
+        const fenceLang = (fenceMatch[3] || "TEXT").toUpperCase();
+        const codeLines = [];
+        i++;
+        while (i < lines.length) {
+          const curLine = lines[i];
+          const closeMatch = curLine.match(/^\s{0,4}(`{3,}|~{3,})\s*$/);
+          if (closeMatch && closeMatch[1][0] === fenceMarker[0]) { i++; break; }
+          codeLines.push(escapeHtml(curLine));
+          i++;
+        }
+        blocks.push(`<div class="pg-md-code-block"><div class="pg-md-code-header"><span class="pg-md-code-lang">${escapeHtml(fenceLang)}</span></div><pre class="pg-md-code-pre"><code>${codeLines.join("\n")}</code></pre></div>`);
+        continue;
+      }
+      if (/^\s{0,3}(?:-\s*-\s*-[- ]*|\*\s*\*\s*\*[* ]*|_\s*_\s*_[_ ]*)$/.test(line)) {
+        blocks.push('<hr class="pg-md-hr" />');
+        i++;
+        continue;
+      }
+      const headingMatch = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*$/);
+      if (headingMatch) {
+        const level = headingMatch[1].length;
+        blocks.push(`<h${level} class="pg-md-heading pg-md-h${level}">${renderInlineMarkdownHtml(headingMatch[2].trim(), true)}</h${level}>`);
+        i++;
+        continue;
+      }
+      blocks.push(`<p class="pg-md-p">${renderInlineMarkdownHtml(trimmed, true)}</p>`);
+      i++;
+    }
+    return { html: blocks.join("\n"), tableCount: 0, codeBlockCount: 0, lineCount: lines.length };
+  }
+  function setPgMarkdownViewMode(event, clNum, filePath, mode) {
+    if (event && typeof event.stopPropagation === "function") event.stopPropagation();
+    const validMode = (mode === "split" || mode === "diff") ? mode : "preview";
+    const num = Number(clNum || state.selectedClNumber || 0);
+    if (!state.markdownViewModeByFile) state.markdownViewModeByFile = {};
+    state.markdownViewModeByFile[`${num}:${filePath}`] = validMode;
+    const safeFileId = String(filePath || "").replace(/[^a-zA-Z0-9_-]/g, "_");
+    if (typeof document !== "undefined") {
+      const viewerPane = document.getElementById(`pgMdViewerPane-${num}-${safeFileId}`);
+      const diffPane = document.getElementById(`pgMdDiffPane-${num}-${safeFileId}`);
+      if (viewerPane) viewerPane.style.display = validMode === "diff" ? "none" : "";
+      if (diffPane) diffPane.style.display = validMode === "preview" ? "none" : "";
+    }
+    return validMode;
+  }
+
   function renderFileDiffBlock(f, defaultClNum) {
     const firstTaggedCl = Array.isArray(f.lines)
       ? (f.lines.find(l => Number(l.clNum || 0) > 0) || {}).clNum
@@ -10078,6 +10270,38 @@
     const langBadgeHtml = langInfo.badge
       ? `<span class="file-lang-badge" title="Detected syntax language">${escapeHtml(langInfo.badge)}</span>`
       : "";
+    const safeFile = escapeHtml(f.file);
+    const safeFileId = escapeHtml(String(f.file).replace(/[^a-zA-Z0-9_-]/g, "_"));
+    const codeTableHtml = `<div class="code-table scheme-${escapeHtml(scheme)}" data-cl="${fallbackCl}" data-file="${safeFile}"${colStyle}>${linesHtml}${truncHtml}</div>`;
+    if (isPgMarkdownFile(f.file)) {
+      const mdMode = getPgMarkdownViewMode(fallbackCl, f.file);
+      const src = extractPgFileSourceFromDiff(f, fallbackCl, 1, "new");
+      const rendered = renderPgMarkdownDocumentHtml(src.text, { clNum: fallbackCl });
+      const viewerDisplay = mdMode === "diff" ? ' style="display:none;"' : "";
+      const diffDisplay = mdMode === "preview" ? ' style="display:none;"' : "";
+      return `<div class="file-header">
+                <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+                  ${renderCodeSearchFileLinkHtml(fallbackCl, f.file)}
+                  ${langBadgeHtml}
+                </div>
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <div class="pg-md-header-mode-group">
+                    <button type="button" class="pg-md-mode-btn ${mdMode === "preview" ? "is-active" : ""}" onclick="setPgMarkdownViewMode(event, ${fallbackCl}, '${safeFile}', 'preview')">📖 Preview</button>
+                    <button type="button" class="pg-md-mode-btn ${mdMode === "split" ? "is-active" : ""}" onclick="setPgMarkdownViewMode(event, ${fallbackCl}, '${safeFile}', 'split')">◫ Split</button>
+                    <button type="button" class="pg-md-mode-btn ${mdMode === "diff" ? "is-active" : ""}" onclick="setPgMarkdownViewMode(event, ${fallbackCl}, '${safeFile}', 'diff')">📝 Diff</button>
+                  </div>
+                  <span>+${f.additions} / -${f.deletions}</span>
+                </div>
+              </div>
+              <div class="pg-md-file-workspace is-mode-${escapeHtml(mdMode)}" id="pgMdWorkspace-${fallbackCl}-${safeFileId}">
+                <div class="pg-md-diff-pane" id="pgMdDiffPane-${fallbackCl}-${safeFileId}"${diffDisplay}>${codeTableHtml}</div>
+                <div class="pg-markdown-viewer-pane" id="pgMdViewerPane-${fallbackCl}-${safeFileId}"${viewerDisplay}>
+                  <div class="pg-markdown-viewer" id="pgMarkdownViewer-${fallbackCl}-${safeFileId}">
+                    <div class="pg-markdown-body">${rendered.html}</div>
+                  </div>
+                </div>
+              </div>`;
+    }
     return `<div class="file-header">
               <div style="display:flex;align-items:center;gap:8px;min-width:0;">
                 ${renderCodeSearchFileLinkHtml(fallbackCl, f.file)}
@@ -10088,7 +10312,7 @@
                 <span>+${f.additions} / -${f.deletions}</span>
               </div>
             </div>
-            <div class="code-table scheme-${escapeHtml(scheme)}" data-cl="${fallbackCl}" data-file="${escapeHtml(f.file)}"${colStyle}>${linesHtml}${truncHtml}</div>`;
+            ${codeTableHtml}`;
   }
 
   function getFullCommitMessage(c, bundle) {
