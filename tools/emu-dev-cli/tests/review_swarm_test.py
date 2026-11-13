@@ -529,6 +529,136 @@ class ReviewSwarmTest(unittest.TestCase):
             self.assertIsNotNone(safe_verdict, msg=safe_cmd)
             self.assertTrue(safe_verdict[0], msg=f"{safe_cmd}: {safe_verdict[1]}")  # type: ignore[index]
 
+    def test_gate_v2_warning_only_payload_allows_upload_while_blocking_denies(self) -> None:
+        from commands.harness.review_swarm import (
+            apply_verifier_to_specialist_outputs,
+            build_enclosing_file_context,
+            normalize_stage1_outputs,
+            run_deterministic_stage0,
+        )
+
+        _, repo_dir = self._create_multi_project_repo_fixture()
+        cache_root = self.base_path / "gate_v2_severity_cache"
+        first_verdict = evaluate_upload_command(
+            f'cd "{repo_dir}" && repo upload --cbr -y .',
+            review_swarm_cache_root=cache_root,
+        )
+        self.assertIsNotNone(first_verdict)
+        self.assertFalse(first_verdict[0])  # type: ignore[index]
+        head_out_dir = next(cache_root.iterdir())
+
+        # Warning/nit findings (unresolved=False) must NOT block Gerrit upload
+        agg_warn = filter_and_aggregate_findings(
+            [
+                {
+                    "specialist": "constants-auditor",
+                    "checked_count": 2,
+                    "duplicate_count": 0,
+                    "finding_count": 1,
+                    "findings": [
+                        {
+                            "file": "DeviceHub_测试_🚀_é.kt",
+                            "line": 1,
+                            "category": "constants",
+                            "severity": "warning",
+                            "message": "Extract magic timeout constant 测试_🚀_é.",
+                            "suggested_fix": "private const val TIMEOUT_MS = 5000L",
+                        }
+                    ],
+                }
+            ],
+            {"DeviceHub_测试_🚀_é.kt": [1]},
+        )
+        self.assertEqual(agg_warn["blocking_count"], 0)
+        self.assertEqual(agg_warn["total_findings"], 1)
+        self.assertFalse(
+            agg_warn["gerrit_review_payload"]["comments"]["DeviceHub_测试_🚀_é.kt"][0]["unresolved"]
+        )
+        (head_out_dir / "gerrit_review_payload.json").write_text(
+            json.dumps(agg_warn["gerrit_review_payload"]),
+            encoding="utf-8",
+        )
+        warn_verdict = evaluate_upload_command(
+            f'cd "{repo_dir}" && repo upload --cbr -y .',
+            review_swarm_cache_root=cache_root,
+        )
+        self.assertIsNotNone(warn_verdict)
+        self.assertTrue(warn_verdict[0], msg=warn_verdict[1])  # type: ignore[index]
+
+        # Stage 0 deterministic checks + Stage 1 normalization + Stage 2 verifier
+        src_dir = self.base_path / "stage0_repo_测试_🚀_é"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        (src_dir / "BUILD.bazel").write_text(
+            'cc_library(\n    name = "widget",\n    srcs = ["widget.cc"],\n    hdrs = ["missing_header.h"],\n)\n',
+            encoding="utf-8",
+        )
+        (src_dir / "widget.h").write_text("class Widget { int x_ = 0; };\n", encoding="utf-8")
+        (src_dir / "widget.cc").write_text(
+            '#include "widget.h"\n#include <fstream>\nvoid Load() {\n  std::ifstream f("测试_🚀_é.bin");\n}\n',
+            encoding="utf-8",
+        )
+        stage0_manifest = {
+            "repo_dir": str(src_dir),
+            "commit_message": "fix: Test\n\nBody.\n\nCONV=12345\nBug: 123\nTest: unit\n",
+            "diff_text": (
+                "--- a/BUILD.bazel\n+++ b/BUILD.bazel\n@@ -1,4 +1,5 @@\n"
+                ' cc_library(\n     name = "widget",\n     srcs = ["widget.cc"],\n'
+                '+    hdrs = ["missing_header.h"],\n )\n'
+                "--- a/widget.cc\n+++ b/widget.cc\n@@ -1,3 +1,5 @@\n"
+                ' #include "widget.h"\n+#include <fstream>\n void Load() {\n'
+                '+  std::ifstream f("测试_🚀_é.bin");\n }\n'
+            ),
+        }
+        stage0_res = run_deterministic_stage0(stage0_manifest, repo_dir=str(src_dir))
+        stage0_findings = stage0_res[0]["findings"]
+        categories = {f["category"] for f in stage0_findings}
+        self.assertIn("commit", categories)
+        self.assertIn("build", categories)
+        self.assertIn("unicode", categories)
+
+        enclosing = build_enclosing_file_context(stage0_manifest, repo_dir=str(src_dir))
+        self.assertIn("Paired Header `widget.h`", enclosing)
+        self.assertIn("std::ifstream", enclosing)
+
+        normalized = normalize_stage1_outputs(
+            [
+                {
+                    "specialist": "constants-auditor",
+                    "findings": [
+                        {
+                            "file": "widget.cc",
+                            "line": 3,
+                            "category": "constants",
+                            "severity": "blocking",
+                            "message": "Capped to warning and snapped to line 4.",
+                            "suggested_fix": "Use constant.",
+                        }
+                    ],
+                },
+                {
+                    "specialist": "concurrency-and-safety-auditor",
+                    "findings": [
+                        {
+                            "file": "widget.cc",
+                            "line": 4,
+                            "category": "concurrency",
+                            "severity": "blocking",
+                            "message": "Candidate race.",
+                            "suggested_fix": "Lock mutex.",
+                        }
+                    ],
+                },
+            ],
+            {"widget.cc": {2, 4}},
+        )
+        self.assertEqual(normalized[0]["findings"][0]["severity"], "warning")
+        self.assertEqual(normalized[0]["findings"][0]["line"], 2)
+        verified = apply_verifier_to_specialist_outputs(
+            normalized,
+            {"decisions": [{"candidate_index": 0, "action": "downgrade_warning", "reason": "Advisory"}]},
+        )
+        self.assertEqual(verified[1]["findings"][0]["severity"], "warning")
+
 
 if __name__ == "__main__":
     unittest.main()
