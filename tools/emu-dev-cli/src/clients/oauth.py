@@ -106,6 +106,11 @@ class OAuthTokenManager:
             cleaned = cleaned.split("Bearer ")[-1].strip()
         elif cleaned.startswith("Authorization:"):
             cleaned = cleaned.replace("Authorization:", "").strip()
+        if cleaned.startswith("Basic "):
+            basic_b64 = cleaned[len("Basic ") :].strip()
+            if basic_b64 and " " not in basic_b64:
+                return f"Basic {basic_b64}"
+            return None
         if not cleaned or cleaned.startswith("Error") or " " in cleaned:
             return None
         return cleaned
@@ -217,7 +222,7 @@ class OAuthTokenManager:
 
         # Fallback for gLinux / capsule environments without oauth2l: use OnePlatform sso CLI
         sso_bin = Path("/google/data/ro/teams/oneplatform/sso")
-        if sys.platform == "linux" and sso_bin.exists():
+        if sso_bin.exists():
             try:
                 full_scopes = [
                     s if s.startswith("https://") else f"https://www.googleapis.com/auth/{s}"
@@ -235,6 +240,33 @@ class OAuthTokenManager:
                         return cleaned
             except Exception as exc:
                 logging.getLogger(__name__).debug("Ignored error in fetch_oauth2l_token: %s", exc)
+
+        # Fallback for Windows git-remote-sso authentication config
+        if sys.platform == "win32":
+            local_appdata = os.environ.get("LOCALAPPDATA") or os.path.expanduser(
+                "~/AppData/Local"
+            )
+            sso_cfg = (
+                Path(local_appdata)
+                / f"cookie-{user}.sso"
+                / "git-authentication.config"
+            )
+            if sso_cfg.exists():
+                try:
+                    for line in sso_cfg.read_text(encoding="utf-8").splitlines():
+                        if "Authorization:" in line:
+                            cleaned = self.clean_token(
+                                "Authorization:"
+                                + line.split("Authorization:", 1)[1]
+                            )
+                            if cleaned:
+                                self.save_cached_token(cleaned)
+                                return cleaned
+                except Exception as exc:
+                    logging.getLogger(__name__).debug(
+                        "Ignored error reading Windows git-authentication.config: %s",
+                        exc,
+                    )
 
         # Remote GLinux SSH Fallback (for macOS workstations)
         if sys.platform == "darwin" or not Path("/google/data").exists():

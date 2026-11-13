@@ -132,6 +132,7 @@ py_library(
             "workflows",
             "tests",
         ],
+        main = f,
         tags = ["manual"] if "benchmark" in f else [],
         toolchains = ["@rules_nodejs//nodejs:current_node_toolchain"] if f == "tests/gerrit_ui_test.py" else [],
         deps = [

@@ -49,6 +49,7 @@ _SOURCE_ROOT = find_source_root(_SCRIPT_DIR)
 _EMU_DEV_CLI_SRC = _SCRIPT_DIR / "src"
 if _EMU_DEV_CLI_SRC.exists():
     sys.path.insert(0, str(_EMU_DEV_CLI_SRC))
+    __path__ = [str(_EMU_DEV_CLI_SRC / "install")]
 
 _IMPORT_ERROR = None
 try:

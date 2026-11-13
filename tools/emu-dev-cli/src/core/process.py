@@ -399,7 +399,21 @@ class FakeProcessRunner(ProcessRunner):
             )
 
         for prefix, rule in self._prefix_rules:
-            if call.args[: len(prefix)] == prefix:
+            matched = call.args[: len(prefix)] == prefix
+            if (
+                not matched
+                and prefix
+                and len(call.args) >= len(prefix)
+                and "/" not in prefix[0]
+                and "\\" not in prefix[0]
+            ):
+                exe_stem = os.path.splitext(os.path.basename(call.args[0]))[0].lower()
+                pref_stem = os.path.splitext(prefix[0])[0].lower()
+                matched = (
+                    exe_stem == pref_stem
+                    and call.args[1 : len(prefix)] == prefix[1:]
+                )
+            if matched:
                 if callable(rule):
                     built = rule(call)
                     return ProcessResult(
