@@ -581,7 +581,9 @@ def extract_artifacts_from_metadata(
         elif isinstance(data, (list, tuple)):
             for idx, item in enumerate(data):
                 _walk(item, f"{prefix}[{idx}]", current_source)
-        elif isinstance(data, str) and (data.startswith("/") or data.startswith("~")):
+        elif isinstance(data, str) and (
+            data.startswith("/") or data.startswith("~") or os.path.isabs(data)
+        ):
             p = Path(os.path.expanduser(data))
             if p.is_file():
                 canonical_path = str(p.resolve())

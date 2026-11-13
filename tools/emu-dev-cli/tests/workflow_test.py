@@ -238,6 +238,7 @@ steps:
     verifier_cmd: null
 """)
                 # 2. Define parent workflow
+                child_yaml_posix = child_yaml.replace("\\", "/")
                 parent_yaml = os.path.join(td, "parent_wf.yaml")
                 with open(parent_yaml, "w") as f:
                     f.write(f"""name: test-parent
@@ -245,7 +246,7 @@ steps:
   - step: 0
     title: Delegate to child
     workflow:
-      name: "{child_yaml}"
+      name: "{child_yaml_posix}"
       outputs:
         child_out: mapped_parent_var
   - step: 1
@@ -293,13 +294,14 @@ steps:
     prompt: Done
     verifier_cmd: null
 """)
+                child_yaml_posix = child_yaml.replace("\\", "/")
                 parent_yaml = os.path.join(td, "parent_wf.yaml")
                 with open(parent_yaml, "w") as f:
                     f.write(f"""name: test-parent-missing
 steps:
   - step: 0
     workflow:
-      name: "{child_yaml}"
+      name: "{child_yaml_posix}"
       outputs:
         non_existent_key: mapped_key
 """)
@@ -323,18 +325,20 @@ steps:
         with tempfile.TemporaryDirectory() as td:
             wf1 = os.path.join(td, "cycle1.yaml")
             wf2 = os.path.join(td, "cycle2.yaml")
+            wf1_posix = wf1.replace("\\", "/")
+            wf2_posix = wf2.replace("\\", "/")
 
             with open(wf1, "w") as f:
                 f.write(f"""name: cycle1
 steps:
   - step: 0
-    workflow: "{wf2}"
+    workflow: "{wf2_posix}"
 """)
             with open(wf2, "w") as f:
                 f.write(f"""name: cycle2
 steps:
   - step: 0
-    workflow: "{wf1}"
+    workflow: "{wf1_posix}"
 """)
             with self.assertRaises(WorkflowRecursionError) as cm:
                 init_workflow_session(wf1, [])
@@ -375,6 +379,7 @@ steps:
     prompt: Child done.
     verifier_cmd: null
 """)
+                child_yaml_posix = child_yaml.replace("\\", "/")
                 parent_yaml = os.path.join(td, "parent_custom.yaml")
                 with open(parent_yaml, "w") as f:
                     f.write(f"""name: parent-custom
@@ -383,7 +388,7 @@ steps:
     title: Run child with custom instructions
     custom_instructions: "Check Vulkan swapchain null pointer in display.cpp"
     workflow:
-      name: "{child_yaml}"
+      name: "{child_yaml_posix}"
   - step: 1
     prompt: Parent finished.
     verifier_cmd: null
@@ -501,6 +506,7 @@ steps:
             with open(flag_file, "w") as f:
                 f.write("round1")
 
+            flag_file_posix = flag_file.replace("\\", "/")
             old_env = os.environ.get("EMU_DEV_CLI_WORKFLOW_STATE_DIR")
             old_conv = os.environ.get("ANTIGRAVITY_CONVERSATION_ID")
             os.environ["EMU_DEV_CLI_WORKFLOW_STATE_DIR"] = state_dir
@@ -521,7 +527,7 @@ steps:
     loop_exit_code: 2
     max_iterations: 3
     loop_prompt: "New review comments arrived ({{verifier_output}})! Looping back to Step 0."
-    verifier_cmd: "python3 -c \\"import pathlib, sys; p = pathlib.Path('{flag_file}'); val = p.read_text().strip(); p.write_text('round2'); sys.exit(2 if val == 'round1' else 0)\\""
+    verifier_cmd: "python3 -c \\"import pathlib, sys; p = pathlib.Path('{flag_file_posix}'); val = p.read_text().strip(); p.write_text('round2'); sys.exit(2 if val == 'round1' else 0)\\""
   - step: 2
     title: Done
     prompt: "All review rounds complete!"

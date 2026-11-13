@@ -188,7 +188,11 @@ def render_dossier_markdown(
         os_list = [str(x) for x in (item.get("os") or []) if x]
         os_names = ", ".join(os_list) or "N/A"
         loc = item.get("crash_location") or "N/A"
-        rca_path = os.path.join(cache_dir, f"rca-{rep_id}.md")
+        rca_path = (
+            f"{cache_dir.rstrip('/')}/rca-{rep_id}.md"
+            if "/" in cache_dir and "\\" not in cache_dir
+            else os.path.join(cache_dir, f"rca-{rep_id}.md")
+        )
 
         lines.extend(
             [
