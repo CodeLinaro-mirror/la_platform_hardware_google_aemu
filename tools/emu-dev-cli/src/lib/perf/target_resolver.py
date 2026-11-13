@@ -529,7 +529,15 @@ def _resolve_ab_build_target(
         json=True,
     )
     logger.info("Fetching emulator build '%s' from go/ab...", spec)
-    emu_target.run_emulator_fetch(fetch_args, render_output=False)
+    fetch_res = emu_target.run_emulator_fetch(fetch_args, render_output=False)
+    fetch_err_detail = ""
+    if hasattr(fetch_res, "ok") and not fetch_res.ok:
+        res_data = getattr(fetch_res, "data", None) or {}
+        fetch_err_detail = (
+            res_data.get("error_message")
+            or getattr(fetch_res, "error", None)
+            or getattr(fetch_res, "summary", "")
+        )
 
     if build_id:
         search_dirs = [
@@ -544,6 +552,19 @@ def _resolve_ab_build_target(
             key=os.path.getmtime,
             reverse=True,
         )
+
+    if not search_dirs and is_latest_branch and branch == "emu-main-next":
+        repo_release_cand = os.path.join(
+            cache_root, "emulator-repo-release", "extracted", "emulator"
+        )
+        if os.path.isdir(repo_release_cand):
+            logger.warning(
+                "Could not fetch '%s' from go/ab (%s); falling back to cached emu-main-next build at %s",
+                spec,
+                fetch_err_detail or "fetch failed",
+                repo_release_cand,
+            )
+            search_dirs = [repo_release_cand]
 
     for cand in search_dirs:
         if os.path.isdir(cand):
@@ -562,6 +583,10 @@ def _resolve_ab_build_target(
                 pkg_revision=meta.get("pkg_revision"),
                 engine=meta.get("engine"),
             )
+    if fetch_err_detail:
+        raise RuntimeError(
+            f"Failed to fetch emulator build '{spec}' from go/ab: {fetch_err_detail}"
+        )
     return None
 
 

@@ -35,7 +35,12 @@ import zipfile
 from core.errors import AuthError, ExecutionError, UsageError
 from core.events import ArtifactDownloaded, EventBus
 from core.process import ProcessRunner, SubprocessRunner
-from clients.oauth import OAuthTokenManager, get_quota_project, get_ssl_context
+from clients.oauth import (
+    OAuthTokenManager,
+    get_quota_project,
+    get_ssl_context,
+    resolve_default_adc_path,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -144,11 +149,7 @@ def check_authentication_status(
     elif os.environ.get("ANDROID_BUILD_TOKEN") or os.environ.get("OAUTH2_TOKEN"):
         auth_method = "ENV_VAR"
     else:
-        file_path = os.environ.get(
-            "GOOGLE_APPLICATION_CREDENTIALS"
-        ) or os.path.expanduser(
-            "~/.config/gcloud/application_default_credentials.json"
-        )
+        file_path = resolve_default_adc_path()
         file_exists = os.path.exists(file_path)
         if not file_exists:
             return {
