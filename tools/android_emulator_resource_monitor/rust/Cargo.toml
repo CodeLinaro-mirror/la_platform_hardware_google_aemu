@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 # Keeps clippy from suggesting 1.88 let-chains without crate-wide #[allow(...)].
 rust-version = "1.85"
+# Unit tests in tests/ are mounted from src/ via #[path = "..."] so they can
+# test private items without exposing crate internals.
+autotests = false
 
 [dependencies]
 chrono = "0.4.44"
