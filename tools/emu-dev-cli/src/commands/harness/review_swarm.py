@@ -34,11 +34,14 @@ from commands.harness.review_aggregation import (
     render_review_swarm_markdown,
 )
 from commands.harness.review_gate_v2 import (
+    CODE_REVIEW_EXTENSIONS,
+    LITE_SWARM_MAX_CODE_LINES,
     VERIFIER_SCHEMA,
     apply_verifier_decisions,
     apply_verifier_to_specialist_outputs,
     build_enclosing_file_context,
     build_refutation_verifier_prompt,
+    classify_review_risk_tier,
     collect_blocking_candidates,
     normalize_stage1_outputs,
     run_deterministic_stage0,
@@ -53,6 +56,7 @@ from commands.harness.review_history import (
 )
 from commands.harness.review_swarm_status import (
     REVIEW_SWARM_SUBDIR,
+    write_completed_swarm_status,
     write_initial_swarm_status,
 )
 from commands.harness.review_targets import (
@@ -224,6 +228,9 @@ def _build_prior_context_section(
 def build_specialist_prompts(target_manifest: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Constructs the non-overlapping specialist definitions with embedded diff context."""
     is_incremental = target_manifest.get("review_scope") == "incremental"
+    risk_tier = str(target_manifest.get("risk_tier") or "full")
+    if risk_tier in ("stage0_only", "stage0_blocked"):
+        return []
     changed_map = target_manifest.get("changed_lines_by_file") or {}
     prior_map = target_manifest.get("prior_specialist_feedback") or {}
     msg_changed = bool(target_manifest.get("commit_msg_changed"))
@@ -243,6 +250,7 @@ def build_specialist_prompts(target_manifest: Dict[str, Any]) -> List[Dict[str, 
         if enclosing_context and enclosing_context not in ("(no changed files)", "(enclosing file context unavailable)")
         else ""
     )
+    use_fast_model = is_incremental or risk_tier == "lite"
     prompts: List[Dict[str, Any]] = []
     for spec in REVIEW_SWARM_SPECIALISTS:
         if is_incremental and spec["name"] == COMMIT_AUDITOR_NAME and not msg_changed and not prior_map.get(COMMIT_AUDITOR_NAME):
@@ -263,7 +271,7 @@ def build_specialist_prompts(target_manifest: Dict[str, Any]) -> List[Dict[str, 
         prompts.append({
             "name": spec["name"],
             "role": spec["role"],
-            "model": INCREMENTAL_PASS_MODEL if is_incremental else spec["model"],
+            "model": INCREMENTAL_PASS_MODEL if use_fast_model else spec["model"],
             "workflow_mapping": spec["workflow_mapping"],
             "prompt": prompt_text,
         })
@@ -540,17 +548,49 @@ def prepare_review_swarm_bundle(
     )
     effective_root = cache_root if cache_root is not None else (get_harness_base_dir() / REVIEW_SWARM_SUBDIR)
     target_manifest = apply_incremental_history(raw_manifest, effective_root, force_full=force_full)
+    tier_info = classify_review_risk_tier(
+        target_manifest,
+        repo_dir=str(repo_dir or target_manifest.get("repo_dir") or "."),
+        force_full=force_full,
+    )
+    target_manifest["risk_tier"] = tier_info["risk_tier"]
+    target_manifest["code_files"] = tier_info["code_files"]
+    target_manifest["code_lines_changed"] = tier_info["code_lines_changed"]
     base_out = output_dir if output_dir is not None else (effective_root / safe_id)
     base_out.mkdir(parents=True, exist_ok=True)
 
     specialists = build_specialist_prompts(target_manifest)
     paths = _write_bundle_artifacts(base_out, effective_root, target_manifest, specialists)
+    if (
+        tier_info["risk_tier"] in ("stage0_only", "stage0_blocked")
+        and not (base_out / "gerrit_review_payload.json").is_file()
+    ):
+        stage0_outputs = tier_info["stage0_outputs"]
+        stage0_metrics = build_wave_metrics(target_manifest, stage0_outputs, 0.01)
+        aggregated = filter_and_aggregate_findings(
+            stage0_outputs,
+            target_manifest.get("changed_lines_by_file") or {},
+            metrics=stage0_metrics,
+        )
+        atomic_write_text(base_out / "review_swarm_report.md", aggregated["markdown_report"])
+        atomic_write_text(
+            base_out / "gerrit_review_payload.json",
+            json.dumps(aggregated["gerrit_review_payload"], indent=2, ensure_ascii=False) + "\n",
+        )
+        if target_manifest.get("review_scope") != "incremental":
+            persist_iteration_and_metrics(
+                base_out, effective_root, target_manifest, stage0_outputs, aggregated, stage0_metrics
+            )
+        status_doc = json.loads(Path(paths["swarm_status_path"]).read_text(encoding="utf-8"))
+        write_completed_swarm_status(base_out, status_doc, aggregated, stage0_metrics)
     spec_meta = [{k: s[k] for k in ("name", "role", "model", "workflow_mapping")} for s in specialists]
     return {
         "mode": mode, "target_type": target_manifest.get("target_type"), "target_id": target_id,
         "change_key": target_manifest.get("change_key", ""),
         "round_number": target_manifest.get("round_number", 1),
         "review_scope": target_manifest.get("review_scope", "full"),
+        "risk_tier": target_manifest["risk_tier"],
+        "code_lines_changed": target_manifest["code_lines_changed"],
         "subject": target_manifest.get("subject", ""), "bug_ids": target_manifest.get("bug_ids", []),
         "files": target_manifest.get("files", []),
         "changed_lines_by_file": target_manifest.get("changed_lines_by_file", {}),
@@ -560,8 +600,10 @@ def prepare_review_swarm_bundle(
 
 
 __all__ = [
+    "CODE_REVIEW_EXTENSIONS",
     "COMMIT_MSG_FILE",
     "DEFAULT_GERRIT_HOST",
+    "LITE_SWARM_MAX_CODE_LINES",
     "MAX_SWARM_CONCURRENCY",
     "REVIEW_SWARM_SPECIALISTS",
     "SHARED_SPECIALIST_RULES",
@@ -575,6 +617,7 @@ __all__ = [
     "build_gerrit_review_payload",
     "build_refutation_verifier_prompt",
     "build_specialist_prompts",
+    "classify_review_risk_tier",
     "collect_blocking_candidates",
     "extract_bug_ids_from_commit_msg",
     "fetch_gerrit_cl_target",
