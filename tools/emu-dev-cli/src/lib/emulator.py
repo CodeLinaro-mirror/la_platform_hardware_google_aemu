@@ -20,6 +20,7 @@ import os
 import platform
 import re
 import subprocess
+import tempfile
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -69,25 +70,34 @@ def ensure_executable_permissions(emu_dir: str, emu_bin: str) -> None:
 
 
 def find_cached_emulator_dir() -> Optional[str]:
-    """Scans /tmp for cached extracted emulator directories."""
-    patterns = [
-        "/tmp/emulator-*/extracted/emulator",
-        "/tmp/emulator-*/extracted",
-        "/tmp/emulator-*",
-        "/tmp/emu/emulator",
-        "/tmp/emu",
-    ]
+    """Scans /tmp and system temp directory for cached extracted emulator directories."""
+    roots = ["/tmp"]
+    sys_tmp = tempfile.gettempdir()
+    if sys_tmp and sys_tmp not in roots:
+        roots.append(sys_tmp)
+
+    patterns = []
+    for r in roots:
+        patterns.extend([
+            f"{r}/emulator-*/extracted/emulator",
+            f"{r}/emulator-*/extracted",
+            f"{r}/emulator-*",
+            f"{r}/emu/emulator",
+            f"{r}/emu",
+        ])
+    exe_names = (
+        ("emulator.exe", "emulator")
+        if platform.system().lower() == "windows"
+        else ("emulator",)
+    )
     candidates = []
     for pattern in patterns:
         for p in glob.glob(pattern):
             if os.path.isdir(p):
-                exe_name = (
-                    "emulator.exe"
-                    if platform.system().lower() == "windows"
-                    else "emulator"
-                )
-                if os.path.isfile(os.path.join(p, exe_name)) or os.path.isfile(
-                    os.path.join(p, "emulator", exe_name)
+                if any(
+                    os.path.isfile(os.path.join(p, exe))
+                    or os.path.isfile(os.path.join(p, "emulator", exe))
+                    for exe in exe_names
                 ):
                     candidates.append((os.path.getmtime(p), p))
 
@@ -113,7 +123,7 @@ def resolve_emulator_executable(
         )
 
     is_windows = platform.system().lower() == "windows"
-    exe_name = "emulator.exe" if is_windows else "emulator"
+    exe_names = ("emulator.exe", "emulator") if is_windows else ("emulator",)
 
     abs_dir = os.path.abspath(os.path.expanduser(target_dir))
     if not os.path.isdir(abs_dir):
@@ -121,19 +131,21 @@ def resolve_emulator_executable(
             f"Specified emulator directory does not exist: {abs_dir}"
         )
 
-    direct_bin = os.path.join(abs_dir, exe_name)
-    if os.path.isfile(direct_bin):
-        ensure_executable_permissions(abs_dir, direct_bin)
-        return direct_bin, abs_dir
+    for exe_name in exe_names:
+        direct_bin = os.path.join(abs_dir, exe_name)
+        if os.path.isfile(direct_bin):
+            ensure_executable_permissions(abs_dir, direct_bin)
+            return direct_bin, abs_dir
 
-    sub_bin = os.path.join(abs_dir, "emulator", exe_name)
-    if os.path.isfile(sub_bin):
-        sub_dir = os.path.join(abs_dir, "emulator")
-        ensure_executable_permissions(sub_dir, sub_bin)
-        return sub_bin, sub_dir
+    for exe_name in exe_names:
+        sub_bin = os.path.join(abs_dir, "emulator", exe_name)
+        if os.path.isfile(sub_bin):
+            sub_dir = os.path.join(abs_dir, "emulator")
+            ensure_executable_permissions(sub_dir, sub_bin)
+            return sub_bin, sub_dir
 
     raise FileNotFoundError(
-        f"Could not locate '{exe_name}' binary inside directory: {abs_dir}"
+        f"Could not locate '{exe_names[0]}' binary inside directory: {abs_dir}"
     )
 
 

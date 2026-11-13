@@ -231,7 +231,7 @@ class AdvisorLaunch:
 
 def resolve_advisor_launch(
     resolver: WorkspacePathResolver = _resolver,
-    find_bazel: Callable[[Optional[Path]], str] = find_bazel_cmd,
+    find_bazel: Optional[Callable[[Optional[Path]], str]] = None,
 ) -> AdvisorLaunch:
     """Prefers a prebuilt advisor binary, else `bazel run` from the checkout root."""
     advisor_bin = resolver.find_tool_binary(
@@ -240,12 +240,15 @@ def resolve_advisor_launch(
     if advisor_bin:
         return AdvisorLaunch(command=(str(advisor_bin),))
 
+    import lib.bazel
+
+    bazel_resolver = find_bazel or lib.bazel.find_bazel_cmd
     aemu_dir = resolver.find_directory(AEMU_REL_DIR)
     source_root = (
         aemu_dir.parents[CHECKOUT_ROOT_PARENT_INDEX] if aemu_dir else Path.cwd()
     )
     return AdvisorLaunch(
-        command=(find_bazel(source_root), "run", ADVISOR_RUN_TARGET, "--"),
+        command=(bazel_resolver(source_root), "run", ADVISOR_RUN_TARGET, "--"),
         cwd=source_root,
     )
 

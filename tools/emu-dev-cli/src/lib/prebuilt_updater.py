@@ -124,7 +124,12 @@ def resolve_dest_dir(
     search_roots = [Path.cwd()]
     build_wd = os.environ.get("BUILD_WORKING_DIRECTORY")
     if build_wd:
-        search_roots.insert(0, Path(build_wd))
+        bwd_path = Path(build_wd)
+        if (bwd_path / rel_path).is_dir():
+            return (bwd_path / rel_path).resolve()
+        if len(rel_path.parts) > 1 and (bwd_path / rel_path.parent).is_dir():
+            return (bwd_path / rel_path).resolve()
+        search_roots.insert(0, bwd_path)
 
     for root in search_roots:
         cand = root / rel_path

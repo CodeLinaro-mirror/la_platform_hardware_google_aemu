@@ -55,7 +55,10 @@ _SPDX_NO_ELEMENT_VALUES = frozenset({"NONE", "NOASSERTION"})
 def _abspath(path: str) -> Optional[str]:
     """Returns the absolute form of a user-supplied path, or None if it cannot be resolved."""
     try:
-        return os.path.abspath(os.path.expanduser(path))
+        expanded = os.path.expanduser(path)
+        if not os.path.isabs(expanded):
+            expanded = os.path.join(os.getcwd(), expanded)
+        return os.path.abspath(expanded)
     except OSError:  # Relative paths need os.getcwd(), which fails if the cwd was deleted.
         return None
 

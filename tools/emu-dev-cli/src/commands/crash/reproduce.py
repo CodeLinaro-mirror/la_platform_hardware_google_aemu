@@ -357,7 +357,7 @@ class CrashReproduceCommand(Command[argparse.Namespace, dict[str, Any]]):
                 )
             finally:
                 if emu_proc.poll() is None:
-                    if is_posix:
+                    if hasattr(os, "getpgid") and hasattr(os, "killpg"):
                         try:
                             pgid = os.getpgid(emu_proc.pid)
                             os.killpg(pgid, signal.SIGTERM)
