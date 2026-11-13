@@ -232,12 +232,23 @@ def run_stability_session_against_device(
                 ),
                 frame_non_black=outcome.frame_non_black,
                 frame_pixel_std=outcome.frame_pixel_std,
+                frame_digest=outcome.frame_digest,
+                frame_frozen=outcome.frame_frozen,
                 jank_pct=outcome.jank_pct,
                 crashpad_minidumps=len(dmps),
                 scenario_error=scenario_err,
                 notes=list(outcome.notes),
             )
             samples.append(sample)
+            ctx.last_cycle_healthy = bool(
+                host_after.alive
+                and adb_ok
+                and scenario_err is None
+                and guest_snap is not None
+                and guest_snap.system_server_pid is not None
+                and not guest_snap.new_anr_entries
+                and not guest_snap.new_tombstone_entries
+            )
             cycle_idx += 1
 
             # Stop early on unrecoverable process death or lost ADB device

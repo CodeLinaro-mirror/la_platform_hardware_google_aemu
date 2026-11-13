@@ -43,10 +43,12 @@ from lib.stability.health import (
     StabilityFinding,
     compute_cpu_pct_between_snapshots,
     compute_linear_slope_per_min,
+    compute_rgb888_frame_digest,
     evaluate_stability_samples,
     inspect_guest_health,
     inspect_rgb888_frame,
     parse_dropbox_lines,
+    query_system_server_pid,
     sample_host_process_health,
 )
 from lib.stability.render import (
@@ -103,6 +105,7 @@ __all__ = [
     "compare_stability_reports",
     "compute_cpu_pct_between_snapshots",
     "compute_linear_slope_per_min",
+    "compute_rgb888_frame_digest",
     "default_forensics_root",
     "default_stability_history_path",
     "discover_recent_minidumps",
@@ -118,6 +121,7 @@ __all__ = [
     "load_stability_history",
     "load_stability_report_json",
     "parse_dropbox_lines",
+    "query_system_server_pid",
     "render_stability_comparison_markdown",
     "render_stability_report_markdown",
     "resolve_stability_scenarios",
