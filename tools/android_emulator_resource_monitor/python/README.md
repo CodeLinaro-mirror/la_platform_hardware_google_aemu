@@ -109,12 +109,12 @@ If you used the `--csv` flag, it will also generate a file like `device_monitor_
 
 ## Running Tests
 
-The suite includes robust unit tests in `emulator_resource_monitor_test.py` to safeguard string parsing, regular expressions, and process iterations.
+The unit tests live in `tests/`, split by subject into `host_test.py`, `guest_test.py`, `session_test.py`, `ui_summary_test.py`, `netsim_io_security_test.py`, `netsim_tracker_test.py`, `netsim_pcap_test.py` and `install_test.py`, with shared helpers and fixtures in `tests/test_support.py`.
 
-Run the test suite locally using Python's standard unittest framework from this directory:
+Run all of them from this directory with Python's `unittest` discovery (`-p '*_test.py'` selects the `*_test.py` suites rather than `test_support.py`):
 
 ```bash
-python3 emulator_resource_monitor_test.py
+python3 -m unittest discover -s tests -p '*_test.py'
 ```
 
-All components including ADB mocking side-effects run smoothly in independent sandbox scopes safely.
+A single file can also be run directly, for example `python3 tests/host_test.py`.
