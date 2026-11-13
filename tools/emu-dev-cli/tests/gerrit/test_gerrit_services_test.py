@@ -385,6 +385,106 @@ class GerritUIServiceFacadeAndHandlerTest(unittest.TestCase):
         self.assertEqual(vote_svc.default_viewer, "updated_测试@google.com")
         self.assertEqual(qa_svc.default_viewer, "updated_测试@google.com")
 
+    def test_parse_bug_render_output_and_fetch_bug_details_endpoint(self):
+        import tempfile
+        from commands.gerrit.handlers.ui_handler import _GerritRouteEndpoints
+        from commands.gerrit.services import parse_bug_render_output
+
+        raw_render = (
+            "Issue ID: 499640155\n"
+            "Reporter: reporter_测试@google.com\n"
+            "Assignee: jansene@google.com\n"
+            "Verifier: verifier@google.com\n"
+            "Component ID: 1016880\n"
+            "Status: ASSIGNED\n"
+            "Type: BUG\n"
+            "Priority: P1\n"
+            "Found In: 36.1.0\n"
+            "In Prod: true\n"
+            "Title: [webrtc] Hovercard overlay for bug IDs 测试_🚀_é\n"
+            "\n"
+            "\n"
+            "Description (reported by reporter_测试@google.com on 2026-04-06 23:44:27 UTC)\n"
+            "===============================================================================\n"
+            "When hovering over b/499640155 in the Gerrit UI, display a rich card overlay\n"
+            "with priority, status, assignee, component, and description preview 测试_🚀_é.\n"
+            "\n"
+            "\n"
+            "Severity: S1\n"
+            "CCs: cc1@google.com, cc2@google.com\n"
+            "Created Time: 2026-04-06T23:44:27.498Z\n"
+            "Modified Time: 2026-04-20T18:10:00.123Z\n"
+            "Gerrit changes: https://android-review.googlesource.com/c/platform/hardware/google/aemu/+/43486125\n"
+            "Blocked By: 111222333\n"
+            "Blocking: 444555666\n"
+        )
+        parsed = parse_bug_render_output(raw_render, fallback_id="499640155")
+        self.assertEqual(parsed["id"], "499640155")
+        self.assertEqual(parsed["priority"], "P1")
+        self.assertEqual(parsed["severity"], "S1")
+        self.assertEqual(parsed["status"], "ASSIGNED")
+        self.assertEqual(parsed["type"], "BUG")
+        self.assertEqual(parsed["assignee"], "jansene@google.com")
+        self.assertEqual(parsed["reporter"], "reporter_测试@google.com")
+        self.assertEqual(parsed["verifier"], "verifier@google.com")
+        self.assertEqual(parsed["component_id"], "1016880")
+        self.assertEqual(
+            parsed["component_full_name"],
+            "Android > Non-OS Projects > Enterprise > Bedstead",
+        )
+        self.assertEqual(parsed["cc"], ["cc1@google.com", "cc2@google.com"])
+        self.assertEqual(parsed["blocked_by"], ["111222333"])
+        self.assertEqual(parsed["blocking"], ["444555666"])
+        self.assertIn("43486125", parsed["gerrit_changes"][0])
+        self.assertIn("hovering over b/499640155", parsed["description"])
+        self.assertIn("测试_🚀_é", parsed["description"])
+        self.assertTrue(parsed["details_loaded"])
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with patch.object(
+                GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"
+            ):
+                facade = GerritUIService(default_viewer="joshuaduong@google.com")
+            facade.queue_service._bug_cache_path = Path(tmp_dir) / "bugs.json"
+            with patch("subprocess.run") as mock_run, patch("os.path.exists", return_value=True):
+                mock_run.return_value.returncode = 0
+                mock_run.return_value.stdout = raw_render
+                details = facade.fetch_bug_details("b/499640155")
+                self.assertTrue(details["ok"])
+                self.assertEqual(details["bug"]["id"], "499640155")
+                self.assertEqual(details["bug"]["severity"], "S1")
+                self.assertTrue(details["bug"]["details_loaded"])
+                # Second call without force_refresh hits in-memory cache without subprocess
+                cached_details = facade.fetch_bug_details("499640155")
+                self.assertTrue(cached_details["cached"])
+                self.assertEqual(cached_details["bug"]["title"], details["bug"]["title"])
+                self.assertEqual(mock_run.call_count, 1)
+
+            # Verify HTTP route endpoint handler for /api/gerrit/bug
+            from core.web.router import WebRequest
+
+            recorded = {}
+
+            class _DummyHandler:
+                def send_json(self, payload, status=200):
+                    recorded["status"] = status
+                    recorded["payload"] = payload
+
+            endpoints = _GerritRouteEndpoints(facade)
+            dummy = _DummyHandler()
+            endpoints.get_bug_details(
+                dummy, WebRequest.from_get("/api/gerrit/bug", "id=499640155")
+            )
+            self.assertEqual(recorded["status"], 200)
+            self.assertTrue(recorded["payload"]["ok"])
+            self.assertEqual(recorded["payload"]["bug"]["id"], "499640155")
+            self.assertEqual(recorded["payload"]["bug"]["severity"], "S1")
+
+            endpoints.get_bug_details(
+                dummy, WebRequest.from_get("/api/gerrit/bug", "id=not-a-bug")
+            )
+            self.assertEqual(recorded["status"], 400)
+
 
 if __name__ == "__main__":
     unittest.main()

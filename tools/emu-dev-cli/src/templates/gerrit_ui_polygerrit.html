@@ -10420,6 +10420,148 @@
     background: #e8f0fe;
     color: #1a73e8;
   }
+
+  /* PolyGerrit Buganizer Issue Hovercard (gr-buganizer-hovercard) */
+  .pg-bug-hovercard {
+    position: fixed;
+    z-index: 1250;
+    width: 300px;
+    box-sizing: content-box;
+    max-width: calc(100vw - 48px);
+    padding: 20px;
+    border-radius: 4px;
+    background-color: var(--background-color-primary, #202124);
+    border: 1px solid #3c4043;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    color: var(--primary-text-color, #e8eaed);
+    font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+    pointer-events: auto;
+  }
+  [data-pg-theme="light"] .pg-bug-hovercard {
+    background-color: #ffffff;
+    border: 1px solid #ccc;
+    box-shadow: 0 2px 10px rgba(60, 64, 67, 0.22);
+    color: #202124;
+  }
+  .pg-bug-hovercard .hovercard-content {
+    display: flex;
+    flex-direction: column;
+  }
+  .pg-bug-hovercard .hovercard-content > div {
+    margin-bottom: 5px;
+    display: flex;
+    align-items: center;
+  }
+  .pg-bug-hovercard .hovercard-content > div.hovercard-item-title {
+    font-size: 1.1em;
+    margin-bottom: 10px;
+    align-items: baseline;
+  }
+  .pg-bug-hovercard .hovercard-item-title strong {
+    font-weight: bold;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .pg-bug-hovercard .hovercard-item-component span,
+  .pg-bug-hovercard .hovercard-item-assignee span {
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .pg-bug-hovercard .hovercard-item-status {
+    color: var(--secondary-text-color, #9aa0a6);
+  }
+  [data-pg-theme="light"] .pg-bug-hovercard .hovercard-item-status {
+    color: #5f6368;
+  }
+  .pg-bug-hovercard .hovercard-item-assignee strong,
+  .pg-bug-hovercard .hovercard-item-type strong {
+    font-weight: normal;
+    color: var(--secondary-text-color, #9aa0a6);
+    flex-shrink: 0;
+  }
+  [data-pg-theme="light"] .pg-bug-hovercard .hovercard-item-assignee strong,
+  [data-pg-theme="light"] .pg-bug-hovercard .hovercard-item-type strong {
+    color: #5f6368;
+  }
+  .pg-bug-hovercard .hovercard-item-links a {
+    color: var(--link-color, #8ab4f8);
+    text-decoration: underline;
+  }
+  [data-pg-theme="light"] .pg-bug-hovercard .hovercard-item-links a {
+    color: #1a73e8;
+  }
+  .pg-bug-hovercard .hovercard-item-copy-content {
+    margin-top: 10px;
+    padding: 2px 5px 2px 0;
+    color: var(--link-color, #8ab4f8);
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font: inherit;
+  }
+  [data-pg-theme="light"] .pg-bug-hovercard .hovercard-item-copy-content {
+    color: #1a73e8;
+  }
+  .pg-bug-hovercard .hovercard-item-copy-content span:last-child {
+    text-decoration: underline;
+  }
+  .pg-bug-hovercard .hovercard-item-copy-content:hover {
+    background-color: var(--chip-selected-background-color, rgba(138, 180, 248, 0.16));
+  }
+  [data-pg-theme="light"] .pg-bug-hovercard .hovercard-item-copy-content:hover {
+    background-color: #e8f0fe;
+  }
+  .pg-bug-hovercard .hovercard-item-copy-content:focus {
+    outline: none;
+  }
+  .pg-bug-hovercard .hovercard-front-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-right: 12px;
+    color: var(--secondary-text-color, #9aa0a6);
+    flex-shrink: 0;
+  }
+  .pg-bug-hovercard .hovercard-copy-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-right: 7px;
+    color: var(--secondary-text-color, #9aa0a6);
+    flex-shrink: 0;
+  }
+  .pg-bug-hovercard .hovercard-dot-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    color: currentColor;
+    flex-shrink: 0;
+  }
+  [data-pg-theme="light"] .pg-bug-hovercard .hovercard-front-icon,
+  [data-pg-theme="light"] .pg-bug-hovercard .hovercard-copy-icon {
+    color: #5f6368;
+  }
+  .pg-diff-bug-ref {
+    text-decoration: underline dotted rgba(138, 180, 248, 0.65);
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+  [data-pg-theme="light"] .pg-diff-bug-ref {
+    text-decoration-color: rgba(26, 115, 232, 0.65);
+  }
   .pg-turn-badge.is-hoverable {
     cursor: pointer;
     transition: transform 0.15s ease, filter 0.15s ease;
@@ -25321,6 +25463,568 @@
   @keyframes pgChecksSpin {
     100% { transform: rotate(360deg); }
   }
+
+  /* PolyGerrit Rendered Markdown File Viewer */
+  .pg-md-header-mode-group {
+    display: inline-flex;
+    align-items: center;
+    background: var(--g-panel-alt, #161b22);
+    border: 1px solid var(--g-border, #30363d);
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .pg-md-mode-btn {
+    appearance: none;
+    background: transparent;
+    border: none;
+    color: var(--g-muted, #8b949e);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .pg-md-mode-btn:hover {
+    color: var(--g-text, #e6edf3);
+    background: rgba(177, 186, 196, 0.12);
+  }
+  .pg-md-mode-btn.is-active {
+    background: rgba(56, 139, 253, 0.2);
+    color: #79c0ff;
+    box-shadow: inset 0 0 0 1px rgba(56, 139, 253, 0.45);
+  }
+  [data-pg-theme="light"] .pg-md-mode-btn.is-active {
+    background: #e8f0fe;
+    color: #1967d2;
+    box-shadow: inset 0 0 0 1px rgba(25, 103, 210, 0.35);
+  }
+  .pg-md-file-workspace {
+    display: block;
+    width: 100%;
+  }
+  .pg-md-file-workspace.is-mode-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .pg-md-file-workspace.is-mode-split > .pg-md-diff-pane {
+    border-right: 1px solid var(--g-border, #30363d);
+    min-width: 0;
+    overflow-x: auto;
+  }
+  .pg-md-file-workspace.is-mode-split > .pg-markdown-viewer-pane {
+    min-width: 0;
+  }
+  .pg-markdown-viewer {
+    background: var(--g-bg, #0f131c);
+    color: var(--g-text, #e5e9f0);
+    border-top: 1px solid var(--g-border, #2c3650);
+  }
+  [data-pg-theme="light"] .pg-markdown-viewer {
+    background: #ffffff;
+    color: #1f2328;
+  }
+  .pg-markdown-viewer-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 8px 16px;
+    background: var(--g-panel-alt, #171d2b);
+    border-bottom: 1px solid var(--g-border, #2c3650);
+    font-size: 12px;
+  }
+  [data-pg-theme="light"] .pg-markdown-viewer-toolbar {
+    background: #f6f8fa;
+    border-bottom-color: #d0d7de;
+  }
+  .pg-md-toolbar-left,
+  .pg-md-toolbar-right {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .pg-md-stats-pill {
+    font-size: 11px;
+    color: var(--g-muted, #9aa5ce);
+    background: rgba(122, 162, 247, 0.1);
+    border: 1px solid rgba(122, 162, 247, 0.25);
+    padding: 2px 8px;
+    border-radius: 999px;
+  }
+  [data-pg-theme="light"] .pg-md-stats-pill {
+    color: #57606a;
+    background: #eef2f7;
+    border-color: #d0d7de;
+  }
+  .pg-md-toc-strip {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 16px;
+    background: rgba(23, 29, 43, 0.72);
+    border-bottom: 1px solid var(--g-border-subtle, #232b3e);
+    font-size: 11px;
+  }
+  [data-pg-theme="light"] .pg-md-toc-strip {
+    background: #fbfcfd;
+    border-bottom-color: #e5e9f0;
+  }
+  .pg-md-toc-label {
+    color: var(--g-muted, #9aa5ce);
+    font-weight: 600;
+    white-space: nowrap;
+    margin-right: 2px;
+  }
+  .pg-md-toc-chip {
+    appearance: none;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--g-border, #2c3650);
+    color: var(--g-text, #e5e9f0);
+    border-radius: 999px;
+    padding: 2px 9px;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.12s ease, border-color 0.12s ease;
+  }
+  .pg-md-toc-chip:hover {
+    background: rgba(122, 162, 247, 0.16);
+    border-color: #7aa2f7;
+    color: #ffffff;
+  }
+  [data-pg-theme="light"] .pg-md-toc-chip {
+    background: #ffffff;
+    border-color: #d0d7de;
+    color: #24292f;
+  }
+  [data-pg-theme="light"] .pg-md-toc-chip:hover {
+    background: #e8f0fe;
+    border-color: #1a73e8;
+    color: #174ea6;
+  }
+  .pg-markdown-body {
+    max-width: 1020px;
+    margin: 0 auto;
+    padding: 28px 36px 44px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14.5px;
+    line-height: 1.65;
+    color: var(--g-text, #e5e9f0);
+    overflow-wrap: break-word;
+  }
+  .pg-md-file-workspace.is-mode-split .pg-markdown-body {
+    max-width: none;
+    padding: 20px 22px 32px;
+  }
+  [data-pg-theme="light"] .pg-markdown-body {
+    color: #1f2328;
+  }
+  .pg-md-heading {
+    position: relative;
+    line-height: 1.3;
+    scroll-margin-top: 72px;
+  }
+  .pg-md-h1 {
+    margin: 0 0 16px;
+    font-size: 26px;
+    font-weight: 700;
+    color: #ffffff;
+    border-bottom: 1px solid var(--g-border, #2c3650);
+    padding-bottom: 12px;
+  }
+  [data-pg-theme="light"] .pg-md-h1 {
+    color: #111827;
+    border-bottom-color: #d0d7de;
+  }
+  .pg-md-h2 {
+    margin: 30px 0 14px;
+    font-size: 19.5px;
+    font-weight: 600;
+    color: #7aa2f7;
+    border-bottom: 1px solid var(--g-border, #2c3650);
+    padding-bottom: 7px;
+  }
+  [data-pg-theme="light"] .pg-md-h2 {
+    color: #1967d2;
+    border-bottom-color: #d8dee4;
+  }
+  .pg-md-h3 {
+    margin: 22px 0 10px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #9ece6a;
+  }
+  [data-pg-theme="light"] .pg-md-h3 {
+    color: #137333;
+  }
+  .pg-md-h4,
+  .pg-md-h5,
+  .pg-md-h6 {
+    margin: 16px 0 8px;
+    font-size: 14.5px;
+    font-weight: 600;
+    color: var(--g-text, #e5e9f0);
+  }
+  .pg-md-heading-anchor {
+    opacity: 0;
+    color: var(--g-muted, #8b949e);
+    text-decoration: none;
+    margin-right: 6px;
+    font-weight: 400;
+    transition: opacity 0.12s ease;
+  }
+  .pg-md-heading:hover .pg-md-heading-anchor {
+    opacity: 0.85;
+  }
+  .pg-md-p {
+    margin: 0 0 14px;
+  }
+  .pg-md-hr {
+    border: 0;
+    border-top: 1px solid var(--g-border, #2c3650);
+    margin: 26px 0;
+  }
+  .pg-md-ul,
+  .pg-md-ol {
+    margin: 6px 0 14px;
+    padding-left: 24px;
+  }
+  .pg-md-li {
+    margin: 5px 0;
+  }
+  .pg-md-li > .pg-md-ul,
+  .pg-md-li > .pg-md-ol {
+    margin-top: 4px;
+    margin-bottom: 6px;
+  }
+  .pg-md-inline-code {
+    font-family: "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+    font-size: 0.88em;
+    background: #111622;
+    color: #e0af68;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid #2c3650;
+  }
+  [data-pg-theme="light"] .pg-md-inline-code {
+    background: #f6f8fa;
+    color: #9a6700;
+    border-color: #d0d7de;
+  }
+  .pg-md-color-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    margin-left: 5px;
+    vertical-align: middle;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+  }
+  .pg-md-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    margin: 14px 0 22px;
+    border-radius: 8px;
+    border: 1px solid var(--g-border, #2c3650);
+    background: #171d2b;
+  }
+  [data-pg-theme="light"] .pg-md-table-wrap {
+    background: #ffffff;
+    border-color: #d0d7de;
+  }
+  .pg-md-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  .pg-md-table th,
+  .pg-md-table td {
+    text-align: left;
+    padding: 10px 13px;
+    border-bottom: 1px solid var(--g-border, #2c3650);
+    vertical-align: top;
+  }
+  .pg-md-table th {
+    background: #1e2638;
+    color: #ffffff;
+    font-weight: 600;
+  }
+  [data-pg-theme="light"] .pg-md-table th {
+    background: #f6f8fa;
+    color: #1f2328;
+    border-bottom-color: #d0d7de;
+  }
+  [data-pg-theme="light"] .pg-md-table td {
+    border-bottom-color: #e5e9f0;
+  }
+  .pg-md-table tr:last-child td {
+    border-bottom: none;
+  }
+  .pg-md-code-block {
+    margin: 12px 0 18px;
+    border: 1px solid var(--g-border, #2c3650);
+    border-radius: 8px;
+    overflow: hidden;
+    background: #111622;
+  }
+  [data-pg-theme="light"] .pg-md-code-block {
+    background: #f6f8fa;
+    border-color: #d0d7de;
+  }
+  .pg-md-code-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--g-border, #2c3650);
+    font-size: 11px;
+    color: var(--g-muted, #9aa5ce);
+  }
+  [data-pg-theme="light"] .pg-md-code-header {
+    background: #eef2f6;
+    border-bottom-color: #d0d7de;
+    color: #57606a;
+  }
+  .pg-md-code-lang {
+    font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #7aa2f7;
+  }
+  [data-pg-theme="light"] .pg-md-code-lang {
+    color: #1967d2;
+  }
+  .pg-md-code-copy-btn {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--g-border, #2c3650);
+    color: var(--g-muted, #9aa5ce);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .pg-md-code-copy-btn:hover {
+    color: var(--g-text, #ffffff);
+    border-color: #7aa2f7;
+  }
+  .pg-md-code-pre {
+    margin: 0;
+    padding: 13px 16px;
+    overflow-x: auto;
+    font-family: "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--g-text, #e5e9f0);
+  }
+  [data-pg-theme="light"] .pg-md-code-pre {
+    color: #1f2328;
+  }
+  .pg-md-blockquote,
+  .pg-md-alert {
+    margin: 14px 0 18px;
+    padding: 12px 16px;
+    border-left: 4px solid #7aa2f7;
+    background: rgba(23, 29, 43, 0.85);
+    border-radius: 0 6px 6px 0;
+  }
+  [data-pg-theme="light"] .pg-md-blockquote,
+  [data-pg-theme="light"] .pg-md-alert {
+    background: #f6f8fa;
+  }
+  .pg-md-alert-title {
+    font-weight: 600;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .pg-md-alert-tip { border-left-color: #9ece6a; }
+  .pg-md-alert-important { border-left-color: #bb9af7; }
+  .pg-md-alert-warning { border-left-color: #e0af68; }
+  .pg-md-alert-caution { border-left-color: #f7768e; }
+  .pg-md-link {
+    color: #7aa2f7;
+    text-decoration: none;
+  }
+  .pg-md-link:hover {
+    text-decoration: underline;
+  }
+  [data-pg-theme="light"] .pg-md-link {
+    color: #0969da;
+  }
+  .pg-md-compare-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0;
+  }
+  .pg-md-compare-col {
+    min-width: 0;
+  }
+  .pg-md-compare-col + .pg-md-compare-col {
+    border-left: 1px solid var(--g-border, #2c3650);
+  }
+  .pg-md-compare-col-header {
+    padding: 6px 16px;
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--g-border, #2c3650);
+    color: var(--g-muted, #9aa5ce);
+  }
+
+  /* PolyGerrit Rendered HTML File Viewer (<gr-html-viewer>) */
+  .pg-html-header-mode-group {
+    display: inline-flex;
+    align-items: center;
+    background: var(--g-panel-alt, #161b22);
+    border: 1px solid var(--g-border, #30363d);
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .pg-html-mode-btn {
+    appearance: none;
+    background: transparent;
+    border: none;
+    color: var(--g-muted, #8b949e);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .pg-html-mode-btn:hover {
+    color: var(--g-text, #e6edf3);
+    background: rgba(177, 186, 196, 0.12);
+  }
+  .pg-html-mode-btn.is-active {
+    background: rgba(56, 139, 253, 0.2);
+    color: #79c0ff;
+    box-shadow: inset 0 0 0 1px rgba(56, 139, 253, 0.45);
+  }
+  [data-pg-theme="light"] .pg-html-mode-btn.is-active {
+    background: #e8f0fe;
+    color: #1967d2;
+    box-shadow: inset 0 0 0 1px rgba(25, 103, 210, 0.35);
+  }
+  .pg-html-file-workspace {
+    display: block;
+    width: 100%;
+  }
+  .pg-html-file-workspace.is-mode-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .pg-html-file-workspace.is-mode-split > .pg-html-diff-pane {
+    border-right: 1px solid var(--g-border, #30363d);
+    min-width: 0;
+    overflow-x: auto;
+  }
+  .pg-html-file-workspace.is-mode-split > .pg-html-viewer-pane {
+    min-width: 0;
+  }
+  .pg-html-viewer {
+    background: var(--g-bg, #0f131c);
+    color: var(--g-text, #e5e9f0);
+    border-top: 1px solid var(--g-border, #2c3650);
+  }
+  [data-pg-theme="light"] .pg-html-viewer {
+    background: #f6f8fa;
+    color: #1f2328;
+  }
+  .pg-html-viewer-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 8px 16px;
+    background: var(--g-panel-alt, #171d2b);
+    border-bottom: 1px solid var(--g-border, #2c3650);
+    font-size: 12px;
+  }
+  [data-pg-theme="light"] .pg-html-viewer-toolbar {
+    background: #f6f8fa;
+    border-bottom-color: #d0d7de;
+  }
+  .pg-html-toolbar-left,
+  .pg-html-toolbar-right {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .pg-html-title-pill {
+    font-size: 11px;
+    color: #9ece6a;
+    background: rgba(158, 206, 106, 0.1);
+    border: 1px solid rgba(158, 206, 106, 0.28);
+    padding: 2px 9px;
+    border-radius: 999px;
+    max-width: 360px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  [data-pg-theme="light"] .pg-html-title-pill {
+    color: #137333;
+    background: #e6f4ea;
+    border-color: #a8dab5;
+  }
+  .pg-html-stage {
+    display: flex;
+    justify-content: center;
+    padding: 0;
+    background: #0b0e14;
+    transition: padding 0.15s ease, background 0.15s ease;
+  }
+  .pg-html-stage.bg-light {
+    background: #ffffff;
+  }
+  .pg-html-stage.viewport-tablet,
+  .pg-html-stage.viewport-mobile {
+    padding: 18px 16px;
+    background: #090c12;
+  }
+  .pg-html-preview-iframe {
+    width: 100%;
+    min-height: 760px;
+    border: 0;
+    display: block;
+    background: transparent;
+  }
+  .pg-html-stage.viewport-tablet .pg-html-preview-iframe {
+    max-width: 768px;
+    border: 1px solid var(--g-border, #2c3650);
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  }
+  .pg-html-stage.viewport-mobile .pg-html-preview-iframe {
+    max-width: 375px;
+    border: 1px solid var(--g-border, #2c3650);
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  }
+  .pg-html-preview-iframe.is-expanded {
+    min-height: 1600px;
+  }
 </style>
 </head>
 <body>
@@ -31823,10 +32527,13 @@
       if (status) tooltipParts.push(`(${status})`);
       if (title) tooltipParts.push(`— ${title}`);
       const tooltip = tooltipParts.join(" ");
+      const hoverAttrs = bugId
+        ? ` data-bug-id="${escapeHtml(bugId)}" onmouseenter="showPgBugHovercard(event, '${escapeHtml(bugId)}')" onmouseleave="scheduleHidePgBugHovercard()"`
+        : "";
       if (!interactive) {
-        return `<span class="bug-chip" title="${escapeHtml(tooltip)}">🐛 b/${escapeHtml(bugId)}${priTagHtml}</span>`;
+        return `<span class="bug-chip"${hoverAttrs} title="${escapeHtml(tooltip)}">🐛 b/${escapeHtml(bugId)}${priTagHtml}</span>`;
       }
-      return `<a class="bug-chip" href="${escapeHtml(bugUrl)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(tooltip)}" onclick="event.stopPropagation()">🐛 b/${escapeHtml(bugId)} ↗${priTagHtml}</a>`;
+      return `<a class="bug-chip"${hoverAttrs} href="${escapeHtml(bugUrl)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(tooltip)}" onclick="event.stopPropagation()">🐛 b/${escapeHtml(bugId)} ↗${priTagHtml}</a>`;
     }).join(" ");
   }
 
@@ -39961,7 +40668,11 @@
 
     // 5. Footers checklist
     if (metrics.hasBugFooter) {
-      chips.push(`<span class="pg-commit-metric-chip chip-footer-bug is-valid" title="Bug footer present: ${escapeHtml(metrics.bugId)}">✓ Bug</span>`);
+      const mBugNum = String(metrics.bugId || "").match(/(\d{6,12})/);
+      const bugHoverAttrs = mBugNum
+        ? ` data-bug-id="${escapeHtml(mBugNum[1])}" onmouseenter="showPgBugHovercard(event, '${escapeHtml(mBugNum[1])}')" onmouseleave="scheduleHidePgBugHovercard()"`
+        : "";
+      chips.push(`<span class="pg-commit-metric-chip chip-footer-bug is-valid"${bugHoverAttrs} title="Bug footer present: ${escapeHtml(metrics.bugId)}">✓ Bug</span>`);
     } else {
       chips.push(`<span class="pg-commit-metric-chip chip-footer-bug is-warning" title="Missing Bug: footer (use Bug: N/A if none)">▲ Bug</span>`);
     }
@@ -45035,6 +45746,12 @@
       if (showTabs && escaped.includes("\t")) {
         escaped = escaped.replace(/\t/g, '<span class="pg-tab-marker" title="Tab (\\t)"><span class="pg-tab-arrow">→</span>\t</span>');
       }
+      if (!isTrailing && escaped.includes("b/")) {
+        escaped = escaped.replace(
+          /\bb\/(\d{6,12})\b/gi,
+          '<span class="pg-diff-bug-ref" data-bug-id="$1" onmouseenter="showPgBugHovercard(event, \'$1\')" onmouseleave="scheduleHidePgBugHovercard()">b/$1</span>'
+        );
+      }
       if (isTrailing && sliceText.length > 0) {
         return `<span class="pg-ws-error pg-trailing-ws" title="Trailing whitespace error">${escaped}</span>`;
       }
@@ -45089,6 +45806,12 @@
       let sliceEscaped = escapeHtml(text.slice(segStart, segEnd));
       if (showTabs && sliceEscaped.includes("\t")) {
         sliceEscaped = sliceEscaped.replace(/\t/g, '<span class="pg-tab-marker" title="Tab (\\t)"><span class="pg-tab-arrow">→</span>\t</span>');
+      }
+      if (!isTrailing && sliceEscaped.includes("b/")) {
+        sliceEscaped = sliceEscaped.replace(
+          /\bb\/(\d{6,12})\b/gi,
+          '<span class="pg-diff-bug-ref" data-bug-id="$1" onmouseenter="showPgBugHovercard(event, \'$1\')" onmouseleave="scheduleHidePgBugHovercard()">b/$1</span>'
+        );
       }
       html += combinedCls ? `<span class="${combinedCls}">${sliceEscaped}</span>` : sliceEscaped;
     }
@@ -59040,6 +59763,1213 @@
     }
   }
 
+  /* PolyGerrit Rendered Markdown File Viewer (<gr-markdown-viewer>) */
+  const PG_MARKDOWN_EXTENSIONS = new Set(["md", "markdown", "mdx", "mdown", "mkd"]);
+  if (typeof window !== "undefined") {
+    window.PG_MARKDOWN_EXTENSIONS = PG_MARKDOWN_EXTENSIONS;
+  }
+
+  function isPgMarkdownFile(filePath) {
+    const raw = String(filePath || "").trim().toLowerCase();
+    const dotIdx = raw.lastIndexOf(".");
+    const ext = dotIdx >= 0 ? raw.slice(dotIdx + 1) : "";
+    return PG_MARKDOWN_EXTENSIONS.has(ext);
+  }
+
+  function getPgMarkdownViewMode(clNum, filePath) {
+    if (!state.markdownViewModeByFile) state.markdownViewModeByFile = {};
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const key = `${num}:${String(filePath || "")}`;
+    return state.markdownViewModeByFile[key] || "preview";
+  }
+
+  function getPgMarkdownPreviewSide(clNum, filePath) {
+    if (!state.markdownPreviewSideByFile) state.markdownPreviewSideByFile = {};
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const key = `${num}:${String(filePath || "")}`;
+    return state.markdownPreviewSideByFile[key] || "new";
+  }
+
+  function stripPgDiffLinePrefix(rawText, lineType) {
+    const text = String(rawText == null ? "" : rawText);
+    if (lineType === "add") {
+      return text.startsWith("+") ? text.slice(1) : text;
+    }
+    if (lineType === "del") {
+      return text.startsWith("-") ? text.slice(1) : text;
+    }
+    if (lineType === "ctx") {
+      return text.startsWith(" ") ? text.slice(1) : text;
+    }
+    return text;
+  }
+
+  function extractPgFileSourceFromDiff(f, clNum, ps, side = "new") {
+    const fileObj = f || {};
+    const filePath = String(fileObj.file || "");
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const patchSet = Number(ps || (state.diffsByCl && state.diffsByCl[num] && state.diffsByCl[num].patch_set) || 1);
+    const cacheKey = `${num}:${patchSet}:${filePath}`;
+
+    if (side === "new") {
+      if (typeof fileObj.raw_content === "string") {
+        const lines = fileObj.raw_content.split("\n");
+        return { text: fileObj.raw_content, lineCount: lines.length, isPartial: false, hasOldLines: false, hasNewLines: true };
+      }
+      if (typeof fileObj.content === "string") {
+        const lines = fileObj.content.split("\n");
+        return { text: fileObj.content, lineCount: lines.length, isPartial: false, hasOldLines: false, hasNewLines: true };
+      }
+      if (state.fileContentCache && Array.isArray(state.fileContentCache[cacheKey])) {
+        const cachedLines = state.fileContentCache[cacheKey];
+        return {
+          text: cachedLines.join("\n"),
+          lineCount: cachedLines.length,
+          isPartial: false,
+          hasOldLines: Number(fileObj.deletions || 0) > 0,
+          hasNewLines: true,
+        };
+      }
+    } else if (side === "old" && typeof fileObj.old_content === "string") {
+      const lines = fileObj.old_content.split("\n");
+      return { text: fileObj.old_content, lineCount: lines.length, isPartial: false, hasOldLines: true, hasNewLines: false };
+    }
+
+    const rawLines = Array.isArray(fileObj.lines) ? fileObj.lines : [];
+    const newLines = [];
+    const oldLines = [];
+    let hunkCount = 0;
+    let firstNewLn = 0;
+    let firstOldLn = 0;
+
+    for (let i = 0; i < rawLines.length; i++) {
+      const ln = rawLines[i];
+      if (!ln) continue;
+      const t = ln.type || "ctx";
+      if (t === "hunk") {
+        if (String(ln.text || "").startsWith("@@")) {
+          hunkCount++;
+        }
+        continue;
+      }
+      if (t === "add" || t === "ctx") {
+        if (!firstNewLn && Number(ln.new) > 0) firstNewLn = Number(ln.new);
+        newLines.push(stripPgDiffLinePrefix(ln.text, t));
+      }
+      if (t === "del" || t === "ctx") {
+        if (!firstOldLn && Number(ln.old) > 0) firstOldLn = Number(ln.old);
+        oldLines.push(stripPgDiffLinePrefix(ln.text, t));
+      }
+    }
+
+    const status = (typeof getPgFileStatus === "function") ? getPgFileStatus(fileObj) : String(fileObj.status || "M");
+    const chosenLines = side === "old" ? oldLines : (newLines.length > 0 || status !== "D" ? newLines : oldLines);
+    const firstLn = side === "old" ? firstOldLn : firstNewLn;
+    const isPartial = Boolean(
+      status !== "A" &&
+      status !== "D" &&
+      (hunkCount > 1 || (firstLn > 1) || Boolean(fileObj.truncated))
+    );
+
+    return {
+      text: chosenLines.join("\n"),
+      lineCount: chosenLines.length,
+      isPartial,
+      hasOldLines: oldLines.length > 0,
+      hasNewLines: newLines.length > 0,
+    };
+  }
+
+  function slugifyPgMarkdownHeading(rawText) {
+    return String(rawText || "")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/[*_~[\]()]/g, "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^\w\u0080-\uffff\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "") || "section";
+  }
+
+  function extractPgMarkdownHeadings(rawMd) {
+    const lines = String(rawMd || "").replace(/\r\n/g, "\n").split("\n");
+    const headings = [];
+    let inFence = false;
+    let fenceMarker = "";
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const fenceMatch = line.match(/^\s{0,8}(`{3,}|~{3,})/);
+      if (fenceMatch) {
+        const marker = fenceMatch[1];
+        if (!inFence) {
+          inFence = true;
+          fenceMarker = marker[0];
+        } else if (marker[0] === fenceMarker && line.trim() === marker) {
+          inFence = false;
+          fenceMarker = "";
+        }
+        continue;
+      }
+      if (inFence) continue;
+      const m = line.match(/^\s{0,3}(#{1,4})\s+(.+?)\s*#*$/);
+      if (m) {
+        const level = m[1].length;
+        const rawTitle = m[2].trim();
+        const cleanTitle = rawTitle.replace(/`([^`]+)`/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*([^*]+)\*/g, "$1");
+        headings.push({
+          level,
+          text: cleanTitle,
+          rawText: rawTitle,
+          slug: slugifyPgMarkdownHeading(rawTitle),
+          line: i + 1,
+        });
+      }
+    }
+    return headings;
+  }
+
+  function mapPgMarkdownCodeFenceLang(rawLang) {
+    const lang = String(rawLang || "").trim().toLowerCase();
+    if (!lang) return { id: "generic", label: "TEXT" };
+    if (["ts", "tsx", "typescript"].includes(lang)) return { id: "js", label: "TYPESCRIPT" };
+    if (["js", "jsx", "mjs", "cjs", "javascript"].includes(lang)) return { id: "js", label: "JAVASCRIPT" };
+    if (["py", "python", "starlark", "bazel", "bzl"].includes(lang)) return { id: "python", label: lang.toUpperCase() };
+    if (["sh", "bash", "zsh", "shell", "console"].includes(lang)) return { id: "config", label: lang.toUpperCase() };
+    if (["c", "cc", "cpp", "cxx", "h", "hpp", "java", "kt", "kotlin", "objc"].includes(lang)) return { id: "cpp", label: lang.toUpperCase() };
+    if (["rs", "rust"].includes(lang)) return { id: "rust", label: "RUST" };
+    if (["go", "golang"].includes(lang)) return { id: "go", label: "GO" };
+    if (["html", "htm", "xml", "svg"].includes(lang)) return { id: "markup", label: lang.toUpperCase() };
+    if (["json", "jsonl", "yaml", "yml", "toml", "ini", "proto", "textproto", "pbtxt", "css"].includes(lang)) {
+      return { id: "config", label: lang.toUpperCase() };
+    }
+    return { id: "generic", label: lang.toUpperCase() };
+  }
+
+  function renderPgMarkdownCodeBlockHtml(codeLines, rawLang, scheme = "syntax_intraline") {
+    const langInfo = mapPgMarkdownCodeFenceLang(rawLang);
+    const rawCode = codeLines.join("\n");
+    const highlightedLines = codeLines.map(ln => {
+      if (typeof renderHighlightedDiffLineHtml === "function" && langInfo.id !== "generic") {
+        return renderHighlightedDiffLineHtml(ln, "ctx", langInfo.id, scheme, null);
+      }
+      return escapeHtml(ln);
+    });
+    const encodedRaw = escapeHtml(rawCode);
+    const lineCountLabel = `${codeLines.length} line${codeLines.length === 1 ? "" : "s"}`;
+    return `<div class="pg-md-code-block" data-lang="${escapeHtml(langInfo.label.toLowerCase())}">
+      <div class="pg-md-code-header">
+        <span><span class="pg-md-code-lang">${escapeHtml(langInfo.label)}</span> · ${lineCountLabel}</span>
+        <button type="button" class="pg-md-code-copy-btn" data-code="${encodedRaw}" onclick="copyPgMarkdownCodeBlock(event, this)" title="Copy code block to clipboard">📋 Copy</button>
+      </div>
+      <pre class="pg-md-code-pre"><code>${highlightedLines.join("\n")}</code></pre>
+    </div>`;
+  }
+
+  function renderPgMarkdownInlineHtml(rawText, clNum = 0) {
+    const text = String(rawText == null ? "" : rawText);
+    if (!text) return "";
+
+    const tokens = [];
+    const saveToken = (html) => {
+      const idx = tokens.length;
+      tokens.push(html);
+      return `\u0000PGMDTOK${idx}\u0000`;
+    };
+
+    // 1. Protect inline code spans (`...`) first
+    let working = text.replace(/`([^`\n]+)`/g, (_m, codeContent) => {
+      const trimmed = String(codeContent || "").trim();
+      const escapedCode = escapeHtml(codeContent);
+      const isHexColor = /^#[0-9a-fA-F]{6}$/.test(trimmed);
+      const swatchHtml = isHexColor
+        ? `<span class="pg-md-color-swatch" style="background-color:${escapeHtml(trimmed)};" title="${escapeHtml(trimmed)}"></span>`
+        : "";
+      const tokCls = (typeof _classifyInlineCodeSpanClass === "function") ? _classifyInlineCodeSpanClass(trimmed) : "";
+      return saveToken(`<code class="pg-md-inline-code${tokCls}">${escapedCode}${swatchHtml}</code>`);
+    });
+
+    // 2. Escape HTML entities on remaining text
+    working = escapeHtml(working);
+
+    // 3. Inline images ![alt](url)
+    working = working.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_m, altText, rawUrl) => {
+      const cleanUrl = String(rawUrl || "").trim();
+      if (!/^(?:https?:\/\/|data:image\/|\/)/i.test(cleanUrl)) {
+        return escapeHtml(_m);
+      }
+      return saveToken(`<img class="pg-md-inline-img" src="${cleanUrl}" alt="${altText}" loading="lazy" style="max-width:100%;border-radius:6px;" />`);
+    });
+
+    // 4. Inline links [label](url)
+    working = working.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, rawUrl) => {
+      const cleanUrl = String(rawUrl || "").trim();
+      if (/^javascript:/i.test(cleanUrl)) return label;
+      return saveToken(`<a class="pg-md-link" href="${cleanUrl}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+    });
+
+    // 5. Bold + Italic, Bold, Italic, Strikethrough
+    working = working.replace(/\*\*\*([^*]+)\*\*\*/g, "<strong><em>$1</em></strong>");
+    working = working.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    working = working.replace(/__([^_]+)__/g, "<strong>$1</strong>");
+    working = working.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+    working = working.replace(/(^|[^\w])_([^_\n]+)_([^\w]|$)/g, "$1<em>$2</em>$3");
+    working = working.replace(/~~([^~]+)~~/g, "<del>$1</del>");
+
+    // 6. Buganizer references (b/123456789) with PolyGerrit hovercard
+    working = working.replace(
+      /\bb\/(\d{6,12})\b/gi,
+      (_m, bugId) => saveToken(
+        `<a class="pg-md-link pg-diff-bug-ref" href="https://b.corp.google.com/issues/${bugId}" target="_blank" rel="noopener noreferrer" data-bug-id="${bugId}" onmouseenter="showPgBugHovercard(event, '${bugId}')" onmouseleave="scheduleHidePgBugHovercard()">b/${bugId}</a>`
+      )
+    );
+
+    // 7. Bare URLs & go/ shortlinks
+    working = working.replace(
+      /\b(https?:\/\/[^\s<)"']+)/gi,
+      (_m, url) => saveToken(`<a class="pg-md-link" href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`)
+    );
+    working = working.replace(
+      /(^|[\s(])(go\/[a-zA-Z0-9_/-]+)/g,
+      (_m, pre, goLink) => `${pre}${saveToken(`<a class="pg-md-link" href="http://${goLink}" target="_blank" rel="noopener noreferrer">${goLink}</a>`)}`
+    );
+
+    // Restore tokens (supports nested tokens inside links)
+    for (let pass = 0; pass < 2; pass++) {
+      working = working.replace(/\u0000PGMDTOK(\d+)\u0000/g, (_m, idxStr) => tokens[Number(idxStr)] || "");
+    }
+    return working;
+  }
+
+  function splitPgMarkdownTableRow(line) {
+    let trimmed = String(line || "").trim();
+    if (trimmed.startsWith("|")) trimmed = trimmed.slice(1);
+    if (trimmed.endsWith("|") && !trimmed.endsWith("\\|")) trimmed = trimmed.slice(0, -1);
+    const cells = [];
+    let cur = "";
+    let inCode = false;
+    for (let i = 0; i < trimmed.length; i++) {
+      const ch = trimmed[i];
+      if (ch === "\\" && i + 1 < trimmed.length) {
+        cur += ch + trimmed[i + 1];
+        i++;
+        continue;
+      }
+      if (ch === "`") {
+        inCode = !inCode;
+        cur += ch;
+        continue;
+      }
+      if (ch === "|" && !inCode) {
+        cells.push(cur.trim());
+        cur = "";
+        continue;
+      }
+      cur += ch;
+    }
+    cells.push(cur.trim());
+    return cells;
+  }
+
+  function isPgMarkdownTableSeparator(line) {
+    const trimmed = String(line || "").trim();
+    if (!trimmed.includes("|") || !trimmed.includes("-")) return false;
+    const cells = splitPgMarkdownTableRow(trimmed);
+    if (cells.length === 0) return false;
+    return cells.every(c => /^:?-{2,}:?$/.test(c.trim()));
+  }
+
+  function parsePgMarkdownListBlock(lines, startIdx, baseIndent, clNum, scheme) {
+    const items = [];
+    let i = startIdx;
+    let listType = "ul";
+    let startNumber = 1;
+
+    const firstMatch = String(lines[startIdx] || "").match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
+    if (firstMatch && /^\d+\.$/.test(firstMatch[2])) {
+      listType = "ol";
+      startNumber = parseInt(firstMatch[2], 10) || 1;
+    }
+
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!line.trim()) {
+        // Look ahead to see if the list continues at >= baseIndent
+        let nextNonEmpty = i + 1;
+        while (nextNonEmpty < lines.length && !lines[nextNonEmpty].trim()) nextNonEmpty++;
+        if (nextNonEmpty >= lines.length) break;
+        const nextLine = lines[nextNonEmpty];
+        const nextIndent = (nextLine.match(/^(\s*)/) || ["", ""])[1].length;
+        const nextBullet = nextLine.match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
+        if (nextIndent > baseIndent || (nextBullet && nextBullet[1].length === baseIndent)) {
+          i = nextNonEmpty;
+          continue;
+        }
+        break;
+      }
+
+      const m = line.match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
+      if (!m) break;
+      const indent = m[1].length;
+      if (indent < baseIndent) break;
+      if (indent > baseIndent) {
+        // Attach nested list to previous item if present
+        if (items.length > 0) {
+          const nested = parsePgMarkdownListBlock(lines, i, indent, clNum, scheme);
+          items[items.length - 1].subHtml.push(nested.html);
+          i = nested.nextIdx;
+          continue;
+        }
+      }
+
+      const itemIsOrdered = /^\d+\.$/.test(m[2]);
+      if (items.length > 0 && ((listType === "ol") !== itemIsOrdered) && indent === baseIndent) {
+        break;
+      }
+
+      let headText = m[3];
+      let taskCheckboxHtml = "";
+      const taskMatch = headText.match(/^\[([ xX])\]\s+(.*)$/);
+      if (taskMatch) {
+        const checked = taskMatch[1].toLowerCase() === "x";
+        taskCheckboxHtml = `<input type="checkbox" disabled ${checked ? "checked" : ""} style="margin-right:6px;vertical-align:middle;" />`;
+        headText = taskMatch[2];
+      }
+
+      const currentItem = {
+        headHtml: taskCheckboxHtml + renderPgMarkdownInlineHtml(headText, clNum),
+        subHtml: [],
+      };
+      items.push(currentItem);
+      i++;
+
+      // Consume continuation lines, nested lists, or indented fenced code blocks belonging to this item
+      while (i < lines.length) {
+        const subLine = lines[i];
+        if (!subLine.trim()) {
+          let look = i + 1;
+          while (look < lines.length && !lines[look].trim()) look++;
+          if (look >= lines.length) {
+            i = look;
+            break;
+          }
+          const lookIndent = (lines[look].match(/^(\s*)/) || ["", ""])[1].length;
+          if (lookIndent > baseIndent) {
+            i = look;
+            continue;
+          }
+          break;
+        }
+
+        const subIndent = (subLine.match(/^(\s*)/) || ["", ""])[1].length;
+        const subFence = subLine.match(/^(\s*)(`{3,}|~{3,})\s*([^\s`~]*)/);
+        if (subFence && subFence[1].length > baseIndent) {
+          const fenceIndent = subFence[1].length;
+          const fenceMarker = subFence[2];
+          const fenceLang = subFence[3] || "";
+          const codeLines = [];
+          i++;
+          while (i < lines.length) {
+            const clLine = lines[i];
+            const closeMatch = clLine.match(/^\s*(`{3,}|~{3,})\s*$/);
+            if (closeMatch && closeMatch[1][0] === fenceMarker[0] && closeMatch[1].length >= fenceMarker.length) {
+              i++;
+              break;
+            }
+            codeLines.push(clLine.startsWith(" ".repeat(fenceIndent)) ? clLine.slice(fenceIndent) : clLine.replace(/^\s{1,4}/, ""));
+            i++;
+          }
+          currentItem.subHtml.push(renderPgMarkdownCodeBlockHtml(codeLines, fenceLang, scheme));
+          continue;
+        }
+
+        const subBullet = subLine.match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
+        if (subBullet) {
+          if (subBullet[1].length > baseIndent) {
+            const nested = parsePgMarkdownListBlock(lines, i, subBullet[1].length, clNum, scheme);
+            currentItem.subHtml.push(nested.html);
+            i = nested.nextIdx;
+            continue;
+          }
+          break;
+        }
+
+        if (subIndent > baseIndent) {
+          currentItem.subHtml.push(`<div class="pg-md-li-cont">${renderPgMarkdownInlineHtml(subLine.trim(), clNum)}</div>`);
+          i++;
+          continue;
+        }
+        break;
+      }
+    }
+
+    const tag = listType === "ol" ? "ol" : "ul";
+    const startAttr = (listType === "ol" && startNumber !== 1) ? ` start="${startNumber}"` : "";
+    const itemsHtml = items.map(it => `<li class="pg-md-li">${it.headHtml}${it.subHtml.join("")}</li>`).join("");
+    return {
+      html: `<${tag} class="pg-md-${tag}"${startAttr}>${itemsHtml}</${tag}>`,
+      nextIdx: i,
+    };
+  }
+
+  function renderPgMarkdownDocumentHtml(rawMd, opts = {}) {
+    const clNum = Number(opts.clNum || state.selectedClNumber || 0);
+    const scheme = opts.scheme || state.diffColorScheme || "syntax_intraline";
+    const lines = String(rawMd == null ? "" : rawMd).replace(/\r\n/g, "\n").split("\n");
+    const blocks = [];
+    let i = 0;
+    let tableCount = 0;
+    let codeBlockCount = 0;
+
+    while (i < lines.length) {
+      const line = lines[i];
+      const trimmed = line.trim();
+
+      if (!trimmed) {
+        i++;
+        continue;
+      }
+
+      // 1. Fenced code block (```lang or ~~~lang)
+      const fenceMatch = line.match(/^(\s{0,3})(`{3,}|~{3,})\s*([^\s`~]*)/);
+      if (fenceMatch) {
+        const fenceIndent = fenceMatch[1].length;
+        const fenceMarker = fenceMatch[2];
+        const fenceLang = fenceMatch[3] || "";
+        const codeLines = [];
+        i++;
+        while (i < lines.length) {
+          const curLine = lines[i];
+          const closeMatch = curLine.match(/^\s{0,4}(`{3,}|~{3,})\s*$/);
+          if (closeMatch && closeMatch[1][0] === fenceMarker[0] && closeMatch[1].length >= fenceMarker.length) {
+            i++;
+            break;
+          }
+          codeLines.push(fenceIndent > 0 && curLine.startsWith(" ".repeat(fenceIndent)) ? curLine.slice(fenceIndent) : curLine);
+          i++;
+        }
+        codeBlockCount++;
+        blocks.push(renderPgMarkdownCodeBlockHtml(codeLines, fenceLang, scheme));
+        continue;
+      }
+
+      // 2. Horizontal rule (---, ***, ___)
+      if (/^\s{0,3}(?:-\s*-\s*-[- ]*|\*\s*\*\s*\*[* ]*|_\s*_\s*_[_ ]*)$/.test(line)) {
+        blocks.push('<hr class="pg-md-hr" />');
+        i++;
+        continue;
+      }
+
+      // 3. ATX Heading (# H1 .. ###### H6)
+      const headingMatch = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*$/);
+      if (headingMatch) {
+        const level = headingMatch[1].length;
+        const rawTitle = headingMatch[2].trim();
+        const slug = slugifyPgMarkdownHeading(rawTitle);
+        const inlineHtml = renderPgMarkdownInlineHtml(rawTitle, clNum);
+        blocks.push(
+          `<h${level} class="pg-md-heading pg-md-h${level}" id="pg-md-h-${escapeHtml(slug)}" data-line="${i + 1}">` +
+          `<a class="pg-md-heading-anchor" href="#pg-md-h-${escapeHtml(slug)}" onclick="scrollToPgMarkdownHeading(event, 'pg-md-h-${escapeHtml(slug)}')" title="Jump to section">#</a>` +
+          `${inlineHtml}</h${level}>`
+        );
+        i++;
+        continue;
+      }
+
+      // 4. GFM Table (Header row + |---|---| separator row)
+      if (trimmed.includes("|") && i + 1 < lines.length && isPgMarkdownTableSeparator(lines[i + 1])) {
+        const headers = splitPgMarkdownTableRow(line);
+        const aligns = splitPgMarkdownTableRow(lines[i + 1]).map(sep => {
+          const s = sep.trim();
+          if (s.startsWith(":") && s.endsWith(":")) return "center";
+          if (s.endsWith(":")) return "right";
+          return "left";
+        });
+        i += 2;
+        const rows = [];
+        while (i < lines.length && lines[i].trim() && lines[i].includes("|")) {
+          rows.push(splitPgMarkdownTableRow(lines[i]));
+          i++;
+        }
+        const thHtml = headers.map((h, colIdx) => {
+          const align = aligns[colIdx] || "left";
+          const styleAttr = align !== "left" ? ` style="text-align:${align};"` : "";
+          return `<th${styleAttr}>${renderPgMarkdownInlineHtml(h, clNum)}</th>`;
+        }).join("");
+        const tbodyHtml = rows.map(r => {
+          const tdHtml = headers.map((_h, colIdx) => {
+            const cellText = r[colIdx] !== undefined ? r[colIdx] : "";
+            const align = aligns[colIdx] || "left";
+            const styleAttr = align !== "left" ? ` style="text-align:${align};"` : "";
+            return `<td${styleAttr}>${renderPgMarkdownInlineHtml(cellText, clNum)}</td>`;
+          }).join("");
+          return `<tr>${tdHtml}</tr>`;
+        }).join("");
+        tableCount++;
+        blocks.push(`<div class="pg-md-table-wrap"><table class="pg-md-table"><thead><tr>${thHtml}</tr></thead><tbody>${tbodyHtml}</tbody></table></div>`);
+        continue;
+      }
+
+      // 5. Blockquote / GitHub Alert (> [!NOTE], > [!TIP], > [!IMPORTANT], > [!WARNING], > [!CAUTION])
+      if (/^\s{0,3}>/.test(line)) {
+        const quoteLines = [];
+        while (i < lines.length && /^\s{0,3}>/.test(lines[i])) {
+          quoteLines.push(lines[i].replace(/^\s{0,3}>\s?/, ""));
+          i++;
+        }
+        const alertMatch = (quoteLines[0] || "").match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/i);
+        if (alertMatch) {
+          const alertKind = alertMatch[1].toLowerCase();
+          const icons = { note: "ℹ️", tip: "💡", important: "🟣", warning: "⚠️", caution: "🛑" };
+          const titles = { note: "Note", tip: "Tip", important: "Important", warning: "Warning", caution: "Caution" };
+          const bodyLines = quoteLines.slice(1);
+          if (alertMatch[2]) bodyLines.unshift(alertMatch[2]);
+          const bodyHtml = bodyLines.map(ql => renderPgMarkdownInlineHtml(ql, clNum)).join("<br/>");
+          blocks.push(
+            `<div class="pg-md-alert pg-md-alert-${alertKind}">` +
+            `<div class="pg-md-alert-title"><span>${icons[alertKind] || "ℹ️"}</span> <span>${titles[alertKind] || "Note"}</span></div>` +
+            `<div class="pg-md-alert-body">${bodyHtml}</div></div>`
+          );
+        } else {
+          const quoteHtml = quoteLines.map(ql => renderPgMarkdownInlineHtml(ql, clNum)).join("<br/>");
+          blocks.push(`<blockquote class="pg-md-blockquote">${quoteHtml}</blockquote>`);
+        }
+        continue;
+      }
+
+      // 6. Ordered or Unordered List
+      const listMatch = line.match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
+      if (listMatch) {
+        const parsedList = parsePgMarkdownListBlock(lines, i, listMatch[1].length, clNum, scheme);
+        blocks.push(parsedList.html);
+        i = parsedList.nextIdx;
+        continue;
+      }
+
+      // 7. Standard Paragraph
+      const paraLines = [];
+      while (i < lines.length) {
+        const pLine = lines[i];
+        const pTrim = pLine.trim();
+        if (!pTrim) break;
+        if (/^\s{0,3}(`{3,}|~{3,})/.test(pLine)) break;
+        if (/^\s{0,3}(#{1,6})\s+/.test(pLine)) break;
+        if (/^\s{0,3}(?:-\s*-\s*-[- ]*|\*\s*\*\s*\*[* ]*|_\s*_\s*_[_ ]*)$/.test(pLine)) break;
+        if (/^\s{0,3}>/.test(pLine)) break;
+        if (/^(\s*)([-*+]|\d+\.)\s+/.test(pLine)) break;
+        if (pTrim.includes("|") && i + 1 < lines.length && isPgMarkdownTableSeparator(lines[i + 1])) break;
+        paraLines.push(pTrim);
+        i++;
+      }
+      if (paraLines.length > 0) {
+        blocks.push(`<p class="pg-md-p">${renderPgMarkdownInlineHtml(paraLines.join(" "), clNum)}</p>`);
+      } else {
+        i++;
+      }
+    }
+
+    return {
+      html: blocks.join("\n"),
+      tableCount,
+      codeBlockCount,
+      lineCount: lines.length,
+    };
+  }
+
+  function renderPgMarkdownHeaderToggleHtml(clNum, safeFile, safeFileId, mdMode, viewMode, isSbs) {
+    return `<div class="pg-md-header-mode-group" id="pgMdHeaderModeGroup-${clNum}-${safeFileId}" role="group" aria-label="Markdown view mode" onclick="event.stopPropagation()">
+      <button type="button" class="pg-md-mode-btn ${mdMode === "preview" ? "is-active" : ""}" data-md-mode="preview" onclick="setPgMarkdownViewMode(event, ${clNum}, '${safeFile}', 'preview')" title="Rendered Markdown preview">
+        <span aria-hidden="true">📖</span> <span>Preview</span>
+      </button>
+      <button type="button" class="pg-md-mode-btn ${mdMode === "split" ? "is-active" : ""}" data-md-mode="split" onclick="setPgMarkdownViewMode(event, ${clNum}, '${safeFile}', 'split')" title="Side-by-side Code Diff + Rendered Markdown preview">
+        <span aria-hidden="true">◫</span> <span>Split</span>
+      </button>
+      <button type="button" class="pg-md-mode-btn ${mdMode === "diff" ? "is-active" : ""}" data-md-mode="diff" onclick="setPgMarkdownViewMode(event, ${clNum}, '${safeFile}', 'diff')" title="Raw Markdown code diff">
+        <span aria-hidden="true">📝</span> <span>Diff</span>
+      </button>
+    </div>
+    <button
+      type="button"
+      class="pg-file-diff-mode-btn"
+      onclick="togglePgFileDiffMode(event, ${clNum}, '${safeFile}')"
+      title="Toggle Side-by-side / Unified diff table (Shortcut: v)"
+    ><span class="pg-diff-mode-icon" aria-hidden="true">${isSbs ? "☷" : "☰"}</span> <span>${isSbs ? "Side-by-side" : "Unified"}</span></button>`;
+  }
+
+  function renderPgMarkdownViewerHtml(f, clNum, ps, safeFile, safeFileId, status, mdMode) {
+    const side = getPgMarkdownPreviewSide(clNum, f.file);
+    const newSource = extractPgFileSourceFromDiff(f, clNum, ps, "new");
+    const oldSource = extractPgFileSourceFromDiff(f, clNum, ps, "old");
+    const activeSource = side === "old" ? oldSource : newSource;
+    const headings = extractPgMarkdownHeadings(activeSource.text);
+    const rendered = renderPgMarkdownDocumentHtml(activeSource.text, { clNum });
+
+    let bodyContentHtml = "";
+    if (side === "compare" && oldSource.hasOldLines && newSource.hasNewLines) {
+      const renderedOld = renderPgMarkdownDocumentHtml(oldSource.text, { clNum });
+      const renderedNew = renderPgMarkdownDocumentHtml(newSource.text, { clNum });
+      bodyContentHtml = `<div class="pg-md-compare-grid">
+        <div class="pg-md-compare-col">
+          <div class="pg-md-compare-col-header">Base (Old · ${oldSource.lineCount} lines)</div>
+          <div class="pg-markdown-body">${renderedOld.html}</div>
+        </div>
+        <div class="pg-md-compare-col">
+          <div class="pg-md-compare-col-header">Patchset ${ps} (New · ${newSource.lineCount} lines)</div>
+          <div class="pg-markdown-body">${renderedNew.html}</div>
+        </div>
+      </div>`;
+    } else {
+      bodyContentHtml = `<div class="pg-markdown-body" id="pgMarkdownBody-${clNum}-${safeFileId}">${rendered.html}</div>`;
+    }
+
+    const tocHtml = headings.length > 1
+      ? `<div class="pg-md-toc-strip" id="pgMdTocStrip-${clNum}-${safeFileId}" role="navigation" aria-label="Markdown document outline">
+          <span class="pg-md-toc-label">📑 Sections (${headings.length}):</span>
+          ${headings.map(h => `<button type="button" class="pg-md-toc-chip level-${h.level}" onclick="scrollToPgMarkdownHeading(event, 'pg-md-h-${escapeHtml(h.slug)}')" title="Jump to ${escapeHtml(h.text)} (L${h.line})">${escapeHtml(h.text)}</button>`).join("")}
+        </div>`
+      : "";
+
+    const canCompareSides = status === "M" && oldSource.hasOldLines && newSource.hasNewLines;
+    const sideSelectorHtml = canCompareSides
+      ? `<div class="pg-md-header-mode-group" role="group" aria-label="Markdown revision side">
+          <button type="button" class="pg-md-mode-btn ${side === "new" ? "is-active" : ""}" data-md-side="new" onclick="setPgMarkdownPreviewSide(event, ${clNum}, '${safeFile}', ${ps}, 'new')" title="Render Patchset ${ps} (New)">Patchset ${ps}</button>
+          <button type="button" class="pg-md-mode-btn ${side === "old" ? "is-active" : ""}" data-md-side="old" onclick="setPgMarkdownPreviewSide(event, ${clNum}, '${safeFile}', ${ps}, 'old')" title="Render Base (Old)">Base</button>
+          <button type="button" class="pg-md-mode-btn ${side === "compare" ? "is-active" : ""}" data-md-side="compare" onclick="setPgMarkdownPreviewSide(event, ${clNum}, '${safeFile}', ${ps}, 'compare')" title="Compare Base vs Patchset ${ps} rendered side-by-side">Old vs New</button>
+        </div>`
+      : "";
+
+    const loadFullBtnHtml = activeSource.isPartial
+      ? `<button type="button" class="pg-md-code-copy-btn pg-md-load-full-btn" onclick="loadPgMarkdownFullFile(event, ${clNum}, '${safeFile}', ${ps})" title="Diff contains partial hunks — click to fetch and render the complete Markdown file">↕ Load full file</button>`
+      : "";
+
+    const statsParts = [];
+    if (headings.length > 0) statsParts.push(`${headings.length} section${headings.length === 1 ? "" : "s"}`);
+    if (rendered.tableCount > 0) statsParts.push(`${rendered.tableCount} table${rendered.tableCount === 1 ? "" : "s"}`);
+    if (rendered.codeBlockCount > 0) statsParts.push(`${rendered.codeBlockCount} code block${rendered.codeBlockCount === 1 ? "" : "s"}`);
+    statsParts.push(`${activeSource.lineCount} lines`);
+
+    return `<div class="pg-markdown-viewer" id="pgMarkdownViewer-${clNum}-${safeFileId}" data-cl="${clNum}" data-ps="${ps}" data-file="${safeFile}" data-md-mode="${escapeHtml(mdMode)}" data-md-side="${escapeHtml(side)}" data-is-partial="${activeSource.isPartial ? "true" : "false"}">
+      <div class="pg-markdown-viewer-toolbar">
+        <div class="pg-md-toolbar-left">
+          <div class="pg-md-header-mode-group" role="group" aria-label="Markdown viewer mode">
+            <button type="button" class="pg-md-mode-btn ${mdMode === "preview" ? "is-active" : ""}" data-md-mode="preview" onclick="setPgMarkdownViewMode(event, ${clNum}, '${safeFile}', 'preview')">📖 Rendered Markdown</button>
+            <button type="button" class="pg-md-mode-btn ${mdMode === "split" ? "is-active" : ""}" data-md-mode="split" onclick="setPgMarkdownViewMode(event, ${clNum}, '${safeFile}', 'split')">◫ Split (Diff + Preview)</button>
+            <button type="button" class="pg-md-mode-btn ${mdMode === "diff" ? "is-active" : ""}" data-md-mode="diff" onclick="setPgMarkdownViewMode(event, ${clNum}, '${safeFile}', 'diff')">📝 Code Diff</button>
+          </div>
+          ${sideSelectorHtml}
+        </div>
+        <div class="pg-md-toolbar-right">
+          <span class="pg-md-stats-pill">${escapeHtml(statsParts.join(" · "))}</span>
+          ${loadFullBtnHtml}
+          <button type="button" class="pg-md-code-copy-btn" onclick="copyPgMarkdownSource(event, ${clNum}, '${safeFile}', ${ps})" title="Copy raw Markdown source to clipboard">📋 Copy Markdown</button>
+        </div>
+      </div>
+      ${tocHtml}
+      ${bodyContentHtml}
+    </div>`;
+  }
+
+  function setPgMarkdownViewMode(event, clNum, filePath, mode) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const validMode = (mode === "split" || mode === "diff") ? mode : "preview";
+    const num = Number(clNum || state.selectedClNumber || 0);
+    if (!state.markdownViewModeByFile) state.markdownViewModeByFile = {};
+    state.markdownViewModeByFile[`${num}:${filePath}`] = validMode;
+
+    const safeFileId = String(filePath || "").replace(/[^a-zA-Z0-9_-]/g, "_");
+    if (typeof document !== "undefined") {
+      const workspace = document.getElementById(`pgMdWorkspace-${num}-${safeFileId}`);
+      const viewerPane = document.getElementById(`pgMdViewerPane-${num}-${safeFileId}`);
+      const diffPane = document.getElementById(`pgMdDiffPane-${num}-${safeFileId}`);
+      const fileBlock = document.getElementById(`file-diff-${num}-${safeFileId}`);
+
+      if (workspace) {
+        workspace.classList.remove("is-mode-preview", "is-mode-split", "is-mode-diff");
+        workspace.classList.add(`is-mode-${validMode}`);
+        workspace.setAttribute("data-md-mode", validMode);
+      }
+      if (viewerPane) {
+        viewerPane.style.display = validMode === "diff" ? "none" : "";
+      }
+      if (diffPane) {
+        diffPane.style.display = validMode === "preview" ? "none" : "";
+      }
+      if (fileBlock && typeof fileBlock.querySelectorAll === "function") {
+        fileBlock.querySelectorAll("[data-md-mode]").forEach(btn => {
+          if (btn.tagName === "BUTTON") {
+            btn.classList.toggle("is-active", btn.getAttribute("data-md-mode") === validMode);
+          }
+        });
+      }
+    }
+    return validMode;
+  }
+
+  function setPgMarkdownPreviewSide(event, clNum, filePath, ps, side) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const validSide = (side === "old" || side === "compare") ? side : "new";
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const patchSet = Number(ps || (state.diffsByCl && state.diffsByCl[num] && state.diffsByCl[num].patch_set) || 1);
+    if (!state.markdownPreviewSideByFile) state.markdownPreviewSideByFile = {};
+    state.markdownPreviewSideByFile[`${num}:${filePath}`] = validSide;
+
+    const bundle = state.diffsByCl && state.diffsByCl[num];
+    const fileObj = bundle && Array.isArray(bundle.files) ? bundle.files.find(f => f && f.file === filePath) : null;
+    const safeFile = escapeHtml(filePath);
+    const safeFileId = escapeHtml(String(filePath || "").replace(/[^a-zA-Z0-9_-]/g, "_"));
+    if (fileObj && typeof document !== "undefined") {
+      const viewerPane = document.getElementById(`pgMdViewerPane-${num}-${safeFileId}`);
+      if (viewerPane) {
+        const status = getPgFileStatus(fileObj);
+        const mdMode = getPgMarkdownViewMode(num, filePath);
+        viewerPane.innerHTML = renderPgMarkdownViewerHtml(fileObj, num, patchSet, safeFile, safeFileId, status, mdMode);
+      }
+    }
+    return validSide;
+  }
+
+  async function loadPgMarkdownFullFile(event, clNum, filePath, ps) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const patchSet = Number(ps || (state.diffsByCl && state.diffsByCl[num] && state.diffsByCl[num].patch_set) || 1);
+    const cacheKey = `${num}:${patchSet}:${filePath}`;
+    if (typeof sidecarFetch === "function") {
+      try {
+        const resp = await sidecarFetch(`/api/gerrit/file-content?cl=${num}&file=${encodeURIComponent(filePath)}&ps=${patchSet}`);
+        if (resp && resp.ok) {
+          const data = await resp.json();
+          if (data && Array.isArray(data.lines)) {
+            if (!state.fileContentCache) state.fileContentCache = {};
+            state.fileContentCache[cacheKey] = data.lines;
+          }
+        }
+      } catch (_e) {}
+    }
+    const bundle = state.diffsByCl && state.diffsByCl[num];
+    const fileObj = bundle && Array.isArray(bundle.files) ? bundle.files.find(f => f && f.file === filePath) : null;
+    if (fileObj && typeof document !== "undefined") {
+      const safeFile = escapeHtml(filePath);
+      const safeFileId = escapeHtml(String(filePath || "").replace(/[^a-zA-Z0-9_-]/g, "_"));
+      const viewerPane = document.getElementById(`pgMdViewerPane-${num}-${safeFileId}`);
+      if (viewerPane) {
+        const status = getPgFileStatus(fileObj);
+        const mdMode = getPgMarkdownViewMode(num, filePath);
+        viewerPane.innerHTML = renderPgMarkdownViewerHtml(fileObj, num, patchSet, safeFile, safeFileId, status, mdMode);
+        if (typeof showToast === "function") {
+          showToast(`Loaded full Markdown file for ${safeFile} ✓`);
+        }
+      }
+    }
+  }
+
+  function scrollToPgMarkdownHeading(event, headingId) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    if (typeof document === "undefined") return;
+    const el = document.getElementById(headingId);
+    if (el && typeof el.scrollIntoView === "function") {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
+  function copyPgMarkdownCodeBlock(event, btnEl) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const code = btnEl && typeof btnEl.getAttribute === "function" ? btnEl.getAttribute("data-code") || "" : "";
+    if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      navigator.clipboard.writeText(code).catch(() => {});
+    }
+    if (btnEl) {
+      const orig = btnEl.textContent;
+      btnEl.textContent = "✓ Copied";
+      setTimeout(() => { btnEl.textContent = orig || "📋 Copy"; }, 1500);
+    }
+    if (typeof showToast === "function") {
+      showToast("Copied Markdown code block to clipboard ✓");
+    }
+  }
+
+  function copyPgMarkdownSource(event, clNum, filePath, ps) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const bundle = state.diffsByCl && state.diffsByCl[num];
+    const fileObj = bundle && Array.isArray(bundle.files) ? bundle.files.find(f => f && f.file === filePath) : null;
+    const side = getPgMarkdownPreviewSide(num, filePath);
+    const extracted = extractPgFileSourceFromDiff(fileObj || { file: filePath, lines: [] }, num, ps, side === "old" ? "old" : "new");
+    if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      navigator.clipboard.writeText(extracted.text).catch(() => {});
+    }
+    if (typeof showToast === "function") {
+      showToast(`Copied Markdown source (${extracted.lineCount} lines) ✓`);
+    }
+  }
+
+  /* PolyGerrit Rendered HTML File Viewer (<gr-html-viewer>) */
+  const PG_HTML_EXTENSIONS = new Set(["html", "htm", "xhtml"]);
+  if (typeof window !== "undefined") {
+    window.PG_HTML_EXTENSIONS = PG_HTML_EXTENSIONS;
+  }
+
+  function isPgHtmlFile(filePath) {
+    const raw = String(filePath || "").trim().toLowerCase();
+    const dotIdx = raw.lastIndexOf(".");
+    const ext = dotIdx >= 0 ? raw.slice(dotIdx + 1) : "";
+    return PG_HTML_EXTENSIONS.has(ext);
+  }
+
+  function getPgHtmlViewMode(clNum, filePath) {
+    if (!state.htmlViewModeByFile) state.htmlViewModeByFile = {};
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const key = `${num}:${String(filePath || "")}`;
+    return state.htmlViewModeByFile[key] || "preview";
+  }
+
+  function getPgHtmlPreviewSide(clNum, filePath) {
+    if (!state.htmlPreviewSideByFile) state.htmlPreviewSideByFile = {};
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const key = `${num}:${String(filePath || "")}`;
+    return state.htmlPreviewSideByFile[key] || "new";
+  }
+
+  function getPgHtmlViewportPreset(clNum, fileId) {
+    if (!state.htmlViewportByFile) state.htmlViewportByFile = {};
+    return state.htmlViewportByFile[`${clNum}:${fileId}`] || "desktop";
+  }
+
+  function extractPgHtmlMetadata(rawHtml) {
+    const html = String(rawHtml == null ? "" : rawHtml);
+    const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const title = titleMatch ? titleMatch[1].replace(/\s+/g, " ").trim() : "";
+    const headingCount = (html.match(/<h[1-4]\b[^>]*>/gi) || []).length;
+    const tableCount = (html.match(/<table\b[^>]*>/gi) || []).length;
+    const preCount = (html.match(/<pre\b[^>]*>/gi) || []).length;
+    const isFullDocument = /<!DOCTYPE\s+html|<html\b|<body\b/i.test(html);
+    return {
+      title,
+      headingCount,
+      tableCount,
+      preCount,
+      isFullDocument,
+    };
+  }
+
+  function renderPgHtmlHeaderToggleHtml(clNum, safeFile, safeFileId, htmlMode, viewMode, isSbs) {
+    return `<div class="pg-html-header-mode-group" id="pgHtmlHeaderModeGroup-${clNum}-${safeFileId}" role="group" aria-label="HTML view mode" onclick="event.stopPropagation()">
+      <button type="button" class="pg-html-mode-btn ${htmlMode === "preview" ? "is-active" : ""}" data-html-mode="preview" onclick="setPgHtmlViewMode(event, ${clNum}, '${safeFile}', 'preview')" title="Rendered HTML preview">
+        <span aria-hidden="true">🌐</span> <span>Preview</span>
+      </button>
+      <button type="button" class="pg-html-mode-btn ${htmlMode === "split" ? "is-active" : ""}" data-html-mode="split" onclick="setPgHtmlViewMode(event, ${clNum}, '${safeFile}', 'split')" title="Side-by-side Code Diff + Rendered HTML preview">
+        <span aria-hidden="true">◫</span> <span>Split</span>
+      </button>
+      <button type="button" class="pg-html-mode-btn ${htmlMode === "diff" ? "is-active" : ""}" data-html-mode="diff" onclick="setPgHtmlViewMode(event, ${clNum}, '${safeFile}', 'diff')" title="Raw HTML code diff">
+        <span aria-hidden="true">📝</span> <span>Diff</span>
+      </button>
+    </div>
+    <button
+      type="button"
+      class="pg-file-diff-mode-btn"
+      onclick="togglePgFileDiffMode(event, ${clNum}, '${safeFile}')"
+      title="Toggle Side-by-side / Unified diff table (Shortcut: v)"
+    ><span class="pg-diff-mode-icon" aria-hidden="true">${isSbs ? "☷" : "☰"}</span> <span>${isSbs ? "Side-by-side" : "Unified"}</span></button>`;
+  }
+
+  function renderPgHtmlStageHtml(clNum, ps, safeFile, safeFileId, side, viewport, oldSource, newSource, activeSource) {
+    if (side === "compare" && oldSource.hasOldLines && newSource.hasNewLines) {
+      return `<div class="pg-md-compare-grid">
+        <div class="pg-md-compare-col">
+          <div class="pg-md-compare-col-header">Base (Old · ${oldSource.lineCount} lines)</div>
+          <div class="pg-html-stage viewport-${escapeHtml(viewport)}">
+            <iframe class="pg-html-preview-iframe" id="pgHtmlIframeOld-${clNum}-${safeFileId}" sandbox="allow-same-origin" srcdoc="${escapeHtml(oldSource.text)}" title="HTML Preview (Base): ${safeFile}" onload="onPgHtmlPreviewIframeLoad(this, ${clNum}, '${safeFileId}')"></iframe>
+          </div>
+        </div>
+        <div class="pg-md-compare-col">
+          <div class="pg-md-compare-col-header">Patchset ${ps} (New · ${newSource.lineCount} lines)</div>
+          <div class="pg-html-stage viewport-${escapeHtml(viewport)}">
+            <iframe class="pg-html-preview-iframe" id="pgHtmlIframe-${clNum}-${safeFileId}" sandbox="allow-same-origin" srcdoc="${escapeHtml(newSource.text)}" title="HTML Preview (Patchset ${ps}): ${safeFile}" onload="onPgHtmlPreviewIframeLoad(this, ${clNum}, '${safeFileId}')"></iframe>
+          </div>
+        </div>
+      </div>`;
+    }
+    return `<div class="pg-html-stage viewport-${escapeHtml(viewport)}" id="pgHtmlStage-${clNum}-${safeFileId}">
+      <iframe class="pg-html-preview-iframe" id="pgHtmlIframe-${clNum}-${safeFileId}" sandbox="allow-same-origin" srcdoc="${escapeHtml(activeSource.text)}" title="HTML Preview: ${safeFile}" onload="onPgHtmlPreviewIframeLoad(this, ${clNum}, '${safeFileId}')"></iframe>
+    </div>`;
+  }
+
+  function renderPgHtmlToolbarHtml(clNum, ps, safeFile, safeFileId, status, htmlMode, side, viewport, oldSource, newSource, activeSource, meta) {
+    const canCompareSides = status === "M" && oldSource.hasOldLines && newSource.hasNewLines;
+    const sideSelectorHtml = canCompareSides
+      ? `<div class="pg-html-header-mode-group" role="group" aria-label="HTML revision side">
+          <button type="button" class="pg-html-mode-btn ${side === "new" ? "is-active" : ""}" data-html-side="new" onclick="setPgHtmlPreviewSide(event, ${clNum}, '${safeFile}', ${ps}, 'new')">Patchset ${ps}</button>
+          <button type="button" class="pg-html-mode-btn ${side === "old" ? "is-active" : ""}" data-html-side="old" onclick="setPgHtmlPreviewSide(event, ${clNum}, '${safeFile}', ${ps}, 'old')">Base</button>
+          <button type="button" class="pg-html-mode-btn ${side === "compare" ? "is-active" : ""}" data-html-side="compare" onclick="setPgHtmlPreviewSide(event, ${clNum}, '${safeFile}', ${ps}, 'compare')">Old vs New</button>
+        </div>`
+      : "";
+    const viewportSelectorHtml = `<div class="pg-html-header-mode-group" id="pgHtmlViewportGroup-${clNum}-${safeFileId}" role="group" aria-label="HTML preview viewport size">
+      <button type="button" class="pg-html-mode-btn ${viewport === "desktop" ? "is-active" : ""}" data-viewport="desktop" onclick="setPgHtmlViewportPreset(event, ${clNum}, '${safeFileId}', 'desktop')" title="Full-width desktop viewport (100%)">🖥️ 100%</button>
+      <button type="button" class="pg-html-mode-btn ${viewport === "tablet" ? "is-active" : ""}" data-viewport="tablet" onclick="setPgHtmlViewportPreset(event, ${clNum}, '${safeFileId}', 'tablet')" title="Tablet viewport (768px)">📱 768px</button>
+      <button type="button" class="pg-html-mode-btn ${viewport === "mobile" ? "is-active" : ""}" data-viewport="mobile" onclick="setPgHtmlViewportPreset(event, ${clNum}, '${safeFileId}', 'mobile')" title="Mobile viewport (375px)">📱 375px</button>
+    </div>`;
+    const titleBadgeHtml = meta.title
+      ? `<span class="pg-html-title-pill" title="HTML &lt;title&gt;: ${escapeHtml(meta.title)}">🌐 ${escapeHtml(meta.title)}</span>`
+      : "";
+    const statsParts = [];
+    if (meta.headingCount > 0) statsParts.push(`${meta.headingCount} section${meta.headingCount === 1 ? "" : "s"}`);
+    if (meta.tableCount > 0) statsParts.push(`${meta.tableCount} table${meta.tableCount === 1 ? "" : "s"}`);
+    if (meta.preCount > 0) statsParts.push(`${meta.preCount} code block${meta.preCount === 1 ? "" : "s"}`);
+    statsParts.push(`${activeSource.lineCount} lines`);
+    const loadFullBtnHtml = activeSource.isPartial
+      ? `<button type="button" class="pg-md-code-copy-btn pg-html-load-full-btn" onclick="loadPgHtmlFullFile(event, ${clNum}, '${safeFile}', ${ps})" title="Diff contains partial hunks — click to fetch and render the complete HTML file">↕ Load full file</button>`
+      : "";
+
+    return `<div class="pg-html-viewer-toolbar">
+      <div class="pg-html-toolbar-left">
+        <div class="pg-html-header-mode-group" role="group" aria-label="HTML viewer mode">
+          <button type="button" class="pg-html-mode-btn ${htmlMode === "preview" ? "is-active" : ""}" data-html-mode="preview" onclick="setPgHtmlViewMode(event, ${clNum}, '${safeFile}', 'preview')">🌐 Rendered HTML</button>
+          <button type="button" class="pg-html-mode-btn ${htmlMode === "split" ? "is-active" : ""}" data-html-mode="split" onclick="setPgHtmlViewMode(event, ${clNum}, '${safeFile}', 'split')">◫ Split (Diff + Preview)</button>
+          <button type="button" class="pg-html-mode-btn ${htmlMode === "diff" ? "is-active" : ""}" data-html-mode="diff" onclick="setPgHtmlViewMode(event, ${clNum}, '${safeFile}', 'diff')">📝 Code Diff</button>
+        </div>
+        ${sideSelectorHtml}
+        ${viewportSelectorHtml}
+      </div>
+      <div class="pg-html-toolbar-right">
+        ${titleBadgeHtml}
+        <span class="pg-md-stats-pill">${escapeHtml(statsParts.join(" · "))}</span>
+        ${loadFullBtnHtml}
+        <button type="button" class="pg-md-code-copy-btn" onclick="togglePgHtmlIframeExpand(event, ${clNum}, '${safeFileId}')" title="Toggle expanded iframe height">⤢ Expand</button>
+        <button type="button" class="pg-md-code-copy-btn" onclick="openPgHtmlPreviewInNewTab(event, ${clNum}, '${safeFile}', ${ps})" title="Open rendered HTML document in a new browser tab">↗ New Tab</button>
+        <button type="button" class="pg-md-code-copy-btn" onclick="copyPgHtmlSource(event, ${clNum}, '${safeFile}', ${ps})" title="Copy raw HTML source to clipboard">📋 Copy HTML</button>
+      </div>
+    </div>`;
+  }
+
+  function renderPgHtmlViewerHtml(f, clNum, ps, safeFile, safeFileId, status, htmlMode) {
+    const side = getPgHtmlPreviewSide(clNum, f.file);
+    const viewport = getPgHtmlViewportPreset(clNum, safeFileId);
+    const newSource = extractPgFileSourceFromDiff(f, clNum, ps, "new");
+    const oldSource = extractPgFileSourceFromDiff(f, clNum, ps, "old");
+    const activeSource = side === "old" ? oldSource : newSource;
+    const meta = extractPgHtmlMetadata(activeSource.text);
+    const toolbarHtml = renderPgHtmlToolbarHtml(clNum, ps, safeFile, safeFileId, status, htmlMode, side, viewport, oldSource, newSource, activeSource, meta);
+    const stageContentHtml = renderPgHtmlStageHtml(clNum, ps, safeFile, safeFileId, side, viewport, oldSource, newSource, activeSource);
+
+    return `<div class="pg-html-viewer" id="pgHtmlViewer-${clNum}-${safeFileId}" data-cl="${clNum}" data-ps="${ps}" data-file="${safeFile}" data-html-mode="${escapeHtml(htmlMode)}" data-html-side="${escapeHtml(side)}" data-is-partial="${activeSource.isPartial ? "true" : "false"}">
+      ${toolbarHtml}
+      ${stageContentHtml}
+    </div>`;
+  }
+
+  function setPgHtmlViewMode(event, clNum, filePath, mode) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const validMode = (mode === "split" || mode === "diff") ? mode : "preview";
+    const num = Number(clNum || state.selectedClNumber || 0);
+    if (!state.htmlViewModeByFile) state.htmlViewModeByFile = {};
+    state.htmlViewModeByFile[`${num}:${filePath}`] = validMode;
+
+    const safeFileId = String(filePath || "").replace(/[^a-zA-Z0-9_-]/g, "_");
+    if (typeof document !== "undefined") {
+      const workspace = document.getElementById(`pgHtmlWorkspace-${num}-${safeFileId}`);
+      const viewerPane = document.getElementById(`pgHtmlViewerPane-${num}-${safeFileId}`);
+      const diffPane = document.getElementById(`pgHtmlDiffPane-${num}-${safeFileId}`);
+      const fileBlock = document.getElementById(`file-diff-${num}-${safeFileId}`);
+
+      if (workspace) {
+        workspace.classList.remove("is-mode-preview", "is-mode-split", "is-mode-diff");
+        workspace.classList.add(`is-mode-${validMode}`);
+        workspace.setAttribute("data-html-mode", validMode);
+      }
+      if (viewerPane) {
+        viewerPane.style.display = validMode === "diff" ? "none" : "";
+      }
+      if (diffPane) {
+        diffPane.style.display = validMode === "preview" ? "none" : "";
+      }
+      if (fileBlock && typeof fileBlock.querySelectorAll === "function") {
+        fileBlock.querySelectorAll("[data-html-mode]").forEach(btn => {
+          if (btn.tagName === "BUTTON") {
+            btn.classList.toggle("is-active", btn.getAttribute("data-html-mode") === validMode);
+          }
+        });
+      }
+    }
+    return validMode;
+  }
+
+  function setPgHtmlPreviewSide(event, clNum, filePath, ps, side) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const validSide = (side === "old" || side === "compare") ? side : "new";
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const patchSet = Number(ps || (state.diffsByCl && state.diffsByCl[num] && state.diffsByCl[num].patch_set) || 1);
+    if (!state.htmlPreviewSideByFile) state.htmlPreviewSideByFile = {};
+    state.htmlPreviewSideByFile[`${num}:${filePath}`] = validSide;
+
+    const bundle = state.diffsByCl && state.diffsByCl[num];
+    const fileObj = bundle && Array.isArray(bundle.files) ? bundle.files.find(f => f && f.file === filePath) : null;
+    const safeFile = escapeHtml(filePath);
+    const safeFileId = escapeHtml(String(filePath || "").replace(/[^a-zA-Z0-9_-]/g, "_"));
+    if (fileObj && typeof document !== "undefined") {
+      const viewerPane = document.getElementById(`pgHtmlViewerPane-${num}-${safeFileId}`);
+      if (viewerPane) {
+        const status = getPgFileStatus(fileObj);
+        const htmlMode = getPgHtmlViewMode(num, filePath);
+        viewerPane.innerHTML = renderPgHtmlViewerHtml(fileObj, num, patchSet, safeFile, safeFileId, status, htmlMode);
+      }
+    }
+    return validSide;
+  }
+
+  function setPgHtmlViewportPreset(event, clNum, safeFileId, preset) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const validPreset = (preset === "tablet" || preset === "mobile") ? preset : "desktop";
+    if (!state.htmlViewportByFile) state.htmlViewportByFile = {};
+    state.htmlViewportByFile[`${clNum}:${safeFileId}`] = validPreset;
+    if (typeof document !== "undefined") {
+      const stage = document.getElementById(`pgHtmlStage-${clNum}-${safeFileId}`);
+      if (stage && stage.classList) {
+        stage.classList.remove("viewport-desktop", "viewport-tablet", "viewport-mobile");
+        stage.classList.add(`viewport-${validPreset}`);
+      }
+      const group = document.getElementById(`pgHtmlViewportGroup-${clNum}-${safeFileId}`);
+      if (group && typeof group.querySelectorAll === "function") {
+        group.querySelectorAll("[data-viewport]").forEach(btn => {
+          btn.classList.toggle("is-active", btn.getAttribute("data-viewport") === validPreset);
+        });
+      }
+    }
+    return validPreset;
+  }
+
+  function onPgHtmlPreviewIframeLoad(iframeEl, _clNum, _safeFileId) {
+    if (!iframeEl) return;
+    try {
+      const doc = iframeEl.contentDocument || (iframeEl.contentWindow && iframeEl.contentWindow.document);
+      if (doc && doc.documentElement) {
+        const h = Math.max(
+          doc.documentElement.scrollHeight || 0,
+          (doc.body && doc.body.scrollHeight) || 0
+        );
+        if (h > 300) {
+          iframeEl.style.height = `${Math.min(h + 24, 2400)}px`;
+        }
+      }
+    } catch (_e) {}
+  }
+
+  function togglePgHtmlIframeExpand(event, clNum, safeFileId) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    if (typeof document === "undefined") return false;
+    const iframe = document.getElementById(`pgHtmlIframe-${clNum}-${safeFileId}`);
+    if (!iframe || !iframe.classList) return false;
+    const expanded = iframe.classList.toggle("is-expanded");
+    if (expanded) {
+      iframe.style.height = "1800px";
+    } else {
+      onPgHtmlPreviewIframeLoad(iframe, clNum, safeFileId);
+    }
+    return expanded;
+  }
+
+  function openPgHtmlPreviewInNewTab(event, clNum, filePath, ps) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const bundle = state.diffsByCl && state.diffsByCl[num];
+    const fileObj = bundle && Array.isArray(bundle.files) ? bundle.files.find(f => f && f.file === filePath) : null;
+    const side = getPgHtmlPreviewSide(num, filePath);
+    const extracted = extractPgFileSourceFromDiff(fileObj || { file: filePath, lines: [] }, num, ps, side === "old" ? "old" : "new");
+    if (typeof Blob !== "undefined" && typeof URL !== "undefined" && typeof URL.createObjectURL === "function" && typeof window !== "undefined" && typeof window.open === "function") {
+      const blob = new Blob([extracted.text], { type: "text/html;charset=utf-8" });
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, "_blank", "noopener,noreferrer");
+      return blobUrl;
+    }
+    return "";
+  }
+
+  function copyPgHtmlSource(event, clNum, filePath, ps) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const bundle = state.diffsByCl && state.diffsByCl[num];
+    const fileObj = bundle && Array.isArray(bundle.files) ? bundle.files.find(f => f && f.file === filePath) : null;
+    const side = getPgHtmlPreviewSide(num, filePath);
+    const extracted = extractPgFileSourceFromDiff(fileObj || { file: filePath, lines: [] }, num, ps, side === "old" ? "old" : "new");
+    if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      navigator.clipboard.writeText(extracted.text).catch(() => {});
+    }
+    if (typeof showToast === "function") {
+      showToast(`Copied HTML source (${extracted.lineCount} lines) ✓`);
+    }
+  }
+
+  async function loadPgHtmlFullFile(event, clNum, filePath, ps) {
+    if (event) {
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      if (typeof event.stopPropagation === "function") event.stopPropagation();
+    }
+    const num = Number(clNum || state.selectedClNumber || 0);
+    const patchSet = Number(ps || (state.diffsByCl && state.diffsByCl[num] && state.diffsByCl[num].patch_set) || 1);
+    const cacheKey = `${num}:${patchSet}:${filePath}`;
+    if (typeof sidecarFetch === "function") {
+      try {
+        const resp = await sidecarFetch(`/api/gerrit/file-content?cl=${num}&file=${encodeURIComponent(filePath)}&ps=${patchSet}`);
+        if (resp && resp.ok) {
+          const data = await resp.json();
+          if (data && Array.isArray(data.lines)) {
+            if (!state.fileContentCache) state.fileContentCache = {};
+            state.fileContentCache[cacheKey] = data.lines;
+          }
+        }
+      } catch (_e) {}
+    }
+    const bundle = state.diffsByCl && state.diffsByCl[num];
+    const fileObj = bundle && Array.isArray(bundle.files) ? bundle.files.find(f => f && f.file === filePath) : null;
+    if (fileObj && typeof document !== "undefined") {
+      const safeFile = escapeHtml(filePath);
+      const safeFileId = escapeHtml(String(filePath || "").replace(/[^a-zA-Z0-9_-]/g, "_"));
+      const viewerPane = document.getElementById(`pgHtmlViewerPane-${num}-${safeFileId}`);
+      if (viewerPane) {
+        const status = getPgFileStatus(fileObj);
+        const htmlMode = getPgHtmlViewMode(num, filePath);
+        viewerPane.innerHTML = renderPgHtmlViewerHtml(fileObj, num, patchSet, safeFile, safeFileId, status, htmlMode);
+        if (typeof showToast === "function") {
+          showToast(`Loaded full HTML file for ${safeFile} ✓`);
+        }
+      }
+    }
+  }
+
   function renderFileDiffBlock(f, defaultClNum, patchSet, isVisible = true, navInfo = null) {
     const firstTaggedCl = Array.isArray(f.lines)
       ? (f.lines.find(l => Number(l.clNum || 0) > 0) || {}).clNum
@@ -59233,6 +61163,8 @@
 
     const sim = getPgFileSimilarity(f);
     const isPureRename = (status === "R" || status === "C") && oldPath && (sim === 100 || (Number(f.additions || 0) === 0 && Number(f.deletions || 0) === 0 && (!f.lines || f.lines.length === 0 || f.lines.every(l => l.type === "hunk"))));
+    const isMd = !isImg && !isBin && !isPureRename && isPgMarkdownFile(f.file);
+    const isHtml = !isImg && !isBin && !isPureRename && !isMd && isPgHtmlFile(f.file);
 
     if (isImg) {
       hintText = "🖼️ Image comparison · 2-up, Swipe, and Onion skin modes (Shift+M)";
@@ -59252,6 +61184,32 @@
           <span class="pg-pure-rename-title">File ${isCopy ? "copied" : "renamed"} with no content changes</span>
           <span class="pg-pure-rename-sub"><code>${escapeHtml(oldPath)}</code> ➔ <code>${safeFile}</code> · <span class="pg-file-similarity-pill is-pure" title="100% match">100% match</span></span>
         </div>
+      </div>`;
+    } else if (isMd) {
+      const mdMode = getPgMarkdownViewMode(fallbackCl, f.file);
+      hintText = "📖 Markdown file · Toggle Preview, Split, or Code Diff";
+      modeActionHtml = renderPgMarkdownHeaderToggleHtml(fallbackCl, safeFile, safeFileId, mdMode, viewMode, isSbs);
+      const blameClass = isBlameActive ? " has-blame" : "";
+      const codeTableHtml = `<div class="code-table scheme-${escapeHtml(scheme)} diff-mode-${escapeHtml(viewMode)}${blameClass}" data-cl="${fallbackCl}" data-file="${safeFile}"${colStyle}>${linesHtml}${truncHtml}</div>`;
+      const mdViewerHtml = renderPgMarkdownViewerHtml(f, fallbackCl, ps, safeFile, safeFileId, status, mdMode);
+      const viewerDisplay = mdMode === "diff" ? ' style="display:none;"' : "";
+      const diffDisplay = mdMode === "preview" ? ' style="display:none;"' : "";
+      bodyHtml = `<div class="pg-md-file-workspace is-mode-${escapeHtml(mdMode)}" id="pgMdWorkspace-${fallbackCl}-${safeFileId}" data-cl="${fallbackCl}" data-file="${safeFile}" data-md-mode="${escapeHtml(mdMode)}"${codeTableDisplay}>
+        <div class="pg-md-diff-pane" id="pgMdDiffPane-${fallbackCl}-${safeFileId}"${diffDisplay}>${codeTableHtml}</div>
+        <div class="pg-markdown-viewer-pane" id="pgMdViewerPane-${fallbackCl}-${safeFileId}"${viewerDisplay}>${mdViewerHtml}</div>
+      </div>`;
+    } else if (isHtml) {
+      const htmlMode = getPgHtmlViewMode(fallbackCl, f.file);
+      hintText = "🌐 HTML file · Toggle Sandboxed Preview, Split, or Code Diff";
+      modeActionHtml = renderPgHtmlHeaderToggleHtml(fallbackCl, safeFile, safeFileId, htmlMode, viewMode, isSbs);
+      const blameClass = isBlameActive ? " has-blame" : "";
+      const codeTableHtml = `<div class="code-table scheme-${escapeHtml(scheme)} diff-mode-${escapeHtml(viewMode)}${blameClass}" data-cl="${fallbackCl}" data-file="${safeFile}"${colStyle}>${linesHtml}${truncHtml}</div>`;
+      const htmlViewerHtml = renderPgHtmlViewerHtml(f, fallbackCl, ps, safeFile, safeFileId, status, htmlMode);
+      const viewerDisplay = htmlMode === "diff" ? ' style="display:none;"' : "";
+      const diffDisplay = htmlMode === "preview" ? ' style="display:none;"' : "";
+      bodyHtml = `<div class="pg-html-file-workspace is-mode-${escapeHtml(htmlMode)}" id="pgHtmlWorkspace-${fallbackCl}-${safeFileId}" data-cl="${fallbackCl}" data-file="${safeFile}" data-html-mode="${escapeHtml(htmlMode)}"${codeTableDisplay}>
+        <div class="pg-html-diff-pane" id="pgHtmlDiffPane-${fallbackCl}-${safeFileId}"${diffDisplay}>${codeTableHtml}</div>
+        <div class="pg-html-viewer-pane" id="pgHtmlViewerPane-${fallbackCl}-${safeFileId}"${viewerDisplay}>${htmlViewerHtml}</div>
       </div>`;
     } else {
       modeActionHtml = `<button
@@ -59370,6 +61328,17 @@
     return "";
   }
 
+  function _extractBugIdFromUrl(url) {
+    const m = String(url || "").match(/(?:b\.corp\.google\.com\/issues\/|issuetracker\.google\.com\/issues\/|https?:\/\/b\/)(\d{6,12})(?:[/?#]|$)/i);
+    return m ? m[1] : "";
+  }
+
+  function _buildBugHoverAttrs(bugId) {
+    const cleanId = String(bugId || "").replace(/\D+/g, "");
+    if (!cleanId) return "";
+    return ` data-bug-id="${cleanId}" onmouseenter="showPgBugHovercard(event, '${cleanId}')" onmouseleave="scheduleHidePgBugHovercard()"`;
+  }
+
   function renderInlineMarkdownHtml(rawText, isBugFooter = false) {
     const tokens = [];
     const stash = html => {
@@ -59389,21 +61358,23 @@
     });
 
     // 2. Explicit Markdown links [label](https://...) or [label](file:///...)
-    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, (_m, label, url) =>
-      stash(`<a class="ag-link" href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`)
-    );
+    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, (_m, label, url) => {
+      const bugId = _extractBugIdFromUrl(url);
+      return stash(`<a class="ag-link" href="${url}" target="_blank" rel="noopener noreferrer"${_buildBugHoverAttrs(bugId)}>${label}</a>`);
+    });
     s = s.replace(/\[([^\]]+)\]\((file:\/\/[^\s)]+)\)/gi, (_m, label, url) =>
       stash(`<span class="ag-link" title="${url}">${label}</span>`)
     );
 
     // 3. Bare http/https URLs
-    s = s.replace(/\b(https?:\/\/[^\s<)]+)/gi, (_m, url) =>
-      stash(`<a class="ag-link" href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`)
-    );
+    s = s.replace(/\b(https?:\/\/[^\s<)]+)/gi, (_m, url) => {
+      const bugId = _extractBugIdFromUrl(url);
+      return stash(`<a class="ag-link" href="${url}" target="_blank" rel="noopener noreferrer"${_buildBugHoverAttrs(bugId)}>${url}</a>`);
+    });
 
     // 4. Google & internal shortlinks (b/123456, ag/123456, go/slug, cl/123456, crbug.com/...)
     s = s.replace(/\bb\/(\d{6,12})\b/gi, (_m, id) =>
-      stash(`<a class="ag-link" href="https://b.corp.google.com/issues/${id}" target="_blank" rel="noopener noreferrer">b/${id}</a>`)
+      stash(`<a class="ag-link" href="https://b.corp.google.com/issues/${id}" target="_blank" rel="noopener noreferrer"${_buildBugHoverAttrs(id)}>b/${id}</a>`)
     );
     s = s.replace(/\bag\/(\d{5,12})\b/gi, (_m, id) =>
       stash(`<a class="ag-link" href="https://googleplex-android-review.git.corp.google.com/q/${id}" target="_blank" rel="noopener noreferrer">ag/${id}</a>`)
@@ -59433,7 +61404,7 @@
 
     if (isBugFooter) {
       s = s.replace(/(^|[\s,])(\d{6,12})(?=$|[\s,])/g, (_m, pre, id) =>
-        `${pre}${stash(`<a class="ag-link" href="https://b.corp.google.com/issues/${id}" target="_blank" rel="noopener noreferrer">b/${id}</a>`)}`
+        `${pre}${stash(`<a class="ag-link" href="https://b.corp.google.com/issues/${id}" target="_blank" rel="noopener noreferrer"${_buildBugHoverAttrs(id)}>b/${id}</a>`)}`
       );
     }
 
@@ -73808,6 +75779,403 @@
     }, 120);
   }
 
+  // --- Bug Hovercard Overlay (PolyGerrit gr-buganizer-hovercard) ---
+  let pgBugHovercardHideTimer = null;
+  let pgActiveBugHovercardId = "";
+  let pgActiveBugHovercardAnchor = null;
+  const pgBugDetailsCache = new Map();
+  const pgBugDetailsInflight = new Map();
+
+  const PG_HUCKLE_ICONS = {
+    folderOpen: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg>',
+    accessTime: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>',
+    infoOutline: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg>',
+    solidCircleSmall: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="1.5"/></svg>',
+    link: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>',
+    contentCopy: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>',
+    check: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>',
+  };
+
+  const PG_KNOWN_BUG_COMPONENTS = {
+    "29601": "Android > Android OS & Apps > Android Studio > Emulator",
+    "111786": "Android > Android OS & Apps > Android Studio > Emulator > Emulator System Images",
+    "137632": "SwiftShader > Android Emulator",
+    "192708": "Android Public Tracker > App Development > Android Studio",
+    "192727": "Android Public Tracker > App Development > Android Studio > Emulator",
+    "816693": "Android > Android OS & Apps > Android Studio > Emulator > Embedded Emulator",
+    "1016880": "Android > Non-OS Projects > Enterprise > Bedstead",
+    "2289192": "Android > Android OS & Apps > Android Studio > Emulator > Android Device Hub",
+  };
+
+  function _escapeBugJsSingleQuote(val) {
+    return String(val || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  }
+
+  function normalizePgBugId(rawBugId) {
+    return String(rawBugId || "").trim().replace(/^b\//i, "").replace(/\D+/g, "");
+  }
+
+  function formatBugStatusOrType(str) {
+    const raw = String(str || "").trim();
+    if (!raw) return "";
+    return raw
+      .toLowerCase()
+      .split("_")
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+  }
+
+  function removeGoogleDomain(account) {
+    const raw = String(account || "").trim();
+    if (!raw || raw.toLowerCase() === "none") return "Unassigned";
+    return raw.replace("@google.com", "");
+  }
+
+  function resolvePgBugComponentFullName(bugData) {
+    if (!bugData || typeof bugData !== "object") return "Android > Android OS & Apps > Android Studio > Emulator";
+    const explicitFull = String(bugData.component_full_name || "").trim();
+    if (explicitFull) return explicitFull;
+    const compId = String(bugData.component_id || "").trim();
+    if (compId && PG_KNOWN_BUG_COMPONENTS[compId]) {
+      return PG_KNOWN_BUG_COMPONENTS[compId];
+    }
+    if (compId) return `Component #${compId}`;
+    return "Android > Android OS & Apps > Android Studio > Emulator";
+  }
+
+  function getPgBugStatusClass(status) {
+    const up = String(status || "").trim().toUpperCase();
+    if (!up) return "";
+    if (["FIXED", "VERIFIED", "CLOSED"].includes(up)) return "status-fixed";
+    if (["WONT_FIX", "OBSOLETE", "INFEASIBLE", "INTENDED_BEHAVIOR", "DUPLICATE", "NOT_REPRODUCIBLE"].some(k => up.includes(k))) {
+      return "status-closed";
+    }
+    if (["NEW", "ASSIGNED", "ACCEPTED", "OPEN", "REOPENED", "IN_PROGRESS"].includes(up)) {
+      return "status-open";
+    }
+    return "";
+  }
+
+  function formatPgBugTimestampShort(rawTs) {
+    const s = String(rawTs || "").trim();
+    if (!s) return "";
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})(?:[T\s]+(\d{2}:\d{2}))?/);
+    if (m) return m[2] ? `${m[1]} ${m[2]}` : m[1];
+    return s;
+  }
+
+  function _mergeBugFieldsInto(target, src) {
+    if (!src || typeof src !== "object") return;
+    const fields = [
+      "title", "priority", "severity", "status", "assignee", "reporter",
+      "verifier", "component_id", "component_full_name", "type", "created_time",
+      "modified_time", "description", "url",
+    ];
+    for (const k of fields) {
+      if (src[k]) target[k] = String(src[k]);
+    }
+    if (Array.isArray(src.cc) && src.cc.length > 0) target.cc = src.cc.slice();
+    if (Array.isArray(src.gerrit_changes) && src.gerrit_changes.length > 0) {
+      target.gerrit_changes = src.gerrit_changes.slice();
+    }
+    if (src.details_loaded) target.details_loaded = true;
+  }
+
+  function resolvePgBugMetadata(bugId) {
+    const cleanId = normalizePgBugId(bugId);
+    const result = {
+      id: cleanId,
+      url: `https://b.corp.google.com/issues/${cleanId}`,
+      title: "",
+      priority: "",
+      severity: "",
+      status: "",
+      assignee: "",
+      reporter: "",
+      verifier: "",
+      component_id: "",
+      component_full_name: "",
+      type: "",
+      created_time: "",
+      modified_time: "",
+      description: "",
+      cc: [],
+      gerrit_changes: [],
+      linkedCls: [],
+      details_loaded: false,
+    };
+    if (!cleanId) return result;
+    const allChanges = Array.isArray(state.changes) ? state.changes : [];
+    const seenCls = new Set();
+    for (const cl of allChanges) {
+      const bugs = Array.isArray(cl && cl.bugs) ? cl.bugs : [];
+      for (const b of bugs) {
+        const bid = normalizePgBugId(b && typeof b === "object" ? b.id : b);
+        if (bid !== cleanId) continue;
+        if (b && typeof b === "object") _mergeBugFieldsInto(result, b);
+        const clNum = Number(cl.number || cl._number || 0);
+        if (clNum && !seenCls.has(clNum)) {
+          seenCls.add(clNum);
+          result.linkedCls.push({
+            number: clNum,
+            subject: String(cl.subject || ""),
+            status: String(cl.status || "NEW"),
+            owner: String(cl.owner_short || cl.owner_name || ""),
+            url: String(cl.url || `https://android-review.googlesource.com/c/${clNum}`),
+          });
+        }
+      }
+    }
+    if (pgBugDetailsCache.has(cleanId)) {
+      _mergeBugFieldsInto(result, pgBugDetailsCache.get(cleanId));
+    }
+    return result;
+  }
+
+  function renderPgBugHovercardContentHtml(bugData, isLoading = false) {
+    const cleanId = normalizePgBugId(bugData && bugData.id);
+    const bugUrl = (bugData && bugData.url) || `https://b.corp.google.com/issues/${cleanId}`;
+    const gerritOrigin = "https://googleplex-android-review.git.corp.google.com";
+    const relatedClsUrl = `${gerritOrigin}/q/Bug:${encodeURIComponent(cleanId)}`;
+    const rawTitle = String((bugData && bugData.title) || "").trim();
+    const titleDisplay = rawTitle || (isLoading ? `Loading b/${cleanId}…` : `b/${cleanId}`);
+    const componentFullName = resolvePgBugComponentFullName(bugData);
+    const statusText = formatBugStatusOrType((bugData && bugData.status) || (isLoading ? "Loading" : "Assigned"));
+    const assigneeText = removeGoogleDomain(bugData && bugData.assignee);
+    const typeText = formatBugStatusOrType((bugData && bugData.type) || "BUG");
+    const prioText = String((bugData && bugData.priority) || "P2").trim().toUpperCase();
+    const sevText = String((bugData && bugData.severity) || "S2").trim().toUpperCase();
+
+    return `
+      <div class="hovercard-content">
+        <div class="hovercard-item-title">
+          <strong>${escapeHtml(titleDisplay)}</strong>
+        </div>
+        <div class="hovercard-item-component">
+          <span class="hovercard-front-icon">${PG_HUCKLE_ICONS.folderOpen}</span>
+          <span>${escapeHtml(componentFullName)}</span>
+        </div>
+        <div class="hovercard-item-status">
+          <span class="hovercard-front-icon">${PG_HUCKLE_ICONS.accessTime}</span>
+          <span>${escapeHtml(statusText)}</span>
+        </div>
+        <div class="hovercard-item-assignee">
+          <span class="hovercard-front-icon">${PG_HUCKLE_ICONS.infoOutline}</span>
+          <strong>Assignee</strong>&nbsp;<span>${escapeHtml(assigneeText)}</span>
+        </div>
+        <div class="hovercard-item-type">
+          <span class="hovercard-front-icon" style="visibility: hidden;">${PG_HUCKLE_ICONS.infoOutline}</span>
+          <strong>Type</strong>&nbsp;<span>${escapeHtml(typeText)}</span>
+          <span class="hovercard-dot-icon">${PG_HUCKLE_ICONS.solidCircleSmall}</span>
+          <span>${escapeHtml(prioText)}</span>
+          <span class="hovercard-dot-icon">${PG_HUCKLE_ICONS.solidCircleSmall}</span>
+          <span>${escapeHtml(sevText)}</span>
+        </div>
+        <div class="hovercard-item-links">
+          <span class="hovercard-front-icon">${PG_HUCKLE_ICONS.link}</span>
+          <a target="_blank" rel="noopener noreferrer" href="${escapeHtml(bugUrl)}">Buganizer</a>
+          <span class="hovercard-dot-icon">${PG_HUCKLE_ICONS.solidCircleSmall}</span>
+          <a target="_blank" rel="noopener noreferrer" href="${escapeHtml(relatedClsUrl)}" onclick="onPgBugRelatedClsClick(event, '${_escapeBugJsSingleQuote(cleanId)}')">Related CLs</a>
+        </div>
+        <div>
+          <button type="button" class="hovercard-item-copy-content" onclick="copyPgBugHovercardId('${_escapeBugJsSingleQuote(cleanId)}', this)">
+            <span class="hovercard-copy-icon">${PG_HUCKLE_ICONS.contentCopy}</span>
+            <span>b/${escapeHtml(cleanId)}</span>
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  function ensurePgBugHovercardEl() {
+    let hovercard = document.getElementById("pgBugHovercard");
+    if (!hovercard && typeof document.createElement === "function") {
+      hovercard = document.createElement("div");
+      hovercard.id = "pgBugHovercard";
+      hovercard.className = "pg-bug-hovercard";
+      hovercard.style.display = "none";
+      hovercard.setAttribute("onmouseenter", "cancelHidePgBugHovercard()");
+      hovercard.setAttribute("onmouseleave", "scheduleHidePgBugHovercard()");
+      if (document.body && typeof document.body.appendChild === "function") {
+        document.body.appendChild(hovercard);
+      }
+    }
+    return hovercard;
+  }
+
+  function positionPgBugHovercard(anchorEl, cardEl) {
+    if (!anchorEl || !cardEl || typeof anchorEl.getBoundingClientRect !== "function") return;
+    const rect = anchorEl.getBoundingClientRect();
+    const vw = window.innerWidth || 1280;
+    const vh = window.innerHeight || 800;
+    const cardWidth = (typeof cardEl.offsetWidth === "number" && cardEl.offsetWidth > 40) ? cardEl.offsetWidth : 342;
+    const cardHeight = (typeof cardEl.offsetHeight === "number" && cardEl.offsetHeight > 40) ? cardEl.offsetHeight : 220;
+    let left = rect.right + 8;
+    if (left + cardWidth + 12 > vw) {
+      if (rect.left - cardWidth - 8 >= 12) {
+        left = rect.left - cardWidth - 8;
+      } else {
+        left = Math.max(12, vw - cardWidth - 12);
+      }
+    }
+    let top = rect.top + (rect.height / 2) - (cardHeight / 2);
+    top = Math.max(12, Math.min(vh - cardHeight - 12, top));
+    cardEl.style.left = `${Math.round(left)}px`;
+    cardEl.style.top = `${Math.round(top)}px`;
+  }
+
+  async function fetchPgBugDetailsAsync(bugId, opts = {}) {
+    const cleanId = normalizePgBugId(bugId);
+    if (!cleanId) return null;
+    if (!opts.force && pgBugDetailsCache.has(cleanId)) {
+      return pgBugDetailsCache.get(cleanId);
+    }
+    if (pgBugDetailsInflight.has(cleanId)) {
+      return pgBugDetailsInflight.get(cleanId);
+    }
+    const reqPromise = (async () => {
+      try {
+        const refreshParam = opts.force ? "&refresh=1" : "";
+        const res = await fetch(`/api/gerrit/bug?id=${encodeURIComponent(cleanId)}${refreshParam}`);
+        if (!res || !res.ok) return null;
+        const payload = await res.json();
+        const bugObj = (payload && payload.bug && typeof payload.bug === "object") ? payload.bug : null;
+        if (bugObj && bugObj.id) {
+          pgBugDetailsCache.set(cleanId, bugObj);
+          const cardEl = document.getElementById("pgBugHovercard");
+          if (cardEl && cardEl.style.display === "block" && pgActiveBugHovercardId === cleanId) {
+            const merged = resolvePgBugMetadata(cleanId);
+            cardEl.innerHTML = renderPgBugHovercardContentHtml(merged, false);
+            if (pgActiveBugHovercardAnchor) {
+              positionPgBugHovercard(pgActiveBugHovercardAnchor, cardEl);
+            }
+          }
+          return bugObj;
+        }
+      } catch (_) {
+        // Ignore network errors and retain cached/basic metadata in the hovercard.
+      } finally {
+        pgBugDetailsInflight.delete(cleanId);
+      }
+      return null;
+    })();
+    pgBugDetailsInflight.set(cleanId, reqPromise);
+    return reqPromise;
+  }
+
+  function _suppressAnchorNativeTitle(anchorEl) {
+    if (!anchorEl || typeof anchorEl.getAttribute !== "function") return;
+    const existingTitle = anchorEl.getAttribute("title");
+    if (existingTitle) {
+      anchorEl.setAttribute("data-saved-bug-title", existingTitle);
+      anchorEl.removeAttribute("title");
+    }
+  }
+
+  function showPgBugHovercard(event, bugId) {
+    if (event && typeof event.stopPropagation === "function") event.stopPropagation();
+    cancelHidePgBugHovercard();
+    const cleanId = normalizePgBugId(bugId);
+    if (!cleanId) return;
+    if (typeof hidePgAttentionHovercard === "function") hidePgAttentionHovercard();
+    if (typeof hidePgOwnerTooltip === "function") hidePgOwnerTooltip();
+
+    const anchor = (event && (event.currentTarget || event.target)) ||
+      (typeof document.querySelector === "function" ? document.querySelector(`[data-bug-id="${cleanId}"]`) : null);
+    _suppressAnchorNativeTitle(anchor);
+
+    pgActiveBugHovercardId = cleanId;
+    pgActiveBugHovercardAnchor = anchor;
+    const resolved = resolvePgBugMetadata(cleanId);
+    const needsFetch = !resolved.details_loaded && !pgBugDetailsCache.has(cleanId);
+    const hovercard = ensurePgBugHovercardEl();
+    if (!hovercard) return;
+    hovercard.setAttribute("data-bug-id", cleanId);
+    hovercard.innerHTML = renderPgBugHovercardContentHtml(resolved, needsFetch);
+    hovercard.style.display = "block";
+    if (anchor) {
+      positionPgBugHovercard(anchor, hovercard);
+    }
+    if (needsFetch) {
+      fetchPgBugDetailsAsync(cleanId);
+    }
+  }
+
+  function hidePgBugHovercard() {
+    clearTimeout(pgBugHovercardHideTimer);
+    pgActiveBugHovercardId = "";
+    pgActiveBugHovercardAnchor = null;
+    const hovercard = document.getElementById("pgBugHovercard");
+    if (hovercard) hovercard.style.display = "none";
+  }
+
+  function scheduleHidePgBugHovercard() {
+    clearTimeout(pgBugHovercardHideTimer);
+    pgBugHovercardHideTimer = setTimeout(() => {
+      hidePgBugHovercard();
+    }, 220);
+  }
+
+  function cancelHidePgBugHovercard() {
+    clearTimeout(pgBugHovercardHideTimer);
+  }
+
+  async function copyPgBugHovercardId(bugId, btnEl = null) {
+    const cleanId = normalizePgBugId(bugId);
+    if (!cleanId) return;
+    const text = `b/${cleanId}`;
+    const iconSpan = btnEl && typeof btnEl.querySelector === "function" ? btnEl.querySelector(".hovercard-copy-icon") : null;
+    if (iconSpan) {
+      iconSpan.innerHTML = PG_HUCKLE_ICONS.check;
+      setTimeout(() => {
+        iconSpan.innerHTML = PG_HUCKLE_ICONS.contentCopy;
+      }, 1000);
+    }
+    showToast(`✓ Copied ${text} to clipboard!`);
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      }
+    } catch (_) {}
+  }
+
+  function filterPgByBugId(bugId) {
+    const cleanId = normalizePgBugId(bugId);
+    if (!cleanId) return;
+    hidePgBugHovercard();
+    const token = `bug:${cleanId}`;
+    state.searchQuery = token;
+    const searchInp = document.getElementById("searchInput");
+    if (searchInp) searchInp.value = token;
+    if (typeof onSearchInput === "function") {
+      onSearchInput(token);
+    } else if (typeof applyFilters === "function") {
+      applyFilters();
+    }
+    showToast(`Filtered CLs by ${token}`);
+  }
+
+  function onPgBugRelatedClsClick(event, bugId) {
+    if (event && (event.ctrlKey || event.metaKey || event.shiftKey || event.button === 1)) {
+      return;
+    }
+    if (event && typeof event.preventDefault === "function") event.preventDefault();
+    filterPgByBugId(bugId);
+  }
+
+  function onPgBugCardClClick(event, clNum, fallbackUrl) {
+    if (event && (event.ctrlKey || event.metaKey || event.shiftKey || event.button === 1)) {
+      return;
+    }
+    const num = Number(clNum);
+    const existsInState = Array.isArray(state.changes) && state.changes.some(c => Number(c.number || c._number) === num);
+    if (num && existsInState && typeof selectCommit === "function") {
+      if (event && typeof event.preventDefault === "function") event.preventDefault();
+      hidePgBugHovercard();
+      selectCommit(num);
+    }
+  }
+
   function renderPgAttentionSetRowHtml(c) {
     if (!c) return "";
     const items = getPgAttentionSetParticipants(c);
@@ -75667,6 +78035,12 @@
       return;
     }
     if (e.key === "Escape") {
+      const bugCard = document.getElementById("pgBugHovercard");
+      if (bugCard && bugCard.style && bugCard.style.display === "block") {
+        e.preventDefault();
+        hidePgBugHovercard();
+        return;
+      }
       const ownerTt = document.getElementById("pgOwnerTooltip");
       if (ownerTt && ownerTt.classList && ownerTt.classList.contains("is-visible")) {
         e.preventDefault();
@@ -77183,6 +79557,13 @@
           hidePgAttentionHovercard();
         }
       }
+      const bugHovercard = document.getElementById("pgBugHovercard");
+      if (bugHovercard && bugHovercard.style && bugHovercard.style.display === "block") {
+        const isInsideBugCard = e.target && e.target.closest && (e.target.closest("#pgBugHovercard") || e.target.closest("[data-bug-id]"));
+        if (!isInsideBugCard) {
+          hidePgBugHovercard();
+        }
+      }
       const ownerTt = document.getElementById("pgOwnerTooltip");
       if (ownerTt && ownerTt.style && ownerTt.style.display === "block") {
         const isInsideTt = e.target && e.target.closest && (e.target.closest("#pgOwnerTooltip") || e.target.closest(".pg-owner-badge"));
@@ -77357,6 +79738,26 @@
     window.applyPgBlameToDomTable = applyPgBlameToDomTable;
     window.onPgBlameCellMouseEnter = onPgBlameCellMouseEnter;
     window.onPgBlameCellMouseLeave = onPgBlameCellMouseLeave;
+    window.normalizePgBugId = normalizePgBugId;
+    window.formatBugStatusOrType = formatBugStatusOrType;
+    window.removeGoogleDomain = removeGoogleDomain;
+    window.resolvePgBugComponentFullName = resolvePgBugComponentFullName;
+    window.getPgBugStatusClass = getPgBugStatusClass;
+    window.formatPgBugTimestampShort = formatPgBugTimestampShort;
+    window.resolvePgBugMetadata = resolvePgBugMetadata;
+    window.renderPgBugHovercardContentHtml = renderPgBugHovercardContentHtml;
+    window.ensurePgBugHovercardEl = ensurePgBugHovercardEl;
+    window.positionPgBugHovercard = positionPgBugHovercard;
+    window.fetchPgBugDetailsAsync = fetchPgBugDetailsAsync;
+    window.showPgBugHovercard = showPgBugHovercard;
+    window.hidePgBugHovercard = hidePgBugHovercard;
+    window.scheduleHidePgBugHovercard = scheduleHidePgBugHovercard;
+    window.cancelHidePgBugHovercard = cancelHidePgBugHovercard;
+    window.copyPgBugHovercardId = copyPgBugHovercardId;
+    window.filterPgByBugId = filterPgByBugId;
+    window.onPgBugRelatedClsClick = onPgBugRelatedClsClick;
+    window.onPgBugCardClClick = onPgBugCardClClick;
+    window.pgBugDetailsCache = pgBugDetailsCache;
   }
 
   applyPgDiffPreferences();

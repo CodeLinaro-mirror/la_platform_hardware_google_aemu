@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import getpass
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -82,7 +83,8 @@ DEFAULT_EMULATOR_GERRIT_QUERY = (
     "project:platform/hardware/google/aemu OR "
     "project:platform/external/qemu OR "
     "project:platform/hardware/google/gfxstream OR "
-    "project:platform/build/bazel"
+    "project:platform/build/bazel OR "
+    "project:platform/tools/vendor/google"
     ")"
 )
 
@@ -101,6 +103,61 @@ TEAM_ROSTER_EMAILS: tuple[str, ...] = (
 
 DEFAULT_ISSUES_CLI_BIN = "/google/bin/releases/issues-cli/issues"
 BUG_LOOKUP_TIMEOUT_SEC = 8
+MAX_BUG_DESCRIPTION_PREVIEW_CHARS = 800
+BUG_SEARCH_FIELDS = (
+    "issue_id,priority,severity,status,title,assignee,reporter,component_id,type,modified_time,created_time"
+)
+BUG_RENDER_FIELDS = (
+    "issue_id,component_id,assignee,reporter,verifier,cc,status,priority,severity,"
+    "type,title,modified_time,created_time,blocked_by,blocking,gerrit_changes,description"
+)
+
+_BUG_DESC_HEADER_RE = re.compile(
+    r"^Description(?:\s+by\s+(.+?)\s+at\s+(\S+)|\s*\([^)]*\))?\s*:?\s*(.*)$",
+    re.IGNORECASE,
+)
+_BUG_TRAILING_META_RE = re.compile(
+    r"^(CCs?|Verifier|Collaborators|Blocked [Bb]y|Blocking|Found [Ii]n|"
+    r"Targeted [Tt]o|Gerrit [Cc]hanges|Code [Cc]hanges|Severity|Upvotes|"
+    r"Hotlist IDs|SLO [Ss]tatus|Custom [Ff]ields)\s*:\s*(.*)$",
+    re.IGNORECASE,
+)
+_GERRIT_CHANGE_URL_RE = re.compile(r"(https?://[^\s,]+/\+/(\d+))")
+_COMPONENT_PATH_LINE_RE = re.compile(r"^Component Path:\s*(\[.*\])\s*$", re.IGNORECASE)
+_COMPONENT_NAME_LINE_RE = re.compile(r"^Component Name:\s*(.+)$", re.IGNORECASE)
+
+_KNOWN_COMPONENT_PATHS: dict[str, str] = {
+    "29601": "Android > Android OS & Apps > Android Studio > Emulator",
+    "111786": "Android > Android OS & Apps > Android Studio > Emulator > Emulator System Images",
+    "137632": "SwiftShader > Android Emulator",
+    "192708": "Android Public Tracker > App Development > Android Studio",
+    "192727": "Android Public Tracker > App Development > Android Studio > Emulator",
+    "816693": "Android > Android OS & Apps > Android Studio > Emulator > Embedded Emulator",
+    "1016880": "Android > Non-OS Projects > Enterprise > Bedstead",
+    "2289192": "Android > Android OS & Apps > Android Studio > Emulator > Android Device Hub",
+}
+
+
+def parse_component_path_output(raw_text: str) -> str:
+    """Parses `issues readonly get-component <id>` output into a `>`-separated component hierarchy."""
+    cleaned = _ANSI_ESCAPE_RE.sub("", raw_text or "")
+    fallback_name = ""
+    for raw_line in cleaned.splitlines():
+        line = raw_line.strip()
+        m_path = _COMPONENT_PATH_LINE_RE.match(line)
+        if m_path:
+            try:
+                parsed = json.loads(m_path.group(1))
+                if isinstance(parsed, list):
+                    parts = [str(item).strip() for item in parsed if str(item).strip()]
+                    if parts:
+                        return " > ".join(parts)
+            except ValueError:
+                pass
+        m_name = _COMPONENT_NAME_LINE_RE.match(line)
+        if m_name and not fallback_name:
+            fallback_name = m_name.group(1).strip()
+    return fallback_name
 
 
 _BUG_FOOTER_LINE_RE = re.compile(
@@ -165,7 +222,7 @@ def extract_bug_ids_from_change(change: dict[str, Any]) -> list[str]:
 
 
 def parse_issues_search_output(raw_text: str) -> dict[str, dict[str, str]]:
-    """Parses `issues readonly search --fields issue_id,priority,severity,status,title` output."""
+    """Parses `issues readonly search --fields ...` output into bug metadata dictionaries."""
     return {
         bid: {
             "id": info["id"],
@@ -174,9 +231,105 @@ def parse_issues_search_output(raw_text: str) -> dict[str, dict[str, str]]:
             "severity": info["severity"],
             "status": info["status"],
             "title": info["title"],
+            "assignee": info.get("assignee", ""),
+            "reporter": info.get("reporter", ""),
+            "component_id": info.get("component_id", ""),
+            "component_full_name": _KNOWN_COMPONENT_PATHS.get(
+                info.get("component_id", ""), ""
+            ),
+            "type": info.get("type", ""),
+            "created_time": info.get("created_time", ""),
+            "modified_time": info.get("modified_time", ""),
         }
         for bid, info in parse_issues_search_map(raw_text).items()
     }
+
+
+def _apply_trailing_bug_meta_line(
+    key_raw: str, val_raw: str, result: dict[str, Any]
+) -> None:
+    """Updates `result` with a trailing metadata line from `issues readonly render`."""
+    key_lower = key_raw.strip().lower()
+    val = val_raw.strip()
+    if key_lower in ("cc", "ccs"):
+        result["cc"] = [item.strip() for item in val.split(",") if item.strip()]
+    elif key_lower == "verifier":
+        result["verifier"] = val
+    elif key_lower == "blocked by":
+        result["blocked_by"] = [item.strip() for item in val.split(",") if item.strip()]
+    elif key_lower == "blocking":
+        result["blocking"] = [item.strip() for item in val.split(",") if item.strip()]
+    elif key_lower == "severity":
+        result["severity"] = val.upper()
+    elif key_lower == "gerrit changes":
+        changes: list[str] = []
+        for match in _GERRIT_CHANGE_URL_RE.finditer(val):
+            changes.append(match.group(1))
+        if not changes and val:
+            changes = [item.strip() for item in val.split(",") if item.strip()]
+        result["gerrit_changes"] = changes
+
+
+def parse_bug_render_output(raw_text: str, fallback_id: str = "") -> dict[str, Any]:
+    """Parses `issues readonly render <id> --fields ...` output into rich bug hovercard details."""
+    base_map = parse_issues_search_output(raw_text)
+    clean_fallback = str(fallback_id or "").removeprefix("b/").strip()
+    bid = next(iter(base_map.keys()), clean_fallback)
+    result: dict[str, Any] = dict(
+        base_map.get(
+            bid,
+            {
+                "id": bid,
+                "url": f"https://b.corp.google.com/issues/{bid}" if bid else "",
+                "priority": "",
+                "severity": "",
+                "status": "",
+                "title": "",
+                "assignee": "",
+                "reporter": "",
+                "component_id": "",
+                "type": "",
+                "created_time": "",
+                "modified_time": "",
+            },
+        )
+    )
+    result.setdefault("verifier", "")
+    result.setdefault("cc", [])
+    result.setdefault("blocked_by", [])
+    result.setdefault("blocking", [])
+    result.setdefault("gerrit_changes", [])
+
+    desc_lines: list[str] = []
+    in_desc = False
+    cleaned = _ANSI_ESCAPE_RE.sub("", raw_text or "")
+    for raw_line in cleaned.splitlines():
+        stripped = raw_line.strip()
+        trailing_match = _BUG_TRAILING_META_RE.match(stripped)
+        if trailing_match:
+            in_desc = False
+            _apply_trailing_bug_meta_line(
+                trailing_match.group(1), trailing_match.group(2), result
+            )
+            continue
+        desc_hdr = _BUG_DESC_HEADER_RE.match(stripped)
+        if desc_hdr:
+            in_desc = True
+            inline_first = (desc_hdr.group(3) or "").strip()
+            if inline_first:
+                desc_lines.append(inline_first)
+            continue
+        if in_desc:
+            if stripped and all(ch == "=" for ch in stripped):
+                continue
+            desc_lines.append(raw_line)
+
+    full_desc = "\n".join(desc_lines).strip()
+    if len(full_desc) > MAX_BUG_DESCRIPTION_PREVIEW_CHARS:
+        full_desc = full_desc[:MAX_BUG_DESCRIPTION_PREVIEW_CHARS].rstrip() + "…"
+    result["description"] = full_desc
+    result["details_loaded"] = bool(result.get("title") or full_desc)
+    return result
 
 
 
@@ -1918,7 +2071,7 @@ class GerritQueueService(GerritServiceBase):
 
     def fetch_bug_metadata_batch(
         self, bug_ids: list[str], issues_bin: str = DEFAULT_ISSUES_CLI_BIN
-    ) -> dict[str, dict[str, str]]:
+    ) -> dict[str, dict[str, Any]]:
         """Batch-fetches Buganizer `priority`, `severity`, `status`, and `title` for `bug_ids`."""
         unique_ids = [
             str(b).strip()
@@ -1936,7 +2089,7 @@ class GerritQueueService(GerritServiceBase):
                         "search",
                         query,
                         "--fields",
-                        "issue_id,priority,severity,status,title",
+                        BUG_SEARCH_FIELDS,
                         "--limit",
                         "100",
                     ],
@@ -1946,10 +2099,19 @@ class GerritQueueService(GerritServiceBase):
                 if res.returncode == 0 and res.stdout:
                     fetched = parse_issues_search_output(res.stdout)
                     if fetched:
-                        self._bug_cache.update(fetched)
+                        for f_id, f_meta in fetched.items():
+                            existing = self._bug_cache.get(f_id)
+                            if isinstance(existing, dict) and existing.get("details_loaded"):
+                                merged = dict(f_meta)
+                                merged.update({k: v for k, v in existing.items() if v})
+                                self._bug_cache[f_id] = merged
+                            else:
+                                self._bug_cache[f_id] = f_meta
                         self._save_bug_cache()
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.getLogger(__name__).debug(
+                    "Ignored error in fetch_bug_metadata_batch: %s", exc
+                )
         return {
             bid: self._bug_cache.get(
                 bid,
@@ -1964,6 +2126,91 @@ class GerritQueueService(GerritServiceBase):
             )
             for bid in unique_ids
         }
+
+    def fetch_bug_details(
+        self,
+        bug_id: str | int,
+        *,
+        force_refresh: bool = False,
+        issues_bin: str = DEFAULT_ISSUES_CLI_BIN,
+    ) -> dict[str, Any]:
+        """Fetches rich single-issue Buganizer metadata and description for the UI hovercard."""
+        raw_str = str(bug_id or "").strip()
+        num_match = _BUG_ID_NUMBER_RE.search(raw_str)
+        clean_id = num_match.group(1) if num_match else (raw_str if raw_str.isdigit() else "")
+        if not clean_id:
+            return {
+                "ok": False,
+                "error": f"Invalid Buganizer issue ID '{bug_id}'. Provide a numeric ID such as '565902033' or 'b/565902033'.",
+            }
+
+        cached = self._bug_cache.get(clean_id)
+        if not force_refresh and isinstance(cached, dict) and cached.get("details_loaded"):
+            return {"ok": True, "bug": dict(cached), "cached": True}
+
+        if os.path.exists(issues_bin):
+            try:
+                res = SubprocessRunner().run(
+                    [
+                        issues_bin,
+                        "readonly",
+                        "render",
+                        clean_id,
+                        "--fields",
+                        BUG_RENDER_FIELDS,
+                    ],
+                    check=False,
+                    timeout_sec=BUG_LOOKUP_TIMEOUT_SEC,
+                )
+                if res.returncode == 0 and res.stdout:
+                    rendered = parse_bug_render_output(res.stdout, fallback_id=clean_id)
+                    if isinstance(cached, dict):
+                        for k, v in cached.items():
+                            if v and not rendered.get(k):
+                                rendered[k] = v
+                    comp_id = str(rendered.get("component_id") or "").strip()
+                    if comp_id.isdigit() and not rendered.get("component_full_name"):
+                        known_comp = _KNOWN_COMPONENT_PATHS.get(comp_id, "")
+                        if not known_comp:
+                            comp_res = SubprocessRunner().run(
+                                [issues_bin, "readonly", "get-component", comp_id],
+                                check=False,
+                                timeout_sec=BUG_LOOKUP_TIMEOUT_SEC,
+                            )
+                            if comp_res.returncode == 0 and comp_res.stdout:
+                                known_comp = parse_component_path_output(comp_res.stdout)
+                                if known_comp:
+                                    _KNOWN_COMPONENT_PATHS[comp_id] = known_comp
+                        if known_comp:
+                            rendered["component_full_name"] = known_comp
+                    self._bug_cache[clean_id] = rendered
+                    self._save_bug_cache()
+                    return {"ok": True, "bug": dict(rendered), "cached": False}
+            except Exception as exc:
+                logging.getLogger(__name__).debug(
+                    "Failed to render Buganizer issue %s: %s", clean_id, exc
+                )
+
+        if isinstance(cached, dict) and cached.get("id"):
+            return {"ok": True, "bug": dict(cached), "cached": True}
+
+        fallback_bug = {
+            "id": clean_id,
+            "url": f"https://b.corp.google.com/issues/{clean_id}",
+            "priority": "",
+            "severity": "",
+            "status": "",
+            "title": "",
+            "assignee": "",
+            "reporter": "",
+            "component_id": "",
+            "type": "",
+            "created_time": "",
+            "modified_time": "",
+            "description": "",
+            "details_loaded": False,
+        }
+        return {"ok": True, "bug": fallback_bug, "cached": False}
 
     def _detect_viewer_email(self) -> str:
         """Detects the logged-in engineer's email from env, Gerrit, git config, OS `$USER`, or capsule owner."""

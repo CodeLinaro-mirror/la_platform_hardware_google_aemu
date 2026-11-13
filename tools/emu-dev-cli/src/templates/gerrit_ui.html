@@ -4402,6 +4402,259 @@
     opacity: 0.68;
     cursor: wait;
   }
+
+  /* Bug Hovercard Overlay (PolyGerrit gr-buganizer-hovercard) */
+  .pg-bug-hovercard {
+    position: fixed;
+    z-index: 10000;
+    width: 300px;
+    box-sizing: content-box;
+    max-width: calc(100vw - 48px);
+    padding: 20px;
+    border-radius: 4px;
+    background-color: #202124;
+    border: 1px solid #3c4043;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    color: #e8eaed;
+    font-family: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+    pointer-events: auto;
+  }
+  .pg-bug-hovercard .hovercard-content {
+    display: flex;
+    flex-direction: column;
+  }
+  .pg-bug-hovercard .hovercard-content > div {
+    margin-bottom: 5px;
+    display: flex;
+    align-items: center;
+  }
+  .pg-bug-hovercard .hovercard-content > div.hovercard-item-title {
+    font-size: 1.1em;
+    margin-bottom: 10px;
+    align-items: baseline;
+  }
+  .pg-bug-hovercard .hovercard-item-title strong {
+    font-weight: bold;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .pg-bug-hovercard .hovercard-item-component span,
+  .pg-bug-hovercard .hovercard-item-assignee span {
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .pg-bug-hovercard .hovercard-item-status {
+    color: #9aa0a6;
+  }
+  .pg-bug-hovercard .hovercard-item-assignee strong,
+  .pg-bug-hovercard .hovercard-item-type strong {
+    font-weight: normal;
+    color: #9aa0a6;
+    flex-shrink: 0;
+  }
+  .pg-bug-hovercard .hovercard-item-links a {
+    color: #8ab4f8;
+    text-decoration: underline;
+  }
+  .pg-bug-hovercard .hovercard-item-copy-content {
+    margin-top: 10px;
+    padding: 2px 5px 2px 0;
+    color: #8ab4f8;
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font: inherit;
+  }
+  .pg-bug-hovercard .hovercard-item-copy-content span:last-child {
+    text-decoration: underline;
+  }
+  .pg-bug-hovercard .hovercard-item-copy-content:hover {
+    background-color: rgba(138, 180, 248, 0.16);
+  }
+  .pg-bug-hovercard .hovercard-item-copy-content:focus {
+    outline: none;
+  }
+  .pg-bug-hovercard .hovercard-front-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-right: 12px;
+    color: #9aa0a6;
+    flex-shrink: 0;
+  }
+  .pg-bug-hovercard .hovercard-copy-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-right: 7px;
+    color: #9aa0a6;
+    flex-shrink: 0;
+  }
+  .pg-bug-hovercard .hovercard-dot-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    color: currentColor;
+    flex-shrink: 0;
+  }
+  .pg-diff-bug-ref {
+    cursor: pointer;
+    border-bottom: 1px dotted rgba(96, 165, 250, 0.65);
+  }
+  .pg-md-header-mode-group {
+    display: inline-flex;
+    align-items: center;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .pg-md-mode-btn {
+    appearance: none;
+    background: transparent;
+    border: none;
+    color: #8b949e;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .pg-md-mode-btn.is-active {
+    background: rgba(56, 139, 253, 0.2);
+    color: #79c0ff;
+  }
+  .pg-md-file-workspace.is-mode-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .pg-markdown-viewer {
+    background: #0f131c;
+    color: #e5e9f0;
+    border-top: 1px solid #2c3650;
+  }
+  .pg-markdown-viewer-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 8px 16px;
+    background: #171d2b;
+    border-bottom: 1px solid #2c3650;
+    font-size: 12px;
+  }
+  .pg-markdown-body {
+    max-width: 1020px;
+    margin: 0 auto;
+    padding: 24px 32px 36px;
+    line-height: 1.65;
+  }
+  .pg-md-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    margin: 14px 0 22px;
+    border-radius: 8px;
+    border: 1px solid #2c3650;
+    background: #171d2b;
+  }
+  .pg-md-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  .pg-md-table th,
+  .pg-md-table td {
+    text-align: left;
+    padding: 10px 13px;
+    border-bottom: 1px solid #2c3650;
+    vertical-align: top;
+  }
+  .pg-md-code-block {
+    margin: 12px 0 18px;
+    border: 1px solid #2c3650;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #111622;
+  }
+  .pg-md-code-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    border-bottom: 1px solid #2c3650;
+    font-size: 11px;
+    color: #9aa5ce;
+  }
+  .pg-md-code-pre {
+    margin: 0;
+    padding: 13px 16px;
+    overflow-x: auto;
+    font-family: monospace;
+    font-size: 12.5px;
+  }
+  .pg-html-header-mode-group {
+    display: inline-flex;
+    align-items: center;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .pg-html-mode-btn {
+    appearance: none;
+    background: transparent;
+    border: none;
+    color: #8b949e;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .pg-html-mode-btn.is-active {
+    background: rgba(56, 139, 253, 0.2);
+    color: #79c0ff;
+  }
+  .pg-html-file-workspace.is-mode-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+  .pg-html-viewer {
+    background: #0f131c;
+    color: #e5e9f0;
+    border-top: 1px solid #2c3650;
+  }
+  .pg-html-preview-iframe {
+    width: 100%;
+    min-height: 760px;
+    border: 0;
+    display: block;
+    background: transparent;
+  }
 </style>
 </head>
 <body>
@@ -5926,10 +6179,11 @@
       if (status) tooltipParts.push(`(${status})`);
       if (title) tooltipParts.push(`— ${title}`);
       const tooltip = tooltipParts.join(" ");
+      const hoverAttrs = `data-bug-id="${escapeHtml(bugId)}" onmouseenter="showPgBugHovercard(event, '${escapeHtml(bugId)}')" onmouseleave="scheduleHidePgBugHovercard()"`;
       if (!interactive) {
-        return `<span class="bug-chip" title="${escapeHtml(tooltip)}">🐛 b/${escapeHtml(bugId)}${priTagHtml}</span>`;
+        return `<span class="bug-chip" ${hoverAttrs} title="${escapeHtml(tooltip)}">🐛 b/${escapeHtml(bugId)}${priTagHtml}</span>`;
       }
-      return `<a class="bug-chip" href="${escapeHtml(bugUrl)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(tooltip)}" onclick="event.stopPropagation()">🐛 b/${escapeHtml(bugId)} ↗${priTagHtml}</a>`;
+      return `<a class="bug-chip" ${hoverAttrs} href="${escapeHtml(bugUrl)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(tooltip)}" onclick="event.stopPropagation()">🐛 b/${escapeHtml(bugId)} ↗${priTagHtml}</a>`;
     }).join(" ");
   }
 
@@ -9865,10 +10119,18 @@
     return spans;
   }
 
+  function _decorateDiffLineBugRefs(escapedHtml) {
+    if (!escapedHtml || !escapedHtml.includes("b/")) return escapedHtml;
+    return escapedHtml.replace(
+      /\bb\/(\d{6,12})\b/g,
+      '<span class="pg-diff-bug-ref" data-bug-id="$1" onmouseenter="showPgBugHovercard(event, \'$1\')" onmouseleave="scheduleHidePgBugHovercard()">b/$1</span>'
+    );
+  }
+
   function renderHighlightedDiffLineHtml(rawLine, lineType, langId, scheme, intralineSpans) {
     const text = String(rawLine || "");
     if (!text || scheme === "classic") {
-      return escapeHtml(text);
+      return _decorateDiffLineBugRefs(escapeHtml(text));
     }
     const syntaxSpans = tokenizeDiffCodeLine(text, langId, scheme);
     const intra = Array.isArray(intralineSpans) ? intralineSpans : [];
@@ -9902,7 +10164,7 @@
         intraClass && intra.some(iv => segStart >= iv[0] && segEnd <= iv[1])
       );
       const combinedCls = [synCls, hasIntra ? intraClass : ""].filter(Boolean).join(" ");
-      const sliceEscaped = escapeHtml(text.slice(segStart, segEnd));
+      const sliceEscaped = _decorateDiffLineBugRefs(escapeHtml(text.slice(segStart, segEnd)));
       html += combinedCls ? `<span class="${combinedCls}">${sliceEscaped}</span>` : sliceEscaped;
     }
     return html;
@@ -9916,6 +10178,128 @@
     const rangePart = escapeHtml(m[1]);
     const ctxPart = escapeHtml(m[2] || "");
     return `<span class="hunk-range-pill">${rangePart}</span><span class="hunk-context-sig">${ctxPart}</span>`;
+  }
+
+  const PG_MARKDOWN_EXTENSIONS = new Set(["md", "markdown", "mdx", "mdown", "mkd"]);
+  function isPgMarkdownFile(filePath) {
+    const raw = String(filePath || "").trim().toLowerCase();
+    const dotIdx = raw.lastIndexOf(".");
+    const ext = dotIdx >= 0 ? raw.slice(dotIdx + 1) : "";
+    return PG_MARKDOWN_EXTENSIONS.has(ext);
+  }
+  function getPgMarkdownViewMode(clNum, filePath) {
+    if (!state.markdownViewModeByFile) state.markdownViewModeByFile = {};
+    const num = Number(clNum || state.selectedClNumber || 0);
+    return state.markdownViewModeByFile[`${num}:${String(filePath || "")}`] || "preview";
+  }
+  function stripPgDiffLinePrefix(rawText, lineType) {
+    const text = String(rawText == null ? "" : rawText);
+    if (lineType === "add") return text.startsWith("+") ? text.slice(1) : text;
+    if (lineType === "del") return text.startsWith("-") ? text.slice(1) : text;
+    if (lineType === "ctx") return text.startsWith(" ") ? text.slice(1) : text;
+    return text;
+  }
+  function extractPgFileSourceFromDiff(f, _clNum, _ps, side = "new") {
+    const fileObj = f || {};
+    if (side === "new" && typeof fileObj.raw_content === "string") {
+      const lines = fileObj.raw_content.split("\n");
+      return { text: fileObj.raw_content, lineCount: lines.length, isPartial: false, hasOldLines: false, hasNewLines: true };
+    }
+    const rawLines = Array.isArray(fileObj.lines) ? fileObj.lines : [];
+    const out = [];
+    for (let i = 0; i < rawLines.length; i++) {
+      const ln = rawLines[i];
+      if (!ln || ln.type === "hunk") continue;
+      if (side === "old" && (ln.type === "del" || ln.type === "ctx")) {
+        out.push(stripPgDiffLinePrefix(ln.text, ln.type));
+      } else if (side !== "old" && (ln.type === "add" || ln.type === "ctx")) {
+        out.push(stripPgDiffLinePrefix(ln.text, ln.type));
+      }
+    }
+    return { text: out.join("\n"), lineCount: out.length, isPartial: false, hasOldLines: false, hasNewLines: out.length > 0 };
+  }
+  function renderPgMarkdownDocumentHtml(rawMd, opts = {}) {
+    const lines = String(rawMd == null ? "" : rawMd).replace(/\r\n/g, "\n").split("\n");
+    const blocks = [];
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      const trimmed = line.trim();
+      if (!trimmed) { i++; continue; }
+      const fenceMatch = line.match(/^(\s{0,3})(`{3,}|~{3,})\s*([^\s`~]*)/);
+      if (fenceMatch) {
+        const fenceMarker = fenceMatch[2];
+        const fenceLang = (fenceMatch[3] || "TEXT").toUpperCase();
+        const codeLines = [];
+        i++;
+        while (i < lines.length) {
+          const curLine = lines[i];
+          const closeMatch = curLine.match(/^\s{0,4}(`{3,}|~{3,})\s*$/);
+          if (closeMatch && closeMatch[1][0] === fenceMarker[0]) { i++; break; }
+          codeLines.push(escapeHtml(curLine));
+          i++;
+        }
+        blocks.push(`<div class="pg-md-code-block"><div class="pg-md-code-header"><span class="pg-md-code-lang">${escapeHtml(fenceLang)}</span></div><pre class="pg-md-code-pre"><code>${codeLines.join("\n")}</code></pre></div>`);
+        continue;
+      }
+      if (/^\s{0,3}(?:-\s*-\s*-[- ]*|\*\s*\*\s*\*[* ]*|_\s*_\s*_[_ ]*)$/.test(line)) {
+        blocks.push('<hr class="pg-md-hr" />');
+        i++;
+        continue;
+      }
+      const headingMatch = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*$/);
+      if (headingMatch) {
+        const level = headingMatch[1].length;
+        blocks.push(`<h${level} class="pg-md-heading pg-md-h${level}">${renderInlineMarkdownHtml(headingMatch[2].trim(), true)}</h${level}>`);
+        i++;
+        continue;
+      }
+      blocks.push(`<p class="pg-md-p">${renderInlineMarkdownHtml(trimmed, true)}</p>`);
+      i++;
+    }
+    return { html: blocks.join("\n"), tableCount: 0, codeBlockCount: 0, lineCount: lines.length };
+  }
+  function setPgMarkdownViewMode(event, clNum, filePath, mode) {
+    if (event && typeof event.stopPropagation === "function") event.stopPropagation();
+    const validMode = (mode === "split" || mode === "diff") ? mode : "preview";
+    const num = Number(clNum || state.selectedClNumber || 0);
+    if (!state.markdownViewModeByFile) state.markdownViewModeByFile = {};
+    state.markdownViewModeByFile[`${num}:${filePath}`] = validMode;
+    const safeFileId = String(filePath || "").replace(/[^a-zA-Z0-9_-]/g, "_");
+    if (typeof document !== "undefined") {
+      const viewerPane = document.getElementById(`pgMdViewerPane-${num}-${safeFileId}`);
+      const diffPane = document.getElementById(`pgMdDiffPane-${num}-${safeFileId}`);
+      if (viewerPane) viewerPane.style.display = validMode === "diff" ? "none" : "";
+      if (diffPane) diffPane.style.display = validMode === "preview" ? "none" : "";
+    }
+    return validMode;
+  }
+  const PG_HTML_EXTENSIONS = new Set(["html", "htm", "xhtml"]);
+  function isPgHtmlFile(filePath) {
+    const raw = String(filePath || "").trim().toLowerCase();
+    const dotIdx = raw.lastIndexOf(".");
+    const ext = dotIdx >= 0 ? raw.slice(dotIdx + 1) : "";
+    return PG_HTML_EXTENSIONS.has(ext);
+  }
+  function getPgHtmlViewMode(clNum, filePath) {
+    if (!state.htmlViewModeByFile) state.htmlViewModeByFile = {};
+    const num = Number(clNum || state.selectedClNumber || 0);
+    return state.htmlViewModeByFile[`${num}:${String(filePath || "")}`] || "preview";
+  }
+  function setPgHtmlViewMode(event, clNum, filePath, mode) {
+    if (event && typeof event.stopPropagation === "function") event.stopPropagation();
+    const validMode = (mode === "split" || mode === "diff") ? mode : "preview";
+    const num = Number(clNum || state.selectedClNumber || 0);
+    if (!state.htmlViewModeByFile) state.htmlViewModeByFile = {};
+    state.htmlViewModeByFile[`${num}:${filePath}`] = validMode;
+    const safeFileId = String(filePath || "").replace(/[^a-zA-Z0-9_-]/g, "_");
+    if (typeof document !== "undefined") {
+      const viewerPane = document.getElementById(`pgHtmlViewerPane-${num}-${safeFileId}`);
+      const diffPane = document.getElementById(`pgHtmlDiffPane-${num}-${safeFileId}`);
+      if (viewerPane) viewerPane.style.display = validMode === "diff" ? "none" : "";
+      if (diffPane) diffPane.style.display = validMode === "preview" ? "none" : "";
+    }
+    return validMode;
   }
 
   function renderFileDiffBlock(f, defaultClNum) {
@@ -9957,6 +10341,66 @@
     const langBadgeHtml = langInfo.badge
       ? `<span class="file-lang-badge" title="Detected syntax language">${escapeHtml(langInfo.badge)}</span>`
       : "";
+    const safeFile = escapeHtml(f.file);
+    const safeFileId = escapeHtml(String(f.file).replace(/[^a-zA-Z0-9_-]/g, "_"));
+    const codeTableHtml = `<div class="code-table scheme-${escapeHtml(scheme)}" data-cl="${fallbackCl}" data-file="${safeFile}"${colStyle}>${linesHtml}${truncHtml}</div>`;
+    if (isPgMarkdownFile(f.file)) {
+      const mdMode = getPgMarkdownViewMode(fallbackCl, f.file);
+      const src = extractPgFileSourceFromDiff(f, fallbackCl, 1, "new");
+      const rendered = renderPgMarkdownDocumentHtml(src.text, { clNum: fallbackCl });
+      const viewerDisplay = mdMode === "diff" ? ' style="display:none;"' : "";
+      const diffDisplay = mdMode === "preview" ? ' style="display:none;"' : "";
+      return `<div class="file-header">
+                <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+                  ${renderCodeSearchFileLinkHtml(fallbackCl, f.file)}
+                  ${langBadgeHtml}
+                </div>
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <div class="pg-md-header-mode-group">
+                    <button type="button" class="pg-md-mode-btn ${mdMode === "preview" ? "is-active" : ""}" onclick="setPgMarkdownViewMode(event, ${fallbackCl}, '${safeFile}', 'preview')">📖 Preview</button>
+                    <button type="button" class="pg-md-mode-btn ${mdMode === "split" ? "is-active" : ""}" onclick="setPgMarkdownViewMode(event, ${fallbackCl}, '${safeFile}', 'split')">◫ Split</button>
+                    <button type="button" class="pg-md-mode-btn ${mdMode === "diff" ? "is-active" : ""}" onclick="setPgMarkdownViewMode(event, ${fallbackCl}, '${safeFile}', 'diff')">📝 Diff</button>
+                  </div>
+                  <span>+${f.additions} / -${f.deletions}</span>
+                </div>
+              </div>
+              <div class="pg-md-file-workspace is-mode-${escapeHtml(mdMode)}" id="pgMdWorkspace-${fallbackCl}-${safeFileId}">
+                <div class="pg-md-diff-pane" id="pgMdDiffPane-${fallbackCl}-${safeFileId}"${diffDisplay}>${codeTableHtml}</div>
+                <div class="pg-markdown-viewer-pane" id="pgMdViewerPane-${fallbackCl}-${safeFileId}"${viewerDisplay}>
+                  <div class="pg-markdown-viewer" id="pgMarkdownViewer-${fallbackCl}-${safeFileId}">
+                    <div class="pg-markdown-body">${rendered.html}</div>
+                  </div>
+                </div>
+              </div>`;
+    }
+    if (isPgHtmlFile(f.file)) {
+      const htmlMode = getPgHtmlViewMode(fallbackCl, f.file);
+      const src = extractPgFileSourceFromDiff(f, fallbackCl, 1, "new");
+      const viewerDisplay = htmlMode === "diff" ? ' style="display:none;"' : "";
+      const diffDisplay = htmlMode === "preview" ? ' style="display:none;"' : "";
+      return `<div class="file-header">
+                <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+                  ${renderCodeSearchFileLinkHtml(fallbackCl, f.file)}
+                  ${langBadgeHtml}
+                </div>
+                <div style="display:flex;align-items:center;gap:12px;">
+                  <div class="pg-html-header-mode-group">
+                    <button type="button" class="pg-html-mode-btn ${htmlMode === "preview" ? "is-active" : ""}" onclick="setPgHtmlViewMode(event, ${fallbackCl}, '${safeFile}', 'preview')">🌐 Preview</button>
+                    <button type="button" class="pg-html-mode-btn ${htmlMode === "split" ? "is-active" : ""}" onclick="setPgHtmlViewMode(event, ${fallbackCl}, '${safeFile}', 'split')">◫ Split</button>
+                    <button type="button" class="pg-html-mode-btn ${htmlMode === "diff" ? "is-active" : ""}" onclick="setPgHtmlViewMode(event, ${fallbackCl}, '${safeFile}', 'diff')">📝 Diff</button>
+                  </div>
+                  <span>+${f.additions} / -${f.deletions}</span>
+                </div>
+              </div>
+              <div class="pg-html-file-workspace is-mode-${escapeHtml(htmlMode)}" id="pgHtmlWorkspace-${fallbackCl}-${safeFileId}">
+                <div class="pg-html-diff-pane" id="pgHtmlDiffPane-${fallbackCl}-${safeFileId}"${diffDisplay}>${codeTableHtml}</div>
+                <div class="pg-html-viewer-pane" id="pgHtmlViewerPane-${fallbackCl}-${safeFileId}"${viewerDisplay}>
+                  <div class="pg-html-viewer" id="pgHtmlViewer-${fallbackCl}-${safeFileId}">
+                    <iframe class="pg-html-preview-iframe" sandbox="allow-same-origin" srcdoc="${escapeHtml(src.text)}" title="HTML Preview: ${safeFile}"></iframe>
+                  </div>
+                </div>
+              </div>`;
+    }
     return `<div class="file-header">
               <div style="display:flex;align-items:center;gap:8px;min-width:0;">
                 ${renderCodeSearchFileLinkHtml(fallbackCl, f.file)}
@@ -9967,7 +10411,7 @@
                 <span>+${f.additions} / -${f.deletions}</span>
               </div>
             </div>
-            <div class="code-table scheme-${escapeHtml(scheme)}" data-cl="${fallbackCl}" data-file="${escapeHtml(f.file)}"${colStyle}>${linesHtml}${truncHtml}</div>`;
+            ${codeTableHtml}`;
   }
 
   function getFullCommitMessage(c, bundle) {
@@ -10000,6 +10444,17 @@
     return "";
   }
 
+  function _extractBugIdFromUrl(url) {
+    const m = String(url || "").match(/(?:b\.corp\.google\.com\/issues\/|issuetracker\.google\.com\/issues\/|https?:\/\/b\/)(\d{6,12})(?:[/?#]|$)/i);
+    return m ? m[1] : "";
+  }
+
+  function _buildBugHoverAttrs(bugId) {
+    const cleanId = String(bugId || "").replace(/\D+/g, "");
+    if (!cleanId) return "";
+    return ` data-bug-id="${cleanId}" onmouseenter="showPgBugHovercard(event, '${cleanId}')" onmouseleave="scheduleHidePgBugHovercard()"`;
+  }
+
   function renderInlineMarkdownHtml(rawText, isBugFooter = false) {
     const tokens = [];
     const stash = html => {
@@ -10019,21 +10474,23 @@
     });
 
     // 2. Explicit Markdown links [label](https://...) or [label](file:///...)
-    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, (_m, label, url) =>
-      stash(`<a class="ag-link" href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`)
-    );
+    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, (_m, label, url) => {
+      const bugId = _extractBugIdFromUrl(url);
+      return stash(`<a class="ag-link" href="${url}" target="_blank" rel="noopener noreferrer"${_buildBugHoverAttrs(bugId)}>${label}</a>`);
+    });
     s = s.replace(/\[([^\]]+)\]\((file:\/\/[^\s)]+)\)/gi, (_m, label, url) =>
       stash(`<span class="ag-link" title="${url}">${label}</span>`)
     );
 
     // 3. Bare http/https URLs
-    s = s.replace(/\b(https?:\/\/[^\s<)]+)/gi, (_m, url) =>
-      stash(`<a class="ag-link" href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`)
-    );
+    s = s.replace(/\b(https?:\/\/[^\s<)]+)/gi, (_m, url) => {
+      const bugId = _extractBugIdFromUrl(url);
+      return stash(`<a class="ag-link" href="${url}" target="_blank" rel="noopener noreferrer"${_buildBugHoverAttrs(bugId)}>${url}</a>`);
+    });
 
     // 4. Google internal shortlinks (b/123456, ag/123456, go/slug)
     s = s.replace(/\bb\/(\d{6,12})\b/gi, (_m, id) =>
-      stash(`<a class="ag-link" href="https://b.corp.google.com/issues/${id}" target="_blank" rel="noopener noreferrer">b/${id}</a>`)
+      stash(`<a class="ag-link" href="https://b.corp.google.com/issues/${id}" target="_blank" rel="noopener noreferrer"${_buildBugHoverAttrs(id)}>b/${id}</a>`)
     );
     s = s.replace(/\bag\/(\d{5,12})\b/gi, (_m, id) =>
       stash(`<a class="ag-link" href="https://googleplex-android-review.git.corp.google.com/q/${id}" target="_blank" rel="noopener noreferrer">ag/${id}</a>`)
@@ -10044,7 +10501,7 @@
 
     if (isBugFooter) {
       s = s.replace(/(^|[\s,])(\d{6,12})(?=$|[\s,])/g, (_m, pre, id) =>
-        `${pre}${stash(`<a class="ag-link" href="https://b.corp.google.com/issues/${id}" target="_blank" rel="noopener noreferrer">b/${id}</a>`)}`
+        `${pre}${stash(`<a class="ag-link" href="https://b.corp.google.com/issues/${id}" target="_blank" rel="noopener noreferrer"${_buildBugHoverAttrs(id)}>b/${id}</a>`)}`
       );
     }
 
@@ -14743,6 +15200,366 @@
       positionHarnessDropdownMenu();
     }
   }, true);
+
+  // --- Bug Hovercard Overlay (PolyGerrit gr-buganizer-hovercard) ---
+  let pgBugHovercardHideTimer = null;
+  let pgActiveBugHovercardId = "";
+  let pgActiveBugHovercardAnchor = null;
+  const pgBugDetailsCache = new Map();
+  const pgBugDetailsInflight = new Map();
+
+  const PG_HUCKLE_ICONS = {
+    folderOpen: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg>',
+    accessTime: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>',
+    infoOutline: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg>',
+    solidCircleSmall: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="1.5"/></svg>',
+    link: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>',
+    contentCopy: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>',
+    check: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>',
+  };
+
+  const PG_KNOWN_BUG_COMPONENTS = {
+    "29601": "Android > Android OS & Apps > Android Studio > Emulator",
+    "111786": "Android > Android OS & Apps > Android Studio > Emulator > Emulator System Images",
+    "137632": "SwiftShader > Android Emulator",
+    "192708": "Android Public Tracker > App Development > Android Studio",
+    "192727": "Android Public Tracker > App Development > Android Studio > Emulator",
+    "816693": "Android > Android OS & Apps > Android Studio > Emulator > Embedded Emulator",
+    "1016880": "Android > Non-OS Projects > Enterprise > Bedstead",
+    "2289192": "Android > Android OS & Apps > Android Studio > Emulator > Android Device Hub",
+  };
+
+  function _escapeBugJsSingleQuote(val) {
+    return String(val || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  }
+
+  function normalizePgBugId(rawBugId) {
+    return String(rawBugId || "").trim().replace(/^b\//i, "").replace(/\D+/g, "");
+  }
+
+  function formatBugStatusOrType(str) {
+    const raw = String(str || "").trim();
+    if (!raw) return "";
+    return raw
+      .toLowerCase()
+      .split("_")
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+  }
+
+  function removeGoogleDomain(account) {
+    const raw = String(account || "").trim();
+    if (!raw || raw.toLowerCase() === "none") return "Unassigned";
+    return raw.replace("@google.com", "");
+  }
+
+  function resolvePgBugComponentFullName(bugData) {
+    if (!bugData || typeof bugData !== "object") return "Android > Android OS & Apps > Android Studio > Emulator";
+    const explicitFull = String(bugData.component_full_name || "").trim();
+    if (explicitFull) return explicitFull;
+    const compId = String(bugData.component_id || "").trim();
+    if (compId && PG_KNOWN_BUG_COMPONENTS[compId]) {
+      return PG_KNOWN_BUG_COMPONENTS[compId];
+    }
+    if (compId) return `Component #${compId}`;
+    return "Android > Android OS & Apps > Android Studio > Emulator";
+  }
+
+  function _mergeBugFieldsInto(target, src) {
+    if (!src || typeof src !== "object") return;
+    const fields = [
+      "title", "priority", "severity", "status", "assignee", "reporter",
+      "verifier", "component_id", "component_full_name", "type", "created_time",
+      "modified_time", "description", "url",
+    ];
+    for (const k of fields) {
+      if (src[k]) target[k] = String(src[k]);
+    }
+    if (Array.isArray(src.cc) && src.cc.length > 0) target.cc = src.cc.slice();
+    if (Array.isArray(src.gerrit_changes) && src.gerrit_changes.length > 0) {
+      target.gerrit_changes = src.gerrit_changes.slice();
+    }
+    if (src.details_loaded) target.details_loaded = true;
+  }
+
+  function resolvePgBugMetadata(bugId) {
+    const cleanId = normalizePgBugId(bugId);
+    const result = {
+      id: cleanId,
+      url: `https://b.corp.google.com/issues/${cleanId}`,
+      title: "",
+      priority: "",
+      severity: "",
+      status: "",
+      assignee: "",
+      reporter: "",
+      verifier: "",
+      component_id: "",
+      component_full_name: "",
+      type: "",
+      created_time: "",
+      modified_time: "",
+      description: "",
+      cc: [],
+      gerrit_changes: [],
+      linkedCls: [],
+      details_loaded: false,
+    };
+    if (!cleanId) return result;
+    const allChanges = Array.isArray(state.changes) ? state.changes : [];
+    const seenCls = new Set();
+    for (const cl of allChanges) {
+      const bugs = Array.isArray(cl && cl.bugs) ? cl.bugs : [];
+      for (const b of bugs) {
+        const bid = normalizePgBugId(b && typeof b === "object" ? b.id : b);
+        if (bid !== cleanId) continue;
+        if (b && typeof b === "object") _mergeBugFieldsInto(result, b);
+        const clNum = Number(cl.number || cl._number || 0);
+        if (clNum && !seenCls.has(clNum)) {
+          seenCls.add(clNum);
+          result.linkedCls.push({
+            number: clNum,
+            subject: String(cl.subject || ""),
+            status: String(cl.status || "NEW"),
+            owner: String(cl.owner_short || cl.owner_name || ""),
+            url: String(cl.url || `https://android-review.googlesource.com/c/${clNum}`),
+          });
+        }
+      }
+    }
+    if (pgBugDetailsCache.has(cleanId)) {
+      _mergeBugFieldsInto(result, pgBugDetailsCache.get(cleanId));
+    }
+    return result;
+  }
+
+  function renderPgBugHovercardContentHtml(bugData, isLoading = false) {
+    const cleanId = normalizePgBugId(bugData && bugData.id);
+    const bugUrl = (bugData && bugData.url) || `https://b.corp.google.com/issues/${cleanId}`;
+    const gerritOrigin = "https://googleplex-android-review.git.corp.google.com";
+    const relatedClsUrl = `${gerritOrigin}/q/Bug:${encodeURIComponent(cleanId)}`;
+    const rawTitle = String((bugData && bugData.title) || "").trim();
+    const titleDisplay = rawTitle || (isLoading ? `Loading b/${cleanId}…` : `b/${cleanId}`);
+    const componentFullName = resolvePgBugComponentFullName(bugData);
+    const statusText = formatBugStatusOrType((bugData && bugData.status) || (isLoading ? "Loading" : "Assigned"));
+    const assigneeText = removeGoogleDomain(bugData && bugData.assignee);
+    const typeText = formatBugStatusOrType((bugData && bugData.type) || "BUG");
+    const prioText = String((bugData && bugData.priority) || "P2").trim().toUpperCase();
+    const sevText = String((bugData && bugData.severity) || "S2").trim().toUpperCase();
+
+    return `
+      <div class="hovercard-content">
+        <div class="hovercard-item-title">
+          <strong>${escapeHtml(titleDisplay)}</strong>
+        </div>
+        <div class="hovercard-item-component">
+          <span class="hovercard-front-icon">${PG_HUCKLE_ICONS.folderOpen}</span>
+          <span>${escapeHtml(componentFullName)}</span>
+        </div>
+        <div class="hovercard-item-status">
+          <span class="hovercard-front-icon">${PG_HUCKLE_ICONS.accessTime}</span>
+          <span>${escapeHtml(statusText)}</span>
+        </div>
+        <div class="hovercard-item-assignee">
+          <span class="hovercard-front-icon">${PG_HUCKLE_ICONS.infoOutline}</span>
+          <strong>Assignee</strong>&nbsp;<span>${escapeHtml(assigneeText)}</span>
+        </div>
+        <div class="hovercard-item-type">
+          <span class="hovercard-front-icon" style="visibility: hidden;">${PG_HUCKLE_ICONS.infoOutline}</span>
+          <strong>Type</strong>&nbsp;<span>${escapeHtml(typeText)}</span>
+          <span class="hovercard-dot-icon">${PG_HUCKLE_ICONS.solidCircleSmall}</span>
+          <span>${escapeHtml(prioText)}</span>
+          <span class="hovercard-dot-icon">${PG_HUCKLE_ICONS.solidCircleSmall}</span>
+          <span>${escapeHtml(sevText)}</span>
+        </div>
+        <div class="hovercard-item-links">
+          <span class="hovercard-front-icon">${PG_HUCKLE_ICONS.link}</span>
+          <a target="_blank" rel="noopener noreferrer" href="${escapeHtml(bugUrl)}">Buganizer</a>
+          <span class="hovercard-dot-icon">${PG_HUCKLE_ICONS.solidCircleSmall}</span>
+          <a target="_blank" rel="noopener noreferrer" href="${escapeHtml(relatedClsUrl)}" onclick="onPgBugRelatedClsClick(event, '${_escapeBugJsSingleQuote(cleanId)}')">Related CLs</a>
+        </div>
+        <div>
+          <button type="button" class="hovercard-item-copy-content" onclick="copyPgBugHovercardId('${_escapeBugJsSingleQuote(cleanId)}', this)">
+            <span class="hovercard-copy-icon">${PG_HUCKLE_ICONS.contentCopy}</span>
+            <span>b/${escapeHtml(cleanId)}</span>
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  function ensurePgBugHovercardEl() {
+    let hovercard = document.getElementById("pgBugHovercard");
+    if (!hovercard && typeof document.createElement === "function") {
+      hovercard = document.createElement("div");
+      hovercard.id = "pgBugHovercard";
+      hovercard.className = "pg-bug-hovercard";
+      hovercard.style.display = "none";
+      hovercard.setAttribute("onmouseenter", "cancelHidePgBugHovercard()");
+      hovercard.setAttribute("onmouseleave", "scheduleHidePgBugHovercard()");
+      if (document.body && typeof document.body.appendChild === "function") {
+        document.body.appendChild(hovercard);
+      }
+    }
+    return hovercard;
+  }
+
+  function positionPgBugHovercard(anchorEl, cardEl) {
+    if (!anchorEl || !cardEl || typeof anchorEl.getBoundingClientRect !== "function") return;
+    const rect = anchorEl.getBoundingClientRect();
+    const vw = window.innerWidth || 1280;
+    const vh = window.innerHeight || 800;
+    const cardWidth = (typeof cardEl.offsetWidth === "number" && cardEl.offsetWidth > 40) ? cardEl.offsetWidth : 342;
+    const cardHeight = (typeof cardEl.offsetHeight === "number" && cardEl.offsetHeight > 40) ? cardEl.offsetHeight : 220;
+    let left = rect.right + 8;
+    if (left + cardWidth + 12 > vw) {
+      if (rect.left - cardWidth - 8 >= 12) {
+        left = rect.left - cardWidth - 8;
+      } else {
+        left = Math.max(12, vw - cardWidth - 12);
+      }
+    }
+    let top = rect.top + (rect.height / 2) - (cardHeight / 2);
+    top = Math.max(12, Math.min(vh - cardHeight - 12, top));
+    cardEl.style.left = `${Math.round(left)}px`;
+    cardEl.style.top = `${Math.round(top)}px`;
+  }
+
+  async function fetchPgBugDetailsAsync(bugId, opts = {}) {
+    const cleanId = normalizePgBugId(bugId);
+    if (!cleanId) return null;
+    if (!opts.force && pgBugDetailsCache.has(cleanId)) {
+      return pgBugDetailsCache.get(cleanId);
+    }
+    if (pgBugDetailsInflight.has(cleanId)) {
+      return pgBugDetailsInflight.get(cleanId);
+    }
+    const reqPromise = (async () => {
+      try {
+        const res = await fetch(`/api/gerrit/bug?id=${encodeURIComponent(cleanId)}`);
+        if (!res || !res.ok) return null;
+        const payload = await res.json();
+        const bugObj = (payload && payload.bug && typeof payload.bug === "object") ? payload.bug : null;
+        if (bugObj && bugObj.id) {
+          pgBugDetailsCache.set(cleanId, bugObj);
+          const cardEl = document.getElementById("pgBugHovercard");
+          if (cardEl && cardEl.style.display === "block" && pgActiveBugHovercardId === cleanId) {
+            const merged = resolvePgBugMetadata(cleanId);
+            cardEl.innerHTML = renderPgBugHovercardContentHtml(merged, false);
+          }
+          return bugObj;
+        }
+      } catch (_) {
+        // Ignore network errors and retain cached metadata.
+      } finally {
+        pgBugDetailsInflight.delete(cleanId);
+      }
+      return null;
+    })();
+    pgBugDetailsInflight.set(cleanId, reqPromise);
+    return reqPromise;
+  }
+
+  function showPgBugHovercard(event, bugId) {
+    if (event && typeof event.stopPropagation === "function") event.stopPropagation();
+    cancelHidePgBugHovercard();
+    const cleanId = normalizePgBugId(bugId);
+    if (!cleanId) return;
+    const anchor = (event && (event.currentTarget || event.target)) || null;
+    if (anchor && typeof anchor.getAttribute === "function") {
+      const existingTitle = anchor.getAttribute("title");
+      if (existingTitle) {
+        anchor.setAttribute("data-saved-bug-title", existingTitle);
+        anchor.removeAttribute("title");
+      }
+    }
+    pgActiveBugHovercardId = cleanId;
+    pgActiveBugHovercardAnchor = anchor;
+    const resolved = resolvePgBugMetadata(cleanId);
+    const needsFetch = !resolved.details_loaded && !pgBugDetailsCache.has(cleanId);
+    const hovercard = ensurePgBugHovercardEl();
+    if (!hovercard) return;
+    hovercard.setAttribute("data-bug-id", cleanId);
+    hovercard.innerHTML = renderPgBugHovercardContentHtml(resolved, needsFetch);
+    hovercard.style.display = "block";
+    if (anchor) positionPgBugHovercard(anchor, hovercard);
+    if (needsFetch) fetchPgBugDetailsAsync(cleanId);
+  }
+
+  function hidePgBugHovercard() {
+    clearTimeout(pgBugHovercardHideTimer);
+    pgActiveBugHovercardId = "";
+    pgActiveBugHovercardAnchor = null;
+    const hovercard = document.getElementById("pgBugHovercard");
+    if (hovercard) hovercard.style.display = "none";
+  }
+
+  function scheduleHidePgBugHovercard() {
+    clearTimeout(pgBugHovercardHideTimer);
+    pgBugHovercardHideTimer = setTimeout(() => {
+      hidePgBugHovercard();
+    }, 220);
+  }
+
+  function cancelHidePgBugHovercard() {
+    clearTimeout(pgBugHovercardHideTimer);
+  }
+
+  async function copyPgBugHovercardId(bugId, btnEl = null) {
+    const cleanId = normalizePgBugId(bugId);
+    if (!cleanId) return;
+    const text = `b/${cleanId}`;
+    const iconSpan = btnEl && typeof btnEl.querySelector === "function" ? btnEl.querySelector(".hovercard-copy-icon") : null;
+    if (iconSpan) {
+      iconSpan.innerHTML = PG_HUCKLE_ICONS.check;
+      setTimeout(() => {
+        iconSpan.innerHTML = PG_HUCKLE_ICONS.contentCopy;
+      }, 1000);
+    }
+    showToast(`✓ Copied ${text} to clipboard!`);
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      }
+    } catch (_) {}
+  }
+
+  function filterPgByBugId(bugId) {
+    const cleanId = normalizePgBugId(bugId);
+    if (!cleanId) return;
+    hidePgBugHovercard();
+    const token = `bug:${cleanId}`;
+    state.searchQuery = token;
+    const searchInp = document.getElementById("searchInput");
+    if (searchInp) searchInp.value = token;
+    if (typeof onSearchInput === "function") {
+      onSearchInput(token);
+    } else if (typeof applyFilters === "function") {
+      applyFilters();
+    }
+    showToast(`Filtered CLs by ${token}`);
+  }
+
+  function onPgBugRelatedClsClick(event, bugId) {
+    if (event && (event.ctrlKey || event.metaKey || event.shiftKey || event.button === 1)) {
+      return;
+    }
+    if (event && typeof event.preventDefault === "function") event.preventDefault();
+    filterPgByBugId(bugId);
+  }
+
+  function onPgBugCardClClick(event, clNum, fallbackUrl) {
+    if (event && (event.ctrlKey || event.metaKey || event.shiftKey || event.button === 1)) {
+      return;
+    }
+    const num = Number(clNum);
+    const existsInState = Array.isArray(state.changes) && state.changes.some(c => Number(c.number || c._number) === num);
+    if (num && existsInState && typeof selectCommit === "function") {
+      if (event && typeof event.preventDefault === "function") event.preventDefault();
+      hidePgBugHovercard();
+      selectCommit(num);
+    }
+  }
 
   loadSidebarLayoutPrefs();
   initWorkspaceSplitter();

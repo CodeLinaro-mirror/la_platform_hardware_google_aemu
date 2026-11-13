@@ -392,6 +392,28 @@ class _GerritRouteEndpoints:
         force_flag = req.query_flag("force", "refresh")
         handler.send_json(self._service.get_sidecar_update_status(force_fetch=force_flag))
 
+    def get_bug_details(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        bug_id = (
+            req.query_str("id", strip=True)
+            or req.query_str("bug", strip=True)
+            or req.query_str("bug_id", strip=True)
+        )
+        if not bug_id:
+            handler.send_json(
+                {
+                    "ok": False,
+                    "error": "Missing required `id` query parameter for `/api/gerrit/bug` "
+                    "(pass e.g. `?id=565902033`).",
+                },
+                status=400,
+            )
+            return
+        res = self._service.fetch_bug_details(
+            bug_id, force_refresh=req.query_flag("refresh", "force")
+        )
+        res["ui_version"] = get_gerrit_ui_template_version()
+        handler.send_json(res, status=200 if res.get("ok", True) else 400)
+
     def post_vote(self, handler: JsonRequestHandler, req: WebRequest) -> None:
         body = req.body
         optional_labels = _extract_optional_vote_labels(body)
@@ -870,6 +892,7 @@ def _build_gerrit_router(service: Any, agent_proxy: AgentProxy) -> Router:
     router.add_get(["/api/gerrit/edit", "/api/gerrit/change-edit"], endpoints.get_change_edit)
     router.add_get("/api/gerrit/ai-analysis", endpoints.get_ai_analysis)
     router.add_get("/api/gerrit/update-status", endpoints.get_update_status)
+    router.add_get(["/api/gerrit/bug", "/api/gerrit/bug-details"], endpoints.get_bug_details)
 
     router.add_post("/api/gerrit/vote", endpoints.post_vote)
     router.add_post(["/api/gerrit/file-reviewed", "/api/gerrit/reviewed"], endpoints.post_file_reviewed)
