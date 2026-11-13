@@ -43,6 +43,24 @@ def get_ssl_context() -> ssl.SSLContext:
     return ctx
 
 
+def resolve_default_adc_path() -> str:
+    """Returns the platform-resolved path to Application Default Credentials."""
+    env_adc = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if env_adc:
+        return env_adc
+    posix_adc = os.path.expanduser(
+        "~/.config/gcloud/application_default_credentials.json"
+    )
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA") or os.path.expanduser("~/AppData/Roaming")
+        win_adc = os.path.join(
+            appdata, "gcloud", "application_default_credentials.json"
+        )
+        if os.path.exists(win_adc) or not os.path.exists(posix_adc):
+            return win_adc
+    return posix_adc
+
+
 def get_quota_project() -> str:
     """Resolves quota project from environment variables or Application Default Credentials,
     defaulting to 'emulator-builds' if unspecified.
@@ -50,9 +68,7 @@ def get_quota_project() -> str:
     for var in ["GOOGLE_CLOUD_QUOTA_PROJECT", "CLOUDSDK_CORE_PROJECT", "GOOGLE_CLOUD_PROJECT"]:
         if os.environ.get(var):
             return os.environ[var].strip()
-    adc_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.path.expanduser(
-        "~/.config/gcloud/application_default_credentials.json"
-    )
+    adc_path = resolve_default_adc_path()
     if os.path.exists(adc_path):
         try:
             with open(adc_path, "r", encoding="utf-8") as f:
@@ -143,9 +159,7 @@ class OAuthTokenManager:
             logger.debug("google.auth ADC resolution note: %s", e)
 
         # 2. Try direct ADC file refresh via https://oauth2.googleapis.com/token
-        adc_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.path.expanduser(
-            "~/.config/gcloud/application_default_credentials.json"
-        )
+        adc_path = resolve_default_adc_path()
         if os.path.exists(adc_path):
             try:
                 import urllib.parse
