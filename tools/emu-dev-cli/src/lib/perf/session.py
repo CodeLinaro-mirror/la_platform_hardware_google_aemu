@@ -67,6 +67,9 @@ logger = logging.getLogger(__name__)
 
 CARRY_OVER_METRIC_KEYS = (
     "host_cpu_pct",
+    "host_user_cpu_pct",
+    "host_sys_cpu_pct",
+    "host_cpu_ms",
     "cpu_ms_per_mib",
     "rss_mib",
     "peak_rss_mib",
@@ -77,6 +80,14 @@ CARRY_OVER_METRIC_KEYS = (
     "guest_ipi_resched",
     "guest_tlb_shootdowns",
     "guest_pgfault_delta",
+    "ro_boottime_init_ns",
+    "ro_boottime_zygote_ns",
+    "internal_boot_ms",
+    "host_pre_kernel_ms",
+    "kernel_to_init_ms",
+    "init_to_zygote_ms",
+    "zygote_to_complete_ms",
+    "pms_scan_ms",
 )
 
 CARRY_OVER_DICT_KEYS = (
@@ -85,6 +96,8 @@ CARRY_OVER_DICT_KEYS = (
     "perfetto_slices",
     "kvm_top_exit_reasons",
     "guest_virtio_irqs",
+    "qemu_config",
+    "guest_cpu_info",
 )
 
 
@@ -512,8 +525,9 @@ class LiveDeviceBenchmarkSession(BenchmarkSessionTemplate):
 
     def execute_session_runs(self) -> Dict[str, Dict[str, Any]]:
         tests_out: Dict[str, Dict[str, Any]] = {}
-        if self.boot_metrics and "cold_boot" in self.plan.workloads:
-            tests_out["cold_boot"] = dict(self.boot_metrics)
+        for boot_wl in ("cold_boot", "cold_boot_warm_disk"):
+            if self.boot_metrics and boot_wl in self.plan.workloads:
+                tests_out[boot_wl] = dict(self.boot_metrics)
 
         ctx = WorkloadContext(
             adb=self.adb,
@@ -782,30 +796,59 @@ class ManagedEmulatorBenchmarkSession(BenchmarkSessionTemplate):
         proc: subprocess.Popen,
         log_path: str,
         t_boot_start: float,
+        settle_info: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        host_wall_boot_ms = (time.perf_counter() - t_boot_start) * 1000.0
-        internal_boot_ms = _parse_emulator_boot_completed_ms(log_path)
-        cold_boot_ms = (
-            internal_boot_ms
-            if internal_boot_ms is not None and internal_boot_ms > 0
-            else host_wall_boot_ms
+        t_end = (
+            float(settle_info["boot_completed_perf_counter"])
+            if settle_info and settle_info.get("boot_completed_perf_counter")
+            else time.perf_counter()
         )
-        emu_pid_boot = find_emulator_pid(serial) or proc.pid
+        host_wall_boot_ms = max(0.0, (t_end - t_boot_start) * 1000.0)
+        internal_boot_ms = _parse_emulator_boot_completed_ms(log_path)
+        cold_boot_ms = host_wall_boot_ms
+        emu_pid_boot = (
+            (settle_info or {}).get("emulator_pid")
+            or find_emulator_pid(serial)
+            or proc.pid
+        )
         snap_boot = take_proc_snapshot(emu_pid_boot) if emu_pid_boot else None
         boot_rss = snap_boot.rss_mib if snap_boot else 0.0
-        return {
+        boot_tel = (settle_info or {}).get("boot_telemetry") or {}
+        if not boot_rss and boot_tel.get("rss_mib"):
+            boot_rss = float(boot_tel["rss_mib"])
+        sample: Dict[str, Any] = {
+            "duration_ms": round(cold_boot_ms, 2),
+            "host_wall_boot_ms": round(host_wall_boot_ms, 2),
+        }
+        if internal_boot_ms is not None and internal_boot_ms > 0:
+            sample["internal_boot_ms"] = round(internal_boot_ms, 2)
+        out: Dict[str, Any] = {
             "n": 1,
             "duration_ms_p50": round(cold_boot_ms, 2),
             "duration_ms_mean": round(cold_boot_ms, 2),
             "host_wall_boot_ms": round(host_wall_boot_ms, 2),
             "rss_mib": boot_rss,
-            "samples": [
-                {
-                    "duration_ms": round(cold_boot_ms, 2),
-                    "host_wall_boot_ms": round(host_wall_boot_ms, 2),
-                }
-            ],
+            "samples": [sample],
         }
+        if internal_boot_ms is not None and internal_boot_ms > 0:
+            out["internal_boot_ms"] = round(internal_boot_ms, 2)
+        if settle_info and settle_info.get("guest_uptime_ms"):
+            out["guest_uptime_ms"] = float(settle_info["guest_uptime_ms"])
+        if boot_tel:
+            for k in (
+                "host_cpu_pct",
+                "host_user_cpu_pct",
+                "host_sys_cpu_pct",
+                "host_cpu_ms",
+                "peak_rss_mib",
+            ):
+                if boot_tel.get(k) is not None:
+                    out[k] = boot_tel[k]
+            if boot_tel.get("top_threads_cpu_pct"):
+                out["top_threads_cpu_pct"] = boot_tel["top_threads_cpu_pct"]
+        if settle_info and settle_info.get("qemu_config"):
+            out["qemu_config"] = settle_info["qemu_config"]
+        return out
 
     @staticmethod
     def _record_boot_report(
@@ -819,6 +862,97 @@ class ManagedEmulatorBenchmarkSession(BenchmarkSessionTemplate):
                 accumulated_samples.setdefault(t_name, []).extend(
                     t_data["samples"]
                 )
+
+    def _shutdown_emulator_keep_avd(
+        self,
+        proc: subprocess.Popen,
+        serial: str,
+        ephemeral_dir: Optional[str] = None,
+    ) -> None:
+        adb_bin = self.config.launch.adb_bin
+        _adb_cmd(
+            serial,
+            ["emu", "kill"],
+            adb_bin=adb_bin,
+            timeout=10.0,
+            process_runner=self.process_runner,
+        )
+        try:
+            proc.wait(timeout=10.0)
+        except Exception as exc:
+            logger.debug("Ignored error waiting on proc shutdown: %s", exc)
+        _kill_emulator_process_tree(
+            proc,
+            serial,
+            adb_bin=adb_bin,
+            process_runner=self.process_runner,
+        )
+        if ephemeral_dir:
+            qemu_ver_file = os.path.join(ephemeral_dir, "qemu-version.txt")
+            if os.path.isfile(qemu_ver_file):
+                try:
+                    os.remove(qemu_ver_file)
+                except OSError as exc:
+                    logger.debug(
+                        "Ignored error removing %s: %s", qemu_ver_file, exc
+                    )
+
+    def _spawn_and_run_boot_workloads(
+        self,
+        *,
+        cmd: List[str],
+        target: ResolvedPerfTarget,
+        env: Dict[str, str],
+        serial: str,
+        log_path: str,
+        workloads: List[str],
+        iterations: int,
+        warmup: int,
+        settle_seconds: float,
+        profiles: List[str],
+        adb_bin: str,
+        grpc_port: int,
+        accumulated_tests: Dict[str, List[Dict[str, Any]]],
+        accumulated_samples: Dict[str, List[Dict[str, float]]],
+    ) -> subprocess.Popen:
+        assert target.emulator_dir is not None
+        _ensure_valid_console_auth_token()
+        _cleanup_stale_netsim(force=False, process_runner=self.process_runner)
+        t_boot_start = time.perf_counter()
+        proc = spawn_emulator_process(
+            cmd, target.emulator_dir, env, log_file_path=log_path
+        )
+        settle_info = wait_for_guest_and_host_settled(
+            serial=serial,
+            emu_pid=None,
+            settle_seconds=0.0,
+            adb_bin=adb_bin,
+            proc=proc,
+            log_path=log_path,
+            process_runner=self.process_runner,
+        )
+        boot_info = self._collect_boot_metrics(
+            serial, proc, log_path, t_boot_start, settle_info=settle_info
+        )
+        if workloads:
+            boot_rep = run_suite_against_device(
+                serial=serial,
+                workloads=workloads,
+                iterations=iterations,
+                warmup=warmup,
+                settle_seconds=settle_seconds,
+                profiles=profiles,
+                label=target.label,
+                adb_bin=adb_bin,
+                boot_metrics=boot_info,
+                grpc_port=grpc_port,
+                registry=self.registry,
+                process_runner=self.process_runner,
+            )
+            self._record_boot_report(
+                boot_rep, accumulated_tests, accumulated_samples
+            )
+        return proc
 
     def _run_single_boot_cycle(
         self,
@@ -847,47 +981,65 @@ class ManagedEmulatorBenchmarkSession(BenchmarkSessionTemplate):
             prefix=f"emu_perf_{slug}_b{boot_idx + 1}_",
             suffix=".log",
         )
+        warm_log_path: Optional[str] = None
+        proc: Optional[subprocess.Popen] = None
 
-        t_boot_start = time.perf_counter()
-        _ensure_valid_console_auth_token()
-        _cleanup_stale_netsim(force=False, process_runner=self.process_runner)
-        proc = spawn_emulator_process(
-            cmd, target.emulator_dir, env, log_file_path=log_path
-        )
         try:
-            wait_for_guest_and_host_settled(
+            first_boot_workloads = [
+                w for w in plan.workloads if w != "cold_boot_warm_disk"
+            ]
+            proc = self._spawn_and_run_boot_workloads(
+                cmd=cmd,
+                target=target,
+                env=env,
                 serial=serial,
-                emu_pid=None,
-                settle_seconds=0.0,
-                adb_bin=adb_bin,
-                proc=proc,
                 log_path=log_path,
-                process_runner=self.process_runner,
-            )
-            boot_info = self._collect_boot_metrics(
-                serial, proc, log_path, t_boot_start
-            )
-            boot_rep = run_suite_against_device(
-                serial=serial,
-                workloads=plan.workloads,
+                workloads=first_boot_workloads,
                 iterations=plan.iterations,
                 warmup=plan.warmup,
                 settle_seconds=plan.settle_seconds,
                 profiles=plan.profiles,
-                label=target.label,
                 adb_bin=adb_bin,
-                boot_metrics=boot_info,
                 grpc_port=grpc_port,
-                registry=self.registry,
-                process_runner=self.process_runner,
+                accumulated_tests=accumulated_tests,
+                accumulated_samples=accumulated_samples,
             )
-            self._record_boot_report(
-                boot_rep, accumulated_tests, accumulated_samples
-            )
+
+            if "cold_boot_warm_disk" in plan.workloads:
+                self._shutdown_emulator_keep_avd(
+                    proc, serial, ephemeral_dir=ephemeral_dir
+                )
+                warm_log_path = _create_secure_temp_file(
+                    prefix=f"emu_perf_{slug}_b{boot_idx + 1}_warm_",
+                    suffix=".log",
+                )
+                proc = self._spawn_and_run_boot_workloads(
+                    cmd=cmd,
+                    target=target,
+                    env=env,
+                    serial=serial,
+                    log_path=warm_log_path,
+                    workloads=["cold_boot_warm_disk"],
+                    iterations=1,
+                    warmup=0,
+                    settle_seconds=0.0,
+                    profiles=plan.profiles,
+                    adb_bin=adb_bin,
+                    grpc_port=grpc_port,
+                    accumulated_tests=accumulated_tests,
+                    accumulated_samples=accumulated_samples,
+                )
         finally:
             self._teardown_single_boot(
                 proc, serial, ephemeral_ini, ephemeral_dir, log_path=log_path
             )
+            if warm_log_path and os.path.isfile(warm_log_path):
+                try:
+                    os.unlink(warm_log_path)
+                except OSError as exc:
+                    logger.debug(
+                        "Ignored error unlinking %s: %s", warm_log_path, exc
+                    )
 
     def execute_session_runs(
         self,
