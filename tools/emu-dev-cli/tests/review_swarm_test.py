@@ -659,6 +659,91 @@ class ReviewSwarmTest(unittest.TestCase):
         )
         self.assertEqual(verified[1]["findings"][0]["severity"], "warning")
 
+    def test_option_b_risk_tiered_triggering(self) -> None:
+        _, repo_dir = self._create_multi_project_repo_fixture()
+
+        # 1. Lite tier (1..30 modified code lines): 8 specialists all pinned to 'flash'
+        lite_bundle = prepare_review_swarm_bundle(
+            commit="HEAD",
+            repo_dir=repo_dir,
+            cache_root=self.base_path / "tier_lite_cache",
+        )
+        self.assertEqual(lite_bundle["risk_tier"], "lite")
+        self.assertEqual(lite_bundle["code_lines_changed"], 1)
+        self.assertEqual(lite_bundle["specialist_count"], 8)
+        self.assertTrue(all(s["model"] == "flash" for s in lite_bundle["specialists"]))
+
+        # 2. Full tier (>30 modified code lines): uses full reasoning models ('inherit')
+        full_bundle = prepare_review_swarm_bundle(
+            output_dir=self.base_path / "tier_full_out",
+            preloaded_target={
+                "target_type": "gerrit_cl",
+                "target_id": "43999999",
+                "project": "platform/hardware/generic/goldfish",
+                "branch": "emu-main-next",
+                "subject": "feat(display): Add frame pump",
+                "current_revision": "rev1",
+                "commit_message": "feat(display): Add frame pump\n\nBody.\n\nBug: 123\nTest: unit\n",
+                "bug_ids": ["123"],
+                "files": ["emulator/display/frame_pump.cc"],
+                "diff_text": "",
+                "changed_lines_by_file": {"emulator/display/frame_pump.cc": list(range(1, 45))},
+            },
+        )
+        self.assertEqual(full_bundle["risk_tier"], "full")
+        self.assertEqual(full_bundle["code_lines_changed"], 44)
+        self.assertEqual(full_bundle["specialist_count"], 8)
+        self.assertTrue(any(s["model"] == "inherit" for s in full_bundle["specialists"]))
+
+        # 3. Stage0-only tier (docs/config/clean BUILD.bazel commit, 0 code lines):
+        #    0 LLM agents launched and upload gate passes immediately in <0.1s!
+        (repo_dir / "README.md").write_text("# Updated Docs 测试_🚀_é\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md"], cwd=str(repo_dir), check=True, capture_output=True)
+        subprocess.run(
+            [
+                "git",
+                "commit",
+                "-m",
+                "docs(readme): Document DeviceHub usage\n\nExplain setup.\n\nBug: 574245946\nTest: docs\nChange-Id: I9999999999abcdef1234567890abcdef12345678",
+            ],
+            cwd=str(repo_dir),
+            env=GIT_TEST_ENV,
+            check=True,
+            capture_output=True,
+        )
+        docs_cache = self.base_path / "tier_docs_cache"
+        docs_verdict = evaluate_upload_command(
+            f'cd "{repo_dir}" && repo upload --cbr -y .',
+            review_swarm_cache_root=docs_cache,
+        )
+        self.assertIsNotNone(docs_verdict)
+        self.assertTrue(docs_verdict[0], msg=docs_verdict[1])  # type: ignore[index]
+
+        # 4. Stage0-blocked tier (docs/BUILD commit with deterministic Stage 0 error):
+        #    0 LLM agents launched and upload gate blocks immediately with Stage 0 report!
+        (repo_dir / "README.md").write_text("# Broken commit tag\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md"], cwd=str(repo_dir), check=True, capture_output=True)
+        subprocess.run(
+            [
+                "git",
+                "commit",
+                "-m",
+                "docs(readme): Bad tag\n\nBody.\n\nCONV=bad\nBug: 574245946\nTest: docs\nChange-Id: I8888888888abcdef1234567890abcdef12345678",
+            ],
+            cwd=str(repo_dir),
+            env=GIT_TEST_ENV,
+            check=True,
+            capture_output=True,
+        )
+        blocked_cache = self.base_path / "tier_blocked_cache"
+        blocked_verdict = evaluate_upload_command(
+            f'cd "{repo_dir}" && repo upload --cbr -y .',
+            review_swarm_cache_root=blocked_cache,
+        )
+        self.assertIsNotNone(blocked_verdict)
+        self.assertFalse(blocked_verdict[0])  # type: ignore[index]
+        self.assertIn("has 1 unresolved review-swarm finding(s)", blocked_verdict[1])  # type: ignore[index]
+
 
 if __name__ == "__main__":
     unittest.main()

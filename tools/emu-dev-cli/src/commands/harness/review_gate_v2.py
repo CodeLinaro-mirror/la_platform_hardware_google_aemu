@@ -31,7 +31,8 @@ from __future__ import annotations
 
 import ast
 import json
-from pathlib import Path
+import os
+from pathlib import Path, PurePosixPath
 import re
 from typing import Any
 
@@ -42,6 +43,33 @@ MAX_ENCLOSING_CHARS_PER_FILE: int = 12000
 MAX_ENCLOSING_TOTAL_CHARS: int = 48000
 MAX_VERIFIER_CANDIDATES: int = 12
 NEAR_HUNK_SNAP_DISTANCE: int = 8
+LITE_SWARM_MAX_CODE_LINES: int = 30
+
+CODE_REVIEW_EXTENSIONS: frozenset[str] = frozenset({
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cxx",
+    ".h",
+    ".hh",
+    ".hpp",
+    ".hxx",
+    ".py",
+    ".kt",
+    ".kts",
+    ".java",
+    ".rs",
+    ".go",
+    ".js",
+    ".ts",
+    ".tsx",
+    ".jsx",
+    ".sh",
+    ".bash",
+    ".mm",
+    ".m",
+    ".proto",
+})
 
 BLOCKING_CAPABLE_SPECIALISTS: frozenset[str] = frozenset({
     "stage0-deterministic",
@@ -697,4 +725,56 @@ def apply_verifier_to_specialist_outputs(
             "findings": new_findings,
         })
     return updated_outputs
+
+
+def classify_review_risk_tier(
+    target_manifest: dict[str, Any],
+    repo_dir: str = ".",
+    force_full: bool = False,
+) -> dict[str, Any]:
+    """Classifies a change into `stage0_blocked`, `stage0_only`, `lite`, or `full` risk tiers.
+
+    - `stage0_blocked`: Stage 0 deterministic checks found >=1 `blocking` defect (0 LLM tokens).
+    - `stage0_only`: 0 code lines changed (docs, configs, OWNERS, or BUILD.bazel passing Stage 0),
+      or `code_lines_changed <= AEMU_STAGE0_ONLY_MAX_CODE_LINES` (0 LLM tokens).
+    - `lite`: 1..`LITE_SWARM_MAX_CODE_LINES` (30) modified code lines; runs fast `flash` wave.
+    - `full`: >`LITE_SWARM_MAX_CODE_LINES` modified code lines or `force_full=True`.
+    """
+    stage0_outputs = run_deterministic_stage0(target_manifest, repo_dir=repo_dir)
+    stage0_findings = stage0_outputs[0].get("findings") or []
+    stage0_blocking = sum(1 for f in stage0_findings if f.get("severity") == "blocking")
+
+    changed_map = target_manifest.get("changed_lines_by_file") or {}
+    code_files: list[str] = []
+    code_lines_changed = 0
+    for fpath, lines in changed_map.items():
+        ext = PurePosixPath(str(fpath)).suffix.lower()
+        if ext in CODE_REVIEW_EXTENSIONS:
+            code_files.append(str(fpath))
+            code_lines_changed += len(lines or [])
+
+    try:
+        stage0_max_code_lines = max(
+            0, int(os.environ.get("AEMU_STAGE0_ONLY_MAX_CODE_LINES", "0"))
+        )
+    except ValueError:
+        stage0_max_code_lines = 0
+
+    if force_full:
+        risk_tier = "full"
+    elif code_lines_changed <= stage0_max_code_lines:
+        risk_tier = "stage0_blocked" if stage0_blocking > 0 else "stage0_only"
+    elif code_lines_changed <= LITE_SWARM_MAX_CODE_LINES:
+        risk_tier = "lite"
+    else:
+        risk_tier = "full"
+
+    return {
+        "risk_tier": risk_tier,
+        "code_files": code_files,
+        "code_lines_changed": code_lines_changed,
+        "stage0_blocking_count": stage0_blocking,
+        "stage0_outputs": stage0_outputs,
+    }
+
 
