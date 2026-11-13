@@ -36,6 +36,7 @@ from lib.perf_telemetry import take_proc_snapshot
 from lib.stability.catalog import ScenarioName
 from lib.stability.health import (
     compute_cpu_pct_between_snapshots,
+    compute_rgb888_frame_digest,
     inspect_rgb888_frame,
     query_system_server_pid,
 )
@@ -68,6 +69,8 @@ class StabilityScenarioContext:
     controller_stub_factory: Optional[ControllerStubFactory] = None
     sleep_fn: Callable[[float], None] = time.sleep
     snapshot_created: bool = False
+    last_cycle_healthy: bool = True
+    last_saved_system_server_pid: Optional[int] = None
 
 
 @dataclass
@@ -81,6 +84,8 @@ class ScenarioCycleOutcome:
     expected_system_server_pid: Optional[int] = None
     frame_non_black: Optional[bool] = None
     frame_pixel_std: Optional[float] = None
+    frame_digest: Optional[str] = None
+    frame_frozen: Optional[bool] = None
     jank_pct: Optional[float] = None
     notes: List[str] = field(default_factory=list)
 
@@ -111,12 +116,12 @@ def _build_controller_stub(ctx: StabilityScenarioContext, channel: Any) -> Any:
     return EmulatorControllerStub(channel)
 
 
-def capture_grpc_rgb_frame(
+def capture_grpc_rgb_frame_with_digest(
     ctx: StabilityScenarioContext,
     width: int = RGB_PROBE_WIDTH,
     height: int = RGB_PROBE_HEIGHT,
-) -> Optional[Tuple[bool, float]]:
-    """Captures a single `RGB888` screenshot via gRPC and returns `(is_non_black, pixel_std)`."""
+) -> Optional[Tuple[bool, float, str]]:
+    """Captures a single `RGB888` screenshot via gRPC and returns `(is_non_black, pixel_std, frame_digest)`."""
     channel = None
     try:
         from aemu.proto.emulator_controller_pb2 import ImageFormat
@@ -128,8 +133,10 @@ def capture_grpc_rgb_frame(
             timeout=10.0,
         )
         if not img or not img.image:
-            return False, 0.0
-        return inspect_rgb888_frame(img.image)
+            return False, 0.0, ""
+        raw_bytes = bytes(img.image)
+        is_ok, std_val = inspect_rgb888_frame(raw_bytes)
+        return is_ok, std_val, compute_rgb888_frame_digest(raw_bytes)
     except Exception as exc:  # noqa: BLE001
         logger.debug("gRPC RGB screenshot probe failed on %s: %s", ctx.adb.serial, exc)
         return None
@@ -139,6 +146,18 @@ def capture_grpc_rgb_frame(
                 channel.close()
             except Exception:  # noqa: BLE001
                 pass
+
+
+def capture_grpc_rgb_frame(
+    ctx: StabilityScenarioContext,
+    width: int = RGB_PROBE_WIDTH,
+    height: int = RGB_PROBE_HEIGHT,
+) -> Optional[Tuple[bool, float]]:
+    """Captures a single `RGB888` screenshot via gRPC and returns `(is_non_black, pixel_std)`."""
+    probe = capture_grpc_rgb_frame_with_digest(ctx, width=width, height=height)
+    if probe is None:
+        return None
+    return probe[0], probe[1]
 
 
 def capture_grpc_png_bytes(
@@ -267,7 +286,7 @@ def run_dev_loop_cycle(
         probe.run_swipe_120hz_stress(events=60)
         if cycle_index % 2 == 1:
             ctx.adb.run(["uninstall", PERF_PROBE_PACKAGE], timeout=25.0)
-            probe._installed = False
+            probe.invalidate_install_state()
             notes.append("uninstalled_perf_probe_apk")
     else:
         # Fallback gesture + latency measurement if perf_probe.apk is absent
@@ -285,9 +304,10 @@ def run_dev_loop_cycle(
     _transfer_temp_adb_payload(ctx.adb, cycle_index)
     ctx.adb.run(["logcat", "-d", "-t", "80"], timeout=15.0)
 
-    frame_probe = capture_grpc_rgb_frame(ctx)
+    frame_probe = capture_grpc_rgb_frame_with_digest(ctx)
     frame_ok = frame_probe[0] if frame_probe is not None else None
     frame_std = frame_probe[1] if frame_probe is not None else None
+    frame_digest = frame_probe[2] if frame_probe is not None else None
     jank_pct = _query_gfxinfo_jank_pct(ctx.adb)
     idle_cpu = _measure_idle_settle_cpu(ctx)
 
@@ -298,6 +318,7 @@ def run_dev_loop_cycle(
         idle_cpu_pct=idle_cpu,
         frame_non_black=frame_ok,
         frame_pixel_std=frame_std,
+        frame_digest=frame_digest,
         jank_pct=jank_pct,
         notes=notes,
     )
@@ -317,18 +338,33 @@ def run_snapshot_stress_cycle(
     ctx.adb.shell(["input", "swipe", "280", "850", "280", "300", "200"], timeout=12.0)
 
     saved_sys_pid = query_system_server_pid(ctx.adb, timeout=10.0)
-    t_save = time.perf_counter()
-    save_res = ctx.adb.emu(
-        ["avd", "snapshot", "save", STABILITY_SNAPSHOT_TAG],
-        timeout=SNAPSHOT_TIMEOUT_SEC,
+    should_skip_save = ctx.snapshot_created and (
+        not ctx.last_cycle_healthy or saved_sys_pid is None
     )
-    save_ms = round((time.perf_counter() - t_save) * MS_PER_SECOND, 1)
-    if not save_res.ok or "KO:" in save_res.stdout:
-        raise RuntimeError(
-            f"Snapshot save failed at cycle {cycle_index} on {ctx.adb.serial}: "
-            f"{save_res.stdout.strip()} {save_res.stderr.strip()}".strip()
+    save_ms = 0.0
+    if should_skip_save:
+        notes.append("skipped_save_unhealthy_guest")
+        expected_sys_pid = ctx.last_saved_system_server_pid
+    else:
+        if saved_sys_pid is None and not ctx.snapshot_created:
+            raise RuntimeError(
+                f"Refusing to save baseline snapshot at cycle {cycle_index} on {ctx.adb.serial}: "
+                "guest system_server is not running or is a zombie."
+            )
+        t_save = time.perf_counter()
+        save_res = ctx.adb.emu(
+            ["avd", "snapshot", "save", STABILITY_SNAPSHOT_TAG],
+            timeout=SNAPSHOT_TIMEOUT_SEC,
         )
-    ctx.snapshot_created = True
+        save_ms = round((time.perf_counter() - t_save) * MS_PER_SECOND, 1)
+        if not save_res.ok or "KO:" in save_res.stdout:
+            raise RuntimeError(
+                f"Snapshot save failed at cycle {cycle_index} on {ctx.adb.serial}: "
+                f"{save_res.stdout.strip()} {save_res.stderr.strip()}".strip()
+            )
+        ctx.snapshot_created = True
+        ctx.last_saved_system_server_pid = saved_sys_pid
+        expected_sys_pid = saved_sys_pid
 
     # Mutate guest UI before restoring snapshot
     ctx.adb.shell(["input", "swipe", "280", "300", "280", "850", "180"], timeout=12.0)
@@ -345,6 +381,10 @@ def run_snapshot_stress_cycle(
             f"{load_res.stdout.strip()} {load_res.stderr.strip()}".strip()
         )
 
+    if ctx.probe_session is not None:
+        ctx.probe_session.invalidate_install_state()
+        notes.append("invalidated_probe_install_state")
+
     wait_res = ctx.adb.wait_for_device(timeout=20.0)
     if not wait_res.ok:
         raise RuntimeError(
@@ -356,17 +396,19 @@ def run_snapshot_stress_cycle(
     ctx.adb.shell(["input", "keyevent", "KEYCODE_WAKEUP"], timeout=10.0)
     ctx.adb.shell(["input", "swipe", "320", "780", "320", "320", "200"], timeout=12.0)
 
-    frame_probe = capture_grpc_rgb_frame(ctx)
+    frame_probe = capture_grpc_rgb_frame_with_digest(ctx)
     frame_ok = frame_probe[0] if frame_probe is not None else None
     frame_std = frame_probe[1] if frame_probe is not None else None
+    frame_digest = frame_probe[2] if frame_probe is not None else None
     notes.append(f"save_ms={save_ms},load_ms={load_ms}")
 
     return ScenarioCycleOutcome(
         adb_flaps=flaps,
         adb_ping_ms=max(ping_ms, post_ping_ms),
-        expected_system_server_pid=saved_sys_pid,
+        expected_system_server_pid=expected_sys_pid,
         frame_non_black=frame_ok,
         frame_pixel_std=frame_std,
+        frame_digest=frame_digest,
         notes=notes,
     )
 
@@ -564,6 +606,7 @@ def run_ui_control_cycle(
 
     frame_ok: Optional[bool] = None
     frame_std: Optional[float] = None
+    frame_digest: Optional[str] = None
     with lock:
         captured_count = len(stream_frames)
         last_bytes = stream_frames[-1] if stream_frames else None
@@ -571,10 +614,11 @@ def run_ui_control_cycle(
 
     if last_bytes is not None:
         frame_ok, frame_std = inspect_rgb888_frame(last_bytes)
+        frame_digest = compute_rgb888_frame_digest(last_bytes)
     else:
-        single_probe = capture_grpc_rgb_frame(ctx)
+        single_probe = capture_grpc_rgb_frame_with_digest(ctx)
         if single_probe is not None:
-            frame_ok, frame_std = single_probe
+            frame_ok, frame_std, frame_digest = single_probe
 
     jank_pct = _query_gfxinfo_jank_pct(ctx.adb)
     return ScenarioCycleOutcome(
@@ -582,6 +626,7 @@ def run_ui_control_cycle(
         adb_ping_ms=ping_ms,
         frame_non_black=frame_ok,
         frame_pixel_std=frame_std,
+        frame_digest=frame_digest,
         jank_pct=jank_pct,
         notes=notes,
     )

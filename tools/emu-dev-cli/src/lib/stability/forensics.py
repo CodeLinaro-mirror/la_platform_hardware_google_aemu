@@ -196,7 +196,7 @@ def _capture_guest_artifacts(
             "logcat_crash",
         )
 
-    tail_lc = adb.run(["logcat", "-d", "-t", "2000"], timeout=15.0)
+    tail_lc = adb.run(["logcat", "-b", "all", "-d", "-t", "2000"], timeout=15.0)
     if tail_lc.ok and tail_lc.stdout.strip():
         _write_text_artifact(
             bundle_dir,
@@ -204,6 +204,18 @@ def _capture_guest_artifacts(
             tail_lc.stdout,
             artifacts,
             "logcat_tail",
+        )
+
+    ps_res = adb.shell(
+        ["ps", "-A", "-o", "PID,PPID,STAT,WCHAN,NAME"], timeout=10.0
+    )
+    if ps_res.ok and ps_res.stdout.strip():
+        _write_text_artifact(
+            bundle_dir,
+            "guest_processes.txt",
+            ps_res.stdout,
+            artifacts,
+            "guest_processes",
         )
 
     dropbox_res = adb.shell(["dumpsys", "dropbox"], timeout=15.0)

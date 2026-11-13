@@ -17,6 +17,7 @@
 import ctypes
 from ctypes import wintypes
 from dataclasses import asdict, dataclass, field
+import hashlib
 import logging
 import math
 import os
@@ -42,6 +43,7 @@ RGB_CHANNELS: int = 3
 BLACK_CHANNEL_MAX_THRESHOLD: int = 6
 MIN_FRAME_CHANNEL_STDDEV: float = 1.0
 MIN_LATENCY_BASELINE_MS: float = 5.0
+FROZEN_FRAME_CONSECUTIVE_CYCLES: int = 4
 
 DROPBOX_ANR_TAGS: Tuple[str, ...] = (
     "system_server_anr",
@@ -110,6 +112,8 @@ class CycleHealthSample:
     dropbox_app_crash_count: int = 0
     frame_non_black: Optional[bool] = None
     frame_pixel_std: Optional[float] = None
+    frame_digest: Optional[str] = None
+    frame_frozen: Optional[bool] = None
     jank_pct: Optional[float] = None
     crashpad_minidumps: int = 0
     scenario_error: Optional[str] = None
@@ -411,7 +415,7 @@ def parse_dropbox_lines(dropbox_output: str) -> Tuple[Set[str], Set[str], Set[st
 
 
 def query_system_server_pid(adb: AdbDevice, timeout: float = 10.0) -> Optional[int]:
-    """Queries the guest `system_server` PID via `adb shell pidof system_server`."""
+    """Queries the guest `system_server` PID via `adb shell pidof system_server` and verifies it is not a zombie (`Z`)."""
     res = adb.shell(["pidof", "system_server"], timeout=timeout)
     if not res.ok:
         return None
@@ -419,7 +423,15 @@ def query_system_server_pid(adb: AdbDevice, timeout: float = 10.0) -> Optional[i
     if not tokens:
         return None
     first = tokens[0].strip()
-    return int(first) if first.isdigit() else None
+    if not first.isdigit():
+        return None
+    pid = int(first)
+    stat_res = adb.shell(["ps", "-o", "STAT=", "-p", str(pid)], timeout=timeout)
+    if stat_res.ok and stat_res.stdout:
+        stat_tokens = stat_res.stdout.strip().split()
+        if stat_tokens and stat_tokens[0].upper().startswith("Z"):
+            return None
+    return pid
 
 
 def inspect_guest_health(
@@ -499,6 +511,13 @@ def inspect_rgb888_frame(rgb_bytes: bytes) -> Tuple[bool, float]:
         and stddev >= MIN_FRAME_CHANNEL_STDDEV
     ) or max_channel > 24
     return is_non_black, stddev
+
+
+def compute_rgb888_frame_digest(rgb_bytes: bytes) -> str:
+    """Computes a compact 16-hex-char SHA-256 digest of an `RGB888` frame buffer to detect frozen frames."""
+    if not rgb_bytes:
+        return ""
+    return hashlib.sha256(rgb_bytes).hexdigest()[:16]
 
 
 def compute_linear_slope_per_min(
@@ -589,11 +608,17 @@ def _evaluate_adb_and_guest(
 
     restarts = 0
     baseline_pid: Optional[int] = None
+    had_live_system_server = False
     for sample in samples:
         if sample.expected_system_server_pid is not None:
             baseline_pid = sample.expected_system_server_pid
+            had_live_system_server = True
         if sample.system_server_pid is None:
+            if had_live_system_server and baseline_pid is not None and sample.adb_ok:
+                restarts += 1
+                baseline_pid = None
             continue
+        had_live_system_server = True
         if baseline_pid is None:
             baseline_pid = sample.system_server_pid
             continue
@@ -606,7 +631,10 @@ def _evaluate_adb_and_guest(
             StabilityFinding(
                 severity=StabilityVerdict.FAIL.value,
                 category="guest_system",
-                summary=f"Guest Android system_server soft-restarted {restarts} time(s) (PID changed mid-run).",
+                summary=(
+                    f"Guest Android system_server soft-restarted or died {restarts} time(s) "
+                    "(PID changed or process became an unreaped zombie mid-run)."
+                ),
                 metric_name="system_server_restarts",
                 metric_value=float(restarts),
                 threshold_value=0.0,
@@ -655,6 +683,40 @@ def _evaluate_adb_and_guest(
     return total_flaps, total_anrs, total_tombstones, total_app_crashes, restarts
 
 
+def _detect_frozen_frame_streak(
+    samples: Sequence[CycleHealthSample],
+) -> Tuple[int, Optional[int], bool]:
+    """Returns `(max_identical_digest_streak, start_cycle_index, explicit_freeze)` across `samples`."""
+    for sample in samples:
+        if sample.frame_frozen is True:
+            return FROZEN_FRAME_CONSECUTIVE_CYCLES, sample.cycle_index, True
+
+    prev_digest = ""
+    streak = 0
+    streak_start: Optional[int] = None
+    max_streak = 0
+    best_start: Optional[int] = None
+
+    for sample in samples:
+        digest = (sample.frame_digest or "").strip()
+        if not digest:
+            prev_digest = ""
+            streak = 0
+            streak_start = None
+            continue
+        if digest == prev_digest:
+            streak += 1
+        else:
+            prev_digest = digest
+            streak = 1
+            streak_start = sample.cycle_index
+        if streak > max_streak:
+            max_streak = streak
+            best_start = streak_start
+
+    return max_streak, best_start, False
+
+
 def _evaluate_display_and_resources(
     samples: Sequence[CycleHealthSample],
     post_warmup: Sequence[CycleHealthSample],
@@ -673,6 +735,25 @@ def _evaluate_display_and_resources(
                 metric_name="frame_non_black",
                 metric_value=0.0,
                 threshold_value=1.0,
+            )
+        )
+
+    frozen_streak, frozen_start, explicit_freeze = _detect_frozen_frame_streak(
+        samples
+    )
+    if explicit_freeze or frozen_streak >= FROZEN_FRAME_CONSECUTIVE_CYCLES:
+        start_c = frozen_start if frozen_start is not None else 0
+        findings.append(
+            StabilityFinding(
+                severity=StabilityVerdict.FAIL.value,
+                category="display_freshness",
+                summary=(
+                    f"Display framebuffer remained frozen across {frozen_streak} consecutive cycle(s) "
+                    f"starting at cycle {start_c} despite active UI input."
+                ),
+                metric_name="frozen_frame_cycles",
+                metric_value=float(frozen_streak),
+                threshold_value=float(FROZEN_FRAME_CONSECUTIVE_CYCLES),
             )
         )
 

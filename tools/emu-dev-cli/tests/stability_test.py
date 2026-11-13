@@ -27,6 +27,7 @@ os.environ.setdefault("USERPROFILE", tempfile.gettempdir())
 from core.errors import UsageError
 from core.process import ProcessResult, ProcessRunner
 from lib.perf.adb import AdbDevice
+from lib.perf_probe_client import PerfProbeSession
 from lib.stability import (
     CycleHealthSample,
     HostProcessSample,
@@ -41,6 +42,7 @@ from lib.stability import (
     collect_forensic_bundle,
     compare_stability_reports,
     compute_linear_slope_per_min,
+    compute_rgb888_frame_digest,
     evaluate_stability_samples,
     format_clickable_file_link,
     format_file_uri,
@@ -49,6 +51,7 @@ from lib.stability import (
     inspect_rgb888_frame,
     load_stability_history,
     parse_dropbox_lines,
+    query_system_server_pid,
     render_stability_comparison_markdown,
     render_stability_report_markdown,
     resolve_stability_scenarios,
@@ -175,7 +178,40 @@ class StabilityCatalogAndHealthTest(unittest.TestCase):
         self.assertEqual(ev_fail.effective_exit_code, 1)
         self.assertEqual(ev_fail.system_server_restarts, 1)
 
-    def test_rgb888_frame_black_vs_live_detection(self) -> None:
+        # Zombie or unreaped system_server (PID becomes None while adb_ok=True) -> FAIL
+        zombie_death = [
+            CycleHealthSample(cycle_index=0, elapsed_sec=30.0, scenario="dev-loop", system_server_pid=686, adb_ok=True),
+            CycleHealthSample(cycle_index=1, elapsed_sec=90.0, scenario="dev-loop", system_server_pid=None, adb_ok=True),
+            CycleHealthSample(cycle_index=2, elapsed_sec=150.0, scenario="ui-control", system_server_pid=None, adb_ok=True),
+        ]
+        ev_zombie = evaluate_stability_samples(zombie_death)
+        self.assertEqual(ev_zombie.verdict, StabilityVerdict.FAIL.value)
+        self.assertEqual(ev_zombie.system_server_restarts, 1)
+
+        def _zombie_adb(cmd: tuple[str, ...]) -> ProcessResult:
+            joined = " ".join(cmd)
+            if "pidof system_server" in joined:
+                return ProcessResult(args=cmd, returncode=0, stdout="686\n")
+            if "ps -o STAT= -p 686" in joined:
+                return ProcessResult(args=cmd, returncode=0, stdout="Z<\n")
+            return ProcessResult(args=cmd, returncode=0, stdout="")
+
+        adb_z = AdbDevice("emulator-5564", process_runner=_ScriptedProcessRunner(_zombie_adb))
+        self.assertIsNone(query_system_server_pid(adb_z))
+
+        # Whitespace-only stdout from `ps -o STAT=` must not raise IndexError
+        def _ws_stat_adb(cmd: tuple[str, ...]) -> ProcessResult:
+            joined = " ".join(cmd)
+            if "pidof system_server" in joined:
+                return ProcessResult(args=cmd, returncode=0, stdout="686\n")
+            if "ps -o STAT= -p 686" in joined:
+                return ProcessResult(args=cmd, returncode=0, stdout="  \n")
+            return ProcessResult(args=cmd, returncode=0, stdout="")
+
+        adb_ws = AdbDevice("emulator-5564", process_runner=_ScriptedProcessRunner(_ws_stat_adb))
+        self.assertEqual(query_system_server_pid(adb_ws), 686)
+
+    def test_rgb888_frame_black_vs_live_and_frozen_detection(self) -> None:
         all_black = bytes([0, 0, 0] * 256)
         ok_black, std_black = inspect_rgb888_frame(all_black)
         self.assertFalse(ok_black)
@@ -185,6 +221,21 @@ class StabilityCatalogAndHealthTest(unittest.TestCase):
         ok_live, std_live = inspect_rgb888_frame(checker)
         self.assertTrue(ok_live)
         self.assertGreater(std_live, 10.0)
+
+        digest = compute_rgb888_frame_digest(checker)
+        self.assertEqual(len(digest), 16)
+        self.assertEqual(compute_rgb888_frame_digest(b""), "")
+
+        # 4 consecutive cycles with identical non-empty frame_digest -> FAIL (display_freshness)
+        frozen_samples = [
+            CycleHealthSample(cycle_index=i, elapsed_sec=float((i + 1) * 30), scenario="ui-control", frame_non_black=True, frame_pixel_std=35.0, frame_digest=digest)
+            for i in range(4)
+        ]
+        ev_frozen = evaluate_stability_samples(frozen_samples)
+        self.assertEqual(ev_frozen.verdict, StabilityVerdict.FAIL.value)
+        self.assertTrue(
+            any(f.category == "display_freshness" and f.metric_name == "frozen_frame_cycles" for f in ev_frozen.findings)
+        )
 
     def test_dropbox_parsing_and_guest_health_delta(self) -> None:
         dropbox_txt = (
@@ -463,7 +514,8 @@ class StabilityForensicsSessionAndScenariosTest(unittest.TestCase):
                 )
             return ProcessResult(args=cmd, returncode=0, stdout="OK\n")
 
-        adb = AdbDevice("emulator-5554", process_runner=_ScriptedProcessRunner(_fake_adb))
+        scripted_runner = _ScriptedProcessRunner(_fake_adb)
+        adb = AdbDevice("emulator-5554", process_runner=scripted_runner)
         fake_stub = _FakeControllerStub()
         ctx = StabilityScenarioContext(
             adb=adb,
@@ -478,6 +530,29 @@ class StabilityForensicsSessionAndScenariosTest(unittest.TestCase):
         snap_out = run_snapshot_stress_cycle(ctx, 0)
         self.assertEqual(snap_out.expected_system_server_pid, 1888)
         self.assertTrue(snap_out.frame_non_black)
+        self.assertTrue(ctx.snapshot_created)
+
+        # If a preceding cycle left the guest unhealthy, snapshot-stress skips save to avoid poisoning
+        # the clean baseline snapshot and invalidates PerfProbeSession install state on load.
+        adb_calls_before = len(scripted_runner.calls)
+        ctx.last_cycle_healthy = False
+        probe = PerfProbeSession(
+            serial="emulator-5554",
+            adb_fn=adb.as_adb_fn(default_timeout=10.0),
+            apk_path="/tmp/fake_probe.apk",
+        )
+        probe._installed = True
+        ctx.probe_session = probe
+        snap_rec = run_snapshot_stress_cycle(ctx, 1)
+        self.assertIn("skipped_save_unhealthy_guest", snap_rec.notes)
+        self.assertIn("invalidated_probe_install_state", snap_rec.notes)
+        self.assertFalse(probe._installed)
+        self.assertEqual(snap_rec.expected_system_server_pid, 1888)
+        recent_emu_cmds = [
+            " ".join(c) for c in scripted_runner.calls[adb_calls_before:] if "snapshot" in " ".join(c)
+        ]
+        self.assertTrue(any("snapshot load" in c for c in recent_emu_cmds))
+        self.assertFalse(any("snapshot save" in c for c in recent_emu_cmds))
 
         ui_out = run_ui_control_cycle(ctx, 0)
         self.assertTrue(ui_out.frame_non_black)
@@ -485,6 +560,53 @@ class StabilityForensicsSessionAndScenariosTest(unittest.TestCase):
         self.assertEqual(len(fake_stub.rotations), 3)
         self.assertEqual(len(fake_stub.sensors), 2)
         self.assertEqual(len(fake_stub.postures), 2)
+
+    def test_perf_probe_session_preserves_logcat_and_recovers_missing_activity(self) -> None:
+        recorded_cmds: List[List[str]] = []
+        logcat_lines: List[str] = [
+            '11-13 12:00:00.100 1000 1000 I PerfProbeJson: {"scenario": "reset_input", "status": "ok"}'
+        ]
+        am_attempts = [0]
+
+        class _Completed:
+            def __init__(self, rc: int, out: str = "", err: str = "") -> None:
+                self.returncode = rc
+                self.stdout = out
+                self.stderr = err
+
+        def _fake_adb_fn(args: List[str], _timeout: float) -> Any:
+            recorded_cmds.append(list(args))
+            joined = " ".join(args)
+            if "logcat -d -s PerfProbeJson:I" in joined:
+                return _Completed(0, "\n".join(logcat_lines) + "\n")
+            if "--es scenario reset_input" in joined:
+                am_attempts[0] += 1
+                if am_attempts[0] == 1:
+                    # Simulate snapshot load reverting package install
+                    return _Completed(
+                        0,
+                        "Starting: Intent { cmp=com.android.emulator.perfprobe/.PerfProbeActivity }\n"
+                        "Error type 3\n"
+                        "Error: Activity class {com.android.emulator.perfprobe/com.android.emulator.perfprobe.PerfProbeActivity} does not exist.\n",
+                    )
+                logcat_lines.append(
+                    '11-13 12:00:05.200 2000 2000 I PerfProbeJson: {"scenario": "reset_input", "status": "ok", "seq": 2}'
+                )
+                return _Completed(0, "Starting: Intent\n")
+            return _Completed(0, "Success\n")
+
+        session = PerfProbeSession(
+            serial="emulator-5554",
+            adb_fn=_fake_adb_fn,
+            apk_path="/tmp/perf_probe_测试_🚀_é.apk",
+        )
+        session._installed = True
+        result = session.run_intent_scenario("reset_input", timeout_sec=2.0)
+        self.assertEqual(result.get("seq"), 2)
+        # Verify logcat -c was never invoked so forensic logcat history is preserved
+        self.assertFalse(any("logcat -c" in " ".join(c) for c in recorded_cmds))
+        # Verify missing Activity class triggered automatic APK reinstall
+        self.assertTrue(any("install -r -g" in " ".join(c) for c in recorded_cmds))
 
 
 if __name__ == "__main__":
