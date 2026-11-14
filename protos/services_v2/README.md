@@ -34,25 +34,30 @@ Never branch on whether you think you are talking to an emulator or a physical
 phone. Call `CapabilitiesService.GetDeviceCapabilities` (or subscribe to
 `StreamDeviceCapabilities`) and inspect each feature's capability block:
 
+- **Capability presence** (`optional` sub-messages on `DeviceCapabilities`):
+  - When a subsystem is unavailable on a target (e.g., `vm` and `snapshot` on a
+    physical phone, or `posture` on a non-foldable slab), its `optional`
+    capability sub-message on `DeviceCapabilities` is **omitted** (`undefined`
+    in TypeScript, `not caps.HasField(...)` in Python), and calling its RPCs
+    returns `FAILED_PRECONDITION`.
 - **`access_mode`** (`AccessMode`):
   - `ACCESS_MODE_READ_WRITE`: You can read state and mutate/inject state.
-  - `ACCESS_MODE_READ_ONLY`: You can observe state (`Get*` / `Stream*`), but
-    `Update*` RPCs will return `PERMISSION_DENIED` or `FAILED_PRECONDITION`.
-  - `ACCESS_MODE_UNAVAILABLE`: The feature does not exist on this target.
+  - `ACCESS_MODE_READ_ONLY`: You can observe state (`Get*` / `Stream*`), while
+    mutating RPCs fail with `PERMISSION_DENIED`.
 - **`fidelity`** (`Fidelity`):
   - `FIDELITY_HARDWARE`: Backed by real physical silicon (e.g., physical phone
-    IMU).
-  - `FIDELITY_VIRTUAL_HARDWARE`: Emulated hardware device model (e.g.,
-    Goldfish/Cuttlefish).
+    IMU) or a virtual hardware device/HAL implementation (e.g.,
+    Goldfish/Cuttlefish virtual HALs).
   - `FIDELITY_SOFTWARE_MOCK`: Injected via Android OS framework APIs
     (`dumpsys battery set`, mock location provider).
 
 ### Rule 2: Partial Updates Use Flat `proto3 optional` Fields
 
-All state mutation RPCs (`UpdateBatteryState`, `UpdateDisplay`,
-`UpdateLocationState`, `UpdatePostureState`, `UpdateSensorsState`,
-`UpdateTelephonyState`, `UpdateClipboardState`) take a flat request message
-where every mutable field is marked `optional`:
+Partial state mutation RPCs (`UpdateAudioState`, `UpdateBatteryState`,
+`UpdateDisplay`, `UpdateLocationState`, `UpdatePostureState`,
+`UpdateSensorsState`, `UpdateSnapshot`, `UpdateTelephonyState`) take a flat
+request message where mutable fields are marked `optional` (whereas
+`UpdateClipboardState` replaces or clears the clipboard item as a whole):
 
 - **Set a field** (even to `0`, `false`, or `""`): the field is serialized on
   the wire (`has_field() == true`) and updated on the device.
@@ -96,17 +101,17 @@ post-action screenshots without sleeping (`sleep()`).
 | [`system_service.proto`](./system_service.proto)             | `SystemService`       | `Get/StreamSystemState`, `RebootDevice`, `Get/Stream/UpdateClipboardState`, `InjectFingerprint`                                                 |   Yes    |      Yes       |
 | [`battery_service.proto`](./battery_service.proto)           | `BatteryService`      | `Get/Stream/UpdateBatteryState`                                                                                                                 |   Yes    |      Yes       |
 | [`sensors_service.proto`](./sensors_service.proto)           | `SensorsService`      | `Get/Stream/UpdateSensorsState`, `StreamSensorsUpdates`, `Get/Stream/UpdatePostureState`                                                        |   Yes    |   Read/Mock    |
-| [`location_service.proto`](./location_service.proto)         | `LocationService`     | `Get/Stream/UpdateLocationState`, `StreamLocationUpdates`, `PlayRoute`                                                                          |   Yes    |      Mock      |
+| [`location_service.proto`](./location_service.proto)         | `LocationService`     | `Get/Stream/UpdateLocationState`, `PlayRoute`                                                                                                   |   Yes    |      Mock      |
 | [`telephony_service.proto`](./telephony_service.proto)       | `TelephonyService`    | `Get/Stream/UpdateTelephonyState`, `SendSms`, `TransitionCall`                                                                                  |   Yes    |   Read-only    |
 | [`camera_service.proto`](./camera_service.proto)             | `CameraService`       | `Get/StreamCameraState`, `InjectFrame`, `StreamCameraFrames`, `ResetCamera`                                                                     |   Yes    |   Read-only    |
 | [`audio_service.proto`](./audio_service.proto)               | `AudioService`        | `Get/Stream/UpdateAudioState`, `StreamSpeakerAudio`, `InjectAudioClip`, `StreamMicrophoneAudio`                                                 |   Yes    |      Yes       |
-| [`hypervisor_service.proto`](./hypervisor_service.proto)     | `HypervisorService`   | `Get/StreamVmState`, `Pause/Resume/Reset/HardReset/StopVm`, `List/Get/Create/Restore/Update/Delete/Export/ImportSnapshot`, `SetQuickbootTarget` |   Yes    | `UNAVAILABLE`  |
+| [`hypervisor_service.proto`](./hypervisor_service.proto)     | `HypervisorService`   | `Get/StreamVmState`, `Pause/Resume/Reset/HardReset/StopVm`, `ListSnapshots`, `Get/Create/Restore/Update/Delete/Export/ImportSnapshot`, `SetQuickbootTarget` |   Yes    |       No       |
 
 ---
 
 ## 3. Part A: Building a UI Client (HTML5 / Electron / Desktop)
 
-This section walks through the five building blocks of an interactive device UI
+This section walks through the four building blocks of an interactive device UI
 (such as the `@android/web` SDK or an Electron companion app).
 
 ### Recipe U1: Connect & Gate UI Panels with `CapabilitiesService`
@@ -116,19 +121,20 @@ example, ADB finishes booting or a foldable posture changes), dynamically
 enable/disable UI controls:
 
 ```ts
-// TypeScript (using @android/web generated ts-proto client)
-const capsStream = capabilitiesClient.streamDeviceCapabilities({});
+// TypeScript (using @android/emulator-services generated ts-proto client)
+const capsStream = capabilitiesClient.StreamDeviceCapabilities({});
 
 for await (const caps of capsStream) {
   // Device header badge (for display only — never branch feature logic on this!)
-  setHeaderTitle(`${caps.metadata?.model} (API ${caps.metadata?.apiLevel})`);
+  setHeaderTitle(`${caps.metadata?.modelId} (API ${caps.metadata?.apiLevel})`);
 
-  // Enable/disable UI tabs based on authoritative AccessMode
+  // Enable/disable UI tabs based on capability presence and AccessMode
   setBatteryEditable(
     caps.battery?.accessMode === AccessMode.ACCESS_MODE_READ_WRITE,
   );
+  setVmControlsVisible(caps.vm !== undefined);
   setSnapshotsVisible(
-    caps.hypervisor?.accessMode !== AccessMode.ACCESS_MODE_UNAVAILABLE,
+    caps.snapshot?.accessMode === AccessMode.ACCESS_MODE_READ_WRITE,
   );
   setFoldableControlsVisible(
     caps.sensors?.posture?.accessMode === AccessMode.ACCESS_MODE_READ_WRITE,
@@ -143,7 +149,12 @@ cover screen, Android Auto cluster, XR headset displays). Subscribe to
 `DisplayService.StreamDisplays` to render each display's bezel and cutout:
 
 ```ts
-for await (const { displays } of displayClient.streamDisplays({})) {
+const caps = await capabilitiesClient.GetDeviceCapabilities({});
+const panelsById = new Map(
+  (caps.display?.builtInDisplays ?? []).map((p) => [p.displayId, p]),
+);
+
+for await (const { displays } of displayClient.StreamDisplays({})) {
   for (const d of displays) {
     // d.userRotation: physical chassis orientation chosen by the user in the UI
     // d.rotation: logical OS orientation rendered by Android WindowManager
@@ -153,13 +164,14 @@ for await (const { displays } of displayClient.streamDisplays({})) {
     const chassisAngleDeg = toDeg(d.userRotation);
     const videoCounterRotationDeg =
       (toDeg(d.userRotation) - toDeg(d.rotation) + 360) % 360;
+    const panel = panelsById.get(d.displayId);
 
     renderDeviceChassis({
       displayId: d.displayId,
-      width: d.hardware?.width ?? 1080,
-      height: d.hardware?.height ?? 2400,
-      cornerRadiusPx: d.hardware?.cornerRadiusPx ?? 0,
-      cutouts: d.hardware?.cutouts ?? [], // NormalizedRect [0..1] cutouts/notches
+      width: d.width,
+      height: d.height,
+      cornerRadiusNormalized: panel?.cornerRadiusNormalized ?? 0,
+      cutouts: panel?.cutouts ?? [], // NormalizedRect [0..1] cutouts/notches
       chassisAngleDeg,
       videoCounterRotationDeg,
     });
@@ -170,7 +182,7 @@ for await (const { displays } of displayClient.streamDisplays({})) {
 To rotate the device when the user clicks "Rotate Left / Right" in your UI:
 
 ```ts
-await displayClient.updateDisplay({
+await displayClient.UpdateDisplay({
   displayId: 0,
   userRotation: Rotation.ROTATION_DEG90, // Only sets userRotation; leaves density/size untouched
 });
@@ -203,7 +215,7 @@ pc.onicecandidate = ({ candidate }) => {
   if (candidate) {
     rtcClient.SendJsepMessage({
       handle: { sessionId },
-      candidate: {
+      iceCandidate: {
         candidate: candidate.candidate,
         sdpMid: candidate.sdpMid ?? "",
         sdpMLineIndex: candidate.sdpMLineIndex ?? 0,
@@ -213,9 +225,7 @@ pc.onicecandidate = ({ candidate }) => {
 };
 
 // 3. Subscribe to incoming SDP answer & ICE candidates from the device
-const jsepStream = rtcClient.ReceiveJsepMessageStream({
-  handle: { sessionId },
-});
+const jsepStream = rtcClient.ReceiveJsepMessageStream({ sessionId });
 
 // 4. Send the client SDP Offer
 const offer = await pc.createOffer({
@@ -231,8 +241,8 @@ await rtcClient.SendJsepMessage({
 for await (const msg of jsepStream) {
   if (msg.sdp) {
     await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp.sdp });
-  } else if (msg.candidate) {
-    await pc.addIceCandidate(msg.candidate);
+  } else if (msg.iceCandidate) {
+    await pc.addIceCandidate(msg.iceCandidate);
   }
 }
 ```
@@ -263,22 +273,24 @@ function sendTouchDown(
   canvas: HTMLCanvasElement,
   e: PointerEvent,
 ) {
-  const bytes: Uint8Array = InputEvent.encode({
-    inputSourceId: 0, // 0 = human operator driving the UI
-    pointer: {
-      displayId: 0,
-      action: PointerAction.POINTER_ACTION_DOWN,
-      pointers: [
-        {
-          pointerId: e.pointerId,
-          toolType: ToolType.TOOL_TYPE_FINGER,
-          x: e.offsetX / canvas.clientWidth, // Normalized [0.0, 1.0]
-          y: e.offsetY / canvas.clientHeight, // Normalized [0.0, 1.0]
-          pressure: e.pressure || 1.0,
-        },
-      ],
-    },
-  }).finish();
+  const bytes: Uint8Array = InputEvent.encode(
+    InputEvent.fromPartial({
+      inputSourceId: 0, // 0 = human operator driving the UI
+      pointer: {
+        displayId: 0,
+        action: PointerAction.POINTER_ACTION_DOWN,
+        pointers: [
+          {
+            pointerId: e.pointerId,
+            toolType: ToolType.TOOL_TYPE_FINGER,
+            x: e.offsetX / canvas.clientWidth, // Normalized [0.0, 1.0]
+            y: e.offsetY / canvas.clientHeight, // Normalized [0.0, 1.0]
+            pressure: e.pressure || 1.0,
+          },
+        ],
+      },
+    }),
+  ).finish();
 
   if (inputDataChannel.readyState === "open") {
     inputDataChannel.send(bytes);
@@ -451,11 +463,11 @@ sensors_stub.UpdateSensorsState(
     sensors_service_pb2.UpdateSensorsStateRequest(clear_raw_overrides=True)
 )
 
-# 4. Set battery to 15% discharging without changing battery health or temperature
+# 4. Set battery to 15% unplugged without changing charging state or battery health
 battery_stub.UpdateBatteryState(
     battery_service_pb2.UpdateBatteryStateRequest(
         level_percent=15,
-        charger_source=battery_service_pb2.CHARGER_SOURCE_NONE,
+        charger=battery_service_pb2.CHARGER_SOURCE_NONE,
     )
 )
 
@@ -465,13 +477,13 @@ location_stub.PlayRoute(
         playback_speed_multiplier=2.0,
         waypoints=[
             location_service_pb2.RouteWaypoint(
-                location=location_service_pb2.LocationState(
+                location=location_service_pb2.UpdateLocationStateRequest(
                     latitude=37.4220, longitude=-122.0841
                 ),
                 delay_ms=0,
             ),
             location_service_pb2.RouteWaypoint(
-                location=location_service_pb2.LocationState(
+                location=location_service_pb2.UpdateLocationStateRequest(
                     latitude=37.4280, longitude=-122.0800
                 ),
                 delay_ms=5000,
@@ -483,13 +495,13 @@ location_stub.PlayRoute(
 # 6. Deliver an incoming SMS and ring a phone call
 telephony_stub.SendSms(
     telephony_service_pb2.SendSmsRequest(
-        sender_number="+16505550199",
+        sender_phone_number="+16505550199",
         message_body="Your verification code is 482910",
     )
 )
 telephony_stub.TransitionCall(
     telephony_service_pb2.TransitionCallRequest(
-        phone_number="+16505550199",
+        caller_phone_number="+16505550199",
         action=telephony_service_pb2.TransitionCallRequest.RING,
     )
 )
@@ -509,13 +521,13 @@ ops_stub = operations_pb2_grpc.OperationsStub(channel)
 op = hypervisor_stub.CreateSnapshot(
     hypervisor_service_pb2.CreateSnapshotRequest(
         snapshot_id="clean-boot-state",
-        label="Clean Boot",
+        display_name="Clean Boot",
         description="Freshly booted home screen before test suite",
     )
 )
 
 # 2. Wait for the Long-Running Operation to finish
-if not op.done:
+while not op.done:
     op = ops_stub.WaitOperation(
         operations_pb2.WaitOperationRequest(name=op.name)
     )
@@ -526,7 +538,7 @@ if op.HasField("error"):
 # 3. Unpack the strongly-typed Snapshot result
 snapshot = hypervisor_service_pb2.Snapshot()
 op.response.Unpack(snapshot)
-print(f"Saved snapshot {snapshot.snapshot_id} ({snapshot.disk_size_bytes} bytes)")
+print(f"Saved snapshot {snapshot.snapshot_id} ({snapshot.size_bytes} bytes)")
 ```
 
 ---

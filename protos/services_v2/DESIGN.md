@@ -42,28 +42,28 @@ The governing rule that falls out of this:
 > **simulates fake hardware state** is emulator-only.
 
 Three consequences recur throughout this document: capability messages are
-authoritative and clients must not branch on device kind (§2.9); `RtcService` is
+authoritative and clients must not branch on device kind (§2.6); `RtcService` is
 the default media path because encoded video is the only thing that fits a
-remote link (§2.8); and `DeviceMetadata.device_kind` exists for presentation
-rather than dispatch (§2.9).
+remote link (`webrtc_service.proto`); and `DeviceMetadata.device_kind` exists
+for presentation rather than dispatch (§2.6).
 
 ### 1.2 Implementation Status & Master Service Reference (12 Domain Services + `common.proto`)
 
 | Service | `-proto` Path (relative to `services_v2/`) | Full gRPC Service Name | Server Status | Notes |
 | :--- | :--- | :--- | :--- | :--- |
 | `CapabilitiesService` | `capabilities_service.proto` | `android.emulation.v2.CapabilitiesService` | **Served** | Registered unconditionally (`GetDeviceCapabilities`, `StreamDeviceCapabilities`). |
-| `HypervisorService` | `hypervisor_service.proto` | `android.emulation.v2.HypervisorService` | **Served (Snapshots)** | VM lifecycle (`PauseVm`, `ResumeVm`, `ResetVm`, `HardResetVm`, `StopVm`) + snapshot CRUD & LROs (`CreateSnapshot`, `RestoreSnapshot`, `UpdateSnapshot`, `DeleteSnapshot`, `SetQuickbootTarget`, `ExportSnapshot`, `ImportSnapshot`). |
-| `Operations` | `google/longrunning/operations.proto` | `google.longrunning.Operations` | **Served** | Registered alongside `HypervisorService` snapshot LROs. |
-| `RtcService` | `webrtc_service.proto` | `android.emulation.v2.RtcService` | **Served** | WebRTC session lifecycle (`RequestRtcStream`, `UpdateRtcStream`, `CloseRtcStream`) and strongly-typed JSEP SDP/ICE signaling. |
+| `HypervisorService` | `hypervisor_service.proto` | `android.emulation.v2.HypervisorService` | **Served** | VM lifecycle (`GetVmState`, `StreamVmState`, `PauseVm`, `ResumeVm`, `ResetVm`, `HardResetVm`, `StopVm`) + local snapshot CRUD & LROs (`ListSnapshots`, `GetSnapshot`, `CreateSnapshot`, `RestoreSnapshot`, `UpdateSnapshot`, `DeleteSnapshot`, `SetQuickbootTarget`); cloud archive LROs (`ExportSnapshot`, `ImportSnapshot`) return `FAILED_PRECONDITION`. |
+| `Operations` | `google/longrunning/operations.proto` | `google.longrunning.Operations` | **Served** | Registered alongside `HypervisorService` snapshot LROs (`ListOperations`, `GetOperation`, `DeleteOperation`, `CancelOperation`, `WaitOperation`). |
+| `RtcService` | `webrtc_service.proto` | `android.emulation.v2.RtcService` | **Served** | WebRTC session lifecycle (`RequestRtcStream`, `UpdateRtcStream`, `CloseRtcStream`) and strongly-typed JSEP SDP/ICE signaling (`SendJsepMessage`, `ReceiveJsepMessageStream`); track renegotiation is client-driven (`UpdateRtcStream` returns `UNIMPLEMENTED` on non-empty track deltas). |
 | `InputService` | `input_service.proto` | `android.emulation.v2.InputService` | **Served** | Registered unconditionally (`SendInputEvents`, `StreamInputEvents`, `StreamInputActivity`) backed by `InputDispatcher` in `plugin/grpc/input`. |
-| `DisplayService` | `display_service.proto` | `android.emulation.v2.DisplayService` | Schema only (`UNIMPLEMENTED`) | Multi-display lifecycle (`ListDisplays`, `GetDisplay`, `StreamDisplays`, `UpdateDisplay`, `CreateDisplay`, `DeleteDisplay`) and screenshots (`GetScreenshot`, `StreamScreenshots`). |
+| `DisplayService` | `display_service.proto` | `android.emulation.v2.DisplayService` | **Served** | Multi-display lifecycle (`ListDisplays`, `GetDisplay`, `StreamDisplays`, `UpdateDisplay`, `CreateDisplay`, `DeleteDisplay`) and screenshots (`GetScreenshot`, `StreamScreenshots`). |
 | `AudioService` | `audio_service.proto` | `android.emulation.v2.AudioService` | **Served** | Virtual microphone mixer and wired headset jack state (`Get/Stream/UpdateAudioState`), raw PCM speaker capture (`StreamSpeakerAudio`), unary clip injection (`InjectAudioClip`), and streaming mic injection (`StreamMicrophoneAudio`). |
-| `BatteryService` | `battery_service.proto` | `android.emulation.v2.BatteryService` | Schema only (`UNIMPLEMENTED`) | Charge level, charger source, and thermal health (`GetBatteryState`, `StreamBatteryState`, `UpdateBatteryState`). |
+| `BatteryService` | `battery_service.proto` | `android.emulation.v2.BatteryService` | **Served** | Charge level, charger source, and thermal health (`GetBatteryState`, `StreamBatteryState`, `UpdateBatteryState`). |
 | `CameraService` | `camera_service.proto` | `android.emulation.v2.CameraService` | Schema only (`UNIMPLEMENTED`) | Camera sensor state observation (`GetCameraState`, `StreamCameraState`) and 2D still/video frame injection (`InjectFrame`, `StreamCameraFrames`, `ResetCamera`). |
-| `LocationService` | `location_service.proto` | `android.emulation.v2.LocationService` | Schema only (`UNIMPLEMENTED`) | WGS84 GNSS fixes (`GetLocationState`, `StreamLocationState`, `UpdateLocationState`) and server-paced route playback (`PlayRoute`). |
-| `SensorsService` | `sensors_service.proto` | `android.emulation.v2.SensorsService` | Schema only (`UNIMPLEMENTED`) | 3D rigid-body pose (`DevicePose`), ambient environment (`AmbientEnvironment`), live synthesized IMU telemetry (`ImuTelemetry`), raw HAL overrides (`RawSensorOverrides`), and multi-hinge/rollable posture (`Get/Update/StreamPostureState`). |
+| `LocationService` | `location_service.proto` | `android.emulation.v2.LocationService` | **Served** | WGS84 GNSS fixes (`GetLocationState`, `StreamLocationState`, `UpdateLocationState`) and server-paced route playback (`PlayRoute`). |
+| `SensorsService` | `sensors_service.proto` | `android.emulation.v2.SensorsService` | **Served** | 3D rigid-body pose (`DevicePose`), ambient environment (`AmbientEnvironment`), live synthesized IMU telemetry (`ImuTelemetry`), raw HAL overrides (`RawSensorOverrides`) (`Get/Stream/UpdateSensorsState`, `StreamSensorsUpdates`), and multi-hinge/rollable posture (`Get/Stream/UpdatePostureState`). |
 | `TelephonyService` | `telephony_service.proto` | `android.emulation.v2.TelephonyService` | Schema only (`UNIMPLEMENTED`) | Cellular RAT, signal bars, active calls, SMS, and voice call transitions (`Get/Stream/UpdateTelephonyState`, `SendSms`, `TransitionCall`). |
-| `SystemService` | `system_service.proto` | `android.emulation.v2.SystemService` | Schema only (`UNIMPLEMENTED`) | Boot lifecycle, ADB connection, keyguard, reboot (`RebootDevice`), clipboard (`Get/Update/StreamClipboardState`), and `InjectFingerprint`. |
+| `SystemService` | `system_service.proto` | `android.emulation.v2.SystemService` | **Served** | Boot lifecycle, ADB connection, and keyguard (`Get/StreamSystemState`), reboot (`RebootDevice`), clipboard (`Get/Stream/UpdateClipboardState`), and `InjectFingerprint`. |
 
 ### 1.3 Physical-Device-over-ADB Discovery & Transport Architecture
 
@@ -100,10 +100,11 @@ Because communication rides over the ADB transport:
 
 ### 2.1 Authoritative Partial Updates via Flat `proto3 optional` Request Fields
 
-All state-mutating RPCs (`UpdateBatteryState`, `UpdateDisplay`,
-`UpdateLocationState`, `UpdatePostureState`, `UpdateSensorsState`,
-`UpdateTelephonyState`, `UpdateClipboardState`) take a flat `Update*Request`
-whose mutable fields are marked `optional`.
+Partial state-mutating RPCs (`UpdateAudioState`, `UpdateBatteryState`,
+`UpdateDisplay`, `UpdateLocationState`, `UpdatePostureState`,
+`UpdateSensorsState`, `UpdateSnapshot`, `UpdateTelephonyState`) take a flat
+`Update*Request` whose mutable fields are marked `optional` (whereas
+`UpdateClipboardState` replaces or clears the clipboard payload as a whole).
 
 - **Native Wire Presence (`has_*()`):** Setting an `optional` field to its zero
   value (e.g., `level_percent = 0`, `satellite_count = 0`, `radio_powered = false`)
@@ -151,7 +152,7 @@ whose mutable fields are marked `optional`.
 ### 2.4 Display Orientation Divergence Model (`rotation` vs. `user_rotation`)
 
 - `Display.user_rotation` (mutable): Physical orientation of the device chassis
-  set by the user in the host UI (`ROTATION_DEG0`, `DEG90`, `DEG180`, `DEG270`).
+  set by the user in the host UI (`ROTATION_DEG0`, `ROTATION_DEG90`, `ROTATION_DEG180`, `ROTATION_DEG270`).
 - `Display.rotation` (`OUTPUT_ONLY`): Logical orientation reported by Android
   `WindowManager` (`DisplayInfo.rotation`) reflecting the rendered video stream.
 
@@ -172,10 +173,13 @@ observe-act automation loops.
 
 ### 2.6 Capability Model: 12 Top-Level Capabilities Matching 12 Services
 
-`DeviceCapabilities` mirrors the 12 domain services with nested sub-capabilities:
+`DeviceCapabilities` exposes 12 top-level `optional` capability blocks across
+the controllable domain services (`HypervisorService` splits into
+`VmCapabilities vm = 10` and `SnapshotCapabilities snapshot = 11` so
+snapshot-disabled VMs can still advertise `vm`), with nested sub-capabilities:
 - `DisplayCapabilities` embeds `ScreenCaptureCapabilities screen_capture = 6`.
-- `SystemCapabilities` embeds `BiometricsCapabilities biometrics = 4` and
-  `ClipboardCapabilities clipboard = 5`.
+- `SystemCapabilities` embeds `ClipboardCapabilities clipboard = 4` and
+  `BiometricsCapabilities biometrics = 5`.
 - `SensorsCapabilities` embeds `PostureCapabilities posture = 4` (including
   multi-hinge `HingeHardware` and rollable `RollableHardware` descriptors).
 
