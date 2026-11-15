@@ -411,6 +411,11 @@ fn push_section_banner(buf: &mut Vec<String>, title: &str, color: &str, width: u
     ));
 }
 
+/// Host GPU load when no source reports one. The hint is shown on Linux only,
+/// as in the Python monitor.
+const HOST_GPU_LOAD_UNAVAILABLE: &str =
+    if cfg!(target_os = "linux") { "N/A (Requires sudo or nvidia-smi)" } else { "N/A" };
+
 fn render_host_system_rows(
     buf: &mut Vec<String>,
     host_stats: &HostStats,
@@ -451,7 +456,7 @@ fn render_host_system_rows(
     let gpu_str = host_stats
         .gpu_percent
         .map(|g| format!("{g:.1}%"))
-        .unwrap_or_else(|| "N/A (Requires sudo or nvidia-smi)".to_string());
+        .unwrap_or_else(|| HOST_GPU_LOAD_UNAVAILABLE.to_string());
     push_metric_row(buf, "Host GPU Load", &gpu_str, host_stats.gpu_percent.unwrap_or(0.0), width);
 
     let gpu_mem_str =
@@ -555,13 +560,18 @@ fn render_host_netsim_rows(
     }
 }
 
+/// The OS name to display. Darwin reads `macOS`, as in the Python monitor.
+pub(crate) fn display_os_name(name: &str) -> &str {
+    if name == "Darwin" { "macOS" } else { name }
+}
+
 fn render_host_section(buf: &mut Vec<String>, input: &mut DashboardInput<'_>, width: usize) {
     let host_stats = input.host_stats;
     let prev_stats = &mut *input.prev_stats;
     let netsim_snapshot = input.netsim_snapshot;
     let section_title = format!(
         " HOST SYSTEM ({})",
-        sysinfo::System::name().unwrap_or_else(|| "Unknown OS".to_string())
+        sysinfo::System::name().as_deref().map_or("Unknown OS", display_os_name)
     );
     push_section_banner(buf, &section_title, Colors::YELLOW, width);
     render_host_system_rows(buf, host_stats, prev_stats, input.host_timed_out, width);
