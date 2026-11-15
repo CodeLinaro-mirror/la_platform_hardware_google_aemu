@@ -35,7 +35,8 @@ import math
 import stat
 import traceback
 from collections import deque, namedtuple
-from typing import Any, Dict, Iterable, Mapping, NamedTuple, Optional, Set, Tuple
+from typing import (Any, Dict, Iterable, List, Mapping, NamedTuple, Optional,
+                    Set, Tuple)
 
 missing_deps = []
 
@@ -207,12 +208,11 @@ def get_static_hardware_info():
     elif platform.system() == "Darwin":
         try:
             # Overrides generic 'i386' readouts on M1/M2/M3 Apple Silicon Macs running x86_64 architecture translation Python bindings
-            out = subprocess.check_output(
-                ['sysctl', '-n', 'machdep.cpu.brand_string'],
-                stderr=subprocess.DEVNULL,
-                timeout=2)
-            if out:
-                cpu_str = out.decode().strip()
+            out = run_cmd(['sysctl', '-n', 'machdep.cpu.brand_string'],
+                          timeout=2,
+                          stderr_devnull=True)
+            if out and out.strip():
+                cpu_str = out.strip()
         except Exception:
             pass
     elif platform.system() == "Linux":
@@ -247,6 +247,18 @@ def get_static_hardware_info():
     except Exception:
         pass
 
+    if gpu_str == "N/A" and platform.system() == "Darwin":
+        try:
+            out = run_cmd(
+                ['ioreg', '-r', '-d', '1', '-w', '0', '-c', 'IOAccelerator'],
+                timeout=2,
+                stderr_devnull=True)
+            models = _parse_mac_ioreg_gpu_models(out)
+            if models:
+                gpu_str = ", ".join(models)
+        except Exception:
+            pass
+
     return f"{os_str} | {cpu_str} | {ram_str} RAM | GPU: {gpu_str}"
 
 
@@ -269,10 +281,157 @@ def get_devices():
 
 
 _WIN_GPU_CACHE = {"time": 0, "val": "N/A", "fetching": False, "failed": False}
-_MAC_GPU_CACHE = {"time": 0, "val": "N/A", "fetching": False, "failed": False}
+_MAC_GPU_CACHE = {
+    "time": 0,
+    "val": "N/A",
+    "mem": "N/A",
+    "fetching": False,
+    "failed": False,
+}
 _LINUX_INTEL_GPU_FAILED = False
 _NVIDIA_SMI_FAILED = False
 _NVIDIA_PMON_FAILED = False
+
+_RE_IOREG_UTIL = re.compile(
+    r'"(?:Device|Renderer|Tiler) Utilization %"\s*=\s*(\d+(?:\.\d+)?)')
+_RE_IOREG_MEM_IN_USE = re.compile(r'"In use system memory"\s*=\s*(\d+)')
+_RE_IOREG_MEM_ALLOC = re.compile(r'"Alloc system memory"\s*=\s*(\d+)')
+_RE_IOREG_MODEL = re.compile(r'"model"\s*=\s*(?:<"([^"]+)">|"([^"]+)")')
+_RE_IOREG_CORES = re.compile(r'"gpu-core-count"\s*=\s*(\d+)')
+
+
+def _parse_mac_ioreg_gpu(
+        out: Optional[str]) -> Tuple[Optional[float], Optional[float]]:
+    """Parses IOAccelerator PerformanceStatistics into (load_pct, mem_mb).
+
+    Args:
+        out: Raw stdout from `ioreg -r -d 1 -w 0 -c IOAccelerator`, or None.
+
+    Returns:
+        Tuple of `(max_util_pct, total_mem_mb)` where either element is None
+        when absent or unparseable in `out`.
+    """
+    if not out:
+        return None, None
+    max_util = None
+    total_mem_bytes = 0
+    found_mem = False
+    for segment in out.split('"PerformanceStatistics"')[1:]:
+        open_idx = segment.find('{')
+        if open_idx < 0:
+            continue
+        block = segment[open_idx + 1:].split('}', 1)[0]
+        for m in _RE_IOREG_UTIL.finditer(block):
+            try:
+                val = max(0.0, min(100.0, float(m.group(1))))
+                max_util = val if max_util is None else max(max_util, val)
+            except ValueError:
+                pass
+        m_mem = (_RE_IOREG_MEM_IN_USE.search(block) or
+                 _RE_IOREG_MEM_ALLOC.search(block))
+        if m_mem:
+            try:
+                total_mem_bytes += int(m_mem.group(1))
+                found_mem = True
+            except ValueError:
+                pass
+    mem_mb = (total_mem_bytes / (1024.0 * 1024.0)) if found_mem else None
+    return max_util, mem_mb
+
+
+def _format_mac_gpu_label(model: Optional[str],
+                          cores: Optional[int]) -> Optional[str]:
+    """Formats a single IOAccelerator model + optional core count label.
+
+    Args:
+        model: Parsed GPU model name, or None.
+        cores: Parsed GPU core count, or None.
+
+    Returns:
+        Formatted label like `'Apple M4 Pro (20-core)'`, or None if `model` is
+        empty or None.
+    """
+    if not model:
+        return None
+    if cores and cores > 0:
+        return f"{model} ({cores}-core)"
+    return model
+
+
+def _parse_mac_ioreg_gpu_models(out: Optional[str]) -> List[str]:
+    """Parses IOAccelerator registry entries into deduplicated GPU labels.
+
+    Args:
+        out: Raw stdout from `ioreg -r -d 1 -w 0 -c IOAccelerator`, or None.
+
+    Returns:
+        Deduplicated list of formatted GPU model strings (empty if `out` is
+        None or contains no matching entries).
+    """
+    if not out:
+        return []
+    models = []
+    cur_model = None
+    cur_cores = None
+
+    for line in out.splitlines():
+        if '+-o ' in line:
+            label = _format_mac_gpu_label(cur_model, cur_cores)
+            if label and label not in models:
+                models.append(label)
+            cur_model = None
+            cur_cores = None
+        if cur_model is None:
+            if m_mod := _RE_IOREG_MODEL.search(line):
+                val = (m_mod.group(1) or m_mod.group(2) or '').strip()
+                if val:
+                    cur_model = val
+        if cur_cores is None:
+            if m_cores := _RE_IOREG_CORES.search(line):
+                try:
+                    c_val = int(m_cores.group(1))
+                    if c_val > 0:
+                        cur_cores = c_val
+                except ValueError:
+                    pass
+    label = _format_mac_gpu_label(cur_model, cur_cores)
+    if label and label not in models:
+        models.append(label)
+    return models
+
+
+def update_mac_gpu() -> None:
+    """Refreshes cached macOS GPU load and memory from ioreg or powermetrics."""
+    try:
+        out = run_cmd(
+            ['ioreg', '-r', '-d', '1', '-w', '0', '-c', 'IOAccelerator'],
+            timeout=2,
+            stderr_devnull=True)
+        load, mem = _parse_mac_ioreg_gpu(out)
+        if load is not None or mem is not None:
+            _MAC_GPU_CACHE["val"] = (f"{load:.1f}%"
+                                     if load is not None else "N/A")
+            _MAC_GPU_CACHE["mem"] = (f"{mem:.1f}MB"
+                                     if mem is not None else "N/A")
+            return
+        out = run_cmd(
+            ['powermetrics', '-i', '500', '-n', '1', '--samplers', 'gpu_power'],
+            timeout=2,
+            stderr_devnull=True)
+        if out and (m := re.search(r'GPU (?:HW )?active residency:\s+([\d.]+)%',
+                                   out)):
+            _MAC_GPU_CACHE["val"] = f"{m.group(1)}%"
+            _MAC_GPU_CACHE["mem"] = "N/A"
+        else:
+            _MAC_GPU_CACHE["val"] = "N/A"
+            _MAC_GPU_CACHE["mem"] = "N/A"
+            _MAC_GPU_CACHE["failed"] = True
+    except Exception:
+        _MAC_GPU_CACHE["val"] = "N/A"
+        _MAC_GPU_CACHE["mem"] = "N/A"
+        _MAC_GPU_CACHE["failed"] = True
+    finally:
+        _MAC_GPU_CACHE["fetching"] = False
 
 
 def update_win_gpu():
@@ -374,30 +533,15 @@ def get_gpu_stats():
         if (not _MAC_GPU_CACHE.get("failed") and
                 time.monotonic() - _MAC_GPU_CACHE["time"] > 10 and
                 not _MAC_GPU_CACHE["fetching"]):
-
-            def fetch_mac_gpu():
-                try:
-                    out = run_cmd([
-                        'powermetrics', '-i', '500', '-n', '1', '--samplers',
-                        'gpu_power'
-                    ],
-                                  timeout=2,
-                                  stderr_devnull=True)
-                    if out and (m := re.search(
-                            r'GPU (?:HW )?active residency:\s+([\d.]+)%', out)):
-                        _MAC_GPU_CACHE["val"] = f"{m.group(1)}%"
-                    else:
-                        _MAC_GPU_CACHE["failed"] = True
-                except Exception:
-                    _MAC_GPU_CACHE["failed"] = True
-                finally:
-                    _MAC_GPU_CACHE["fetching"] = False
-
+            was_initial = (_MAC_GPU_CACHE["time"] == 0)
             _MAC_GPU_CACHE["fetching"] = True
             _MAC_GPU_CACHE["time"] = time.monotonic()
-            threading.Thread(target=fetch_mac_gpu, daemon=True).start()
+            t = threading.Thread(target=update_mac_gpu, daemon=True)
+            t.start()
+            if was_initial:
+                t.join(timeout=0.1)
 
-        return _MAC_GPU_CACHE["val"], "N/A"
+        return _MAC_GPU_CACHE["val"], _MAC_GPU_CACHE.get("mem", "N/A")
 
     return "N/A", "N/A"
 
@@ -1975,6 +2119,45 @@ def read_disk_io(os_name):
     return psutil.disk_io_counters()
 
 
+_MIN_VALID_CPU_FREQ_MHZ = 100
+_RE_VM_STAT_PAGE_SIZE = re.compile(r'page size of (\d{1,12}) bytes')
+_RE_VM_STAT_COUNTER = re.compile(r'^([^:]+):\s*(\d{1,20})\.?$')
+
+
+def _parse_mac_vm_stat_used_bytes(out: Optional[str]) -> Optional[int]:
+    """Computes macOS Activity Monitor 'Memory Used' bytes from `vm_stat`.
+
+    Matches Rust `sysinfo` (`HOST_VM_INFO64`): `(Anonymous pages - Pages
+    purgeable) + Pages wired down + Pages occupied by compressor`, scaled by
+    the header page size.
+
+    Args:
+        out: Raw stdout from `vm_stat`, or None.
+
+    Returns:
+        Used memory in bytes, or None when required fields are absent.
+    """
+    if not out:
+        return None
+    m_page = _RE_VM_STAT_PAGE_SIZE.search(out)
+    if not m_page:
+        return None
+    page_size = int(m_page.group(1))
+    if page_size <= 0:
+        return None
+    counts: Dict[str, int] = {}
+    for line in out.splitlines():
+        if m := _RE_VM_STAT_COUNTER.match(line.strip()):
+            counts[m.group(1).strip()] = int(m.group(2))
+    if 'Anonymous pages' not in counts or 'Pages wired down' not in counts:
+        return None
+    app_pages = max(
+        0, counts['Anonymous pages'] - counts.get('Pages purgeable', 0))
+    used_pages = (app_pages + counts['Pages wired down'] +
+                  counts.get('Pages occupied by compressor', 0))
+    return used_pages * page_size
+
+
 def get_host_stats():
     global _LAST_DISK_IO, _LAST_DISK_TIME, _LAST_PAGING_SAMPLE_TIME
     os_name = platform.system()
@@ -1991,7 +2174,14 @@ def get_host_stats():
 
     pgin, pgout = 0, 0
     if os_name == "Darwin":
-        for line in run_cmd(['vm_stat'], timeout=2).splitlines():
+        vm_stat_out = run_cmd(['vm_stat'], timeout=2)
+        mac_used = _parse_mac_vm_stat_used_bytes(vm_stat_out)
+        if mac_used is not None and mem.total > 0:
+            mac_pct = (mac_used / mem.total) * 100.0
+            host_ram = (f"{mac_pct:.1f}% "
+                        f"({mac_used / (1024**3):.1f}GB/"
+                        f"{mem.total / (1024**3):.1f}GB)")
+        for line in vm_stat_out.splitlines():
             if ("Pages paged in:" in line or
                     "Pageins:" in line) and (m := RE_FLOAT.search(line)):
                 pgin = int(float(m.group(1)))
@@ -2054,8 +2244,9 @@ def get_host_stats():
                 status = "Plugged" if batt.power_plugged else "Discharging"
                 try:
                     freq = psutil.cpu_freq()
-                    freq_str = f"@{int(freq.current)}MHz" if freq and hasattr(
-                        freq, 'current') and freq.current else ""
+                    freq_str = (f"@{int(freq.current)}MHz" if freq and
+                                hasattr(freq, 'current') and freq.current and
+                                freq.current >= _MIN_VALID_CPU_FREQ_MHZ else "")
                 except Exception:
                     freq_str = ""
                 batt_str = f"{batt.percent:.1f}% ({status}) {freq_str}".strip()
@@ -6308,6 +6499,12 @@ def _build_summary_lines(summary_data, end_time, ts_data):
             with open('/proc/cpuinfo', 'r') as f:
                 if 'hypervisor' in f.read():
                     is_vm = True
+        elif platform.system() == "Darwin":
+            out = run_cmd(['sysctl', '-n', 'kern.hv_vmm_present'],
+                          timeout=2,
+                          stderr_devnull=True)
+            if out and out.strip() == '1':
+                is_vm = True
     except Exception:
         pass
 

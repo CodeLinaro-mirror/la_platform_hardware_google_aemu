@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import emulator_resource_monitor as erm
 from emulator_resource_monitor import parse_cmdline
 import test_support
 from test_support import _guest_model, _touch, _try_symlink, _write_ini
@@ -53,6 +54,19 @@ def _fake_proc(name,
     proc.net_connections.return_value = conns or []
     proc.environ.return_value = {}
     return proc
+
+
+class _SyncThread:
+    """threading.Thread stand-in that runs `target` inside start()."""
+
+    def __init__(self, target, daemon=None):
+        self.target = target
+
+    def start(self):
+        self.target()
+
+    def join(self, timeout=None):
+        pass
 
 
 class TestHostProcessesAndMetrics(test_support.MonitorTestCase):
@@ -497,7 +511,7 @@ class TestHostProcessesAndMetrics(test_support.MonitorTestCase):
         self.assertEqual(qemu_avds.get('emulator-5554'), 'resource_monitor_avd')
 
     @patch('psutil.disk_io_counters')
-    @patch('psutil.sensors_temperatures')
+    @patch('psutil.sensors_temperatures', create=True)
     @patch('psutil.virtual_memory')
     @patch('psutil.swap_memory')
     @patch('emulator_resource_monitor.host_cpu_percent')
@@ -539,7 +553,7 @@ class TestHostProcessesAndMetrics(test_support.MonitorTestCase):
                     patch('emulator_resource_monitor.get_gpu_stats', return_value=('N/A', 'N/A')), \
                     patch('emulator_resource_monitor.get_emu_gpu_stats', return_value={}), \
                     patch('emulator_resource_monitor.read_disk_io', return_value=erm.DiskIo(0, 0)), \
-                    patch('psutil.sensors_temperatures', return_value={'acpitz': [MagicMock(current=0.0), MagicMock(current=-5.0)]}), \
+                    patch('psutil.sensors_temperatures', create=True, return_value={'acpitz': [MagicMock(current=0.0), MagicMock(current=-5.0)]}), \
                     patch('glob.glob', side_effect=lambda pat: [z0, z1] if 'thermal_zone' in pat else []):
                 res = erm.get_host_stats()
                 self.assertEqual(res[13], 'N/A')
@@ -770,7 +784,7 @@ class TestHostProcessesAndMetrics(test_support.MonitorTestCase):
 
     @patch('emulator_resource_monitor.get_process_stats')
     @patch('psutil.disk_io_counters')
-    @patch('psutil.sensors_temperatures')
+    @patch('psutil.sensors_temperatures', create=True)
     @patch('psutil.virtual_memory')
     @patch('psutil.swap_memory')
     @patch('emulator_resource_monitor.host_cpu_percent')
@@ -1281,22 +1295,20 @@ class TestHostProcessGroupsGpuAndPaging(
             erm._WIN_GPU_CACHE.update(saved_win)
 
     def test_host_and_summary_cli_bounds_and_autosave_skip(self):
-        import subprocess
         import emulator_resource_monitor as erm
-        real_check_output = subprocess.check_output
         sysctl_timeouts = []
 
-        def fake_check_output(cmd, *args, **kwargs):
+        def fake_run_cmd(cmd, *args, **kwargs):
             if cmd and cmd[0] == 'sysctl':
                 sysctl_timeouts.append(kwargs.get('timeout'))
-                return b'Apple M3 Max\n'
-            return real_check_output(cmd, *args, **kwargs)
+                return 'Apple M3 Max\n'
+            return ''
 
         with patch('platform.system', return_value='Darwin'), \
                 patch('platform.processor', return_value='i386'), \
-                patch('subprocess.check_output', side_effect=fake_check_output), \
                 patch('emulator_resource_monitor.HAS_GPUTIL', False), \
-                patch('emulator_resource_monitor.run_cmd', return_value=''):
+                patch('emulator_resource_monitor.run_cmd',
+                      side_effect=fake_run_cmd):
             hw = erm.get_static_hardware_info()
             self.assertIn('Apple M3 Max', hw)
             self.assertEqual(sysctl_timeouts, [2])
@@ -1306,21 +1318,14 @@ class TestHostProcessGroupsGpuAndPaging(
             erm._MAC_GPU_CACHE.update({
                 'time': 0,
                 'val': 'N/A',
+                'mem': 'N/A',
                 'fetching': False,
                 'failed': False,
             })
 
-            class _SyncThread:
-
-                def __init__(self, target, daemon=True):
-                    self.target = target
-
-                def start(self):
-                    self.target()
-
             with patch('platform.system', return_value='Darwin'), \
                     patch('emulator_resource_monitor.HAS_GPUTIL', False), \
-                    patch('threading.Thread', side_effect=lambda target, daemon=True: _SyncThread(target, daemon)), \
+                    patch('threading.Thread', side_effect=_SyncThread), \
                     patch('emulator_resource_monitor.run_cmd', return_value='') as mock_run:
                 self.assertEqual(erm.get_gpu_stats(), ('N/A', 'N/A'))
                 self.assertTrue(erm._MAC_GPU_CACHE.get('failed'))
@@ -1453,6 +1458,397 @@ class TestHostProcessGroupsGpuAndPaging(
         with patch('psutil.process_iter', side_effect=fake_iter):
             erm.get_process_stats()
         self.assertIn('ppid', requested_attrs)
+
+    def test_parse_mac_ioreg_gpu_and_models(self):
+        idle_ioreg = ('+-o AGXAcceleratorG16S  <class AGXAcceleratorG16S>\n'
+                      '  {\n'
+                      '    "model" = "Apple M4 Pro"\n'
+                      '    "gpu-core-count" = 20\n'
+                      '    "PerformanceStatistics" = {"Device Utilization %"=0,'
+                      '"Renderer Utilization %"=0,"Tiler Utilization %"=0,'
+                      '"In use system memory"=436862976,'
+                      '"In use system memory (driver)"=999999999,'
+                      '"Alloc system memory"=800000000}\n'
+                      '  }\n')
+        pct, mem = erm._parse_mac_ioreg_gpu(idle_ioreg)
+        self.assertEqual(pct, 0.0)
+        self.assertAlmostEqual(mem, 436862976 / (1024.0 * 1024.0), places=4)
+        self.assertEqual(erm._parse_mac_ioreg_gpu_models(idle_ioreg),
+                         ['Apple M4 Pro (20-core)'])
+
+        multi_ioreg = (
+            '+-o Accel0\n'
+            '  {\n'
+            '    "model" = "Apple M4 Pro"\n'
+            '    "gpu-core-count" = 20\n'
+            '    "PerformanceStatistics" = {"Device Utilization %"=10,'
+            '"Renderer Utilization %"=80,"In use system memory"=104857600}\n'
+            '  }\n'
+            '+-o AccelDuplicate\n'
+            '  {\n'
+            '    "model" = "Apple M4 Pro"\n'
+            '    "gpu-core-count" = 20\n'
+            '  }\n'
+            '+-o LegacyGpu\n'
+            '  {\n'
+            '    "model" = <"Apple M3 Max">\n'
+            '    "PerformanceStatistics" = {\n'
+            '      "Tiler Utilization %" = 25,\n'
+            '      "Alloc system memory" = 52428800,\n'
+            '      "In use system memory (driver)" = 999999999\n'
+            '    }\n'
+            '  }\n'
+            '+-o OrphanCoresOnly\n'
+            '  {\n'
+            '    "gpu-core-count" = 38\n'
+            '  }\n')
+        m_pct, m_mem = erm._parse_mac_ioreg_gpu(multi_ioreg)
+        self.assertEqual(m_pct, 80.0)
+        self.assertAlmostEqual(m_mem, 150.0, places=4)
+        self.assertEqual(erm._parse_mac_ioreg_gpu_models(multi_ioreg),
+                         ['Apple M4 Pro (20-core)', 'Apple M3 Max'])
+        self.assertEqual(erm._parse_mac_ioreg_gpu(None), (None, None))
+        self.assertEqual(erm._parse_mac_ioreg_gpu('malformed'), (None, None))
+        self.assertEqual(erm._parse_mac_ioreg_gpu_models(''), [])
+
+    def test_get_gpu_stats_darwin_ioreg_zero_load_and_powermetrics_fallback(
+            self):
+        idle_ioreg = ('+-o AGXAcceleratorG16S  <class AGXAcceleratorG16S>\n'
+                      '  {\n'
+                      '    "model" = "Apple M4 Pro"\n'
+                      '    "gpu-core-count" = 20\n'
+                      '    "PerformanceStatistics" = {"Device Utilization %"=0,'
+                      '"In use system memory"=436862976}\n'
+                      '  }\n')
+
+        saved_mac = dict(erm._MAC_GPU_CACHE)
+        self.addCleanup(lambda: (erm._MAC_GPU_CACHE.clear(),
+                                 erm._MAC_GPU_CACHE.update(saved_mac)))
+        erm._MAC_GPU_CACHE.update({
+            'time': 0,
+            'val': 'N/A',
+            'mem': 'N/A',
+            'fetching': False,
+            'failed': False,
+        })
+        now_t = [100.0]
+
+        def run_idle_ioreg(cmd, **_kwargs):
+            return idle_ioreg if cmd and cmd[0] == 'ioreg' else ''
+
+        with patch('platform.system', return_value='Darwin'), \
+                patch('emulator_resource_monitor.HAS_GPUTIL', False), \
+                patch('time.monotonic', side_effect=lambda: now_t[0]), \
+                patch('threading.Thread', side_effect=_SyncThread), \
+                patch('emulator_resource_monitor.run_cmd',
+                      side_effect=run_idle_ioreg) as mock_run:
+            self.assertEqual(erm.get_gpu_stats(), ('0.0%', '416.6MB'))
+            self.assertFalse(erm._MAC_GPU_CACHE['failed'])
+            pm_calls = sum(1 for c in mock_run.call_args_list
+                           if c.args and c.args[0][0] == 'powermetrics')
+            self.assertEqual(pm_calls, 0)
+
+        # Falling back to powermetrics after an ioreg sample resets mem to N/A.
+        now_t[0] += 11.0
+
+        def run_pm_fallback(cmd, **_kwargs):
+            if cmd and cmd[0] == 'powermetrics':
+                return 'GPU HW active residency:  27.50% (100 MHz)\n'
+            return ''
+
+        with patch('platform.system', return_value='Darwin'), \
+                patch('emulator_resource_monitor.HAS_GPUTIL', False), \
+                patch('time.monotonic', side_effect=lambda: now_t[0]), \
+                patch('threading.Thread', side_effect=_SyncThread), \
+                patch('emulator_resource_monitor.run_cmd',
+                      side_effect=run_pm_fallback):
+            self.assertEqual(erm.get_gpu_stats(), ('27.50%', 'N/A'))
+            self.assertFalse(erm._MAC_GPU_CACHE['failed'])
+
+        # Failure after a valid sample clears cached values to ('N/A', 'N/A').
+        now_t[0] += 11.0
+        with patch('platform.system', return_value='Darwin'), \
+                patch('emulator_resource_monitor.HAS_GPUTIL', False), \
+                patch('time.monotonic', side_effect=lambda: now_t[0]), \
+                patch('threading.Thread', side_effect=_SyncThread), \
+                patch('emulator_resource_monitor.run_cmd', return_value=''):
+            self.assertEqual(erm.get_gpu_stats(), ('N/A', 'N/A'))
+            self.assertTrue(erm._MAC_GPU_CACHE['failed'])
+
+        # Exception during refresh after a valid sample also resets to N/A.
+        erm._MAC_GPU_CACHE.update({
+            'time': now_t[0],
+            'val': '50.0%',
+            'mem': '512.0MB',
+            'fetching': False,
+            'failed': False,
+        })
+        now_t[0] += 11.0
+        with patch('platform.system', return_value='Darwin'), \
+                patch('emulator_resource_monitor.HAS_GPUTIL', False), \
+                patch('time.monotonic', side_effect=lambda: now_t[0]), \
+                patch('threading.Thread', side_effect=_SyncThread), \
+                patch('emulator_resource_monitor.run_cmd',
+                      side_effect=RuntimeError('ioreg crashed')):
+            self.assertEqual(erm.get_gpu_stats(), ('N/A', 'N/A'))
+            self.assertTrue(erm._MAC_GPU_CACHE['failed'])
+
+    def test_get_static_hardware_info_darwin_gpu_models(self):
+        idle_ioreg = ('+-o AGXAcceleratorG16S  <class AGXAcceleratorG16S>\n'
+                      '  {\n'
+                      '    "model" = "Apple M4 Pro"\n'
+                      '    "gpu-core-count" = 20\n'
+                      '  }\n')
+
+        def run_static_hw(cmd, **_kwargs):
+            if cmd and cmd[0] == 'sysctl':
+                return 'Apple M4 Pro\n'
+            if cmd and cmd[0] == 'ioreg':
+                return idle_ioreg
+            return ''
+
+        with patch('platform.system', return_value='Darwin'), \
+                patch('platform.processor', return_value='arm'), \
+                patch('emulator_resource_monitor.HAS_GPUTIL', False), \
+                patch('emulator_resource_monitor.run_cmd',
+                      side_effect=run_static_hw):
+            hw = erm.get_static_hardware_info()
+            self.assertIn('Apple M4 Pro', hw)
+            self.assertIn('GPU: Apple M4 Pro (20-core)', hw)
+
+    def _run_darwin_host_stats(self,
+                               mem=None,
+                               swap=None,
+                               batt=None,
+                               freq_mhz=None,
+                               vm_stat_out='',
+                               run_cmd_fn=None):
+        """Runs get_host_stats() on Darwin with isolated globals and stubs."""
+        saved = (erm._LAST_DISK_IO, erm._LAST_DISK_TIME,
+                 erm._LAST_PAGING_SAMPLE_TIME)
+
+        def restore_host_globals():
+            (erm._LAST_DISK_IO, erm._LAST_DISK_TIME,
+             erm._LAST_PAGING_SAMPLE_TIME) = saved
+
+        self.addCleanup(restore_host_globals)
+        mem_tuple = namedtuple('MemTuple', ['percent', 'used', 'total'])
+        if mem is None:
+            mem = mem_tuple(percent=50.0, used=24 * 1024**3, total=48 * 1024**3)
+        if swap is None:
+            swap = mem_tuple(percent=0.0, used=0, total=8 * 1024**3)
+        if run_cmd_fn is None:
+            run_cmd_fn = (lambda cmd, **_kw: vm_stat_out
+                          if cmd == ['vm_stat'] else '')
+        freq_ret = MagicMock(current=freq_mhz) if freq_mhz is not None else None
+        with patch('platform.system', return_value='Darwin'), \
+                patch('emulator_resource_monitor.host_cpu_percent',
+                      return_value=10.0), \
+                patch('psutil.virtual_memory', return_value=mem), \
+                patch('psutil.swap_memory', return_value=swap), \
+                patch('emulator_resource_monitor.get_process_stats',
+                      return_value=({}, [], 'N/A', 'N/A', {}, {})), \
+                patch('emulator_resource_monitor.get_gpu_stats',
+                      return_value=('0.0%', '416.6MB')), \
+                patch('emulator_resource_monitor.get_emu_gpu_stats',
+                      return_value={}), \
+                patch('emulator_resource_monitor.read_disk_io',
+                      return_value=erm.DiskIo(0, 0)), \
+                patch('psutil.sensors_temperatures',
+                      create=True,
+                      return_value={}), \
+                patch('psutil.sensors_battery',
+                      create=True,
+                      return_value=batt), \
+                patch('psutil.cpu_freq',
+                      create=True,
+                      return_value=freq_ret), \
+                patch('emulator_resource_monitor.run_cmd',
+                      side_effect=run_cmd_fn):
+            return erm.get_host_stats()
+
+    def test_get_host_stats_darwin_suppresses_sub_100mhz_battery_freq(self):
+        batt = MagicMock(percent=69.0, power_plugged=True)
+        for freq_mhz, expected_batt in (
+            (4, '69.0% (Plugged)'),
+            (99, '69.0% (Plugged)'),
+            (100, '69.0% (Plugged) @100MHz'),
+            (2400, '69.0% (Plugged) @2400MHz'),
+        ):
+            with self.subTest(freq_mhz=freq_mhz):
+                res = self._run_darwin_host_stats(batt=batt, freq_mhz=freq_mhz)
+                self.assertEqual(res[17], expected_batt)
+
+    def test_parse_mac_vm_stat_used_bytes(self):
+        arm64_vm_stat = (
+            'Mach Virtual Memory Statistics: (page size of 16384 bytes)\n'
+            'Pages free:                               79394.\n'
+            'Pages active:                            774636.\n'
+            'Pages inactive:                          761280.\n'
+            'Pages speculative:                         9074.\n'
+            'Pages wired down:                        300000.\n'
+            'Pages purgeable:                          50000.\n'
+            '"Translation faults":                 185749102.\n'
+            'File-backed pages:                       600000.\n'
+            'Anonymous pages:                         800000.\n'
+            'Pages stored in compressor:              250000.\n'
+            'Pages occupied by compressor:            100000.\n'
+            'Pageins:                                   1234.\n'
+            'Pageouts:                                    56.\n')
+        # ((800000 - 50000) + 300000 + 100000) * 16384 = 18,841,600,000
+        self.assertEqual(erm._parse_mac_vm_stat_used_bytes(arm64_vm_stat),
+                         18_841_600_000)
+
+        intel_vm_stat = (
+            'Mach Virtual Memory Statistics: (page size of 4096 bytes)\n'
+            'Pages wired down:                        400000.\n'
+            'Pages purgeable:                         200000.\n'
+            'Anonymous pages:                        1200000.\n'
+            'Pages occupied by compressor:            100000.\n')
+        # ((1200000 - 200000) + 400000 + 100000) * 4096 = 6,144,000,000
+        self.assertEqual(erm._parse_mac_vm_stat_used_bytes(intel_vm_stat),
+                         6_144_000_000)
+
+        purgeable_exceeds_anon = (
+            'Mach Virtual Memory Statistics: (page size of 16384 bytes)\n'
+            'Anonymous pages:                            100.\n'
+            'Pages purgeable:                            250.\n'
+            'Pages wired down:                           300.\n'
+            'Pages occupied by compressor:                50.\n')
+        # max(0, 100 - 250) + 300 + 50 = 350 pages * 16384 = 5,734,400
+        self.assertEqual(
+            erm._parse_mac_vm_stat_used_bytes(purgeable_exceeds_anon),
+            5_734_400)
+
+        no_purgeable = (
+            'Mach Virtual Memory Statistics: (page size of 4096 bytes)\n'
+            'Anonymous pages:                            500.\n'
+            'Pages wired down:                           200.\n'
+            'Pages occupied by compressor:                50.\n')
+        self.assertEqual(erm._parse_mac_vm_stat_used_bytes(no_purgeable),
+                         3_072_000)
+
+        no_compressor = (
+            'Mach Virtual Memory Statistics: (page size of 4096 bytes)\n'
+            'Anonymous pages:                            500.\n'
+            'Pages purgeable:                            100.\n'
+            'Pages wired down:                           200.\n')
+        self.assertEqual(erm._parse_mac_vm_stat_used_bytes(no_compressor),
+                         2_457_600)
+
+        invalid_inputs = (
+            None,
+            '',
+            ('Mach Virtual Memory Statistics: (page size of 0 bytes)\n'
+             'Anonymous pages: 100.\nPages wired down: 50.\n'),
+            'Anonymous pages: 100.\nPages wired down: 50.\n',
+            ('Mach Virtual Memory Statistics: (page size of 16384 bytes)\n'
+             'Pages wired down: 50.\n'),
+            ('Mach Virtual Memory Statistics: (page size of 16384 bytes)\n'
+             'Anonymous pages: 100.\n'),
+        )
+        for bad_out in invalid_inputs:
+            with self.subTest(bad_out=bad_out):
+                self.assertIsNone(erm._parse_mac_vm_stat_used_bytes(bad_out))
+
+    def test_get_host_stats_darwin_vm_stat_ram_and_paging(self):
+        mem_tuple = namedtuple('MemTuple', ['percent', 'used', 'total'])
+        psutil_mem = mem_tuple(percent=81.2,
+                               used=39 * 1024**3,
+                               total=48 * 1024**3)
+        # (1,000,000 + 400,000 + 172,864) * 16,384 = 24 GiB (50.0% of 48 GiB).
+        full_vm_stat = (
+            'Mach Virtual Memory Statistics: (page size of 16384 bytes)\n'
+            'Pages wired down:                        400000.\n'
+            'Pages purgeable:                          50000.\n'
+            'Anonymous pages:                        1050000.\n'
+            'Pages occupied by compressor:            172864.\n'
+            'Pageins:                                   1234.\n'
+            'Pageouts:                                    56.\n')
+        vm_stat_calls = []
+
+        def fake_run_cmd(cmd, **kwargs):
+            if cmd == ['vm_stat']:
+                vm_stat_calls.append((list(cmd), kwargs.get('timeout')))
+                return full_vm_stat
+            return ''
+
+        res = self._run_darwin_host_stats(mem=psutil_mem,
+                                          run_cmd_fn=fake_run_cmd)
+        self.assertEqual(res[3], '50.0% (24.0GB/48.0GB)')
+        self.assertEqual(res[5], 1234)
+        self.assertEqual(res[6], 56)
+        self.assertEqual(vm_stat_calls, [(['vm_stat'], 2)])
+
+    def test_get_host_stats_darwin_vm_stat_ram_fallback(self):
+        mem_tuple = namedtuple('MemTuple', ['percent', 'used', 'total'])
+        psutil_mem = mem_tuple(percent=81.2,
+                               used=39 * 1024**3,
+                               total=48 * 1024**3)
+        for vm_out, exp_pgin, exp_pgout in (
+            ('', 0, 0),
+            ('Pageins: 100.\nPageouts: 20.\n', 100, 20),
+        ):
+            with self.subTest(vm_out=vm_out):
+                res = self._run_darwin_host_stats(mem=psutil_mem,
+                                                  vm_stat_out=vm_out)
+                self.assertEqual(res[3], '81.2% (39.0GB/48.0GB)')
+                self.assertEqual(res[5], exp_pgin)
+                self.assertEqual(res[6], exp_pgout)
+
+        zero_mem = mem_tuple(percent=0.0, used=0, total=0)
+        valid_vm_stat = (
+            'Mach Virtual Memory Statistics: (page size of 16384 bytes)\n'
+            'Anonymous pages: 100.\nPages wired down: 50.\n')
+        res_zero = self._run_darwin_host_stats(mem=zero_mem,
+                                               vm_stat_out=valid_vm_stat)
+        self.assertEqual(res_zero[3], '0.0% (0.0GB/0.0GB)')
+
+    def test_build_summary_lines_detects_darwin_hv_vmm_present(self):
+        real_exists = os.path.exists
+        summary = {
+            'iterations': 1,
+            'start_time': 1000.0,
+            'host_cpu_iterations': 1,
+            'host_cpu_sum': 10.0,
+            'host_cpu_max': 10.0,
+            'host_ram_iterations': 1,
+            'host_ram_sum': 25.0,
+            'host_ram_max': 25.0,
+            'netsim_cpu_iterations': 0,
+            'netsim_cpu_sum': 0.0,
+            'netsim_cpu_max': 0.0,
+            'netsim_ram_iterations': 0,
+            'netsim_ram_sum': 0.0,
+            'netsim_ram_max': 0.0,
+            'emulators': {},
+            'time_series': [],
+        }
+
+        def no_proc_cpuinfo(path):
+            return False if path == '/proc/cpuinfo' else real_exists(path)
+
+        def fake_vm_cmd(cmd, **_kw):
+            return '1\n' if cmd == ['sysctl', '-n', 'kern.hv_vmm_present'
+                                   ] else ''
+
+        def fake_bare_cmd(cmd, **_kw):
+            return '0\n' if cmd == ['sysctl', '-n', 'kern.hv_vmm_present'
+                                   ] else ''
+
+        with patch('platform.system', return_value='Darwin'), \
+                patch('os.path.exists', side_effect=no_proc_cpuinfo), \
+                patch('emulator_resource_monitor.run_cmd',
+                      side_effect=fake_vm_cmd):
+            lines_vm = erm._build_summary_lines(dict(summary), 1005.0, [])
+            self.assertIn('Host Virtual: True', lines_vm)
+
+        with patch('platform.system', return_value='Darwin'), \
+                patch('os.path.exists', side_effect=no_proc_cpuinfo), \
+                patch('emulator_resource_monitor.run_cmd',
+                      side_effect=fake_bare_cmd):
+            lines_bare = erm._build_summary_lines(dict(summary), 1005.0, [])
+            self.assertIn('Host Virtual: False', lines_bare)
 
 
 class TestHostCrossPlatformProcesses(test_support.NetsimTempDirTestCase):
