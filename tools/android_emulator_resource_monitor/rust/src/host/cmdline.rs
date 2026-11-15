@@ -145,6 +145,30 @@ pub(super) fn parse_cmdline_details(
     (explicit_port.or(fallback_port), explicit_avd, fallback_avd, no_netsim)
 }
 
+/// Whether `arg` makes the `emulator` launcher perform a one-shot action and
+/// exit instead of booting an AVD. Launcher options take a single dash, with
+/// `--help` as the only double-dash spelling.
+fn is_utility_flag(arg: &str) -> bool {
+    matches!(
+        arg,
+        "-kill"
+            | "-list-avds"
+            | "-accel-check"
+            | "-version"
+            | "-snapshot-list"
+            | "-check-snapshot-loadable"
+            | "-webcam-list"
+            | "-help"
+            | "--help"
+    ) || arg.starts_with("-help-")
+}
+
+/// Whether `cmd` is a one-shot `emulator` invocation, such as
+/// `emulator -kill <pid> -sleep <secs>` or `emulator -list-avds`.
+fn is_emulator_utility_invocation(cmd: &[OsString]) -> bool {
+    cmd.iter().skip(1).filter_map(|arg| arg.to_str()).any(is_utility_flag)
+}
+
 #[cfg(test)]
 pub fn parse_cmdline_with_no_netsim(cmdline: &[OsString]) -> (Option<u16>, Option<String>, bool) {
     let (port, explicit_avd, fallback_avd, no_netsim) = parse_cmdline_details(cmdline);
@@ -234,7 +258,9 @@ pub fn is_emulator_process(name: &str, exe: Option<&std::path::Path>, cmd: &[OsS
             || b.contains("crosvm")
             || b.contains("fishtank")
     };
-    is_emu_token(&name_low) || is_emu_token(&exe_base) || is_emu_token(&cmd0_base)
+    let matches_emu =
+        is_emu_token(&name_low) || is_emu_token(&exe_base) || is_emu_token(&cmd0_base);
+    matches_emu && (is_worker_process(name, exe, cmd) || !is_emulator_utility_invocation(cmd))
 }
 
 pub(super) fn is_worker_process(
