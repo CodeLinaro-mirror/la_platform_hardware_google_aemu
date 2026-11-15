@@ -1851,6 +1851,360 @@ class TestHostProcessGroupsGpuAndPaging(
             self.assertIn('Host Virtual: False', lines_bare)
 
 
+    def test_is_emulator_utility_cmdline(self):
+        utility_cmds = [
+            # Shutdown helper the emulator spawns for itself.
+            ['/sdk/emulator/emulator', '-kill', '49692', '-sleep', '20'],
+            ['emulator', '-list-avds'],
+            ['emulator', '-accel-check'],
+            ['emulator', '-version'],
+            ['emulator', '-snapshot-list'],
+            ['emulator', '-check-snapshot-loadable', 'snap1'],
+            ['emulator', '-webcam-list'],
+            ['emulator', '-help'],
+            ['emulator', '--help'],
+            ['emulator', '-help-avd'],
+            ['emulator', '-avd', 'Pixel_8', '-version'],
+            # `-snapshot` takes no value when another option follows it.
+            ['emulator', '-snapshot', '-list-avds'],
+        ]
+        for utility_cmd in utility_cmds:
+            with self.subTest(utility_cmd=utility_cmd):
+                self.assertTrue(erm._is_emulator_utility_cmdline(utility_cmd))
+
+        launch_cmds = [
+            ['emulator', '-avd', 'Pixel_8', '-port', '5554'],
+            ['emulator', '@Pixel_8', '-accel', 'on', '-snapshot', 'snap1'],
+            ['emulator', '-avd', 'Pixel_8', '-prop', 'foo=-kill'],
+            ['emulator'],
+            [],
+            None,
+        ]
+        for launch_cmd in launch_cmds:
+            with self.subTest(launch_cmd=launch_cmd):
+                self.assertFalse(erm._is_emulator_utility_cmdline(launch_cmd))
+
+    def test_get_process_stats_excludes_utility_invocations(self):
+        util_kill = _fake_proc(
+            'emulator',
+            9001, ['/sdk/emulator/emulator', '-kill', '49692', '-sleep', '20'],
+            cpu=5.0,
+            rss_mb=14.3,
+            exe='/sdk/emulator/emulator')
+        util_list = _fake_proc('emulator',
+                               9002, ['/sdk/emulator/emulator', '-list-avds'],
+                               cpu=2.0,
+                               rss_mb=10.0,
+                               exe='/sdk/emulator/emulator')
+        real_emu = _fake_proc(
+            'emulator',
+            9003,
+            ['/sdk/emulator/emulator', '-avd', 'Pixel_8', '-port', '5554'],
+            cpu=10.0,
+            rss_mb=50.0,
+            exe='/sdk/emulator/emulator')
+        worker_emu = _fake_proc(
+            'qemu-system-aarch64',
+            9004, ['qemu-system-aarch64', '-name', '-kill', '-port', '5556'],
+            cpu=30.0,
+            rss_mb=1024.0,
+            exe='/sdk/emulator/qemu/darwin-aarch64/qemu-system-aarch64')
+
+        with patch('psutil.process_iter',
+                   return_value=[util_kill, util_list, real_emu, worker_emu]):
+            erm.get_process_stats()
+            qemu_stats, unmapped, _, _, qemu_pids, qemu_avds = (
+                erm.get_process_stats())
+
+        self.assertEqual(unmapped, [])
+        self.assertEqual(sorted(qemu_stats.keys()),
+                         ['emulator-5554', 'emulator-5556'])
+        self.assertEqual(qemu_pids['emulator-5554'], 9003)
+        self.assertEqual(qemu_avds['emulator-5554'], 'Pixel_8')
+        self.assertEqual(qemu_pids['emulator-5556'], 9004)
+        self.assertEqual(qemu_avds['emulator-5556'], '-kill')
+        self.assertNotIn((9001, 9001.0), erm._PROCESS_CACHE)
+        self.assertNotIn((9002, 9002.0), erm._PROCESS_CACHE)
+        self.assertNotIn((9001, 9001.0), erm._PID_PORT_CACHE)
+        self.assertNotIn((9002, 9002.0), erm._PID_PORT_CACHE)
+
+    def test_get_process_stats_multi_tick_cmdline_retry(self):
+        running = os.path.join(os.environ['ANDROID_EMULATOR_DISCOVERY_DIR'],
+                               'avd', 'running')
+        os.makedirs(running, exist_ok=True)
+        _touch(
+            os.path.join(running, 'pid_9401.ini'),
+            'avd.id=Ini_Pixel_9\navd.name=Pixel_9_Pro\n'
+            'netsim.endpoint=127.0.0.1:50051\n')
+
+        ini_parent = _fake_proc('emulator',
+                                9400, ['/sdk/emulator/emulator', '-no-netsim'],
+                                cpu=2.0,
+                                rss_mb=30,
+                                exe='/sdk/emulator/emulator',
+                                ppid=1)
+        ini_child = _fake_proc(
+            'qemu-system-aarch64',
+            9401,
+            None,
+            cpu=18.0,
+            rss_mb=1200,
+            exe='/sdk/emulator/qemu/darwin-aarch64/qemu-system-aarch64',
+            ppid=9400)
+        ini_child.cmdline.side_effect = [
+            None,
+            None,
+            ['qemu-system-aarch64', '-ports', '5554,5555'],
+        ]
+
+        prop_parent = _fake_proc(
+            'emulator',
+            9410,
+            ['/sdk/emulator/emulator', '-avd', 'Parent_Fold', '-no-netsim'],
+            cpu=1.0,
+            rss_mb=20,
+            exe='/sdk/emulator/emulator',
+            ppid=1)
+        prop_child = _fake_proc(
+            'qemu-system-aarch64',
+            9411,
+            None,
+            cpu=14.0,
+            rss_mb=900,
+            exe='/sdk/emulator/qemu/darwin-aarch64/qemu-system-aarch64',
+            ppid=9410)
+        prop_child.cmdline.side_effect = [
+            None,
+            ['qemu-system-aarch64', '-ports', '5556,5557'],
+        ]
+
+        with patch(
+                'psutil.process_iter',
+                return_value=[ini_parent, ini_child, prop_parent, prop_child]):
+            # Tick 1: child cmdlines fail while .ini + parent set metadata.
+            _, unmapped1, _, _, _, _ = erm.get_process_stats()
+            self.assertEqual(sorted(u[0] for u in unmapped1),
+                             [9400, 9401, 9410, 9411])
+            self.assertFalse(erm._PID_PORT_CACHE[(9401,
+                                                  9401.0)]['cmdline_resolved'])
+
+            # Tick 2: 9401 still fails (keeps cmdline_resolved=False and prior
+            # .ini/parent identity); 9411 recovers port via -ports retry.
+            _, unmapped2, _, _, qemu_pids2, qemu_avds2 = (
+                erm.get_process_stats())
+            self.assertEqual(sorted(u[0] for u in unmapped2), [9400, 9401])
+            self.assertEqual(qemu_pids2['emulator-5556'], 9411)
+            self.assertEqual(qemu_avds2['emulator-5556'], 'Parent_Fold')
+            cached_ini = erm._PID_PORT_CACHE[(9401, 9401.0)]
+            self.assertFalse(cached_ini['cmdline_resolved'])
+            self.assertEqual(cached_ini['avd_id'], 'Ini_Pixel_9')
+            self.assertEqual(cached_ini['display_name'], 'Pixel 9 Pro')
+            self.assertEqual(cached_ini['grpc_endpoint'], '127.0.0.1:50051')
+            self.assertTrue(cached_ini['no_netsim'])
+
+            # Tick 3: 9401 cmdline recovers -ports and keeps prior metadata.
+            qemu_stats3, unmapped3, _, _, qemu_pids3, qemu_avds3 = (
+                erm.get_process_stats())
+
+        self.assertEqual(unmapped3, [])
+        self.assertEqual(qemu_pids3['emulator-5554'], 9401)
+        self.assertEqual(qemu_avds3['emulator-5554'], 'Ini_Pixel_9')
+        self.assertEqual(qemu_stats3['emulator-5554'][0], '20.0%')
+        self.assertEqual(qemu_pids3['emulator-5556'], 9411)
+        self.assertEqual(qemu_avds3['emulator-5556'], 'Parent_Fold')
+
+        _, _, group_info, _ = erm._snapshot_process_state()
+        self.assertEqual(group_info['emulator-5554']['display_name'],
+                         'Pixel 9 Pro')
+        self.assertEqual(group_info['emulator-5554']['grpc_endpoint'],
+                         '127.0.0.1:50051')
+        self.assertTrue(group_info['emulator-5554']['no_netsim'])
+        self.assertTrue(group_info['emulator-5556']['no_netsim'])
+        self.assertTrue(erm._PID_PORT_CACHE[(9401, 9401.0)]['cmdline_resolved'])
+        self.assertTrue(erm._PID_PORT_CACHE[(9411, 9411.0)]['cmdline_resolved'])
+
+    def test_propagate_emu_hierarchy_and_port_conflict_isolation(self):
+        samples = [
+            erm._EmuSample(
+                cache_key=(100, 100.0),
+                role='emulator',
+                name='emulator',
+                pid=100,
+                ppid=1,
+                ctime=100.0,
+                cached_proc=None,
+                cpu_pct=0.0,
+                rss=0,
+                threads=1,
+                ctx_total=0,
+                avd_id='Pixel_8',
+                avd_name='Pixel_8',
+                no_netsim=True,
+            ),
+            erm._EmuSample(
+                cache_key=(101, 101.0),
+                role='worker',
+                name='qemu-system-aarch64',
+                pid=101,
+                ppid=100,
+                ctime=101.0,
+                cached_proc=None,
+                cpu_pct=0.0,
+                rss=0,
+                threads=1,
+                ctx_total=0,
+                port=5554,
+                avd_name='Pixel 8 Pro',
+                display_name='Pixel 8 Pro',
+                grpc_endpoint='localhost:8877',
+            ),
+            erm._EmuSample(
+                cache_key=(200, 200.0),
+                role='emulator',
+                name='emulator',
+                pid=200,
+                ppid=1,
+                ctime=200.0,
+                cached_proc=None,
+                cpu_pct=0.0,
+                rss=0,
+                threads=1,
+                ctx_total=0,
+                port=5556,
+                avd_id='Pixel_Fold',
+                avd_name='Pixel_Fold',
+            ),
+            erm._EmuSample(
+                cache_key=(201, 201.0),
+                role='worker',
+                name='qemu-system-aarch64',
+                pid=201,
+                ppid=200,
+                ctime=201.0,
+                cached_proc=None,
+                cpu_pct=0.0,
+                rss=0,
+                threads=1,
+                ctx_total=0,
+                port=5558,
+                no_netsim=True,
+            ),
+        ]
+        erm._propagate_emu_hierarchy(samples, {101: 100, 201: 200})
+        self.assertEqual(samples[0].port, 5554)
+        self.assertEqual(samples[0].grpc_endpoint, 'localhost:8877')
+        self.assertEqual(samples[1].avd_id, 'Pixel_8')
+        self.assertEqual(samples[1].avd_name, 'Pixel_8')
+        self.assertTrue(samples[1].no_netsim)
+        # Conflicting ports (5556 vs 5558) must never merge identities.
+        self.assertEqual(samples[2].port, 5556)
+        self.assertFalse(samples[2].no_netsim)
+        self.assertIsNone(samples[3].avd_id)
+
+    def test_get_process_stats_multi_tick_parent_child_grouping(self):
+        # (a) worker gets port from pid_<pid>.ini & inherits -avd/-no-netsim.
+        running = os.path.join(os.environ['ANDROID_EMULATOR_DISCOVERY_DIR'],
+                               'avd', 'running')
+        os.makedirs(running, exist_ok=True)
+        _touch(os.path.join(running, 'pid_9101.ini'),
+               'port.serial=5554\navd.name=Pixel_8_Pro\n')
+        p_parent = _fake_proc(
+            'emulator',
+            9100, ['/sdk/emulator/emulator', '-avd', 'Pixel_8', '-no-netsim'],
+            cpu=4.0,
+            rss_mb=50,
+            threads=4,
+            ctx=(10, 5),
+            exe='/sdk/emulator/emulator',
+            ppid=1)
+        p_child = _fake_proc('qemu-system-aarch64',
+                             9101, [
+                                 '/sdk/emulator/qemu-system-aarch64',
+                                 '-device',
+                                 'avdstart,avd_name="Pixel 8 Pro"',
+                             ],
+                             cpu=26.0,
+                             rss_mb=2000,
+                             threads=36,
+                             ctx=(200, 50),
+                             exe='/sdk/emulator/qemu-system-aarch64',
+                             ppid=9100)
+
+        # (b) parent holds -port 5556; child holds -avd Pixel_Fold.
+        b_parent = _fake_proc('emulator',
+                              9200, ['/sdk/emulator/emulator', '-port', '5556'],
+                              cpu=2.0,
+                              rss_mb=30,
+                              threads=2,
+                              ctx=(5, 1),
+                              exe='/sdk/emulator/emulator',
+                              ppid=1)
+        b_child = _fake_proc(
+            'qemu-system-aarch64',
+            9201, ['/sdk/emulator/qemu-system-aarch64', '-avd', 'Pixel_Fold'],
+            cpu=18.0,
+            rss_mb=1500,
+            threads=20,
+            ctx=(100, 20),
+            exe='/sdk/emulator/qemu-system-aarch64',
+            ppid=9200)
+
+        # (c) delayed socket binding retains unmapped CLI metadata.
+        c_parent = _fake_proc(
+            'emulator',
+            9300, ['/sdk/emulator/emulator', '-avd', 'Pixel_9', '-no-netsim'],
+            cpu=1.0,
+            rss_mb=20,
+            threads=2,
+            ctx=(1, 1),
+            exe='/sdk/emulator/emulator',
+            ppid=1)
+        c_child = _fake_proc('qemu-system-aarch64',
+                             9301, ['/sdk/emulator/qemu-system-aarch64'],
+                             cpu=15.0,
+                             rss_mb=1000,
+                             threads=16,
+                             ctx=(20, 4),
+                             exe='/sdk/emulator/qemu-system-aarch64',
+                             ppid=9300)
+
+        with patch('psutil.process_iter',
+                   return_value=[
+                       p_parent, p_child, b_parent, b_child, c_parent, c_child
+                   ]):
+            erm.get_process_stats()
+            c_child.net_connections.return_value = [
+                MagicMock(status='LISTEN',
+                          laddr=MagicMock(ip='127.0.0.1', port=5558))
+            ]
+            qemu_stats, unmapped, _, _, qemu_pids, qemu_avds = (
+                erm.get_process_stats())
+            qemu_stats3, unmapped3, _, _, qemu_pids3, qemu_avds3 = (
+                erm.get_process_stats())
+
+        self.assertEqual(unmapped, [])
+        self.assertEqual(unmapped3, [])
+        self.assertEqual(qemu_stats['emulator-5554'][0], '30.0%')
+        self.assertIn('2050.0MB (40 thr, 265 cs)',
+                      qemu_stats['emulator-5554'][1])
+        self.assertEqual(qemu_pids['emulator-5554'], 9101)
+        self.assertEqual(qemu_avds['emulator-5554'], 'Pixel_8')
+        self.assertEqual(qemu_avds['emulator-5556'], 'Pixel_Fold')
+        self.assertEqual(qemu_avds['emulator-5558'], 'Pixel_9')
+        self.assertEqual(qemu_stats3['emulator-5558'],
+                         qemu_stats['emulator-5558'])
+        self.assertEqual(qemu_pids3['emulator-5558'], 9301)
+        self.assertEqual(qemu_avds3['emulator-5558'], 'Pixel_9')
+
+        _, _, group_info, _ = erm._snapshot_process_state()
+        self.assertTrue(group_info['emulator-5554']['no_netsim'])
+        self.assertTrue(group_info['emulator-5558']['no_netsim'])
+        for cached_pid in ((9100, 9100.0), (9101, 9101.0)):
+            cached_entry = erm._PID_PORT_CACHE[cached_pid]
+            self.assertEqual(cached_entry['port'], 5554)
+            self.assertEqual(cached_entry['avd_id'], 'Pixel_8')
+            self.assertTrue(cached_entry['no_netsim'])
+
 class TestHostCrossPlatformProcesses(test_support.NetsimTempDirTestCase):
 
     def test_read_emulator_discovery_ini_searches_worker_dirs_first(self):

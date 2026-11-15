@@ -34,6 +34,7 @@ import json
 import math
 import stat
 import traceback
+import dataclasses
 from collections import deque, namedtuple
 from typing import (Any, Dict, Iterable, List, Mapping, NamedTuple, Optional,
                     Set, Tuple)
@@ -607,6 +608,51 @@ def get_emu_gpu_stats(qemu_pids):
         if matched:
             raw_stats[serial] = sum(matched)
     return {k: f"{v:.1f}%" for k, v in raw_stats.items()}
+
+
+# Options that make the `emulator` launcher perform a one-shot action and exit
+# instead of booting an AVD. Launcher options take a single dash, with `--help`
+# as the only double-dash spelling; `-help-<topic>` is matched by prefix.
+_EMULATOR_UTILITY_FLAGS = frozenset({
+    '-kill',
+    '-list-avds',
+    '-accel-check',
+    '-version',
+    '-snapshot-list',
+    '-check-snapshot-loadable',
+    '-webcam-list',
+    '-help',
+    '--help',
+})
+
+
+def _read_proc_cmdline(proc: Any) -> Optional[List[str]]:
+    """Returns the non-empty argv of `proc`, or None if it cannot be read.
+
+    `psutil.ZombieProcess` and `psutil.NoSuchProcess` propagate so that the
+    caller drops the process.
+    """
+    try:
+        cmdline = proc.cmdline()
+    except (psutil.ZombieProcess, psutil.NoSuchProcess):
+        raise
+    except Exception:
+        return None
+    if cmdline and isinstance(cmdline, (list, tuple)):
+        return list(cmdline)
+    return None
+
+
+def _is_emulator_utility_cmdline(cmdline: Optional[List[str]]) -> bool:
+    """Returns True if `cmdline` is a one-shot `emulator` invocation.
+
+    Such invocations, for example `emulator -kill <pid> -sleep <secs>` or
+    `emulator -list-avds`, exit without booting an AVD.
+    """
+    return any(
+        isinstance(arg, str) and
+        (arg in _EMULATOR_UTILITY_FLAGS or arg.startswith('-help-'))
+        for arg in (cmdline or [])[1:])
 
 
 def _parse_cmdline_details(cmdline):
@@ -1641,6 +1687,249 @@ def _is_descendant_of(pid, ppid_map, target_pid):
     return False
 
 
+def _find_listening_console_port(cached_proc: Any) -> Optional[int]:
+    """Returns first listening console port (even 5554..5584), or None.
+
+    Args:
+        cached_proc: Cached `psutil.Process` handle to inspect.
+
+    Returns:
+        Even console TCP port in `5554..=5584`, or None when no listening
+        console socket is visible.
+    """
+    for conn_kind in ('inet', 'tcp4', 'tcp6'):
+        try:
+            conns = cached_proc.net_connections(kind=conn_kind)
+        except (psutil.ZombieProcess, psutil.NoSuchProcess):
+            raise
+        except Exception:
+            continue
+        for conn in conns or []:
+            try:
+                if (conn.status == 'LISTEN' and
+                        5554 <= conn.laddr.port <= 5584 and
+                        conn.laddr.port % 2 == 0):
+                    return conn.laddr.port
+            except Exception:
+                continue
+    return None
+
+
+@dataclasses.dataclass
+class _EmuSample:
+    """Per-process emulator telemetry and identity captured in a host scan."""
+
+    cache_key: Tuple[Any, float]
+    role: str
+    name: str
+    pid: Any
+    ppid: Optional[int]
+    ctime: float
+    cached_proc: Any
+    cpu_pct: float
+    rss: int
+    threads: int
+    ctx_total: int
+    port: Optional[int] = None
+    avd_name: Optional[str] = None
+    avd_id: Optional[str] = None
+    display_name: Optional[str] = None
+    grpc_endpoint: Optional[str] = None
+    no_netsim: bool = False
+    ini_resolved: bool = False
+    cmdline_resolved: bool = True
+    first_attempt: Optional[float] = None
+    unmapped_timeout: bool = False
+    legacy_cache: bool = False
+    propagated: bool = False
+
+    def merge_identity(self, src: '_EmuSample') -> bool:
+        """Fills missing port, AVD identity, and netsim metadata from `src`.
+
+        Args:
+            src: Source sample to copy missing identity fields from.
+
+        Returns:
+            True if any field changed; False if both samples hold conflicting
+            non-None console ports or nothing changed.
+        """
+        if (self.port is not None and src.port is not None and
+                self.port != src.port):
+            return False
+        changed = False
+        if self.port is None and src.port is not None:
+            self.port = src.port
+            changed = True
+        if not self.avd_id and src.avd_id:
+            self.avd_id = src.avd_id
+            changed = True
+        if self.avd_id:
+            if self.avd_name != self.avd_id:
+                self.avd_name = self.avd_id
+                changed = True
+        elif not self.avd_name and src.avd_name:
+            self.avd_name = src.avd_name
+            changed = True
+        if not self.display_name and src.display_name:
+            self.display_name = src.display_name
+            changed = True
+        if not self.grpc_endpoint and src.grpc_endpoint:
+            self.grpc_endpoint = src.grpc_endpoint
+            changed = True
+        if src.no_netsim and not self.no_netsim:
+            self.no_netsim = True
+            changed = True
+        return changed
+
+
+def _propagate_emu_hierarchy(samples: List[_EmuSample],
+                             ppid_map: Dict[int, int]) -> None:
+    """Propagates port, AVD identity, and netsim args between parent/child.
+
+    Args:
+        samples: `_EmuSample` records of the current tick, updated in place.
+        ppid_map: Mapping of `pid -> ppid` across live OS processes.
+    """
+    idx_by_pid = {
+        s.pid: idx for idx, s in enumerate(samples) if isinstance(s.pid, int)
+    }
+
+    for _ in range(2):
+        for idx, s in enumerate(samples):
+            curr = s.ppid
+            if curr is None and isinstance(s.pid, int):
+                curr = ppid_map.get(s.pid)
+            seen = {s.pid}
+            parent_idx = None
+            for _ in range(16):
+                if curr is None or curr in seen:
+                    break
+                if curr in idx_by_pid and idx_by_pid[curr] != idx:
+                    parent_idx = idx_by_pid[curr]
+                    break
+                seen.add(curr)
+                curr = ppid_map.get(curr)
+            if parent_idx is None:
+                continue
+            parent = samples[parent_idx]
+            if s.merge_identity(parent):
+                s.propagated = True
+            if parent.merge_identity(s):
+                parent.propagated = True
+
+
+def _persist_pid_port_cache(pid_port_cache: Dict[Any, Any],
+                            sample: _EmuSample) -> None:
+    """Writes one uniform cache record schema for `sample` when warranted."""
+    has_identity = any((sample.avd_name, sample.avd_id, sample.display_name,
+                        sample.grpc_endpoint, sample.no_netsim))
+    should_persist = (bool(sample.port) and
+                      (not sample.legacy_cache or sample.propagated)) or (
+                          not sample.port and not sample.legacy_cache and
+                          (has_identity or sample.unmapped_timeout or
+                           sample.first_attempt is not None))
+    if not should_persist:
+        return
+    pid_port_cache[sample.cache_key] = {
+        'port': sample.port or None,
+        'avd_name': sample.avd_name,
+        'avd_id': sample.avd_id,
+        'display_name': sample.display_name,
+        'grpc_endpoint': sample.grpc_endpoint,
+        'no_netsim': sample.no_netsim,
+        'ini_resolved': sample.ini_resolved,
+        'cmdline_resolved': sample.cmdline_resolved,
+        'first_attempt': sample.first_attempt,
+        'unmapped': False if sample.port else sample.unmapped_timeout,
+    }
+
+
+def _accumulate_emu_sample(accumulated_emus: Dict[str, Dict[str, Any]],
+                           unmapped_qemu: List[Tuple[Any, str, str]],
+                           sample: _EmuSample) -> None:
+    """Buckets `sample` into an `emulator-<port>` group or unmapped list."""
+    if not sample.port:
+        cpu_str = f"{sample.cpu_pct:.1f}%"
+        ram_str = (f"{sample.rss / (1024**2):.1f}MB "
+                   f"({sample.threads} thr, {sample.ctx_total} cs)")
+        unmapped_qemu.append((sample.pid, cpu_str, ram_str))
+        return
+
+    is_worker = sample.role == 'worker'
+    is_launcher = not is_worker and 'fishtank' not in sample.name
+    serial = f"emulator-{sample.port}"
+    entry = accumulated_emus.get(serial)
+    if entry is None:
+        accumulated_emus[serial] = {
+            'cpu_pct': sample.cpu_pct,
+            'rss': sample.rss,
+            'threads': sample.threads,
+            'ctx_total': sample.ctx_total,
+            'primary_pid': sample.pid,
+            'primary_ctime': sample.ctime,
+            'primary_is_worker': is_worker,
+            'max_cpu': sample.cpu_pct,
+            'max_rss': sample.rss,
+            'avd_id': sample.avd_id,
+            'display_name': sample.display_name,
+            'avd_name': sample.avd_id or sample.avd_name,
+            'grpc_endpoint': sample.grpc_endpoint,
+            'no_netsim': sample.no_netsim,
+            'pids': {sample.pid} if sample.pid is not None else set(),
+            'member_start_times': {
+                sample.pid: sample.ctime
+            } if sample.pid is not None else {},
+            'worker_pid': sample.pid if is_worker else None,
+            'worker_ctime': sample.ctime if is_worker else None,
+            'launcher_pid': sample.pid if is_launcher else None,
+            'launcher_ctime': sample.ctime if is_launcher else None,
+            'procs': [sample.cached_proc],
+        }
+        return
+
+    entry['cpu_pct'] += sample.cpu_pct
+    entry['rss'] += sample.rss
+    entry['threads'] += sample.threads
+    entry['ctx_total'] += sample.ctx_total
+    if sample.pid is not None:
+        entry['pids'].add(sample.pid)
+        entry['member_start_times'][sample.pid] = sample.ctime
+    entry['procs'].append(sample.cached_proc)
+    if is_worker and entry['worker_pid'] is None:
+        entry['worker_pid'] = sample.pid
+        entry['worker_ctime'] = sample.ctime
+    elif is_launcher and entry['launcher_pid'] is None:
+        entry['launcher_pid'] = sample.pid
+        entry['launcher_ctime'] = sample.ctime
+
+    if is_worker and not entry['primary_is_worker']:
+        is_new_primary = True
+    elif is_worker != entry['primary_is_worker']:
+        is_new_primary = False
+    else:
+        is_new_primary = (sample.cpu_pct > entry['max_cpu']) or (
+            sample.cpu_pct == entry['max_cpu'] and
+            sample.rss > entry['max_rss'])
+
+    if is_new_primary:
+        entry['primary_is_worker'] = is_worker
+        entry['max_cpu'] = sample.cpu_pct
+        entry['max_rss'] = sample.rss
+        entry['primary_pid'] = sample.pid
+        entry['primary_ctime'] = sample.ctime
+
+    if sample.avd_id and not entry['avd_id']:
+        entry['avd_id'] = sample.avd_id
+    if sample.display_name and not entry['display_name']:
+        entry['display_name'] = sample.display_name
+    if sample.grpc_endpoint and not entry['grpc_endpoint']:
+        entry['grpc_endpoint'] = sample.grpc_endpoint
+    if sample.no_netsim:
+        entry['no_netsim'] = True
+    entry['avd_name'] = (entry['avd_id'] or entry['avd_name'] or
+                         sample.avd_name)
+
+
 def get_process_stats():
     global _PID_PORT_CACHE, _PROCESS_CACHE, _LAST_EMU_GROUP_PIDS
     global _LAST_EMU_GROUP_INFO, _LAST_PRIMARY_PROC_ID, _LAST_NETSIMD_PROCS
@@ -1652,6 +1941,7 @@ def get_process_stats():
     accumulated_emus = {}
     unmapped_qemu, netsim, netsim_ram = [], [], []
     netsimd_procs = []
+    emu_samples = []
 
     dead_statuses = {
         getattr(psutil, 'STATUS_ZOMBIE', 'zombie'),
@@ -1722,19 +2012,19 @@ def get_process_stats():
             cmd1_base = ""
             if (_classify_process(name, exe_base, "") is None or
                     _is_script_interpreter(exe_stem) or not exe_base):
-                try:
-                    raw_cmd = proc.cmdline()
-                    if isinstance(raw_cmd, (list, tuple)):
-                        cmdline = raw_cmd
-                        cmd0_base, cmd1_base = _extract_script_cmd_base(cmdline)
-                except (psutil.ZombieProcess, psutil.NoSuchProcess):
-                    raise
-                except Exception:
-                    cmdline = None
+                cmdline = _read_proc_cmdline(proc)
+                if cmdline is not None:
+                    cmd0_base, cmd1_base = _extract_script_cmd_base(cmdline)
 
             role = _classify_process(name, exe_base, cmd0_base, cmd1_base)
             if role is None:
                 continue
+
+            if role == 'emulator':
+                if cmdline is None:
+                    cmdline = _read_proc_cmdline(proc)
+                if _is_emulator_utility_cmdline(cmdline):
+                    continue
 
             is_new = False
             if cache_key not in process_cache:
@@ -1821,9 +2111,15 @@ def get_process_stats():
             display_name = None
             grpc_endpoint = None
             no_netsim = False
+            ini_resolved = False
+            cmdline_resolved = True
+            first_attempt = None
+            unmapped_timeout = False
+            legacy_cache = False
 
             if cache_val == 'unmapped':
-                pass
+                unmapped_timeout = True
+                legacy_cache = True
             elif isinstance(cache_val, dict):
                 port = cache_val.get('port')
                 avd_name = cache_val.get('avd_name')
@@ -1831,9 +2127,26 @@ def get_process_stats():
                 display_name = cache_val.get('display_name')
                 grpc_endpoint = cache_val.get('grpc_endpoint')
                 no_netsim = cache_val.get('no_netsim', False)
+                ini_resolved = cache_val.get('ini_resolved', False)
+                cmdline_resolved = cache_val.get('cmdline_resolved', True)
+                first_attempt = cache_val.get('first_attempt')
+                unmapped_timeout = bool(cache_val.get('unmapped', False))
+                if not port and not unmapped_timeout and not cmdline_resolved:
+                    if cmdline is None:
+                        cmdline = _read_proc_cmdline(cached_proc)
+                    if cmdline is not None:
+                        cmdline_resolved = True
+                        (cmd_port, cmd_avd_name, cmd_avd_id, _,
+                         cmd_grpc_endpoint,
+                         cmd_no_netsim) = _parse_cmdline_details(cmdline)
+                        port = port if port is not None else cmd_port
+                        avd_id = avd_id or cmd_avd_id
+                        avd_name = avd_id or avd_name or cmd_avd_name
+                        grpc_endpoint = grpc_endpoint or cmd_grpc_endpoint
+                        no_netsim = no_netsim or cmd_no_netsim
                 # The emulator writes pid_<pid>.ini after the worker starts,
                 # so keep looking for it until it is found.
-                if role == 'worker' and not cache_val.get('ini_resolved'):
+                if role == 'worker' and not ini_resolved:
                     disc = _read_emulator_discovery_ini(
                         pid, cached_proc, expected_uid=_proc_uid(cached_proc))
                     if disc:
@@ -1841,35 +2154,30 @@ def get_process_stats():
                          grpc_endpoint) = _merge_discovery_ini(
                              disc, port, avd_id, display_name, grpc_endpoint)
                         avd_name = avd_id or avd_name
-                        pid_port_cache[cache_key] = dict(
-                            cache_val,
-                            port=port,
-                            avd_name=avd_name,
-                            avd_id=avd_id,
-                            display_name=display_name,
-                            grpc_endpoint=grpc_endpoint,
-                            ini_resolved=True)
+                        ini_resolved = True
+                if not port and not unmapped_timeout:
+                    port = _find_listening_console_port(cached_proc)
+                    if (not port and first_attempt is not None and
+                            time.monotonic() - first_attempt > 60):
+                        unmapped_timeout = True
             elif isinstance(cache_val, tuple):
                 port, avd_name = cache_val[0], cache_val[1]
                 avd_id = avd_name
+                legacy_cache = True
             elif isinstance(cache_val, int):
                 port = cache_val
+                legacy_cache = True
             else:
-                first_attempt = cache_val if isinstance(
-                    cache_val, float) else time.monotonic()
-                try:
-                    if cmdline is None:
-                        cmdline = cached_proc.cmdline()
-                    # A cmdline avd_name= is only a fallback AVD id, kept in
-                    # avd_name; the display name comes from pid_<pid>.ini.
-                    (port, avd_name, avd_id, _, grpc_endpoint,
-                     no_netsim) = _parse_cmdline_details(cmdline)
-                except (psutil.ZombieProcess, psutil.NoSuchProcess):
-                    raise
-                except Exception:
-                    pass
+                first_attempt = (cache_val if isinstance(cache_val, float) else
+                                 time.monotonic())
+                if cmdline is None:
+                    cmdline = _read_proc_cmdline(cached_proc)
+                cmdline_resolved = cmdline is not None
+                # A cmdline avd_name= is only a fallback AVD id, kept in
+                # avd_name; the display name comes from pid_<pid>.ini.
+                (port, avd_name, avd_id, _, grpc_endpoint,
+                 no_netsim) = _parse_cmdline_details(cmdline)
 
-                ini_resolved = False
                 if role == 'worker':
                     disc = _read_emulator_discovery_ini(
                         pid, cached_proc, expected_uid=_proc_uid(cached_proc))
@@ -1880,142 +2188,47 @@ def get_process_stats():
                     avd_name = avd_id or avd_name
 
                 if not port:
-                    for conn_kind in ('inet', 'tcp4', 'tcp6'):
-                        try:
-                            conns = cached_proc.net_connections(kind=conn_kind)
-                        except (psutil.ZombieProcess, psutil.NoSuchProcess):
-                            raise
-                        except Exception:
-                            continue
-                        for conn in conns or []:
-                            try:
-                                if (conn.status == 'LISTEN' and
-                                        5554 <= conn.laddr.port <= 5584 and
-                                        conn.laddr.port % 2 == 0):
-                                    port = conn.laddr.port
-                                    break
-                            except Exception:
-                                continue
-                        if port:
-                            break
+                    port = _find_listening_console_port(cached_proc)
 
-                if port:
-                    pid_port_cache[cache_key] = {
-                        'port': port,
-                        'avd_name': avd_name,
-                        'avd_id': avd_id,
-                        'display_name': display_name,
-                        'grpc_endpoint': grpc_endpoint,
-                        'no_netsim': no_netsim,
-                        'ini_resolved': ini_resolved,
-                    }
-                elif time.monotonic() - first_attempt > 60:
-                    pid_port_cache[cache_key] = 'unmapped'
-                else:
-                    pid_port_cache[cache_key] = first_attempt
+                if not port and time.monotonic() - first_attempt > 60:
+                    unmapped_timeout = True
 
-            is_worker = (role == 'worker')
-            if port:
-                serial = f"emulator-{port}"
-                if serial not in accumulated_emus:
-                    accumulated_emus[serial] = {
-                        'cpu_pct':
-                            cpu_pct,
-                        'rss':
-                            rss,
-                        'threads':
-                            threads,
-                        'ctx_total':
-                            ctx_total,
-                        'primary_pid':
-                            pid,
-                        'primary_ctime':
-                            ctime,
-                        'primary_is_worker':
-                            is_worker,
-                        'max_cpu':
-                            cpu_pct,
-                        'max_rss':
-                            rss,
-                        'avd_id':
-                            avd_id,
-                        'display_name':
-                            display_name,
-                        'avd_name':
-                            avd_id or avd_name,
-                        'grpc_endpoint':
-                            grpc_endpoint,
-                        'no_netsim':
-                            no_netsim,
-                        'pids': {pid} if pid is not None else set(),
-                        'member_start_times': {
-                            pid: ctime
-                        } if pid is not None else {},
-                        'worker_pid':
-                            pid if is_worker else None,
-                        'worker_ctime':
-                            ctime if is_worker else None,
-                        'launcher_pid':
-                            pid if not is_worker and 'fishtank' not in name else
-                            None,
-                        'launcher_ctime':
-                            ctime if not is_worker and 'fishtank' not in name
-                            else None,
-                        'procs': [cached_proc],
-                    }
-                else:
-                    entry = accumulated_emus[serial]
-                    entry['cpu_pct'] += cpu_pct
-                    entry['rss'] += rss
-                    entry['threads'] += threads
-                    entry['ctx_total'] += ctx_total
-                    if pid is not None:
-                        entry['pids'].add(pid)
-                        entry['member_start_times'][pid] = ctime
-                    entry['procs'].append(cached_proc)
-                    if is_worker and entry['worker_pid'] is None:
-                        entry['worker_pid'] = pid
-                        entry['worker_ctime'] = ctime
-                    elif not is_worker and 'fishtank' not in name and entry[
-                            'launcher_pid'] is None:
-                        entry['launcher_pid'] = pid
-                        entry['launcher_ctime'] = ctime
-
-                    if is_worker and not entry['primary_is_worker']:
-                        is_new_primary = True
-                    elif is_worker != entry['primary_is_worker']:
-                        is_new_primary = False
-                    else:
-                        is_new_primary = (cpu_pct > entry['max_cpu']) or (
-                            cpu_pct == entry['max_cpu'] and
-                            rss > entry['max_rss'])
-
-                    if is_new_primary:
-                        entry['primary_is_worker'] = is_worker
-                        entry['max_cpu'] = cpu_pct
-                        entry['max_rss'] = rss
-                        entry['primary_pid'] = pid
-                        entry['primary_ctime'] = ctime
-
-                    if avd_id and not entry['avd_id']:
-                        entry['avd_id'] = avd_id
-                    if display_name and not entry['display_name']:
-                        entry['display_name'] = display_name
-                    if grpc_endpoint and not entry['grpc_endpoint']:
-                        entry['grpc_endpoint'] = grpc_endpoint
-                    if no_netsim:
-                        entry['no_netsim'] = True
-                    entry['avd_name'] = (entry['avd_id'] or entry['avd_name'] or
-                                         avd_name)
-            else:
-                cpu_str = f"{cpu_pct:.1f}%"
-                ram_str = f"{rss / (1024**2):.1f}MB ({threads} thr, {ctx_total} cs)"
-                unmapped_qemu.append((pid, cpu_str, ram_str))
+            emu_samples.append(
+                _EmuSample(
+                    cache_key=cache_key,
+                    role=role,
+                    name=name,
+                    pid=pid,
+                    ppid=ppid_map.get(pid),
+                    ctime=ctime,
+                    cached_proc=cached_proc,
+                    cpu_pct=cpu_pct,
+                    rss=rss,
+                    threads=threads,
+                    ctx_total=ctx_total,
+                    port=port,
+                    avd_name=avd_name,
+                    avd_id=avd_id,
+                    display_name=display_name,
+                    grpc_endpoint=grpc_endpoint,
+                    no_netsim=no_netsim,
+                    ini_resolved=ini_resolved,
+                    cmdline_resolved=cmdline_resolved,
+                    first_attempt=first_attempt,
+                    unmapped_timeout=unmapped_timeout,
+                    legacy_cache=legacy_cache,
+                ))
 
         except (psutil.NoSuchProcess, psutil.AccessDenied,
                 psutil.ZombieProcess):
             current_pids.discard(cache_key)
             process_cache.pop(cache_key, None)
+
+    _propagate_emu_hierarchy(emu_samples, ppid_map)
+
+    for sample in emu_samples:
+        _persist_pid_port_cache(pid_port_cache, sample)
+        _accumulate_emu_sample(accumulated_emus, unmapped_qemu, sample)
 
     qemu_stats = {}
     qemu_pids = {}
