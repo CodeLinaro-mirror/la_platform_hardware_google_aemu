@@ -676,6 +676,44 @@ def _extract_attention_metadata(
     }
 
 
+_SEARCH_GERRIT_URL_RE = re.compile(
+    r"https?://[^\s\"'()]+/\+/(\d+)(?:/\d+)?/?", re.IGNORECASE
+)
+_SEARCH_AG_PREFIX_RE = re.compile(
+    r"(?:https?://)?(?:change:|change_id:|id:)?(?:ag|cl)[/:](\d+)(?:/\d+)?\b",
+    re.IGNORECASE,
+)
+_SEARCH_BARE_CL_RE = re.compile(r"(?<![:/=\w+\-\"'])(\d{5,10})(?!/\d)(?![\w\"'])")
+_SEARCH_BUG_TOKEN_RE = re.compile(r"(?<![:/\w])b/(\d{6,12})\b", re.IGNORECASE)
+_SEARCH_PERSON_OP_RE = re.compile(
+    r"\b(owner|author|reviewer|cc|attention):([a-zA-Z][a-zA-Z0-9._-]*)(?![@\w.])",
+    re.IGNORECASE,
+)
+
+
+def normalize_gerrit_search_query(raw_query: str, viewer_email: str = "") -> str:
+    """Normalizes shorthand search tokens (`ag/12345`, URLs, bare CL IDs, `b/12345`) into Gerrit syntax."""
+    q = (raw_query or "").strip()
+    if not q:
+        return ""
+    q = _SEARCH_GERRIT_URL_RE.sub(r"change:\1", q)
+    q = _SEARCH_AG_PREFIX_RE.sub(r"change:\1", q)
+    q = _SEARCH_BUG_TOKEN_RE.sub(r'message:"\1"', q)
+    q = _SEARCH_BARE_CL_RE.sub(r"change:\1", q)
+    viewer = (viewer_email or "").strip().lower()
+
+    def _replace_person_op(match: re.Match[str]) -> str:
+        op_raw = match.group(1).lower()
+        op = "owner" if op_raw == "author" else op_raw
+        val = match.group(2)
+        if val.lower() in ("self", "me"):
+            return f"{op}:{viewer}" if viewer else f"{op}:{val}"
+        return f"{op}:{val}@google.com"
+
+    q = _SEARCH_PERSON_OP_RE.sub(_replace_person_op, q)
+    return q.strip()
+
+
 def build_viewer_gerrit_query(
     viewer_email: str, scope: str = "reviewer", author: str = ""
 ) -> str:
@@ -2337,7 +2375,9 @@ class GerritQueueService(GerritServiceBase):
         viewer = _normalize_viewer_email(viewer_email) or self.default_viewer
         norm_scope = (scope or "reviewer").strip().lower()
         norm_author = (author or "").strip()
-        explicit_query = (query or self.default_query).strip()
+        explicit_query = normalize_gerrit_search_query(
+            query or self.default_query, viewer_email=viewer
+        )
         q_str = explicit_query or build_viewer_gerrit_query(
             viewer, scope=norm_scope, author=norm_author
         )

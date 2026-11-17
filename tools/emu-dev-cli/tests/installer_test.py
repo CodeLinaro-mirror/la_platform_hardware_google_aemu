@@ -150,9 +150,9 @@ class InstallerTest(unittest.TestCase):
             installed_main = fake_release_dir / "lib" / "__main__.py"
             self.assertTrue(installed_main.exists())
 
-            # Verify that HTML templates (e.g. templates/gerrit_ui.html) are also copied
+            # Verify that HTML templates (e.g. templates/gerrit_ui_polygerrit.html) are also copied
             (fake_src / "templates").mkdir(parents=True, exist_ok=True)
-            (fake_src / "templates" / "gerrit_ui.html").write_text(
+            (fake_src / "templates" / "gerrit_ui_polygerrit.html").write_text(
                 "<!DOCTYPE html><title>测试_🚀_é</title>\n", encoding="utf-8"
             )
             with patch(
@@ -167,7 +167,7 @@ class InstallerTest(unittest.TestCase):
                     str(dest_launcher),
                     source_dir=str(fake_src),
                 )
-            installed_tpl = fake_release_dir / "lib" / "templates" / "gerrit_ui.html"
+            installed_tpl = fake_release_dir / "lib" / "templates" / "gerrit_ui_polygerrit.html"
             self.assertTrue(installed_tpl.is_file())
             self.assertIn("测试_🚀_é", installed_tpl.read_text(encoding="utf-8"))
 

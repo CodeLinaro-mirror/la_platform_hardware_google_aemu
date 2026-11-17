@@ -176,6 +176,29 @@ def compute_asset_version(asset_path: Path, length: int = ASSET_VERSION_HEX_LENG
         return "0"
 
 
+def render_html_text(
+    html: str,
+    *,
+    inline_preload: bool = True,
+    version_placeholder: str | None = None,
+    version: str | None = None,
+    bootstrap_placeholder: str | None = None,
+    bootstrap_payload: Mapping[str, Any] | None = None,
+) -> str:
+    """Renders HTML text with optional inlined `window.sidecar` JS and JSON bootstrap data."""
+    if inline_preload:
+        inline_script = f"<script>\n{SIDECAR_PRELOAD_JS}\n</script>"
+        html = html.replace(SIDECAR_PRELOAD_SCRIPT_TAG, inline_script)
+    if version_placeholder is not None:
+        html = html.replace(version_placeholder, json.dumps(version or "0"))
+    if bootstrap_placeholder is not None:
+        bootstrap_json = json.dumps(dict(bootstrap_payload or {}), ensure_ascii=False).replace(
+            "</", "<\\/"
+        )
+        html = html.replace(bootstrap_placeholder, bootstrap_json)
+    return html
+
+
 def render_html_shell(
     template_path: Path,
     *,
@@ -187,18 +210,19 @@ def render_html_shell(
 ) -> str:
     """Renders an HTML template with optional inlined `window.sidecar` JS and JSON bootstrap data."""
     html = template_path.read_text(encoding="utf-8")
-    if inline_preload:
-        inline_script = f"<script>\n{SIDECAR_PRELOAD_JS}\n</script>"
-        html = html.replace(SIDECAR_PRELOAD_SCRIPT_TAG, inline_script)
-    if version_placeholder is not None:
-        effective_version = version if version is not None else compute_asset_version(template_path)
-        html = html.replace(version_placeholder, json.dumps(effective_version))
-    if bootstrap_placeholder is not None:
-        bootstrap_json = json.dumps(dict(bootstrap_payload or {}), ensure_ascii=False).replace(
-            "</", "<\\/"
-        )
-        html = html.replace(bootstrap_placeholder, bootstrap_json)
-    return html
+    effective_version = (
+        version
+        if version is not None
+        else (compute_asset_version(template_path) if version_placeholder is not None else None)
+    )
+    return render_html_text(
+        html,
+        inline_preload=inline_preload,
+        version_placeholder=version_placeholder,
+        version=effective_version,
+        bootstrap_placeholder=bootstrap_placeholder,
+        bootstrap_payload=bootstrap_payload,
+    )
 
 
 def read_bounded_utf8_preview(
@@ -261,4 +285,5 @@ __all__ = [
     "compute_asset_version",
     "read_bounded_utf8_preview",
     "render_html_shell",
+    "render_html_text",
 ]

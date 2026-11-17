@@ -1,0 +1,270 @@
+<div id="workspaceContainer" class="workspace">
+  <div id="queuePane" class="queue-pane">
+    <div id="queueViewerToolbar" class="queue-viewer-toolbar pg-dashboard-bar">
+      <select id="scopeSelect" class="viewer-select scope-select" onchange="onScopeChange()" title="Gerrit query scope">
+        <option value="dashboard" selected>Your ▸ Dashboard</option>
+        <option value="reviewer">Incoming reviews</option>
+        <option value="owner">Outgoing reviews</option>
+        <option value="wip">Work in progress</option>
+        <option value="cc">CCed on</option>
+        <option value="starred">⭐ Starred changes</option>
+        <option value="closed">Recently closed</option>
+        <option value="team">All open (Team)</option>
+      </select>
+      <div class="group-toggle" title="Choose section grouping mode">
+        <button id="grpDashboard" type="button" class="active" onclick="setGroupMode('dashboard')">Dashboard</button>
+        <button id="grpStack" type="button" onclick="setGroupMode('stack')">Stacks</button>
+        <button id="grpType" type="button" onclick="setGroupMode('type')">Types</button>
+      </div>
+      <button
+        id="pgFiltersDrawerBtn"
+        type="button"
+        class="preset-collapse-btn"
+        style="margin-left:auto;"
+        onclick="togglePgFiltersDrawer()"
+        title="Show or hide optional author, sort, commit type, and gate filters"
+        aria-expanded="false"
+      >Filters ▾</button>
+      <button
+        id="btnToolbarCodeViewer"
+        type="button"
+        class="preset-collapse-btn cv-toolbar-launch-btn"
+        onclick="togglePgCodeViewerMode(null, true)"
+        title="Switch sidebar to Changed Files Directory Tree for active commit (Shortcut: \)"
+      >📂 Files</button>
+      <button
+        id="btnCollapseSidebar"
+        type="button"
+        class="btn-sidebar-toggle"
+        onclick="toggleSidebarCollapsed(true)"
+        title="Collapse dashboard panel ([)"
+        aria-label="Collapse side panel"
+        aria-expanded="true"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="2.5" width="12" height="11" rx="2"/>
+          <line x1="6.5" y1="2.5" x2="6.5" y2="13.5"/>
+          <polyline points="5 6.5 3.5 8 5 9.5"/>
+        </svg>
+      </button>
+    </div>
+
+    <div id="pgFiltersDrawer" class="pg-filters-drawer">
+      <div id="pgSearchQuickRow" class="pg-search-quick-row">
+        <span class="filter-row-label">Quick:</span>
+        <div id="pgDrawerPresetsBar" class="pg-drawer-presets-bar"></div>
+      </div>
+      <div id="queueSearchBar" class="queue-search-bar collapsed">
+        <div class="queue-search-row">
+          <span class="filter-row-label">Author:</span>
+          <select
+            id="authorFilterSelect"
+            class="author-filter-select"
+            style="flex:1;max-width:none;"
+            onchange="setAuthorFilter(this.value)"
+            title="Filter commits by owner / author"
+          >
+            <option value="all">👤 All Authors</option>
+          </select>
+          <button
+            id="authorPresetsToggleBtn"
+            type="button"
+            class="preset-collapse-btn"
+            onclick="toggleAuthorPresets()"
+            title="Expand or collapse author chips"
+            aria-expanded="false"
+          >Chips ▾</button>
+        </div>
+        <div id="authorPresetsBody" class="author-presets-body">
+          <div id="authorChipsBar" class="author-chips-row"></div>
+        </div>
+      </div>
+
+      <div id="queueTypeToolbar" class="queue-type-toolbar collapsed">
+        <div class="queue-group-row">
+          <select
+            id="queueSortSelect"
+            class="queue-sort-select"
+            onchange="setSortMode(this.value)"
+            title="Sort commit list within sections"
+          >
+            <option value="smart" selected>⚡ Sort: Smart / Updated</option>
+            <option value="updated_desc">🕒 Updated (Newest)</option>
+            <option value="updated_asc">🕰️ Updated (Oldest)</option>
+            <option value="starred_first">⭐ Starred first</option>
+            <option value="attention_first">⚡ Attention / Waiting first</option>
+            <option value="subject_asc">🔤 Subject (A-Z)</option>
+          </select>
+          <button
+            id="typePresetsToggleBtn"
+            type="button"
+            class="preset-collapse-btn"
+            onclick="toggleTypePresets()"
+            title="Expand or collapse commit type filter tabs"
+            aria-expanded="false"
+          >Types ▾</button>
+        </div>
+        <div id="typeFiltersBar" class="type-filters">
+          <div id="typeTab_all" class="type-tab active" onclick="setTypeFilter('all')">All Types (<span id="cntType_all">0</span>)</div>
+          <div id="typeTab_bugfix" class="type-tab" onclick="setTypeFilter('bugfix')">🐛 Bug Fix (<span id="cntType_bugfix">0</span>)</div>
+          <div id="typeTab_perf" class="type-tab" onclick="setTypeFilter('perf')">⚡ Perf (<span id="cntType_perf">0</span>)</div>
+          <div id="typeTab_ets_test" class="type-tab" onclick="setTypeFilter('ets_test')">🧪 ETS/Test (<span id="cntType_ets_test">0</span>)</div>
+          <div id="typeTab_cleanup" class="type-tab" onclick="setTypeFilter('cleanup')">🧹 Cleanup (<span id="cntType_cleanup">0</span>)</div>
+          <div id="typeTab_feature" class="type-tab" onclick="setTypeFilter('feature')">✨ Feature (<span id="cntType_feature">0</span>)</div>
+          <div id="typeTab_docs_build" class="type-tab" onclick="setTypeFilter('docs_build')">📦 Build/Docs (<span id="cntType_docs_build">0</span>)</div>
+        </div>
+      </div>
+
+      <div id="queueFilterToolbar" class="queue-filter-toolbar collapsed">
+        <div class="queue-filter-row">
+          <span class="filter-row-label">Gates:</span>
+          <button
+            id="gatePresubmit"
+            type="button"
+            class="gate-pill"
+            onclick="toggleGate('presubmit')"
+            title="Only show CLs with Presubmit-Verified +1 or +2"
+            aria-pressed="false"
+          >PV +1/+2</button>
+          <button
+            id="gateStarred"
+            type="button"
+            class="gate-pill"
+            onclick="toggleGate('starredOnly')"
+            title="Only show starred changes"
+            aria-pressed="false"
+          >⭐ Starred (<span id="starredCount">0</span>)</button>
+          <button
+            id="gateHideMine"
+            type="button"
+            class="gate-pill"
+            onclick="toggleGate('hideMine')"
+            title="Hide CLs where the selected viewer has already voted Code-Review +2"
+            aria-pressed="false"
+          >Hide +2 by Me (<span id="hiddenMineCount">0</span>)</button>
+          <button
+            id="gateHideSubmittable"
+            type="button"
+            class="gate-pill"
+            onclick="toggleGate('hideSubmittable')"
+            title="Hide CLs that already have all required human +2 approvals and vetted presubmit"
+            aria-pressed="false"
+          >Hide Submittable (<span id="hiddenSubmittableCount">0</span>)</button>
+          <button
+            id="filterPresetsToggleBtn"
+            type="button"
+            class="preset-collapse-btn"
+            style="margin-left:auto;"
+            onclick="toggleFilterPresets()"
+            title="Expand or collapse additional queue filters"
+            aria-expanded="false"
+          >More ▾</button>
+        </div>
+        <div id="filterExtraBody" class="filter-extra-body">
+          <button
+            id="gateAgent"
+            type="button"
+            class="gate-pill"
+            onclick="toggleGate('agent')"
+            title="Only show CLs verified by an agent (or non-agent CLs) with 0 unresolved comments"
+            aria-pressed="false"
+          >Agent Verified (0 unresolved)</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="queueList" class="queue-list pg-dashboard-list"></div>
+    <div id="codeViewerSidebar" class="code-viewer-sidebar" style="display:none;"></div>
+
+    <div id="collapsedDoneBucket" class="collapsed-done-bucket" style="display:none;">
+      <span>✓ <strong id="bottomHiddenCount">0 CLs auto-hidden</strong> (You already voted <strong>+2</strong>)</span>
+      <button class="nudge-btn" onclick="copyAllWaitingPings()">Copy Follow-up Digest</button>
+    </div>
+    <div id="queuePaneOverlay" class="pane-loading-overlay" aria-hidden="true">
+      <div class="pane-loading-card">
+        <div class="pane-loading-spinner"></div>
+        <div id="queueOverlayTitle" class="pane-loading-title">Loading Gerrit Queue…</div>
+        <div id="queueOverlaySub" class="pane-loading-sub">Fetching open CLs, approval slots, and Buganizer metadata</div>
+      </div>
+    </div>
+  </div>
+
+  <div
+    id="workspaceSplitter"
+    class="workspace-splitter"
+    role="separator"
+    aria-orientation="vertical"
+    aria-label="Resize side panel and code diff viewer"
+    tabindex="0"
+    title="Drag to resize panels · Double-click to reset width"
+  >
+    <div class="workspace-splitter-grip" aria-hidden="true"></div>
+  </div>
+
+  <div class="diff-pane">
+    <div id="voteStampBanner" class="vote-stamp-banner"></div>
+    <div id="harnessDropdownMenu" class="harness-dropdown-menu" role="menu" aria-hidden="true" onclick="event.stopPropagation()">
+      <button
+        id="btnAiAnalysis"
+        type="button"
+        role="menuitem"
+        class="harness-menu-item"
+        onclick="onHarnessMenuAction('problem-alternatives', this)"
+        title="Analyze the underlying problem, chosen solution, tradeoffs, and alternative solutions for this CL"
+      >
+        <div class="harness-menu-item-top">
+          <span id="btnAiAnalysisLabel" class="harness-menu-item-title">🧠 Analyze Problem &amp; Alternatives</span>
+        </div>
+        <div id="btnAiAnalysisSub" class="harness-menu-item-sub">Underlying problem, chosen solution, tradeoffs &amp; alternatives</div>
+      </button>
+      <button
+        id="btnRunSwarm"
+        type="button"
+        role="menuitem"
+        class="harness-menu-item"
+        onclick="onHarnessMenuAction('review-swarm', this)"
+        title="Launch the 8-specialist parallel Review Swarm workflow (Shortcut: s)"
+      >
+        <div class="harness-menu-item-top">
+          <span id="btnRunSwarmLabel" class="harness-menu-item-title">★ Run Review Swarm (8 Specialists)</span>
+          <kbd class="harness-menu-kbd">s</kbd>
+        </div>
+        <div id="btnRunSwarmSub" class="harness-menu-item-sub">8-agent parallel audit for library reuse, error messages, complexity &amp; tests</div>
+      </button>
+      <button
+        id="btnAutoFix"
+        type="button"
+        role="menuitem"
+        class="harness-menu-item"
+        onclick="onHarnessMenuAction('address-review', this)"
+        title="Launch single-agent CLI workflow to address unresolved review comments"
+      >
+        <div class="harness-menu-item-top">
+          <span id="btnAutoFixLabel" class="harness-menu-item-title">→ Auto-Address Comments</span>
+        </div>
+        <div id="btnAutoFixSub" class="harness-menu-item-sub">Single-agent CLI workflow to fix unresolved review threads, test &amp; upload</div>
+      </button>
+    </div>
+
+    <div id="diffScroll" class="diff-scroll"></div>
+
+    <div class="harness-drawer">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span id="drawerDot" class="dot dot-green"></span>
+        <strong>Harness &amp; Gerrit Bridge:</strong>
+        <span id="drawerStatus" style="color:var(--g-muted);">Ready · Shortcuts: [ (sidebar), j/k (next/prev), r (reply), x (select CL), 1/2/0 (stage CR), p (stage PR+1), u (stage AS+1), Enter (send vote), s (Swarm)</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <a id="openAemuMapLink" href="http://go/aemu-map" target="_blank" rel="noopener noreferrer" style="color:#f2c94c;font-weight:600;text-decoration:none;" title="Visualize active CL blast radius and call flows on go/aemu-map">🌐 Architecture Map ↗</a>
+        <a id="openGerritLink" href="#" target="_blank" style="color:var(--g-accent);font-weight:600;text-decoration:none;">Open in Gerrit ↗</a>
+      </div>
+    </div>
+    <div id="diffPaneOverlay" class="pane-loading-overlay" aria-hidden="true">
+      <div class="pane-loading-card">
+        <div class="pane-loading-spinner"></div>
+        <div id="diffOverlayTitle" class="pane-loading-title">Updating Diff Workspace…</div>
+        <div id="diffOverlaySub" class="pane-loading-sub">Waiting for new queue selection</div>
+      </div>
+    </div>
+  </div>
+</div>

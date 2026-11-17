@@ -1,0 +1,384 @@
+<!-- PolyGerrit Save Search as Custom Section Modal -->
+<div
+  id="pgSaveSearchBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgSaveSearchTitle"
+  aria-hidden="true"
+  onclick="onPgSaveSearchBackdropClick(event)"
+>
+  <div class="pg-action-dialog pg-save-search-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">💾</span>
+        <div>
+          <h2 id="pgSaveSearchTitle" class="pg-action-dialog-title">Save Search to Dashboard</h2>
+          <div class="pg-action-dialog-subtitle">Create a custom dashboard section or saved search</div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closeSaveCurrentSearchDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body" style="padding:16px 20px;">
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div>
+          <label for="pgSaveSearchTitleInput" style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--g-fg);">Section Title</label>
+          <input id="pgSaveSearchTitleInput" type="text" class="pg-saved-search-input" style="width:100%;" placeholder="e.g. My Goldfish Reviews" onkeydown="if(event.key==='Enter')confirmSaveCurrentSearch();" />
+        </div>
+        <div>
+          <label for="pgSaveSearchQueryInput" style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--g-fg);">Query</label>
+          <input id="pgSaveSearchQueryInput" type="text" class="pg-saved-search-input is-query" style="width:100%;" placeholder="e.g. project:platform/hardware/generic/goldfish status:open" onkeydown="if(event.key==='Enter')confirmSaveCurrentSearch();" />
+        </div>
+        <div>
+          <label class="pg-saved-search-check-label">
+            <input id="pgSaveSearchShowOnDash" type="checkbox" checked />
+            <span>Show as dedicated section on PolyGerrit Dashboard</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <button type="button" class="pg-btn-flat" onclick="closeSaveCurrentSearchDialog()">Cancel</button>
+      <button id="btnConfirmSaveSearch" type="button" class="btn pg-btn-primary" onclick="confirmSaveCurrentSearch()">💾 Save Section</button>
+    </div>
+  </div>
+</div>
+
+<!-- PolyGerrit Custom Dashboards & Saved Searches Manager Modal -->
+<div
+  id="pgSavedSearchesBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgSavedSearchesTitle"
+  aria-hidden="true"
+  onclick="onPgSavedSearchesBackdropClick(event)"
+>
+  <div class="pg-action-dialog pg-saved-searches-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">📁</span>
+        <div>
+          <h2 id="pgSavedSearchesTitle" class="pg-action-dialog-title">Custom Dashboards &amp; Saved Searches</h2>
+          <div id="pgSavedSearchesSubtitle" class="pg-action-dialog-subtitle">Configure custom queries and sections displayed on your PolyGerrit dashboard (Shift+Y)</div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closeSavedSearchesModal()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-saved-searches-body">
+      <div class="pg-saved-searches-add-box">
+        <div class="pg-saved-searches-add-title">
+          <span>➕ Add Custom Dashboard Section</span>
+        </div>
+        <div class="pg-saved-search-form-row">
+          <input id="pgNewSearchTitle" type="text" class="pg-saved-search-input" placeholder="Title (e.g. Goldfish Reviews)" onkeydown="if(event.key==='Enter')addPgCustomDashboardSectionFromInputs();" />
+          <input id="pgNewSearchQuery" type="text" class="pg-saved-search-input is-query" placeholder="Query (e.g. project:goldfish status:open)" onkeydown="if(event.key==='Enter')addPgCustomDashboardSectionFromInputs();" />
+          <label class="pg-saved-search-check-label">
+            <input id="pgNewSearchShowOnDash" type="checkbox" checked />
+            <span>Dashboard</span>
+          </label>
+          <button id="btnAddNewSavedSearch" type="button" class="btn pg-btn-primary" onclick="addPgCustomDashboardSectionFromInputs()">+ Add</button>
+        </div>
+        <div class="pg-saved-search-templates-row">
+          <span>Quick templates:</span>
+          <button type="button" class="pg-saved-template-chip" onclick="applyPgSearchTemplate('Pending Drafts', 'has:draft')">+ Drafts</button>
+          <button type="button" class="pg-saved-template-chip" onclick="applyPgSearchTemplate('Ready to Submit', 'is:submittable label:cr=+2')">+ Submittable</button>
+          <button type="button" class="pg-saved-template-chip" onclick="applyPgSearchTemplate('Goldfish Reviews', 'project:platform/hardware/generic/goldfish status:open')">+ Goldfish</button>
+          <button type="button" class="pg-saved-template-chip" onclick="applyPgSearchTemplate('Needs Review', 'reviewer:self status:open -label:cr=+2')">+ Needs Review</button>
+          <button type="button" class="pg-saved-template-chip" onclick="applyPgSearchTemplate('Starred Changes', 'is:starred')">+ Starred</button>
+        </div>
+      </div>
+      <div id="pgSavedSearchesList" class="pg-saved-searches-list">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <div id="pgSavedSearchesFooterStats" style="font-size:12px;color:var(--g-muted);"></div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button type="button" class="pg-btn-flat" onclick="resetPgSavedSearchesToDefaults()" title="Reset to default templates">↺ Reset Defaults</button>
+        <button type="button" class="btn pg-btn-flat" onclick="closeSavedSearchesModal()">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PolyGerrit Search Operators Help Modal (<gr-search-help-dialog>) -->
+<div
+  id="pgSearchHelpBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgSearchHelpTitle"
+  aria-hidden="true"
+  onclick="onPgSearchHelpBackdropClick(event)"
+>
+  <div class="pg-action-dialog pg-search-help-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">🔍</span>
+        <div>
+          <h2 id="pgSearchHelpTitle" class="pg-action-dialog-title">Search Operators</h2>
+          <div id="pgSearchHelpSubtitle" class="pg-action-dialog-subtitle">Filter changes on the dashboard and queue using PolyGerrit search syntax</div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgSearchHelpDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body pg-search-help-body">
+      <div class="pg-search-help-topbar">
+        <div class="pg-search-help-input-wrap">
+          <span class="pg-search-help-input-icon" aria-hidden="true">🔍</span>
+          <input
+            id="pgSearchHelpFilterInput"
+            type="text"
+            class="pg-search-help-filter-input"
+            placeholder="Filter search operators (e.g. status, reviewer, draft, label, git)..."
+            oninput="onPgSearchHelpFilterInput(this.value)"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button
+            id="pgSearchHelpClearBtn"
+            type="button"
+            class="pg-search-help-clear-btn"
+            onclick="clearPgSearchHelpFilter()"
+            title="Clear filter"
+            style="display:none;"
+          >✕</button>
+        </div>
+        <div class="pg-search-help-category-chips" id="pgSearchHelpCategoryChips">
+          <!-- Rendered dynamically -->
+        </div>
+      </div>
+      <div class="pg-search-help-grid" id="pgSearchHelpGrid">
+        <!-- Rendered dynamically -->
+      </div>
+      <div class="pg-search-help-syntax-tips">
+        <div class="pg-search-help-tip-title">⚡ Query Syntax Tips</div>
+        <div class="pg-search-help-tip-grid">
+          <div class="pg-search-tip-item"><span class="pg-tip-badge">AND</span><span>Implicit between spaces: <code>status:open owner:self</code></span></div>
+          <div class="pg-search-tip-item"><span class="pg-tip-badge">OR</span><span>Separate alternatives: <code>owner:self OR reviewer:self</code></span></div>
+          <div class="pg-search-tip-item"><span class="pg-tip-badge">NOT</span><span>Prefix with minus: <code>-is:wip</code> or <code>-is:reviewed</code></span></div>
+          <div class="pg-search-tip-item"><span class="pg-tip-badge">( )</span><span>Group expressions: <code>(owner:self OR reviewer:self) status:open</code></span></div>
+          <div class="pg-search-tip-item"><span class="pg-tip-badge">" "</span><span>Quotes for phrases: <code>message:"fix crash"</code></span></div>
+          <div class="pg-search-tip-item"><span class="pg-tip-badge">#</span><span>Hashtags shortcut: <code>#goldfish</code> or <code>hashtag:aemu</code></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <span class="pg-search-help-footer-hint">Shortcut: <kbd>Alt+/</kbd> · Press <kbd>Esc</kbd> to close</span>
+      <div style="flex:1"></div>
+      <button type="button" class="pg-btn-primary" onclick="closePgSearchHelpDialog()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- PolyGerrit Checks Tab Rerun Modal (<gr-checks-rerun-dialog>) -->
+<div
+  id="pgChecksRerunBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgChecksRerunTitle"
+  aria-hidden="true"
+  onclick="onPgChecksRerunBackdropClick(event)"
+>
+  <div class="pg-action-dialog pg-checks-rerun-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">↻</span>
+        <div>
+          <h2 id="pgChecksRerunTitle" class="pg-action-dialog-title">Rerun Presubmit Checks</h2>
+          <div id="pgChecksRerunSubtitle" class="pg-action-dialog-subtitle">Configure check runs to re-trigger</div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgChecksRerunModal()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-checks-rerun-body" id="pgChecksRerunBody">
+      <!-- Rendered dynamically via renderPgChecksRerunModalDom() -->
+    </div>
+    <div class="pg-action-dialog-footer">
+      <div class="pg-checks-rerun-footer-stats" id="pgChecksRerunFooterStats">Rerunning 1 check run</div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button type="button" class="pg-btn-flat" onclick="closePgChecksRerunModal()">Cancel</button>
+        <button id="btnConfirmChecksRerun" type="button" class="btn pg-btn-primary" onclick="confirmPgChecksRerun()">↻ Trigger Rerun</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PolyGerrit Draft Comment Discard Confirmation Modal (<gr-confirm-discard-dialog>) -->
+<div
+  id="pgConfirmDiscardBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgConfirmDiscardTitle"
+  aria-hidden="true"
+  onclick="onPgConfirmDiscardBackdropClick(event)"
+>
+  <div class="pg-action-dialog pg-confirm-discard-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon pg-action-icon-danger" aria-hidden="true">🗑</span>
+        <div>
+          <h2 id="pgConfirmDiscardTitle" class="pg-action-dialog-title">Discard Draft Comment</h2>
+          <div id="pgConfirmDiscardSubtitle" class="pg-action-dialog-subtitle"></div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgConfirmDiscardDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body">
+      <div id="pgConfirmDiscardMessage" class="pg-action-dialog-desc">
+        Are you sure you want to discard this draft comment? This action cannot be undone.
+      </div>
+      <div id="pgConfirmDiscardPreviewWrap" class="pg-discard-preview-wrap">
+        <div class="pg-discard-preview-label">Draft content:</div>
+        <div id="pgConfirmDiscardPreview" class="pg-discard-preview-snippet"></div>
+      </div>
+      <div id="pgConfirmDiscardBatchList" class="pg-discard-batch-list" style="display:none;"></div>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <button
+        type="button"
+        class="pg-btn-flat"
+        onclick="closePgConfirmDiscardDialog()"
+      >Cancel</button>
+      <button
+        id="btnConfirmDiscardAction"
+        type="button"
+        class="pg-btn-danger"
+        onclick="executePgConfirmDiscard()"
+      >Discard</button>
+    </div>
+  </div>
+</div>
+
+<!-- PolyGerrit Go To Line Modal (<gr-goto-line-dialog>) -->
+<div
+  id="pgGoToLineBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgGoToLineTitle"
+  aria-hidden="true"
+  onclick="onPgGoToLineBackdropClick(event)"
+>
+  <div class="pg-action-dialog pg-gotoline-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">📍</span>
+        <div>
+          <h2 id="pgGoToLineTitle" class="pg-action-dialog-title">Go to Line</h2>
+          <div id="pgGoToLineSubtitle" class="pg-action-dialog-subtitle">Jump to line number in active file diff</div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgGoToLineModal()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body" style="padding: 16px 20px;">
+      <form id="pgGoToLineForm" onsubmit="event.preventDefault(); executePgGoToLine();">
+        <div class="pg-gotoline-input-wrap">
+          <input
+            type="text"
+            id="pgGoToLineInput"
+            class="pg-pref-input"
+            style="flex: 1; font-family: var(--g-mono); font-size: 13px; padding: 8px 12px;"
+            placeholder="Line number (e.g. 142 or :142) — Enter to jump"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="Line number"
+          />
+          <button
+            type="submit"
+            id="btnPgGoToLineSubmit"
+            class="pg-btn-primary"
+            style="padding: 8px 16px;"
+          >Jump</button>
+        </div>
+        <div class="pg-gotoline-hint">
+          Tip: Press <kbd>Enter</kbd> to jump, <kbd>Esc</kbd> to cancel. Supports raw numbers or <code>:line</code>.
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- PolyGerrit Code Owners Status Tooltip (<gr-tooltip>) -->
+<div
+  id="pgOwnerTooltip"
+  class="pg-owner-tooltip"
+  role="tooltip"
+  aria-hidden="true"
+  style="display:none;"
+></div>
+
+<!-- PolyGerrit Code Owners Rule Breakdown & Approvers Modal (<gr-code-owners-dialog>) -->
+<div
+  id="pgCodeOwnersBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgCodeOwnersTitle"
+  aria-hidden="true"
+  onclick="onPgCodeOwnersBackdropClick(event)"
+>
+  <div class="pg-action-dialog pg-code-owners-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span id="pgCodeOwnersHeaderIcon" class="pg-action-icon" aria-hidden="true">🛡️</span>
+        <div>
+          <h2 id="pgCodeOwnersTitle" class="pg-action-dialog-title">Code Owners</h2>
+          <div id="pgCodeOwnersSubtitle" class="pg-action-dialog-subtitle">Rule breakdown and eligible code owners</div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgCodeOwnersDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body pg-code-owners-body" id="pgCodeOwnersBody">
+      <!-- Dynamically populated by renderPgCodeOwnersModalContent -->
+    </div>
+    <div class="pg-action-dialog-footer pg-code-owners-footer" id="pgCodeOwnersFooter">
+      <!-- Dynamically populated buttons -->
+    </div>
+  </div>
+</div>

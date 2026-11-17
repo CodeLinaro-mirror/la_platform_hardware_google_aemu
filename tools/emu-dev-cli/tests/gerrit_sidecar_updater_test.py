@@ -116,7 +116,7 @@ class GerritSidecarUpdaterTest(unittest.TestCase):
     def _write_watched_seed_files(self, repo: Path) -> None:
         files = {
             "tools/emu-dev-cli/src/commands/gerrit/ui_server.py": "# ui_server v1\n",
-            "tools/emu-dev-cli/src/templates/gerrit_ui.html": "<html>v1</html>\n",
+            "tools/emu-dev-cli/src/templates/gerrit_ui_polygerrit.html": "<html>v1</html>\n",
             "tools/emu-dev-cli/src/lib/gerrit_api.py": "# gerrit_api v1\n",
             "tools/emu-dev-cli/harness/plugin/sidecars/aemu_gerrit_ui/server.py": "# sidecar v1\n",
             "base/ unrelated.cpp": "// non-gerrit file\n",
@@ -150,10 +150,10 @@ class GerritSidecarUpdaterTest(unittest.TestCase):
         self.assertEqual(status["dirty_files"], [])
 
         # Confirm Git blob SHA-1 matches exact file bytes.
-        ui_bytes = (self.lib_dir / "templates" / "gerrit_ui.html").read_bytes()
+        ui_bytes = (self.lib_dir / "templates" / "gerrit_ui_polygerrit.html").read_bytes()
         blobs = collect_installed_gerrit_blobs(self.lib_dir)
         self.assertEqual(
-            blobs["tools/emu-dev-cli/src/templates/gerrit_ui.html"],
+            blobs["tools/emu-dev-cli/src/templates/gerrit_ui_polygerrit.html"],
             compute_git_blob_sha1(ui_bytes),
         )
 
@@ -170,7 +170,7 @@ class GerritSidecarUpdaterTest(unittest.TestCase):
         self.assertEqual(status["behind_count"], 0)
 
     def test_upstream_gerrit_commit_triggers_update_available_and_clean_install_clears_it(self) -> None:
-        (self.upstream_work / "tools" / "emu-dev-cli" / "src" / "templates" / "gerrit_ui.html").write_text(
+        (self.upstream_work / "tools" / "emu-dev-cli" / "src" / "templates" / "gerrit_ui_polygerrit.html").write_text(
             "<html>v2 测试_🚀_é</html>\n", encoding="utf-8"
         )
         _git(self.upstream_work, "add", ".")
@@ -185,7 +185,7 @@ class GerritSidecarUpdaterTest(unittest.TestCase):
         self.assertEqual(len(status["pending_commits"]), 1)
         self.assertIn("测试_🚀_é", status["pending_commits"][0]["subject"])
         self.assertIn(
-            "tools/emu-dev-cli/src/templates/gerrit_ui.html",
+            "tools/emu-dev-cli/src/templates/gerrit_ui_polygerrit.html",
             status["changed_gerrit_files"],
         )
 
@@ -195,7 +195,7 @@ class GerritSidecarUpdaterTest(unittest.TestCase):
         self.assertFalse(res["update_status"]["update_available"])
         self.assertIn(
             "测试_🚀_é",
-            (self.lib_dir / "templates" / "gerrit_ui.html").read_text(encoding="utf-8"),
+            (self.lib_dir / "templates" / "gerrit_ui_polygerrit.html").read_text(encoding="utf-8"),
         )
 
     def test_local_committed_head_ahead_of_installed_triggers_and_already_installed_does_not(
@@ -222,7 +222,7 @@ class GerritSidecarUpdaterTest(unittest.TestCase):
     def test_installed_uncommitted_worktree_edits_do_not_falsely_trigger_until_upstream_advances(
         self,
     ) -> None:
-        (self.aemu_repo / "tools" / "emu-dev-cli" / "src" / "templates" / "gerrit_ui.html").write_text(
+        (self.aemu_repo / "tools" / "emu-dev-cli" / "src" / "templates" / "gerrit_ui_polygerrit.html").write_text(
             "<html>local uncommitted installed WIP</html>\n", encoding="utf-8"
         )
         _sync_repo_to_installed_lib(self.aemu_repo, self.lib_dir)
@@ -304,8 +304,8 @@ class GerritSidecarUpdaterTest(unittest.TestCase):
         _git(self.aemu_repo, "commit", "-m", "feat(gerrit): Local API helper")
         _sync_repo_to_installed_lib(self.aemu_repo, self.lib_dir)
 
-        # Upstream non-conflicting change on gerrit_ui.html -> rebases cleanly preserving local commit.
-        (self.upstream_work / "tools" / "emu-dev-cli" / "src" / "templates" / "gerrit_ui.html").write_text(
+        # Upstream non-conflicting change on gerrit_ui_polygerrit.html -> rebases cleanly preserving local commit.
+        (self.upstream_work / "tools" / "emu-dev-cli" / "src" / "templates" / "gerrit_ui_polygerrit.html").write_text(
             "<html>upstream v2</html>\n", encoding="utf-8"
         )
         _git(self.upstream_work, "add", ".")
@@ -320,7 +320,7 @@ class GerritSidecarUpdaterTest(unittest.TestCase):
             "# local committed api change\n",
         )
         self.assertEqual(
-            (self.aemu_repo / "tools" / "emu-dev-cli" / "src" / "templates" / "gerrit_ui.html").read_text(encoding="utf-8"),
+            (self.aemu_repo / "tools" / "emu-dev-cli" / "src" / "templates" / "gerrit_ui_polygerrit.html").read_text(encoding="utf-8"),
             "<html>upstream v2</html>\n",
         )
 

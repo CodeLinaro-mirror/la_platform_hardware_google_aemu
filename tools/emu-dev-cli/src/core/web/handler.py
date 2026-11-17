@@ -36,6 +36,7 @@ LOGGER = logging.getLogger(__name__)
 CONTENT_TYPE_JSON = "application/json; charset=utf-8"
 CONTENT_TYPE_HTML = "text/html; charset=utf-8"
 CONTENT_TYPE_JS = "application/javascript; charset=utf-8"
+CONTENT_TYPE_CSS = "text/css; charset=utf-8"
 
 
 class JsonRequestHandler(http.server.BaseHTTPRequestHandler):
@@ -123,10 +124,27 @@ class JsonRequestHandler(http.server.BaseHTTPRequestHandler):
         raw = html.encode("utf-8") if isinstance(html, str) else html
         self.send_raw_bytes(raw, CONTENT_TYPE_HTML, status=status)
 
-    def send_javascript(self, script: str | bytes, status: int = int(HTTPStatus.OK)) -> None:
+    def send_javascript(
+        self,
+        script: str | bytes,
+        status: int = int(HTTPStatus.OK),
+        *,
+        cache_control: str | None = "default",
+    ) -> None:
         """Sends a JavaScript response body encoded as UTF-8."""
         raw = script.encode("utf-8") if isinstance(script, str) else script
-        self.send_raw_bytes(raw, CONTENT_TYPE_JS, status=status)
+        self.send_raw_bytes(raw, CONTENT_TYPE_JS, status=status, cache_control=cache_control)
+
+    def send_css(
+        self,
+        stylesheet: str | bytes,
+        status: int = int(HTTPStatus.OK),
+        *,
+        cache_control: str | None = "default",
+    ) -> None:
+        """Sends a CSS stylesheet response body encoded as UTF-8."""
+        raw = stylesheet.encode("utf-8") if isinstance(stylesheet, str) else stylesheet
+        self.send_raw_bytes(raw, CONTENT_TYPE_CSS, status=status, cache_control=cache_control)
 
     def read_json_body(self) -> dict[str, Any]:
         """Reads and validates a UTF-8 JSON object request body."""
@@ -212,6 +230,7 @@ class JsonRequestHandler(http.server.BaseHTTPRequestHandler):
 
 
 __all__ = [
+    "CONTENT_TYPE_CSS",
     "CONTENT_TYPE_HTML",
     "CONTENT_TYPE_JS",
     "CONTENT_TYPE_JSON",

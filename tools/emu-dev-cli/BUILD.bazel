@@ -12,12 +12,112 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_run_binary", "js_test")
+load("@aspect_rules_ts//ts:defs.bzl", "ts_project")
 load("@rules_cc//cc:defs.bzl", "cc_binary")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 
 package(
     default_applicable_licenses = ["//:license"],
     default_visibility = ["//visibility:public"],
+)
+
+_NOT_WINDOWS = select({
+    "@platforms//os:windows": ["@platforms//:incompatible"],
+    "//conditions:default": [],
+})
+
+_GERRIT_UI_TS_SRCS = [
+    "src/ui/gerrit/components/AiSwarmAndSubmitReqs.tsx",
+    "src/ui/gerrit/components/ChangeHeader.tsx",
+    "src/ui/gerrit/components/ChecksAndReplyView.tsx",
+    "src/ui/gerrit/components/CodeViewerTreeSidebar.tsx",
+    "src/ui/gerrit/components/ContinuousStackBanner.tsx",
+    "src/ui/gerrit/components/DashboardQueueTable.tsx",
+    "src/ui/gerrit/components/RebaseNoticeBanner.tsx",
+    "src/ui/gerrit/components/RelationBaseRow.tsx",
+    "src/ui/gerrit/components/RelationChainSidebar.tsx",
+    "src/ui/gerrit/components/RelationCommitRow.tsx",
+    "src/ui/gerrit/components/RelationStatusBadges.tsx",
+    "src/ui/gerrit/components/StackSequenceAndFilesDialogs.tsx",
+    "src/ui/gerrit/components/StickyScrollActions.tsx",
+    "src/ui/gerrit/constants.ts",
+    "src/ui/gerrit/index.tsx",
+    "src/ui/gerrit/runtime.ts",
+    "src/ui/gerrit/state/store.ts",
+    "src/ui/gerrit/types.ts",
+]
+
+_GERRIT_UI_NPM_DEPS = [
+    "//api/web:node_modules/@types/node",
+    "//api/web:node_modules/@types/react",
+    "//api/web:node_modules/react",
+    "//api/web:node_modules/typescript",
+]
+
+ts_project(
+    name = "gerrit_ui_ts",
+    srcs = _GERRIT_UI_TS_SRCS,
+    declaration = True,
+    out_dir = "_gerrit_ui_ts_out",
+    root_dir = "src/ui/gerrit",
+    target_compatible_with = _NOT_WINDOWS,
+    tsconfig = "src/ui/gerrit/tsconfig.json",
+    validate = False,
+    deps = _GERRIT_UI_NPM_DEPS,
+)
+
+js_binary(
+    name = "gerrit_ui_esbuild_runner",
+    data = [
+        "//api/web:node_modules/esbuild",
+        "//api/web:node_modules/react",
+    ],
+    entry_point = "src/ui/gerrit/esbuild_runner.mjs",
+    target_compatible_with = _NOT_WINDOWS,
+)
+
+js_run_binary(
+    name = "gerrit_ui_bundle",
+    srcs = _GERRIT_UI_TS_SRCS + [
+        "src/ui/gerrit/tsconfig.json",
+        "//api/web:node_modules/esbuild",
+        "//api/web:node_modules/react",
+    ],
+    outs = ["gerrit_ui.bundle.js"],
+    args = [
+        "$(rootpath src/ui/gerrit/index.tsx)",
+        "$(rootpath gerrit_ui.bundle.js)",
+    ],
+    target_compatible_with = _NOT_WINDOWS,
+    tool = ":gerrit_ui_esbuild_runner",
+)
+
+ts_project(
+    name = "gerrit_ui_tests_ts",
+    srcs = _GERRIT_UI_TS_SRCS + [
+        "src/ui/gerrit/tests/gerrit_ui_react.test.tsx",
+        "src/ui/gerrit/tests/run_tests.ts",
+        "src/ui/gerrit/tsconfig.json",
+    ],
+    declaration = False,
+    out_dir = "_gerrit_ui_test_out",
+    root_dir = "src/ui/gerrit",
+    target_compatible_with = _NOT_WINDOWS,
+    tsconfig = "src/ui/gerrit/tsconfig.test.json",
+    validate = False,
+    deps = _GERRIT_UI_NPM_DEPS,
+)
+
+js_test(
+    name = "gerrit_ui_react_test",
+    size = "small",
+    args = ["--test"],
+    data = [
+        ":gerrit_ui_tests_ts",
+    ] + _GERRIT_UI_NPM_DEPS,
+    entry_point = "_gerrit_ui_test_out/tests/run_tests.js",
+    target_compatible_with = _NOT_WINDOWS,
 )
 
 py_library(
@@ -60,7 +160,11 @@ py_library(
             "harness/plugin/**",
             "skills/*.md",
             "src/templates/*.html",
+            "src/templates/*.js",
             "src/templates/*.md",
+            "src/ui/gerrit/partials/*.html",
+            "src/ui/gerrit/scripts/*.js",
+            "src/ui/gerrit/styles/*.css",
             "workflows/**/*.yaml",
             "workflows/**/*.yml",
             "workflows/**/*.md",
@@ -123,8 +227,8 @@ py_library(
     py_test(
         name = f.replace("tests/", "").replace("/", "_").replace(".py", ""),
         srcs = [f],
-        data = ["@rules_nodejs//nodejs:current_node_toolchain"] if f == "tests/gerrit_ui_test.py" else [],
-        env = {"NODE_BIN": "$(NODE_PATH)"} if f == "tests/gerrit_ui_test.py" else {},
+        data = ["@rules_nodejs//nodejs:current_node_toolchain"] if f in ("tests/gerrit_ui_test.py", "tests/gerrit/ui_assets_test.py") else [],
+        env = {"NODE_BIN": "$(NODE_PATH)"} if f in ("tests/gerrit_ui_test.py", "tests/gerrit/ui_assets_test.py") else {},
         # do not sort
         imports = [
             "src",
@@ -133,8 +237,9 @@ py_library(
             "tests",
         ],
         main = f,
+        shard_count = 4 if f == "tests/gerrit_ui_test.py" else None,
         tags = ["manual"] if "benchmark" in f else [],
-        toolchains = ["@rules_nodejs//nodejs:current_node_toolchain"] if f == "tests/gerrit_ui_test.py" else [],
+        toolchains = ["@rules_nodejs//nodejs:current_node_toolchain"] if f in ("tests/gerrit_ui_test.py", "tests/gerrit/ui_assets_test.py") else [],
         deps = [
             ":emu_dev_cli_lib",
             ":emu_dev_cli_testlib",
@@ -167,5 +272,5 @@ test_suite(
             ],
             exclude = ["tests/*benchmark*_test.py"],
         )
-    ],
+    ] + [":gerrit_ui_react_test"],
 )

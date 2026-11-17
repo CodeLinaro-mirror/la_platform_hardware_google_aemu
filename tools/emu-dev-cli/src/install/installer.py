@@ -9,7 +9,7 @@ import signal
 import subprocess
 import sys
 
-RELEASE_SRC_ASSET_EXTENSIONS: tuple[str, ...] = (".py", ".html", ".md")
+RELEASE_SRC_ASSET_EXTENSIONS: tuple[str, ...] = (".py", ".html", ".md", ".css", ".js")
 
 from commands.source_directory import (
     ensure_codesearch_urls_config,
