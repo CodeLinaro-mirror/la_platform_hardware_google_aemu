@@ -511,6 +511,22 @@ fn format_host_os_info(
     }
 }
 
+fn parse_hv_vmm_present(stdout: &str) -> bool {
+    stdout.trim() == "1"
+}
+
+/// Whether macOS reports that it runs inside a virtual machine.
+fn mac_hv_vmm_present() -> bool {
+    cfg!(target_os = "macos")
+        && crate::netsim::run_with_timeout(
+            "sysctl",
+            &["-n", "kern.hv_vmm_present"],
+            crate::host::HOST_CMD_TIMEOUT,
+        )
+        .filter(|out| out.status.success())
+        .is_some_and(|out| parse_hv_vmm_present(&String::from_utf8_lossy(&out.stdout)))
+}
+
 fn build_header_section(
     summary: &SessionSummary,
     end_time: SystemTime,
@@ -526,7 +542,7 @@ fn build_header_section(
     let end_chrono = to_local(end_time);
 
     let os_info = format_host_os_info(
-        System::name().as_deref(),
+        System::name().as_deref().map(crate::ui::display_os_name),
         System::os_version().as_deref(),
         System::kernel_version().as_deref(),
     );
@@ -534,7 +550,8 @@ fn build_header_section(
     let adb_ver = cached_adb_version();
 
     let is_vm =
-        std::fs::read_to_string("/proc/cpuinfo").map(|c| c.contains("hypervisor")).unwrap_or(false);
+        std::fs::read_to_string("/proc/cpuinfo").map(|c| c.contains("hypervisor")).unwrap_or(false)
+            || mac_hv_vmm_present();
 
     vec![
         "Android Emulator & Device Resource Monitor Session Summary".to_string(),

@@ -254,3 +254,51 @@ fn test_is_emulator_process_excludes_truncated_comm_and_script_args() {
         ]
     ));
 }
+
+#[test]
+fn test_utility_invocations_excluded_while_real_launches_preserved() {
+    let os_vec = |args: &[&str]| args.iter().map(OsString::from).collect::<Vec<_>>();
+    let launcher = Some(std::path::Path::new("/sdk/emulator/emulator"));
+
+    for utility_cmd in [
+        // Shutdown helper the emulator spawns for itself.
+        os_vec(&["/sdk/emulator/emulator", "-kill", "49692", "-sleep", "20"]),
+        os_vec(&["emulator", "-list-avds"]),
+        os_vec(&["emulator", "-accel-check"]),
+        os_vec(&["emulator", "-version"]),
+        os_vec(&["emulator", "-snapshot-list"]),
+        os_vec(&["emulator", "-check-snapshot-loadable", "snap1"]),
+        os_vec(&["emulator", "-webcam-list"]),
+        os_vec(&["emulator", "-help"]),
+        os_vec(&["emulator", "--help"]),
+        os_vec(&["emulator", "-help-avd"]),
+        os_vec(&["emulator", "-avd", "Pixel_8", "-version"]),
+        // `-snapshot` takes no value when another option follows it.
+        os_vec(&["emulator", "-snapshot", "-list-avds"]),
+    ] {
+        assert!(
+            !is_emulator_process("emulator", launcher, &utility_cmd),
+            "utility invocation tracked as an emulator: {utility_cmd:?}"
+        );
+    }
+
+    for launch_cmd in [
+        os_vec(&["emulator", "-avd", "Pixel_8", "-port", "5554"]),
+        os_vec(&["emulator", "@Pixel_8", "-accel", "on", "-snapshot", "snap1"]),
+        os_vec(&["emulator", "-avd", "Pixel_8", "-prop", "foo=-kill"]),
+        os_vec(&["emulator"]),
+        Vec::new(),
+    ] {
+        assert!(
+            is_emulator_process("emulator", launcher, &launch_cmd),
+            "real launch excluded: {launch_cmd:?}"
+        );
+    }
+
+    // A worker is tracked whatever its arguments are.
+    assert!(is_emulator_process(
+        "qemu-system-aarch64",
+        Some(std::path::Path::new("/sdk/emulator/qemu/darwin-aarch64/qemu-system-aarch64")),
+        &os_vec(&["qemu-system-aarch64", "-version"])
+    ));
+}

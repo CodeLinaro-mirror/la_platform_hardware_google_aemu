@@ -18,6 +18,7 @@ const NVIDIA_SMI_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2
 pub(super) const HOST_CMD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const FIRST_RUN_BASELINE_DELAY: std::time::Duration = std::time::Duration::from_millis(200);
 const MAC_GPU_FETCH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(10);
+const MAC_PROC_STATUS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 const WIN_GPU_FETCH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 const WIN_GPU_CMD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
@@ -68,18 +69,15 @@ pub struct RealHostProvider {
     last_disk_write: u64,
     last_disk_at: Option<std::time::Instant>,
     intel_gpu_failed: bool,
-    mac_gpu_failed: bool,
-    windows_gpu_failed: bool,
+    #[cfg(target_os = "macos")]
+    mac_disk_ioreg_failed: bool,
     nvidia_smi_failed: bool,
     nvidia_pmon_failed: bool,
     pid_port_cache: PortCache,
     is_first_run: bool,
-    mac_gpu_cache: std::sync::Arc<std::sync::Mutex<Option<f32>>>,
-    mac_gpu_fetching: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    mac_gpu_last_fetch: Option<std::time::Instant>,
-    windows_gpu_cache: std::sync::Arc<std::sync::Mutex<Option<f32>>>,
-    windows_gpu_fetching: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    windows_gpu_last_fetch: Option<std::time::Instant>,
+    mac_gpu: TimedProbeCache<(Option<f32>, Option<f32>)>,
+    mac_proc_status: TimedProbeCache<std::collections::HashMap<u32, (u64, u32)>>,
+    windows_gpu: TimedProbeCache<f32>,
     #[cfg(target_os = "windows")]
     disks: sysinfo::Disks,
     /// Accumulated CPU time (ms) of each candidate process, keyed by
@@ -106,18 +104,15 @@ impl RealHostProvider {
             last_disk_write: 0,
             last_disk_at: None,
             intel_gpu_failed: false,
-            mac_gpu_failed: false,
-            windows_gpu_failed: false,
+            #[cfg(target_os = "macos")]
+            mac_disk_ioreg_failed: false,
             nvidia_smi_failed: false,
             nvidia_pmon_failed: false,
             pid_port_cache: std::collections::HashMap::new(),
             is_first_run: true,
-            mac_gpu_cache: std::sync::Arc::new(std::sync::Mutex::new(None)),
-            mac_gpu_fetching: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            mac_gpu_last_fetch: None,
-            windows_gpu_cache: std::sync::Arc::new(std::sync::Mutex::new(None)),
-            windows_gpu_fetching: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            windows_gpu_last_fetch: None,
+            mac_gpu: TimedProbeCache::default(),
+            mac_proc_status: TimedProbeCache::default(),
+            windows_gpu: TimedProbeCache::default(),
             #[cfg(target_os = "windows")]
             disks: sysinfo::Disks::new(),
             cpu_time_ms: std::collections::HashMap::new(),
@@ -128,7 +123,8 @@ impl RealHostProvider {
     /// Refreshes CPU, memory, and process tables, taking a short baseline
     /// window on the very first run so the first reported tick already has
     /// non-zero CPU and disk rates.
-    fn refresh_system(&mut self) -> Option<f64> {
+    fn refresh_system(&mut self) -> (Option<f64>, bool) {
+        let was_first_run = self.is_first_run;
         if self.is_first_run {
             self.sys.refresh_cpu_all();
             self.sys.refresh_memory();
@@ -145,6 +141,13 @@ impl RealHostProvider {
                 self.last_pgin = pgin;
                 self.last_pgout = pgout;
                 self.last_paging_at = Some(std::time::Instant::now());
+            }
+            // Pre-warm async macOS ioreg and `top` probes before the 200ms baseline
+            // sleep so `--once` observes live GPU and process status on the first tick.
+            if cfg!(target_os = "macos") {
+                let _ = self.sample_mac_gpu();
+                let emu_pids = self.current_emulator_pids();
+                let _ = self.poll_mac_proc_status(emu_pids, false);
             }
             self.last_sample_at = Some(std::time::Instant::now());
             std::thread::sleep(FIRST_RUN_BASELINE_DELAY);
@@ -164,7 +167,53 @@ impl RealHostProvider {
             sys.process(sysinfo::Pid::from_u32(pid)).is_some_and(|p| p.start_time() == start_time)
         });
 
-        sample_interval
+        (sample_interval, was_first_run)
+    }
+
+    fn parent_pid(sys: &System, pid: u32) -> Option<u32> {
+        sys.process(sysinfo::Pid::from_u32(pid))
+            .filter(|p| p.thread_kind().is_none())
+            .and_then(|p| p.parent())
+            .map(sysinfo::Pid::as_u32)
+    }
+
+    fn non_self_candidates(
+        sys: &System,
+    ) -> impl Iterator<Item = (u32, Option<u32>, &sysinfo::Process)> {
+        let self_pid = std::process::id();
+        candidate_processes(sys).filter_map(move |(pid, p)| {
+            let pid_u32 = pid.as_u32();
+            let parent = p.parent().map(sysinfo::Pid::as_u32);
+            (!is_descendant_of_self(pid_u32, parent, self_pid, &|id| Self::parent_pid(sys, id)))
+                .then_some((pid_u32, parent, p))
+        })
+    }
+
+    fn current_emulator_pids(&self) -> Vec<u32> {
+        Self::non_self_candidates(&self.sys)
+            .filter(|(_, _, p)| is_emulator_process(&p.name().to_string_lossy(), p.exe(), p.cmd()))
+            .map(|(pid, _, _)| pid)
+            .collect()
+    }
+
+    fn poll_mac_proc_status(
+        &mut self,
+        mut emu_pids: Vec<u32>,
+        wait_initial: bool,
+    ) -> std::collections::HashMap<u32, (u64, u32)> {
+        if emu_pids.is_empty() {
+            self.mac_proc_status.clear();
+            return std::collections::HashMap::new();
+        }
+        emu_pids.sort_unstable();
+        emu_pids.dedup();
+        let mut status = self
+            .mac_proc_status
+            .poll(MAC_PROC_STATUS_INTERVAL, move || read_mac_top_proc_status(&emu_pids));
+        if wait_initial && status.is_none() {
+            status = self.mac_proc_status.wait_initial();
+        }
+        status.unwrap_or_default()
     }
 
     fn sample_memory(&self) -> MemoryStats {
@@ -181,25 +230,12 @@ impl RealHostProvider {
         // it, so CPU% comes from our own accumulated-CPU-time deltas.
         let prev_cpu_time_ms = std::mem::take(&mut self.cpu_time_ms);
         let mut next_cpu_time_ms = std::collections::HashMap::new();
-        let self_pid = std::process::id();
-        let sys = &self.sys;
-        let parent_of = |pid: u32| {
-            sys.process(sysinfo::Pid::from_u32(pid))
-                .filter(|p| p.thread_kind().is_none())
-                .and_then(|p| p.parent())
-                .map(sysinfo::Pid::as_u32)
-        };
-        let samples = candidate_processes(sys)
-            .filter_map(|(pid, p)| {
-                let pid_u32 = pid.as_u32();
-                let parent = p.parent().map(|pp| pp.as_u32());
-                if is_descendant_of_self(pid_u32, parent, self_pid, &parent_of) {
-                    return None;
-                }
+        let samples = Self::non_self_candidates(&self.sys)
+            .map(|(pid_u32, parent, p)| {
                 let key = (pid_u32, p.start_time());
                 let cpu_ms = p.accumulated_cpu_time();
                 next_cpu_time_ms.insert(key, cpu_ms);
-                Some(ProcSample {
+                ProcSample {
                     pid: pid_u32,
                     parent,
                     name: p.name().to_string_lossy().into_owned(),
@@ -209,7 +245,7 @@ impl RealHostProvider {
                     cpu: cpu_percent(prev_cpu_time_ms.get(&key).copied(), cpu_ms, sample_interval),
                     ram_mb: p.memory() as f64 / BYTES_PER_MIB,
                     uid: process_uid(p),
-                })
+                }
             })
             .collect();
         self.cpu_time_ms = next_cpu_time_ms;
@@ -220,14 +256,24 @@ impl RealHostProvider {
         &mut self,
         samples: &[ProcSample],
         gpu_by_pid: &std::collections::HashMap<u32, f32>,
+        wait_initial_proc_status: bool,
     ) -> ProcessAggregate {
-        let sys = &self.sys;
-        let parent_of = |pid: u32| {
-            sys.process(sysinfo::Pid::from_u32(pid))
-                .filter(|p| p.thread_kind().is_none())
-                .and_then(|p| p.parent())
-                .map(sysinfo::Pid::as_u32)
+        let mac_statuses = if cfg!(target_os = "macos") {
+            let emu_pids = samples
+                .iter()
+                .filter(|s| is_emulator_process(&s.name, s.exe.as_deref(), &s.cmd))
+                .map(|s| s.pid)
+                .collect();
+            self.poll_mac_proc_status(emu_pids, wait_initial_proc_status)
+        } else {
+            std::collections::HashMap::new()
         };
+        let mac_proc_status = |pid: u32| mac_statuses.get(&pid).copied().unwrap_or((0, 0));
+        let proc_status: &dyn Fn(u32) -> (u64, u32) =
+            if cfg!(target_os = "macos") { &mac_proc_status } else { &read_proc_status };
+
+        let sys = &self.sys;
+        let parent_of = |pid: u32| Self::parent_pid(sys, pid);
         let self_uid =
             sys.process(sysinfo::Pid::from_u32(std::process::id())).and_then(process_uid);
         let environ_of = |pid: u32| {
@@ -253,7 +299,7 @@ impl RealHostProvider {
             gpu_by_pid,
             parent_of: &parent_of,
             listening_port: &get_listening_port,
-            proc_status: &read_proc_status,
+            proc_status,
             environ_of: &environ_of,
             name_of: &name_of,
         };
@@ -274,7 +320,18 @@ impl RealHostProvider {
         Some(read_sysinfo_disk_counters(&mut self.disks))
     }
 
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(target_os = "macos")]
+    fn read_cumulative_disk_counters(&mut self) -> Option<(u64, u64)> {
+        if self.mac_disk_ioreg_failed {
+            return None;
+        }
+        let counters = ioreg_class("IOBlockStorageDriver")
+            .and_then(|stdout| parse_ioreg_disk_counters(&stdout));
+        self.mac_disk_ioreg_failed = counters.is_none();
+        counters
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     fn read_cumulative_disk_counters(&mut self) -> Option<(u64, u64)> {
         None
     }
@@ -362,27 +419,20 @@ impl RealHostProvider {
     }
 
     fn sample_windows_gpu(&mut self) -> Option<f32> {
-        poll_cached_gpu(
-            &mut self.windows_gpu_failed,
-            &self.windows_gpu_cache,
-            &self.windows_gpu_fetching,
-            &mut self.windows_gpu_last_fetch,
-            WIN_GPU_FETCH_INTERVAL,
-            || {
-                crate::netsim::run_with_timeout(
-                    "powershell",
-                    &[
-                        "-NoProfile",
-                        "-NonInteractive",
-                        "-Command",
-                        "Get-Counter '\\GPU Engine(*)\\Utilization Percentage' | Select-Object -ExpandProperty CounterSamples | Measure-Object -Property CookedValue -Maximum | Select-Object -ExpandProperty Maximum",
-                    ],
-                    WIN_GPU_CMD_TIMEOUT,
-                )
-                .filter(|out| out.status.success())
-                .and_then(|out| parse_windows_gpu(&String::from_utf8_lossy(&out.stdout)))
-            },
-        )
+        self.windows_gpu.poll(WIN_GPU_FETCH_INTERVAL, || {
+            crate::netsim::run_with_timeout(
+                "powershell",
+                &[
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "Get-Counter '\\GPU Engine(*)\\Utilization Percentage' | Select-Object -ExpandProperty CounterSamples | Measure-Object -Property CookedValue -Maximum | Select-Object -ExpandProperty Maximum",
+                ],
+                WIN_GPU_CMD_TIMEOUT,
+            )
+            .filter(|out| out.status.success())
+            .and_then(|out| parse_windows_gpu(&String::from_utf8_lossy(&out.stdout)))
+        })
     }
 
     fn sample_intel_gpu(&mut self) -> Option<f32> {
@@ -405,27 +455,21 @@ impl RealHostProvider {
         parsed
     }
 
-    fn sample_mac_gpu(&mut self) -> Option<f32> {
-        poll_cached_gpu(
-            &mut self.mac_gpu_failed,
-            &self.mac_gpu_cache,
-            &self.mac_gpu_fetching,
-            &mut self.mac_gpu_last_fetch,
-            MAC_GPU_FETCH_INTERVAL,
-            || {
-                crate::netsim::run_with_timeout(
-                    "powermetrics",
-                    &["-i", "500", "-n", "1", "--samplers", "gpu_power"],
-                    HOST_CMD_TIMEOUT,
-                )
-                .filter(|out| out.status.success())
-                .and_then(|out| parse_mac_powermetrics_gpu(&String::from_utf8_lossy(&out.stdout)))
-            },
-        )
+    /// GPU load in percent and GPU memory in MiB. `ioreg` reports both to any
+    /// user; `powermetrics`, which needs root, is the fallback for the load.
+    fn sample_mac_gpu(&mut self) -> (Option<f32>, Option<f32>) {
+        self.mac_gpu
+            .poll(MAC_GPU_FETCH_INTERVAL, || {
+                ioreg_class("IOAccelerator")
+                    .map(|stdout| parse_mac_ioreg_gpu(&stdout))
+                    .filter(|(percent, memory_mb)| percent.is_some() || memory_mb.is_some())
+                    .or_else(|| Some((Some(powermetrics_gpu_percent()?), None)))
+            })
+            .unwrap_or((None, None))
     }
 
     fn sample_gpu(&mut self, has_emulators: bool) -> GpuStats {
-        let (mut percent, memory_mb) =
+        let (mut percent, mut memory_mb) =
             resolve_nvidia_or_drm_gpu(std::path::Path::new("/sys/class/drm"), || {
                 self.sample_nvidia_gpu()
             });
@@ -442,7 +486,9 @@ impl RealHostProvider {
             percent = self.sample_intel_gpu();
         }
         if percent.is_none() && cfg!(target_os = "macos") {
-            percent = self.sample_mac_gpu();
+            let (mac_percent, mac_memory_mb) = self.sample_mac_gpu();
+            percent = mac_percent;
+            memory_mb = memory_mb.or(mac_memory_mb);
         }
 
         GpuStats { percent, memory_mb, by_pid }
@@ -497,14 +543,14 @@ impl crate::provider::HostProvider for RealHostProvider {
     }
 
     fn get_host_stats(&mut self, elapsed_secs: f64) -> HostStats {
-        let sample_interval = self.refresh_system();
+        let (sample_interval, was_first_run) = self.refresh_system();
         let cpu_usage = self.sys.global_cpu_usage();
         let mem = self.sample_memory();
         let proc_samples = self.collect_process_samples(sample_interval);
         let has_emulators =
             proc_samples.iter().any(|s| is_emulator_process(&s.name, s.exe.as_deref(), &s.cmd));
         let gpu = self.sample_gpu(has_emulators);
-        let proc_agg = self.sample_processes(&proc_samples, &gpu.by_pid);
+        let proc_agg = self.sample_processes(&proc_samples, &gpu.by_pid, was_first_run);
         let (disk_read_mbs, disk_write_mbs) = self.sample_disk_rates(sample_interval, elapsed_secs);
         let thermal_temp = sample_thermal_temp();
         let paging = self.sample_paging(elapsed_secs);
@@ -538,6 +584,36 @@ impl crate::provider::HostProvider for RealHostProvider {
     }
 }
 
+/// Stdout of `ioreg` listing the registry entries of `class` with their properties.
+fn ioreg_class(class: &str) -> Option<String> {
+    crate::netsim::run_with_timeout(
+        "ioreg",
+        &["-r", "-d", "1", "-w", "0", "-c", class],
+        HOST_CMD_TIMEOUT,
+    )
+    .filter(|out| out.status.success())
+    .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+fn powermetrics_gpu_percent() -> Option<f32> {
+    crate::netsim::run_with_timeout(
+        "powermetrics",
+        &["-i", "500", "-n", "1", "--samplers", "gpu_power"],
+        HOST_CMD_TIMEOUT,
+    )
+    .filter(|out| out.status.success())
+    .and_then(|out| parse_mac_powermetrics_gpu(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// GPU models of a Mac, such as `Apple M4 Pro (20-core)`.
+fn mac_gpu_models() -> Option<String> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let models = parse_mac_ioreg_gpu_models(&ioreg_class("IOAccelerator")?);
+    (!models.is_empty()).then(|| models.join(", "))
+}
+
 fn static_hardware_system() -> System {
     System::new_with_specifics(
         sysinfo::RefreshKind::nothing()
@@ -550,10 +626,20 @@ fn format_cpu_brand(brand: Option<&str>) -> &str {
     brand.map(str::trim).filter(|b| !b.is_empty()).unwrap_or("Unknown CPU")
 }
 
+/// The OS name of the hardware line. macOS reads `Darwin <kernel version>`, as
+/// in the Python monitor.
+fn format_static_os_name(name: Option<&str>, kernel_version: Option<&str>) -> String {
+    match (name, kernel_version) {
+        (Some("Darwin"), Some(kernel)) => format!("Darwin {kernel}"),
+        (Some(name), _) => name.to_string(),
+        (None, _) => "Unknown OS".to_string(),
+    }
+}
+
 pub fn get_static_hardware_info() -> String {
     let sys = static_hardware_system();
 
-    let os = System::name().unwrap_or_else(|| "Unknown OS".to_string());
+    let os = format_static_os_name(System::name().as_deref(), System::kernel_version().as_deref());
     let cpu = format_cpu_brand(sys.cpus().first().map(|c| c.brand()));
     let ram = sys.total_memory() as f64 / BYTES_PER_GIB;
 
@@ -564,6 +650,7 @@ pub fn get_static_hardware_info() -> String {
     )
     .as_ref()
     .and_then(parse_nvidia_gpu_hardware_info)
+    .or_else(mac_gpu_models)
     .unwrap_or_else(|| "N/A".to_string());
 
     format!("{} | {} | {:.1} GB RAM | GPU: {}", os, cpu, ram, gpu_str)

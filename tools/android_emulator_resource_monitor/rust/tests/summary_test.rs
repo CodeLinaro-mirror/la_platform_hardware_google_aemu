@@ -1647,3 +1647,14 @@ fn test_non_ascii_utf8_paths_tmpdir_and_avd_names() {
     assert!(dash.contains("täst_中文_🚀"), "{dash}");
     assert!(dash.contains('…'), "{dash}");
 }
+
+#[test]
+fn test_parse_hv_vmm_present() {
+    assert!(parse_hv_vmm_present("1"));
+    assert!(parse_hv_vmm_present(" 1\n"));
+    assert!(!parse_hv_vmm_present("0"));
+    assert!(!parse_hv_vmm_present("0\n"));
+    assert!(!parse_hv_vmm_present(""));
+    assert!(!parse_hv_vmm_present("10"));
+    assert!(!parse_hv_vmm_present("true"));
+}

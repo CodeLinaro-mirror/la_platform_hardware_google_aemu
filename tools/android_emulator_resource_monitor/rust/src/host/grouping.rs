@@ -1,12 +1,10 @@
 use std::ffi::OsString;
 
-use super::EmulatorProcess;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-use super::HOST_CMD_TIMEOUT;
 use super::cmdline::{
     is_descendant_of_self, is_emulator_process, is_netsimd_process, is_worker_process,
     parse_cmdline_details, parse_cmdline_netsim_endpoint,
 };
+use super::{EmulatorProcess, HOST_CMD_TIMEOUT};
 
 const EMU_CONSOLE_PORT_RANGE: std::ops::RangeInclusive<u16> = 5554..=5584;
 #[cfg(target_os = "linux")]
@@ -257,7 +255,106 @@ pub(super) fn read_proc_status(pid: u32) -> (u64, u32) {
         .unwrap_or((0, 0))
 }
 
-#[cfg(not(target_os = "linux"))]
+const TOP_FIELD_SUFFIXES: &[char] = &['+', '-', '*'];
+
+fn parse_mac_top_threads(token: &str) -> Option<u64> {
+    let token = token.trim_end_matches(TOP_FIELD_SUFFIXES);
+    match token.split_once('/') {
+        Some((total, running)) => {
+            let _ = running.parse::<u64>().ok()?;
+            total.trim_end_matches(TOP_FIELD_SUFFIXES).parse::<u64>().ok()
+        }
+        None => token.parse::<u64>().ok(),
+    }
+}
+
+fn parse_mac_top_csw(token: &str) -> Option<u32> {
+    // Apple `top` prints XNU's signed 32-bit `pti_csw` slot; reinterpreting
+    // negative `i32` values as `u32` preserves monotonic counts past `i32::MAX`,
+    // while wider unsigned outputs saturate at `u32::MAX`.
+    let trimmed = token.trim_end_matches(TOP_FIELD_SUFFIXES);
+    trimmed
+        .parse::<u64>()
+        .map(|v| u32::try_from(v).unwrap_or(u32::MAX))
+        .or_else(|_| trimmed.parse::<i32>().map(|v| v as u32))
+        .ok()
+}
+
+/// Parses `(threads, context_switches)` by PID from
+/// `top -e -l 1 -s 0 -F -R -pid ... -stats pid,th,csw`.
+fn parse_mac_top_proc_status(stdout: &str) -> std::collections::HashMap<u32, (u64, u32)> {
+    let mut statuses = std::collections::HashMap::new();
+    let mut in_table = false;
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            in_table = false;
+            continue;
+        }
+        let mut cols = trimmed.split_whitespace();
+        let (Some(c0), Some(c1), Some(c2), None) =
+            (cols.next(), cols.next(), cols.next(), cols.next())
+        else {
+            continue;
+        };
+        if (c0, c1, c2) == ("PID", "#TH", "CSW") {
+            in_table = true;
+            continue;
+        }
+        if !in_table {
+            continue;
+        }
+        let Some(pid) =
+            c0.trim_end_matches(TOP_FIELD_SUFFIXES).parse::<u32>().ok().filter(|&pid| pid > 0)
+        else {
+            continue;
+        };
+        if let (Some(threads), Some(csw)) = (parse_mac_top_threads(c1), parse_mac_top_csw(c2)) {
+            statuses.insert(pid, (threads, csw));
+        }
+    }
+    statuses
+}
+
+/// Queries live `(threads, context_switches)` on macOS in a single `top -e` pass.
+///
+/// Returns `None` only when `top` fails to run, times out, or produces empty stdout;
+/// when all queried PIDs exit mid-probe, `top` exits `0` without a table header and
+/// this returns `Some` with an empty map so `TimedProbeCache` does not latch failure.
+pub(super) fn read_mac_top_proc_status(
+    pids: &[u32],
+) -> Option<std::collections::HashMap<u32, (u64, u32)>> {
+    let pid_strs: Vec<String> = pids
+        .iter()
+        .copied()
+        .filter(|&pid| pid > 0 && i32::try_from(pid).is_ok())
+        .map(|pid| pid.to_string())
+        .collect();
+    if pid_strs.is_empty() {
+        return Some(std::collections::HashMap::new());
+    }
+    let mut args = Vec::with_capacity(9 + 2 * pid_strs.len());
+    // `-e` reports cumulative counters rather than deltas; `-F -R` skips shared-lib
+    // and VM-region traversals so single-sample `-l 1 -s 0` stays fast.
+    args.extend_from_slice(&["-e", "-l", "1", "-s", "0", "-F", "-R"]);
+    for pid_str in &pid_strs {
+        args.push("-pid");
+        args.push(pid_str.as_str());
+    }
+    args.extend_from_slice(&["-stats", "pid,th,csw"]);
+    let output = crate::netsim::run_with_timeout("top", &args, HOST_CMD_TIMEOUT)?;
+    if !output.status.success() || output.stdout.is_empty() {
+        return None;
+    }
+    Some(parse_mac_top_proc_status(&String::from_utf8_lossy(&output.stdout)))
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn read_proc_status(pid: u32) -> (u64, u32) {
+    read_mac_top_proc_status(&[pid]).and_then(|map| map.get(&pid).copied()).unwrap_or((0, 0))
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 pub(super) fn read_proc_status(_pid: u32) -> (u64, u32) {
     (0, 0)
 }

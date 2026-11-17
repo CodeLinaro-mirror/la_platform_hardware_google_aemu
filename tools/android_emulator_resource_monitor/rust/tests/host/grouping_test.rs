@@ -889,3 +889,119 @@ fn test_parse_proc_status_uids_extracts_real_and_effective_uids() {
     assert_eq!(parse_proc_status_uids("Uid:\tabc\t0\t0\t0\n"), None);
     assert_eq!(parse_proc_status_uids("Name:\temulator_mon\n"), None);
 }
+
+#[test]
+fn test_parse_mac_top_proc_status_multi_pid_suffixes_and_malformed_rows() {
+    let stdout = "\
+Processes: 542 total, 3 running, 539 sleeping, 3120 threads
+111 22 333
+Load Avg: 2.14, 2.05, 1.98
+
+PID      #TH       CSW
+41001    109/4     987654
+41002*   32+       45678+
+41003-   18-/2-    1200-
+41004+   7*/1*     0*
+0        96/4      500000
+0*       12        100
+4294967296 8       100
+-7       8         100
+41005    109/abc   500
+41006    abc/4     500
+41007    +         500
+41008    8         -
+41009    8         -2147483649
+41010    8
+41011    8         500       extra
+";
+
+    let statuses = parse_mac_top_proc_status(stdout);
+
+    assert_eq!(
+        statuses,
+        std::collections::HashMap::from([
+            (41_001, (109, 987_654)),
+            (41_002, (32, 45_678)),
+            (41_003, (18, 1_200)),
+            (41_004, (7, 0)),
+        ])
+    );
+}
+
+#[test]
+fn test_parse_mac_top_proc_status_csw_saturation_and_wrapped_i32() {
+    let stdout = "\
+PID    #TH  CSW
+50001  4    2147483647
+50002  4    -2147483648
+50003  6    -1
+50004  8    -1+
+50005  10   4294967295
+50006  12   4294967296
+50007  14   9000000000+
+";
+
+    let statuses = parse_mac_top_proc_status(stdout);
+
+    assert_eq!(
+        statuses,
+        std::collections::HashMap::from([
+            (50_001, (4, 2_147_483_647)),
+            (50_002, (4, 2_147_483_648)),
+            (50_003, (6, u32::MAX)),
+            (50_004, (8, u32::MAX)),
+            (50_005, (10, u32::MAX)),
+            (50_006, (12, u32::MAX)),
+            (50_007, (14, u32::MAX)),
+        ])
+    );
+}
+
+#[test]
+fn test_parse_mac_top_proc_status_exited_preamble_multi_frame_and_invalid_pids() {
+    let exited_preamble = "\
+Processes: 510 total, 2 running, 508 sleeping, 2890 threads
+2026/11/16 10:00:00
+Load Avg: 1.50, 1.40, 1.30
+CPU usage: 5.0% user, 3.0% sys, 92.0% idle
+";
+    assert!(parse_mac_top_proc_status(exited_preamble).is_empty());
+    assert!(parse_mac_top_proc_status("").is_empty());
+
+    let two_frames = "\
+Processes: 510 total, 2 running, 508 sleeping, 2890 threads
+
+PID    #TH    CSW
+61001  40/1   1000
+61002  12     300
+
+Processes: 511 total, 3 running, 508 sleeping, 2900 threads
+69999  99     9999
+\x20\x20\x20
+PID    #TH    CSW
+61001  44/3   1250+
+";
+    assert_eq!(
+        parse_mac_top_proc_status(two_frames),
+        std::collections::HashMap::from([(61_001, (44, 1_250)), (61_002, (12, 300))])
+    );
+
+    assert_eq!(read_mac_top_proc_status(&[]), Some(std::collections::HashMap::new()));
+    assert_eq!(
+        read_mac_top_proc_status(&[0, (i32::MAX as u32) + 1, u32::MAX]),
+        Some(std::collections::HashMap::new())
+    );
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn test_read_proc_status_live_self_and_invalid_pid() {
+    // Sleep briefly so the current process incurs at least one context switch.
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    let (threads, csw): (u64, u32) = read_proc_status(std::process::id());
+    assert!(threads >= 1, "expected at least 1 thread for self, got {threads}");
+    assert!(csw > 0, "expected >0 context switches for self after sleep, got {csw}");
+
+    assert_eq!(read_proc_status(0), (0, 0));
+    assert_eq!(read_proc_status(u32::MAX), (0, 0));
+}

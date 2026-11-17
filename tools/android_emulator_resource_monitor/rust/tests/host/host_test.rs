@@ -10,109 +10,37 @@ fn test_real_host_provider_new_defaults() {
     assert_eq!(prov.last_disk_write, 0);
     assert!(prov.last_disk_at.is_none());
     assert!(!prov.intel_gpu_failed);
-    assert!(!prov.mac_gpu_failed);
-    assert!(!prov.windows_gpu_failed);
+    assert!(!prov.mac_gpu.failed);
+    assert!(!prov.mac_proc_status.failed);
+    assert!(!prov.windows_gpu.failed);
     assert!(!prov.nvidia_smi_failed);
     assert!(!prov.nvidia_pmon_failed);
     assert!(prov.pid_port_cache.is_empty());
     assert!(prov.is_first_run);
-    assert!(prov.mac_gpu_cache.lock().unwrap().is_none());
-    assert!(!prov.mac_gpu_fetching.load(std::sync::atomic::Ordering::SeqCst));
-    assert!(prov.mac_gpu_last_fetch.is_none());
-    assert!(prov.windows_gpu_cache.lock().unwrap().is_none());
-    assert!(!prov.windows_gpu_fetching.load(std::sync::atomic::Ordering::SeqCst));
-    assert!(prov.windows_gpu_last_fetch.is_none());
+    assert!(prov.mac_gpu.reading.is_none());
+    assert!(prov.mac_gpu.last_fetch.is_none());
+    assert!(prov.mac_proc_status.reading.is_none());
+    assert!(prov.mac_proc_status.last_fetch.is_none());
+    assert!(prov.windows_gpu.reading.is_none());
+    assert!(prov.windows_gpu.last_fetch.is_none());
     assert!(prov.cpu_time_ms.is_empty());
     assert!(prov.last_sample_at.is_none());
 }
 
 #[test]
-fn test_windows_gpu_background_cache_throttles_and_latches_failure() {
+fn test_windows_gpu_parser_and_provider_integration() {
     assert_eq!(parse_windows_gpu(" 37.5 \r\n"), Some(37.5));
     assert_eq!(parse_windows_gpu("12,5\n"), Some(12.5));
     assert_eq!(parse_windows_gpu("NaN\n"), None);
     assert_eq!(parse_windows_gpu(""), None);
 
-    let mut failed = false;
-    let cache = std::sync::Arc::new(std::sync::Mutex::new(None));
-    let fetching = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let mut last_fetch = None;
-    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-
-    let c1 = calls.clone();
-    let _ = poll_cached_gpu(
-        &mut failed,
-        &cache,
-        &fetching,
-        &mut last_fetch,
-        WIN_GPU_FETCH_INTERVAL,
-        move || {
-            c1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Some(42.5)
-        },
-    );
-    for _ in 0..200 {
-        if !fetching.load(std::sync::atomic::Ordering::SeqCst) {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    assert!(!failed);
-    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
-
-    // Subsequent polls within WIN_GPU_FETCH_INTERVAL return the cached reading without spawning.
-    let c2 = calls.clone();
-    let cached = poll_cached_gpu(
-        &mut failed,
-        &cache,
-        &fetching,
-        &mut last_fetch,
-        WIN_GPU_FETCH_INTERVAL,
-        move || {
-            c2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Some(99.0)
-        },
-    );
-    assert_eq!(cached, Some(42.5));
-    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
-
-    // Once the throttle window elapses, a failing refresh stores NaN and latches failed on the next poll.
-    last_fetch = Some(std::time::Instant::now() - WIN_GPU_FETCH_INTERVAL);
-    let _ = poll_cached_gpu(
-        &mut failed,
-        &cache,
-        &fetching,
-        &mut last_fetch,
-        WIN_GPU_FETCH_INTERVAL,
-        || None,
-    );
-    for _ in 0..200 {
-        if !fetching.load(std::sync::atomic::Ordering::SeqCst) {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    assert_eq!(
-        poll_cached_gpu(
-            &mut failed,
-            &cache,
-            &fetching,
-            &mut last_fetch,
-            WIN_GPU_FETCH_INTERVAL,
-            || Some(1.0)
-        ),
-        None
-    );
-    assert!(failed);
-
     let mut prov = RealHostProvider::new(System::new());
-    prov.windows_gpu_last_fetch = Some(std::time::Instant::now());
-    *prov.windows_gpu_cache.lock().unwrap() = Some(33.5);
+    prov.windows_gpu.last_fetch = Some(std::time::Instant::now());
+    prov.windows_gpu.reading = Some(33.5);
     assert_eq!(prov.sample_windows_gpu(), Some(33.5));
-    assert!(!prov.windows_gpu_failed);
-    *prov.windows_gpu_cache.lock().unwrap() = Some(f32::NAN);
+    assert!(!prov.windows_gpu.failed);
+    prov.windows_gpu.failed = true;
     assert_eq!(prov.sample_windows_gpu(), None);
-    assert!(prov.windows_gpu_failed);
 }
 
 #[test]
@@ -130,9 +58,8 @@ fn test_gpu_and_hardware_cli_failure_handling() {
     assert_eq!(parse_intel_gpu_top("Render/3D/0: 37.5%\n"), Some(37.5));
 
     let mut prov = RealHostProvider::new(System::new());
-    *prov.mac_gpu_cache.lock().unwrap() = Some(f32::NAN);
-    assert_eq!(prov.sample_mac_gpu(), None);
-    assert!(prov.mac_gpu_failed);
+    prov.mac_gpu.failed = true;
+    assert_eq!(prov.sample_mac_gpu(), (None, None));
 }
 
 #[test]
@@ -230,4 +157,40 @@ fn test_disk_and_paging_counter_rates_use_counter_timestamps() {
     let pg_rec = prov.record_paging_counters(Some((1400, 2720)), t4, 1.0, "pages/s");
     assert!((pg_rec.in_rate - 100.0).abs() < 1e-6);
     assert!((pg_rec.out_rate - 200.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_format_static_os_name_and_mac_gpu_valid_cache() {
+    assert_eq!(format_static_os_name(Some("Darwin"), Some("27.2.0")), "Darwin 27.2.0");
+    assert_eq!(format_static_os_name(Some("Darwin"), None), "Darwin");
+    assert_eq!(format_static_os_name(Some("Ubuntu"), Some("6.8.0")), "Ubuntu");
+    assert_eq!(format_static_os_name(None, Some("6.8.0")), "Unknown OS");
+
+    let mut prov = RealHostProvider::new(System::new());
+    prov.mac_gpu.last_fetch = Some(std::time::Instant::now());
+    prov.mac_gpu.reading = Some((Some(0.0), Some(416.6)));
+    assert_eq!(prov.sample_mac_gpu(), (Some(0.0), Some(416.6)));
+    assert!(!prov.mac_gpu.failed);
+}
+
+#[test]
+fn test_poll_mac_proc_status_waits_initial_caches_and_clears_when_idle() {
+    let mut prov = RealHostProvider::new(System::new());
+
+    // Invalid PID 0 resolves hermetically via read_mac_top_proc_status without invoking top,
+    // exercising the wait_initial join path on an initially empty mac_proc_status cache.
+    let initial = prov.poll_mac_proc_status(vec![0], true);
+    assert!(initial.is_empty());
+    assert_eq!(prov.mac_proc_status.reading, Some(std::collections::HashMap::new()));
+    assert!(!prov.mac_proc_status.failed);
+
+    let cached_map = std::collections::HashMap::from([(5554, (48_u64, 9_000_u32))]);
+    prov.mac_proc_status.last_fetch = Some(std::time::Instant::now());
+    prov.mac_proc_status.reading = Some(cached_map.clone());
+    assert_eq!(prov.poll_mac_proc_status(vec![5554], false), cached_map);
+
+    let idle = prov.poll_mac_proc_status(Vec::new(), false);
+    assert!(idle.is_empty());
+    assert!(prov.mac_proc_status.reading.is_none());
+    assert!(!prov.mac_proc_status.failed);
 }

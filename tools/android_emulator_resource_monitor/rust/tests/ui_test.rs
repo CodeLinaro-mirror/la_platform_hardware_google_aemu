@@ -681,3 +681,52 @@ fn test_physical_and_disconnected_cards_omit_absent_qemu_and_replacement_netsim(
         "Settled Netsim Status should remain visible when port is unoccupied:\n{dash}"
     );
 }
+
+#[test]
+fn test_display_os_name_and_gpu_fallback_text() {
+    assert_eq!(display_os_name("Darwin"), "macOS");
+    assert_eq!(display_os_name("Linux"), "Linux");
+
+    let mut stats = crate::initial_host_stats();
+    stats.gpu_percent = None;
+    stats.gpu_memory_mb = None;
+    let mut prev_stats = HashMap::new();
+    let dash_na = build_dashboard(DashboardInput {
+        host_stats: &stats,
+        guest_results: &HashMap::new(),
+        prev_stats: &mut prev_stats,
+        iter_count: 1,
+        term_width: 100,
+        is_once: true,
+        hardware_specs: "Specs",
+        force_clear: true,
+        online_indicator_until: &HashMap::new(),
+        netsim_snapshot: None,
+        host_timed_out: false,
+    });
+    let gpu_line = dash_na.lines().find(|l| l.contains("Host GPU Load")).unwrap();
+    assert!(gpu_line.contains("N/A"), "{gpu_line}");
+    assert_eq!(gpu_line.contains("Requires sudo"), cfg!(target_os = "linux"), "{gpu_line}");
+    let gpu_mem_line = dash_na.lines().find(|l| l.contains("Host GPU Memory")).unwrap();
+    assert!(gpu_mem_line.contains("N/A"), "{gpu_mem_line}");
+
+    stats.gpu_percent = Some(0.0);
+    stats.gpu_memory_mb = Some(416.6);
+    let dash_zero = build_dashboard(DashboardInput {
+        host_stats: &stats,
+        guest_results: &HashMap::new(),
+        prev_stats: &mut prev_stats,
+        iter_count: 2,
+        term_width: 100,
+        is_once: true,
+        hardware_specs: "Specs",
+        force_clear: true,
+        online_indicator_until: &HashMap::new(),
+        netsim_snapshot: None,
+        host_timed_out: false,
+    });
+    let gpu_zero_line = dash_zero.lines().find(|l| l.contains("Host GPU Load")).unwrap();
+    assert!(gpu_zero_line.contains("0.0%"), "{gpu_zero_line}");
+    let gpu_zero_mem = dash_zero.lines().find(|l| l.contains("Host GPU Memory")).unwrap();
+    assert!(gpu_zero_mem.contains("416.6MB"), "{gpu_zero_mem}");
+}

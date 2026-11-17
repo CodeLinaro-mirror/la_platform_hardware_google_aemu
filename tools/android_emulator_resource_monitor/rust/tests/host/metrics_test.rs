@@ -124,51 +124,31 @@ fn test_disk_counter_rate_and_windows_counters() {
     assert!(disk_counter_rate_mbs(w2, w1, Some(1.0)) >= 0.0);
 }
 
+/// Blocks until the probe started by the last `poll` has finished, so that the
+/// next `poll` records its outcome.
+fn wait_for_probe<T>(cache: &TimedProbeCache<T>) {
+    while cache.probe.as_ref().is_some_and(|probe| !probe.is_finished()) {
+        std::thread::yield_now();
+    }
+}
+
 #[test]
-fn test_poll_cached_gpu_resets_fetching_flag_after_panic() {
-    let mut failed = false;
-    let cache = std::sync::Arc::new(std::sync::Mutex::new(Some(12.5_f32)));
-    let fetching = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let mut last_fetch = None;
+fn test_timed_gpu_cache_retries_after_probe_panic() {
+    let mut gpu_cache = TimedProbeCache::<f32> { reading: Some(12.5), ..Default::default() };
     let interval = std::time::Duration::from_secs(5);
 
-    let initial = poll_cached_gpu(
-        &mut failed,
-        &cache,
-        &fetching,
-        &mut last_fetch,
-        interval,
-        || -> Option<f32> { panic!("simulated GPU probe panic") },
-    );
+    let initial =
+        gpu_cache.poll(interval, || -> Option<f32> { panic!("simulated GPU probe panic") });
     assert_eq!(initial, Some(12.5));
-    for _ in 0..200 {
-        if !fetching.load(std::sync::atomic::Ordering::SeqCst) {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    assert!(
-        !fetching.load(std::sync::atomic::Ordering::SeqCst),
-        "ResetOnDrop must clear fetching after a panicking background GPU probe"
-    );
-    assert!(!failed);
+    wait_for_probe(&gpu_cache);
+    assert_eq!(gpu_cache.poll(interval, || Some(0.0)), Some(12.5));
+    assert!(!gpu_cache.failed);
 
     // Next poll after interval must be able to spawn a fresh probe and update the cache.
-    last_fetch = Some(std::time::Instant::now() - interval);
-    let _ =
-        poll_cached_gpu(&mut failed, &cache, &fetching, &mut last_fetch, interval, || Some(64.0));
-    for _ in 0..200 {
-        if !fetching.load(std::sync::atomic::Ordering::SeqCst) {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    assert_eq!(
-        poll_cached_gpu(&mut failed, &cache, &fetching, &mut last_fetch, interval, || {
-            Some(0.0)
-        }),
-        Some(64.0)
-    );
+    gpu_cache.last_fetch = Some(std::time::Instant::now() - interval);
+    let _ = gpu_cache.poll(interval, || Some(64.0));
+    wait_for_probe(&gpu_cache);
+    assert_eq!(gpu_cache.poll(interval, || Some(0.0)), Some(64.0));
 }
 
 #[test]
@@ -329,4 +309,322 @@ fn test_paging_unsupported_counters_are_na() {
 
     let first = compute_paging_stats(Some((100, 200)), 0, 0, 2.0, "KB/s");
     assert_eq!(first.display, "Calculating...");
+}
+
+#[test]
+fn test_parse_mac_ioreg_gpu_idle_multi_entry_and_driver_mem_exclusion() {
+    // Idle Apple Silicon M4 Pro: 0% utilization alongside In use system memory
+    // AND In use system memory (driver), which must not be matched/double-counted.
+    let idle_m4 = r#"
++-o AGXAcceleratorG16S  <class AGXAcceleratorG16S, id 0x1000004aa, registered, matched>
+  {
+    "model" = "Apple M4 Pro"
+    "gpu-core-count" = 20
+    "PerformanceStatistics" = {"Device Utilization %"=0,"Renderer Utilization %"=0,"Tiler Utilization %"=0,"In use system memory"=436862976,"In use system memory (driver)"=999999999,"Alloc system memory"=800000000}
+  }
+"#;
+    let (pct, mem) = parse_mac_ioreg_gpu(idle_m4);
+    assert_eq!(pct, Some(0.0));
+    let expected_mib = (436_862_976_f64 / BYTES_PER_MIB) as f32;
+    assert!((mem.unwrap() - expected_mib).abs() < 1e-3);
+
+    // Multi-entry takes max utilization (clamped to 100) and sums In use or fallback Alloc memory.
+    let multi = r#"
++-o Accel0
+  {
+    "PerformanceStatistics" = {"Device Utilization %"=12.5,"Renderer Utilization %"=45.0,"Tiler Utilization %"=18.0,"In use system memory"=104857600}
+  }
++-o Accel1
+  {
+    "PerformanceStatistics" = {
+      "Device Utilization %" = 120.0,
+      "Alloc system memory" = 52428800,
+      "In use system memory (driver)" = 999999999
+    }
+  }
+"#;
+    let (multi_pct, multi_mem) = parse_mac_ioreg_gpu(multi);
+    assert_eq!(multi_pct, Some(100.0));
+    assert!((multi_mem.unwrap() - 150.0).abs() < 1e-3);
+
+    // Empty / malformed outputs return (None, None).
+    assert_eq!(parse_mac_ioreg_gpu(""), (None, None));
+    assert_eq!(parse_mac_ioreg_gpu("no performance stats here"), (None, None));
+    assert_eq!(parse_mac_ioreg_gpu("\"PerformanceStatistics\" = no_braces"), (None, None));
+}
+
+#[test]
+fn test_parse_mac_ioreg_gpu_models_scopes_entries_and_deduplicates() {
+    let ioreg = r#"
++-o AGXAcceleratorG16S  <class AGXAcceleratorG16S>
+  {
+    "model" = "Apple M4 Pro"
+    "gpu-core-count" = 20
+  }
++-o AGXAcceleratorDuplicate  <class AGXAcceleratorG16S>
+  {
+    "model" = "Apple M4 Pro"
+    "gpu-core-count" = 20
+  }
++-o ModelWithoutCores  <class IOAccelerator>
+  {
+    "model" = <"Apple M3 Max">
+  }
++-o NextEntryWithCoresOnly  <class IOAccelerator>
+  {
+    "gpu-core-count" = 38
+  }
++-o ZeroCoreAndEmptyModel  <class IOAccelerator>
+  {
+    "model" = "   "
+    "gpu-core-count" = 0
+  }
+"#;
+    assert_eq!(
+        parse_mac_ioreg_gpu_models(ioreg),
+        vec!["Apple M4 Pro (20-core)".to_string(), "Apple M3 Max".to_string()]
+    );
+    assert!(parse_mac_ioreg_gpu_models("").is_empty());
+}
+
+#[test]
+fn test_parse_ioreg_disk_counters_sums_multiple_drivers_and_handles_empty() {
+    let disk_ioreg = r#"
++-o IOBlockStorageDriver  <class IOBlockStorageDriver>
+  {
+    "Statistics" = {"Bytes (Read)"=1048576,"Bytes (Write)"=2097152,"Operations (Read)"=10}
+  }
++-o IOBlockStorageDriver  <class IOBlockStorageDriver>
+  {
+    "Statistics" = {"Bytes (Read)"=524288,"Bytes (Write)"=1048576}
+  }
+"#;
+    assert_eq!(parse_ioreg_disk_counters(disk_ioreg), Some((1_572_864, 3_145_728)));
+    assert_eq!(parse_ioreg_disk_counters(""), None);
+    assert_eq!(parse_ioreg_disk_counters("\"Statistics\" = {}"), None);
+    assert_eq!(parse_ioreg_disk_counters("\"Statistics\" = no_braces"), None);
+}
+
+#[test]
+fn test_timed_gpu_cache_keeps_zero_load_and_memory_only_readings() {
+    let mut gpu_cache = TimedProbeCache::<(Option<f32>, Option<f32>)>::default();
+    let interval = std::time::Duration::from_secs(10);
+
+    let _ = gpu_cache.poll(interval, || Some((Some(0.0), Some(416.6))));
+    wait_for_probe(&gpu_cache);
+    assert_eq!(
+        gpu_cache.poll(interval, || Some((Some(99.0), Some(999.0)))),
+        Some((Some(0.0), Some(416.6)))
+    );
+    assert!(!gpu_cache.failed);
+
+    // Partial memory-only reading is valid and must not latch failed.
+    gpu_cache.last_fetch = Some(std::time::Instant::now() - interval);
+    let _ = gpu_cache.poll(interval, || Some((None, Some(256.0))));
+    wait_for_probe(&gpu_cache);
+    assert_eq!(gpu_cache.poll(interval, || None), Some((None, Some(256.0))));
+    assert!(!gpu_cache.failed);
+
+    // None latches failed = true on the next poll without spawning another probe.
+    gpu_cache.last_fetch = Some(std::time::Instant::now() - interval);
+    let _ = gpu_cache.poll(interval, || None);
+    wait_for_probe(&gpu_cache);
+    assert_eq!(gpu_cache.poll(interval, || Some((Some(50.0), Some(100.0)))), None);
+    assert!(gpu_cache.failed);
+}
+
+#[test]
+fn test_timed_gpu_cache_throttles_and_latches_failure() {
+    let mut gpu_cache = TimedProbeCache::<f32>::default();
+    let interval = std::time::Duration::from_secs(5);
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    let c1 = calls.clone();
+    let _ = gpu_cache.poll(interval, move || {
+        c1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Some(42.5)
+    });
+    wait_for_probe(&gpu_cache);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+    // Subsequent polls within interval return the cached reading without spawning.
+    let c2 = calls.clone();
+    let cached = gpu_cache.poll(interval, move || {
+        c2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Some(99.0)
+    });
+    assert_eq!(cached, Some(42.5));
+    assert!(!gpu_cache.failed);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+    // Once the throttle window elapses, a None probe latches failed and prevents future spawns.
+    gpu_cache.last_fetch = Some(std::time::Instant::now() - interval);
+    let _ = gpu_cache.poll(interval, || None);
+    wait_for_probe(&gpu_cache);
+    let c3 = calls.clone();
+    assert_eq!(
+        gpu_cache.poll(interval, move || {
+            c3.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Some(1.0)
+        }),
+        None
+    );
+    assert!(gpu_cache.failed);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[test]
+fn test_timed_probe_cache_wait_initial_joins_in_flight_probe_when_empty() {
+    type ProcMap = std::collections::HashMap<u32, (u64, u32)>;
+    let interval = std::time::Duration::from_secs(2);
+    let timeout = std::time::Duration::from_millis(500);
+    let mut cache = TimedProbeCache::<ProcMap>::default();
+    assert_eq!(cache.wait_initial(), None);
+
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let gate = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let gate_clone = gate.clone();
+
+    let first_poll = cache.poll(interval, move || {
+        started_tx.send(()).unwrap();
+        release_rx.recv_timeout(timeout).unwrap();
+        Some(ProcMap::from([(5554, (48, 12_345))]))
+    });
+    started_rx.recv_timeout(timeout).unwrap();
+    let releaser = std::thread::spawn(move || {
+        gate_clone.wait();
+        std::thread::yield_now();
+        release_tx.send(()).unwrap();
+    });
+    gate.wait();
+    let initial = cache.wait_initial();
+    releaser.join().unwrap();
+
+    assert_eq!(first_poll, None);
+    assert_eq!(initial, Some(ProcMap::from([(5554, (48, 12_345))])));
+    assert!(!cache.failed);
+}
+
+#[test]
+fn test_timed_probe_cache_wait_initial_skips_join_when_already_populated() {
+    type ProcMap = std::collections::HashMap<u32, (u64, u32)>;
+    let interval = std::time::Duration::from_secs(2);
+    let timeout = std::time::Duration::from_millis(500);
+    let expected = ProcMap::from([(5554, (48, 12_345))]);
+    let mut cache = TimedProbeCache {
+        reading: Some(expected.clone()),
+        last_fetch: Some(std::time::Instant::now() - interval),
+        ..Default::default()
+    };
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let probe_released = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let probe_flag = probe_released.clone();
+
+    let refresh_poll = cache.poll(interval, move || {
+        started_tx.send(()).unwrap();
+        let _ = release_rx.recv_timeout(timeout);
+        probe_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        Some(ProcMap::from([(5554, (64, 20_000))]))
+    });
+    started_rx.recv_timeout(timeout).unwrap();
+    let immediate = cache.wait_initial();
+    let returned_before_probe = !probe_released.load(std::sync::atomic::Ordering::SeqCst);
+    release_tx.send(()).unwrap();
+    wait_for_probe(&cache);
+
+    assert_eq!(refresh_poll, Some(expected.clone()));
+    assert_eq!(immediate, Some(expected));
+    assert!(returned_before_probe);
+    assert_eq!(cache.poll(interval, || None), Some(ProcMap::from([(5554, (64, 20_000))])));
+}
+
+#[test]
+fn test_timed_probe_cache_wait_initial_latches_failure() {
+    type ProcMap = std::collections::HashMap<u32, (u64, u32)>;
+    let interval = std::time::Duration::from_secs(2);
+    let timeout = std::time::Duration::from_millis(500);
+    let mut cache = TimedProbeCache::<ProcMap>::default();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let gate = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let gate_clone = gate.clone();
+
+    let _ = cache.poll(interval, move || {
+        started_tx.send(()).unwrap();
+        release_rx.recv_timeout(timeout).unwrap();
+        None
+    });
+    started_rx.recv_timeout(timeout).unwrap();
+    let releaser = std::thread::spawn(move || {
+        gate_clone.wait();
+        std::thread::yield_now();
+        release_tx.send(()).unwrap();
+    });
+    gate.wait();
+    let initial = cache.wait_initial();
+    releaser.join().unwrap();
+
+    cache.last_fetch = Some(std::time::Instant::now() - interval);
+    let spawns = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let spawns_clone = spawns.clone();
+    let after_fail_poll = cache.poll(interval, move || {
+        spawns_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Some(ProcMap::from([(5554, (1, 1))]))
+    });
+    cache.reading = Some(ProcMap::from([(5554, (9, 9))]));
+
+    assert_eq!(initial, None);
+    assert!(cache.failed);
+    assert_eq!(after_fail_poll, None);
+    assert_eq!(cache.wait_initial(), None);
+    assert_eq!(spawns.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
+
+#[test]
+fn test_timed_probe_cache_clear_reaps_finished_probe_and_clears_reading() {
+    type ProcMap = std::collections::HashMap<u32, (u64, u32)>;
+    let interval = std::time::Duration::from_secs(2);
+    let mut cache = TimedProbeCache {
+        reading: Some(ProcMap::from([(5554, (32, 900))])),
+        last_fetch: Some(std::time::Instant::now() - interval),
+        ..Default::default()
+    };
+
+    let _ = cache.poll(interval, || Some(ProcMap::from([(5556, (40, 1_500))])));
+    wait_for_probe(&cache);
+    cache.clear();
+
+    assert_eq!(cache.reading, None);
+    assert!(cache.probe.is_none());
+    assert!(!cache.failed);
+}
+
+#[test]
+fn test_timed_probe_cache_clear_latches_and_preserves_failure() {
+    type ProcMap = std::collections::HashMap<u32, (u64, u32)>;
+    let interval = std::time::Duration::from_secs(2);
+    let mut cache = TimedProbeCache::<ProcMap>::default();
+
+    let _ = cache.poll(interval, || None);
+    wait_for_probe(&cache);
+    cache.clear();
+    assert!(cache.failed);
+    assert!(cache.probe.is_none());
+
+    cache.reading = Some(ProcMap::from([(5558, (10, 50))]));
+    cache.clear();
+    cache.last_fetch = Some(std::time::Instant::now() - interval);
+    let spawns = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let spawns_clone = spawns.clone();
+    let after_clear_poll = cache.poll(interval, move || {
+        spawns_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Some(ProcMap::from([(5558, (10, 50))]))
+    });
+
+    assert_eq!(cache.reading, None);
+    assert!(cache.failed);
+    assert_eq!(after_clear_poll, None);
+    assert_eq!(spawns.load(std::sync::atomic::Ordering::SeqCst), 0);
 }

@@ -289,58 +289,165 @@ pub(super) fn parse_mac_powermetrics_gpu(stdout: &str) -> Option<f32> {
     caps[1].parse::<f32>().ok()
 }
 
+/// The first capture group of `re` in `text`, as an integer.
+fn capture_u64(re: &regex::Regex, text: &str) -> Option<u64> {
+    re.captures(text)?[1].parse().ok()
+}
+
+/// Bodies (the text between `{` and the next `}`) of every `key = {...}`
+/// dictionary in `ioreg` output.
+fn ioreg_dict_bodies<'a>(stdout: &'a str, key: &str) -> impl Iterator<Item = &'a str> {
+    stdout.split(key).skip(1).filter_map(|after_key| {
+        let (_, after_open) = after_key.split_once('{')?;
+        Some(after_open.split_once('}').map_or(after_open, |(body, _)| body))
+    })
+}
+
+/// GPU load in percent and in-use GPU memory in MiB from unprivileged
+/// `ioreg -r -d 1 -w 0 -c IOAccelerator` output: the highest utilization and
+/// the total memory over all accelerators.
+pub(super) fn parse_mac_ioreg_gpu(stdout: &str) -> (Option<f32>, Option<f32>) {
+    static RE_UTIL: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    static RE_IN_USE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    static RE_ALLOC: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re_util = RE_UTIL.get_or_init(|| {
+        regex::Regex::new(r#""(?:Device|Renderer|Tiler) Utilization %"\s*=\s*(\d+(?:\.\d+)?)"#)
+            .unwrap()
+    });
+    let re_in_use = RE_IN_USE
+        .get_or_init(|| regex::Regex::new(r#""In use system memory"\s*=\s*(\d+)"#).unwrap());
+    let re_alloc =
+        RE_ALLOC.get_or_init(|| regex::Regex::new(r#""Alloc system memory"\s*=\s*(\d+)"#).unwrap());
+
+    let mut max_util: Option<f32> = None;
+    let mut mem_bytes: Option<u64> = None;
+    for stats in ioreg_dict_bodies(stdout, "\"PerformanceStatistics\"") {
+        let utils = re_util.captures_iter(stats).filter_map(|caps| caps[1].parse::<f32>().ok());
+        max_util = utils.chain(max_util).reduce(f32::max);
+        let in_use = capture_u64(re_in_use, stats).or_else(|| capture_u64(re_alloc, stats));
+        if let Some(bytes) = in_use {
+            mem_bytes = Some(mem_bytes.unwrap_or(0).saturating_add(bytes));
+        }
+    }
+    (
+        max_util.map(|util| util.min(100.0)),
+        mem_bytes.map(|bytes| (bytes as f64 / BYTES_PER_MIB) as f32),
+    )
+}
+
+/// GPU models from `ioreg -r -d 1 -w 0 -c IOAccelerator` output, each with its
+/// core count when the registry entry (a `+-o` block) has one.
+pub(super) fn parse_mac_ioreg_gpu_models(stdout: &str) -> Vec<String> {
+    static RE_MODEL: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    static RE_CORES: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re_model =
+        RE_MODEL.get_or_init(|| regex::Regex::new(r#""model"\s*=\s*<?"([^"]+)""#).unwrap());
+    let re_cores =
+        RE_CORES.get_or_init(|| regex::Regex::new(r#""gpu-core-count"\s*=\s*(\d+)"#).unwrap());
+
+    let mut models: Vec<String> = Vec::new();
+    for entry in stdout.split("+-o ") {
+        let Some(caps) = re_model.captures(entry) else {
+            continue;
+        };
+        let name = caps[1].trim();
+        if name.is_empty() {
+            continue;
+        }
+        let model = match capture_u64(re_cores, entry).filter(|&cores| cores > 0) {
+            Some(cores) => format!("{name} ({cores}-core)"),
+            None => name.to_string(),
+        };
+        if !models.contains(&model) {
+            models.push(model);
+        }
+    }
+    models
+}
+
+/// Cumulative `(read_bytes, write_bytes)` over all disks from
+/// `ioreg -r -d 1 -w 0 -c IOBlockStorageDriver` output.
+#[cfg(any(target_os = "macos", test))]
+pub(super) fn parse_ioreg_disk_counters(stdout: &str) -> Option<(u64, u64)> {
+    static RE_READ: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    static RE_WRITE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re_read =
+        RE_READ.get_or_init(|| regex::Regex::new(r#""Bytes \(Read\)"\s*=\s*(\d+)"#).unwrap());
+    let re_write =
+        RE_WRITE.get_or_init(|| regex::Regex::new(r#""Bytes \(Write\)"\s*=\s*(\d+)"#).unwrap());
+
+    let mut total_read: u64 = 0;
+    let mut total_written: u64 = 0;
+    let mut matched = false;
+    for stats in ioreg_dict_bodies(stdout, "\"Statistics\"") {
+        let (read, written) = (capture_u64(re_read, stats), capture_u64(re_write, stats));
+        matched |= read.is_some() || written.is_some();
+        total_read = total_read.saturating_add(read.unwrap_or(0));
+        total_written = total_written.saturating_add(written.unwrap_or(0));
+    }
+    matched.then_some((total_read, total_written))
+}
+
 pub(super) fn parse_windows_gpu(stdout: &str) -> Option<f32> {
     stdout.trim().replace(',', ".").parse::<f32>().ok().filter(|v| v.is_finite())
 }
 
-pub(super) fn poll_cached_gpu(
-    failed: &mut bool,
-    cache: &std::sync::Arc<std::sync::Mutex<Option<f32>>>,
-    fetching: &std::sync::Arc<std::sync::atomic::AtomicBool>,
-    last_fetch: &mut Option<std::time::Instant>,
-    interval: std::time::Duration,
-    fetch: impl FnOnce() -> Option<f32> + Send + 'static,
-) -> Option<f32> {
-    if *failed {
-        return None;
-    }
-    {
-        let mut guard = cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if guard.is_some_and(f32::is_nan) {
-            *guard = None;
-            *failed = true;
-            return None;
+/// Throttled background host telemetry probe.
+///
+/// `poll` starts at most one probe thread per `interval` and returns the last
+/// reading in the meantime. A probe that returns `None` latches the failure:
+/// later polls return `None` and start no further probes.
+#[derive(Default)]
+pub(super) struct TimedProbeCache<T> {
+    pub(super) reading: Option<T>,
+    pub(super) failed: bool,
+    pub(super) last_fetch: Option<std::time::Instant>,
+    /// The probe thread, until `poll` or `wait_initial` has collected its result.
+    probe: Option<std::thread::JoinHandle<Option<T>>>,
+}
+
+impl<T: Clone + Send + 'static> TimedProbeCache<T> {
+    fn collect_probe(&mut self, wait: bool) {
+        if let Some(probe) = self.probe.take_if(|probe| wait || probe.is_finished()) {
+            // A probe that panicked keeps the last reading; the next due poll retries.
+            if let Ok(reading) = probe.join() {
+                self.failed = reading.is_none();
+                self.reading = reading;
+            }
         }
     }
-    let now = std::time::Instant::now();
-    let should_fetch = match *last_fetch {
-        Some(last) => now.duration_since(last) >= interval,
-        None => true,
-    };
 
-    if should_fetch && !fetching.load(std::sync::atomic::Ordering::SeqCst) {
-        fetching.store(true, std::sync::atomic::Ordering::SeqCst);
-        *last_fetch = Some(now);
-
-        let cache_clone = cache.clone();
-        let fetching_clone = fetching.clone();
-
-        std::thread::spawn(move || {
-            struct ResetOnDrop(std::sync::Arc<std::sync::atomic::AtomicBool>);
-            impl Drop for ResetOnDrop {
-                fn drop(&mut self) {
-                    self.0.store(false, std::sync::atomic::Ordering::SeqCst);
-                }
-            }
-            // Declared before `fetch()` runs so the flag also clears when the probe panics.
-            let _reset = ResetOnDrop(fetching_clone);
-            let parsed = fetch();
-            let mut guard = cache_clone.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            *guard = Some(parsed.unwrap_or(f32::NAN));
-        });
+    pub(super) fn poll(
+        &mut self,
+        interval: std::time::Duration,
+        fetch: impl FnOnce() -> Option<T> + Send + 'static,
+    ) -> Option<T> {
+        self.collect_probe(false);
+        if self.failed {
+            return None;
+        }
+        let due = self.last_fetch.is_none_or(|last| last.elapsed() >= interval);
+        if due && self.probe.is_none() {
+            self.last_fetch = Some(std::time::Instant::now());
+            self.probe = Some(std::thread::spawn(fetch));
+        }
+        self.reading.clone()
     }
 
-    cache.lock().unwrap_or_else(std::sync::PoisonError::into_inner).filter(|v| !v.is_nan())
+    /// Joins an in-flight probe when no reading has been recorded yet so the
+    /// first tick (`--once`) reports live telemetry instead of an empty cache.
+    pub(super) fn wait_initial(&mut self) -> Option<T> {
+        if self.reading.is_none() && !self.failed {
+            self.collect_probe(true);
+        }
+        if self.failed { None } else { self.reading.clone() }
+    }
+
+    /// Reaps any finished probe and clears the cached reading.
+    pub(super) fn clear(&mut self) {
+        self.collect_probe(false);
+        self.reading = None;
+    }
 }
 
 pub(super) fn read_max_thermal_temp(thermal_dir: &std::path::Path) -> Option<f32> {
