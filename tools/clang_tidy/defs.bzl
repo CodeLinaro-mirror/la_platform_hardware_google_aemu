@@ -279,7 +279,7 @@ def _emit_tidy_action(ctx, action_tool, src, flags, cc_toolchain, additional_fil
             break
 
     if not clang_tidy_exec:
-        fail("Could not find clang-tidy executable in the toolchain {}".format(cc_toolchain.label))
+        fail("Could not find clang-tidy executable in the toolchain {}".format(cc_toolchain.toolchain_id))
 
     fixes_file = ctx.actions.declare_file(src.path + "." + ctx.label.name + ".tidy.yaml")
     flags_file = ctx.actions.declare_file(src.path + "." + ctx.label.name + ".tidy.flags")
