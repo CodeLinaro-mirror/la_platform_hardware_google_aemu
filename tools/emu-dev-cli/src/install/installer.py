@@ -9,7 +9,7 @@ import signal
 import subprocess
 import sys
 
-RELEASE_SRC_ASSET_EXTENSIONS: tuple[str, ...] = (".py", ".html", ".md")
+RELEASE_SRC_ASSET_EXTENSIONS: tuple[str, ...] = (".py", ".html", ".md", ".css", ".js")
 
 from commands.source_directory import (
     ensure_codesearch_urls_config,
@@ -71,25 +71,52 @@ def get_release_package_directory(dest_path):
         return os.path.join(home_dir, ".android", "emu-dev-cli")
 
 
+def _safe_unlink(path: str) -> None:
+    """Removes a file or symlink, clearing read-only attributes or renaming locked executables on Windows."""
+    if not os.path.exists(path) and not os.path.islink(path):
+        return
+    try:
+        os.unlink(path)
+        return
+    except PermissionError:
+        try:
+            os.chmod(path, 0o600)
+            os.unlink(path)
+            return
+        except OSError:
+            pass
+        if platform.system().lower() == "windows":
+            old_path = path + ".old"
+            try:
+                if os.path.exists(old_path) or os.path.islink(old_path):
+                    os.chmod(old_path, 0o600)
+                    os.unlink(old_path)
+            except OSError:
+                pass
+            try:
+                os.replace(path, old_path)
+                return
+            except OSError as exc:
+                logging.getLogger(__name__).debug("Ignored error in _safe_unlink rename: %s", exc)
+    except OSError as exc:
+        logging.getLogger(__name__).debug("Ignored error in _safe_unlink: %s", exc)
+
+
 def _safe_copy2(src: str, dst: str) -> None:
     """Copies file contents and permissions while tolerating sandbox xattr EACCES and read-only targets."""
     if os.path.abspath(src) == os.path.abspath(dst):
         return
     if os.path.exists(dst) or os.path.islink(dst):
-        try:
-            os.unlink(dst)
-        except OSError as exc:
-            logging.getLogger(__name__).debug("Ignored error in _safe_copy2: %s", exc)
+        _safe_unlink(dst)
     try:
         shutil.copy2(src, dst)
     except PermissionError:
         shutil.copyfile(src, dst)
-    if platform.system().lower() != "windows":
-        try:
-            mode = os.stat(dst).st_mode
-            os.chmod(dst, mode | 0o600)
-        except OSError as exc:
-            logging.getLogger(__name__).debug("Ignored error in _safe_copy2: %s", exc)
+    try:
+        mode = os.stat(dst).st_mode
+        os.chmod(dst, mode | 0o600)
+    except OSError as exc:
+        logging.getLogger(__name__).debug("Ignored error in _safe_copy2: %s", exc)
 
 
 def copy_src_to_release_lib(src_dir, release_lib_dir):
@@ -223,7 +250,7 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
         and not built_bin.endswith(".py")
     ):
         if os.path.exists(release_bin) or os.path.islink(release_bin):
-            os.unlink(release_bin)
+            _safe_unlink(release_bin)
         _safe_copy2(built_bin, release_bin)
         if platform.system().lower() != "windows":
             os.chmod(release_bin, 0o755)
@@ -236,6 +263,15 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
     rf_candidates = [built_bin + ".runfiles"]
     if built_bin.endswith("emu-dev-cli"):
         rf_candidates.append(built_bin + "-backend.runfiles")
+    elif built_bin.endswith("emu-dev-cli.exe"):
+        base_bin = built_bin[:-4]
+        rf_candidates.extend(
+            [
+                base_bin + ".runfiles",
+                base_bin + "-backend.exe.runfiles",
+                base_bin + "-backend.runfiles",
+            ]
+        )
     for built_rf in rf_candidates:
         if not os.path.exists(built_rf):
             continue
@@ -244,7 +280,9 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
             norm_root = root.replace("\\", "/")
             if os.path.basename(root) == "site-packages":
                 for item in os.listdir(root):
-                    if item.startswith((".", "_")) and not item.endswith((".py", ".so")):
+                    if item.startswith((".", "_")) and not item.endswith(
+                        (".py", ".so", ".pyd", ".dll")
+                    ):
                         continue
                     item_path = os.path.join(root, item)
                     dest_item = os.path.join(release_lib_dir, item)
@@ -276,6 +314,36 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
                     os.symlink(py_target, py_link)
                 except OSError as exc:
                     logging.getLogger(__name__).debug("Ignored error in install_launcher_wrapper: %s", exc)
+            if (
+                "rules_python" in norm_root
+                and "python.exe" in files
+                and "python3.dll" in files
+            ):
+                py_target_dir = os.path.dirname(
+                    os.path.realpath(os.path.join(root, "python.exe"))
+                )
+                py_runtime_link = os.path.join(release_lib_dir, "python_runtime")
+                try:
+                    if os.path.islink(py_runtime_link):
+                        os.unlink(py_runtime_link)
+                    elif os.path.exists(py_runtime_link):
+                        shutil.rmtree(py_runtime_link)
+                    os.symlink(
+                        py_target_dir, py_runtime_link, target_is_directory=True
+                    )
+                except OSError:
+                    try:
+                        shutil.copytree(
+                            py_target_dir,
+                            py_runtime_link,
+                            symlinks=False,
+                            dirs_exist_ok=True,
+                            copy_function=_safe_copy2,
+                        )
+                    except OSError as exc:
+                        logging.getLogger(__name__).debug(
+                            "Ignored error in install_launcher_wrapper: %s", exc
+                        )
             if norm_root.endswith("/protos/aemu-grpc/src/aemu"):
                 dest_aemu = os.path.join(release_lib_dir, "aemu")
                 try:
@@ -328,17 +396,18 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
         source_workspace = resolve_source_directory(source_dir)
 
     if source_workspace:
+        exe_suffix = ".exe" if platform.system().lower() == "windows" else ""
         advisor_src = resolve_built_artifact(
             source_workspace,
             target="@goldfish//emulator/crashreport/tool/advisor:advisor",
-            binary_name="advisor",
+            binary_name=f"advisor{exe_suffix}",
         )
         if advisor_src and os.path.exists(advisor_src):
             bin_dir = os.path.join(release_lib_dir, "bin")
             os.makedirs(bin_dir, exist_ok=True)
-            advisor_dest = os.path.join(bin_dir, "advisor")
+            advisor_dest = os.path.join(bin_dir, f"advisor{exe_suffix}")
             if os.path.exists(advisor_dest) or os.path.islink(advisor_dest):
-                os.unlink(advisor_dest)
+                _safe_unlink(advisor_dest)
             _safe_copy2(advisor_src, advisor_dest)
             if platform.system().lower() != "windows":
                 os.chmod(advisor_dest, 0o755)
@@ -348,9 +417,12 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
             if os.path.exists(advisor_rf):
                 if os.path.exists(advisor_rf_dest) or os.path.islink(advisor_rf_dest):
                     if os.path.islink(advisor_rf_dest):
-                        os.unlink(advisor_rf_dest)
+                        _safe_unlink(advisor_rf_dest)
                     else:
-                        shutil.rmtree(advisor_rf_dest)
+                        shutil.rmtree(
+                            advisor_rf_dest,
+                            onerror=lambda func, p, _: (os.chmod(p, 0o600), func(p)),
+                        )
                 try:
                     shutil.copytree(
                         advisor_rf,
@@ -364,7 +436,6 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
                     )
 
         # Copy compiled emu-main-next crashreport executable directly to bin/
-        exe_suffix = ".exe" if platform.system().lower() == "windows" else ""
         crashreport_src = resolve_built_artifact(
             source_workspace,
             target="@goldfish//emulator/crashreport/tool:crashreport",
@@ -376,7 +447,7 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
             os.makedirs(bin_dir, exist_ok=True)
             crashreport_dest = os.path.join(bin_dir, f"crashreport{exe_suffix}")
             if os.path.exists(crashreport_dest) or os.path.islink(crashreport_dest):
-                os.unlink(crashreport_dest)
+                _safe_unlink(crashreport_dest)
             _safe_copy2(crashreport_src, crashreport_dest)
             if platform.system().lower() != "windows":
                 os.chmod(crashreport_dest, 0o755)
@@ -385,10 +456,10 @@ def install_launcher_wrapper(built_bin, dest_path, source_dir=None):
     dest_dir = os.path.dirname(dest_path)
     if dest_dir:
         os.makedirs(dest_dir, exist_ok=True)
-    if os.path.exists(dest_path) or os.path.islink(dest_path):
-        os.unlink(dest_path)
 
     if os.path.abspath(dest_path) != os.path.abspath(release_bin):
+        if os.path.exists(dest_path) or os.path.islink(dest_path):
+            _safe_unlink(dest_path)
         try:
             os.symlink(release_bin, dest_path)
         except OSError:
@@ -428,7 +499,8 @@ def _matching_sidecar_pid_from_proc(
     if pid == self_pid:
         return None
     try:
-        proc_cwd = Path(os.readlink(proc_root / entry.name / "cwd")).resolve()
+        link_target = os.readlink(proc_root / entry.name / "cwd").removeprefix("\\\\?\\")
+        proc_cwd = Path(link_target).resolve()
         if proc_cwd.is_relative_to(sidecars_dir):
             return pid
     except OSError:

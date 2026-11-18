@@ -233,6 +233,24 @@ class PerfProbeSession:
         self.apk_path = apk_path
         self._installed = False
 
+    def invalidate_install_state(self) -> None:
+        """Marks `perf_probe.apk` as unverified (e.g. after `snapshot load` or `adb uninstall`)."""
+        self._installed = False
+
+    def _snapshot_perf_probe_logcat_lines(self) -> List[str]:
+        """Returns current raw logcat lines containing `PerfProbeJson` without clearing `logd`."""
+        lc = self._adb(
+            ["logcat", "-d", "-s", f"{PERF_PROBE_LOG_TAG}:I"],
+            15.0,
+        )
+        if lc.returncode != 0 or not lc.stdout:
+            return []
+        return [
+            line
+            for line in lc.stdout.splitlines()
+            if PERF_PROBE_JSON_RE.search(line)
+        ]
+
     def ensure_installed_and_ready(self) -> None:
         """Installs `perf_probe.apk` if not yet installed in this session, unlocks the screen,
         and launches `PerfProbeActivity` in the foreground.
@@ -251,7 +269,6 @@ class PerfProbeSession:
         self._adb(["shell", "input", "keyevent", "KEYCODE_WAKEUP"], 10.0)
         self._adb(["shell", "wm", "dismiss-keyguard"], 10.0)
 
-        self._adb(["logcat", "-c"], 10.0)
         start_res = self._adb(
             [
                 "shell",
@@ -264,10 +281,15 @@ class PerfProbeSession:
             ],
             30.0,
         )
-        if start_res.returncode != 0:
+        start_out = f"{start_res.stdout or ''}\n{start_res.stderr or ''}".strip()
+        if (
+            start_res.returncode != 0
+            or "Error:" in start_out
+            or "Status: timeout" in start_out
+        ):
+            self._installed = False
             raise RuntimeError(
-                f"Failed to launch {PERF_PROBE_ACTIVITY} on {self.serial}: "
-                f"{start_res.stderr.strip() or start_res.stdout.strip()}"
+                f"Failed to launch {PERF_PROBE_ACTIVITY} on {self.serial}: {start_out}"
             )
         self._installed = True
 
@@ -280,8 +302,10 @@ class PerfProbeSession:
     ) -> Dict[str, Any]:
         """Dispatches an intent scenario to `PerfProbeActivity` and awaits its `PerfProbeJson` output."""
         self.ensure_installed_and_ready()
-        if clear_logcat:
-            self._adb(["logcat", "-c"], 10.0)
+        baseline_lines = (
+            self._snapshot_perf_probe_logcat_lines() if clear_logcat else []
+        )
+        baseline_count = len(baseline_lines)
 
         cmd = [
             "shell",
@@ -301,26 +325,44 @@ class PerfProbeSession:
                 cmd.extend(["--es", str(k), str(v)])
 
         res = self._adb(cmd, 20.0)
-        if res.returncode != 0:
+        combined_out = f"{res.stdout or ''}\n{res.stderr or ''}".strip()
+        if (
+            "Error: Activity class" in combined_out
+            or "unable to resolve Intent" in combined_out
+        ):
+            # Snapshot restore may have reverted package installation; reinstall and retry once.
+            self.invalidate_install_state()
+            self.ensure_installed_and_ready()
+            baseline_lines = (
+                self._snapshot_perf_probe_logcat_lines() if clear_logcat else []
+            )
+            baseline_count = len(baseline_lines)
+            res = self._adb(cmd, 20.0)
+            combined_out = f"{res.stdout or ''}\n{res.stderr or ''}".strip()
+
+        if res.returncode != 0 or "Error:" in combined_out:
             raise RuntimeError(
-                f"Failed to trigger scenario '{scenario}' on {self.serial}: "
-                f"{res.stderr.strip() or res.stdout.strip()}"
+                f"Failed to trigger scenario '{scenario}' on {self.serial}: {combined_out}"
             )
 
         def _poll_scenario_logcat() -> Optional[Dict[str, Any]]:
-            lc = self._adb(
-                ["logcat", "-d", "-s", f"{PERF_PROBE_LOG_TAG}:I"],
-                15.0,
-            )
-            if lc.returncode == 0 and lc.stdout:
-                records = parse_perf_probe_logcat_lines(lc.stdout)
-                for rec in reversed(records):
-                    if rec.get("scenario") == scenario:
-                        if rec.get("status") == "error":
-                            raise RuntimeError(
-                                f"PerfProbe scenario '{scenario}' failed in guest: {rec.get('error')}"
-                            )
-                        return rec
+            current_lines = self._snapshot_perf_probe_logcat_lines()
+            if not current_lines:
+                return None
+            if clear_logcat and len(current_lines) >= baseline_count:
+                candidate_lines = current_lines[baseline_count:]
+            else:
+                candidate_lines = current_lines
+            if not candidate_lines:
+                return None
+            records = parse_perf_probe_logcat_lines("\n".join(candidate_lines))
+            for rec in reversed(records):
+                if rec.get("scenario") == scenario:
+                    if rec.get("status") == "error":
+                        raise RuntimeError(
+                            f"PerfProbe scenario '{scenario}' failed in guest: {rec.get('error')}"
+                        )
+                    return rec
             return None
 
         outcome = poll_until(

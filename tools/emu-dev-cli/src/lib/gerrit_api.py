@@ -465,8 +465,9 @@ class GerritClient:
                 self._urllib_auth_failed = True
             transport_errors.append("no OAuth token available")
             return None
+        auth_header = token if token.startswith("Basic ") else f"Bearer {token}"
         headers = {
-            "Authorization": f"Bearer {token}",
+            "Authorization": auth_header,
             "Accept": "application/json",
             "Accept-Encoding": "gzip",
         }
@@ -1057,6 +1058,7 @@ class GerritClient:
         for ps in sorted(by_patchset.keys()):
             payload: dict[str, Any] = {
                 "comments": dict(by_patchset[ps]),
+                "notify": "OWNER",
             }
             res = self._request_json(
                 f"/a/changes/{encoded_id}/revisions/{ps}/review",
@@ -1066,7 +1068,10 @@ class GerritClient:
             responses.append(res if isinstance(res, dict) else {})
 
         if top_message:
-            cur_payload: dict[str, Any] = {"message": top_message}
+            cur_payload: dict[str, Any] = {
+                "message": top_message,
+                "notify": "OWNER",
+            }
             res = self._request_json(
                 f"/a/changes/{encoded_id}/revisions/current/review",
                 method="POST",

@@ -137,9 +137,11 @@ def _compute_sidecar_bundle_stamp(src_file: Path, cli_src_dir: Optional[Union[Pa
     h = hashlib.sha256()
     src_root = Path(cli_src_dir).resolve() if cli_src_dir else Path(__file__).resolve().parents[2]
     watched = [
-        src_root / "templates" / "gerrit_ui.html",
+        src_root / "templates" / "gerrit_ui_polygerrit.html",
+        src_root / "templates" / "gerrit_ui_react.bundle.js",
         src_root / "commands" / "gerrit" / "ui_server.py",
         src_root / "commands" / "gerrit" / "handlers" / "ui_handler.py",
+        src_root / "commands" / "gerrit" / "services" / "ui_assets.py",
         src_root / "commands" / "gerrit" / "presubmit_targets.py",
         src_root / "commands" / "gerrit" / "ai_analysis.py",
         src_root / "commands" / "gerrit" / "sidecar_updater.py",
@@ -153,6 +155,13 @@ def _compute_sidecar_bundle_stamp(src_file: Path, cli_src_dir: Optional[Union[Pa
         src_file.parent / "sidecars" / "aemu_gerrit_ui" / "server.py",
         src_file.parent / "sidecars" / "aemu_harness_ui" / "server.py",
     ]
+    for asset_subdir, pattern in (
+        (src_root / "ui" / "gerrit" / "styles", "*.css"),
+        (src_root / "ui" / "gerrit" / "scripts", "*.js"),
+        (src_root / "ui" / "gerrit" / "partials", "*.html"),
+    ):
+        if asset_subdir.is_dir():
+            watched.extend(sorted(p for p in asset_subdir.glob(pattern) if p.is_file()))
     for p in watched:
         try:
             if p.is_file():

@@ -37,8 +37,9 @@ class SecurityTest(unittest.TestCase):
             self.assertTrue(is_path_secure_user_owned(tmp_dir, is_dir=True))
             self.assertFalse(is_path_secure_user_owned(tmp_dir, is_dir=False))
 
-            os.chmod(tmp_dir, 0o777)
-            self.assertFalse(is_path_secure_user_owned(tmp_dir, is_dir=True))
+            if os.name != "nt":
+                os.chmod(tmp_dir, 0o777)
+                self.assertFalse(is_path_secure_user_owned(tmp_dir, is_dir=True))
 
     def test_is_path_secure_user_owned_file(self):
         """Tests file permission and ownership validation."""
@@ -50,8 +51,9 @@ class SecurityTest(unittest.TestCase):
             self.assertTrue(is_path_secure_user_owned(test_file, is_dir=False))
             self.assertFalse(is_path_secure_user_owned(test_file, is_dir=True))
 
-            test_file.chmod(0o777)
-            self.assertFalse(is_path_secure_user_owned(test_file, is_dir=False))
+            if os.name != "nt":
+                test_file.chmod(0o777)
+                self.assertFalse(is_path_secure_user_owned(test_file, is_dir=False))
 
     def test_ensure_secure_permissions(self):
         """Tests setting safe user-only permissions."""

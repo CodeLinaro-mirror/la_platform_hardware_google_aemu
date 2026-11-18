@@ -33,6 +33,19 @@ from commands.harness.review_aggregation import (
     filter_and_aggregate_findings,
     render_review_swarm_markdown,
 )
+from commands.harness.review_gate_v2 import (
+    CODE_REVIEW_EXTENSIONS,
+    LITE_SWARM_MAX_CODE_LINES,
+    VERIFIER_SCHEMA,
+    apply_verifier_decisions,
+    apply_verifier_to_specialist_outputs,
+    build_enclosing_file_context,
+    build_refutation_verifier_prompt,
+    classify_review_risk_tier,
+    collect_blocking_candidates,
+    normalize_stage1_outputs,
+    run_deterministic_stage0,
+)
 from commands.harness.review_history import (
     INCREMENTAL_PASS_MODEL,
     apply_incremental_history,
@@ -43,6 +56,7 @@ from commands.harness.review_history import (
 )
 from commands.harness.review_swarm_status import (
     REVIEW_SWARM_SUBDIR,
+    write_completed_swarm_status,
     write_initial_swarm_status,
 )
 from commands.harness.review_targets import (
@@ -66,6 +80,11 @@ SHARED_SPECIALIST_RULES: str = """## Shared Non-Negotiable Review Rules
 1. **Strict Diff Boundary**: Only report findings on added or modified lines in the diff (listed in `changed_lines_by_file`). NEVER report findings on untouched surrounding code, pre-existing issues, or unmodified callers.
 2. **High Signal Only (Zero Pedantry)**: Skip trivial nitpicks, style preferences not backed by team rules, or theoretical lectures (`sin^2(a) + cos^2(a) = 1`). Return an empty `findings: []` array if your specialist area is clean.
 3. **Concise & Actionable**: Keep each finding's `message` to 1-3 sentences identifying the concrete defect or rule violation and provide a drop-in `suggested_fix`.
+4. **Explicit Severity Rubric (Only `blocking` Blocks Gerrit Upload)**:
+   - `"blocking"` (Severe — blocks upload): ONLY for verified functional bugs, thread-safety/lock/lifetime races, resource/FD/memory leaks, unguarded null/bounds/StatusOr dereferences, wrong API contracts/state transitions, cross-platform/Unicode breakages (`std::ifstream`/`fopen` on paths, missing `cc_binary_with_manifest`), or broken `BUILD.bazel` targets.
+   - `"warning"` (Medium — non-blocking advisory): library reuse opportunities, error-message wording (`go/error-messages`), StatusOr naming (`TotW 181`), modularity/control-flow refactoring, named constants, or commit-message formatting.
+   - `"nit"` (Low — non-blocking minor suggestion): minor readability or documentation polish.
+5. **Verify Against Enclosing File Context**: Before reporting a missing lock, missing null/bounds check, or missing header/declaration, inspect the `Enclosing File Context` section (when present) to verify it is not already handled just outside the diff hunk.
 """
 
 # The duplication auditor's library list comes from the canonical catalog, so the prompt
@@ -117,13 +136,16 @@ REVIEW_SWARM_SPECIALISTS: List[Dict[str, str]] = [
     },
     {
         "name": "control-flow-auditor",
-        "role": "Control-Flow Auditor",
+        "role": "Control-Flow & Logic Auditor",
         "model": "flash",
         "workflow_mapping": "review-control-flow",
         "focus": (
-            "Audit added/modified code for control-flow complexity (`review-control-flow`): "
-            "flag 3+ levels of nested conditionals/loops, missing early-return guard clauses, "
-            "complex compound boolean expressions, and long `if/else` ladders."
+            "Audit added/modified code for (1) functional logic, off-by-one, wrong state-machine "
+            "transitions, wrong API/caller contracts, and broken `BUILD.bazel` target dependencies "
+            "(use category `logic`, `contracts`, or `build` and `severity: \"blocking\"` for verified "
+            "defects), and (2) control-flow complexity (`review-control-flow`: 3+ levels of nested "
+            "conditionals/loops, missing early-return guard clauses, complex compound boolean "
+            "expressions; use category `complexity` and `severity: \"warning\"` or `\"nit\"`)."
         ),
     },
     {
@@ -206,6 +228,9 @@ def _build_prior_context_section(
 def build_specialist_prompts(target_manifest: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Constructs the non-overlapping specialist definitions with embedded diff context."""
     is_incremental = target_manifest.get("review_scope") == "incremental"
+    risk_tier = str(target_manifest.get("risk_tier") or "full")
+    if risk_tier in ("stage0_only", "stage0_blocked"):
+        return []
     changed_map = target_manifest.get("changed_lines_by_file") or {}
     prior_map = target_manifest.get("prior_specialist_feedback") or {}
     msg_changed = bool(target_manifest.get("commit_msg_changed"))
@@ -216,6 +241,16 @@ def build_specialist_prompts(target_manifest: Dict[str, Any]) -> List[Dict[str, 
     commit_msg = (target_manifest.get("commit_message") or "").strip()
     bug_ids = ", ".join(target_manifest.get("bug_ids") or []) or "None"
     diff_text = target_manifest.get("diff_text") or ""
+    enclosing_context = build_enclosing_file_context(
+        target_manifest,
+        repo_dir=str(target_manifest.get("repo_dir") or "."),
+    )
+    enclosing_section = (
+        f"## Enclosing File Context\n```text\n{enclosing_context}\n```\n\n"
+        if enclosing_context and enclosing_context not in ("(no changed files)", "(enclosing file context unavailable)")
+        else ""
+    )
+    use_fast_model = is_incremental or risk_tier == "lite"
     prompts: List[Dict[str, Any]] = []
     for spec in REVIEW_SWARM_SPECIALISTS:
         if is_incremental and spec["name"] == COMMIT_AUDITOR_NAME and not msg_changed and not prior_map.get(COMMIT_AUDITOR_NAME):
@@ -230,12 +265,13 @@ def build_specialist_prompts(target_manifest: Dict[str, Any]) -> List[Dict[str, 
             f"{SHARED_SPECIALIST_RULES}\n{prior_section}"
             f"## Modified Line Allowlist (`changed_lines_by_file`)\n```json\n{changed_json}\n```\n\n"
             f"## `/COMMIT_MSG`\n```text\n{commit_msg}\n```\n\n"
+            f"{enclosing_section}"
             f"## Unified Diff\n```diff\n{diff_text}\n```\n"
         )
         prompts.append({
             "name": spec["name"],
             "role": spec["role"],
-            "model": INCREMENTAL_PASS_MODEL if is_incremental else spec["model"],
+            "model": INCREMENTAL_PASS_MODEL if use_fast_model else spec["model"],
             "workflow_mapping": spec["workflow_mapping"],
             "prompt": prompt_text,
         })
@@ -264,9 +300,16 @@ from commands.harness.review_swarm_status import (
 from commands.harness.review_swarm import (
     MAX_SWARM_CONCURRENCY,
     SPECIALIST_OUTPUT_SCHEMA,
+    VERIFIER_SCHEMA,
+    apply_verifier_to_specialist_outputs,
     atomic_write_text,
+    build_enclosing_file_context,
+    build_refutation_verifier_prompt,
     build_specialist_prompts,
+    collect_blocking_candidates,
     filter_and_aggregate_findings,
+    normalize_stage1_outputs,
+    run_deterministic_stage0,
 )
 from lib.output import ensure_utf8_stdio
 
@@ -284,6 +327,9 @@ specialists = build_specialist_prompts(manifest)
 wave_t0 = time.monotonic()
 status_doc = write_auditing_swarm_status(OUTPUT_DIR, manifest, specialists)
 
+phase("Stage 0: Deterministic Pre-Upload Checks")
+stage0_outputs = run_deterministic_stage0(manifest, repo_dir=str(manifest.get("repo_dir") or "."))
+
 phase("Wave 1: 8-Specialist Parallel Code Review")
 log(
     f"Launching {{len(specialists)}} specialist(s) "
@@ -292,20 +338,33 @@ log(
 
 async def _launch_specialist(spec):
     t0 = time.monotonic()
-    res = await agent(
-        prompt=spec["prompt"],
-        schema=SPECIALIST_OUTPUT_SCHEMA,
-        role=spec["role"],
-        model=spec["model"],
-    )
+    effective_model = spec["model"]
+    try:
+        res = await agent(
+            prompt=spec["prompt"],
+            schema=SPECIALIST_OUTPUT_SCHEMA,
+            role=spec["role"],
+            model=effective_model,
+        )
+    except Exception:
+        if effective_model != "flash":
+            effective_model = "flash"
+            res = await agent(
+                prompt=spec["prompt"],
+                schema=SPECIALIST_OUTPUT_SCHEMA,
+                role=spec["role"],
+                model=effective_model,
+            )
+        else:
+            res = {{"findings": []}}
     elapsed = round(time.monotonic() - t0, 3)
     out = dict(res) if isinstance(res, dict) else {{"findings": []}}
     out["specialist"] = spec["name"]
     out["role"] = spec["role"]
-    out["model"] = spec["model"]
+    out["model"] = effective_model
     out["duration_sec"] = elapsed
     record_specialist_completion(OUTPUT_DIR, status_doc, out)
-    log(f"[{{spec['name']}}] completed in {{elapsed:.2f}}s (model={{spec['model']}})")
+    log(f"[{{spec['name']}}] completed in {{elapsed:.2f}}s (model={{effective_model}})")
     return out
 
 if not specialists:
@@ -320,11 +379,39 @@ elif _adv_parallel is not None:
 else:
     raw_results = await parallel(specialists, _launch_specialist)
 
+changed_lines_map = {{
+    k: set(v) for k, v in (manifest.get("changed_lines_by_file") or {{}}).items()
+}}
+normalized_outputs = normalize_stage1_outputs(stage0_outputs + list(raw_results), changed_lines_map)
+flat_stage1 = [
+    {{**f, "specialist": out.get("specialist", "")}}
+    for out in normalized_outputs
+    for f in (out.get("findings") or [])
+    if isinstance(f, dict)
+]
+blocking_candidates = collect_blocking_candidates(flat_stage1)
+if blocking_candidates:
+    phase("Stage 2: Refutation Verifier on Candidate Blocking Findings")
+    enclosing_ctx = build_enclosing_file_context(manifest, repo_dir=str(manifest.get("repo_dir") or "."))
+    v_prompt = build_refutation_verifier_prompt(manifest, blocking_candidates, enclosing_ctx)
+    try:
+        v_res = await agent(
+            prompt=v_prompt,
+            schema=VERIFIER_SCHEMA,
+            role="Stage 2 Refutation Verifier",
+            model="flash",
+        )
+    except Exception:
+        v_res = {{"decisions": []}}
+    verified_outputs = apply_verifier_to_specialist_outputs(normalized_outputs, v_res)
+else:
+    verified_outputs = normalized_outputs
+
 wall_clock_sec = time.monotonic() - wave_t0
 phase("Wave 2: Deterministic Python Diff-Boundary Filter & Telemetry Persistence")
 metrics = build_wave_metrics(manifest, raw_results, wall_clock_sec)
 aggregated = filter_and_aggregate_findings(
-    raw_results,
+    verified_outputs,
     manifest.get("changed_lines_by_file") or {{}},
     metrics=metrics,
 )
@@ -461,17 +548,49 @@ def prepare_review_swarm_bundle(
     )
     effective_root = cache_root if cache_root is not None else (get_harness_base_dir() / REVIEW_SWARM_SUBDIR)
     target_manifest = apply_incremental_history(raw_manifest, effective_root, force_full=force_full)
+    tier_info = classify_review_risk_tier(
+        target_manifest,
+        repo_dir=str(repo_dir or target_manifest.get("repo_dir") or "."),
+        force_full=force_full,
+    )
+    target_manifest["risk_tier"] = tier_info["risk_tier"]
+    target_manifest["code_files"] = tier_info["code_files"]
+    target_manifest["code_lines_changed"] = tier_info["code_lines_changed"]
     base_out = output_dir if output_dir is not None else (effective_root / safe_id)
     base_out.mkdir(parents=True, exist_ok=True)
 
     specialists = build_specialist_prompts(target_manifest)
     paths = _write_bundle_artifacts(base_out, effective_root, target_manifest, specialists)
+    if (
+        tier_info["risk_tier"] in ("stage0_only", "stage0_blocked")
+        and not (base_out / "gerrit_review_payload.json").is_file()
+    ):
+        stage0_outputs = tier_info["stage0_outputs"]
+        stage0_metrics = build_wave_metrics(target_manifest, stage0_outputs, 0.01)
+        aggregated = filter_and_aggregate_findings(
+            stage0_outputs,
+            target_manifest.get("changed_lines_by_file") or {},
+            metrics=stage0_metrics,
+        )
+        atomic_write_text(base_out / "review_swarm_report.md", aggregated["markdown_report"])
+        atomic_write_text(
+            base_out / "gerrit_review_payload.json",
+            json.dumps(aggregated["gerrit_review_payload"], indent=2, ensure_ascii=False) + "\n",
+        )
+        if target_manifest.get("review_scope") != "incremental":
+            persist_iteration_and_metrics(
+                base_out, effective_root, target_manifest, stage0_outputs, aggregated, stage0_metrics
+            )
+        status_doc = json.loads(Path(paths["swarm_status_path"]).read_text(encoding="utf-8"))
+        write_completed_swarm_status(base_out, status_doc, aggregated, stage0_metrics)
     spec_meta = [{k: s[k] for k in ("name", "role", "model", "workflow_mapping")} for s in specialists]
     return {
         "mode": mode, "target_type": target_manifest.get("target_type"), "target_id": target_id,
         "change_key": target_manifest.get("change_key", ""),
         "round_number": target_manifest.get("round_number", 1),
         "review_scope": target_manifest.get("review_scope", "full"),
+        "risk_tier": target_manifest["risk_tier"],
+        "code_lines_changed": target_manifest["code_lines_changed"],
         "subject": target_manifest.get("subject", ""), "bug_ids": target_manifest.get("bug_ids", []),
         "files": target_manifest.get("files", []),
         "changed_lines_by_file": target_manifest.get("changed_lines_by_file", {}),
@@ -481,25 +600,36 @@ def prepare_review_swarm_bundle(
 
 
 __all__ = [
+    "CODE_REVIEW_EXTENSIONS",
     "COMMIT_MSG_FILE",
     "DEFAULT_GERRIT_HOST",
+    "LITE_SWARM_MAX_CODE_LINES",
     "MAX_SWARM_CONCURRENCY",
     "REVIEW_SWARM_SPECIALISTS",
     "SHARED_SPECIALIST_RULES",
     "SPECIALIST_FINDING_ITEM_SCHEMA",
     "SPECIALIST_OUTPUT_SCHEMA",
+    "VERIFIER_SCHEMA",
+    "apply_verifier_decisions",
+    "apply_verifier_to_specialist_outputs",
     "atomic_write_text",
+    "build_enclosing_file_context",
     "build_gerrit_review_payload",
+    "build_refutation_verifier_prompt",
     "build_specialist_prompts",
+    "classify_review_risk_tier",
+    "collect_blocking_candidates",
     "extract_bug_ids_from_commit_msg",
     "fetch_gerrit_cl_target",
     "fetch_git_commit_target",
     "filter_and_aggregate_findings",
     "generate_run_workflow_script",
+    "normalize_stage1_outputs",
     "parse_cl_identifier",
     "parse_unified_diff_changed_lines",
     "prepare_review_swarm_bundle",
     "render_review_swarm_markdown",
     "resolve_git_repo_dir",
+    "run_deterministic_stage0",
     "serialize_changed_lines",
 ]

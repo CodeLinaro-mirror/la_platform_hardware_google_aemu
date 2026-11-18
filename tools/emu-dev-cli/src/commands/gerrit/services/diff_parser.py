@@ -33,6 +33,7 @@ from commands.gerrit.services.context import (
     CONTEXT_SHARED_ATTRS,
     GerritWorkspaceContext,
 )
+from commands.gerrit.services.ui_assets import compute_gerrit_ui_assets_version
 from commands.gerrit.sidecar_updater import GerritSidecarUpdater
 from core.web.assets import StaticAssetResolver
 from lib.gerrit_api import (
@@ -241,7 +242,9 @@ def format_repo_display_path(project: str) -> str:
     return clean
 
 
-def _candidate_gerrit_ui_template_paths(template_name: str = "gerrit_ui.html") -> list[Path]:
+def _candidate_gerrit_ui_template_paths(
+    template_name: str = "gerrit_ui_polygerrit.html",
+) -> list[Path]:
     """Builds ordered candidate paths for `templates/<template_name>`."""
     here = Path(__file__).resolve()
     candidates: list[Path] = []
@@ -282,29 +285,19 @@ def _candidate_gerrit_ui_template_paths(template_name: str = "gerrit_ui.html") -
     return candidates
 
 
-def get_gerrit_ui_template_path(variant: str = "classic") -> Path:
-    """Resolves the HTML template path for `emu-dev-cli gerrit ui` (`classic` or `polygerrit`)."""
-    norm_variant = str(variant or "classic").strip().lower()
-    template_name = (
-        "gerrit_ui_polygerrit.html" if norm_variant == "polygerrit" else "gerrit_ui.html"
-    )
-    resolved = StaticAssetResolver(
-        _candidate_gerrit_ui_template_paths(template_name)
+def get_gerrit_ui_template_path(variant: str = "polygerrit") -> Path:
+    """Resolves the PolyGerrit HTML template path for `emu-dev-cli gerrit ui`."""
+    del variant
+    return StaticAssetResolver(
+        _candidate_gerrit_ui_template_paths("gerrit_ui_polygerrit.html")
     ).resolve_first_existing()
-    if norm_variant == "polygerrit" and not resolved.is_file():
-        return get_gerrit_ui_template_path("classic")
-    return resolved
 
 
 def get_gerrit_ui_template_version() -> str:
-    """Returns a short SHA-256 content hash of the UI templates for automatic UI reload detection."""
+    """Returns a short SHA-256 content hash of the UI template and assets for reload detection."""
     try:
-        hasher = hashlib.sha256()
-        for variant in ("classic", "polygerrit"):
-            tpl_path = get_gerrit_ui_template_path(variant)
-            if tpl_path.is_file():
-                hasher.update(tpl_path.read_bytes())
-        return hasher.hexdigest()[:12]
+        tpl_path = get_gerrit_ui_template_path()
+        return compute_gerrit_ui_assets_version(tpl_path)
     except OSError:
         return "0"
 

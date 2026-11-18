@@ -349,6 +349,11 @@ def _write_stream_flushed(stream: Optional[TextIO], sequence: str) -> bool:
 def _state_file_lock(lock_path: Path) -> Iterator[None]:
     """Serializes state updates and `/dev/tty` writes across hooks and tickers."""
     if fcntl is None:
+        try:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            lock_path.touch(exist_ok=True)
+        except OSError:
+            pass
         yield
         return
     fd: Optional[int] = None
@@ -693,7 +698,15 @@ def _spawn_ticker_process(
     if not require_isatty:
         cmd.append("--allow-non-tty-file")
 
-    child_env = dict(env)
+    child_env = {**os.environ, **env}
+    for opt_key in (ENV_NO_COLOR, ENV_NO_TITLE, ENV_NO_TICKER):
+        if opt_key not in env:
+            child_env.pop(opt_key, None)
+    existing_py_path = child_env.get("PYTHONPATH", "")
+    if _SRC_ROOT not in existing_py_path.split(os.pathsep):
+        child_env["PYTHONPATH"] = (
+            f"{_SRC_ROOT}{os.pathsep}{existing_py_path}" if existing_py_path else _SRC_ROOT
+        )
     try:
         if os.name != "nt" and POSIX_SHELL_PATH.is_file():
             # `sh` backgrounds the ticker and exits at once, so it is reaped here (no

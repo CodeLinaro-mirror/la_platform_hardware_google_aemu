@@ -22,7 +22,7 @@ import re
 import sys
 from typing import Any
 
-from clients.buganizer_service import CreateBugRequest
+from clients.buganizer_service import CreateBugRequest, ProdBuganizerService
 from commands.crash.advisor import (
     CrashAdvisorRunner,
     create_crash_bug_tracker,
@@ -347,15 +347,23 @@ class CrashFileBugCommand(Command[argparse.Namespace, dict[str, Any]]):
     ) -> tuple[str, str]:
         default_component_id = 29601
         explicit_bug_id = getattr(args, "bug_id", None)
-        try:
-            client = create_crash_bug_tracker(
-                token=token,
-                qa_mode=qa,
-                verbose=bool(getattr(args, "verbose", False)),
-            )
-        except ExecutionError:
+        client = None
+        if buganizer is None or isinstance(buganizer, ProdBuganizerService):
+            try:
+                client = create_crash_bug_tracker(
+                    token=token,
+                    qa_mode=qa,
+                    verbose=bool(getattr(args, "verbose", False)),
+                )
+            except ExecutionError:
+                if buganizer is None:
+                    raise
+        if client is None:
             if buganizer is None:
-                raise
+                raise ExecutionError(
+                    "Buganizer service is not available.",
+                    remediation="Ensure Buganizer credentials or CrashAdvisor checkout are available.",
+                )
             component_id = int(
                 getattr(args, "component_id", default_component_id)
                 or default_component_id
@@ -366,6 +374,7 @@ class CrashFileBugCommand(Command[argparse.Namespace, dict[str, Any]]):
                 return bug_id_str, "updated"
             title = (
                 str(getattr(args, "title", None) or "").strip()
+                or _parse_issue_metadata_from_rca(rca_content).get("title")
                 or f"[Crash] {stable_sig}"
             )
             created_issue = buganizer.create_issue(

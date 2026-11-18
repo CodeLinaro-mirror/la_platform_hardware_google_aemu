@@ -17,6 +17,7 @@ import argparse
 
 import os
 import sys
+import tempfile
 
 MIN_PYTHON = (3, 10)
 if sys.version_info < MIN_PYTHON:
@@ -33,11 +34,33 @@ ROOT_DIR = os.path.dirname(SCRIPT_DIR)
 _path_dirs = [os.path.join(SCRIPT_DIR, "lib"), SCRIPT_DIR]
 if os.path.isdir(os.path.join(ROOT_DIR, "workflows")):
     _path_dirs.insert(0, ROOT_DIR)
-for _dir in _path_dirs:
-    if _dir in sys.path:
+
+_home_dir = (
+    os.environ.get("HOME")
+    or os.environ.get("USERPROFILE")
+    or tempfile.gettempdir()
+)
+_fallback_lib_dirs = [
+    os.path.join(_home_dir, ".android", "emu-dev-cli", "lib"),
+]
+if sys.platform.startswith("win"):
+    _local_appdata = os.environ.get(
+        "LOCALAPPDATA", os.path.join(_home_dir, "AppData", "Local")
+    )
+    _fallback_lib_dirs.insert(
+        0, os.path.join(_local_appdata, "Google", "EmuDevCLI", "lib")
+    )
+
+for _dir, _front in [
+    *((d, True) for d in _path_dirs),
+    *((d, False) for d in _fallback_lib_dirs),
+]:
+    if not os.path.exists(_dir):
+        continue
+    if _front and _dir in sys.path:
         sys.path.remove(_dir)
-    if os.path.exists(_dir):
-        sys.path.insert(0, _dir)
+    if _dir not in sys.path:
+        sys.path.insert(0 if _front else len(sys.path), _dir)
 
 from commands import (
     build_times,
@@ -57,6 +80,7 @@ from commands import (
     sbom,
     screencast,
     source_directory,
+    stability,
     tidy,
     update_cmd,
     update_prebuilt,
@@ -151,6 +175,7 @@ def main():
     sbom.register_parser(subparsers)
     screencast.register_parser(subparsers)
     source_directory.register_parser(subparsers)
+    stability.register_parser(subparsers)
     tidy.register_parser(subparsers)
     update_cmd.register_parser(subparsers)
     update_prebuilt.register_parser(subparsers, default_host)

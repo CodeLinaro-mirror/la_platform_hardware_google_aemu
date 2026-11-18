@@ -76,7 +76,25 @@ _PRIORITY_LINE_RE = re.compile(r"^Priority:\s*(P[0-4])\b", re.IGNORECASE)
 _SEVERITY_LINE_RE = re.compile(r"^Severity:\s*(S[0-4])\b", re.IGNORECASE)
 _STATUS_LINE_RE = re.compile(r"^Status:\s*(.+)$", re.IGNORECASE)
 _ASSIGNEE_LINE_RE = re.compile(r"^Assignee:\s*(.+)$", re.IGNORECASE)
+_REPORTER_LINE_RE = re.compile(r"^Reporter:\s*(.+)$", re.IGNORECASE)
+_COMPONENT_ID_LINE_RE = re.compile(r"^Component ID:\s*(\d+)\b", re.IGNORECASE)
+_ISSUE_TYPE_LINE_RE = re.compile(r"^(?:Issue Type|Type):\s*(.+)$", re.IGNORECASE)
+_CREATED_TIME_LINE_RE = re.compile(r"^Created Time:\s*(.+)$", re.IGNORECASE)
+_MODIFIED_TIME_LINE_RE = re.compile(r"^Modified Time:\s*(.+)$", re.IGNORECASE)
 _TITLE_LINE_RE = re.compile(r"^Title:\s*(.+)$", re.IGNORECASE)
+
+_FIELD_LINE_MATCHERS: tuple[tuple[re.Pattern[str], str, bool], ...] = (
+    (_PRIORITY_LINE_RE, "priority", True),
+    (_SEVERITY_LINE_RE, "severity", True),
+    (_STATUS_LINE_RE, "status", False),
+    (_ASSIGNEE_LINE_RE, "assignee", False),
+    (_REPORTER_LINE_RE, "reporter", False),
+    (_COMPONENT_ID_LINE_RE, "component_id", False),
+    (_ISSUE_TYPE_LINE_RE, "type", False),
+    (_CREATED_TIME_LINE_RE, "created_time", False),
+    (_MODIFIED_TIME_LINE_RE, "modified_time", False),
+    (_TITLE_LINE_RE, "title", False),
+)
 _BATCH_LINE_RE = re.compile(
     r"^-\s*Issue\s+(\d+):\s*(.+?)\s*\[([^\]]+)\]\s*\(Priority:\s*(P[0-4])",
     re.IGNORECASE,
@@ -160,6 +178,9 @@ class BuganizerIssue:
     assignee: str = ""
     reporter: str = ""
     url: str = ""
+    issue_type: str = ""
+    created_time: str = ""
+    modified_time: str = ""
 
     def __post_init__(self) -> None:
         clean_id = str(self.issue_id or "").removeprefix("b/").strip()
@@ -184,6 +205,9 @@ class BuganizerIssue:
             "component_id": self.component_id,
             "assignee": self.assignee,
             "reporter": self.reporter,
+            "type": self.issue_type,
+            "created_time": self.created_time,
+            "modified_time": self.modified_time,
             "url": self.url,
             "is_closed": self.is_closed,
         }
@@ -266,26 +290,12 @@ def is_safe_signature_issue_match(
 
 def _apply_field_line(line: str, cur: dict[str, str]) -> bool:
     """Matches a `Field: Value` line from `issues` CLI output and updates `cur`."""
-    m_pri = _PRIORITY_LINE_RE.match(line)
-    if m_pri:
-        cur["priority"] = m_pri.group(1).upper()
-        return True
-    m_sev = _SEVERITY_LINE_RE.match(line)
-    if m_sev:
-        cur["severity"] = m_sev.group(1).upper()
-        return True
-    m_status = _STATUS_LINE_RE.match(line)
-    if m_status:
-        cur["status"] = m_status.group(1).strip()
-        return True
-    m_assignee = _ASSIGNEE_LINE_RE.match(line)
-    if m_assignee:
-        cur["assignee"] = m_assignee.group(1).strip()
-        return True
-    m_title = _TITLE_LINE_RE.match(line)
-    if m_title:
-        cur["title"] = m_title.group(1).strip()
-        return True
+    for pattern, field_key, uppercase in _FIELD_LINE_MATCHERS:
+        match = pattern.match(line)
+        if match:
+            val = match.group(1).strip()
+            cur[field_key] = val.upper() if uppercase else val
+            return True
     return False
 
 
@@ -299,13 +309,20 @@ def _build_issue_from_cursor(
     default_status = DEFAULT_STATUS_NEW if include_defaults else ""
     default_priority = DEFAULT_PRIORITY if include_defaults else ""
     default_severity = DEFAULT_SEVERITY if include_defaults else ""
+    raw_comp = cur.get("component_id", "").strip()
+    comp_id = int(raw_comp) if raw_comp.isdigit() else 0
     return BuganizerIssue(
         issue_id=issue_id,
         title=cur.get("title", ""),
         status=cur.get("status", default_status) or default_status,
         priority=cur.get("priority", default_priority) or default_priority,
         severity=cur.get("severity", default_severity) or default_severity,
+        component_id=comp_id,
         assignee=cur.get("assignee", ""),
+        reporter=cur.get("reporter", ""),
+        issue_type=cur.get("type", ""),
+        created_time=cur.get("created_time", ""),
+        modified_time=cur.get("modified_time", ""),
     )
 
 
@@ -331,7 +348,9 @@ def parse_issues_cli_output(
 
     for raw_line in cleaned.splitlines():
         line = raw_line.strip()
-        if not line or line.startswith("---"):
+        if not line:
+            continue
+        if line.startswith("---"):
             _flush()
             continue
 
@@ -387,6 +406,11 @@ def parse_issues_search_map(raw_text: str) -> dict[str, dict[str, str]]:
             "severity": issue.severity,
             "status": issue.status,
             "assignee": issue.assignee,
+            "reporter": issue.reporter,
+            "component_id": str(issue.component_id) if issue.component_id else "",
+            "type": issue.issue_type,
+            "created_time": issue.created_time,
+            "modified_time": issue.modified_time,
         }
         for issue in parse_issues_cli_output(raw_text, include_defaults=False)
     }

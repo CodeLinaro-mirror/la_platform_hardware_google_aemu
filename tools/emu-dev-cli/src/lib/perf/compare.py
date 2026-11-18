@@ -143,7 +143,19 @@ def _resolve_duration_metric_specs(
     workload: str, bt: Dict[str, Any], ct: Dict[str, Any]
 ) -> List[MetricSpec]:
     specs: List[MetricSpec] = [("duration_ms", "ms", False, workload)]
-    if workload == "key_arrival_latency":
+    if workload in ("cold_boot", "cold_boot_warm_disk"):
+        for stage_key, suffix in (
+            ("host_pre_kernel_ms", "host_pre_kernel"),
+            ("kernel_to_init_ms", "kernel_to_init"),
+            ("init_to_zygote_ms", "init_to_zygote"),
+            ("zygote_to_complete_ms", "zygote_to_complete"),
+            ("pms_scan_ms", "pms_scan"),
+        ):
+            if _has_key(f"{stage_key}_p50", bt, ct) or _has_key(stage_key, bt, ct):
+                specs.append(
+                    (stage_key, "ms", False, f"{workload}_{suffix}")
+                )
+    elif workload == "key_arrival_latency":
         if _has_key("kernel_to_app_ms_p50", bt, ct):
             specs.append(
                 ("kernel_to_app_ms", "ms", False, "key_arrival_kernel_to_app")

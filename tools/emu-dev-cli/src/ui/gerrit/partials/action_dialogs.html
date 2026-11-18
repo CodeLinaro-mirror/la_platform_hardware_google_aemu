@@ -1,0 +1,852 @@
+<div id="agentReplyBubbleStack" class="agent-reply-bubble-stack" aria-live="polite"></div>
+<div
+  id="updateDirtyWarningModal"
+  class="update-warning-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="updateDirtyWarningTitle"
+  aria-hidden="true"
+  onclick="onUpdateWarningBackdropClick(event)"
+>
+  <div class="update-warning-modal" onclick="event.stopPropagation()">
+    <div class="update-warning-head">
+      <span class="update-warning-icon" aria-hidden="true">⚠️</span>
+      <div>
+        <div id="updateDirtyWarningTitle" class="update-warning-title">Unstaged Changes Will Be Wiped Out</div>
+        <div id="updateDirtyWarningRepo" class="update-warning-sub">hardware/google/aemu</div>
+      </div>
+    </div>
+    <div class="update-warning-body">
+      <div>
+        Your local <code>hardware/google/aemu</code> repository has unstaged or uncommitted changes.
+        Updating the Fast Gerrit sidecar will <strong>permanently wipe out</strong> these local changes:
+      </div>
+      <div id="updateDirtyFilesList" class="update-dirty-files-list"></div>
+      <div class="update-warning-hint">
+        To keep your local edits, click <strong>Cancel</strong> and commit or run <code>git stash</code> in <code>hardware/google/aemu</code> first.
+      </div>
+    </div>
+    <div class="update-warning-actions">
+      <button
+        id="btnCancelDirtyUpdate"
+        type="button"
+        class="btn-modal-cancel"
+        onclick="closeUpdateDirtyWarningModal()"
+      >Cancel</button>
+      <button
+        id="btnConfirmForceUpdate"
+        type="button"
+        class="btn-modal-danger-wipe"
+        onclick="confirmWipeAndPerformSidecarUpdate()"
+      >Wipe Changes &amp; Update</button>
+    </div>
+  </div>
+</div>
+<div
+  id="pgShortcutsBackdrop"
+  class="pg-shortcuts-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgShortcutsTitle"
+  aria-hidden="true"
+  onclick="onShortcutsBackdropClick(event)"
+>
+  <div class="pg-shortcuts-dialog" onclick="event.stopPropagation()">
+    <div class="pg-shortcuts-header">
+      <div class="pg-shortcuts-header-title">
+        <span class="pg-shortcuts-icon" aria-hidden="true">⌨️</span>
+        <h2 id="pgShortcutsTitle" class="pg-shortcuts-title">Keyboard Shortcuts</h2>
+        <span id="pgShortcutsMatchCount" class="pg-shortcuts-match-count" aria-live="polite"></span>
+      </div>
+      <div class="pg-shortcuts-search-wrap">
+        <span class="pg-shortcuts-search-icon" aria-hidden="true">🔍</span>
+        <input
+          id="pgShortcutsSearchInput"
+          class="pg-shortcuts-search-input"
+          type="text"
+          placeholder="Filter shortcuts… (/)"
+          oninput="onShortcutsSearchInput(this.value)"
+          onkeydown="onShortcutsSearchKeydown(event)"
+          aria-label="Filter keyboard shortcuts"
+        />
+        <button
+          id="pgShortcutsClearBtn"
+          type="button"
+          class="pg-shortcuts-clear-btn"
+          onclick="clearShortcutsSearch()"
+          title="Clear filter (Esc)"
+        >✕</button>
+      </div>
+      <button
+        id="btnCloseShortcutsDialog"
+        type="button"
+        class="pg-btn-flat pg-shortcuts-close-btn"
+        onclick="closeShortcutsDialog()"
+        title="Close shortcuts dialog (Esc or ?)"
+        aria-label="Close shortcuts dialog"
+      >✕</button>
+    </div>
+    <div id="pgShortcutsCategoryBar" class="pg-shortcuts-cat-bar" role="tablist" aria-label="Shortcut categories"></div>
+    <div id="pgShortcutsContent" class="pg-shortcuts-content" onkeydown="onShortcutsContentKeydown(event)"></div>
+    <div class="pg-shortcuts-footer">
+      <div class="pg-shortcuts-tip">
+        <span>Tip: Press</span> <kbd class="pg-kbd">?</kbd> <span>anytime to toggle this cheatsheet, or</span> <kbd class="pg-kbd">Esc</kbd> <span>to close.</span>
+      </div>
+      <button
+        id="btnCloseShortcutsDialogFooter"
+        type="button"
+        class="pg-btn-flat"
+        onclick="closeShortcutsDialog()"
+      >Close</button>
+    </div>
+  </div>
+</div>
+<div
+  id="pgDownloadBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgDownloadTitle"
+  aria-hidden="true"
+  onclick="onPgDownloadBackdropClick(event)"
+>
+  <div class="pg-action-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">⬇</span>
+        <div>
+          <h2 id="pgDownloadTitle" class="pg-action-dialog-title">Download Commands</h2>
+          <div id="pgDownloadSubtitle" class="pg-action-dialog-subtitle"></div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgDownloadDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-download-body">
+      <div class="pg-download-meta" id="pgDownloadMeta">
+        <span class="pg-download-meta-item" id="pgDownloadPatchsetBadge" title="Selected Patchset">
+          <span class="pg-meta-label">Patchset:</span>
+          <select id="pgDownloadPatchsetSelect" class="pg-download-patchset-select" onchange="setPgDownloadPatchset(parseInt(this.value, 10))" aria-label="Select patchset for download">
+          </select>
+        </span>
+        <span class="pg-download-meta-item" id="pgDownloadRefBadge" title="Git reference">
+          <span class="pg-meta-label">Ref:</span>
+          <code id="pgDownloadRefText">refs/changes/...</code>
+          <button type="button" class="pg-btn-copy-ref" onclick="copyPgDownloadRef()" title="Copy ref to clipboard">📋</button>
+        </span>
+        <span class="pg-download-meta-item" id="pgDownloadBranchBadge" title="Target Branch">
+          <span class="pg-meta-label">Branch:</span>
+          <span id="pgDownloadBranchText">main</span>
+        </span>
+        <span class="pg-download-meta-item" id="pgDownloadProjectBadge" title="Project">
+          <span class="pg-meta-label">Project:</span>
+          <span id="pgDownloadProjectText">platform/...</span>
+        </span>
+      </div>
+
+      <div class="pg-download-scheme-bar">
+        <span class="pg-download-scheme-label">Scheme:</span>
+        <div class="pg-download-schemes" role="radiogroup" aria-label="Download scheme">
+          <button type="button" class="pg-download-scheme-chip active" data-scheme="repo" onclick="setPgDownloadScheme('repo')">Repo</button>
+          <button type="button" class="pg-download-scheme-chip" data-scheme="http" onclick="setPgDownloadScheme('http')">HTTP</button>
+          <button type="button" class="pg-download-scheme-chip" data-scheme="sso" onclick="setPgDownloadScheme('sso')">SSO</button>
+          <button type="button" class="pg-download-scheme-chip" data-scheme="ssh" onclick="setPgDownloadScheme('ssh')">SSH</button>
+          <button type="button" class="pg-download-scheme-chip" data-scheme="jj" onclick="setPgDownloadScheme('jj')">JJ</button>
+        </div>
+        <button type="button" class="pg-btn-flat pg-btn-scheme-cycle" onclick="cyclePgDownloadScheme()" title="Cycle scheme (Shortcut: s)">↻ Cycle (s)</button>
+      </div>
+
+      <div class="pg-download-customization-bar" id="pgDownloadCustomizationBar">
+        <span class="pg-download-customization-label">Options:</span>
+        <label class="pg-download-opt-label" title="Checkout into a named local branch instead of detached HEAD">
+          <input type="checkbox" id="pgDownloadBranchCheck" class="pg-download-opt-checkbox" onchange="togglePgDownloadBranchOption(this.checked)" />
+          <span>New branch:</span>
+        </label>
+        <input
+          type="text"
+          id="pgDownloadBranchInput"
+          class="pg-download-branch-input"
+          placeholder="review/&lt;cl&gt;"
+          oninput="onPgDownloadBranchInputChange(this.value)"
+          spellcheck="false"
+          title="Branch name for git checkout -b, repo download -b, or jj bookmark create"
+          disabled
+        />
+        <label class="pg-download-opt-label" title="Repo download with -c flag to create a local tracking branch">
+          <input type="checkbox" id="pgDownloadRepoBranchCheck" class="pg-download-opt-checkbox" onchange="togglePgDownloadRepoBranchOption(this.checked)" />
+          <span>Repo -c</span>
+        </label>
+      </div>
+
+      <div class="pg-download-tabs" role="tablist">
+        <button type="button" class="pg-download-tab active" data-tab="repo" onclick="selectPgDownloadTab('repo')">Repo (1)</button>
+        <button type="button" class="pg-download-tab" data-tab="checkout" onclick="selectPgDownloadTab('checkout')">Checkout (2)</button>
+        <button type="button" class="pg-download-tab" data-tab="cherry-pick" onclick="selectPgDownloadTab('cherry-pick')">Cherry Pick (3)</button>
+        <button type="button" class="pg-download-tab" data-tab="format-patch" onclick="selectPgDownloadTab('format-patch')">Format Patch (4)</button>
+        <button type="button" class="pg-download-tab" data-tab="pull" onclick="selectPgDownloadTab('pull')">Pull (5)</button>
+        <button type="button" class="pg-download-tab" data-tab="patch" onclick="selectPgDownloadTab('patch')">Patch Apply (6)</button>
+        <button type="button" class="pg-download-tab" data-tab="all" onclick="selectPgDownloadTab('all')">All Commands (7)</button>
+      </div>
+
+      <div class="pg-download-command-box" id="pgDownloadSingleCommandBox">
+        <input
+          id="pgDownloadCommandInput"
+          class="pg-download-input"
+          type="text"
+          readonly
+          spellcheck="false"
+          aria-label="Download command"
+          onclick="this.select()"
+        />
+        <button
+          id="btnCopyDownloadCommand"
+          type="button"
+          class="pg-btn-primary pg-copy-cmd-btn"
+          onclick="copyPgDownloadCommand()"
+          title="Copy command to clipboard (Shortcut: c / Enter)"
+        >📋 Copy</button>
+      </div>
+
+      <div class="pg-download-all-cmds" id="pgDownloadAllCommandsBox" style="display:none;"></div>
+
+      <div class="pg-download-hint" id="pgDownloadHint">
+        <span>💡 Run this command in your local checkout to pull and test this change.</span>
+      </div>
+
+      <div class="pg-download-actions-row">
+        <button type="button" class="pg-btn-patch-dl" id="btnDownloadPatchFile" onclick="downloadPgPatchFile()" title="Download .patch file directly to disk">
+          <span class="pg-btn-icon" aria-hidden="true">💾</span> Download .patch File
+        </button>
+        <button type="button" class="pg-btn-flat pg-btn-copy-patch-url" id="btnCopyPatchUrl" onclick="copyPgPatchUrl()" title="Copy direct raw patch URL">
+          <span>🔗 Copy Patch URL</span>
+        </button>
+        <button type="button" class="pg-btn-flat pg-btn-apply-local" id="btnApplyLocalWorkspace" onclick="copyPgWorkspaceCommand()" title="Copy Repo command for current workspace">
+          <span>💻 Copy for Local Checkout</span>
+        </button>
+      </div>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <button
+        type="button"
+        class="pg-btn-flat"
+        onclick="closePgDownloadDialog()"
+      >Close (Esc)</button>
+    </div>
+  </div>
+</div>
+<div
+  id="pgRebaseBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgRebaseTitle"
+  aria-hidden="true"
+  onclick="onPgRebaseBackdropClick(event)"
+>
+  <div class="pg-action-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">↻</span>
+        <div>
+          <h2 id="pgRebaseTitle" class="pg-action-dialog-title">Rebase Change</h2>
+          <div id="pgRebaseSubtitle" class="pg-action-dialog-subtitle"></div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgRebaseDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body">
+      <div id="pgRebaseConflictBanner" class="pg-rebase-conflict-alert" style="display:none;">
+        <span class="pg-alert-icon" aria-hidden="true">⚠️</span>
+        <div class="pg-alert-body">
+          <div class="pg-alert-title">Merge Conflict Detected</div>
+          <div class="pg-alert-desc">This change currently has merge conflicts with its target branch. Rebasing may require checking &quot;Allow merge conflicts&quot; to create conflict markers for resolution.</div>
+        </div>
+      </div>
+      <div id="pgRebaseOutdatedBanner" class="pg-rebase-conflict-alert pg-rebase-outdated-alert" style="display:none;">
+        <span class="pg-alert-icon" aria-hidden="true">⚠️</span>
+        <div class="pg-alert-body">
+          <div id="pgRebaseOutdatedTitle" class="pg-alert-title">Not Based on Latest Parent</div>
+          <div id="pgRebaseOutdatedDesc" class="pg-alert-desc">Parent change has an updated patchset. Rebasing will update to the latest revision.</div>
+        </div>
+      </div>
+      <div id="pgRebaseParentMergedBanner" class="pg-rebase-conflict-alert pg-rebase-info-alert" style="display:none;">
+        <span class="pg-alert-icon" aria-hidden="true">ℹ️</span>
+        <div class="pg-alert-body">
+          <div id="pgRebaseParentMergedTitle" class="pg-alert-title">Parent Merged</div>
+          <div id="pgRebaseParentMergedDesc" class="pg-alert-desc">Parent change was merged. Recommended: Rebase on parent branch.</div>
+        </div>
+      </div>
+      <div class="pg-rebase-options">
+        <label class="pg-rebase-option">
+          <input type="radio" name="pgRebaseTargetType" value="parent" checked onchange="onPgRebaseTypeChange(this.value)" />
+          <span class="pg-rebase-opt-label">Rebase on parent branch (<code id="pgRebaseBranchName">main</code>)</span>
+        </label>
+        <label id="pgRebaseChainParentOption" class="pg-rebase-option" style="display:none;">
+          <input type="radio" name="pgRebaseTargetType" value="chain_parent" onchange="onPgRebaseTypeChange(this.value)" />
+          <span class="pg-rebase-opt-label">Rebase on top of parent change (<span id="pgRebaseChainParentLabel" class="pg-rebase-chain-label"></span>)</span>
+        </label>
+        <label class="pg-rebase-option">
+          <input type="radio" name="pgRebaseTargetType" value="custom" onchange="onPgRebaseTypeChange(this.value)" />
+          <span class="pg-rebase-opt-label">Rebase on other change or base:</span>
+        </label>
+        <input
+          id="pgRebaseCustomBaseInput"
+          class="pg-action-input"
+          type="text"
+          placeholder="e.g. 123456 or Change-Id or commit SHA"
+          disabled
+          oninput="onPgRebaseCustomBaseInput(this.value)"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();executePgRebase();}"
+        />
+        <div id="pgRebaseSuggestionsWrap" class="pg-rebase-suggestions-wrap" style="display:none;">
+          <div class="pg-rebase-suggestions-title">Suggested bases:</div>
+          <div id="pgRebaseSuggestions" class="pg-rebase-suggestions"></div>
+        </div>
+      </div>
+      <div class="pg-action-checkbox-row">
+        <label class="pg-action-checkbox-label" for="pgRebaseAllowConflicts">
+          <input type="checkbox" id="pgRebaseAllowConflicts" class="pg-action-checkbox" />
+          <span>Allow merge conflicts</span>
+        </label>
+        <div class="pg-action-field-help">Creates conflict markers in file contents if the change cannot rebase cleanly.</div>
+      </div>
+      <div id="pgRebaseChainDescendantsRow" class="pg-action-checkbox-row" style="display:none;">
+        <label class="pg-action-checkbox-label" for="pgRebaseChainDescendants">
+          <input type="checkbox" id="pgRebaseChainDescendants" class="pg-action-checkbox" />
+          <span id="pgRebaseChainDescendantsLabel">Rebase whole chain</span>
+        </label>
+        <div class="pg-action-field-help">Rebases all descendant changes in the relation chain onto this rebased change.</div>
+      </div>
+      <div class="pg-action-dialog-hint">
+        <span>💡 Rebasing uploads a new patchset onto the selected base branch or commit.</span>
+      </div>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <button
+        type="button"
+        class="pg-btn-flat"
+        onclick="closePgRebaseDialog()"
+      >Cancel</button>
+      <button
+        id="btnConfirmRebase"
+        type="button"
+        class="pg-btn-primary"
+        onclick="executePgRebase()"
+      >Rebase</button>
+    </div>
+  </div>
+</div>
+<div
+  id="pgAbandonBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgAbandonTitle"
+  aria-hidden="true"
+  onclick="onPgAbandonBackdropClick(event)"
+>
+  <div class="pg-action-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon pg-action-icon-danger" aria-hidden="true">⊘</span>
+        <div>
+          <h2 id="pgAbandonTitle" class="pg-action-dialog-title">Abandon Change</h2>
+          <div id="pgAbandonSubtitle" class="pg-action-dialog-subtitle"></div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgAbandonDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body">
+      <div class="pg-action-dialog-desc">
+        Abandoning this change removes it from active review. You can restore it later if needed.
+      </div>
+      <label class="pg-action-field-label" for="pgAbandonReasonInput">Reason for abandoning (optional):</label>
+      <textarea
+        id="pgAbandonReasonInput"
+        class="pg-action-textarea"
+        placeholder="Explain why this change is being abandoned…"
+        rows="3"
+      ></textarea>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <button
+        type="button"
+        class="pg-btn-flat"
+        onclick="closePgAbandonDialog()"
+      >Cancel</button>
+      <button
+        id="btnConfirmAbandon"
+        type="button"
+        class="pg-btn-danger"
+        onclick="executePgAbandon()"
+      >Abandon Change</button>
+    </div>
+  </div>
+</div>
+<div
+  id="pgRestoreBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgRestoreTitle"
+  aria-hidden="true"
+  onclick="onPgRestoreBackdropClick(event)"
+>
+  <div class="pg-action-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">↺</span>
+        <div>
+          <h2 id="pgRestoreTitle" class="pg-action-dialog-title">Restore Change</h2>
+          <div id="pgRestoreSubtitle" class="pg-action-dialog-subtitle"></div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgRestoreDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body">
+      <div class="pg-action-dialog-desc">
+        Restoring this change re-opens it for active review and submission.
+      </div>
+      <label class="pg-action-field-label" for="pgRestoreReasonInput">Reason for restoring (optional):</label>
+      <textarea
+        id="pgRestoreReasonInput"
+        class="pg-action-textarea"
+        placeholder="Explain why this change is being restored…"
+        rows="3"
+      ></textarea>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <button
+        type="button"
+        class="pg-btn-flat"
+        onclick="closePgRestoreDialog()"
+      >Cancel</button>
+      <button
+        id="btnConfirmRestore"
+        type="button"
+        class="pg-btn-primary"
+        onclick="executePgRestore()"
+      >Restore Change</button>
+    </div>
+  </div>
+</div>
+<div
+  id="pgRevertBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgRevertTitle"
+  aria-hidden="true"
+  onclick="onPgRevertBackdropClick(event)"
+>
+  <div class="pg-action-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon pg-action-icon-danger" aria-hidden="true">↺</span>
+        <div>
+          <h2 id="pgRevertTitle" class="pg-action-dialog-title">Revert Change</h2>
+          <div id="pgRevertSubtitle" class="pg-action-dialog-subtitle"></div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgRevertDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body">
+      <div class="pg-action-dialog-desc">
+        Reverting this change will create a new change that undoes its modifications.
+      </div>
+      <label class="pg-action-field-label" for="pgRevertMessageInput">Commit Message:</label>
+      <textarea
+        id="pgRevertMessageInput"
+        class="pg-action-textarea"
+        placeholder="Enter commit message for the revert change…"
+        rows="6"
+        spellcheck="false"
+      ></textarea>
+      <label class="pg-action-field-label" for="pgRevertTopicInput" style="margin-top:10px;">Topic (optional):</label>
+      <input
+        type="text"
+        id="pgRevertTopicInput"
+        class="pg-action-input"
+        placeholder="topic (optional)"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <div class="pg-action-dialog-hint" style="margin-top:8px;">
+        <span>🔔 Notification policy: <code>OWNER</code> only (guaranteed by Gerrit guardrail <code>b/567559614</code>).</span>
+      </div>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <button
+        type="button"
+        class="pg-btn-flat"
+        onclick="closePgRevertDialog()"
+      >Cancel</button>
+      <button
+        id="btnConfirmRevert"
+        type="button"
+        class="pg-btn-primary pg-btn-revert-confirm"
+        onclick="executePgRevert()"
+      >Revert Change</button>
+    </div>
+  </div>
+</div>
+<div
+  id="pgSetWipBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgSetWipTitle"
+  aria-hidden="true"
+  onclick="onPgSetWipBackdropClick(event)"
+>
+  <div class="pg-action-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">🚧</span>
+        <div>
+          <h2 id="pgSetWipTitle" class="pg-action-dialog-title">Mark as Work in Progress</h2>
+          <div id="pgSetWipSubtitle" class="pg-action-dialog-subtitle"></div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgSetWipDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body">
+      <div class="pg-action-dialog-desc">
+        Marking this change as Work in Progress hides it from reviewer dashboards and pauses review requests while you make changes or resolve feedback.
+      </div>
+      <label class="pg-action-field-label" for="pgSetWipReasonInput">Reason for marking as work in progress (optional):</label>
+      <textarea
+        id="pgSetWipReasonInput"
+        class="pg-action-textarea"
+        placeholder="Explain why this change is being marked as work in progress…"
+        rows="3"
+      ></textarea>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <button
+        type="button"
+        class="pg-btn-flat"
+        onclick="closePgSetWipDialog()"
+      >Cancel</button>
+      <button
+        id="btnConfirmSetWip"
+        type="button"
+        class="pg-btn-primary"
+        onclick="executePgSetWip()"
+      >Mark as WIP</button>
+    </div>
+  </div>
+</div>
+<div
+  id="pgSetReadyBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgSetReadyTitle"
+  aria-hidden="true"
+  onclick="onPgSetReadyBackdropClick(event)"
+>
+  <div class="pg-action-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">✓</span>
+        <div>
+          <h2 id="pgSetReadyTitle" class="pg-action-dialog-title">Mark as Active / Ready for Review</h2>
+          <div id="pgSetReadySubtitle" class="pg-action-dialog-subtitle"></div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgSetReadyDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body">
+      <div class="pg-action-dialog-desc">
+        Marking this change as active moves it out of Work in Progress and notifies reviewers that it is ready for review.
+      </div>
+      <label class="pg-action-field-label" for="pgSetReadyReasonInput">Message for reviewers (optional):</label>
+      <textarea
+        id="pgSetReadyReasonInput"
+        class="pg-action-textarea"
+        placeholder="Explain what was changed or why the change is now ready for review…"
+        rows="3"
+      ></textarea>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <button
+        type="button"
+        class="pg-btn-flat"
+        onclick="closePgSetReadyDialog()"
+      >Cancel</button>
+      <button
+        id="btnConfirmSetReady"
+        type="button"
+        class="pg-btn-primary"
+        onclick="executePgSetReady()"
+      >Mark as Active</button>
+    </div>
+  </div>
+</div>
+<div
+  id="pgCherryPickBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgCherryPickTitle"
+  aria-hidden="true"
+  onclick="onPgCherryPickBackdropClick(event)"
+>
+  <div class="pg-action-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">🍒</span>
+        <div>
+          <h2 id="pgCherryPickTitle" class="pg-action-dialog-title">Cherry Pick Change to Another Branch</h2>
+          <div id="pgCherryPickSubtitle" class="pg-action-dialog-subtitle"></div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgCherryPickDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body">
+      <div id="pgCherryPickConflictBanner" class="pg-cherry-pick-conflict-alert" style="display:none;">
+        <span class="pg-alert-icon" aria-hidden="true">⚠️</span>
+        <div class="pg-alert-body">
+          <div class="pg-alert-title">Merge Conflict Advisory</div>
+          <div class="pg-alert-desc">This change has merge conflicts on its source branch. Consider checking &quot;Allow merge conflicts&quot; below to create conflict markers if the cherry-pick cannot apply cleanly.</div>
+        </div>
+      </div>
+      <div id="pgCherryPickSameBranchBanner" class="pg-cherry-pick-samebranch-alert" style="display:none;">
+        <span class="pg-alert-icon" aria-hidden="true">ℹ️</span>
+        <div class="pg-alert-body">
+          <div class="pg-alert-title">Same Branch Notice</div>
+          <div class="pg-alert-desc" id="pgCherryPickSameBranchText">Destination branch is the same as the source branch. Cherry-picking will create an independent duplicate change on this branch.</div>
+        </div>
+      </div>
+      <div id="pgCherryPickSourceTag" class="pg-cherrypick-source-tag"></div>
+      <label class="pg-action-field-label" for="pgCherryPickBranchInput">Cherry Pick to branch *:</label>
+      <div class="pg-autocomplete-wrap">
+        <input
+          id="pgCherryPickBranchInput"
+          class="pg-action-input"
+          type="text"
+          placeholder="e.g. goog/studio-main, master, or branch name"
+          autocomplete="off"
+          spellcheck="false"
+          oninput="onPgCherryPickBranchInput(this.value)"
+          onkeydown="onPgCherryPickBranchKeyDown(event)"
+          onfocus="onPgCherryPickBranchFocus()"
+        />
+        <div id="pgCherryPickBranchDropdown" class="pg-branch-autocomplete-dropdown" style="display:none;"></div>
+      </div>
+      <div class="pg-branch-chips-row" id="pgCherryPickChipsRow">
+        <span class="pg-branch-chips-label">Suggestions:</span>
+        <div id="pgCherryPickBranchChips" class="pg-branch-chips-container">
+          <button type="button" class="pg-branch-chip" onclick="setPgCherryPickBranch('goog/studio-main')">goog/studio-main</button>
+          <button type="button" class="pg-branch-chip" onclick="setPgCherryPickBranch('master')">master</button>
+          <button type="button" class="pg-branch-chip" onclick="setPgCherryPickBranch('emu-master-dev')">emu-master-dev</button>
+          <button type="button" class="pg-branch-chip" onclick="setPgCherryPickBranch('sys-img-dev')">sys-img-dev</button>
+        </div>
+      </div>
+      <label class="pg-action-field-label" for="pgCherryPickTopicInput">Cherry-pick Topic (optional):</label>
+      <input
+        id="pgCherryPickTopicInput"
+        class="pg-action-input"
+        type="text"
+        placeholder="Topic for the cherry-picked change"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <label class="pg-action-field-label" for="pgCherryPickBaseInput">Base (optional):</label>
+      <input
+        id="pgCherryPickBaseInput"
+        class="pg-action-input"
+        type="text"
+        placeholder="Leave empty for destination branch tip, or enter change # / commit hash"
+        autocomplete="off"
+        spellcheck="false"
+        oninput="onPgCherryPickBaseInput(this.value)"
+      />
+      <div id="pgCherryPickBaseSuggestionsWrap" class="pg-branch-chips-row" style="display:none;">
+        <span class="pg-branch-chips-label">Base Suggestions:</span>
+        <div id="pgCherryPickBaseSuggestions" class="pg-branch-chips-container"></div>
+      </div>
+      <label class="pg-action-field-label" for="pgCherryPickMessageInput">Commit Message:</label>
+      <textarea
+        id="pgCherryPickMessageInput"
+        class="pg-action-textarea"
+        placeholder="Commit message for the cherry-picked change…"
+        rows="6"
+        spellcheck="false"
+      ></textarea>
+      <div class="pg-action-checkbox-row">
+        <label class="pg-action-checkbox-label" for="pgCherryPickAllowConflicts">
+          <input type="checkbox" id="pgCherryPickAllowConflicts" class="pg-action-checkbox" />
+          <span>Allow merge conflicts</span>
+        </label>
+        <div class="pg-action-field-help">Creates merge conflict markers in file contents if the patch does not apply cleanly.</div>
+      </div>
+      <div class="pg-action-checkbox-row">
+        <label class="pg-action-checkbox-label" for="pgCherryPickKeepReviewers">
+          <input type="checkbox" id="pgCherryPickKeepReviewers" class="pg-action-checkbox" checked />
+          <span>Keep original reviewers and CCs</span>
+        </label>
+        <div class="pg-action-field-help">Copy original reviewers and CC list to the new cherry-picked change.</div>
+      </div>
+      <div class="pg-action-dialog-hint">
+        <span>💡 Cherry-picking creates a new change on the target branch containing this revision's patch.</span>
+      </div>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <button
+        type="button"
+        class="pg-btn-flat"
+        onclick="closePgCherryPickDialog()"
+      >Cancel</button>
+      <button
+        id="btnConfirmCherryPick"
+        type="button"
+        class="pg-btn-primary"
+        onclick="executePgCherryPick()"
+      >Cherry Pick</button>
+    </div>
+  </div>
+</div>
+<div
+  id="pgFollowUpBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgFollowUpTitle"
+  aria-hidden="true"
+  onclick="onPgFollowUpBackdropClick(event)"
+>
+  <div class="pg-action-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">↳</span>
+        <div>
+          <h2 id="pgFollowUpTitle" class="pg-action-dialog-title">Create Follow-up Change</h2>
+          <div id="pgFollowUpSubtitle" class="pg-action-dialog-subtitle"></div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgFollowUpDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body">
+      <label class="pg-action-field-label" for="pgFollowUpBranchInput">Destination Branch *:</label>
+      <input
+        id="pgFollowUpBranchInput"
+        class="pg-action-input"
+        type="text"
+        placeholder="e.g. goog/studio-main, master, or branch name"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <div class="pg-branch-chips-row">
+        <button type="button" class="pg-branch-chip" onclick="setPgFollowUpBranch('goog/studio-main')">goog/studio-main</button>
+        <button type="button" class="pg-branch-chip" onclick="setPgFollowUpBranch('master')">master</button>
+        <button type="button" class="pg-branch-chip" onclick="setPgFollowUpBranch('emu-master-dev')">emu-master-dev</button>
+        <button type="button" class="pg-branch-chip" onclick="setPgFollowUpBranch('sys-img-dev')">sys-img-dev</button>
+      </div>
+      <label class="pg-action-field-label" for="pgFollowUpBaseInput">Base Change (stacked parent):</label>
+      <input
+        id="pgFollowUpBaseInput"
+        class="pg-action-input"
+        type="text"
+        placeholder="e.g. ag/43330008 or revision commit hash"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <label class="pg-action-field-label" for="pgFollowUpTopicInput">Topic (optional):</label>
+      <input
+        id="pgFollowUpTopicInput"
+        class="pg-action-input"
+        type="text"
+        placeholder="Topic name to group related changes in this stack"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <label class="pg-action-field-label" for="pgFollowUpMessageInput">Commit Message / Subject *:</label>
+      <textarea
+        id="pgFollowUpMessageInput"
+        class="pg-action-textarea"
+        placeholder="Commit message for follow-up change…"
+        rows="5"
+        spellcheck="false"
+      ></textarea>
+      <div class="pg-followup-options-row">
+        <label class="pg-checkbox-label">
+          <input type="checkbox" id="pgFollowUpWipCheckbox" /> Work in progress (WIP)
+        </label>
+        <label class="pg-checkbox-label">
+          <input type="checkbox" id="pgFollowUpPrivateCheckbox" /> Private change
+        </label>
+      </div>
+      <div class="pg-action-dialog-hint">
+        <span>💡 Creates a new Gerrit change stacked directly on top of this change revision.</span>
+      </div>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <button
+        type="button"
+        class="pg-btn-flat"
+        onclick="closePgFollowUpDialog()"
+      >Cancel</button>
+      <button
+        id="btnConfirmFollowUp"
+        type="button"
+        class="pg-btn-primary"
+        onclick="executePgFollowUp()"
+      >Create Change</button>
+    </div>
+  </div>
+</div>

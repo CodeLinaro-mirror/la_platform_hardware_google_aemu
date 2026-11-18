@@ -19,6 +19,7 @@ Verifies that the codebase compiles cleanly without build errors.
 """
 
 import argparse
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -40,9 +41,20 @@ def verify_compile(cmd: str, cwd: str = None, timeout: int = 600, phase: str = "
         return 1
 
     phase_str = f" [{phase}]" if phase else ""
+    if os.name != "nt" or Path("/bin/bash").exists():
+        shell_cmd = ["/bin/bash", "-c", cmd]
+    elif not any(op in cmd for op in ("&&", "||", "|", ">", "<")):
+        import shlex
+
+        tokens = shlex.split(cmd)
+        if tokens and tokens[0] in ("python3", "python"):
+            tokens[0] = sys.executable
+        shell_cmd = tokens
+    else:
+        shell_cmd = ["cmd.exe", "/d", "/s", "/c", cmd]
     try:
         proc = subprocess.run(
-            ["/bin/bash", "-c", cmd],
+            shell_cmd,
             cwd=str(work_dir),
             capture_output=True,
             text=True,

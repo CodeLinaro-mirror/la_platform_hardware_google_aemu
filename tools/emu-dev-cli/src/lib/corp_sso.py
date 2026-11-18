@@ -450,6 +450,36 @@ def _read_soecks_socket_path(
     """Reads the newline-terminated UNIX socket path from `uplink-soecks` with a timeout."""
     deadline = time.monotonic() + timeout_sec
     buf = bytearray()
+    if os.name == "nt":
+        import ctypes
+        import msvcrt
+
+        handle = msvcrt.get_osfhandle(stdout_fd)
+        avail = ctypes.c_ulong(0)
+        while len(buf) < MAX_SOECKS_HANDSHAKE_LEN:
+            if time.monotonic() >= deadline:
+                return None
+            ok = ctypes.windll.kernel32.PeekNamedPipe(
+                ctypes.c_void_p(handle),
+                None,
+                0,
+                None,
+                ctypes.byref(avail),
+                None,
+            )
+            if not ok:
+                break
+            if avail.value == 0:
+                time.sleep(0.01)
+                continue
+            chunk = os.read(stdout_fd, min(SOECKS_PATH_READ_BYTES, int(avail.value)))
+            if not chunk:
+                break
+            buf.extend(chunk)
+            if b"\n" in chunk:
+                break
+        return buf.partition(b"\n")[0].decode("utf-8", errors="replace").strip()
+
     with selectors.DefaultSelector() as sel:
         sel.register(stdout_fd, selectors.EVENT_READ)
         while len(buf) < MAX_SOECKS_HANDSHAKE_LEN:

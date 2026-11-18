@@ -1,10 +1,32 @@
+use crate::provider::GuestStats;
+use std::collections::HashMap;
+use std::time::Duration;
 use tokio::process::Command;
-// Deleted unused import
+
+const ADB_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+const BATCH_SEPARATOR: &str = "===ADB_MON_SPLIT===";
+const KB_PER_MB: f32 = 1024.0;
+const KB_PER_GB: f32 = 1_048_576.0;
+
+/// Parsed sections of the single-command `adb shell` guest stats batch.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BatchOutput<'a> {
+    pub ram: String,
+    pub is_booting: Option<bool>,
+    pub data_space: Option<String>,
+    pub err_count: u32,
+    pub data_pct: Option<f32>,
+    pub top_output: &'a str,
+    pub swap: Option<String>,
+}
 
 pub fn parse_model_info(stdout: &str) -> Option<(String, bool)> {
     let parts: Vec<&str> = stdout.split("|!|").collect();
     if parts.len() >= 6 {
         let model = parts[0].trim().to_string();
+        if model.is_empty() {
+            return None;
+        }
         let version = parts[1].trim().to_string();
         let api = parts[2].trim().to_string();
         let build = parts[3].trim().to_string();
@@ -16,123 +38,151 @@ pub fn parse_model_info(stdout: &str) -> Option<(String, bool)> {
         };
         let is_booting = parts[5].trim() != "1";
 
-        let display_name = format!("{} | Android {} (API {}) | Build: {} | Res: {}", model, version, api, build, size);
+        let display_name = format!(
+            "{} | Android {} (API {}) | Build: {} | Res: {}",
+            model, version, api, build, size
+        );
         Some((display_name, is_booting))
     } else {
         None
     }
 }
 
-pub fn parse_batch_output<'a>(stdout: &'a str) -> (String, bool, Option<String>, u32, Option<f32>, &'a str, Option<String>) {
-    let parts: Vec<&str> = stdout.split("===ADB_MON_SPLIT===").collect();
-    let mut mem_total = 0;
-    let mut mem_avail = 0;
-    let mut mem_free = 0;
-    let mut buffers = 0;
-    let mut cached = 0;
-    let mut used = 0;
-    let mut err_count = 0;
-    let mut is_booting = true;
-// Deleted obsolete variable
-    let mut data_space: Option<String> = None;
-    let mut data_pct: Option<f32> = None;
-    let mut guest_ram = "N/A".to_string();
+/// Whether the cached model banner is missing or incomplete and should be re-queried.
+pub fn should_retry_model(model: &str, is_booting: bool) -> bool {
+    let model_lower = model.to_lowercase();
+    model.is_empty()
+        || !model_lower.contains("android")
+        || model_lower.contains("unknown model")
+        || model_lower.contains("error:")
+        || model_lower.contains("offline")
+        || (model_lower.contains("res: n/a") && is_booting)
+}
 
-    if parts.len() >= 1 {
-        for line in parts[0].lines() {
-            let lp: Vec<&str> = line.split_whitespace().collect();
-            if lp.len() >= 2 {
-                if lp[0].starts_with("MemTotal") {
-                    mem_total = lp[1].parse::<u64>().unwrap_or(0);
-                } else if lp[0].starts_with("MemAvailable") {
-                    mem_avail = lp[1].parse::<u64>().unwrap_or(0);
-                } else if lp[0].starts_with("MemFree") {
-                    mem_free = lp[1].parse::<u64>().unwrap_or(0);
-                } else if lp[0].starts_with("Buffers") {
-                    buffers = lp[1].parse::<u64>().unwrap_or(0);
-                } else if lp[0] == "Cached:" {
-                    cached = lp[1].parse::<u64>().unwrap_or(0);
-                }
-            }
-        }
-        if mem_avail == 0 && (mem_free + buffers + cached) > 0 {
-            mem_avail = mem_free + buffers + cached;
-        }
-        if mem_total > 0 {
-            used = mem_total.saturating_sub(mem_avail);
-        }
-    }
+/// Parses the `/proc/meminfo` section into `(RAM display, swap used)`.
+///
+/// Swap used is `SwapTotal - SwapFree`, the figure `vmstat` reports as `swpd`. `vmstat` itself
+/// cannot open `/proc/vmstat` on API 28-29, so it is not part of the batch.
+fn parse_meminfo(section: &str) -> (String, Option<String>) {
+    let mut mem_total = 0_u64;
+    let mut mem_avail = 0_u64;
+    let mut mem_free = 0_u64;
+    let mut buffers = 0_u64;
+    let mut cached = 0_u64;
+    let mut swap_total = None;
+    let mut swap_free = None;
 
-    if parts.len() >= 2 {
-        for line in parts[1].lines() {
-            if line.contains("/data") {
-                let dp: Vec<&str> = line.split_whitespace().collect();
-                let pct_idx = dp.iter().position(|s| s.contains('%'));
-                if let Some(idx) = pct_idx {
-                    data_pct = dp[idx].split('%').next().and_then(|s| s.parse::<f32>().ok());
-                    if idx >= 2 {
-                        let used_s = dp[idx - 2];
-                        let avail_s = dp[idx - 1];
-                        let pct = dp[idx];
-                        data_space = Some(format!("{} ({} used/{} avail)", pct, used_s, avail_s));
-                    } else {
-                        let used_s = if dp.len() > 2 { dp[2] } else { "N/A" };
-                        let avail_s = if dp.len() > 3 { dp[3] } else { "N/A" };
-                        let pct = if idx < dp.len() { dp[idx] } else { "N/A%" };
-                        data_space = Some(format!("{} ({} used/{} avail)", pct, used_s, avail_s));
-                    }
-                }
-                break;
+    for line in section.lines() {
+        let lp: Vec<&str> = line.split_whitespace().collect();
+        if lp.len() >= 2 {
+            let val = lp[1].parse::<u64>().unwrap_or(0);
+            if lp[0].starts_with("MemTotal") {
+                mem_total = val;
+            } else if lp[0].starts_with("MemAvailable") {
+                mem_avail = val;
+            } else if lp[0].starts_with("MemFree") {
+                mem_free = val;
+            } else if lp[0].starts_with("Buffers") {
+                buffers = val;
+            } else if lp[0] == "Cached:" {
+                cached = val;
+            } else if lp[0] == "SwapTotal:" {
+                swap_total = lp[1].parse::<u64>().ok();
+            } else if lp[0] == "SwapFree:" {
+                swap_free = lp[1].parse::<u64>().ok();
             }
         }
     }
-
-    if parts.len() >= 3 {
-        err_count = parts[2].trim().parse::<u32>().unwrap_or(0);
+    let swap = swap_total
+        .zip(swap_free)
+        .map(|(total, free)| format!("{:.1} MB", total.saturating_sub(free) as f32 / KB_PER_MB));
+    if mem_avail == 0 && (mem_free + buffers + cached) > 0 {
+        mem_avail = mem_free + buffers + cached;
     }
-
-    if parts.len() >= 4 {
-        is_booting = parts[3].trim() != "1";
+    if mem_total == 0 {
+        return ("N/A".to_string(), swap);
     }
+    let used = mem_total.saturating_sub(mem_avail);
+    let ram = format!(
+        "{:.1}% ({:.1}GB/{:.1}GB)",
+        (used as f32 / mem_total as f32) * 100.0,
+        used as f32 / KB_PER_GB,
+        mem_total as f32 / KB_PER_GB
+    );
+    (ram, swap)
+}
 
-    let mut top_output = "";
-    if parts.len() >= 5 {
-        top_output = parts[4];
-    }
-
-    let mut guest_swap = None;
-    if parts.len() >= 6 {
-        if let Some(last_line) = parts[5].trim().lines().last() {
-            let cols: Vec<&str> = last_line.split_whitespace().collect();
-            if cols.len() >= 3 {
-                if let Ok(swap_kb) = cols[2].parse::<u64>() {
-                    guest_swap = Some(format!("{:.1} MB", swap_kb as f32 / 1024.0));
-                }
-            }
+/// Parses the `df -h /data` section into `(display, Use%)`.
+///
+/// The data row is picked by its numeric `Use%` column rather than its mount point: on API 30-33
+/// `df` names a bind mount of the /data device (such as `/storage/emulated/0/Android/obb`)
+/// instead of `/data` (b/583871630). The emulator images tested print a single row; if a `df`
+/// variant prints several, a row naming `/data` wins.
+fn parse_df_data_section(section: &str) -> (Option<String>, Option<f32>) {
+    let mut first_row = None;
+    for line in section.lines() {
+        let dp: Vec<&str> = line.split_whitespace().collect();
+        let Some((idx, pct)) = dp.iter().enumerate().find_map(|(i, s)| {
+            s.strip_suffix('%').and_then(|n| n.parse::<f32>().ok()).map(|pct| (i, pct))
+        }) else {
+            continue;
+        };
+        if idx < 2 {
+            continue;
         }
+        let row =
+            (Some(format!("{} ({} used/{} avail)", dp[idx], dp[idx - 2], dp[idx - 1])), Some(pct));
+        if line.contains("/data") {
+            return row;
+        }
+        first_row.get_or_insert(row);
     }
+    first_row.unwrap_or((None, None))
+}
 
-    if mem_total > 0 {
-        guest_ram = format!("{:.1}% ({:.1}GB/{:.1}GB)",
-            (used as f32 / mem_total as f32) * 100.0,
-            used as f32 / 1048576.0,
-            mem_total as f32 / 1048576.0
-        );
-    }
+pub fn parse_batch_output(stdout: &str) -> BatchOutput<'_> {
+    let parts: Vec<&str> = stdout.split(BATCH_SEPARATOR).collect();
+    let (ram, swap) =
+        parts.first().map(|s| parse_meminfo(s)).unwrap_or_else(|| ("N/A".to_string(), None));
+    let (data_space, data_pct) =
+        parts.get(1).map(|s| parse_df_data_section(s)).unwrap_or((None, None));
+    let err_count = parts.get(2).and_then(|s| s.trim().parse::<u32>().ok()).unwrap_or(0);
+    let is_booting = if parts.len() >= 5 || (parts.len() == 4 && !parts[3].trim().is_empty()) {
+        Some(parts[3].trim() != "1")
+    } else {
+        None
+    };
+    let top_output = parts.get(4).copied().unwrap_or("");
 
-    (guest_ram, is_booting, data_space, err_count, data_pct, top_output, guest_swap)
+    BatchOutput { ram, is_booting, data_space, err_count, data_pct, top_output, swap }
 }
 
 pub fn parse_top_output(stdout: &str) -> (String, String) {
-    let mut guest_diff = "N/A".to_string();
-    let mut guest_real = "N/A".to_string();
+    let mut cpu_total = "N/A".to_string();
+    let mut cpu_adjusted = "N/A".to_string();
 
-    let target_block = stdout.split("Tasks:").last().unwrap_or(
-        stdout.split("User ").last().unwrap_or(stdout)
-    );
+    // Toolbox `top` (API 24) prints each frame's tick deltas instead of a `%cpu` line, such as
+    // `User 3 + Nice 1 + Sys 3 + Idle 391 + IOW 0 + IRQ 0 + SIRQ 0 = 398`. Its first frame spans
+    // only a few ticks, so a reply needs both `-n 2` frames and the last one is used. The kernel's
+    // iowait counter can go backwards, so deltas may be negative.
+    static RE_TOOLBOX_TICKS: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re_toolbox_ticks = RE_TOOLBOX_TICKS.get_or_init(|| {
+        regex::Regex::new(r"Idle (-?\d+) \+ IOW -?\d+ \+ IRQ -?\d+ \+ SIRQ -?\d+ = (-?\d+)")
+            .unwrap()
+    });
+    let frames: Vec<_> = re_toolbox_ticks.captures_iter(stdout).collect();
+    if let [_, .., ticks] = frames.as_slice() {
+        if let (Ok(idle), Ok(total)) = (ticks[1].parse::<f32>(), ticks[2].parse::<f32>()) {
+            if total > 0.0 {
+                let busy = ((total - idle) / total * 100.0).clamp(0.0, 100.0);
+                return (format!("{busy:.1}%"), format!("{busy:.1}% (Cores unknown)"));
+            }
+        }
+    }
 
-    static RE_ANSI: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let re_ansi = RE_ANSI.get_or_init(|| regex::Regex::new(r"(?i)\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])").unwrap());
+    let target_block = stdout.rsplit("Tasks:").next().unwrap_or(stdout);
+
+    let re_ansi = crate::ui::ansi_regex();
 
     static RE_USAGE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re_usage = RE_USAGE.get_or_init(|| regex::Regex::new(r"(?i)(\d+)\s*%?\s*cpu").unwrap());
@@ -141,7 +191,8 @@ pub fn parse_top_output(stdout: &str) -> (String, String) {
     let re_idle = RE_IDLE.get_or_init(|| regex::Regex::new(r"(?i)(\d+)\s*%?\s*idle").unwrap());
 
     static RE_ID: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let re_id = RE_ID.get_or_init(|| regex::Regex::new(r"(?i)(\d+(?:[.,]\d+)?)\s*%?\s*id").unwrap());
+    let re_id =
+        RE_ID.get_or_init(|| regex::Regex::new(r"(?i)(\d+(?:[.,]\d+)?)\s*%?\s*id\b").unwrap());
 
     for line in target_block.lines().take(10) {
         let clean_line = re_ansi.replace_all(line, "");
@@ -155,8 +206,8 @@ pub fn parse_top_output(stdout: &str) -> (String, String) {
                 if t_val >= 90.0 {
                     let diff = (t_val - i_val).max(0.0);
                     let cores = (t_val / 100.0).round().max(1.0);
-                    guest_diff = format!("{:.0}%", diff);
-                    guest_real = format!("{:.1}% (over {} cores)", diff / cores, cores);
+                    cpu_total = format!("{:.0}%", diff);
+                    cpu_adjusted = format!("{:.1}% (over {} cores)", diff / cores, cores);
                     break;
                 }
             }
@@ -164,17 +215,17 @@ pub fn parse_top_output(stdout: &str) -> (String, String) {
             let id_str = id_match[1].replace(',', ".");
             if let Ok(id_val) = id_str.parse::<f32>() {
                 let real_pct = (100.0 - id_val).max(0.0);
-                guest_diff = format!("{:.1}%", real_pct);
-                guest_real = format!("{:.1}% (Cores unknown)", real_pct);
+                cpu_total = format!("{:.1}%", real_pct);
+                cpu_adjusted = format!("{:.1}% (Cores unknown)", real_pct);
                 break;
             }
         }
     }
 
-    (guest_diff, guest_real)
+    (cpu_total, cpu_adjusted)
 }
 
-pub fn parse_adb_devices(stdout: &str) -> std::collections::HashMap<String, String> {
+pub fn parse_adb_devices(stdout: &str) -> HashMap<String, String> {
     const VALID_STATES: &[&str] = &[
         "device",
         "offline",
@@ -184,133 +235,344 @@ pub fn parse_adb_devices(stdout: &str) -> std::collections::HashMap<String, Stri
         "sideload",
         "authorizing",
         "connecting",
+        // `no permissions (...)`: missing udev rules; listed, but not queryable.
+        "no permissions",
     ];
-    let mut devices = std::collections::HashMap::new();
+    let mut devices = HashMap::new();
     for raw_line in stdout.lines() {
         let line = raw_line.trim();
         if line.is_empty() || line.starts_with('*') || line.starts_with("List of devices") {
             continue;
         }
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 2 && VALID_STATES.contains(&parts[1]) {
-            devices.insert(parts[0].to_string(), parts[1].to_string());
+        if parts.len() >= 2 {
+            let state = if parts[1..].starts_with(&["no", "permissions"]) {
+                "no permissions"
+            } else {
+                parts[1]
+            };
+            if VALID_STATES.contains(&state) {
+                devices.insert(parts[0].to_string(), state.to_string());
+            }
         }
     }
     devices
 }
 
+const MODEL_INFO_SCRIPT: &str = "m=$(getprop ro.product.model); v=$(getprop ro.build.version.release); a=$(getprop ro.build.version.sdk); b=$(getprop ro.build.id); w=$(wm size 2>/dev/null); c=$(getprop sys.boot_completed); echo \"$m|!|$v|!|$a|!|$b|!|$w|!|$c\"";
+
+/// One `adb shell` round trip per tick. The guest commands also have to run on API 24-28 images:
+/// API 24 `logcat` rejects a comma-separated `-b` list, toybox `top` (API 26-28) rejects the
+/// fractional `-d 0.2`, and toolbox `top` (API 24) rejects `-b`. Toolbox `top` also dies of a
+/// divide-by-zero when its first frame spans no clock ticks, so the integer-delay form gets a
+/// second try.
+const BATCH_STATS_SCRIPT: &str = r#"cat /proc/meminfo; echo '===ADB_'"MON"'_SPLIT==='; df -h /data 2>/dev/null; echo '===ADB_'"MON"'_SPLIT==='; logcat -d -t 500 -b main -b crash *:E 2>/dev/null | grep -v "^---------" | wc -l; echo '===ADB_'"MON"'_SPLIT==='; getprop sys.boot_completed; echo '===ADB_'"MON"'_SPLIT==='; (top -b -n 2 -d 0.2 || top -n 2 -d 1 || top -n 2 -d 1)"#;
+
+/// Rejects empty or `adb`-error stdout without touching non-zero exit codes (since the final
+/// `top` fallback in `BATCH_STATS_SCRIPT` exits non-zero on images where neither form runs).
+pub(crate) fn sanitize_adb_shell_stdout(stdout: &str) -> Option<&str> {
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let check_region = if stdout.contains(BATCH_SEPARATOR) {
+        let mut sections = stdout.splitn(5, BATCH_SEPARATOR);
+        let p0 = sections.next().unwrap_or("");
+        let p1 = sections.next().unwrap_or("");
+        let p2 = sections.next().unwrap_or("");
+        let p3 = sections.next().unwrap_or("");
+        format!("{p0}\n{p1}\n{p2}\n{p3}")
+    } else {
+        trimmed.to_string()
+    };
+    let lower = check_region.to_lowercase();
+    let has_adb_error = lower.starts_with("adb:")
+        || lower.starts_with("error:")
+        || ["adb:", "error:", "device offline", "unauthorized", "no devices"]
+            .iter()
+            .any(|m| lower.contains(m))
+        || (!stdout.contains(BATCH_SEPARATOR)
+            && !stdout.contains("|!|")
+            && lower.contains("offline"));
+    (!has_adb_error).then_some(stdout)
+}
+
+pub(crate) fn validate_sudo_user(raw: Option<&str>) -> Option<&str> {
+    let u = raw?.trim();
+    if u.is_empty()
+        || u == "root"
+        || u.starts_with('-')
+        || !u.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+    {
+        return None;
+    }
+    Some(u)
+}
+
+#[cfg(any(unix, test))]
+pub(crate) fn parse_passwd_home(passwd_contents: &str, username: &str) -> Option<String> {
+    for line in passwd_contents.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut fields = line.split(':');
+        let Some(name) = fields.next() else {
+            continue;
+        };
+        if name != username {
+            continue;
+        }
+        let Some(home) = fields.nth(4).map(str::trim).filter(|h| !h.is_empty()) else {
+            continue;
+        };
+        return Some(home.to_string());
+    }
+    None
+}
+
+#[cfg(any(unix, test))]
+fn resolve_effective_uid_with(
+    proc_status: Option<&str>,
+    fallback: impl FnOnce() -> Option<u32>,
+) -> Option<u32> {
+    proc_status
+        .and_then(crate::host::parse_proc_status_uids)
+        .map(|(_, euid)| euid)
+        .or_else(fallback)
+}
+
+#[cfg(unix)]
+fn query_process_self_euid() -> Option<u32> {
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+    let pid = Pid::from_u32(std::process::id());
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[pid]),
+        true,
+        ProcessRefreshKind::nothing().with_user(UpdateKind::OnlyIfNotSet),
+    );
+    if let Some(euid) = sys.process(pid).and_then(|p| p.effective_user_id()).map(|u| **u) {
+        return Some(euid);
+    }
+    let out = crate::netsim::run_with_timeout("id", &["-u"], Duration::from_secs(2))?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout).trim().parse::<u32>().ok()
+}
+
+#[cfg(any(unix, test))]
+fn resolve_effective_uid_from(
+    status_path: &std::path::Path,
+    fallback: impl FnOnce() -> Option<u32>,
+) -> Option<u32> {
+    resolve_effective_uid_with(std::fs::read_to_string(status_path).ok().as_deref(), fallback)
+}
+
+/// Effective UID (`euid`) of the monitor process on Unix, cached for the process lifetime.
+///
+/// Kept distinct from `netsim::security::owner_uid()`, which resolves real UID (`ruid` / col 1 of
+/// `/proc/self/status` and `sysinfo::Process::user_id()`) for daemon/filesystem ownership, whereas
+/// passwordless `sudo -n -u <SUDO_USER> adb` requires `euid == 0` (`os.geteuid() == 0` in Python).
+/// Never stats `/proc/self`, whose owner Linux resets to `0` under `PR_SET_DUMPABLE=0`.
+#[cfg(unix)]
+fn effective_uid() -> Option<u32> {
+    static EUID: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
+    *EUID.get_or_init(|| {
+        resolve_effective_uid_from(
+            std::path::Path::new("/proc/self/status"),
+            query_process_self_euid,
+        )
+    })
+}
+
+#[cfg(any(unix, test))]
+fn active_sudo_user_with(euid: Option<u32>, raw_sudo_user: Option<&str>) -> Option<&str> {
+    if euid != Some(0) {
+        return None;
+    }
+    validate_sudo_user(raw_sudo_user)
+}
+
+#[cfg(unix)]
+fn lookup_unix_user_home(username: &str) -> Option<String> {
+    let valid = validate_sudo_user(Some(username))?;
+    if let Ok(passwd) = std::fs::read_to_string("/etc/passwd") {
+        if let Some(home) = parse_passwd_home(&passwd, valid) {
+            return Some(home);
+        }
+    }
+    if let Some(out) =
+        crate::netsim::run_with_timeout("getent", &["passwd", valid], Duration::from_secs(2))
+    {
+        if out.status.success() {
+            let text = String::from_utf8_lossy(&out.stdout);
+            if let Some(home) = parse_passwd_home(&text, valid) {
+                return Some(home);
+            }
+        }
+    }
+    for prefix in ["/Users", "/home"] {
+        let cand = format!("{prefix}/{valid}");
+        if std::path::Path::new(&cand).is_dir() {
+            return Some(cand);
+        }
+    }
+    None
+}
+
+fn active_sudo_user() -> Option<&'static str> {
+    #[cfg(unix)]
+    {
+        static SUDO_TARGET: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+        SUDO_TARGET
+            .get_or_init(|| {
+                let raw = std::env::var("SUDO_USER").ok();
+                active_sudo_user_with(effective_uid(), raw.as_deref()).map(str::to_string)
+            })
+            .as_deref()
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
+}
+
+fn active_sudo_home() -> Option<String> {
+    #[cfg(unix)]
+    {
+        active_sudo_user().and_then(lookup_unix_user_home)
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
+}
+
+pub(crate) fn adb_invocation<'a>(
+    adb_bin: &'a str,
+    sudo_user: Option<&str>,
+) -> (&'a str, Vec<String>) {
+    if let Some(valid_user) = validate_sudo_user(sudo_user) {
+        (
+            "sudo",
+            vec!["-n".to_string(), "-u".to_string(), valid_user.to_string(), adb_bin.to_string()],
+        )
+    } else {
+        (adb_bin, Vec::new())
+    }
+}
+
+fn adb_command(program: &str) -> Command {
+    let (exe, prefix_args) = adb_invocation(program, active_sudo_user());
+    let mut cmd = Command::new(exe);
+    cmd.args(prefix_args).stdin(std::process::Stdio::null()).kill_on_drop(true);
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
+async fn run_adb_shell(adb_bin: &str, serial: &str, script: &str) -> Option<String> {
+    let output = tokio::time::timeout(
+        ADB_COMMAND_TIMEOUT,
+        adb_command(adb_bin).args(["-s", serial, "shell", script]).output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    sanitize_adb_shell_stdout(&stdout).is_some().then(|| stdout.into_owned())
+}
+
+pub(crate) fn build_online_guest_stats(
+    known_model: &str,
+    mut is_booting: bool,
+    model_stdout: Option<&str>,
+    batch_stdout: Option<&str>,
+) -> GuestStats {
+    let mut model = known_model.to_string();
+    let mut observed_booting: Option<bool> = None;
+
+    if let Some(stdout) = model_stdout {
+        if let Some((m, b)) = parse_model_info(stdout) {
+            model = m;
+            is_booting = b;
+            observed_booting = Some(b);
+        }
+    }
+
+    let Some(stdout) = batch_stdout else {
+        return GuestStats::shell_failed(
+            model,
+            observed_booting.unwrap_or(is_booting),
+            observed_booting.is_some(),
+        );
+    };
+
+    let parsed = parse_batch_output(stdout);
+    if let Some(b) = parsed.is_booting {
+        observed_booting = Some(b);
+    }
+    let (cpu_total, cpu_adjusted) = parse_top_output(parsed.top_output);
+    GuestStats {
+        model,
+        is_booting: observed_booting.unwrap_or(is_booting),
+        boot_state_known: observed_booting.is_some(),
+        cpu_total,
+        cpu_adjusted,
+        ram: parsed.ram,
+        data_space: parsed.data_space,
+        swap: parsed.swap,
+        err_count: parsed.err_count,
+        data_pct: parsed.data_pct,
+    }
+}
+
 pub struct RealGuestProvider;
 
 impl crate::provider::GuestProvider for RealGuestProvider {
-    async fn get_devices(&self) -> std::collections::HashMap<String, String> {
+    async fn get_devices(&self) -> HashMap<String, String> {
         let adb_bin = find_adb();
-        let output = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            Command::new(&adb_bin).kill_on_drop(true).arg("devices").output()
-        ).await;
+        let output =
+            tokio::time::timeout(ADB_COMMAND_TIMEOUT, adb_command(adb_bin).arg("devices").output())
+                .await;
 
-        let output = match output {
-            Ok(Ok(out)) => out,
-            Ok(Err(e)) => {
-                println!("Failed to run adb devices: {}", e);
-                return std::collections::HashMap::new();
-            }
-            Err(_) => {
-                println!("adb devices timed out");
-                return std::collections::HashMap::new();
-            }
+        let Ok(Ok(output)) = output else {
+            return HashMap::new();
         };
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         parse_adb_devices(&stdout)
     }
 
-    async fn get_guest_stats(&self, serial: &str, known_model: &str, mut is_booting: bool, status: &str) -> (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>) {
-    if status != "device" {
-        return (
-            if known_model.is_empty() { format!("Unknown ({})", status) } else { known_model.to_string() },
-            true,
-            format!("N/A ({})", status),
-            format!("N/A ({})", status),
-            format!("N/A ({})", status),
-            None,
-            None,
-            0,
-            None,
-        );
-    }
-
-    let adb_bin = find_adb();
-    let mut model = known_model.to_string();
-    let model_lower = model.to_lowercase();
-    let should_retry = model.is_empty() ||
-                       !model_lower.contains("android") ||
-                       model_lower.contains("unknown model") ||
-                       model_lower.contains("error:") ||
-                       model_lower.contains("offline") ||
-                       (model_lower.contains("res: n/a") && is_booting);
-
-    if should_retry {
-        let script = "m=$(getprop ro.product.model); v=$(getprop ro.build.version.release); a=$(getprop ro.build.version.sdk); b=$(getprop ro.build.id); w=$(wm size 2>/dev/null); c=$(getprop sys.boot_completed); echo \"$m|!|$v|!|$a|!|$b|!|$w|!|$c\"";
-        let output = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            Command::new(&adb_bin)
-                .kill_on_drop(true)
-                .arg("-s")
-                .arg(serial)
-                .arg("shell")
-                .arg(script)
-                .output(),
-        )
-        .await;
-
-        if let Ok(Ok(output)) = output {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            if let Some((m, b)) = parse_model_info(&stdout) {
-                model = m;
-                is_booting = b;
-            }
+    async fn get_guest_stats(
+        &self,
+        serial: &str,
+        known_model: &str,
+        is_booting: bool,
+        status: &str,
+    ) -> GuestStats {
+        if status != "device" {
+            return GuestStats::unavailable(known_model, is_booting, status);
         }
-    }
 
-    let mut guest_ram = "N/A".to_string();
-    let mut data_space = None;
-    let mut data_pct = None;
-    let mut err_count = 0;
-    let mut guest_swap = None;
-    let batch_script = r#"cat /proc/meminfo; echo '===ADB_'"MON"'_SPLIT==='; df -h /data 2>/dev/null; echo '===ADB_'"MON"'_SPLIT==='; logcat -d -t 500 -b main,crash *:E 2>/dev/null | grep -v "^---------" | wc -l; echo '===ADB_'"MON"'_SPLIT==='; getprop sys.boot_completed; echo '===ADB_'"MON"'_SPLIT==='; (top -b -n 2 -d 0.2 || top -n 2 -d 1); echo '===ADB_'"MON"'_SPLIT==='; vmstat"#;
-
-    let output = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        Command::new(&adb_bin)
-            .kill_on_drop(true)
-            .arg("-s")
-            .arg(serial)
-            .arg("shell")
-            .arg(batch_script)
-            .output(),
-    )
-    .await;
-
-    let mut guest_diff = "N/A".to_string();
-    let mut guest_real = "N/A".to_string();
-
-    if let Ok(Ok(output)) = output {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let (ram, booting, space, errs, pct, top_out, swap) = parse_batch_output(&stdout);
-        guest_ram = ram;
-        is_booting = booting;
-        data_space = space;
-        err_count = errs;
-        data_pct = pct;
-        guest_swap = swap;
-
-        let (diff, real) = parse_top_output(&top_out);
-        guest_diff = diff;
-        guest_real = real;
-    }
-
-    (model, is_booting, guest_diff, guest_real, guest_ram, data_space, guest_swap, err_count, data_pct)
+        let adb_bin = find_adb();
+        let model_stdout = if should_retry_model(known_model, is_booting) {
+            run_adb_shell(adb_bin, serial, MODEL_INFO_SCRIPT).await
+        } else {
+            None
+        };
+        let batch_stdout = run_adb_shell(adb_bin, serial, BATCH_STATS_SCRIPT).await;
+        build_online_guest_stats(
+            known_model,
+            is_booting,
+            model_stdout.as_deref(),
+            batch_stdout.as_deref(),
+        )
     }
 }
 
@@ -326,16 +588,20 @@ fn join_sdk_path(root: &str, parts: &[&str]) -> String {
     out
 }
 
+fn adb_bin_candidates(prefer_exe: bool) -> [&'static str; 2] {
+    if prefer_exe { ["adb.exe", "adb"] } else { ["adb", "adb.exe"] }
+}
+
 pub fn resolve_adb_path(
     android_home: Option<&str>,
     android_sdk_root: Option<&str>,
     home_dir: Option<&str>,
     exists_fn: &dyn Fn(&str) -> bool,
 ) -> Option<String> {
-    const ADB_BINS: [&str; 2] = ["adb", "adb.exe"];
     for root in [android_home, android_sdk_root].into_iter().flatten() {
         if !root.is_empty() {
-            for bin in ADB_BINS {
+            let prefer_exe = cfg!(windows) || root.contains('\\');
+            for bin in adb_bin_candidates(prefer_exe) {
                 let cand = join_sdk_path(root, &["platform-tools", bin]);
                 if exists_fn(&cand) {
                     return Some(cand);
@@ -344,12 +610,13 @@ pub fn resolve_adb_path(
         }
     }
     if let Some(home) = home_dir.filter(|h| !h.is_empty()) {
+        let prefer_exe = cfg!(windows) || home.contains('\\');
         for sdk in [
             &["Android", "Sdk"][..],
             &["Library", "Android", "sdk"],
             &["AppData", "Local", "Android", "Sdk"],
         ] {
-            for bin in ADB_BINS {
+            for bin in adb_bin_candidates(prefer_exe) {
                 let mut parts = sdk.to_vec();
                 parts.extend(["platform-tools", bin]);
                 let cand = join_sdk_path(home, &parts);
@@ -362,249 +629,67 @@ pub fn resolve_adb_path(
     None
 }
 
-pub fn find_adb() -> String {
-    let android_home = std::env::var("ANDROID_HOME").ok();
-    let android_sdk_root = std::env::var("ANDROID_SDK_ROOT").ok();
-    // HOME is usually unset on Windows outside MSYS shells.
-    let home = std::env::var("HOME")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .or_else(|| std::env::var("USERPROFILE").ok());
-    if let Some(found) = resolve_adb_path(
-        android_home.as_deref(),
-        android_sdk_root.as_deref(),
-        home.as_deref(),
-        &|p| std::path::Path::new(p).exists(),
-    ) {
-        return found;
-    }
-    let lookup_cmd = if cfg!(windows) { "where" } else { "which" };
-    if let Ok(p) = std::process::Command::new(lookup_cmd).arg("adb").output() {
-        if p.status.success() {
-            if let Some(path) = String::from_utf8_lossy(&p.stdout)
-                .lines()
-                .map(str::trim)
-                .find(|l| !l.is_empty())
-                .map(str::to_string)
-            {
-                return path;
-            }
-        }
-    }
-    "adb".to_string()
+pub(crate) fn resolve_adb_path_with_sudo(
+    android_home: Option<&str>,
+    android_sdk_root: Option<&str>,
+    home_dir: Option<&str>,
+    sudo_home_dir: Option<&str>,
+    exists_fn: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    resolve_adb_path(android_home, android_sdk_root, home_dir, exists_fn).or_else(|| {
+        let sudo_home = sudo_home_dir.filter(|h| !h.is_empty())?;
+        resolve_adb_path(None, None, Some(sudo_home), exists_fn)
+    })
+}
+
+/// Returns the adb binary to run: the first `adb` on PATH (like Python's
+/// `shutil.which`), else the SDK copy (ANDROID_HOME, ANDROID_SDK_ROOT or the
+/// default SDK location, including `SUDO_USER`'s home when running under sudo
+/// on Unix), else plain `adb`. Resolved once per process.
+pub fn find_adb() -> &'static str {
+    static ADB: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ADB.get_or_init(|| {
+        let env = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
+        // HOME is usually unset on Windows outside MSYS shells.
+        let home = env("HOME").or_else(|| env("USERPROFILE"));
+        let sudo_home = active_sudo_home();
+        let is_file = |p: &str| std::path::Path::new(p).is_file();
+        find_adb_on_path(std::env::var_os("PATH").as_deref(), &is_file)
+            .or_else(|| {
+                resolve_adb_path_with_sudo(
+                    env("ANDROID_HOME").as_deref(),
+                    env("ANDROID_SDK_ROOT").as_deref(),
+                    home.as_deref(),
+                    sudo_home.as_deref(),
+                    &is_file,
+                )
+            })
+            .unwrap_or_else(|| "adb".to_string())
+    })
+}
+
+/// The first `adb` / `adb.exe` in the directories listed in `path_var`.
+fn find_adb_on_path(
+    path_var: Option<&std::ffi::OsStr>,
+    is_file: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    find_adb_on_path_with_order(path_var, cfg!(windows), is_file)
+}
+
+fn find_adb_on_path_with_order(
+    path_var: Option<&std::ffi::OsStr>,
+    prefer_exe: bool,
+    is_file: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    std::env::split_paths(path_var?)
+        .flat_map(|dir| {
+            let dir_prefer_exe = prefer_exe || dir.to_string_lossy().contains('\\');
+            adb_bin_candidates(dir_prefer_exe).map(|bin| dir.join(bin))
+        })
+        .map(|p| p.to_string_lossy().into_owned())
+        .find(|p| is_file(p))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::provider::GuestProvider;
-
-    #[test]
-    fn test_parse_model_info() {
-        let stdout = "Mock Phone|!|14|!|34|!|BuildID|!|Size: 1080x2400|!|1";
-        let res = parse_model_info(stdout);
-        assert!(res.is_some());
-        let (model, is_booting) = res.unwrap();
-        assert!(model.contains("Mock Phone"));
-        assert!(!is_booting);
-    }
-
-    #[test]
-    fn test_parse_model_info_robust_resolution() {
-        let stdout = "Mock Phone|!|14|!|34|!|BuildID|!|Physical size: 450x450\nOverride size: 450x450|!|1";
-        let res = parse_model_info(stdout);
-        assert!(res.is_some());
-        let (model, _) = res.unwrap();
-        assert!(model.contains("Res: 450x450"), "Expected Res: 450x450, got {}", model);
-    }
-
-    #[test]
-    fn test_parse_batch_output() {
-        let stdout = "MemTotal: 4000000 kB\nMemAvailable: 2000000 kB\n===ADB_MON_SPLIT===\n/dev/block/dm-5 10G 2G 8G 20% /data\n===ADB_MON_SPLIT===\n5\n===ADB_MON_SPLIT===\n1";
-        let (ram, is_booting, space, errs, pct, _, _swap) = parse_batch_output(stdout);
-        assert!(ram.contains("50.0%"));
-        assert!(!is_booting);
-        assert_eq!(space, Some("20% (2G used/8G avail)".to_string()));
-        assert_eq!(errs, 5);
-        assert_eq!(pct, Some(20.0));
-    }
-
-    #[test]
-    fn test_parse_batch_output_with_swap() {
-        let stdout = "MemTotal: 4000000 kB\nMemAvailable: 2000000 kB\n===ADB_MON_SPLIT===\n/dev/block/dm-5 10G 2G 8G 20% /data\n===ADB_MON_SPLIT===\n5\n===ADB_MON_SPLIT===\n1\n===ADB_MON_SPLIT===\n(top out)\n===ADB_MON_SPLIT===\nprocs ------------memory------------ ---swap-- -----io---- --system- ----cpu----\n r  b    swpd    free   buff   cache   si   so    bi    bo   in   cs us sy id wa\n 0  0   93308 1191956 307452 1768432    2   31   515   300  132  236  1  2 97  0";
-        let (ram, is_booting, space, errs, pct, _, swap) = parse_batch_output(stdout);
-        assert!(ram.contains("50.0%"));
-        assert!(!is_booting);
-        assert_eq!(space, Some("20% (2G used/8G avail)".to_string()));
-        assert_eq!(errs, 5);
-        assert_eq!(pct, Some(20.0));
-        assert_eq!(swap, Some("91.1 MB".to_string()));
-    }
-
-    #[test]
-    fn test_parse_top_output() {
-        let stdout = "Tasks: 100\n400% cpu 200% idle";
-        let (diff, real) = parse_top_output(stdout);
-        assert_eq!(diff, "200%");
-        assert!(real.contains("50.0%"));
-    }
-
-    #[test]
-    fn test_parse_batch_output_boot_correction() {
-        let stdout = "MemTotal: 4000000 kB\nMemAvailable: 2000000 kB\n===ADB_MON_SPLIT===\n/data space\n===ADB_MON_SPLIT===\n5\n===ADB_MON_SPLIT===\n0";
-        let (_, is_booting, _, _, _, _, _) = parse_batch_output(stdout);
-        assert!(is_booting);
-    }
-
-    #[test]
-    fn test_parse_batch_output_safe_separator() {
-        let stdout = "MemTotal: 4000000 kB\nMemAvailable: 2000000 kB\n===ADB_MON_SPLIT===\n/data space with random text\n===ADB_MON_SPLIT===\n5\n===ADB_MON_SPLIT===\n1";
-        let (ram, is_booting, _, _, _, _, _) = parse_batch_output(stdout);
-        assert!(ram.contains("50.0%"));
-        assert!(!is_booting);
-    }
-
-    #[test]
-    fn test_parse_batch_output_df_variation() {
-        let stdout = "MemTotal: 4000000 kB\nMemAvailable: 2000000 kB\n===ADB_MON_SPLIT===\n10G   2G   8G  20% /data\n===ADB_MON_SPLIT===\n5\n===ADB_MON_SPLIT===\n1";
-        let (ram, _, space, _, pct, _, _) = parse_batch_output(stdout);
-        assert!(ram.contains("50.0%"));
-        assert_eq!(space, Some("20% (2G used/8G avail)".to_string()));
-        assert_eq!(pct, Some(20.0));
-    }
-
-    #[test]
-    fn test_guest_cpu_cores_calculation() {
-        let stdout = "Tasks: 100\n400% cpu 100% idle";
-        let (diff, real) = parse_top_output(stdout);
-        assert_eq!(diff, "300%");
-        assert!(real.contains("over 4 cores"));
-    }
-
-    #[test]
-    fn test_parse_batch_output_missing_data_partition() {
-        let stdout = "MemTotal: 4000000 kB\nMemAvailable: 2000000 kB\n===ADB_MON_SPLIT===\n===ADB_MON_SPLIT===\n5\n===ADB_MON_SPLIT===\n1";
-        let (ram, _, space, _, pct, _, _) = parse_batch_output(stdout);
-        assert!(ram.contains("50.0%"));
-        assert_eq!(space, None);
-        assert_eq!(pct, None);
-    }
-
-    #[test]
-    fn test_parse_top_output_no_cpu_line() {
-        let stdout = "Tasks: 100\nNo CPU line here";
-        let (diff, real) = parse_top_output(stdout);
-        assert_eq!(diff, "N/A");
-        assert_eq!(real, "N/A");
-    }
-    #[test]
-    fn test_parse_top_output_with_io_wait() {
-        let stdout = "400%cpu  5%user  1%nice  7%sys 215%idle 167%iow   5%irq   0%sirq   0%host";
-        let (diff, real) = parse_top_output(stdout);
-        assert_eq!(diff, "185%");
-        assert!(real.contains("over 4 cores"));
-    }
-
-    #[test]
-    fn test_retry_conditions() {
-        let retry_cases = vec![
-            ("", true),
-            ("Unknown", true),
-            ("offline", true),
-            ("Error: some error", true),
-            ("Android 12 | Res: N/A", true),
-            ("Just some string", true),
-        ];
-
-        for (model, is_booting) in retry_cases {
-            let model_lower = model.to_lowercase();
-            let should_retry = model.is_empty() ||
-                               !model_lower.contains("android") ||
-                               model_lower.contains("unknown model") ||
-                               model_lower.contains("error:") ||
-                               model_lower.contains("offline") ||
-                               (model_lower.contains("res: n/a") && is_booting);
-            assert!(should_retry, "Failed for case: model='{}', is_booting={}", model, is_booting);
-        }
-
-        let no_retry_cases = vec![
-            ("Android 12 | Res: 1080x2400", true),
-            ("Android 12 | Res: N/A", false),
-        ];
-
-        for (model, is_booting) in no_retry_cases {
-            let model_lower = model.to_lowercase();
-            let should_retry = model.is_empty() ||
-                               !model_lower.contains("android") ||
-                               model_lower.contains("unknown model") ||
-                               model_lower.contains("error:") ||
-                               model_lower.contains("offline") ||
-                               (model_lower.contains("res: n/a") && is_booting);
-            assert!(!should_retry, "Failed for case: model='{}', is_booting={}", model, is_booting);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_get_guest_stats_offline_returns_booting() {
-        let provider = RealGuestProvider;
-        let (model, is_booting, diff, _real, _ram, _space, _swap, _errs, _pct) = provider.get_guest_stats("emulator-5554", "Android 12", false, "offline").await;
-        assert_eq!(model, "Android 12");
-        assert!(is_booting);
-        assert_eq!(diff, "N/A (offline)");
-    }
-
-    #[test]
-    fn test_parse_adb_devices_filters_noise() {
-        let stdout = "* daemon not running; starting now at tcp:5037\n\
-                      * daemon started successfully\n\
-                      List of devices attached\n\
-                      emulator-5554\tdevice\n\
-                      emulator-5556\toffline\n\
-                      adb server version (41) doesn't match this client\n";
-        let devs = parse_adb_devices(stdout);
-        assert_eq!(devs.len(), 2);
-        assert_eq!(devs.get("emulator-5554").map(|s| s.as_str()), Some("device"));
-        assert_eq!(devs.get("emulator-5556").map(|s| s.as_str()), Some("offline"));
-    }
-
-    #[test]
-    fn test_resolve_adb_path_sdk_fallbacks() {
-        let found = resolve_adb_path(
-            None,
-            None,
-            Some("/home/user"),
-            &|p| p == "/home/user/Android/Sdk/platform-tools/adb",
-        );
-        assert_eq!(
-            found.as_deref(),
-            Some("/home/user/Android/Sdk/platform-tools/adb")
-        );
-
-        let win_found = resolve_adb_path(
-            None,
-            None,
-            Some(r"C:\Users\alice"),
-            &|p| p == r"C:\Users\alice\AppData\Local\Android\Sdk\platform-tools\adb.exe",
-        );
-        assert_eq!(
-            win_found.as_deref(),
-            Some(r"C:\Users\alice\AppData\Local\Android\Sdk\platform-tools\adb.exe")
-        );
-
-        let win_sdk_root = resolve_adb_path(
-            Some(r"D:\sdk\"),
-            None,
-            None,
-            &|p| p == r"D:\sdk\platform-tools\adb.exe",
-        );
-        assert_eq!(win_sdk_root.as_deref(), Some(r"D:\sdk\platform-tools\adb.exe"));
-    }
-
-    #[test]
-    fn test_parse_batch_output_memfree_fallback() {
-        let stdout = "MemTotal: 4000000 kB\nMemFree: 1000000 kB\nBuffers: 500000 kB\nCached: 500000 kB\n===ADB_MON_SPLIT===\n===ADB_MON_SPLIT===\n0\n===ADB_MON_SPLIT===\n1";
-        let (ram, is_booting, _, _, _, _, _) = parse_batch_output(stdout);
-        assert!(ram.contains("50.0%"));
-        assert!(!is_booting);
-    }
-}
+#[path = "../tests/guest_test.rs"]
+mod tests;

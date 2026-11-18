@@ -71,7 +71,8 @@ class EmuDevCliTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             bazel_dir = os.path.join(tmp_dir, "prebuilts", "bazel", p_dir)
             os.makedirs(bazel_dir, exist_ok=True)
-            mock_bazel = os.path.join(bazel_dir, "bazel")
+            bazel_name = "bazel.exe" if system == "windows" else "bazel"
+            mock_bazel = os.path.join(bazel_dir, bazel_name)
             with open(mock_bazel, "w") as f:
                 f.write("#!/bin/sh\necho 1\n")
             os.chmod(mock_bazel, 0o755)
@@ -172,11 +173,12 @@ Crashing Thread:
             )  # Mismatch: expected file
 
             # 2. Insecure directory (mode 0o777)
-            os.chmod(tmp_dir, 0o777)
-            self.assertFalse(is_path_secure_user_owned(tmp_dir, is_dir=True))
+            if os.name != "nt":
+                os.chmod(tmp_dir, 0o777)
+                self.assertFalse(is_path_secure_user_owned(tmp_dir, is_dir=True))
 
-            # Restore dir permissions for cleanup
-            os.chmod(tmp_dir, 0o700)
+                # Restore dir permissions for cleanup
+                os.chmod(tmp_dir, 0o700)
 
             # 3. Secure file (mode 0o700)
             test_file = os.path.join(tmp_dir, "test.sh")
@@ -189,8 +191,9 @@ Crashing Thread:
             )  # Mismatch: expected dir
 
             # 4. Insecure file (group & other writable 0o777)
-            os.chmod(test_file, 0o777)
-            self.assertFalse(is_path_secure_user_owned(test_file, is_dir=False))
+            if os.name != "nt":
+                os.chmod(test_file, 0o777)
+                self.assertFalse(is_path_secure_user_owned(test_file, is_dir=False))
 
             # 5. Symlink check
             symlink_path = os.path.join(tmp_dir, "test_symlink.sh")

@@ -32,11 +32,22 @@ from commands.gerrit.services.queue_service import (
     TEAM_ROSTER_EMAILS,
     _normalize_viewer_email,
 )
+from commands.gerrit.services.ui_assets import (
+    ASSET_ROUTE_APP_JS,
+    ASSET_ROUTE_CSS,
+    ASSET_ROUTE_REACT_JS,
+    IMMUTABLE_ASSET_CACHE_CONTROL,
+    assemble_gerrit_ui_html,
+    load_gerrit_ui_app_js,
+    load_gerrit_ui_css,
+    load_gerrit_ui_react_bundle,
+)
 from core.web.agent_proxy import AgentProxy
 from core.web.assets import (
     SIDECAR_PRELOAD_JS,
     SIDECAR_PRELOAD_SCRIPT_TAG,
     render_html_shell,
+    render_html_text,
 )
 from core.web.handler import JsonRequestHandler
 from core.web.router import Router, WebRequest, is_truthy_query_flag
@@ -55,9 +66,15 @@ from lib.gerrit_api import DEFAULT_GERRIT_HOST
 
 DEFAULT_GERRIT_UI_PORT = 8085
 MAX_PORT_PROBES = DEFAULT_MAX_PORT_PROBES
-# Only the sidecar bridge script is public. The page itself embeds the viewer's email, and
-# both the Jetski iframe URL and the standalone URL carry `?token=`.
-PUBLIC_GET_ROUTES: frozenset[str] = frozenset({"/preload.js"})
+# Static, user-independent UI assets and the sidecar bridge script are public so browser
+# `<link>` and `<script src>` fetches succeed without leaking `?token=` into asset URLs.
+# The HTML page itself embeds the viewer's email and stays token-protected.
+PUBLIC_GET_ROUTES: frozenset[str] = frozenset({
+    "/preload.js",
+    ASSET_ROUTE_CSS,
+    ASSET_ROUTE_REACT_JS,
+    ASSET_ROUTE_APP_JS,
+})
 _UI_TOKEN_HINT = (
     "Open the Gerrit UI from the Jetski side panel, or through the URL printed by "
     "'emu-dev-cli gerrit ui' (it ends with ?token=...)."
@@ -106,24 +123,43 @@ _is_truthy_query_flag = is_truthy_query_flag
 
 def render_static_gerrit_ui_html(
     initial_payload: dict[str, Any] | None = None,
-    variant: str = "classic",
+    variant: str = "polygerrit",
+    *,
+    inline_assets: bool = True,
 ) -> str:
-    """Renders `gerrit_ui.html` or `gerrit_ui_polygerrit.html` with inlined `window.sidecar` bridge."""
-    return render_html_shell(
-        get_gerrit_ui_template_path(variant),
+    """Renders `gerrit_ui_polygerrit.html` with inlined `window.sidecar` bridge and UI assets."""
+    template_path = get_gerrit_ui_template_path(variant)
+    version = get_gerrit_ui_template_version()
+    assembled = assemble_gerrit_ui_html(
+        template_path.read_text(encoding="utf-8"),
+        template_path,
+        version,
+        inline_assets=inline_assets,
+    )
+    return render_html_text(
+        assembled,
         inline_preload=True,
         version_placeholder='"__GERRIT_UI_VERSION__"',
-        version=get_gerrit_ui_template_version(),
+        version=version,
         bootstrap_placeholder="__GERRIT_UI_BOOTSTRAP_JSON__",
         bootstrap_payload=initial_payload,
     )
+
+
+def _resolve_asset_cache_control(req: WebRequest) -> str | None:
+    """Returns immutable cache headers when `?v=` matches the active UI asset version."""
+    requested_version = req.query_str("v", strip=True)
+    current_version = get_gerrit_ui_template_version()
+    if requested_version and current_version != "0" and requested_version == current_version:
+        return IMMUTABLE_ASSET_CACHE_CONTROL
+    return "default"
 
 
 def _extract_code_question_kwargs(req: WebRequest) -> dict[str, Any]:
     """Extracts shared inline code question coordinates and metadata from `req`."""
     body = req.body
     default_line = int(body.get("line") or 1)
-    return {
+    kwargs: dict[str, Any] = {
         "cl_number": body.get("cl", ""),
         "file_path": str(body.get("file_path") or body.get("file") or ""),
         "start_line": int(body.get("start_line") or default_line),
@@ -138,6 +174,10 @@ def _extract_code_question_kwargs(req: WebRequest) -> dict[str, Any]:
             body.get("function_name") or body.get("functionName") or ""
         ).strip(),
     }
+    viewer = str(body.get("viewer") or body.get("author") or "").strip()
+    if viewer:
+        kwargs["viewer_email"] = viewer
+    return kwargs
 
 
 def _coerce_vote_flag(raw_val: Any) -> bool | int | None:
@@ -156,20 +196,26 @@ class _GerritRouteEndpoints:
     def get_preload(self, handler: JsonRequestHandler, _req: WebRequest) -> None:
         handler.send_javascript(SIDECAR_PRELOAD_JS)
 
+    def get_asset_css(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        css_text = load_gerrit_ui_css(get_gerrit_ui_template_path())
+        handler.send_css(css_text, cache_control=_resolve_asset_cache_control(req))
+
+    def get_asset_react_js(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        react_js = load_gerrit_ui_react_bundle(get_gerrit_ui_template_path())
+        handler.send_javascript(react_js, cache_control=_resolve_asset_cache_control(req))
+
+    def get_asset_app_js(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        app_js = load_gerrit_ui_app_js(get_gerrit_ui_template_path())
+        handler.send_javascript(app_js, cache_control=_resolve_asset_cache_control(req))
+
     def get_index(self, handler: JsonRequestHandler, req: WebRequest) -> None:
         req_viewer = _normalize_viewer_email(req.query_str("viewer"))
-        req_ui = req.query_str("ui", strip=True).lower()
-        ui_variant = (
-            "classic"
-            if req.path == "/classic" or req_ui in ("classic", "legacy")
-            else "polygerrit"
-        )
         initial_state: dict[str, Any] = {
             "viewer": req_viewer or self._service.default_viewer,
             "roster": list(TEAM_ROSTER_EMAILS),
         }
         handler.send_html(
-            render_static_gerrit_ui_html(initial_payload=initial_state, variant=ui_variant)
+            render_static_gerrit_ui_html(initial_payload=initial_state, inline_assets=False)
         )
 
     def get_queue(self, handler: JsonRequestHandler, req: WebRequest) -> None:
@@ -391,6 +437,28 @@ class _GerritRouteEndpoints:
     def get_update_status(self, handler: JsonRequestHandler, req: WebRequest) -> None:
         force_flag = req.query_flag("force", "refresh")
         handler.send_json(self._service.get_sidecar_update_status(force_fetch=force_flag))
+
+    def get_bug_details(self, handler: JsonRequestHandler, req: WebRequest) -> None:
+        bug_id = (
+            req.query_str("id", strip=True)
+            or req.query_str("bug", strip=True)
+            or req.query_str("bug_id", strip=True)
+        )
+        if not bug_id:
+            handler.send_json(
+                {
+                    "ok": False,
+                    "error": "Missing required `id` query parameter for `/api/gerrit/bug` "
+                    "(pass e.g. `?id=565902033`).",
+                },
+                status=400,
+            )
+            return
+        res = self._service.fetch_bug_details(
+            bug_id, force_refresh=req.query_flag("refresh", "force")
+        )
+        res["ui_version"] = get_gerrit_ui_template_version()
+        handler.send_json(res, status=200 if res.get("ok", True) else 400)
 
     def post_vote(self, handler: JsonRequestHandler, req: WebRequest) -> None:
         body = req.body
@@ -838,6 +906,7 @@ class _GerritRouteEndpoints:
                 subject=str(body.get("subject") or ""),
                 project_id=req.body_opt_str("projectId"),
                 force=bool(body.get("force", False)),
+                viewer_email=str(body.get("viewer") or "").strip(),
             )
         )
 
@@ -855,7 +924,10 @@ def _build_gerrit_router(service: Any, agent_proxy: AgentProxy) -> Router:
     agent_proxy.register_routes(router)
 
     router.add_get("/preload.js", endpoints.get_preload)
-    router.add_get(["/", "/index.html", "/polygerrit", "/classic"], endpoints.get_index)
+    router.add_get(ASSET_ROUTE_CSS, endpoints.get_asset_css)
+    router.add_get(ASSET_ROUTE_REACT_JS, endpoints.get_asset_react_js)
+    router.add_get(ASSET_ROUTE_APP_JS, endpoints.get_asset_app_js)
+    router.add_get(["/", "/index.html", "/polygerrit"], endpoints.get_index)
     router.add_get("/api/gerrit/queue", endpoints.get_queue)
     router.add_get("/api/gerrit/diffs", endpoints.get_diffs)
     router.add_get("/api/gerrit/file-content", endpoints.get_file_content)
@@ -870,6 +942,7 @@ def _build_gerrit_router(service: Any, agent_proxy: AgentProxy) -> Router:
     router.add_get(["/api/gerrit/edit", "/api/gerrit/change-edit"], endpoints.get_change_edit)
     router.add_get("/api/gerrit/ai-analysis", endpoints.get_ai_analysis)
     router.add_get("/api/gerrit/update-status", endpoints.get_update_status)
+    router.add_get(["/api/gerrit/bug", "/api/gerrit/bug-details"], endpoints.get_bug_details)
 
     router.add_post("/api/gerrit/vote", endpoints.post_vote)
     router.add_post(["/api/gerrit/file-reviewed", "/api/gerrit/reviewed"], endpoints.post_file_reviewed)
@@ -956,10 +1029,10 @@ def serve_gerrit_ui(
     ui_variant: str = "polygerrit",
 ) -> int:
     """Starts the local Gerrit UI server or exports a pre-populated static snapshot HTML."""
+    del ui_variant
     from commands.gerrit.ui_server import GerritUIService
 
     service = GerritUIService(host=gerrit_host, default_viewer=viewer, default_query=query)
-    norm_variant = str(ui_variant or "polygerrit").strip().lower()
     if export_static_path:
         queue_data = service.fetch_queue(viewer_email=viewer or None, query=query or None)
         vetted_stacks = [
@@ -976,17 +1049,14 @@ def serve_gerrit_ui(
         if not target_cls:
             target_cls = [c["number"] for c in (queue_data.get("changes") or [])[:6]]
         queue_data["prefetched_diffs"] = service.fetch_multi_commit_diffs(target_cls)
-        html_out = render_static_gerrit_ui_html(
-            initial_payload=queue_data, variant=norm_variant
-        )
+        html_out = render_static_gerrit_ui_html(initial_payload=queue_data)
         out_file = Path(export_static_path).resolve()
         out_file.parent.mkdir(parents=True, exist_ok=True)
         out_file.write_text(html_out, encoding="utf-8")
-        print(f"Exported static Gerrit UI snapshot ({len(queue_data['changes'])} CLs, {norm_variant}) to {out_file}")
+        print(f"Exported static Gerrit UI snapshot ({len(queue_data['changes'])} CLs) to {out_file}")
         return 0
 
     ui_token = mint_ui_token()
-    extra_suffix = "&ui=classic" if norm_variant in ("classic", "legacy") else ""
     serve_http(
         lambda tok: make_gerrit_ui_handler(service, ui_token=tok),
         host=host_addr,
@@ -995,9 +1065,9 @@ def serve_gerrit_ui(
         open_browser=open_browser,
         port_finder=find_available_port,
         server_cls=http.server.ThreadingHTTPServer,
-        browser_opener=lambda u: webbrowser.open(f"{u}{extra_suffix}"),
+        browser_opener=webbrowser.open,
         banner_fn=lambda url, _port: (
-            f"AEMU Fast Gerrit UI running at {url}{extra_suffix} (viewer: {service.default_viewer}, UI: {norm_variant})"
+            f"AEMU Fast Gerrit UI running at {url} (viewer: {service.default_viewer})"
         ),
         shutdown_message="\nShutting down Gerrit UI server.",
     )

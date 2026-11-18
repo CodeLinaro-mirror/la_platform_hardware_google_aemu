@@ -55,6 +55,8 @@ from commands.gerrit.services.queue_service import (
     is_cc_reviewer,
     is_explicit_reviewer,
     is_team_review_agent,
+    normalize_gerrit_search_query,
+    parse_bug_render_output,
     parse_gerrit_timestamp,
     parse_issues_search_output,
 )
@@ -101,6 +103,8 @@ __all__ = [
     "is_cc_reviewer",
     "is_explicit_reviewer",
     "is_team_review_agent",
+    "normalize_gerrit_search_query",
+    "parse_bug_render_output",
     "parse_code_questions_from_transcript_lines",
     "parse_gerrit_timestamp",
     "parse_issues_search_output",

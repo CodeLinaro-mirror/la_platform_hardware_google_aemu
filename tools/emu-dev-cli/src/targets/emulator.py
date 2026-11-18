@@ -53,6 +53,10 @@ HOST_BRANCH_TARGET_MAP = {
         "emu-main-dev": "emulator-mac_x64_gfxstream",
         "emu-main-next": "emulator_mac_x64",
     },
+    "windows-x64": {
+        "emu-main-dev": "emulator-windows_x64_gfxstream",
+        "emu-main-next": "emulator_windows_x64",
+    },
 }
 
 HOST_ARTIFACT_PATTERNS = {
@@ -77,6 +81,13 @@ HOST_ARTIFACT_PATTERNS = {
         ],
         "build_id": "sdk-repo-darwin-emulator-{build_id}.zip",
     },
+    "windows-x64": {
+        "latest": [
+            "sdk-repo-windows-emulator-[0-9]*.zip",
+            "sdk-repo-windows-emulator-*.zip",
+        ],
+        "build_id": "sdk-repo-windows-emulator-{build_id}.zip",
+    },
 }
 
 HOST_CANDIDATES = {
@@ -92,6 +103,10 @@ HOST_CANDIDATES = {
     "mac-x64": [
         {"target": "emulator-mac_x64_gfxstream", "branch": "emu-main-dev"},
         {"target": "emulator_mac_x64", "branch": "emu-main-next"},
+    ],
+    "windows-x64": [
+        {"target": "emulator-windows_x64_gfxstream", "branch": "emu-main-dev"},
+        {"target": "emulator_windows_x64", "branch": "emu-main-next"},
     ],
 }
 
@@ -148,7 +163,7 @@ def register_parser(subparser, default_host):
         "--host",
         type=str,
         default=default_host,
-        choices=["linux-x64", "mac-arm64", "mac-x64"],
+        choices=["linux-x64", "mac-arm64", "mac-x64", "windows-x64"],
         help=f"Target host OS platform (defaults to auto-detected '{default_host}')"
     )
     parser.add_argument(
@@ -365,7 +380,9 @@ def run_emulator_fetch(
                             except OSError as exc:
                                 logging.getLogger(__name__).debug("Ignored error in run_emulator_fetch: %s", exc)
             candidates_bin = [
+                os.path.join(extracted_dir, "emulator", "emulator.exe"),
                 os.path.join(extracted_dir, "emulator", "emulator"),
+                os.path.join(extracted_dir, "emulator.exe"),
                 os.path.join(extracted_dir, "emulator"),
             ]
             for cb in candidates_bin:

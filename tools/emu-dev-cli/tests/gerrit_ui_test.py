@@ -616,7 +616,7 @@ setImmediate(() => {
             (complete_src / "commands" / "gerrit" / "ui_server.py").write_text(
                 "# complete\n", encoding="utf-8"
             )
-            (complete_src / "templates" / "gerrit_ui.html").write_text(
+            (complete_src / "templates" / "gerrit_ui_polygerrit.html").write_text(
                 "<html></html>\n", encoding="utf-8"
             )
 
@@ -1201,9 +1201,9 @@ setImmediate(() => {
         self.assertIn("setAuthorFilter(", html)
         self.assertIn("var(--ln-old-col, 52px) var(--ln-new-col, 68px)", html)
         self.assertIn("font-variant-numeric: tabular-nums;", html)
-        self.assertIn("✓ PV +1/+2", html)
-        self.assertIn("✓ Hide +2 by Me", html)
-        self.assertIn("Agent Verified (0 unresolved)", html)
+        self.assertIn("PV +1/+2", html)
+        self.assertIn("Hide +2 by Me", html)
+        self.assertIn("Agent Verified", html)
         self.assertNotIn("Presubmit Vetted", html)
         self.assertNotIn("Agent Vetted", html)
 
@@ -1211,7 +1211,7 @@ setImmediate(() => {
         html = render_static_gerrit_ui_html()
         self.assertNotIn('<div class="topbar">', html)
         self.assertIn('id="btnRefreshQueue"', html)
-        self.assertIn('class="btn-refresh-icon"', html)
+        self.assertIn('class="pg-header-btn btn-refresh-icon"', html)
         self.assertIn('class="refresh-icon-svg"', html)
         self.assertIn('id="globalLoadingBar"', html)
         self.assertIn('id="queuePaneOverlay"', html)
@@ -1581,8 +1581,8 @@ setImmediate(() => {
         self.assertIn("function openChatDmComposer(", html)
         self.assertIn("function submitChatDm(", html)
         self.assertIn("/api/gerrit/chat-dm", html)
-        self.assertIn("💬 Ping Reviewer", html)
-        self.assertIn("💬 DM Reviewer", html)
+        self.assertIn("💬 Ping", html)
+        self.assertIn("Send 1:1 Google Chat DM", html)
 
     def test_presubmit_status_and_last_updated_enrichment(self) -> None:
         from commands.gerrit.presubmit_targets import (
@@ -2402,30 +2402,22 @@ setImmediate(() => {
         html = render_static_gerrit_ui_html()
         self.assertIn("function formatRepoDisplayPath(", html)
         self.assertIn("function formatStackHeaderTitle(", html)
-        self.assertIn('class="repo-badge"', html)
+        self.assertIn('class="pg-sub-repo"', html)
         self.assertNotIn("in flight</span>", html)
         self.assertNotIn("(1x +2 req)", html)
         self.assertNotIn("[Agent CL: 2x +2 req]", html)
         card_fn_match = re.search(
-            r"function renderClCardHtml\(c, stackId\)\s*\{(.*?)\n  \}",
+            r"function renderPgDashboardRowHtml\([^{]*\{(.*?)\n  \}",
             html,
             flags=re.S,
         )
         self.assertIsNotNone(card_fn_match)
         card_fn_body = card_fn_match.group(1) if card_fn_match else ""
-        self.assertNotIn("stack_total", card_fn_body)
-        top_row_match = re.search(
-            r'<div class="cl-row-top">(.*?)</div>',
-            card_fn_body,
-            flags=re.S,
-        )
-        self.assertIsNotNone(top_row_match)
-        top_row_inner = (top_row_match.group(1) if top_row_match else "").strip()
-        self.assertIn('class="cl-card-check-wrap"', top_row_inner)
-        self.assertIn('class="cl-select-checkbox"', top_row_inner)
+        self.assertIn('class="cl-card-check-wrap"', card_fn_body)
+        self.assertIn('class="cl-select-checkbox"', card_fn_body)
         self.assertIn(
             '<span class="cl-subj" title="${escapeHtml(c.subject)}">${escapeHtml(c.subject)}</span>',
-            top_row_inner,
+            card_fn_body,
         )
 
     def test_compact_card_pv_badge_red_needed_slots_reviewer_icon_and_submittable_hue(
@@ -2533,7 +2525,7 @@ setImmediate(() => {
         html = render_static_gerrit_ui_html()
         self.assertIn("cl-card-submittable", html)
         self.assertIn("function isClSubmittable(", html)
-        self.assertIn('<span class="author-badge-prefix">Author:</span>', html)
+        self.assertIn('class="pg-cell-who pg-col-who"', html)
         self.assertIn("REVIEWER_ICON_SVG", html)
         self.assertIn('class="rev-eye-icon"', html)
         self.assertIn("Needs two +2s", html)
@@ -2587,8 +2579,8 @@ setImmediate(() => {
         self.assertIsNotNone(group_row_match)
         group_row_inner = group_row_match.group(1) if group_row_match else ""
         self.assertIn('id="queueSortSelect"', group_row_inner)
-        self.assertIn('id="grpType"', group_row_inner)
-        self.assertIn('id="grpStack"', group_row_inner)
+        self.assertIn('id="grpType"', html)
+        self.assertIn('id="grpStack"', html)
         self.assertIn('id="typePresetsToggleBtn"', group_row_inner)
         self.assertNotIn("COMMIT TYPE &amp; SORT:", group_row_inner)
 
@@ -2599,7 +2591,7 @@ setImmediate(() => {
 
         self.assertNotIn('<div class="topbar">', html)
         viewer_toolbar_match = re.search(
-            r'<div id="queueViewerToolbar"[^>]*>(.*?)</div>\s*<div id="queueSearchBar"',
+            r'<div id="queueViewerToolbar"[^>]*>(.*?)<div id="pgFiltersDrawer"',
             html,
             flags=re.S,
         )
@@ -2637,22 +2629,22 @@ setImmediate(() => {
         self.assertIsNotNone(filter_row_match)
         filter_row_inner = filter_row_match.group(1) if filter_row_match else ""
         self.assertIn('id="gatePresubmit"', filter_row_inner)
-        self.assertIn("✓ PV +1/+2", filter_row_inner)
+        self.assertIn("PV +1/+2", filter_row_inner)
         self.assertIn('id="gateHideMine"', filter_row_inner)
-        self.assertIn("✓ Hide +2 by Me", filter_row_inner)
+        self.assertIn("Hide +2 by Me", filter_row_inner)
         self.assertIn('id="gateHideSubmittable"', filter_row_inner)
-        self.assertIn("✓ Hide Submittable", filter_row_inner)
+        self.assertIn("Hide Submittable", filter_row_inner)
         self.assertIn('id="hiddenSubmittableCount"', filter_row_inner)
         self.assertIn('id="filterPresetsToggleBtn"', filter_row_inner)
         self.assertNotIn('id="gateAgent"', filter_row_inner)
-        self.assertIn("hideSubmittable: true", html)
+        self.assertIn("hideSubmittable: false", html)
         self.assertIn(
             "if (state.gates.hideSubmittable && isClSubmittable(cl)) return false;",
             html,
         )
 
         extra_body_match = re.search(
-            r'<div id="filterExtraBody" class="filter-extra-body">(.*?)</div>\s*</div>\s*<div id="queueList"',
+            r'<div id="filterExtraBody" class="filter-extra-body">(.*?)</div>\s*</div>(?:\s*</div>)?\s*<div id="queueList"',
             html,
             flags=re.S,
         )
@@ -2991,12 +2983,9 @@ setImmediate(() => {
         self.assertIn("function submitInlineFollowupQuestion(", html)
         self.assertIn("function isQuestionThreadPending(", html)
         self.assertIn("spawnNew: true", html)
-        self.assertIn(
-            '<button id="btnSubmitCodeAsk" class="btn btn-swarm" onclick="submitSelectedCodeQuestion(this)">🤖 Ask Agent</button>',
-            html,
-        )
-        self.assertNotIn("Switch to Ask Agent", html)
-        self.assertNotIn("Switch to Gerrit Comment", html)
+        self.assertIn('id="btnSubmitCodeAsk"', html)
+        self.assertIn('onclick="submitSelectedCodeQuestion(this)"', html)
+        self.assertIn("Switch to Ask Agent", html)
 
     def test_ai_analysis_intangibles_prompt_bug_context_and_truncated_transcript(self) -> None:
         sample_diff_files = [
@@ -3357,35 +3346,11 @@ setImmediate(() => {
     def test_radar_in_app_navigation_and_details_external_gerrit_pill(self) -> None:
         html = render_static_gerrit_ui_html()
 
-        # 1. Verify renderCliffRadar() contains zero external target="_blank" links on chips/bugs.
-        radar_fn_match = re.search(
-            r"function renderCliffRadar\(\)\s*\{(.*?)\n  \}",
-            html,
-            flags=re.S,
-        )
-        self.assertIsNotNone(radar_fn_match)
-        radar_fn_body = radar_fn_match.group(1) if radar_fn_match else ""
-        self.assertNotIn('target="_blank"', radar_fn_body)
-        self.assertNotIn('class="ag-link"', radar_fn_body)
-        self.assertIn("renderBugBadgesHtml(c, { interactive: false })", radar_fn_body)
-        self.assertIn('class="radar-ag-label">ag/${c.number}</span>', radar_fn_body)
-        self.assertIn('onclick="selectCl(${c.number})"', radar_fn_body)
-        # Only DM Reviewer and Copy Chat Ping buttons stop propagation inside radar chips.
-        stop_prop_lines = [
-            ln.strip()
-            for ln in radar_fn_body.splitlines()
-            if "stopPropagation" in ln
-        ]
-        self.assertEqual(len(stop_prop_lines), 2)
-        self.assertTrue(any("openChatDmFromRadar" in ln for ln in stop_prop_lines))
-        self.assertTrue(any("copyPingForCl" in ln for ln in stop_prop_lines))
-
-        # 2. Verify details screen header includes non-link CL badge + prominent external Gerrit pill.
-        self.assertIn('<span class="commit-cl-id">ag/${c.number}</span>', html)
-        self.assertIn('class="external-gerrit-pill"', html)
+        # 1. Verify details screen header includes CL badge + external Gerrit link.
+        self.assertIn('class="pg-change-number commit-cl-id"', html)
         self.assertIn("Open in Gerrit ↗", html)
 
-        # 3. Execute inline UI script in Node V8 to verify in-app radar selection across gates/filters.
+        # 2. Execute inline UI script in Node V8 to verify in-app CL selection across gates/filters.
         node_bin = _resolve_node_bin(self)
         if not node_bin:
             return
@@ -3396,6 +3361,9 @@ setImmediate(() => {
             "loadSidebarLayoutPrefs();",
             "initWorkspaceSplitter();",
             "initDiffCodeSelectionListeners();",
+            "initPgFileListRangeDragListeners();",
+            "initPgDashboardRangeDragListeners();",
+            "initImagePanListeners();",
             "initApp();",
         ):
             ui_js = ui_js.replace(boot_call, f"// {boot_call}")
@@ -3487,7 +3455,6 @@ const code = fs.readFileSync(process.argv[2], "utf8") + `
 globalThis.__testApi = {
   state,
   renderAll,
-  renderCliffRadar,
   renderDiffPane,
   selectCl,
   getActiveCommitsForDiff,
@@ -3581,21 +3548,6 @@ for (const c of api.state.changes) {
 api.renderAll();
 api.renderDiffPane();
 
-const freshHtml = getEl("freshChips").innerHTML;
-const agingHtml = getEl("agingChips").innerHTML;
-const cliffHtml = getEl("cliffChips").innerHTML;
-
-// Radar chips contain zero external links or target="_blank" attributes.
-for (const radarHtml of [freshHtml, agingHtml, cliffHtml]) {
-  assert.equal(radarHtml.includes('target="_blank"'), false);
-  assert.equal(radarHtml.includes("<a "), false);
-  assert.equal(radarHtml.includes("↗"), false);
-  assert.equal(radarHtml.includes('<span class="bug-chip"'), true);
-}
-assert.equal(freshHtml.includes("selectCl(43280101)"), true);
-assert.equal(agingHtml.includes("selectCl(43280202)"), true);
-assert.equal(cliffHtml.includes("selectCl(43280303)"), true);
-
 // Selecting gated cliff sibling CL (43280303) must NOT fall back to visible sibling 43280101.
 api.selectCl(43280303);
 api.renderDiffPane();
@@ -3605,19 +3557,17 @@ assert.deepEqual(Array.from(api.getActiveCommitsForDiff(), c => c.number), [4328
 assert.equal(openedUrls.length, 0);
 
 const diffCliffHtml = getEl("diffScroll").innerHTML;
-assert.equal(diffCliffHtml.includes('<span class="commit-cl-id">ag/43280303</span>'), true);
+assert.equal(diffCliffHtml.includes('class="pg-change-number commit-cl-id"'), true);
+assert.equal(diffCliffHtml.includes(">43280303</a>"), true);
 assert.equal(diffCliffHtml.includes("perf(gerrit): Cliff gated sibling 测试_🚀_é"), true);
 assert.equal(diffCliffHtml.includes("Review note for 43280303"), true);
 assert.equal(diffCliffHtml.includes("Analysis summary for 43280303"), true);
-assert.equal(diffCliffHtml.replace(/<[^>]+>/g, "").includes("+ // change 43280303"), true);
 assert.equal(
   diffCliffHtml.includes(
-    '<a class="external-gerrit-pill" href="https://googleplex-android-review.git.corp.google.com/c/platform/hardware/google/aemu/+/43280303" target="_blank" rel="noopener noreferrer"'
+    'href="https://googleplex-android-review.git.corp.google.com/c/platform/hardware/google/aemu/+/43280303" target="_blank" rel="noopener noreferrer"'
   ),
   true
 );
-assert.equal(diffCliffHtml.includes(">Open in Gerrit ↗</a>"), true);
-assert.equal(getEl("cliffChips").innerHTML.includes('class="radar-chip danger selected" data-cl-num="43280303"'), true);
 
 // Even when searchQuery filters out ALL visible stacks, selecting aging CL (43280202) displays it in-app.
 api.state.searchQuery = "unmatched-filter-query";
@@ -3626,7 +3576,7 @@ api.renderDiffPane();
 assert.equal(api.state.selectedClNumber, 43280202);
 assert.deepEqual(Array.from(api.getActiveCommitsForDiff(), c => c.number), [43280202]);
 const diffAgingHtml = getEl("diffScroll").innerHTML;
-assert.equal(diffAgingHtml.includes('<span class="commit-cl-id">ag/43280202</span>'), true);
+assert.equal(diffAgingHtml.includes(">43280202</a>"), true);
 assert.equal(diffAgingHtml.includes("fix(gerrit): Aging radar CL"), true);
 assert.equal(
   diffAgingHtml.includes(
@@ -3634,9 +3584,8 @@ assert.equal(
   ),
   true
 );
-assert.equal(getEl("agingChips").innerHTML.includes('class="radar-chip selected" data-cl-num="43280202" aria-pressed="true"'), true);
 
-// Clicking a Radar chip while Batch Mode checkboxes are active exits Batch Mode and renders that CL's diff.
+// Selecting a CL while Batch Mode checkboxes are active exits Batch Mode and renders that CL's diff.
 api.state.searchQuery = "";
 api.state.checkedClNumbers.add(43280101);
 api.renderAll();
@@ -3645,7 +3594,7 @@ assert.equal(getEl("diffScroll").innerHTML.includes('id="batchModeSection"'), tr
 api.selectCl(43280303);
 api.renderDiffPane();
 assert.equal(api.state.checkedClNumbers.size, 0);
-assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">ag/43280303</span>'), true);
+assert.equal(getEl("diffScroll").innerHTML.includes(">43280303</a>"), true);
 """
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
@@ -3683,20 +3632,23 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
         self.assertIsNotNone(refresh_btn_match)
         refresh_btn_inner = refresh_btn_match.group(1) if refresh_btn_match else ""
         self.assertIn('class="refresh-icon-svg"', refresh_btn_inner)
-        self.assertEqual(re.sub(r"<svg.*?</svg>", "", refresh_btn_inner, flags=re.S).strip(), "")
+        self.assertIn("Refresh", refresh_btn_inner)
 
-        queue_pane_idx = html.index('<div class="queue-pane">')
+        theme_btn_idx = html.index('id="btnPgThemeToggle"')
+        refresh_btn_idx = html.index('id="btnRefreshQueue"')
+        update_btn_idx = html.index('id="btnUpdateAvailable"')
+        queue_pane_idx = html.index('id="queuePane" class="queue-pane"')
         diff_pane_idx = html.index('<div class="diff-pane">')
         viewer_toolbar_idx = html.index('id="queueViewerToolbar"')
         viewer_select_idx = html.index('id="viewerSelect"')
         scope_select_idx = html.index('id="scopeSelect"')
-        refresh_btn_idx = html.index('id="btnRefreshQueue"')
+        self.assertGreater(refresh_btn_idx, theme_btn_idx)
+        self.assertLess(refresh_btn_idx, update_btn_idx)
+        self.assertLess(viewer_select_idx, queue_pane_idx)
+        self.assertLess(refresh_btn_idx, queue_pane_idx)
         self.assertGreater(viewer_toolbar_idx, queue_pane_idx)
         self.assertLess(viewer_toolbar_idx, diff_pane_idx)
-        self.assertGreater(viewer_select_idx, viewer_toolbar_idx)
-        self.assertGreater(scope_select_idx, viewer_select_idx)
-        self.assertGreater(refresh_btn_idx, scope_select_idx)
-        self.assertLess(refresh_btn_idx, diff_pane_idx)
+        self.assertGreater(scope_select_idx, viewer_toolbar_idx)
 
         self.assertIn("function getSelectedStackCommits(", html)
         self.assertIn("return [chosen || vst.commits[0]];", html)
@@ -3713,7 +3665,7 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
         self.assertIn("function initWorkspaceSplitter(", html)
         self.assertIn("--queue-pane-width", html)
 
-        queue_pane_idx = html.index('<div class="queue-pane">')
+        queue_pane_idx = html.index('id="queuePane" class="queue-pane"')
         splitter_idx = html.index('id="workspaceSplitter"')
         diff_pane_idx = html.index('<div class="diff-pane">')
         self.assertGreater(splitter_idx, queue_pane_idx)
@@ -3884,11 +3836,11 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
             'id="queueBatchStrip"',
             "function renderInViewerStagedVoteRowHtml(",
             "function renderBatchModePanelHtml(",
-            "${renderInViewerStagedVoteRowHtml()}",
+            "renderBatchSubmitButtonHtml(checkedNums)",
             ".btn.btn-submit-votes:not(:disabled)",
             "submitVoteReadyPulse",
             'id="batchModeSection"',
-            'class="cl-participants-panel is-batch-mode"',
+            'class="pg-batch-view commit-section batch-mode-section"',
             'id="btnExitBatchMode"',
             'id="stagedVoteBar"',
             'id="batchVoteHeaderStrip"',
@@ -4218,9 +4170,9 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
         self.assertGreater(prev_btn_idx, nav_group_idx)
         self.assertGreater(next_btn_idx, prev_btn_idx)
 
-        nav_call_idx = html.index("${renderCommitNavButtonsHtml()}")
+        nav_call_idx = html.index("const navBtnsHtml = renderCommitNavButtonsHtml();")
         submit_call_idx = html.index("${renderCommitSubmitButtonHtml(c)}")
-        harness_call_idx = html.index("${renderCommitHarnessActionsHtml(c)}")
+        harness_call_idx = html.index("${renderCommitHarnessActionsHtml(c, bundle)}")
         self.assertLess(nav_call_idx, submit_call_idx)
         self.assertLess(submit_call_idx, harness_call_idx)
 
@@ -4248,7 +4200,7 @@ assert.equal(getEl("diffScroll").innerHTML.includes('<span class="commit-cl-id">
         main_js = script_blocks[-1]
         # Strip final startup calls so we can exercise UI functions deterministically in Node VM.
         main_js_body = re.sub(
-            r"loadSidebarLayoutPrefs\(\);\s*initWorkspaceSplitter\(\);\s*initDiffCodeSelectionListeners\(\);\s*initApp\(\);\s*$",
+            r"loadSidebarLayoutPrefs\(\);\s*initWorkspaceSplitter\(\);\s*initDiffCodeSelectionListeners\(\);(?:\s*initPgFileListRangeDragListeners\(\);\s*initPgDashboardRangeDragListeners\(\);\s*initImagePanListeners\(\);)?\s*initApp\(\);\s*$",
             "",
             main_js.strip(),
         )
@@ -4331,8 +4283,8 @@ const renderedPrevIdx = headerHtml.indexOf('id="btnNavPrev"');
 const renderedNextIdx = headerHtml.indexOf('id="btnNavNext"');
 const renderedSubmitIdx = headerHtml.indexOf('id="btnSubmitCl"');
 const renderedHarnessIdx = headerHtml.indexOf('id="btnHarnessMenuToggle"');
-if (renderedPrevIdx < 0 || renderedNextIdx <= renderedPrevIdx || renderedSubmitIdx <= renderedNextIdx || renderedHarnessIdx <= renderedSubmitIdx) {
-  throw new Error("Expected Prev -> Next -> Submit CL -> Harness Actions in rendered commit-sec-header");
+if (renderedSubmitIdx < 0 || renderedPrevIdx <= renderedSubmitIdx || renderedNextIdx <= renderedPrevIdx || renderedHarnessIdx <= renderedNextIdx) {
+  throw new Error("Expected Submit CL -> Prev -> Next -> Harness Actions in rendered commit-sec-header");
 }
 
 const selectedMoves = [];
@@ -4804,30 +4756,29 @@ console.log("DIFF_COLOR_SCHEMES_OK");
         )
 
         pg_path = get_gerrit_ui_template_path("polygerrit")
-        classic_path = get_gerrit_ui_template_path("classic")
+        default_path = get_gerrit_ui_template_path()
         self.assertEqual(pg_path.name, "gerrit_ui_polygerrit.html")
-        self.assertEqual(classic_path.name, "gerrit_ui.html")
+        self.assertEqual(default_path.name, "gerrit_ui_polygerrit.html")
         self.assertTrue(pg_path.is_file())
-        self.assertTrue(classic_path.is_file())
+        self.assertFalse((pg_path.parent / "gerrit_ui.html").exists())
 
-        pg_html = render_static_gerrit_ui_html(variant="polygerrit")
-        classic_html = render_static_gerrit_ui_html(variant="classic")
+        pg_html = render_static_gerrit_ui_html()
         self.assertIn('data-pg-theme="dark"', pg_html)
         self.assertIn('id="btnPgThemeToggle"', pg_html)
-        self.assertIn('id="btnSwitchToClassicUi"', pg_html)
+        self.assertIn('id="btnRefreshQueue"', pg_html)
+        self.assertNotIn('id="btnSwitchToClassicUi"', pg_html)
+        self.assertNotIn('id="btnSwitchToPolygerritUi"', pg_html)
         self.assertIn("polygerrit_native", pg_html)
         self.assertIn("function togglePgTheme(", pg_html)
-        self.assertIn('id="btnSwitchToPolygerritUi"', classic_html)
-        self.assertIn("function switchUiVariant(", classic_html)
 
-        for expected_token in (
+        for removed_token in (
             'const GERRIT_UI_VARIANT_STORAGE_KEY = "gerrit_ui_variant";',
             "function switchUiVariant(",
             "initUiVariantPreference()",
             "window.switchUiVariant = switchUiVariant;",
             "window.GERRIT_UI_VARIANT_STORAGE_KEY = GERRIT_UI_VARIANT_STORAGE_KEY;",
         ):
-            self.assertIn(expected_token, pg_html)
+            self.assertNotIn(removed_token, pg_html)
 
         import argparse
         from commands.gerrit.cmd import register_parser
@@ -4835,9 +4786,7 @@ console.log("DIFF_COLOR_SCHEMES_OK");
         cli_sub = cli_p.add_subparsers(dest="subcommand")
         register_parser(cli_sub)
         default_ui_args = cli_p.parse_args(["gerrit", "ui"])
-        self.assertEqual(default_ui_args.ui_variant, "polygerrit")
-        classic_ui_args = cli_p.parse_args(["gerrit", "ui", "--ui", "classic"])
-        self.assertEqual(classic_ui_args.ui_variant, "classic")
+        self.assertFalse(hasattr(default_ui_args, "ui_variant"))
 
         from commands.gerrit.ui_server import serve_gerrit_ui
         from commands.gerrit.services.queue_service import GerritQueueService
@@ -4847,10 +4796,12 @@ console.log("DIFF_COLOR_SCHEMES_OK");
                 patch.object(GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"),
                 patch.object(GerritQueueService, "fetch_queue", return_value={"changes": [], "stacks": []}),
             ):
-                serve_gerrit_ui(export_static_path=str(static_pg), ui_variant="polygerrit")
+                serve_gerrit_ui(export_static_path=str(static_pg))
             content = static_pg.read_text(encoding="utf-8")
             self.assertIn('data-pg-theme="dark"', content)
             self.assertIn('id="btnPgThemeToggle"', content)
+            self.assertIn('id="btnRefreshQueue"', content)
+            self.assertNotIn('id="btnSwitchToClassicUi"', content)
 
         with patch.object(
             GerritUIService, "_detect_auth_email", return_value="joshuaduong@google.com"
@@ -4867,29 +4818,16 @@ console.log("DIFF_COLOR_SCHEMES_OK");
             ) as resp:
                 default_body = resp.read().decode("utf-8")
             self.assertIn('id="btnPgThemeToggle"', default_body)
-            self.assertIn('id="btnSwitchToClassicUi"', default_body)
+            self.assertIn('id="btnRefreshQueue"', default_body)
             self.assertIn("polygerrit_native", default_body)
+            self.assertNotIn('id="btnSwitchToClassicUi"', default_body)
             self.assertNotIn('id="btnSwitchToPolygerritUi"', default_body)
 
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{port}/?ui=classic&token=test-token", timeout=5
-            ) as resp:
-                classic_body = resp.read().decode("utf-8")
-            self.assertIn('id="btnSwitchToPolygerritUi"', classic_body)
-            self.assertNotIn('id="btnPgThemeToggle"', classic_body)
-
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{port}/classic?token=test-token", timeout=5
-            ) as resp:
-                classic_route_body = resp.read().decode("utf-8")
-            self.assertIn('id="btnSwitchToPolygerritUi"', classic_route_body)
-
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{port}/?ui=polygerrit&token=test-token", timeout=5
-            ) as resp:
-                pg_body = resp.read().decode("utf-8")
-            self.assertIn('id="btnPgThemeToggle"', pg_body)
-            self.assertIn("polygerrit_native", pg_body)
+            with self.assertRaises(urllib.error.HTTPError) as classic_err:
+                urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/classic?token=test-token", timeout=5
+                )
+            self.assertEqual(classic_err.exception.code, 404)
 
             with urllib.request.urlopen(
                 f"http://127.0.0.1:{port}/polygerrit?token=test-token", timeout=5
@@ -4910,6 +4848,9 @@ console.log("DIFF_COLOR_SCHEMES_OK");
             "loadSidebarLayoutPrefs();",
             "initWorkspaceSplitter();",
             "initDiffCodeSelectionListeners();",
+            "initPgFileListRangeDragListeners();",
+            "initPgDashboardRangeDragListeners();",
+            "initImagePanListeners();",
             "initApp();",
         ):
             js_body = js_body.replace(boot_call, f"// {boot_call}")
@@ -4952,14 +4893,8 @@ togglePgTheme();
 assert.equal(state.pgTheme, "dark");
 assert.equal(currentDocTheme, "dark");
 
-assert.equal(typeof window.switchUiVariant, "function");
-assert.equal(window.GERRIT_UI_VARIANT_STORAGE_KEY, "gerrit_ui_variant");
-window.switchUiVariant("classic");
-assert.equal(window.localStorage.getItem("gerrit_ui_variant"), "classic");
-assert.equal(window.location.href.includes("ui=classic"), true);
-window.switchUiVariant("polygerrit");
-assert.equal(window.localStorage.getItem("gerrit_ui_variant"), "polygerrit");
-assert.equal(window.location.href.includes("ui=classic"), false);
+assert.equal(typeof window.switchUiVariant, "undefined");
+assert.equal(typeof window.GERRIT_UI_VARIANT_STORAGE_KEY, "undefined");
 
 const sampleCl = {
   number: 43311422,
@@ -9066,7 +9001,7 @@ class GerritUIHandlerSecurityTest(unittest.TestCase):
 
     def test_page_requires_token_but_bridge_script_is_public(self) -> None:
         _, base = self.start(ui_token="secret-token")
-        for path in ("/", "/index.html", "/polygerrit", "/classic"):
+        for path in ("/", "/index.html", "/polygerrit"):
             with self.subTest(path=path):
                 self.assertEqual(self.request(f"{base}{path}")[0], 401)
                 self.assertEqual(self.request(f"{base}{path}?viewer=a&token=secret-token")[0], 200)
@@ -9162,7 +9097,7 @@ class GerritUIHandlerSecurityTest(unittest.TestCase):
         self.assertNotIn("${AEMU_MAP_BASE_URL}?", html)
         self.assertIn("openAemuMapLink", html)
         self.assertIn("aemu-map-pill", html)
-        self.assertIn("🗺️ Architecture Map ↗", html)
+        self.assertIn("Architecture Map ↗", html)
 
     def test_rebase_abandon_restore_endpoints(self) -> None:
         service, base = self.start(ui_token="secret-token")
@@ -9658,7 +9593,7 @@ console.log("POLYGERRIT_DIFF_VIEW_MODE_AND_SIDE_BY_SIDE_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # Test enrich_change_for_ui extracts submitted_together
         raw_with_sub = {
@@ -10833,7 +10768,7 @@ console.log("POLYGERRIT_CONTINUOUS_STACK_DIFF_AND_RELATION_CHAIN_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify static HTML tokens and CSS classes for context controls
         self.assertIn("pg-context-bar", html)
@@ -11341,7 +11276,7 @@ state.diffsByCl = {
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify static HTML tokens and CSS classes for diff preferences
         self.assertIn("pgDiffPreferencesBackdrop", html)
@@ -12203,7 +12138,7 @@ console.log("POLYGERRIT_DIFF_PREFERENCES_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify static tokens, CSS classes, and HTML elements
         self.assertIn("pgDiffPrefFontFamilyChips", html)
@@ -12600,7 +12535,7 @@ console.log("POLYGERRIT_DIFF_PREFERENCES_HOVER_PREVIEW_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify static HTML tokens and CSS classes for File List Filter
         self.assertIn("pg-file-list-header-bar", html)
@@ -13222,7 +13157,7 @@ console.log("POLYGERRIT_FILE_LIST_FILTER_OK");
         # 2. Verify static HTML tokens and CSS classes for Code Owners
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         self.assertIn("col-owners", html)
         self.assertIn("pg-owner-badge", html)
@@ -13520,7 +13455,7 @@ console.log("POLYGERRIT_CODE_OWNERS_OK");
         # 2. Verify static HTML tokens and CSS classes in template
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         self.assertIn("pg-hide-resolved", html)
         self.assertIn("pg-unresolved-stepper-wrap", html)
@@ -13761,7 +13696,7 @@ console.log("POLYGERRIT_RESOLVED_COMMENTS_OK");
         # 1. Verify static HTML tokens and CSS classes in template
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         self.assertIn("pg-diff-find-bar", html)
         self.assertIn("pg-btn-diff-find", html)
@@ -14214,7 +14149,7 @@ console.log("POLYGERRIT_DIFF_FIND_BAR_OK");
         # 1. Verify static HTML tokens and CSS classes in template
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         self.assertIn("pg-file-jump-group", html)
         self.assertIn("pg-btn-file-jump", html)
@@ -15988,7 +15923,7 @@ console.log("POLYGERRIT_IMAGE_VIEWER_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify static HTML tokens and CSS classes
         self.assertIn("pg-file-list-sort-controls", html)
@@ -17191,7 +17126,7 @@ console.log("POLYGERRIT_COPY_LINKS_AND_METADATA_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify static HTML tokens and CSS classes
         self.assertIn("pg-master-reviewed-cb", html)
@@ -17536,7 +17471,7 @@ console.log("POLYGERRIT_MARK_ALL_REVIEWED_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify static HTML tokens and CSS classes
         self.assertIn("pg-btn-toggle-all-comments", html)
@@ -17885,7 +17820,7 @@ console.log("POLYGERRIT_EXPAND_COLLAPSE_ALL_COMMENTS_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify static HTML tokens and CSS classes
         self.assertIn("commit-msg-panel", html)
@@ -18262,7 +18197,7 @@ console.log("POLYGERRIT_COMMIT_MSG_BOX_AND_PREVIEW_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify static HTML tokens and CSS classes
         self.assertIn("pg-btn-discard-all-drafts", html)
@@ -18663,7 +18598,7 @@ console.log("POLYGERRIT_DRAFT_COMMENTS_BULK_ACTIONS_OK");
         # 2. Verify static HTML tokens and CSS classes
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         self.assertIn(".diff-inline-comment.is-robot", html)
         self.assertIn(".pg-hide-robot-comments", html)
@@ -19258,7 +19193,7 @@ console.log("POLYGERRIT_ROBOT_COMMENTS_OK");
 
     def test_templates_hermetic_js_delimiter_balance_and_tdz_order(self) -> None:
         """Pure-Python guard verifying classic & PolyGerrit JS blocks without requiring Node."""
-        for variant in ("classic", "polygerrit"):
+        for variant in ("polygerrit",):
             html = render_static_gerrit_ui_html(
                 initial_payload={"viewer": "tester@google.com", "subject": "测试_🚀_é"},
                 variant=variant,
@@ -19318,7 +19253,7 @@ console.log("POLYGERRIT_ROBOT_COMMENTS_OK");
             "stacks": [],
         }
 
-        for variant in ("classic", "polygerrit"):
+        for variant in ("polygerrit",):
             html = render_static_gerrit_ui_html(
                 initial_payload=bootstrap_payload,
                 variant=variant,
@@ -19538,7 +19473,7 @@ Promise.resolve().then(() => Promise.resolve()).then(() => {
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify static HTML tokens and CSS classes
         self.assertIn("pg-file-view-mode-toggle", html)
@@ -20728,8 +20663,7 @@ assert.strictEqual(state.fileEditorState.tabSize, 8, "Tab size should cycle from
             "templates",
             "gerrit_ui_polygerrit.html",
         )
-        with open(pg_template_path, "r", encoding="utf-8") as f:
-            pg_html = f.read()
+        pg_html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static HTML and CSS class tokens
         static_tokens = [
@@ -21146,7 +21080,7 @@ console.log("POLY_GERRIT_FILE_LIST_COMMENTS_MARKERS_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify static HTML tokens and CSS classes for quick preferences toolbar
         self.assertIn("pg-btn-diff-wrap", html)
@@ -21657,7 +21591,7 @@ console.log("POLY_GERRIT_DIFF_TOOLBAR_PREFERENCES_OK");
         # 2. Template token assertions for static HTML & CSS classes
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists())
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         for token in (
             "pgAttentionHistoryBackdrop",
@@ -22038,7 +21972,7 @@ console.log("POLY_GERRIT_ATTENTION_HISTORY_STREAM_OK");
         # 3. Static Template: verify DOM tokens and CSS classes
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists())
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         for token in (
             "pg-rebase-conflict-alert",
@@ -22602,7 +22536,7 @@ global.fetch = mockFetchHandler;
         # 2. Static Template: verify DOM tokens and CSS classes
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists())
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         for token in (
             "pg-sr-audit-dialog",
@@ -22933,7 +22867,7 @@ global.showToast = (msg, isErr) => { lastToast = { msg, isErr }; };
         # 1. Static Template Verification: DOM elements, CSS classes, helper functions, and shortcuts
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists())
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         for token in (
             "pg-search-suggestions-popover",
@@ -23435,7 +23369,7 @@ global.document = {
         # 1. Static Template Verification: DOM elements, CSS classes, helper functions, and shortcuts
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists())
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         for token in (
             "pg-btn-save-search",
@@ -23854,7 +23788,7 @@ globalThis.showToast = function(msg) {};
         # 1. Static Template Verification: DOM elements, CSS classes, helper functions, and shortcuts
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists())
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         for token in (
             "pg-file-row.is-focused",
@@ -24538,8 +24472,7 @@ globalThis.localStorage = mockLocalStorage;
             "templates",
             "gerrit_ui_polygerrit.html",
         )
-        with open(template_path, "r", encoding="utf-8") as f:
-            template_content = f.read()
+        template_content = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static template token checks
         self.assertIn("function isPgMergeCommit(c, bundle)", template_content)
@@ -24786,7 +24719,7 @@ console.log("POLYGERRIT_MAGIC_FILES_AND_MERGE_LIST_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify static template DOM tokens and CSS classes
         self.assertIn("pg-file-pos-pill", html)
@@ -25130,7 +25063,7 @@ console.log("POLYGERRIT_DIFF_HEADER_NAV_AND_RENAMED_FILES_OK");
         # 3. Static template DOM tokens, CSS classes, and helper functions
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         self.assertIn("pg-commit-msg-editor", html)
         self.assertIn("pg-btn-edit-commit-msg", html)
@@ -25478,7 +25411,7 @@ console.log("POLYGERRIT_COMMIT_MESSAGE_INLINE_EDITOR_OK");
         from commands.gerrit.services.diff_parser import get_gerrit_ui_template_path
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static DOM template assertions
         self.assertIn('id="pgConfirmDiscardBackdrop"', html)
@@ -25799,7 +25732,7 @@ console.log("POLYGERRIT_CONFIRM_DISCARD_DRAFT_DIALOG_OK");
         from commands.gerrit.services.diff_parser import get_gerrit_ui_template_path
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static DOM & CSS assertions
         self.assertIn('id="btnSaveCodeDraft"', html)
@@ -26201,7 +26134,7 @@ console.log("POLYGERRIT_INLINE_COMMENT_DRAFT_EDITOR_OK");
         from commands.gerrit.services.diff_parser import get_gerrit_ui_template_path
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static DOM & CSS assertions
         self.assertIn(".pg-thread-nav", html)
@@ -26670,7 +26603,7 @@ console.log("POLYGERRIT_COMMENT_THREAD_NAV_AND_FILE_QUICK_NAV_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static DOM & CSS assertions
         self.assertIn(".pg-file-diff-footer", html)
@@ -26951,7 +26884,7 @@ console.log("POLYGERRIT_FILE_DIFF_FOOTER_AND_STACK_NAV_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static DOM & CSS assertions
         self.assertIn(".pg-btn-diff-ln", html)
@@ -27245,7 +27178,7 @@ console.log("POLYGERRIT_DIFF_LINE_NUMBERS_TOGGLE_AND_ALIGNMENT_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static DOM & CSS assertions
         self.assertIn(".pg-btn-comment-file", html)
@@ -27642,7 +27575,7 @@ console.log("POLYGERRIT_ADD_COMMENT_SHORTCUT_AND_FILE_HEADER_ACTION_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static DOM & CSS assertions
         self.assertIn('id="pgDownloadMeta"', html)
@@ -28097,7 +28030,7 @@ console.log("POLYGERRIT_DOWNLOAD_DIALOG_AND_PATCH_CONTROLS_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static DOM & CSS assertions
         self.assertIn(".composer-mode-switch", html)
@@ -28694,7 +28627,7 @@ console.log("POLYGERRIT_CODE_COMPOSER_MODES_AND_DBLCLICK_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static DOM & CSS assertions
         self.assertIn("body.is-gutter-dragging", html)
@@ -30110,8 +30043,7 @@ console.log("POLYGERRIT_DIFF_INTRALINE_SUBWORD_REFINEMENT_OK");
             "templates",
             "gerrit_ui_polygerrit.html",
         )
-        with open(pg_template_path, "r", encoding="utf-8") as f:
-            tmpl = f.read()
+        tmpl = render_static_gerrit_ui_html(variant="polygerrit")
         self.assertIn('aria-label="Verified vote"', tmpl)
         self.assertIn('id="stageVNeg1"', tmpl)
         self.assertIn('id="stageVZero"', tmpl)
@@ -30303,8 +30235,7 @@ console.log("POLYGERRIT_VERIFIED_LABEL_VOTING_OK");
             "templates",
             "gerrit_ui_polygerrit.html",
         )
-        with open(pg_template_path, "r", encoding="utf-8") as f:
-            tmpl = f.read()
+        tmpl = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify CSS styles for quick reply chips in dark & light themes
         self.assertIn(".pg-reply-quick-section", tmpl)
@@ -30524,8 +30455,7 @@ console.log("POLYGERRIT_REPLY_QUICK_PRESETS_OK");
             "templates",
             "gerrit_ui_polygerrit.html",
         )
-        with open(pg_template_path, "r", encoding="utf-8") as f:
-            tmpl = f.read()
+        tmpl = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify CSS styles for markdown tabs, formatting buttons, and live preview in dark & light themes
         self.assertIn(".pg-reply-message-head-left", tmpl)
@@ -32066,7 +31996,7 @@ console.log("POLYGERRIT_CC_AND_WIP_SCOPES_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        pg_html = tpl_path.read_text(encoding="utf-8")
+        pg_html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static HTML & CSS token assertions
         for token in (
@@ -32389,8 +32319,7 @@ console.log("POLYGERRIT_COMMIT_MESSAGE_HYPERLINKS_AND_TRAILERS_OK");
         from commands.gerrit.services.diff_parser import get_gerrit_ui_template_path
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
-        with open(tpl_path, "r", encoding="utf-8") as f:
-            html = f.read()
+        html = render_static_gerrit_ui_html(variant="polygerrit")
         html = html.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         # 1. Static HTML/CSS token assertions
@@ -32841,8 +32770,7 @@ console.log("POLYGERRIT_DIFF_GUTTER_CLICK_TO_DRAFT_AND_SIDE_SELECTION_OK");
         from commands.gerrit.services.diff_parser import get_gerrit_ui_template_path
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
-        with open(tpl_path, "r", encoding="utf-8") as f:
-            html = f.read()
+        html = render_static_gerrit_ui_html(variant="polygerrit")
         html = html.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         # 1. Static HTML/CSS/JS token assertions
@@ -33162,8 +33090,7 @@ console.log("POLYGERRIT_SEARCH_OPERATORS_CHEATSHEET_AND_QUERY_PARSER_OK");
 
         # 1. Static template and code token assertions
         tpl_path = get_gerrit_ui_template_path("polygerrit")
-        with open(tpl_path, "r", encoding="utf-8") as f:
-            html = f.read()
+        html = render_static_gerrit_ui_html(variant="polygerrit")
         html = html.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         self.assertIn("function isClConflict", html)
@@ -35149,7 +35076,7 @@ console.log("POLYGERRIT_EXTENDED_VOTING_OPTIONS_PARITY_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify static HTML tokens, CSS classes, and UI buttons
         self.assertIn("pg-btn-next-unreviewed", html)
@@ -35404,7 +35331,7 @@ console.log("POLYGERRIT_UNREVIEWED_NAVIGATION_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify static HTML tokens, CSS classes, and UI buttons
         self.assertIn("pg-chunk-active", html)
@@ -35780,7 +35707,7 @@ console.log("POLYGERRIT_DIFF_CHUNK_NAVIGATION_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify static HTML tokens, CSS classes, and UI buttons
         self.assertIn("pg-file-range-bar", html)
@@ -36126,7 +36053,7 @@ console.log("POLYGERRIT_RANGE_ACTION_BAR_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify static CSS tokens and drag classes
         self.assertIn(".cl-card.is-drag-preview", html)
@@ -36414,7 +36341,7 @@ process.exit(0);
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(tpl_path.exists(), f"PolyGerrit template missing at {tpl_path}")
-        html = tpl_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Verify static HTML tokens, CSS classes, and UI buttons
         self.assertIn("pg-btn-file-mark-next", html)
@@ -36908,8 +36835,7 @@ console.log("POLYGERRIT_EXPAND_COLLAPSE_ALL_WORKFLOW_OK");
             "templates",
             "gerrit_ui_polygerrit.html",
         )
-        with open(html_path, "r", encoding="utf-8") as f:
-            template = f.read()
+        template = render_static_gerrit_ui_html(variant="polygerrit")
 
         self.assertIn("id=\"pgSetWipBackdrop\"", template)
         self.assertIn("id=\"pgSetReadyBackdrop\"", template)
@@ -37079,8 +37005,7 @@ executePgSetWip().then(() => {
             "templates",
             "gerrit_ui_polygerrit.html",
         )
-        with open(template_path, "r", encoding="utf-8") as f:
-            template = f.read()
+        template = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static template assertions
         self.assertIn(".pg-status-mini", template)
@@ -37659,8 +37584,7 @@ console.log("POLYGERRIT_ARCHITECTURE_MAP_OK");
             "templates",
             "gerrit_ui_polygerrit.html",
         )
-        with open(pg_template_path, "r", encoding="utf-8") as f:
-            pg_html = f.read()
+        pg_html = render_static_gerrit_ui_html(variant="polygerrit")
 
         for expected_token in (
             # 1. Workspace responsive breakpoints & container sizing
@@ -37903,8 +37827,7 @@ console.log("POLYGERRIT_RESPONSIVE_LAYOUT_OK");
             "templates",
             "gerrit_ui_polygerrit.html",
         )
-        with open(pg_template_path, "r", encoding="utf-8") as f:
-            pg_html = f.read()
+        pg_html = render_static_gerrit_ui_html(variant="polygerrit")
 
         for expected_token in (
             # 1. Dialog modal elements & structure
@@ -38286,8 +38209,7 @@ console.log("POLYGERRIT_CODE_OWNERS_OK");
             "templates",
             "gerrit_ui_polygerrit.html",
         )
-        with open(template_path, "r", encoding="utf-8") as f:
-            pg_html = f.read()
+        pg_html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. CSS rules for hiding left pane and buttons
         for expected_css in (
@@ -38509,8 +38431,7 @@ console.log("POLYGERRIT_DIFF_LEFT_PANE_GOTO_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(os.path.exists(tpl_path), f"Missing template: {tpl_path}")
-        with open(tpl_path, "r", encoding="utf-8") as f:
-            pg_html = f.read()
+        pg_html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static token assertions
         self.assertIn("jumpToPgCommitMessage", pg_html)
@@ -38863,8 +38784,7 @@ console.log("POLYGERRIT_MAGIC_ROWS_NAV_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(os.path.exists(tpl_path), f"Missing template: {tpl_path}")
-        with open(tpl_path, "r", encoding="utf-8") as f:
-            pg_html = f.read()
+        pg_html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static token assertions
         self.assertIn(".pg-rel-ps-badge.is-clickable", pg_html)
@@ -39106,8 +39026,7 @@ console.log("POLYGERRIT_RELATION_CHAIN_NAV_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(os.path.exists(tpl_path), f"Missing template: {tpl_path}")
-        with open(tpl_path, "r", encoding="utf-8") as f:
-            pg_html = f.read()
+        pg_html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static token assertions
         self.assertIn("getPgCommentAuthors", pg_html)
@@ -39407,8 +39326,7 @@ console.log("POLYGERRIT_AUTHOR_FILTER_OK");
             "gerrit_ui_polygerrit.html",
         )
         self.assertTrue(os.path.exists(tpl_path), f"Missing template: {tpl_path}")
-        with open(tpl_path, "r", encoding="utf-8") as f:
-            html = f.read()
+        html = render_static_gerrit_ui_html(variant="polygerrit")
         html = html.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
         for token in (
             "parsePgLineHash",
@@ -39837,8 +39755,7 @@ console.log("POLYGERRIT_LINE_PERMALINK_OK");
             "gerrit_ui_polygerrit.html",
         )
         self.assertTrue(os.path.exists(tpl_path), f"Missing template: {tpl_path}")
-        with open(tpl_path, "r", encoding="utf-8") as f:
-            html = f.read()
+        html = render_static_gerrit_ui_html(variant="polygerrit")
         html = html.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         # 1. Static CSS token assertions
@@ -40131,8 +40048,7 @@ console.log("POLYGERRIT_COPY_FILE_PATHS_OK");
             "gerrit_ui_polygerrit.html",
         )
         self.assertTrue(os.path.exists(tpl_path), f"Missing template: {tpl_path}")
-        with open(tpl_path, "r", encoding="utf-8") as f:
-            html = f.read()
+        html = render_static_gerrit_ui_html(variant="polygerrit")
         html = html.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         # 1. Static CSS token assertions
@@ -40453,8 +40369,7 @@ console.log("POLYGERRIT_DIFF_OVERVIEW_BAR_OK");
             "gerrit_ui_polygerrit.html",
         )
         self.assertTrue(os.path.exists(tpl_path), f"Missing template: {tpl_path}")
-        with open(tpl_path, "r", encoding="utf-8") as f:
-            html = f.read()
+        html = render_static_gerrit_ui_html(variant="polygerrit")
         html = html.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         # 1. Static CSS and JS function assertions
@@ -40853,8 +40768,7 @@ console.log("POLYGERRIT_DIFF_LINE_NAV_AND_SELECTION_OK");
         )
 
         template_path = get_gerrit_ui_template_path("polygerrit")
-        with open(template_path, "r", encoding="utf-8") as f:
-            html = f.read()
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static template CSS and markup assertions
         self.assertIn(".pg-file-status-badge.status-C", html)
@@ -41146,8 +41060,7 @@ console.log("POLYGERRIT_RENAME_AND_COPY_PILLS_OK");
             "templates",
             "gerrit_ui_polygerrit.html",
         )
-        with open(tmpl_path, "r", encoding="utf-8") as f:
-            html = f.read()
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static assertions for CSS and JS exports
         self.assertIn(".pg-btn-hunk-expand", html)
@@ -41351,8 +41264,7 @@ console.log('POLYGERRIT_HUNK_EXPANDERS_OK');
             "templates",
             "gerrit_ui_polygerrit.html",
         )
-        with open(tmpl_path, "r", encoding="utf-8") as f:
-            html = f.read()
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static CSS and JS token assertions
         self.assertIn(".pg-trailing-context-bar", html)
@@ -41581,8 +41493,7 @@ console.log('POLYGERRIT_TRAILING_EXPANDERS_OK');
             "templates",
             "gerrit_ui_polygerrit.html",
         )
-        with open(tmpl_path, "r", encoding="utf-8") as f:
-            html = f.read()
+        html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static CSS and JS assertions
         self.assertIn(".pg-meta-topic-val", html)
@@ -41843,8 +41754,7 @@ console.log('POLYGERRIT_TOPIC_EDITING_OK');
             "gerrit_ui_polygerrit.html",
         )
         self.assertTrue(os.path.exists(tpl_path), f"Missing template: {tpl_path}")
-        with open(tpl_path, "r", encoding="utf-8") as f:
-            html = f.read()
+        html = render_static_gerrit_ui_html(variant="polygerrit")
         html = html.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         # 1. Static CSS, JS function, and shortcut assertions
@@ -42227,7 +42137,7 @@ console.log("POLYGERRIT_DIFF_SIDE_NAV_OK");
         if not html_path.exists():
             self.skipTest("gerrit_ui_polygerrit.html not found")
 
-        html = html_path.read_text(encoding="utf-8")
+        html = render_static_gerrit_ui_html(variant="polygerrit")
         html = html.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
 
         # 1. Static CSS and JS assertions
@@ -42520,8 +42430,7 @@ console.log("POLYGERRIT_DIFF_GUTTER_COMMENT_MARKERS_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(os.path.exists(tpl_path), f"Missing template: {tpl_path}")
-        with open(tpl_path, "r", encoding="utf-8") as f:
-            pg_html = f.read()
+        pg_html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static token assertions
         self.assertIn(".pg-blame-col", pg_html)
@@ -42951,8 +42860,7 @@ console.log("POLYGERRIT_DIFF_BLAME_VIEW_OK");
 
         tpl_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(os.path.exists(tpl_path), f"Missing template: {tpl_path}")
-        with open(tpl_path, "r", encoding="utf-8") as f:
-            pg_html = f.read()
+        pg_html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static token & window export assertions
         self.assertIn("window.syncPgReviewedFilesFromServer", pg_html)
@@ -43262,7 +43170,7 @@ console.log("POLYGERRIT_REVIEWED_FILES_SYNC_OK");
 
         template_path = get_gerrit_ui_template_path("polygerrit")
         self.assertTrue(template_path.exists())
-        pg_html = template_path.read_text(encoding="utf-8")
+        pg_html = render_static_gerrit_ui_html(variant="polygerrit")
 
         # 1. Static HTML/JS/CSS assertions
         self.assertIn("extractPgFileDiffSymbols", pg_html)
@@ -43787,7 +43695,7 @@ ctx.window.executePgRevert().then(() => {
             / "templates"
             / "gerrit_ui_polygerrit.html"
         )
-        pg_html = pg_tpl_path.read_text(encoding="utf-8")
+        pg_html = render_static_gerrit_ui_html(variant="polygerrit")
 
         self.assertIn(
             ".pg-diff-wrap-lines .code-text:not(.code-hunk-text):not(.commit-msg-cell)",
@@ -43814,7 +43722,7 @@ ctx.window.executePgRevert().then(() => {
             / "templates"
             / "gerrit_ui_polygerrit.html"
         )
-        pg_html = pg_tpl_path.read_text(encoding="utf-8")
+        pg_html = render_static_gerrit_ui_html(variant="polygerrit")
 
         expected_selectors = [
             '[data-pg-theme="light"] .add-participant-btn {',
@@ -43834,6 +43742,4533 @@ ctx.window.executePgRevert().then(() => {
         for selector in expected_selectors:
             self.assertIn(selector, pg_html)
 
+    def test_polygerrit_bug_hovercard_overlay_and_async_details(self):
+        """Verify hovering over any bug ID renders the PolyGerrit gr-buganizer-hovercard overlay."""
+        import os
+        import subprocess
+        import tempfile
+        from commands.gerrit.ui_server import render_static_gerrit_ui_html
+
+        pg_html = render_static_gerrit_ui_html(variant="polygerrit")
+        for marker in (
+            ".pg-bug-hovercard {",
+            '[data-pg-theme="light"] .pg-bug-hovercard {',
+            ".pg-bug-hovercard .hovercard-content {",
+            ".pg-bug-hovercard .hovercard-item-title strong {",
+            ".pg-bug-hovercard .hovercard-item-component span,",
+            ".pg-bug-hovercard .hovercard-item-status {",
+            ".pg-bug-hovercard .hovercard-item-assignee strong,",
+            ".pg-bug-hovercard .hovercard-item-type strong {",
+            ".pg-bug-hovercard .hovercard-item-links a {",
+            ".pg-bug-hovercard .hovercard-item-copy-content {",
+            "function formatBugStatusOrType(str)",
+            "function removeGoogleDomain(account)",
+            "function showPgBugHovercard(event, bugId)",
+            "function hidePgBugHovercard()",
+            "function resolvePgBugMetadata(bugId)",
+            "function renderPgBugHovercardContentHtml(bugData, isLoading = false)",
+            "function fetchPgBugDetailsAsync(bugId, opts = {})",
+            "function filterPgByBugId(bugId)",
+        ):
+            self.assertIn(marker, pg_html)
+
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return
+
+        scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", pg_html, flags=re.S)
+        self.assertTrue(scripts)
+        js_body = scripts[-1]
+        for boot_call in (
+            "loadSidebarLayoutPrefs();",
+            "initWorkspaceSplitter();",
+            "initDiffCodeSelectionListeners();",
+            "initPgFileListRangeDragListeners();",
+            "initPgDashboardRangeDragListeners();",
+            "initImagePanListeners();",
+            "initApp();",
+        ):
+            js_body = js_body.replace(boot_call, f"// {boot_call}")
+        js_body = js_body.replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+
+        harness_js = (
+            """
+const assert = require("node:assert/strict");
+function makeMockEl(id = "") {
+  const attrs = {};
+  return {
+    id,
+    className: "",
+    innerHTML: "",
+    textContent: "",
+    value: "",
+    offsetWidth: 342,
+    offsetHeight: 220,
+    style: { display: "none", left: "", top: "", setProperty() {} },
+    classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    removeAttribute(k) { delete attrs[k]; },
+    getAttribute(k) { return attrs[k] || ""; },
+    getBoundingClientRect() { return { left: 120, top: 80, right: 200, bottom: 104, width: 80, height: 24 }; },
+  };
+}
+const domMap = new Proxy({}, {
+  get(target, prop) {
+    if (typeof prop !== "string") return undefined;
+    if (!target[prop]) target[prop] = makeMockEl(prop);
+    return target[prop];
+  }
+});
+window.location = { search: "", href: "http://127.0.0.1:8080/", pathname: "/" };
+window.localStorage = { getItem() { return null; }, setItem() {} };
+document.documentElement = { setAttribute() {}, clientWidth: 1440, clientHeight: 900 };
+document.getElementById = (id) => domMap[id] || null;
+document.createElement = (tag) => makeMockEl("pgBugHovercard");
+document.body.appendChild = (el) => { if (el && el.id) domMap[el.id] = el; };
+document.querySelector = () => null;
+document.querySelectorAll = () => [];
+"""
+            + js_body
+            + r"""
+state.changes = [
+  {
+    number: 43486125,
+    subject: "feat(gerrit): Default PolyGerrit UI 测试_🚀_é",
+    status: "NEW",
+    owner_short: "joshuaduong",
+    url: "https://android-review.googlesource.com/c/platform/hardware/google/aemu/+/43486125",
+    bugs: [
+      {
+        id: "499640155",
+        url: "https://b.corp.google.com/issues/499640155",
+        priority: "P1",
+        severity: "S2",
+        status: "ASSIGNED",
+        type: "BUG",
+        title: "Hovercard overlay for bug IDs 测试_🚀_é",
+        assignee: "joshuaduong@google.com",
+        component_id: "1016880",
+      },
+    ],
+  },
+];
+
+// 1. Verify PolyGerrit gr-buganizer-hovercard formatting helpers:
+assert.equal(formatBugStatusOrType("ASSIGNED"), "Assigned");
+assert.equal(formatBugStatusOrType("IN_PROGRESS"), "In Progress");
+assert.equal(formatBugStatusOrType("BUG"), "Bug");
+assert.equal(removeGoogleDomain("joshuaduong@google.com"), "joshuaduong");
+assert.equal(removeGoogleDomain(""), "Unassigned");
+
+// 2. Verify .bug-chip badges, inline Markdown b/<id>, and diff line b/<id> all wire showPgBugHovercard:
+const badgeHtml = renderBugBadgesHtml(state.changes[0], { interactive: true });
+assert.equal(badgeHtml.includes('showPgBugHovercard(event, \'499640155\')'), true);
+assert.equal(badgeHtml.includes('data-bug-id="499640155"'), true);
+
+const mdHtml = renderInlineMarkdownHtml("Fixes b/499640155 and Bug: 572839247", true);
+assert.equal(mdHtml.includes("showPgBugHovercard(event, '499640155')"), true);
+assert.equal(mdHtml.includes("showPgBugHovercard(event, '572839247')"), true);
+
+const diffHtml = renderHighlightedDiffLineHtml("// See b/499640155 for Unicode 测试_🚀_é", "add", "cpp", "syntax_intraline", []);
+assert.equal(diffHtml.includes('class="pg-diff-bug-ref"'), true);
+assert.equal(diffHtml.includes("showPgBugHovercard(event, '499640155')"), true);
+
+// 3. Hovering a bug chip suppresses native title, opens #pgBugHovercard with PolyGerrit's 7-row layout:
+const anchorEl = makeMockEl("bugAnchor");
+anchorEl.setAttribute("title", "b/499640155 [P1 · S2] — Hovercard overlay");
+showPgBugHovercard({ currentTarget: anchorEl, stopPropagation() {} }, "b/499640155");
+
+const cardEl = document.getElementById("pgBugHovercard");
+assert.equal(cardEl.style.display, "block");
+assert.equal(anchorEl.getAttribute("title"), "");
+assert.equal(anchorEl.getAttribute("data-saved-bug-title"), "b/499640155 [P1 · S2] — Hovercard overlay");
+assert.equal(cardEl.innerHTML.includes('class="hovercard-content"'), true);
+assert.equal(cardEl.innerHTML.includes('class="hovercard-item-title"'), true);
+assert.equal(cardEl.innerHTML.includes("<strong>Hovercard overlay for bug IDs 测试_🚀_é</strong>"), true);
+assert.equal(cardEl.innerHTML.includes('class="hovercard-item-component"'), true);
+assert.equal(cardEl.innerHTML.includes("Android &gt; Non-OS Projects &gt; Enterprise &gt; Bedstead"), true);
+assert.equal(cardEl.innerHTML.includes('class="hovercard-item-status"'), true);
+assert.equal(cardEl.innerHTML.includes("<span>Assigned</span>"), true);
+assert.equal(cardEl.innerHTML.includes('class="hovercard-item-assignee"'), true);
+assert.equal(cardEl.innerHTML.includes("<strong>Assignee</strong>&nbsp;<span>joshuaduong</span>"), true);
+assert.equal(cardEl.innerHTML.includes('class="hovercard-item-type"'), true);
+assert.equal(cardEl.innerHTML.includes("<strong>Type</strong>&nbsp;<span>Bug</span>"), true);
+assert.equal(cardEl.innerHTML.includes("<span>P1</span>"), true);
+assert.equal(cardEl.innerHTML.includes("<span>S2</span>"), true);
+assert.equal(cardEl.innerHTML.includes('class="hovercard-item-links"'), true);
+assert.equal(cardEl.innerHTML.includes(">Buganizer</a>"), true);
+assert.equal(cardEl.innerHTML.includes(">Related CLs</a>"), true);
+assert.equal(cardEl.innerHTML.includes('class="hovercard-item-copy-content"'), true);
+assert.equal(cardEl.innerHTML.includes("<span>b/499640155</span>"), true);
+
+// 4. Async fetchPgBugDetailsAsync enriches the open hovercard with live severity & component_full_name:
+(async () => {
+  await fetchPgBugDetailsAsync("499640155", { force: true });
+  assert.equal(cardEl.innerHTML.includes("<span>S1</span>"), true);
+  assert.equal(cardEl.innerHTML.includes("Android &gt; Android OS &amp; Apps &gt; Android Studio &gt; Emulator"), true);
+
+  // 5. Clicking Related CLs (onPgBugRelatedClsClick) filters dashboard by bug:<id> and hides the hovercard:
+  onPgBugRelatedClsClick({ preventDefault() {} }, "499640155");
+  assert.equal(state.searchQuery, "bug:499640155");
+  assert.equal(cardEl.style.display, "none");
+  console.log("POLYGERRIT_BUG_HOVERCARD_OK");
+})();
+"""
+        )
+        vm_wrapper = (
+            'const fs = require("node:fs");\n'
+            'const vm = require("node:vm");\n'
+            "const code = fs.readFileSync(process.argv[2], 'utf8');\n"
+            "const storageMap = {};\n"
+            "const storageObj = {\n"
+            "  getItem(k) { return Object.prototype.hasOwnProperty.call(storageMap, k) ? storageMap[k] : null; },\n"
+            "  setItem(k, v) { storageMap[k] = String(v); },\n"
+            "};\n"
+            "const sandbox = {\n"
+            "  require,\n"
+            "  console,\n"
+            "  setTimeout,\n"
+            "  clearTimeout,\n"
+            "  URL,\n"
+            "  URLSearchParams,\n"
+            "  window: { addEventListener() {}, innerWidth: 1440, innerHeight: 900, localStorage: storageObj },\n"
+            "  document: { getElementById() { return null; }, addEventListener() {}, body: { classList: { toggle() {} }, appendChild() {} } },\n"
+            "  localStorage: storageObj,\n"
+            "  navigator: { clipboard: { writeText: async () => {} } },\n"
+            "  fetch: async () => ({\n"
+            "    ok: true,\n"
+            "    json: async () => ({\n"
+            "      status: 'ok',\n"
+            "      bug: {\n"
+            "        id: '499640155',\n"
+            "        priority: 'P1',\n"
+            "        severity: 'S1',\n"
+            "        status: 'ASSIGNED',\n"
+            "        type: 'BUG',\n"
+            "        title: 'Hovercard overlay for bug IDs 测试_🚀_é',\n"
+            "        assignee: 'joshuaduong@google.com',\n"
+            "        reporter: 'jansene@google.com',\n"
+            "        component_id: '29601',\n"
+            "        component_full_name: 'Android > Android OS & Apps > Android Studio > Emulator',\n"
+            "        modified_time: '2026-04-20T18:10:00Z',\n"
+            "        description: 'Detailed Buganizer description preview 测试_🚀_é',\n"
+            "        cc: ['rkir@google.com', 'corakwue@google.com'],\n"
+            "        details_loaded: true,\n"
+            "      },\n"
+            "    }),\n"
+            "  }),\n"
+            "};\n"
+            "vm.runInNewContext(code, sandbox);\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            js_path = Path(tmp_dir) / "pg_bug_hovercard_harness.js"
+            runner_path = Path(tmp_dir) / "run_vm.js"
+            js_path.write_text(harness_js, encoding="utf-8")
+            runner_path.write_text(vm_wrapper, encoding="utf-8")
+            proc = subprocess.run(
+                [node_bin, str(runner_path), str(js_path)],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+            self.assertEqual(
+                proc.returncode,
+                0,
+                msg=f"PolyGerrit bug hovercard harness failed:\n{proc.stderr}\n{proc.stdout}",
+            )
+            self.assertIn("POLYGERRIT_BUG_HOVERCARD_OK", proc.stdout)
+
+    def _run_polygerrit_viewer_vm(self, html: str, assertions_js: str) -> str:
+        """Executes assertions_js against the PolyGerrit UI script inside a Node VM."""
+        node_bin = _resolve_node_bin(self)
+        if not node_bin:
+            return ""
+        script_matches = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, flags=re.S)
+        self.assertTrue(script_matches)
+        js_body = script_matches[-1].replace("__GERRIT_UI_BOOTSTRAP_JSON__", "{}")
+        for boot_call in (
+            "loadSidebarLayoutPrefs();", "initWorkspaceSplitter();", "initDiffCodeSelectionListeners();",
+            "initPgFileListRangeDragListeners();", "initPgDashboardRangeDragListeners();",
+            "initImagePanListeners();", "initApp();",
+        ):
+            js_body = js_body.replace(boot_call, f"// {boot_call}")
+        preamble = (
+            'const assert = require("node:assert/strict");\n'
+            'function makeMockEl(id) { const attrs = {}, classes = new Set(); return {\n'
+            '  id, tagName: "DIV", className: "", innerHTML: "", textContent: "", style: { display: "", height: "" },\n'
+            '  classList: { add(...cs) { cs.forEach(c => classes.add(c)); }, remove(...cs) { cs.forEach(c => classes.delete(c)); },\n'
+            '    toggle(c, f) { const next = f === undefined ? !classes.has(c) : !!f; if (next) classes.add(c); else classes.delete(c); return next; },\n'
+            '    contains(c) { return classes.has(c); } },\n'
+            '  setAttribute(k, v) { attrs[k] = String(v); }, getAttribute(k) { return attrs[k] || ""; }, querySelectorAll() { return []; }\n'
+            '}; }\n'
+            'const domMap = new Proxy({}, { get(t, p) { if (typeof p !== "string") return undefined; if (!t[p]) t[p] = makeMockEl(p); return t[p]; } });\n'
+            'window.location = { search: "", href: "http://127.0.0.1:8080/", pathname: "/" };\n'
+            'window.localStorage = { getItem() { return null; }, setItem() {} };\n'
+            'document.documentElement = { setAttribute() {}, clientWidth: 1440, clientHeight: 900 };\n'
+            'document.getElementById = (id) => domMap[id] || null; document.querySelector = () => null; document.querySelectorAll = () => [];\n'
+        )
+        vm_wrapper = (
+            'const fs = require("node:fs"), vm = require("node:vm");\n'
+            'vm.runInNewContext(fs.readFileSync(process.argv[2], "utf8"), {\n'
+            '  require, console, setTimeout, clearTimeout, setInterval: () => 1, clearInterval: () => {}, URL, URLSearchParams,\n'
+            '  window: { addEventListener() {}, innerWidth: 1440, innerHeight: 900 },\n'
+            '  document: { getElementById() { return null; }, addEventListener() {} },\n'
+            '  navigator: { clipboard: { writeText: async () => {} } },\n'
+            '});\n'
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            js_path, runner_path = Path(tmp_dir) / "harness.js", Path(tmp_dir) / "run_vm.js"
+            js_path.write_text(preamble + js_body + "\n" + assertions_js, encoding="utf-8")
+            runner_path.write_text(vm_wrapper, encoding="utf-8")
+            proc = subprocess.run([node_bin, str(runner_path), str(js_path)], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=10)
+            self.assertEqual(proc.returncode, 0, msg=f"Viewer VM failed:\n{proc.stderr}\n{proc.stdout}")
+            return proc.stdout
+
+    def test_polygerrit_markdown_file_viewer(self) -> None:
+        """Verifies the rendered Markdown file viewer (Preview, Split, and Diff modes) for .md files like ag/43741371."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for marker in ("pg-markdown-viewer", "function renderPgMarkdownDocumentHtml", "function renderPgMarkdownViewerHtml", "function setPgMarkdownViewMode"):
+            self.assertIn(marker, html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+assert.equal(isPgMarkdownFile("cli/android-device-hub/electron/e2e/e2e-test.md"), true);
+assert.equal(isPgMarkdownFile("docs/GUIDE.MARKDOWN"), true);
+assert.equal(isPgMarkdownFile("cli/android-device-hub/electron/e2e/e2e-test.html"), false);
+const mdFile = {
+  file: "cli/android-device-hub/electron/e2e/e2e-test.md", status: "A", additions: 14, deletions: 0,
+  lines: [
+    { type: "hunk", old: "", new: "", text: "@@ -0,0 +1,14 @@" },
+    { type: "add", old: "", new: "1", text: "+# Writing End-to-End (E2E) Tests for Android Device Hub 测试_🚀_é" },
+    { type: "add", old: "", new: "2", text: "+This guide covers **real Android Emulator** (`:e2e_emulator_test`) and b/499640155." },
+    { type: "add", old: "", new: "3", text: "+| Backend (`ADH_E2E_BACKEND`) | Bazel Target |" },
+    { type: "add", old: "", new: "4", text: "+|---|---|" },
+    { type: "add", old: "", new: "5", text: "+| `emulator` | `:e2e_emulator_test` |" },
+    { type: "add", old: "", new: "6", text: "+- Target zones with `#7AA2F7` blue:" },
+    { type: "add", old: "", new: "7", text: "+  - **`layout` event**: Emitted on startup." },
+    { type: "add", old: "", new: "8", text: "+1. **Run test**:" },
+    { type: "add", old: "", new: "9", text: "+   ```bash" },
+    { type: "add", old: "", new: "10", text: "+   bazel test //tools/vendor/google/cli/android-device-hub/electron:e2e_emulator_test" },
+    { type: "add", old: "", new: "11", text: "+   ```" },
+  ],
+};
+state.selectedClNumber = 43741371;
+state.diffsByCl[43741371] = { patch_set: 2, files: [mdFile] };
+const blockHtml = renderFileDiffBlock(mdFile, 43741371, 2);
+for (const expected of ['class="pg-markdown-viewer"', 'class="pg-md-table"', 'data-lang="bash"', 'background-color:#7AA2F7;', "showPgBugHovercard(event, '499640155')", "测试_🚀_é"]) {
+  assert.equal(blockHtml.includes(expected), true, `Missing: ${expected}`);
+}
+const safeId = "cli_android-device-hub_electron_e2e_e2e-test_md";
+setPgMarkdownViewMode(null, 43741371, mdFile.file, "split");
+assert.equal(domMap[`pgMdWorkspace-43741371-${safeId}`].classList.contains("is-mode-split"), true);
+setPgMarkdownViewMode(null, 43741371, mdFile.file, "diff");
+assert.equal(domMap[`pgMdViewerPane-43741371-${safeId}`].style.display, "none");
+console.log("POLYGERRIT_MARKDOWN_VIEWER_OK");
+""",
+        )
+        if out:
+            self.assertIn("POLYGERRIT_MARKDOWN_VIEWER_OK", out)
+
+    def test_polygerrit_html_file_viewer(self) -> None:
+        """Verifies the rendered HTML file viewer (Sandboxed iframe preview, Split, Diff, and viewport presets) for .html files like ag/43741371."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for marker in ("pg-html-viewer", "pg-html-preview-iframe", "function renderPgHtmlViewerHtml", "function setPgHtmlViewMode", "function setPgHtmlViewportPreset"):
+            self.assertIn(marker, html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+assert.equal(isPgHtmlFile("cli/android-device-hub/electron/e2e/e2e-test.html"), true);
+assert.equal(isPgHtmlFile("docs/index.htm"), true);
+assert.equal(isPgHtmlFile("cli/android-device-hub/electron/e2e/e2e-test.md"), false);
+const htmlFile = {
+  file: "cli/android-device-hub/electron/e2e/e2e-test.html", status: "A", additions: 8, deletions: 0,
+  lines: [
+    { type: "hunk", old: "", new: "", text: "@@ -0,0 +1,8 @@" },
+    { type: "add", old: "", new: "1", text: "+<!DOCTYPE html><html><head>" },
+    { type: "add", old: "", new: "2", text: "+<title>Writing End-to-End (E2E) Tests for Android Device Hub 测试_🚀_é</title></head><body>" },
+    { type: "add", old: "", new: "3", text: "+<h1>Writing End-to-End (E2E) Tests</h1><h2>1. Overview</h2>" },
+    { type: "add", old: "", new: "4", text: "+<table><tr><td>mock</td></tr></table><pre><code>bazel test</code></pre></body></html>" },
+  ],
+};
+state.selectedClNumber = 43741371;
+state.diffsByCl[43741371] = { patch_set: 2, files: [htmlFile] };
+const blockHtml = renderFileDiffBlock(htmlFile, 43741371, 2);
+for (const expected of ['class="pg-html-viewer"', 'class="pg-html-preview-iframe"', 'sandbox="allow-same-origin"', "🌐 Writing End-to-End (E2E) Tests for Android Device Hub 测试_🚀_é", "2 sections · 1 table · 1 code block · 4 lines"]) {
+  assert.equal(blockHtml.includes(expected), true, `Missing: ${expected}`);
+}
+const safeId = "cli_android-device-hub_electron_e2e_e2e-test_html";
+setPgHtmlViewportPreset(null, 43741371, safeId, "tablet");
+assert.equal(domMap[`pgHtmlStage-43741371-${safeId}`].classList.contains("viewport-tablet"), true);
+setPgHtmlViewMode(null, 43741371, htmlFile.file, "split");
+assert.equal(domMap[`pgHtmlWorkspace-43741371-${safeId}`].classList.contains("is-mode-split"), true);
+setPgHtmlViewMode(null, 43741371, htmlFile.file, "diff");
+assert.equal(domMap[`pgHtmlViewerPane-43741371-${safeId}`].style.display, "none");
+console.log("POLYGERRIT_HTML_VIEWER_OK");
+""",
+        )
+        if out:
+            self.assertIn("POLYGERRIT_HTML_VIEWER_OK", out)
+
+    def test_multi_human_shared_group_qa_and_ai_analysis(self) -> None:
+        """Verifies cross-user shared Q&A threads, per-turn @ldap attribution, and shared AI analysis."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            shared_dir = root / "gerrit-ui-shared"
+            svc_a = GerritUIService(default_viewer="joshuaduong@google.com")
+            svc_a._shared_gerrit_dir = shared_dir
+            svc_a._qa_cache_dir = root / "cache_a" / "code_questions"
+            svc_a._ai_analysis_cache_dir = root / "cache_a" / "ai_analysis"
+
+            svc_b = GerritUIService(default_viewer="drosen@google.com")
+            svc_b._shared_gerrit_dir = shared_dir
+            svc_b._qa_cache_dir = root / "cache_b" / "code_questions"
+            svc_b._ai_analysis_cache_dir = root / "cache_b" / "ai_analysis"
+
+            with patch("commands.gerrit.services.inline_qa_service._run_sidecar_agentapi") as mock_api:
+                mock_api.return_value = {"conversationId": "conv-user-a"}
+                res_a = svc_a.ask_agent_about_code(
+                    cl_number=43727967, file_path="/COMMIT_MSG", start_line=8, end_line=11,
+                    side="REVISION", code_snippet="slot state", question="Why reset MT slot?",
+                    thread_id="shared-tid-1", project_id="proj-1", viewer_email="joshuaduong@google.com",
+                )
+            self.assertEqual(res_a["conversation_id"], "conv-user-a")
+            self.assertEqual(res_a["author"], "joshuaduong")
+            self.assertEqual(res_a["turns"][0]["author"], "joshuaduong")
+            svc_a._qa_threads["shared-tid-1"]["turns"][0]["reply"] = "To avoid stale touch IDs."
+            svc_a._qa_threads["shared-tid-1"]["turns"][0]["status"] = "answered"
+            svc_a._save_persisted_qa_threads_for_cl("43727967", [svc_a._qa_threads["shared-tid-1"]])
+
+            with patch("commands.gerrit.services.inline_qa_service.discover_transcript_code_questions", return_value=[]):
+                b_qs = svc_b.get_code_questions([43727967])
+            self.assertEqual(len(b_qs), 1)
+            self.assertTrue(b_qs[0]["is_shared"])
+            self.assertEqual(b_qs[0]["author"], "joshuaduong")
+
+            with patch("commands.gerrit.services.inline_qa_service._run_sidecar_agentapi") as mock_api_b:
+                mock_api_b.return_value = {"conversationId": "conv-user-b"}
+                res_b = svc_b.ask_agent_about_code(
+                    cl_number=43727967, file_path="/COMMIT_MSG", start_line=8, end_line=11,
+                    side="REVISION", code_snippet="slot state", question="What about multi-finger lift?",
+                    conversation_id="conv-user-a", thread_id="shared-tid-1", project_id="proj-1",
+                    viewer_email="drosen@google.com",
+                )
+            self.assertEqual(res_b["conversation_id"], "conv-user-b")
+            self.assertEqual(res_b["participants"], ["joshuaduong", "drosen"])
+            self.assertEqual([t["author"] for t in res_b["turns"]], ["joshuaduong", "drosen"])
+            self.assertIn("[SHARED_GROUP_CONTEXT thread_id=shared-tid-1 turn_offset=1", res_b["prompt"])
+
+    def test_polygerrit_multi_human_group_qa_ui_rendering(self) -> None:
+        """Verifies Group Q&A badges, per-turn @author chips, and Copy Thread in PolyGerrit UI."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for marker in (
+            "qa-turn-author-chip",
+            "qa-group-badge",
+            "function renderQuestionGroupBadgeHtml",
+            "function renderQuestionTurnAuthorChipHtml",
+            "function copyInlineAgentThread",
+        ):
+            self.assertIn(marker, html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+state.viewer = "joshuaduong@google.com";
+const cardHtml = renderAgentQuestionCardHtml(
+  43727967,
+  {
+    id: "tx-q-41ab6c52-0",
+    thread_id: "tx-q-41ab6c52-0",
+    kind: "agent_question",
+    author: "joshuaduong",
+    participants: ["joshuaduong", "drosen"],
+    is_shared: true,
+    file_path: "/COMMIT_MSG",
+    start_line: 8,
+    end_line: 11,
+    turns: [
+      { turn_index: 0, question: "Why reset per-slot MT state?", reply: "Prevents ghost touches.", status: "answered", author: "joshuaduong" },
+      { turn_index: 1, question: "Does protocol B require ABS_MT_TRACKING_ID -1?", reply: "Yes, on lift.", status: "answered", author: "drosen" },
+    ],
+  },
+  "tx-q-41ab6c52-0",
+  "L8-11",
+  "",
+  "Hide ▴",
+  "Why reset per-slot MT state?",
+  "/COMMIT_MSG"
+);
+assert.equal(cardHtml.includes("👥 Group Q&amp;A · @joshuaduong, @drosen"), true);
+assert.equal(cardHtml.includes('class="qa-turn-author-chip" title="Asked by @joshuaduong">@joshuaduong</span>'), true);
+assert.equal(cardHtml.includes('class="qa-turn-author-chip is-teammate" title="Asked by @drosen">@drosen</span>'), true);
+assert.equal(cardHtml.includes("📋 Copy Thread"), true);
+console.log("MULTI_HUMAN_GROUP_QA_UI_OK");
+""",
+        )
+        if out:
+            self.assertIn("MULTI_HUMAN_GROUP_QA_UI_OK", out)
+
+    def test_cross_account_cl_search_by_number_and_ag_prefix(self) -> None:
+        """Verifies searching '43727967' or 'ag/43727967' fetches and displays another author's CL."""
+        from commands.gerrit.services import normalize_gerrit_search_query
+
+        self.assertEqual(normalize_gerrit_search_query("43727967"), "change:43727967")
+        self.assertEqual(normalize_gerrit_search_query("ag/43727967"), "change:43727967")
+        self.assertEqual(normalize_gerrit_search_query("cl/43727967/6"), "change:43727967")
+        self.assertEqual(
+            normalize_gerrit_search_query("https://googleplex-android-review.git.corp.google.com/c/platform/hardware/generic/goldfish/+/43727967/6"),
+            "change:43727967",
+        )
+        self.assertEqual(normalize_gerrit_search_query("b/351234567"), 'message:"351234567"')
+        self.assertEqual(normalize_gerrit_search_query("owner:corakwue"), "owner:corakwue@google.com")
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+assert.equal(window.extractClNumberFromSearchToken("43727967"), "43727967");
+assert.equal(window.extractClNumberFromSearchToken("ag/43727967"), "43727967");
+assert.equal(window.extractClNumberFromSearchToken("cl/43727967/6"), "43727967");
+assert.deepEqual(window.extractSearchClNumbers("ag/43727967"), ["43727967"]);
+Object.assign(state, { viewer: "joshuaduong@google.com", scope: "dashboard", changes: [], stacks: [] });
+state.gates.presubmit = true;
+const fetchedUrls = [];
+globalThis.sidecarFetch = async function(url) {
+  fetchedUrls.push(url);
+  const cl = { number: 43727967, subject: "fix(input): Reset per-slot MT state on lift", owner_email: "corakwue@google.com", owner_short: "corakwue", presubmit_vetted: false, presubmit_score: 0 };
+  return { ok: true, async json() { return { changes: [cl], stacks: [{ stack_id: "single:43727967", is_stack: false, title: cl.subject, commits: [cl] }] }; } };
+};
+(async () => {
+  onQueueSearchInput("ag/43727967");
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(fetchedUrls.some(u => u.includes("query=change%3A43727967") && u.includes("viewer=joshuaduong%40google.com")), true);
+  assert.equal(state.viewer, "joshuaduong@google.com");
+  assert.equal(state.selectedClNumber, 43727967);
+  assert.equal(matchesSearchQuery(state.changes[0], "43727967"), true);
+  assert.equal(matchesSearchQuery(state.changes[0], "ag/43727967"), true);
+  console.log("CROSS_ACCOUNT_CL_SEARCH_OK");
+})();
+""",
+        )
+        if out:
+            self.assertIn("CROSS_ACCOUNT_CL_SEARCH_OK", out)
+
+    def test_sticky_file_diff_header_while_scrolling(self) -> None:
+        """Verifies file section headers stay locked below the change header while scrolling."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for expected_css in (
+            "top: var(--pg-sticky-file-header-top, 41px);",
+            ".file-header.is-stuck {",
+            ".pg-sticky-pin-badge {",
+        ):
+            self.assertIn(expected_css, html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const props = {};
+const hdrEl = makeMockEl("fileHdr1");
+hdrEl.offsetHeight = 36;
+const block1 = makeMockEl("block1");
+block1.offsetTop = 100;
+block1.offsetHeight = 600;
+block1.querySelector = (sel) => sel === ".file-header" ? hdrEl : null;
+const changeHdr = { offsetHeight: 48 };
+const findBar = { style: { display: "none" }, offsetHeight: 36 };
+const mockCv = {
+  style: { setProperty(k, v) { props[k] = v; } },
+  querySelector(sel) {
+    if (sel === ".pg-change-header") return changeHdr;
+    if (sel === ".pg-diff-find-bar") return findBar;
+    return null;
+  },
+  querySelectorAll(sel) { return sel === ".pg-file-diff-block" ? [block1] : []; },
+};
+domMap.diffScroll.scrollTop = 120;
+domMap.diffScroll.style.setProperty = () => {};
+document.querySelectorAll = (sel) => sel === ".pg-change-view" ? [mockCv] : [];
+window.syncPgStickyFileHeaders();
+assert.equal(props["--pg-sticky-file-header-top"], "48px");
+assert.equal(hdrEl.classList.contains("is-stuck"), true);
+assert.equal(block1.classList.contains("has-stuck-header"), true);
+domMap.diffScroll.scrollTop = 800;
+window.syncPgStickyFileHeaders();
+assert.equal(hdrEl.classList.contains("is-stuck"), false);
+console.log("STICKY_FILE_HEADER_OK");
+""",
+        )
+        if out:
+            self.assertIn("STICKY_FILE_HEADER_OK", out)
+
+    def test_sticky_header_reply_and_back_to_top_while_scrolling_files(self) -> None:
+        """Verifies Reply and Back to Top appear in the sticky header while scrolling files, hiding secondary actions."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for expected in (
+            ".pg-change-header.is-scrolling-files .pg-header-action-group",
+            ".pg-change-header.is-scrolling-files .pg-sticky-scroll-only-btn",
+            "btnStickyHeaderReply-",
+            "btnStickyBackToTop-",
+            "function scrollPgChangeToTop(",
+            "function openPgHeaderReply(",
+        ):
+            self.assertIn(expected, html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl = { number: 43727967, subject: "fix(input): Reset MT state", status: "NEW", patch_set: 6 };
+state.selectedClNumber = 43727967;
+state.changes = [cl];
+const headerHtml = renderPgChangeHeaderHtml(cl, {});
+assert.equal(headerHtml.includes('id="btnStickyHeaderReply-43727967"'), true);
+assert.equal(headerHtml.includes('id="btnStickyBackToTop-43727967"'), true);
+assert.equal(headerHtml.includes('class="pg-header-action-group"'), true);
+assert.equal(headerHtml.includes('id="btnHarnessMenuToggle"'), true);
+const changeHdr = makeMockEl("pgChangeHeader-43727967");
+changeHdr.offsetHeight = 40;
+const block1 = makeMockEl("block1");
+block1.offsetTop = 100;
+block1.offsetHeight = 600;
+const hdrEl = makeMockEl("fileHdr1");
+hdrEl.offsetHeight = 34;
+block1.querySelector = (sel) => sel === ".file-header" ? hdrEl : null;
+const mockCv = makeMockEl("pgStackCommit-43727967");
+mockCv.querySelector = (sel) => sel === ".pg-change-header" ? changeHdr : null;
+mockCv.querySelectorAll = (sel) => sel === ".pg-file-diff-block" ? [block1] : [];
+document.querySelectorAll = (sel) => sel === ".pg-change-view" ? [mockCv] : [];
+domMap.diffScroll.scrollTop = 150;
+domMap.diffScroll.style.setProperty = () => {};
+window.syncPgStickyFileHeaders();
+assert.equal(mockCv.classList.contains("is-scrolling-files"), true);
+assert.equal(changeHdr.classList.contains("is-scrolling-files"), true);
+window.scrollPgChangeToTop(43727967);
+assert.equal(domMap.diffScroll.scrollTop, 0);
+assert.equal(changeHdr.classList.contains("is-scrolling-files"), false);
+console.log("STICKY_HEADER_REPLY_TOP_OK");
+""",
+        )
+        if out:
+            self.assertIn("STICKY_HEADER_REPLY_TOP_OK", out)
+
+    def test_relation_sidebar_header_and_base_row_no_overlap_layout(self) -> None:
+        """Verifies relation/topic sidebar header, tabs, and base row wrap cleanly without overlap or overflow."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for expected in (
+            ".pg-relation-box {\n  background: var(--g-panel);\n  border: 1px solid var(--g-border);\n  border-radius: 6px;\n  padding: 8px 10px;\n  box-sizing: border-box;\n  max-width: 100%;\n  overflow: hidden;",
+            ".pg-relation-head {\n  display: flex;\n  flex-wrap: wrap;",
+            ".pg-relation-head-right {\n  display: flex;\n  align-items: center;\n  flex-wrap: wrap;\n  flex: 0 1 auto;",
+            ".pg-rel-tabs {\n  display: flex;\n  flex-wrap: wrap;",
+            ".pg-rel-base-sub {\n  display: flex;\n  flex-direction: column;",
+        ):
+            self.assertIn(expected, html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const c1 = { number: 43790430, subject: "fix(adh): Support foldable_测试_🚀_é", status: "NEW", branch: "studio-main", patch_set: 3, patch_sets: [1, 2, 3], topic: "foldable_测试_🚀_é", parent_revision: "6da27204abcdef" };
+const c2 = { number: 43790431, subject: "test(adh): Add E2E test", status: "NEW", branch: "studio-main", patch_set: 5, patch_sets: [1, 2, 3, 4, 5], topic: "foldable_测试_🚀_é" };
+state.changes = [c1, c2];
+state.stacks = [{ stack_id: "st-fold", commits: [c1, c2] }];
+state.selectedStackId = "st-fold";
+state.selectedClNumber = 43790430;
+const relHtml = renderPgRelationChainHtml(c1);
+assert.equal(relHtml.includes('id="btnRelTabChain-43790430"'), true);
+assert.equal(relHtml.includes('id="btnRelTabTopic-43790430"'), true);
+assert.equal(relHtml.includes('id="btnRelToggleStackInterdiff-43790430"'), true);
+assert.equal(relHtml.includes('id="btnToggleContinuousStack"'), true);
+assert.equal(relHtml.includes('id="btnCopyRelatedCls-43790430"'), true);
+assert.equal(relHtml.includes("Base target branch: studio-main (6da27204)"), true);
+console.log("RELATION_SIDEBAR_NO_OVERLAP_OK");
+""",
+        )
+        if out:
+            self.assertIn("RELATION_SIDEBAR_NO_OVERLAP_OK", out)
+
+    def test_polygerrit_react_islands_bridge_and_bundle_contracts(self) -> None:
+        """Verifies React 19 + TypeScript island bundle serving, host bridge, and Unicode rendering."""
+        linked_html = render_static_gerrit_ui_html(
+            {"items": [], "stacks": [], "total_open": 0},
+            variant="polygerrit",
+            inline_assets=False,
+        )
+        self.assertIn('/assets/gerrit_ui_react.js?v=', linked_html)
+
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for marker in (
+            "AemuGerritReact",
+            "function getPgReactBridge()",
+        ):
+            self.assertIn(marker, html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+assert.equal(typeof globalThis.AemuGerritReact, "object");
+assert.equal(typeof globalThis.AemuGerritReact.renderPgRelationChainHtml, "function");
+assert.equal(typeof globalThis.AemuGerritReact.renderPgRebaseNoticeBannerHtml, "function");
+assert.equal(typeof globalThis.AemuGerritReact.renderPgStickyScrollActionsHtml, "function");
+const bridge = getPgReactBridge();
+assert.equal(typeof bridge.findStackForClOrId, "function");
+assert.equal(typeof bridge.getChangeRebaseStatus, "function");
+const stickyHtml = globalThis.AemuGerritReact.renderPgStickyScrollActionsHtml(43811285, 2);
+assert.equal(stickyHtml.includes('id="btnStickyHeaderReply-43811285"'), true);
+assert.equal(stickyHtml.includes("Reply (2 drafts)"), true);
+const statusHtml = renderPgRelStatusTag({ number: 43811285, status: "MERGED", subject: "测试_🚀_é" });
+assert.equal(statusHtml.includes('class="pg-status-tag merged"'), true);
+console.log("REACT_ISLANDS_BRIDGE_OK");
+""",
+        )
+        if out:
+            self.assertIn("REACT_ISLANDS_BRIDGE_OK", out)
+
+    def test_scroll_performance_layout_batching_and_sidebar_isolation(self) -> None:
+        """Verifies sidebar scroll events bypass diff layout sync and CSS custom properties avoid redundant writes."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for expected in (
+            "function setPgStylePropertyIfChanged(",
+            "function isPgSidebarScrollTarget(",
+            "function schedulePgDiffScrollSync(",
+            "function handlePgWindowScroll(",
+            "function isPgActivelyScrolling(",
+        ):
+            self.assertIn(expected, html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+let setPropCalls = 0;
+const mockEl = {
+  style: {
+    setProperty(k, v) { setPropCalls++; },
+  },
+};
+window.setPgStylePropertyIfChanged(mockEl, "--pg-sticky-file-header-top", "48px");
+window.setPgStylePropertyIfChanged(mockEl, "--pg-sticky-file-header-top", "48px");
+assert.equal(setPropCalls, 1);
+window.setPgStylePropertyIfChanged(mockEl, "--pg-sticky-file-header-top", "84px");
+assert.equal(setPropCalls, 2);
+
+assert.equal(window.isPgSidebarScrollTarget({ id: "queueList", title: "测试_🚀_é" }), true);
+assert.equal(window.isPgSidebarScrollTarget({ id: "queuePane" }), true);
+assert.equal(window.isPgSidebarScrollTarget({ id: "diffScroll" }), false);
+
+window.recordPgScrollActivity();
+assert.equal(window.isPgActivelyScrolling({ type: "mouseenter" }), true);
+assert.equal(window.isPgActivelyScrolling({ type: "click" }), false);
+assert.equal(window.isPgActivelyScrolling(null), false);
+console.log("SCROLL_PERF_BATCHING_OK");
+""",
+        )
+        if out:
+            self.assertIn("SCROLL_PERF_BATCHING_OK", out)
+
+    def test_sidebar_and_diff_css_containment_and_scroll_preservation(self) -> None:
+        """Verifies diff lines avoid GPU filter surface churn on hover and sidebar/diff containers use CSS containment."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for expected in (
+            "contain: layout style;",
+            "will-change: transform, opacity;",
+            "renderAll({ preserveScroll: true });",
+            'card.scrollIntoView({ block: "nearest", behavior: "auto" });',
+        ):
+            self.assertIn(expected, html)
+        self.assertNotIn(".code-line:not(.code-hunk):hover {\n    filter: brightness(1.08);", html)
+        self.assertNotIn(
+            ".code-table.diff-mode-side-by-side .code-line-sbs:not(.code-hunk):hover {\n    filter: brightness(1.08);",
+            html,
+        )
+
+    def test_dashboard_row_memoization_and_fast_cl_selection(self) -> None:
+        """Verifies dashboard row HTML memoization and in-place DOM selection when switching CLs."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for expected in (
+            "function computePgDashboardRowCacheKey(",
+            "function tryFastSelectClInQueueDom(",
+            "_pgDashboardRowHtmlCache",
+        ):
+            self.assertIn(expected, html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl1 = { number: 43810001, subject: "feat(emu): Add foldable support 测试_🚀_é", status: "NEW", patch_set: 2 };
+const cl2 = { number: 43810002, subject: "fix(emu): Crash on close", status: "NEW", patch_set: 1 };
+state.changes = [cl1, cl2];
+state.selectedClNumber = 43810001;
+
+const htmlA = renderPgDashboardRowHtml(cl1, "stack-1", {});
+const htmlB = renderPgDashboardRowHtml(cl1, "stack-1", {});
+assert.equal(htmlA, htmlB);
+assert.equal(htmlA.includes("selected"), true);
+
+state.selectedClNumber = 43810002;
+const htmlC = renderPgDashboardRowHtml(cl1, "stack-1", {});
+assert.equal(htmlC.includes("selected"), false);
+
+const card1 = makeMockEl("card1");
+card1.setAttribute("data-cl-num", "43810001");
+card1.classList.add("selected");
+const card2 = makeMockEl("card2");
+card2.setAttribute("data-cl-num", "43810002");
+domMap.queueList.querySelectorAll = (sel) => sel === ".cl-card[data-cl-num]" ? [card1, card2] : [];
+const fastOk = window.tryFastSelectClInQueueDom(43810002);
+assert.equal(fastOk, true);
+assert.equal(card1.classList.contains("selected"), false);
+assert.equal(card2.classList.contains("selected"), true);
+console.log("ROW_MEMO_AND_FAST_SELECT_OK");
+""",
+        )
+        if out:
+            self.assertIn("ROW_MEMO_AND_FAST_SELECT_OK", out)
+
+    def test_diff_code_lines_memoization_and_precompiled_tokenizer(self) -> None:
+        """Verifies diff code-line HTML memoization, fast-path syntax highlighting, and cache invalidation on line changes."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for expected in (
+            "_DIFF_CODE_LINE_TOKEN_SOURCE",
+            "function getPgFileLinesVersionSig(",
+            "function computePgFileCodeLinesCacheKey(",
+            "_pgFileCodeLinesHtmlCache",
+        ):
+            self.assertIn(expected, html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const fileObj = {
+  file: "android/emu/display_测试_🚀_é.cpp",
+  status: "M",
+  additions: 2,
+  deletions: 1,
+  lines: [
+    { type: "ctx", old: 10, new: 10, text: " int x = 42; // b/123456789" },
+    { type: "del", old: 11, new: null, text: "-return oldVal;" },
+    { type: "add", old: null, new: 11, text: "+return newVal_测试_🚀_é;" },
+  ],
+};
+const sig1 = window.getPgFileLinesVersionSig(fileObj);
+const blockA = renderFileDiffBlock(fileObj, 43820001, 1, true);
+const blockB = renderFileDiffBlock(fileObj, 43820001, 1, true);
+assert.equal(blockA, blockB);
+assert.equal(blockA.includes('data-bug-id="123456789"'), true);
+assert.equal(blockA.includes("tok-keyword"), true);
+
+fileObj.lines.push({ type: "add", old: null, new: 12, text: "+int extra = 1;" });
+const sig2 = window.getPgFileLinesVersionSig(fileObj);
+assert.notEqual(sig1, sig2);
+const blockC = renderFileDiffBlock(fileObj, 43820001, 1, true);
+assert.equal(blockC.includes("extra"), true);
+console.log("DIFF_CODE_LINES_MEMO_OK");
+""",
+        )
+        if out:
+            self.assertIn("DIFF_CODE_LINES_MEMO_OK", out)
+
+    def test_file_diff_block_and_stack_lookup_memoization(self) -> None:
+        """Verifies full file diff block memoization, overview bar caching, and fast stack lookup without getVisibleStacks()."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for expected in (
+            "_pgFileDiffBlockHtmlCache",
+            "function setPgBoundedMapEntry(",
+            "_cachedOverviewBarHtml",
+        ):
+            self.assertIn(expected, html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const clObj = { number: 43830001, subject: "perf(gerrit): Memoize diff blocks 测试_🚀_é", status: "NEW", patch_set: 1 };
+const stackObj = { stack_id: "stack_fast_1", commits: [clObj], is_stack: false };
+state.changes = [clObj];
+state.stacks = [stackObj];
+state.selectedClNumber = 43830001;
+state.selectedStackId = "stack_fast_1";
+
+let visibleStacksCalls = 0;
+const origGetVisibleStacks = window.getVisibleStacks;
+window.getVisibleStacks = function() {
+  visibleStacksCalls++;
+  return origGetVisibleStacks();
+};
+const foundByNum = window.findPgStackForClOrId(43830001, "");
+const foundById = window.findPgStackForClOrId(0, "stack_fast_1");
+assert.equal(foundByNum.stack_id, "stack_fast_1");
+assert.equal(foundById.stack_id, "stack_fast_1");
+assert.equal(visibleStacksCalls, 0);
+window.getVisibleStacks = origGetVisibleStacks;
+
+const fileObj = {
+  file: "emulator/ui/diff_block_测试_🚀_é.cpp",
+  status: "M",
+  additions: 1,
+  deletions: 1,
+  lines: [
+    { type: "del", old: 5, new: null, text: "-int slow = 1;" },
+    { type: "add", old: null, new: 5, text: "+int fast_测试_🚀_é = 2;" },
+  ],
+};
+const ovA = renderPgDiffOverviewBarHtml(fileObj, 43830001, fileObj.file, []);
+const ovB = renderPgDiffOverviewBarHtml(fileObj, 43830001, fileObj.file, []);
+assert.equal(ovA, ovB);
+assert.equal(typeof fileObj._cachedOverviewBarHtml, "string");
+
+const block1 = renderFileDiffBlock(fileObj, 43830001, 1, true);
+const block2 = renderFileDiffBlock(fileObj, 43830001, 1, true);
+assert.equal(block1, block2);
+assert.equal(block1.includes("is-collapsed"), false);
+
+setPgFileCollapsed(43830001, 1, fileObj.file, true);
+const blockCollapsed = renderFileDiffBlock(fileObj, 43830001, 1, true);
+assert.equal(blockCollapsed.includes("is-collapsed"), true);
+console.log("DIFF_BLOCK_AND_STACK_MEMO_OK");
+""",
+        )
+        if out:
+            self.assertIn("DIFF_BLOCK_AND_STACK_MEMO_OK", out)
+
+    def test_file_list_and_owner_status_memoization(self) -> None:
+        """Verifies renderPgFileListHtml memoization, cached file owner status, and fast canNavigateVisibleCls."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for expected in (
+            "_pgFileListHtmlCache",
+            "function computePgFileOwnerStatusCacheKey(",
+            "_cachedOwnerStatus",
+            "statsByFile.get(filePath)",
+        ):
+            self.assertIn(expected, html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl1 = {
+  number: 43840001,
+  subject: "perf(gerrit): Memoize file list 测试_🚀_é",
+  status: "NEW",
+  patch_set: 1,
+  human_cr2: [{ name: "Alice", email: "alice@google.com" }],
+  reviewers_detail: [{ name: "Alice", email: "alice@google.com", cr_vote: 2 }],
+  files: [
+    {
+      file: "emulator/ui/file_list_测试_🚀_é.cpp",
+      status: "M",
+      additions: 10,
+      deletions: 2,
+      owners: ["alice@google.com"],
+      lines: [{ type: "add", old: null, new: 1, text: "+int x = 1;" }],
+    },
+  ],
+};
+const cl2 = {
+  number: 43840002,
+  subject: "perf(gerrit): Second CL 测试_🚀_é",
+  status: "NEW",
+  patch_set: 1,
+  files: [],
+};
+state.changes = [cl1, cl2];
+state.stacks = [
+  { stack_id: "s1", commits: [cl1], is_stack: false },
+  { stack_id: "s2", commits: [cl2], is_stack: false },
+];
+state.selectedClNumber = 43840001;
+state.selectedStackId = "s1";
+
+let orderedCalls = 0;
+const origOrdered = window.getOrderedVisibleCommits;
+window.getOrderedVisibleCommits = function(stacks) {
+  orderedCalls++;
+  return origOrdered(stacks);
+};
+assert.equal(window.canNavigateVisibleCls(), true);
+assert.equal(orderedCalls, 0);
+window.getOrderedVisibleCommits = origOrdered;
+
+const ownerStat1 = getPgFileOwnerStatus(cl1, cl1.files[0]);
+const ownerStat2 = getPgFileOwnerStatus(cl1, cl1.files[0]);
+assert.equal(ownerStat1, ownerStat2);
+assert.equal(ownerStat1.status, "approved");
+assert.equal(typeof cl1.files[0]._cachedOwnerStatusKey, "string");
+
+const listHtml1 = renderPgFileListHtml(cl1, cl1);
+const listHtml2 = renderPgFileListHtml(cl1, cl1);
+assert.equal(listHtml1, listHtml2);
+assert.equal(listHtml1.includes("file_list_测试_🚀_é.cpp"), true);
+
+setPgFileReviewed(43840001, 1, "emulator/ui/file_list_测试_🚀_é.cpp", true);
+const listHtml3 = renderPgFileListHtml(cl1, cl1);
+assert.notEqual(listHtml1, listHtml3);
+console.log("FILE_LIST_AND_OWNER_MEMO_OK");
+""",
+        )
+        if out:
+            self.assertIn("FILE_LIST_AND_OWNER_MEMO_OK", out)
+
+    def test_diff_pane_rope_and_header_jump_memoization(self) -> None:
+        """Verifies ConsString diff block rope caching, fast file diff block lookup, and header/jump-menu memoization."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for expected in (
+            "_pgFileJumpMenuHtmlCache",
+            "_cachedReferenceInfo",
+            "_cachedTitleBarHtml",
+            "_cachedReplyDialogHtml",
+            "_cachedAllFilesDiffHtml",
+        ):
+            self.assertIn(expected, html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl = {
+  number: 43850001,
+  subject: "perf(gerrit): Rope diff assembly 测试_🚀_é",
+  status: "NEW",
+  patch_set: 2,
+  current_revision: "abcdef1234567890",
+  project: "platform/hardware/generic/goldfish",
+  branch: "emu-main-next",
+  files: [
+    {
+      file: "emulator/ui/rope_diff_测试_🚀_é.cpp",
+      status: "M",
+      additions: 4,
+      deletions: 1,
+      lines: [
+        { type: "del", old: 1, new: null, text: "-int old_val = 0;" },
+        { type: "add", old: null, new: 1, text: "+int new_val_测试_🚀_é = 1;" },
+      ],
+    },
+  ],
+};
+state.changes = [cl];
+state.stacks = [{ stack_id: "s_rope_1", commits: [cl], is_stack: false }];
+state.selectedClNumber = 43850001;
+state.selectedStackId = "s_rope_1";
+state.diffsByCl[43850001] = {
+  status: "ready",
+  patch_set: 2,
+  base_patch_set: "base",
+  files: cl.files,
+  commit_message: cl.subject,
+};
+
+const ref1 = getPgChangeReferenceInfo(cl, state.diffsByCl[43850001]);
+const ref2 = getPgChangeReferenceInfo(cl, state.diffsByCl[43850001]);
+assert.equal(ref1, ref2);
+assert.equal(ref1.commitShaShort, "abcdef12");
+
+const jump1 = renderPgFileJumpMenuHtml(cl, state.diffsByCl[43850001]);
+const jump2 = renderPgFileJumpMenuHtml(cl, state.diffsByCl[43850001]);
+assert.equal(jump1, jump2);
+assert.equal(jump1.includes("rope_diff_测试_🚀_é.cpp"), true);
+
+const hdr1 = renderPgChangeHeaderHtml(cl, state.diffsByCl[43850001]);
+const hdr2 = renderPgChangeHeaderHtml(cl, state.diffsByCl[43850001]);
+assert.equal(hdr1, hdr2);
+assert.equal(typeof cl._cachedTitleBarHtml, "string");
+
+const reply1 = renderPgReplyDialogHtml(cl);
+const reply2 = renderPgReplyDialogHtml(cl);
+assert.equal(reply1, reply2);
+assert.equal(typeof cl._cachedReplyDialogHtml, "string");
+
+renderDiffPane({});
+assert.equal(typeof state.diffsByCl[43850001]._cachedAllFilesDiffHtml, "string");
+assert.equal(cl.files[0]._cachedFilePath, "emulator/ui/rope_diff_测试_🚀_é.cpp");
+console.log("DIFF_PANE_ROPE_AND_HEADER_MEMO_OK");
+""",
+        )
+        if out:
+            self.assertIn("DIFF_PANE_ROPE_AND_HEADER_MEMO_OK", out)
+
+    def test_cold_diff_highlighting_and_sbs_context_dedup(self) -> None:
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        self.assertIn("_HTML_ESCAPE_TEST_RE", html)
+        self.assertIn("_pgHighlightedLineHtmlCache", html)
+        self.assertIn("decorateDiffLineSlice(", html)
+        self.assertIn("rightLine === leftLine && rightIdx === leftIdx", html)
+        self.assertIn("_CPP_FN_SYMBOL_RE", html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+assert.equal(escapeHtml("plain_identifier_123_测试_🚀_é"), "plain_identifier_123_测试_🚀_é");
+assert.equal(escapeHtml("a < b & c > \"d\""), "a &lt; b &amp; c &gt; &quot;d&quot;");
+
+_pgHighlightedLineHtmlCache.clear();
+const lineText = '  const std::string label = "测试_🚀_é"; // b/499640155';
+const hl1 = renderHighlightedDiffLineHtml(lineText, "ctx", "cpp", "syntax_intraline", null);
+assert.equal(_pgHighlightedLineHtmlCache.size, 1);
+const hl2 = renderHighlightedDiffLineHtml(lineText, "ctx", "cpp", "syntax_intraline", null);
+assert.equal(hl1, hl2);
+assert.equal(hl1.includes("测试_🚀_é"), true);
+assert.equal(hl1.includes("pg-diff-bug-ref"), true);
+
+assert.equal(extractSymbolFromCodeLine("  int value = compute_测试_🚀_é(42);"), "");
+assert.equal(extractSymbolFromCodeLine("void HandleFrame_测试_🚀_é(int width, int height) {"), "HandleFrame_测试_🚀_é");
+
+const sampleFile = {
+  file: "emulator/ui/sbs_cold_测试_🚀_é.cpp",
+  status: "M",
+  total_lines: 50,
+  lines: [
+    { type: "hunk", old: "@@ -10,3", new: "+10,3 @@", text: "@@ -10,3 +10,3 @@ void HandleFrame_测试_🚀_é()" },
+    { type: "ctx", old: 10, new: 10, text: "  const char* msg = \"测试_🚀_é\";" },
+    { type: "del", old: 11, new: "", text: "-  return false;" },
+    { type: "add", old: "", new: 11, text: "+  return true;" },
+  ],
+};
+const sbsHtml = renderFileDiffSideBySideHtml(
+  sampleFile,
+  43860001,
+  1,
+  sampleFile.file,
+  [],
+  "syntax_intraline",
+  { id: "cpp" },
+  {},
+  3
+);
+assert.equal(sbsHtml.includes("code-line-sbs"), true);
+assert.equal(sbsHtml.includes("pg-trailing-context-bar"), true);
+assert.equal(sbsHtml.includes("测试_🚀_é"), true);
+console.log("COLD_DIFF_HIGHLIGHT_AND_SBS_DEDUP_OK");
+""",
+        )
+        if out:
+            self.assertIn("COLD_DIFF_HIGHLIGHT_AND_SBS_DEDUP_OK", out)
+
+    def test_relation_chain_reviewers_and_dashboard_partition_memoization(self) -> None:
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for expected in (
+            "_pgColHeaderRowHtmlCache",
+            "_pgBatchSelectStripHtmlCache",
+            "_cachedRelationChainHtml",
+            "_cachedReviewersPanelHtml",
+            "_cachedCommitMsgPanelHtml",
+            "_cachedFullChangeHeaderHtml",
+            "_cachedFallbackReviewers",
+            "_cachedAemuMapUrl",
+        ):
+            self.assertIn(expected, html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl = {
+  number: 43870001,
+  subject: "perf(gerrit): Memoize panels & sidebar 测试_🚀_é",
+  status: "NEW",
+  patch_set: 2,
+  topic: "topic-测试_🚀_é",
+  current_revision: "1234567890abcdef",
+  project: "platform/hardware/generic/goldfish",
+  branch: "emu-main-next",
+  owner_email: "owner@google.com",
+  owner_name: "Owner 测试_🚀_é",
+  updated_iso: "2026-11-15T20:00:00Z",
+  commit_message: "perf(gerrit): Memoize panels & sidebar 测试_🚀_é\n\nChange-Id: I1234567890abcdef1234567890abcdef12345678",
+  human_cr2: [{ email: "reviewer@google.com", short: "reviewer", name: "Reviewer", value: 2 }],
+  files: [
+    {
+      file: "emulator/ui/panel_memo_测试_🚀_é.cpp",
+      status: "M",
+      additions: 2,
+      deletions: 1,
+      lines: [
+        { type: "ctx", old: 1, new: 1, text: " // 测试_🚀_é" },
+      ],
+    },
+  ],
+};
+state.viewer = "viewer@google.com";
+state.changes = [cl];
+state.stacks = [{ stack_id: "s_memo_7", commits: [cl], is_stack: true }];
+state.selectedStackId = "s_memo_7";
+state.selectedClNumber = 43870001;
+state.diffsByCl[43870001] = {
+  status: "ready",
+  patch_set: 2,
+  base_patch_set: "base",
+  files: cl.files,
+  commit_message: cl.commit_message,
+};
+
+const rel1 = renderPgRelationChainHtml(cl);
+const rel2 = renderPgRelationChainHtml(cl);
+assert.equal(rel1, rel2);
+assert.equal(typeof cl._cachedRelationChainHtml, "string");
+assert.equal(cl._cachedChangeId, "I1234567890abcdef1234567890abcdef12345678");
+
+const rev1 = renderCommitReviewersPanelHtml(cl, false);
+const rev2 = renderCommitReviewersPanelHtml(cl, false);
+assert.equal(rev1, rev2);
+assert.equal(typeof cl._cachedReviewersPanelHtml, "string");
+assert.equal(Array.isArray(cl._cachedFallbackReviewers), true);
+
+const msg1 = renderCommitMessagePanelHtml(cl, state.diffsByCl[43870001]);
+const msg2 = renderCommitMessagePanelHtml(cl, state.diffsByCl[43870001]);
+assert.equal(msg1, msg2);
+assert.equal(typeof cl._cachedCommitMsgPanelHtml, "string");
+
+const hdr1 = renderPgChangeHeaderHtml(cl, state.diffsByCl[43870001]);
+const hdr2 = renderPgChangeHeaderHtml(cl, state.diffsByCl[43870001]);
+assert.equal(hdr1, hdr2);
+assert.equal(typeof cl._cachedFullChangeHeaderHtml, "string");
+assert.equal(typeof cl._cachedAemuMapUrl, "string");
+
+const sortKey = getClUpdatedSortKey(cl);
+assert.equal(sortKey > 0, true);
+assert.equal(cl._cachedUpdatedSortKey, sortKey);
+
+console.log("PANEL_AND_DASHBOARD_MEMO_OK");
+""",
+        )
+        if out:
+            self.assertIn("PANEL_AND_DASHBOARD_MEMO_OK", out)
+
+    def test_polygerrit_search_ast_and_subpanel_memoization(self) -> None:
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for expected in (
+            "_pgSearchQueryAstCache",
+            "parsePgSearchQueryAst",
+            "evalPgSearchQueryAst",
+            "getClSearchHaystack",
+            "_cachedPatchsetSelectorHtml",
+            "_cachedOwnersSummaryHtml",
+            "_cachedChecksTabBtnHtml",
+            "_cachedChecksControlsHtml",
+            "_cachedChecksViewHtml",
+        ):
+            self.assertIn(expected, html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl = {
+  number: 43880001,
+  subject: "perf(gerrit): Cache search AST & sub-panels 测试_🚀_é",
+  status: "NEW",
+  patch_set: 3,
+  topic: "topic-search-测试_🚀_é",
+  current_revision: "abcdef1234567890",
+  project: "platform/hardware/generic/goldfish",
+  branch: "emu-main-next",
+  owner_email: "owner@google.com",
+  owner_name: "Owner 测试_🚀_é",
+  updated_iso: "2026-11-15T21:00:00Z",
+  presubmit_status: "passed",
+  presubmit_score: 2,
+  presubmit_vetted: true,
+  files: [
+    {
+      file: "emulator/ui/subpanel_memo_测试_🚀_é.cpp",
+      status: "M",
+      additions: 4,
+      deletions: 1,
+      lines: [
+        { type: "ctx", old: 1, new: 1, text: " // 测试_🚀_é" },
+      ],
+    },
+  ],
+};
+state.viewer = "viewer@google.com";
+state.changes = [cl];
+state.stacks = [{ stack_id: "s_memo_8", commits: [cl], is_stack: true }];
+state.selectedStackId = "s_memo_8";
+state.selectedClNumber = 43880001;
+const bundle = {
+  status: "ready",
+  patch_set: 3,
+  base_patch_set: "base",
+  files: cl.files,
+  commit_message: cl.subject,
+};
+state.diffsByCl[43880001] = bundle;
+
+_pgSearchQueryAstCache.clear();
+const q = "status:open topic:topic-search-测试_🚀_é 测试_🚀_é";
+assert.equal(matchesSearchQuery(cl, q), true);
+assert.equal(_pgSearchQueryAstCache.has(q), true);
+assert.equal(typeof cl._cachedSearchHaystack, "string");
+assert.equal(cl._cachedSearchHaystack.includes("测试_🚀_é"), true);
+assert.equal(matchesSearchQuery(cl, "status:merged OR -status:open"), false);
+
+const stLookup = findPgStackForClOrId(43880001, null);
+assert.equal(stLookup ? stLookup.stack_id : "", "s_memo_8");
+assert.equal(canNavigateVisibleCls(), false);
+
+const ps1 = renderPgPatchsetSelectorHtml(cl, bundle);
+const ps2 = renderPgPatchsetSelectorHtml(cl, bundle);
+assert.equal(ps1, ps2);
+assert.equal(typeof cl._cachedPatchsetSelectorHtml, "string");
+
+const own1 = renderPgOwnersSummaryHtml(cl, bundle);
+const own2 = renderPgOwnersSummaryHtml(cl, bundle);
+assert.equal(own1, own2);
+assert.equal(typeof bundle._cachedOwnersSummaryHtml, "string");
+
+const chk1 = renderPgChecksViewHtml(cl, bundle);
+const chk2 = renderPgChecksViewHtml(cl, bundle);
+assert.equal(chk1, chk2);
+assert.equal(typeof cl._cachedChecksViewHtml, "string");
+
+console.log("SEARCH_AST_AND_SUBPANEL_MEMO_OK");
+""",
+        )
+        if out:
+            self.assertIn("SEARCH_AST_AND_SUBPANEL_MEMO_OK", out)
+
+    def test_polygerrit_submittable_file_sort_and_section_memoization(self) -> None:
+        """Verifies Cycle 9 memoization of dashboard sections, change lookup, file sort, and comment stats."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl = {
+  number: 43880009,
+  subject: "perf(gerrit): Memoize status, sort & file list 测试_🚀_é",
+  project: "platform/hardware/google/aemu",
+  branch: "emu-main-next",
+  topic: "topic-memo-测试_🚀_é",
+  status: "NEW",
+  patch_set: 2,
+  current_revision: "abcd1234ef567890",
+  owner_email: "joshuaduong@google.com",
+  author_email: "joshuaduong@google.com",
+  authors: ["joshuaduong"],
+  reviewers_detail: [{ name: "Rev", email: "rev@google.com", cr_vote: 2, v_vote: 1 }],
+  verified_score: 1,
+  presubmit_status: "verified",
+  presubmit_score: 2,
+  mergeable: true,
+};
+const bundle = {
+  number: 43880009,
+  patch_set: 2,
+  files: [
+    { file: "src/z_测试_🚀_é.cc", status: "M", additions: 10, deletions: 2, lines: [] },
+    { file: "/COMMIT_MSG", status: "M", additions: 5, deletions: 0, lines: [] },
+    { file: "src/a_file.h", status: "A", additions: 4, deletions: 0, lines: [] },
+  ],
+};
+state.viewer = "joshuaduong";
+state.changes = [cl];
+state.stacks = [{ stack_id: "s_memo_9", label: "Stack 9", is_stack: false, commits: [cl] }];
+state.diffsByCl[43880009] = bundle;
+state.selectedStackId = "s_memo_9";
+state.selectedClNumber = 43880009;
+
+assert.equal(findPgChangeByNumber(43880009), cl);
+assert.equal(findPgChangeByRevision("abcd1234"), cl);
+assert.equal(getClPrimaryAuthorShort(cl), "joshuaduong");
+assert.equal(cl._cachedPrimaryAuthorShort, "joshuaduong");
+
+const sec1 = partitionCommitsIntoDashboardSections(state.stacks);
+const sec2 = partitionCommitsIntoDashboardSections(state.stacks);
+assert.equal(sec1, sec2);
+
+const pv1 = getClPresubmitDisplay(cl);
+const pv2 = getClPresubmitDisplay(cl);
+assert.equal(pv1, pv2);
+assert.equal(isClConflict(cl, bundle), false);
+assert.equal(cl._cachedConflictVal, false);
+
+const sorted1 = getPgSortedFileList(cl, bundle.files);
+const sorted2 = getPgSortedFileList(cl, bundle.files);
+assert.equal(sorted1, sorted2);
+assert.equal(sorted1[0].file, "/COMMIT_MSG");
+assert.equal(sorted1[1].file, "src/a_file.h");
+assert.equal(sorted1[2].file, "src/z_测试_🚀_é.cc");
+
+const emptyStats = getPgFileCommentStats(43880009, "src/z_测试_🚀_é.cc");
+assert.equal(emptyStats.total, 0);
+assert.equal(emptyStats.hasComments, false);
+
+console.log("CYCLE_9_MEMO_OK");
+""",
+        )
+        if out:
+            self.assertIn("CYCLE_9_MEMO_OK", out)
+
+    def test_polygerrit_jump_menu_vote_sync_and_diff_prefs_memoization(self) -> None:
+        """Verifies Cycle 10 memoization of file jump menu, diff preferences, submit target, and empty comments view with Unicode."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl = {
+  number: 43880010,
+  subject: "perf(gerrit): Memoize jump menu & prefs 测试_🚀_é",
+  status: "NEW",
+  patch_set: 2,
+  owner_email: "joshuaduong@google.com",
+  author: "joshuaduong@google.com",
+  reviewers_detail: [{ name: "Rev", email: "rev@google.com", cr_vote: 2, v_vote: 1 }],
+  human_cr2: ["rev@google.com"],
+  required_cr2_count: 1,
+  verified_score: 1,
+  presubmit_status: "passed",
+  presubmit_score: 2,
+  presubmit_vetted: true,
+  mergeable: true,
+  attention_set: [{ email: "joshuaduong@google.com" }],
+};
+const bundle = {
+  number: 43880010,
+  patch_set: 2,
+  files: [
+    { file: "src/jump_测试_🚀_é.cc", status: "M", additions: 12, deletions: 3, lines: [] },
+    { file: "/COMMIT_MSG", status: "M", additions: 5, deletions: 0, lines: [] },
+  ],
+};
+state.viewer = "joshuaduong";
+state.changes = [cl];
+state.stacks = [{ stack_id: "s_memo_10", label: "Stack 10", is_stack: false, commits: [cl] }];
+state.diffsByCl[43880010] = bundle;
+state.selectedStackId = "s_memo_10";
+state.selectedClNumber = 43880010;
+
+// 1. File jump menu memoization
+const jump1 = renderPgFileJumpMenuHtml(cl, bundle);
+const jump2 = renderPgFileJumpMenuHtml(cl, bundle);
+assert.equal(jump1, jump2);
+assert.ok(jump1.includes("jump_测试_🚀_é.cc"));
+assert.ok(bundle.files._cachedJumpFilesSig);
+
+// 2. Empty comments view memoization
+const emptyComments1 = renderPgCommentsViewHtml(cl, bundle);
+const emptyComments2 = renderPgCommentsViewHtml(cl, bundle);
+assert.equal(emptyComments1, emptyComments2);
+assert.ok(cl._cachedEmptyCommentsViewKey);
+
+// 3. Submit target & submittable memoization
+assert.equal(isClSubmittable(cl), true);
+assert.equal(cl._cachedSubmittableVal, true);
+const target1 = computeCommitSubmitTarget(cl);
+const target2 = computeCommitSubmitTarget(cl);
+assert.equal(target1, target2);
+assert.equal(target1.canSubmit, true);
+
+// 4. Viewer attention set fast check
+assert.equal(isClInViewerAttentionSet(cl), true);
+
+// 5. Ordered visible commits memoization on dashboard sections
+const ord1 = getOrderedVisibleCommits(state.stacks);
+const ord2 = getOrderedVisibleCommits(state.stacks);
+assert.equal(ord1, ord2);
+assert.equal(ord1.length, 1);
+
+// 6. Diff preferences signature guard
+applyPgDiffPreferences();
+assert.ok(state._lastAppliedDiffPrefsSig);
+
+console.log("CYCLE_10_MEMO_OK");
+""",
+        )
+        if out:
+            self.assertIn("CYCLE_10_MEMO_OK", out)
+
+    def test_polygerrit_fast_diff_tokenizer_and_intraline_line_cache(self) -> None:
+        """Verifies Cycle 11 pre-compiled diff tokenizer, intraline range memoization, and intraline-aware line HTML cache."""
+        html = render_static_gerrit_ui_html(
+            {"items": [], "stacks": [], "total_open": 0}, variant="polygerrit"
+        )
+        self.assertIn("_DIFF_CODE_LINE_TOKEN_RE", html)
+        self.assertIn("_DIFF_TOKEN_SPLIT_RE", html)
+        self.assertIn("_cachedIntralineMap", html)
+        self.assertIn("appendSbsRow", html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const diffLines = [
+  { type: "hunk", old: "", new: "", text: "@@ -1,3 +1,3 @@" },
+  { type: "ctx", old: 1, new: 1, text: " #include <vector>" },
+  { type: "del", old: 2, new: null, text: '-  const auto msg = computeState("旧_测试_🚀_é", a < b && c > d);' },
+  { type: "add", old: null, new: 2, text: '+  const auto msg = computeState("新_测试_🚀_é", a < b && c > d);' },
+  { type: "ctx", old: 3, new: 3, text: "   std::vector<MyType> items; // b/123456789" },
+];
+
+// 1. Intraline range memoization on lines array
+const intra1 = computeFileIntralineRanges(diffLines);
+const intra2 = computeFileIntralineRanges(diffLines);
+assert.equal(intra1, intra2, "computeFileIntralineRanges should return cached map for unchanged lines");
+assert.ok(Array.isArray(intra1[2]) && intra1[2].length > 0, "del line should have intraline span");
+assert.ok(Array.isArray(intra1[3]) && intra1[3].length > 0, "add line should have intraline span");
+
+// 2. Tokenizer & identifier classification (with body/offset lookahead and direct nextContext fallback)
+const cppSpans = tokenizeDiffCodeLine(diffLines[1].text, "cpp", "polygerrit");
+assert.ok(cppSpans.some(s => s.cls === "tok-macro"), "#include should classify as tok-macro");
+assert.ok(cppSpans.some(s => s.cls === "tok-string"), "<vector> should classify as tok-string");
+assert.equal(classifyIdentifierToken("std", "::vector", "polygerrit", "cpp"), "tok-type");
+assert.equal(classifyIdentifierToken("println", "!(x)", "polygerrit", "rust"), "tok-macro");
+assert.equal(classifyIdentifierToken("name", " = 'val'", "polygerrit", "python"), "tok-attr");
+assert.equal(classifyIdentifierToken("computeState", "(x)", "polygerrit", "cpp"), "tok-func");
+
+// 3. Intraline-aware _pgHighlightedLineHtmlCache & two-pointer merge
+_pgHighlightedLineHtmlCache.clear();
+const addHtml1 = renderHighlightedDiffLineHtml(diffLines[3].text, "add", "cpp", "polygerrit", intra1[3]);
+assert.ok(_pgHighlightedLineHtmlCache.size >= 1, "Intraline line should be stored in _pgHighlightedLineHtmlCache");
+const addHtml2 = renderHighlightedDiffLineHtml(diffLines[3].text, "add", "cpp", "polygerrit", intra1[3]);
+assert.equal(addHtml1, addHtml2);
+assert.ok(addHtml1.includes("diff-intra-add"), "Intraline add class must be rendered");
+assert.ok(addHtml1.includes("新") && addHtml1.includes("测试_🚀_é"), "Unicode content must be preserved");
+assert.ok(addHtml1.includes("&lt;") && addHtml1.includes("&amp;&amp;") && addHtml1.includes("&gt;"), "HTML entities must be escaped");
+
+// 4. Unified and Side-by-Side rendering with single-pass row builder
+const fileObj = { file: "src/fast_diff_测试_🚀_é.cc", status: "M", lines: diffLines };
+const sbsHtml = renderFileDiffSideBySideHtml(fileObj, 43890011, 1, fileObj.file, [], "polygerrit", { id: "cpp" }, intra1, 2);
+const uniHtml = renderFileDiffUnifiedHtml(fileObj, 43890011, 1, fileObj.file, [], "polygerrit", { id: "cpp" }, intra1, 2);
+assert.ok(sbsHtml.includes("diff-intra-del") && sbsHtml.includes("diff-intra-add"));
+assert.ok(uniHtml.includes("diff-intra-del") && uniHtml.includes("diff-intra-add"));
+assert.ok(sbsHtml.includes("pg-diff-bug-ref") && uniHtml.includes("pg-diff-bug-ref"));
+
+console.log("CYCLE_11_DIFF_FAST_OK");
+""",
+        )
+        if out:
+            self.assertIn("CYCLE_11_DIFF_FAST_OK", out)
+
+    def test_polygerrit_inline_comments_line_index_and_diff_memoization(self) -> None:
+        """Verifies Cycle 12 per-CL inline comment Map index, line index Set, and comment-aware diff/file-list/comments-view memoization."""
+        html = render_static_gerrit_ui_html(
+            {"items": [], "stacks": [], "total_open": 0}, variant="polygerrit"
+        )
+        self.assertIn("buildPgFileCommentsLineIndex", html)
+        self.assertIn("computePgFileCommentsCacheSig", html)
+        self.assertIn("_cachedInlineByFileMap", html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const clNum = 43890012;
+const filePath = "src/commented_测试_🚀_é.cc";
+const diffLines = [
+  { type: "hunk", old: "", new: "", text: "@@ -1,3 +1,3 @@" },
+  { type: "ctx", old: 1, new: 1, text: " int x = 1;" },
+  { type: "del", old: 2, new: null, text: "-int y = 2;" },
+  { type: "add", old: null, new: 2, text: "+int y = 42; // 测试_🚀_é" },
+  { type: "ctx", old: 3, new: 3, text: " return x + y;" },
+];
+const fileObj = { file: filePath, status: "M", additions: 1, deletions: 1, lines: diffLines };
+const serverThreads = [
+  {
+    id: "srv_c1",
+    root_id: "srv_c1",
+    file_path: filePath,
+    line: 2,
+    side: "REVISION",
+    author_name: "Reviewer 测试_🚀_é",
+    unresolved: true,
+    latest_message: "Please verify constant 42 for 测试_🚀_é.",
+    messages: [
+      {
+        comment_id: "srv_c1",
+        author_name: "Reviewer 测试_🚀_é",
+        date: "2026-11-15 12:00:00",
+        message: "Please verify constant 42 for 测试_🚀_é.",
+      },
+    ],
+  },
+  {
+    id: "srv_c2",
+    root_id: "srv_c2",
+    file_path: filePath,
+    line: 2,
+    side: "PARENT",
+    author_name: "Base Reviewer",
+    unresolved: false,
+    latest_message: "Old value comment.",
+    messages: [
+      {
+        comment_id: "srv_c2",
+        author_name: "Base Reviewer",
+        date: "2026-11-15 11:00:00",
+        message: "Old value comment.",
+      },
+    ],
+  },
+];
+const clObj = {
+  number: clNum,
+  subject: "fix(emu): Handle inline comment memoization 测试_🚀_é",
+  status: "NEW",
+  project: "platform/hardware/generic/goldfish",
+  branch: "emu-main-next",
+  owner: { name: "Owner", email: "owner@google.com" },
+  updated: "2026-11-15 12:00:00",
+  patch_set: 2,
+  files: [fileObj],
+  comment_threads: serverThreads,
+};
+state.queue = [clObj];
+state.stacks = [{ id: "st-12", title: "Stack 12", branch: "emu-main-next", commits: [clObj] }];
+state.selectedStackId = "st-12";
+state.selectedClNumber = clNum;
+state.diffsByCl[clNum] = { patch_set: 2, files: [fileObj], comment_threads: serverThreads };
+
+// 1. Per-CL Map memoization in getInlineCommentsForFile
+const list1 = getInlineCommentsForFile(clNum, filePath);
+const list2 = getInlineCommentsForFile(clNum, filePath);
+assert.equal(list1, list2, "getInlineCommentsForFile should return cached array from _cachedInlineByFileMap");
+assert.equal(list1.length, 2);
+assert.deepEqual(getInlineCommentsForFile(clNum, "nonexistent.cc"), []);
+
+// 2. Line index Set for fast O(1) line comment checks
+const lineIdx = buildPgFileCommentsLineIndex(list1);
+assert.ok(lineIdx && lineIdx.leftLines.has(2) && lineIdx.rightLines.has(2), "Both PARENT and REVISION line 2 must be indexed");
+assert.ok(!lineIdx.rightLines.has(1) && !lineIdx.rightLines.has(3), "Lines without comments must not be in lineIdx");
+assert.equal(lineIdx.hasIdxRange, false);
+
+// 3. Diff block & overview bar memoization WITH inline comments
+_pgFileCodeLinesHtmlCache.clear();
+_pgFileDiffBlockHtmlCache.clear();
+const blockHtml1 = renderFileDiffBlock(fileObj, clNum, 2, true);
+assert.ok(_pgFileCodeLinesHtmlCache.size >= 1, "Commented file code lines should be cached");
+assert.ok(_pgFileDiffBlockHtmlCache.size >= 1, "Commented file diff block should be cached");
+assert.ok(blockHtml1.includes("Please verify constant 42 for 测试_🚀_é."));
+assert.ok(typeof fileObj._cachedOverviewBarHtml === "string" && fileObj._cachedOverviewBarHtml.length > 0);
+const blockHtml2 = renderFileDiffBlock(fileObj, clNum, 2, true);
+assert.equal(blockHtml1, blockHtml2);
+
+// 4. Toggling comment collapse invalidates computePgFileCommentsCacheSig and re-renders
+state.collapsedInlineIds.add(list1[0].id);
+const blockHtmlCollapsed = renderFileDiffBlock(fileObj, clNum, 2, true);
+assert.notEqual(blockHtml1, blockHtmlCollapsed, "Collapsing a comment must invalidate cached diff block HTML");
+
+// 5. File list and Comments view memoization WITH inline comments
+_pgFileListHtmlCache.clear();
+const flHtml1 = renderPgFileListHtml(clObj, state.diffsByCl[clNum]);
+assert.ok(_pgFileListHtmlCache.size >= 1, "File list with inline comments should be cached in _pgFileListHtmlCache");
+const flHtml2 = renderPgFileListHtml(clObj, state.diffsByCl[clNum]);
+assert.equal(flHtml1, flHtml2);
+
+const cvHtml1 = renderPgCommentsViewHtml(clObj, state.diffsByCl[clNum]);
+assert.ok(typeof clObj._cachedEmptyCommentsViewHtml === "string" && clObj._cachedEmptyCommentsViewHtml.length > 0);
+assert.ok(cvHtml1.includes("Please verify constant 42 for 测试_🚀_é."));
+const cvHtml2 = renderPgCommentsViewHtml(clObj, state.diffsByCl[clNum]);
+assert.equal(cvHtml1, cvHtml2);
+
+console.log("CYCLE_12_INLINE_COMMENTS_MEMO_OK");
+""",
+        )
+        if out:
+            self.assertIn("CYCLE_12_INLINE_COMMENTS_MEMO_OK", out)
+
+    def test_polygerrit_continuous_stack_and_changelog_memoization(self) -> None:
+        """Continuous stack banner, sequence bar, change log, and submit target cache across renders."""
+        html = render_static_gerrit_ui_html(
+            {"items": [], "stacks": [], "total_open": 0}, variant="polygerrit"
+        )
+        self.assertIn("computePgStackRelationSignature", html)
+        self.assertIn("_cachedContinuousBannerHtml", html)
+        self.assertIn("_cachedStackSeqBarHtml", html)
+        self.assertIn("_cachedChangeLogHtml", html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl1 = {
+  number: 99001,
+  subject: "feat(emu): Stack base commit 测试_🚀_é",
+  status: "NEW",
+  submittable: true,
+  mergeable: true,
+  topic: "topic-stack-测试_🚀_é",
+  project: "platform/hardware/generic/goldfish",
+  branch: "emu-main-next",
+  owner: { name: "Owner", email: "owner@google.com" },
+  updated: "2026-11-15 12:00:00",
+  patch_set: 1,
+  current_revision: "rev1",
+  files: [
+    {
+      path: "emulator/base_测试_🚀_é.cc",
+      status: "M",
+      lines_inserted: 4,
+      lines_deleted: 1,
+      old_lines: ["int a = 1;"],
+      new_lines: ["int a = 2;"],
+    },
+  ],
+  messages: [
+    {
+      id: "m1",
+      author: "Reviewer",
+      date: "2026-11-15 12:01:00",
+      _revision_number: 1,
+      message: "Patch Set 1: Code-Review+2\\n\\nLooks good for 测试_🚀_é!",
+    },
+  ],
+};
+const cl2 = {
+  number: 99002,
+  subject: "feat(emu): Stack child commit 测试_🚀_é",
+  status: "NEW",
+  submittable: true,
+  mergeable: true,
+  topic: "topic-stack-测试_🚀_é",
+  parent_revision: "rev1",
+  project: "platform/hardware/generic/goldfish",
+  branch: "emu-main-next",
+  owner: { name: "Owner", email: "owner@google.com" },
+  updated: "2026-11-15 12:05:00",
+  patch_set: 1,
+  current_revision: "rev2",
+  files: [
+    {
+      path: "emulator/child_测试_🚀_é.cc",
+      status: "A",
+      lines_inserted: 10,
+      lines_deleted: 0,
+      old_lines: [],
+      new_lines: ["void child() {}"],
+    },
+  ],
+  messages: [],
+};
+
+const st = {
+  id: "st-99",
+  title: "Stack 99 测试_🚀_é",
+  branch: "emu-main-next",
+  commits: [cl1, cl2],
+};
+state.queue = [cl1, cl2];
+state.changes = [cl1, cl2];
+state.stacks = [st];
+state.selectedStackId = "st-99";
+state.selectedClNumber = 99002;
+state.diffsByCl[99001] = { patch_set: 1, files: cl1.files, messages: cl1.messages };
+state.diffsByCl[99002] = { patch_set: 1, files: cl2.files, messages: cl2.messages };
+
+// 1. Submit target & required peers memoization for topic/stack CLs
+const target1 = computeCommitSubmitTarget(cl2);
+assert.ok(cl2._cachedSubmitTargetVal, "computeCommitSubmitTarget must cache _cachedSubmitTargetVal on topic/stack CLs");
+assert.equal(computeCommitSubmitTarget(cl2), target1);
+
+// 2. Stack submit sequence, continuous banner, sequence bar, and cumulative files memoization
+const seq1 = getPgStackSubmitSequence(st, st.commits);
+assert.ok(st._cachedSubmitSequence, "getPgStackSubmitSequence must populate _cachedSubmitSequence");
+assert.equal(getPgStackSubmitSequence(st, st.commits), seq1);
+
+const banner1 = renderPgContinuousStackBannerHtml(st, st.commits);
+assert.ok(typeof st._cachedContinuousBannerHtml === "string" && st._cachedContinuousBannerHtml.length > 0);
+assert.equal(renderPgContinuousStackBannerHtml(st, st.commits), banner1);
+
+const seqBar1 = renderPgStackCommitSequenceBarHtml(cl1, 0, 2, st);
+assert.ok(typeof cl1._cachedStackSeqBarHtml === "string" && cl1._cachedStackSeqBarHtml.length > 0);
+assert.ok(seqBar1.includes("feat(emu): Stack base commit 测试_🚀_é"));
+assert.equal(renderPgStackCommitSequenceBarHtml(cl1, 0, 2, st), seqBar1);
+
+// Toggling reviewed state invalidates banner & sequence bar cache
+togglePgStackCommitReviewed(99001);
+const banner2 = renderPgContinuousStackBannerHtml(st, st.commits);
+const seqBar2 = renderPgStackCommitSequenceBarHtml(cl1, 0, 2, st);
+assert.notEqual(banner1, banner2, "Toggling commit reviewed must invalidate continuous stack banner cache");
+assert.notEqual(seqBar1, seqBar2, "Toggling commit reviewed must invalidate sequence bar cache");
+
+const cumFiles1 = getPgCumulativeStackFiles(st, st.commits);
+assert.ok(st._cachedCumulativeFiles && st._cachedCumulativeFiles.total_files === 2);
+assert.equal(getPgCumulativeStackFiles(st, st.commits), cumFiles1);
+
+// 3. Stack relation signature & Change Log memoization
+const relHtml1 = renderPgRelationChainHtml(cl1);
+assert.ok(typeof st._cachedStackRelFullSig === "string" && st._cachedStackRelFullSig.length > 0);
+assert.equal(renderPgRelationChainHtml(cl1), relHtml1);
+
+const logHtml1 = renderPgChangeLogSectionHtml(cl1, state.diffsByCl[99001]);
+assert.ok(typeof cl1._cachedChangeLogHtml === "string" && cl1._cachedChangeLogHtml.length > 0);
+assert.ok(logHtml1.includes("Looks good for 测试_🚀_é!"));
+assert.equal(renderPgChangeLogSectionHtml(cl1, state.diffsByCl[99001]), logHtml1);
+
+console.log("CYCLE_13_STACK_CHANGELOG_MEMO_OK");
+""",
+        )
+        if out:
+            self.assertIn("CYCLE_13_STACK_CHANGELOG_MEMO_OK", out)
+
+    def test_polygerrit_diff_pane_rope_concat_and_subpanel_memoization(self) -> None:
+        html = render_static_gerrit_ui_html(
+            {"items": [], "stacks": [], "total_open": 0}, variant="polygerrit"
+        )
+        self.assertIn("computePgClOwnerStatusPrefix", html)
+        self.assertIn("_cachedPresubmitRowHtml", html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl1 = {
+  number: 99101,
+  subject: "perf(gerrit): Rope concat diff pane 测试_🚀_é",
+  commit_message: "perf(gerrit): Rope concat diff pane 测试_🚀_é\n\nBody text.\n\nBug: 12345\nTest: bazel test\nChange-Id: I1111111111111111111111111111111111111111",
+  status: "NEW",
+  patch_set: 1,
+  topic: "topic-rope-测试_🚀_é",
+  is_submittable: true,
+  human_cr2: [{ email: "reviewer@google.com", name: "Rev" }],
+  human_cr2_count: 1,
+  reviewers_detail: [{ email: "reviewer@google.com", name: "Rev", cr_vote: 2 }],
+  files: [
+    { file: "emulator/unicode_测试_🚀_é.cc", status: "M", additions: 14, deletions: 3, lines: [{ type: "add", new_num: 1, text: "int x = 1;" }] }
+  ],
+  messages: []
+};
+const cl2 = {
+  number: 99102,
+  subject: "perf(gerrit): Stack child commit 测试_🚀_é",
+  commit_message: "perf(gerrit): Stack child commit 测试_🚀_é\n\nChild body.\n\nBug: 12345\nTest: bazel test\nChange-Id: I2222222222222222222222222222222222222222",
+  status: "NEW",
+  patch_set: 1,
+  topic: "topic-rope-测试_🚀_é",
+  is_submittable: false,
+  human_cr2: [],
+  human_cr2_count: 0,
+  reviewers_detail: [],
+  files: [
+    { file: "emulator/child_测试_🚀_é.cc", status: "A", additions: 22, deletions: 0, lines: [{ type: "add", new_num: 1, text: "int y = 2;" }] }
+  ],
+  messages: []
+};
+const st = {
+  stack_id: "st-rope-991",
+  branch: "emu-main-next",
+  commits: [cl1, cl2]
+};
+state.changes = [cl1, cl2];
+state.stacks = [st];
+state.selectedStackId = "st-rope-991";
+state.selectedClNumber = 99102;
+state.continuousStackDiff = true;
+state.diffsByCl[99101] = { patch_set: 1, files: cl1.files, messages: [] };
+state.diffsByCl[99102] = { patch_set: 1, files: cl2.files, messages: [] };
+
+// 1. Verify computePgClOwnerStatusPrefix & fast file-list cache key
+const ownerPrefix = computePgClOwnerStatusPrefix(cl1);
+assert.ok(ownerPrefix.includes("99101|1|1|"), "computePgClOwnerStatusPrefix must encode CL owner state");
+const flHtml1 = renderPgFileListHtml(cl1, state.diffsByCl[99101]);
+assert.ok(flHtml1.includes("emulator/unicode_测试_🚀_é.cc"));
+assert.equal(renderPgFileListHtml(cl1, state.diffsByCl[99101]), flHtml1);
+
+// 2. Verify renderCommitMessagePanelHtml early cache hit & renderCommitPresubmitRowHtml memoization
+const msgHtml1 = renderCommitMessagePanelHtml(cl1, state.diffsByCl[99101]);
+assert.ok(typeof cl1._cachedCommitMsgPanelHtml === "string" && cl1._cachedCommitMsgPanelHtml.length > 0);
+assert.equal(renderCommitMessagePanelHtml(cl1, state.diffsByCl[99101]), msgHtml1);
+
+const presubRow1 = renderCommitPresubmitRowHtml(cl1);
+assert.ok(typeof cl1._cachedPresubmitRowHtml === "string" && cl1._cachedPresubmitRowHtml.length > 0);
+assert.equal(renderCommitPresubmitRowHtml(cl1), presubRow1);
+cl1.unresolved_comment_count = 3;
+const presubRow2 = renderCommitPresubmitRowHtml(cl1);
+assert.notEqual(presubRow1, presubRow2, "Unresolved comment count change must invalidate _cachedPresubmitRowHtml");
+assert.ok(presubRow2.includes("3 unresolved"));
+
+// 3. Verify renderDiffPane rope concatenation & _hasAnyImageFiles tracking
+renderDiffPane({ preserveScroll: true });
+const paneHtml = document.getElementById("diffScroll").innerHTML;
+assert.ok(paneHtml.includes("pgStackCommit-99101") && paneHtml.includes("pgStackCommit-99102"));
+assert.ok(paneHtml.includes("emulator/unicode_测试_🚀_é.cc") && paneHtml.includes("emulator/child_测试_🚀_é.cc"));
+assert.equal(state.diffsByCl[99101]._hasAnyImageFiles, false);
+assert.equal(state.diffsByCl[99102]._hasAnyImageFiles, false);
+
+console.log("CYCLE_14_ROPE_AND_SUBPANEL_MEMO_OK");
+""",
+        )
+        if out:
+            self.assertIn("CYCLE_14_ROPE_AND_SUBPANEL_MEMO_OK", out)
+
+    def test_polygerrit_tree_file_list_and_dashboard_section_memoization(self) -> None:
+        html = render_static_gerrit_ui_html(
+            {"items": [], "stacks": [], "total_open": 0}, variant="polygerrit"
+        )
+        self.assertIn("ensurePgRowCommitSig", html)
+        self.assertIn("_cachedDashRowHtmls", html)
+        self.assertIn("_cachedSectionHtml", html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl = {
+  number: 99201,
+  subject: "perf(gerrit): Tree file list & dashboard section memo 测试_🚀_é",
+  commit_message: "perf(gerrit): Tree file list & dashboard section memo 测试_🚀_é\n\nBody.\n\nBug: 12345\nTest: bazel test\nChange-Id: I3333333333333333333333333333333333333333",
+  status: "NEW",
+  patch_set: 1,
+  owner_email: "joshuaduong@google.com",
+  owner_name: "Joshua Duong",
+  attention_set: [{ user: "joshuaduong@google.com", reason: "Reviewer" }],
+  submit_requirements: [
+    { name: "Code-Review", status: "SATISFIED" },
+    { name: "Change-Is-Mergeable", status: "SATISFIED" }
+  ],
+  files: [
+    { file: "emulator/dir_a/unicode_测试_🚀_é.cc", status: "M", additions: 10, deletions: 2 },
+    { file: "emulator/dir_b/helper_测试_🚀_é.h", status: "A", additions: 5, deletions: 0 }
+  ]
+};
+const st = { stack_id: "st-tree-992", branch: "emu-main-next", commits: [cl] };
+state.viewer = "joshuaduong@google.com";
+state.changes = [cl];
+state.stacks = [st];
+state.diffsByCl[99201] = { patch_set: 1, files: cl.files, messages: [] };
+
+// 1. Tree mode file list memoization & directory collapse invalidation
+setPgFileTreeMode(99201, true);
+const treeHtml1 = renderPgFileListHtml(cl, state.diffsByCl[99201]);
+assert.ok(treeHtml1.includes("pg-tree-file-row") && treeHtml1.includes("unicode_测试_🚀_é.cc"));
+const treeHtml2 = renderPgFileListHtml(cl, state.diffsByCl[99201]);
+assert.equal(treeHtml1, treeHtml2, "Tree-mode renderPgFileListHtml must hit _pgFileListHtmlCache");
+togglePgDirCollapse(99201, "emulator/dir_a/");
+const treeHtmlCollapsed = renderPgFileListHtml(cl, state.diffsByCl[99201]);
+assert.notEqual(treeHtml1, treeHtmlCollapsed, "Collapsing a directory must invalidate Tree file-list cache");
+
+// 2. isClConflict zero-allocation property caching with submit_requirements
+assert.equal(isClConflict(cl, state.diffsByCl[99201]), false);
+assert.equal(cl._cachedConflictVal, false);
+cl.submit_requirements = [
+  { name: "Code-Review", status: "SATISFIED" },
+  { name: "Change-Is-Mergeable", status: "UNSATISFIED" }
+];
+assert.equal(isClConflict(cl, state.diffsByCl[99201]), true);
+assert.equal(cl._cachedConflictVal, true);
+
+// 3. 4-slot dashboard row cache & section HTML memoization across sections
+const rowYourTurn = renderPgDashboardRowHtml(cl, "st-tree-992", { showReviewers: false, isYourTurnSection: true });
+const rowOutgoing = renderPgDashboardRowHtml(cl, "st-tree-992", { showReviewers: true, isYourTurnSection: false });
+assert.ok(Array.isArray(cl._cachedDashRowHtmls));
+assert.equal(cl._cachedDashRowHtmls[1], rowYourTurn);
+assert.equal(cl._cachedDashRowHtmls[2], rowOutgoing);
+
+const sections = partitionCommitsIntoDashboardSections([st]);
+const sec0 = sections[0];
+const secHtml1 = renderPgDashboardSectionHtml(sec0);
+assert.equal(sec0._cachedSectionHtml, secHtml1);
+assert.equal(renderPgDashboardSectionHtml(sec0), secHtml1);
+
+console.log("CYCLE_15_TREE_AND_DASH_MEMO_OK");
+""",
+        )
+        if out:
+            self.assertIn("CYCLE_15_TREE_AND_DASH_MEMO_OK", out)
+
+    def test_polygerrit_commit_section_and_stack_group_memoization(self) -> None:
+        html = render_static_gerrit_ui_html(
+            {"items": [], "stacks": [], "total_open": 0}, variant="polygerrit"
+        )
+        self.assertIn("_cachedCommitSectionHtml", html)
+        self.assertIn("_cachedStackBoxHtml", html)
+        self.assertIn("_pgTypeGroupBoxCache", html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl = {
+  number: 99301,
+  subject: "perf(gerrit): Memoize commit section & stack boxes 测试_🚀_é",
+  commit_message: "perf(gerrit): Memoize commit section & stack boxes 测试_🚀_é\n\nBody.\n\nBug: 12345\nTest: bazel test\nChange-Id: I4444444444444444444444444444444444444444",
+  status: "NEW",
+  patch_set: 1,
+  owner_email: "joshuaduong@google.com",
+  owner_name: "Joshua Duong",
+  owner_short: "joshuaduong",
+  code_review: 2,
+  presubmit_ready: 1,
+  presubmit_verified: 2,
+  files: [
+    {
+      file: "emulator/unicode_测试_🚀_é.cc",
+      status: "M",
+      additions: 4,
+      deletions: 1,
+      lines: [
+        { type: "hunk", text: "@@ -1,2 +1,5 @@" },
+        { type: "add", new: 1, text: "// 测试_🚀_é" }
+      ]
+    }
+  ]
+};
+const st = { stack_id: "st-memo-993", is_stack: true, branch: "emu-main-next", commits: [cl] };
+state.viewer = "joshuaduong@google.com";
+state.changes = [cl];
+state.stacks = [st];
+state.selectedStackId = "st-memo-993";
+state.selectedClNumber = 99301;
+state.diffsByCl[99301] = { patch_set: 1, files: cl.files, messages: [] };
+
+// 1. getFilteredStacksSummary preserves stack object identity when all commits match
+const summary = getFilteredStacksSummary();
+assert.equal(summary.visibleStacks[0], st, "getFilteredStacksSummary must preserve stack reference when all commits match");
+
+// 2. renderQueueList memoizes stack box HTML and type group box HTML
+state.groupMode = "stack";
+renderQueueList(summary.visibleStacks, summary);
+assert.ok(typeof st._cachedStackBoxHtml === "string" && st._cachedStackBoxHtml.includes("99301"));
+const prevStackBox = st._cachedStackBoxHtml;
+renderQueueList(summary.visibleStacks, summary);
+assert.equal(st._cachedStackBoxHtml, prevStackBox);
+
+state.groupMode = "type";
+renderQueueList(summary.visibleStacks, summary);
+assert.ok(document.getElementById("queueList").innerHTML.includes("type-group-box"));
+
+// 3. renderDiffPane memoizes c._cachedCommitSectionHtml, bundle._cachedFileListHtml, and f._lastDiffBlockHtml
+renderDiffPane({ preserveScroll: true });
+assert.ok(typeof cl._cachedCommitSectionHtml === "string" && cl._cachedCommitSectionHtml.includes("pgStackCommit-99301"));
+assert.ok(typeof state.diffsByCl[99301]._cachedFileListHtml === "string");
+assert.ok(typeof cl.files[0]._lastDiffBlockHtml === "string");
+const firstSectionRef = cl._cachedCommitSectionHtml;
+renderDiffPane({ preserveScroll: true });
+assert.equal(cl._cachedCommitSectionHtml, firstSectionRef, "Second renderDiffPane must reuse _cachedCommitSectionHtml");
+
+console.log("CYCLE_16_COMMIT_AND_STACK_MEMO_OK");
+""",
+        )
+        if out:
+            self.assertIn("CYCLE_16_COMMIT_AND_STACK_MEMO_OK", out)
+
+    def test_polygerrit_fast_syntax_line_and_dashboard_partition_memoization(self) -> None:
+        html = render_static_gerrit_ui_html(
+            {"items": [], "stacks": [], "total_open": 0}, variant="polygerrit"
+        )
+        self.assertIn("renderFastSyntaxLineHtml", html)
+        self.assertIn("_DIFF_CODE_LINE_FAST_RE", html)
+        self.assertIn("_cachedDiffToolbarPrefsSig", html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl = {
+  number: 99401,
+  subject: "perf(gerrit): Fused syntax highlight & partition memo 测试_🚀_é",
+  owner_email: "joshuaduong@google.com",
+  owner_name: "Joshua Duong",
+  status: "NEW",
+  patch_set: 1,
+  updated_ts: 1700002000,
+  files: [
+    {
+      file: "src/fast_syntax_测试_🚀_é.cc",
+      status: "M",
+      additions: 3,
+      deletions: 0,
+      lines: [
+        { type: "add", old_num: null, new_num: 1, text: "+#include <vector>" },
+        { type: "add", old_num: null, new_num: 2, text: '+  const auto msg = "测试_🚀_é"; // b/123456789' },
+      ],
+    },
+  ],
+};
+const st = { stack_id: "st-memo-994", branch: "emu-main-next", commits: [cl] };
+state.viewer = "joshuaduong@google.com";
+state.changes = [cl];
+state.stacks = [st];
+state.selectedStackId = "st-memo-994";
+state.selectedClNumber = 99401;
+state.diffsByCl[99401] = { patch_set: 1, files: cl.files, messages: [] };
+
+// 1. Verify fused single-pass syntax highlighter matches full HTML output including Unicode and bug refs
+const incHtml = renderHighlightedDiffLineHtml("+#include <vector>", "add", "cpp", "syntax_intraline", null);
+assert.ok(incHtml.includes('class="tok-prefix">+</span>'));
+assert.ok(incHtml.includes('class="tok-macro">#include</span>'));
+assert.ok(incHtml.includes('class="tok-string">&lt;vector&gt;</span>'));
+
+const codeHtml = renderHighlightedDiffLineHtml('+  const auto msg = "测试_🚀_é"; // b/123456789', "add", "cpp", "syntax_intraline", null);
+assert.ok(codeHtml.includes('class="tok-keyword">const</span>'));
+assert.ok(codeHtml.includes('&quot;测试_🚀_é&quot;'));
+assert.ok(codeHtml.includes('data-bug-id="123456789"'));
+
+const focusHtml = renderHighlightedDiffLineHtml("+  int x = 1; // comment 测试_🚀_é", "add", "cpp", "intraline_focus", null);
+assert.ok(focusHtml.includes('class="tok-comment">// comment 测试_🚀_é</span>'));
+
+// 2. Verify getFilteredStacksSummary preserves state.stacks array reference when unfiltered
+const summary = getFilteredStacksSummary();
+assert.equal(summary.visibleStacks, state.stacks, "Unfiltered visibleStacks must preserve state.stacks reference");
+
+// 3. Verify partitionCommitsIntoDashboardSections caches _cachedDashboardSections on visibleStacks
+state.groupMode = "dashboard";
+const sections = partitionCommitsIntoDashboardSections(summary.visibleStacks);
+assert.equal(summary.visibleStacks._cachedDashboardSections, sections);
+
+// 4. Verify renderDiffPane memoizes toolbar controls signature on c._cachedDiffToolbarPrefsSig
+renderDiffPane({ preserveScroll: true });
+assert.ok(typeof cl._cachedDiffToolbarPrefsSig === "string" && cl._cachedDiffToolbarPrefsSig.startsWith("99401|"));
+
+console.log("CYCLE_17_FAST_SYNTAX_AND_PARTITION_MEMO_OK");
+""",
+        )
+        if out:
+            self.assertIn("CYCLE_17_FAST_SYNTAX_AND_PARTITION_MEMO_OK", out)
+
+    def test_polygerrit_fast_symbol_extraction_and_diff_row_cache_lookup(self) -> None:
+        html = render_static_gerrit_ui_html(
+            {"items": [], "stacks": [], "total_open": 0}, variant="polygerrit"
+        )
+        self.assertIn("function extractSymbolFromCodeLine(rawLine, skipDiffPrefix = false)", html)
+        self.assertIn("const hlCachePrefix =", html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+// 1. Verify extractSymbolFromCodeLine fast-path across C++, Python, Go, Rust, JS & Unicode
+assert.equal(
+  extractSymbolFromCodeLine("+  void EmulatorController::handleFrame_测试_🚀_é(int w, int h) {", true),
+  "EmulatorController::handleFrame_测试_🚀_é"
+);
+assert.equal(
+  extractSymbolFromCodeLine("+  async def run_task_测试_🚀_é(ctx):", true),
+  "run_task_测试_🚀_é"
+);
+assert.equal(
+  extractSymbolFromCodeLine(" func (s *Server) HandleRpc(req *Request) error {", true),
+  "HandleRpc"
+);
+assert.equal(
+  extractSymbolFromCodeLine("+pub async fn process_stream(buf: &[u8]) -> Result<()> {", true),
+  "process_stream"
+);
+assert.equal(
+  extractSymbolFromCodeLine("  export async function fetchChanges(query) {", false),
+  "fetchChanges"
+);
+// Statements ending with semicolon after '(' must fast-reject without matching
+assert.equal(
+  extractSymbolFromCodeLine('+  const int x = computeFrame(a, b, "测试_🚀_é"); // call', true),
+  ""
+);
+assert.equal(
+  extractSymbolFromCodeLine("  if (condition_check(x)) {", false),
+  ""
+);
+
+// 2. Verify extractPgFileDiffSymbols extracts symbols and skips statement calls
+const mockFile = {
+  file: "android/emu/Controller_测试_🚀_é.cpp",
+  status: "M",
+  lines: [
+    { type: "hunk", text: "@@ -10,6 +10,8 @@ void HunkFunc(int a)" },
+    { type: "ctx", old: 10, new: 10, text: "   const int v = helperCall(1, 2); // statement" },
+    { type: "add", old: null, new: 11, text: "+  bool RenderFrame_测试_🚀_é(Display* d) {" },
+    { type: "add", old: null, new: 12, text: "+    return d->flush();" },
+  ],
+};
+const syms = extractPgFileDiffSymbols(mockFile);
+assert.equal(syms.length, 2);
+assert.equal(syms[0].name, "HunkFunc");
+assert.equal(syms[1].name, "RenderFrame_测试_🚀_é");
+
+// 3. Verify renderPgFileJumpMenuHtml caches _cachedSafeFile and _cachedIsBin
+const jumpChange = { number: 99501, patch_set: 2 };
+const jumpHtml = renderPgFileJumpMenuHtml(jumpChange, { files: [mockFile], patch_set: 2 });
+assert.ok(jumpHtml.includes("Controller_测试_🚀_é.cpp"));
+assert.equal(mockFile._cachedFilePath, mockFile.file);
+assert.equal(mockFile._cachedIsBin, false);
+
+// 4. Verify renderPgFileCommentsBadgesHtml fast-returns empty string when no comments exist
+assert.equal(renderPgFileCommentsBadgesHtml(jumpChange, mockFile.file), "");
+
+// 5. Verify computePgStackRelationSignature returns consistent signature
+const stObj = {
+  commits: [{ number: 99501, patch_set: 2, status: "NEW", subject: "feat: 测试_🚀_é", submittable: true }],
+};
+const stackSig = computePgStackRelationSignature(stObj, stObj.commits);
+assert.ok(typeof stackSig === "string" && stackSig.includes("99501:2:NEW"));
+assert.equal(stObj._cachedStackRelFullSig, stackSig);
+
+console.log("CYCLE_18_FAST_SYMBOL_AND_DIFF_CACHE_OK");
+""",
+        )
+        if out:
+            self.assertIn("CYCLE_18_FAST_SYMBOL_AND_DIFF_CACHE_OK", out)
+
+    def test_polygerrit_intraline_pair_cache_and_label_scores_memoization(self) -> None:
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        self.assertIn("_pgPairIntralineCache", html)
+        self.assertIn("_pgIntralineLcsDpBuffer", html)
+        self.assertIn("_CPP_PRE_PAREN_ALLOWED", html)
+        self.assertIn("_pgLabelScoresTableCache", html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+// 1. Verify computePairIntralineIntervals memoizes in _pgPairIntralineCache and handles isolated & multi-token LCS with Unicode "测试_🚀_é"
+_pgPairIntralineCache.clear();
+const delLine1 = '-  const label = "old_val_测试_🚀_é";';
+const addLine1 = '+  const label = "new_val_测试_🚀_é";';
+const pairRes1 = computePairIntralineIntervals(delLine1, addLine1);
+assert.ok(pairRes1 && Array.isArray(pairRes1.delSpans) && pairRes1.delSpans.length === 1);
+assert.ok(Array.isArray(pairRes1.addSpans) && pairRes1.addSpans.length === 1);
+assert.equal(_pgPairIntralineCache.size, 1);
+
+const pairRes1Cached = computePairIntralineIntervals(delLine1, addLine1);
+assert.strictEqual(pairRes1Cached, pairRes1);
+
+// Multi-token insertion/deletion requiring flat DP buffer LCS
+const delLine2 = "-  return compute(a, b, oldFlag, c); // 测试_🚀_é";
+const addLine2 = "+  return compute(a, b, newFlag1, newFlag2, c); // 测试_🚀_é";
+const pairRes2 = computePairIntralineIntervals(delLine2, addLine2);
+assert.ok(pairRes2 && pairRes2.delSpans.length >= 1 && pairRes2.addSpans.length >= 1);
+
+// 2. Verify extractSymbolFromCodeLine pre-paren character lookup table rejects non-declarations early
+assert.equal(extractSymbolFromCodeLine('+  obj.method_测试_🚀_é(a, b)', true), "");
+assert.equal(extractSymbolFromCodeLine('+  const res = calc_测试_🚀_é(a, b)', true), "");
+assert.equal(extractSymbolFromCodeLine('+  StatusOr<int> RunTask_测试_🚀_é(int arg) {', true), "RunTask_测试_🚀_é");
+
+// 3. Verify renderPgLabelScoresTableHtml memoizes single-CL label score tables by permission/label/SR signature
+_pgLabelScoresTableCache.clear();
+const clA = {
+  number: 99601,
+  permitted_labels: { "Code-Review": ["-2", "-1", "0", "+1", "+2"], "Verified": ["-1", "0", "+1"] },
+  labels: { "Code-Review": {}, "Verified": {}, "Custom_测试_🚀_é": {} },
+  submit_requirements: [{ name: "Code-Review", status: "UNSATISFIED" }],
+};
+const clB = {
+  number: 99602,
+  permitted_labels: { "Code-Review": ["-2", "-1", "0", "+1", "+2"], "Verified": ["-1", "0", "+1"] },
+  labels: { "Code-Review": {}, "Verified": {}, "Custom_测试_🚀_é": {} },
+  submit_requirements: [{ name: "Code-Review", status: "UNSATISFIED" }],
+};
+const tableA = renderPgLabelScoresTableHtml({ isBatch: false, cl: clA });
+assert.ok(tableA.includes("Code-Review"));
+assert.equal(_pgLabelScoresTableCache.size, 1);
+const tableB = renderPgLabelScoresTableHtml({ isBatch: false, cl: clB });
+assert.strictEqual(tableB, tableA);
+assert.equal(_pgLabelScoresTableCache.size, 1);
+
+console.log("CYCLE_19_INTRALINE_AND_LABEL_SCORES_CACHE_OK");
+""",
+        )
+        if out:
+            self.assertIn("CYCLE_19_INTRALINE_AND_LABEL_SCORES_CACHE_OK", out)
+
+    def test_polygerrit_row_selection_flip_and_file_owner_rebase_memoization(self) -> None:
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        self.assertIn("_cachedDashRowNonSelBits", html)
+        self.assertIn("comparePgFilePaths", html)
+        self.assertIn("_cachedRebaseStatusSig", html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+// 1. Verify renderPgDashboardRowHtml splices 'selected ' class in O(1) on selection flip
+const rowCl = {
+  number: 99701,
+  subject: "perf(gerrit): Speed up selection flip 测试_🚀_é",
+  status: "NEW",
+  branch: "emu-main-next",
+  patch_set: 2,
+  owner: { name: "Joshua Duong", email: "joshuaduong@google.com" },
+  reviewers: [{ name: "Reviewer_测试_🚀_é", email: "rev@google.com", vote: 2 }],
+};
+const rowSt = { stack_id: "st-99701", branch: "emu-main-next", commits: [rowCl] };
+state.selectedClNumber = 0;
+const unselHtml = renderPgDashboardRowHtml(rowCl, rowSt, true);
+assert.equal(unselHtml.includes("pg-change-row selected"), false);
+assert.equal(typeof rowCl._cachedDashRowNonSelBits[0], "number");
+
+state.selectedClNumber = 99701;
+const selHtml = renderPgDashboardRowHtml(rowCl, rowSt, true);
+assert.equal(selHtml.includes("pg-change-row selected"), true);
+
+state.selectedClNumber = 0;
+const unselAgainHtml = renderPgDashboardRowHtml(rowCl, rowSt, true);
+assert.strictEqual(unselAgainHtml, unselHtml);
+
+// 2. Verify comparePgFilePaths caches lowercase path and sorts deterministically with Unicode
+const fA = { file: "emulator/core/b_测试_🚀_é.cpp", additions: 10, deletions: 2 };
+const fB = { file: "emulator/core/A_测试_🚀_é.cpp", additions: 5, deletions: 1 };
+assert.equal(comparePgFilePaths(fA, fB) > 0, true);
+assert.equal(fA._cachedLowerFile, "emulator/core/b_测试_🚀_é.cpp");
+assert.equal(fB._cachedLowerFile, "emulator/core/a_测试_🚀_é.cpp");
+
+// 3. Verify getPgFileOwnerStatus pre-escapes fields and getPgFileSizeInfo caches on file object
+const ownerInfo = getPgFileOwnerStatus(rowCl, fA);
+assert.equal(typeof ownerInfo._safeTitle, "string");
+assert.equal(typeof ownerInfo._safeOwnerFile, "string");
+const sz1 = getPgFileSizeInfo(fA);
+const sz2 = getPgFileSizeInfo(fA);
+assert.strictEqual(sz1, sz2);
+
+// 4. Verify getPgChangeRebaseStatus and getPgSubmittedTogetherPeers memoize on change object
+state.stacks = [rowSt];
+state.changes = [rowCl];
+const reb1 = getPgChangeRebaseStatus(rowCl, null);
+const reb2 = getPgChangeRebaseStatus(rowCl, null);
+assert.strictEqual(reb1, reb2);
+const sub1 = getPgSubmittedTogetherPeers(rowCl);
+const sub2 = getPgSubmittedTogetherPeers(rowCl);
+assert.strictEqual(sub1, sub2);
+
+console.log("CYCLE_20_ROW_SELECTION_AND_FILE_OWNER_REBASE_OK");
+""",
+        )
+        if out:
+            self.assertIn("CYCLE_20_ROW_SELECTION_AND_FILE_OWNER_REBASE_OK", out)
+
+    def test_polygerrit_section_targeted_selection_and_derived_diff_cache(self) -> None:
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        self.assertIn("_cachedNumToRowIdx", html)
+        self.assertIn("_pgFileDiffDerivedCache", html)
+        self.assertIn("_lastDomPoolCountsSig", html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+// 1. Verify renderPgDashboardSectionHtml performs O(1) targeted row updates when only selectedClNumber changes
+const clA = {
+  number: 99801,
+  subject: "perf(gerrit): Section row A 测试_🚀_é",
+  status: "NEW",
+  branch: "emu-main-next",
+  patch_set: 1,
+  owner: { name: "Joshua Duong", email: "joshuaduong@google.com" },
+};
+const clB = {
+  number: 99802,
+  subject: "perf(gerrit): Section row B 测试_🚀_é",
+  status: "NEW",
+  branch: "emu-main-next",
+  patch_set: 1,
+  owner: { name: "Joshua Duong", email: "joshuaduong@google.com" },
+};
+const clC = {
+  number: 99803,
+  subject: "perf(gerrit): Section row C 测试_🚀_é",
+  status: "NEW",
+  branch: "emu-main-next",
+  patch_set: 1,
+  owner: { name: "Joshua Duong", email: "joshuaduong@google.com" },
+};
+const secSt = { stack_id: "st-99800", branch: "emu-main-next", commits: [clA, clB, clC] };
+const sec = {
+  id: "your-turn",
+  title: "Your Turn",
+  emptyText: "None",
+  items: [
+    { commit: clA, stack: secSt },
+    { commit: clB, stack: secSt },
+    { commit: clC, stack: secSt },
+  ],
+};
+state.selectedClNumber = 99801;
+const secHtml1 = renderPgDashboardSectionHtml(sec);
+assert.equal(sec._cachedNumToRowIdx instanceof Map, true);
+assert.equal(sec._cachedNumToRowIdx.get(99802), 1);
+const unchangedRowC = sec._cachedRowHtmls[2];
+assert.equal(secHtml1.includes('data-cl-num="99801"'), true);
+
+state.selectedClNumber = 99802;
+const secHtml2 = renderPgDashboardSectionHtml(sec);
+assert.notEqual(secHtml2, secHtml1);
+// Row C was neither previous nor current selected CL, so its slot stays identical
+assert.strictEqual(sec._cachedRowHtmls[2], unchangedRowC);
+assert.equal(sec._cachedRowHtmls[0].includes("pg-change-row selected"), false);
+assert.equal(sec._cachedRowHtmls[1].includes("pg-change-row selected"), true);
+
+// 2. Verify _pgFileDiffDerivedCache reuses intraline ranges, symbols, and base overview markers across identical file diffs
+const sharedLines = [
+  { type: "hunk", text: "@@ -10,3 +10,3 @@ void RunLoop_测试_🚀_é()" },
+  { type: "ctx", old: 10, new: 10, text: "  if (ready) {" },
+  { type: "del", old: 11, new: null, text: "-    DispatchOld_测试_🚀_é(100);" },
+  { type: "add", old: null, new: 11, text: "+    DispatchNew_测试_🚀_é(200);" },
+  { type: "ctx", old: 12, new: 12, text: "  }" },
+];
+const fileObj1 = {
+  file: "emulator/loop/runner_测试_🚀_é.cc",
+  status: "M",
+  additions: 1,
+  deletions: 1,
+  lines: sharedLines.map(l => ({ ...l })),
+};
+const fileObj2 = {
+  file: "emulator/loop/runner_测试_🚀_é.cc",
+  status: "M",
+  additions: 1,
+  deletions: 1,
+  lines: sharedLines.map(l => ({ ...l })),
+};
+renderFileDiffBlock(fileObj1, 99801, 1, true, { index: 1, total: 1 });
+renderFileDiffBlock(fileObj2, 99802, 1, true, { index: 1, total: 1 });
+assert.strictEqual(fileObj1._cachedIntralineRanges, fileObj2._cachedIntralineRanges);
+assert.strictEqual(fileObj1._cachedSymbols, fileObj2._cachedSymbols);
+assert.strictEqual(fileObj1._cachedBaseOverviewMarkers, fileObj2._cachedBaseOverviewMarkers);
+
+// 3. Verify renderPgDiffOverviewBarHtml reuses _cachedBaseOverviewMarkers when file has no inline comments
+const ov1 = renderPgDiffOverviewBarHtml(fileObj1, 99801, fileObj1.file, []);
+const ov2 = renderPgDiffOverviewBarHtml(fileObj2, 99802, fileObj2.file, []);
+assert.equal(ov1.includes("pg-diff-ov-marker"), true);
+assert.equal(ov2.includes("pg-diff-ov-marker"), true);
+
+console.log("CYCLE_21_TARGETED_SECTION_AND_DERIVED_DIFF_CACHE_OK");
+""",
+        )
+        if out:
+            self.assertIn("CYCLE_21_TARGETED_SECTION_AND_DERIVED_DIFF_CACHE_OK", out)
+
+    def test_polygerrit_filtered_stacks_memo_and_bundle_files_loop_cache(self) -> None:
+        """Verifies Cycle 22 _pgFilteredStacksSummaryCache, bundle._cachedAllFilesLoopSig, and unified C++ syntax token lookup with Unicode."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        self.assertIn("const _pgFilteredStacksSummaryCache = new Map();", html)
+        self.assertIn("function computeCommitFilterReadOnlyHash(c, h)", html)
+        self.assertIn("const DIFF_SYNTAX_IDENT_CLASS_MAP = new Map(", html)
+        self.assertIn('const _CANONICAL_CPP_HL_PREFIX = "cpp\\x00syntax_intraline\\x00011\\x00";', html)
+        self.assertIn("bundle._cachedAllFilesLoopSig === allFilesLoopSig", html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+state.viewer = "joshuaduong@google.com";
+const cl1 = {
+  number: 99901,
+  subject: "feat(emu): First change 测试_🚀_é",
+  author: "dev1@google.com",
+  owner_email: "dev1@google.com",
+  status: "NEW",
+  patch_set: 2,
+  presubmit_status: "passed",
+  presubmit_score: 2,
+  presubmit_vetted: true,
+  reviewers_detail: [{ name: "Joshua", email: "joshuaduong@google.com", cr_vote: 0 }],
+  files: [
+    {
+      file: "emulator/core/first_测试_🚀_é.cc",
+      status: "M",
+      additions: 1,
+      deletions: 1,
+      lines: [
+        { type: "hunk", text: "@@ -1,2 +1,2 @@" },
+        { type: "del", old: 1, new: null, text: "-  const int old_val_测试_🚀_é = 1;" },
+        { type: "add", old: null, new: 1, text: "+  const int new_val_测试_🚀_é = 2;" },
+      ],
+    },
+  ],
+};
+const cl2 = {
+  number: 99902,
+  subject: "fix(emu): Second change",
+  author: "dev2@google.com",
+  owner_email: "dev2@google.com",
+  status: "NEW",
+  patch_set: 1,
+  presubmit_status: "passed",
+  presubmit_score: 2,
+  presubmit_vetted: true,
+  reviewers_detail: [{ name: "Joshua", email: "joshuaduong@google.com", cr_vote: 0 }],
+  files: [],
+};
+state.changes = [cl1, cl2];
+state.stacks = [{ stack_id: "stack-999", branch: "emu-main-next", commits: [cl1, cl2] }];
+
+// 1. Verify getFilteredStacksSummary memoizes search results and invalidates on commit mutation
+state.searchQuery = "测试_🚀_é";
+const sum1 = getFilteredStacksSummary();
+const sum2 = getFilteredStacksSummary();
+assert.strictEqual(sum1, sum2);
+assert.equal(sum1.visibleStacks.length, 1);
+assert.equal(sum1.visibleStacks[0].commits.length, 1);
+assert.equal(sum1.visibleStacks[0].commits[0].number, 99901);
+
+// Mutate cl2.subject to include the search query and verify cache invalidation
+cl2.subject = "fix(emu): Second change with 测试_🚀_é";
+const sum3 = getFilteredStacksSummary();
+assert.notStrictEqual(sum3, sum1);
+assert.equal(sum3.visibleStacks[0].commits.length, 2);
+state.searchQuery = "";
+
+// 2. Verify DIFF_SYNTAX_IDENT_CLASS_MAP and tokenizeDiffCodeLine with Unicode
+assert.equal(classifyIdentifierToken("constexpr"), "tok-keyword");
+assert.equal(classifyIdentifierToken("uint64_t"), "tok-type");
+assert.equal(classifyIdentifierToken("StatusOr"), "tok-type");
+assert.equal(classifyIdentifierToken("very_long_identifier_name_exceeding_sixteen_chars"), "");
+const toks = tokenizeDiffCodeLine('+  const char* msg = "测试_🚀_é";', "cpp", "syntax_intraline");
+assert.equal(toks.some(t => t.cls === "tok-keyword"), true);
+assert.equal(toks.some(t => t.cls === "tok-string"), true);
+const hlLine = renderHighlightedDiffLineHtml('+  const int x_测试_🚀_é = 42;', "add", "cpp", "syntax_intraline", null);
+assert.equal(hlLine.includes("tok-keyword"), true);
+assert.equal(hlLine.includes("测试_🚀_é"), true);
+
+// 3. Verify bundle._cachedAllFilesLoopSig reuses cached all-files diff HTML across renderDiffPane calls
+state.diffsByCl[99901] = {
+  status: "ready",
+  patch_set: 2,
+  base_patch_set: "base",
+  files: cl1.files,
+  commit_message: cl1.subject + "\\n\\nBody\\nBug: 123\\nTest: none",
+};
+state.selectedStackId = "stack-999";
+state.selectedClNumber = 99901;
+renderDiffPane();
+const bundle = state.diffsByCl[99901];
+assert.equal(typeof bundle._cachedAllFilesLoopSig, "string");
+assert.equal(bundle._cachedAllFilesLoopSig.length > 0, true);
+const cachedSig1 = bundle._cachedAllFilesLoopSig;
+const cachedHtml1 = bundle._cachedAllFilesDiffHtml;
+assert.equal(cachedHtml1.includes("测试_🚀_é"), true);
+
+renderDiffPane();
+assert.strictEqual(bundle._cachedAllFilesLoopSig, cachedSig1);
+assert.strictEqual(bundle._cachedAllFilesDiffHtml, cachedHtml1);
+
+// Mark file reviewed and verify _cachedAllFilesLoopSig updates
+getPgReviewedSet(99901, 2).add("emulator/core/first_测试_🚀_é.cc");
+renderDiffPane();
+assert.notEqual(bundle._cachedAllFilesLoopSig, cachedSig1);
+
+console.log("CYCLE_22_FILTER_MEMO_AND_BUNDLE_LOOP_CACHE_OK");
+""",
+        )
+        if out:
+            self.assertIn("CYCLE_22_FILTER_MEMO_AND_BUNDLE_LOOP_CACHE_OK", out)
+
+    def test_polygerrit_fast_queue_select_and_preset_cache(self) -> None:
+        """Verifies O(1) card index in tryFastSelectClInQueueDom, commit subcache, and preset/author memoization."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        self.assertIn("qContainer._cachedFastCardsByNum", html)
+        self.assertIn("const csSub = c._commitSectionSubCache", html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl1 = {
+  number: 99911,
+  subject: "feat(emu): First commit 测试_🚀_é",
+  author: "alice@google.com",
+  owner_email: "alice@google.com",
+  owner_name: "Alice 测试_🚀_é",
+  status: "NEW",
+  patch_set: 2,
+  presubmit_vetted: true,
+  presubmit_score: 2,
+  approved_by_viewer: false,
+  unresolved_comment_count: 0,
+  files: [
+    { file: "emulator/core/first_测试_🚀_é.cc", status: "M", additions: 4, deletions: 1, lines: ["@@ -1,1 +1,4 @@", "+int a = 1;"] }
+  ]
+};
+const cl2 = {
+  number: 99912,
+  subject: "fix(emu): Second commit 测试_🚀_é",
+  author: "bob@google.com",
+  owner_email: "bob@google.com",
+  owner_name: "Bob",
+  status: "NEW",
+  patch_set: 1,
+  presubmit_vetted: true,
+  presubmit_score: 2,
+  approved_by_viewer: false,
+  unresolved_comment_count: 0,
+  files: [
+    { file: "emulator/core/second.cc", status: "M", additions: 2, deletions: 0, lines: ["@@ -1,1 +1,2 @@", "+int b = 2;"] }
+  ]
+};
+state.viewer = "joshuaduong@google.com";
+state.changes = [cl1, cl2];
+state.stacks = [{
+  stack_id: "stack-9991",
+  topic: "topic-测试_🚀_é",
+  branch: "emu-main-next",
+  is_stack: true,
+  commits: [cl1, cl2],
+  total_commits: 2,
+}];
+state.diffsByCl[99911] = {
+  status: "ready",
+  patch_set: 2,
+  base_patch_set: "base",
+  files: cl1.files,
+  commit_message: cl1.subject + "\n\nBody\nBug: 123\nTest: none",
+};
+state.diffsByCl[99912] = {
+  status: "ready",
+  patch_set: 1,
+  base_patch_set: "base",
+  files: cl2.files,
+  commit_message: cl2.subject + "\n\nBody\nBug: 123\nTest: none",
+};
+
+// 1. Verify _commitSectionSubCache stores subpanel strings and _partSubCache hashes commit state
+state.selectedStackId = "stack-9991";
+state.selectedClNumber = 99911;
+renderAll();
+assert.equal(typeof cl1._commitSectionSubCache, "object");
+assert.equal(typeof cl1._cachedCommitSectionHtml, "string");
+assert.equal(cl1._cachedCommitSectionHtml.includes("测试_🚀_é"), true);
+assert.equal(typeof cl1._partSubCache, "object");
+assert.equal(typeof cl1._partSubCache.hash, "number");
+
+// 2. Verify renderPgSearchPresetsHtml & renderAuthorFilterControls memoize output
+const presets1 = renderPgSearchPresetsHtml(true);
+const presets2 = renderPgSearchPresetsHtml(false);
+assert.strictEqual(presets1, presets2);
+assert.equal(_lastAuthorControlsSig.length > 0, true);
+assert.equal(_lastAuthorChipsHtml.includes("alice"), true);
+
+// 3. Verify tryFastSelectClInQueueDom builds _cachedFastCardsByNum map and updates selection in O(1)
+const qEl = document.getElementById("queueList");
+const makeCard = (num) => {
+  const s = new Set();
+  return {
+    getAttribute(k) { return k === "data-cl-num" ? String(num) : null; },
+    classList: {
+      toggle(c, force) { if (force) s.add(c); else s.delete(c); },
+      contains(c) { return s.has(c); }
+    }
+  };
+};
+const liveCards = [makeCard(99911), makeCard(99912)];
+qEl.querySelectorAll = (sel) => sel === ".cl-card[data-cl-num]" ? liveCards : [];
+assert.equal(tryFastSelectClInQueueDom(99911), true);
+assert.equal(liveCards[0].classList.contains("selected"), true);
+assert.equal(liveCards[1].classList.contains("selected"), false);
+assert.equal(qEl._cachedFastCardsByNum instanceof Map, true);
+
+// Second call hits O(1) map lookup and unselects 99911, selects 99912
+assert.equal(tryFastSelectClInQueueDom(99912), true);
+assert.equal(liveCards[0].classList.contains("selected"), false);
+assert.equal(liveCards[1].classList.contains("selected"), true);
+
+console.log("CYCLE_23_FAST_QUEUE_SELECT_AND_PRESET_CACHE_OK");
+""",
+        )
+        if out:
+            self.assertIn("CYCLE_23_FAST_QUEUE_SELECT_AND_PRESET_CACHE_OK", out)
+
+    def test_polygerrit_sidebar_topic_commit_click_opens_clicked_cl(self):
+        """Verifies clicking a topic commit in the sidebar opens that commit rather than the first commit in the topic."""
+        html = render_static_gerrit_ui_html(
+            {"items": [], "stacks": [], "total_open": 0},
+            variant="polygerrit",
+        )
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const topicCommits = [
+  { number: 43757919, subject: "refactor: First topic commit 测试_🚀_é", topic: "kiss-emu-batch-10", status: "NEW", patch_set: 1 },
+  { number: 43767683, subject: "refactor: Second topic commit 测试_🚀_é", topic: "kiss-emu-batch-10", status: "NEW", patch_set: 1 },
+  { number: 43767873, subject: "refactor: Third topic commit 测试_🚀_é", topic: "kiss-emu-batch-10", status: "NEW", patch_set: 1 },
+  { number: 43768349, subject: "refactor: Fourth topic commit", topic: "kiss-emu-batch-10", status: "NEW", patch_set: 1 },
+  { number: 43768350, subject: "refactor: Fifth topic commit", topic: "kiss-emu-batch-10", status: "NEW", patch_set: 1 },
+];
+state.changes = topicCommits;
+state.stacks = [{
+  stack_id: "topic:kiss-emu-batch-10",
+  title: "STACK · topic:kiss-emu-batch-10",
+  is_stack: true,
+  commits: topicCommits,
+}];
+for (const c of topicCommits) {
+  state.diffsByCl[c.number] = {
+    number: c.number,
+    patch_set: 1,
+    files: [{ file: `src/file_${c.number}_测试_🚀_é.cc`, additions: 5, deletions: 1, lines: [] }],
+  };
+}
+
+// 1. Even if Whole Stack mode was previously enabled, clicking ag/43767873 in the sidebar
+// must exit Whole Stack mode and display only ag/43767873 (not ag/43757919).
+state.continuousStackDiff = true;
+state.selectedStackId = "topic:kiss-emu-batch-10";
+state.selectedClNumber = 43757919;
+
+onClCardBodyClick("topic:kiss-emu-batch-10", 43767873, { shiftKey: false });
+assert.equal(state.continuousStackDiff, false);
+assert.equal(state.selectedClNumber, 43767873);
+const activeAfterClick = getActiveCommitsForDiff();
+assert.equal(activeAfterClick.length, 1);
+assert.equal(activeAfterClick[0].number, 43767873);
+
+// 2. Clicking the topic chip on ag/43767873's row while another CL was selected
+// must select ag/43767873 rather than defaulting to the first commit (43757919).
+state.selectedClNumber = 0;
+applyPgTopicFilter("kiss-emu-batch-10", 43767873);
+assert.equal(state.selectedClNumber, 43767873);
+
+// 3. When continuousStackDiff is explicitly active on the same stack, selecting ag/43767873
+// via selectStackAndCl scrolls #pgStackCommit-43767873 into view instead of resetting scrollTop = 0.
+state.continuousStackDiff = true;
+state.selectedStackId = "topic:kiss-emu-batch-10";
+let scrolledStackCommitId = "";
+const origGetEl = document.getElementById.bind(document);
+document.getElementById = (id) => {
+  if (id === "pgStackCommit-43767873") {
+    return {
+      id,
+      classList: { add() {}, remove() {}, toggle() {} },
+      scrollIntoView() { scrolledStackCommitId = id; },
+    };
+  }
+  return origGetEl(id);
+};
+selectStackAndCl("topic:kiss-emu-batch-10", 43767873);
+assert.equal(state.selectedClNumber, 43767873);
+assert.equal(scrolledStackCommitId, "pgStackCommit-43767873");
+document.getElementById = origGetEl;
+
+console.log("SIDEBAR_TOPIC_COMMIT_CLICK_FIX_OK");
+""",
+        )
+        if out:
+            self.assertIn("SIDEBAR_TOPIC_COMMIT_CLICK_FIX_OK", out)
+
+    def test_polygerrit_owner_base_and_vote_sync_memoization(self) -> None:
+        html = render_static_gerrit_ui_html(
+            {"items": [], "stacks": [], "total_open": 0},
+            variant="polygerrit",
+        )
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+// 1. Empty batch submit target returns frozen singleton without allocation
+const emptyBatch1 = computeBatchSubmitTarget([]);
+const emptyBatch2 = computeBatchSubmitTarget(null);
+assert.strictEqual(emptyBatch1, emptyBatch2);
+assert.equal(emptyBatch1.canSubmit, false);
+
+// 2. CL-level owner status base is memoized across files with Unicode paths
+const clObj = {
+  number: 43899001,
+  subject: "perf(gerrit): Memoize owner base & syntax cache 测试_🚀_é",
+  status: "NEW",
+  patch_set: 2,
+  reviewers_detail: [{ name: "Reviewer 测试_🚀_é", email: "rev@google.com", cr_vote: 2 }],
+  human_cr2: ["rev@google.com"],
+  human_cr2_count: 1,
+};
+const f1 = { file: "android/emu/feature_测试_🚀_é_1.cpp", status: "M", additions: 10, deletions: 2 };
+const f2 = { file: "android/emu/feature_测试_🚀_é_2.cpp", status: "M", additions: 4, deletions: 1 };
+const own1 = getPgFileOwnerStatus(clObj, f1);
+const own2 = getPgFileOwnerStatus(clObj, f2);
+assert.equal(own1.status, "approved");
+assert.equal(own2.status, "approved");
+assert.ok(clObj._cachedOwnerBase);
+assert.equal(clObj._cachedOwnerBase.defaultStatus, "approved");
+
+// 3. renderAndCacheSyntaxLineHtml caches highlighted C++ lines with Unicode
+const lineText = '  const auto msg = "测试_🚀_é"; // comment';
+const cacheKey = "cpp\\x00dark\\x00011\\x00" + lineText;
+_pgHighlightedLineHtmlCache.delete(cacheKey);
+const hlHtml = renderAndCacheSyntaxLineHtml(lineText, "cpp", "dark", false, true, cacheKey);
+assert.ok(hlHtml.includes("测试_🚀_é"));
+assert.equal(_pgHighlightedLineHtmlCache.get(cacheKey), hlHtml);
+
+// 4. syncStagedVoteControlsDom memoizes DOM updates when signature and diff generation match
+state.changes = [clObj];
+state.stacks = [{ stack_id: "stack-memo-1", branch: "emu-main-next", commits: [clObj] }];
+state.selectedStackId = "stack-memo-1";
+state.selectedClNumber = 43899001;
+const payload = computeStagedVotePayload([clObj]);
+syncStagedVoteControlsDom(payload);
+assert.ok(state._lastStagedVoteDomSyncSig);
+const savedSig = state._lastStagedVoteDomSyncSig;
+syncStagedVoteControlsDom(payload);
+assert.equal(state._lastStagedVoteDomSyncSig, savedSig);
+
+console.log("OWNER_BASE_AND_VOTE_SYNC_MEMO_OK");
+""",
+        )
+        if out:
+            self.assertIn("OWNER_BASE_AND_VOTE_SYNC_MEMO_OK", out)
+
+    def test_polygerrit_fast_diff_block_and_partition_hash_memoization(self) -> None:
+        html = render_static_gerrit_ui_html(
+            {"items": [], "stacks": [], "total_open": 0},
+            variant="polygerrit",
+        )
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const clObj = {
+  number: 43899002,
+  subject: "perf(gerrit): Fast diff block & partition hash 测试_🚀_é",
+  status: "NEW",
+  patch_set: 3,
+  owner_email: "dev@google.com",
+  project: "platform/hardware/generic/goldfish",
+  branch: "emu-main-next",
+  attention_set: [{ email: "joshuaduong@google.com", reason: "Reviewer" }],
+  reviewers_detail: [{ name: "Joshua Duong", email: "joshuaduong@google.com", cr_vote: 0 }],
+};
+const stObj = {
+  stack_id: "stack-fast-测试_🚀_é",
+  branch: "emu-main-next",
+  commits: [clObj],
+};
+state.viewer = "joshuaduong@google.com";
+state.changes = [clObj];
+state.stacks = [stObj];
+state.selectedStackId = stObj.stack_id;
+state.selectedClNumber = 43899002;
+
+// 1. computeDashboardPartitionSig caches stack_id hash and commit _partSubCache
+const sig1 = computeDashboardPartitionSig([stObj]);
+const sig2 = computeDashboardPartitionSig([stObj]);
+assert.equal(sig1, sig2);
+assert.equal(stObj._cachedStackIdStr, "stack-fast-测试_🚀_é");
+assert.ok(typeof stObj._cachedStackIdHash === "number");
+assert.ok(clObj._partSubCache && clObj._partSubCache.inAttn === 1);
+
+// 2. findPgChangeByNumber, getPgReviewedSet, and getPgCollapsedSet hot caches
+assert.strictEqual(findPgChangeByNumber(43899002), clObj);
+assert.strictEqual(findPgChangeByNumber(43899002), clObj);
+const revSet1 = getPgReviewedSet(43899002, 3);
+const revSet2 = getPgReviewedSet(43899002, 3);
+assert.strictEqual(revSet1, revSet2);
+const colSet1 = getPgCollapsedSet(43899002, 3);
+const colSet2 = getPgCollapsedSet(43899002, 3);
+assert.strictEqual(colSet1, colSet2);
+
+// 3. renderFileDiffBlock fast scalar/reference state cache (_fbState)
+const fileObj = {
+  file: "android/emu/fast_block_测试_🚀_é.cpp",
+  status: "M",
+  additions: 1,
+  deletions: 0,
+  lines: [{ type: "add", new_num: 1, text: 'const char* kTag = "测试_🚀_é";' }],
+};
+state.diffsByCl[43899002] = { patch_set: 3, files: [fileObj] };
+const html1 = renderFileDiffBlock(fileObj, 43899002, 3, true);
+assert.ok(fileObj._fbState);
+assert.equal(fileObj._fbState.cl, 43899002);
+const html2 = renderFileDiffBlock(fileObj, 43899002, 3, true);
+assert.equal(html1, html2);
+// Toggling collapse state updates _fbState.bits and re-renders
+setPgFileCollapsed(43899002, 3, fileObj.file, true);
+const htmlCollapsed = renderFileDiffBlock(fileObj, 43899002, 3, true);
+assert.ok(htmlCollapsed.includes("is-collapsed"));
+assert.notEqual(html1, htmlCollapsed);
+
+// 4. syncSidebarLayoutDom memoizes layout signature on primary layout container
+syncSidebarLayoutDom();
+const primaryLayoutEl = document.getElementById("workspaceContainer") || document.getElementById("queuePane");
+assert.ok(primaryLayoutEl && primaryLayoutEl._lastSidebarLayoutSig);
+
+console.log("FAST_DIFF_BLOCK_AND_PART_HASH_OK");
+""",
+        )
+        if out:
+            self.assertIn("FAST_DIFF_BLOCK_AND_PART_HASH_OK", out)
+
+    def test_polygerrit_submit_target_and_staged_vote_controls_memoization(self) -> None:
+        html = render_static_gerrit_ui_html(
+            {"items": [], "stacks": [], "total_open": 0},
+            variant="polygerrit",
+        )
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl1 = {
+  number: 43899101,
+  subject: "perf(gerrit): Submit target & vote sync memo 1 测试_🚀_é",
+  status: "NEW",
+  patch_set: 2,
+  topic: "topic-memo-测试_🚀_é",
+  owner_email: "dev@google.com",
+  project: "platform/hardware/generic/goldfish",
+  branch: "emu-main-next",
+  presubmit_status: "passed",
+  presubmit_score: 2,
+  presubmit_vetted: true,
+  mergeable: true,
+  submittable: true,
+  gerrit_submittable: true,
+  is_submittable: true,
+  human_cr2_count: 1,
+  submit_requirements: [
+    { name: "Code-Review", status: "SATISFIED" },
+    { name: "Presubmit-Verified", status: "SATISFIED" },
+  ],
+  reviewers_detail: [{ name: "Joshua Duong", email: "joshuaduong@google.com", cr_vote: 2 }],
+};
+const cl2 = {
+  number: 43899102,
+  subject: "perf(gerrit): Submit target & vote sync memo 2 测试_🚀_é",
+  status: "NEW",
+  patch_set: 1,
+  topic: "topic-memo-测试_🚀_é",
+  owner_email: "dev@google.com",
+  project: "platform/hardware/generic/goldfish",
+  branch: "emu-main-next",
+  presubmit_status: "passed",
+  presubmit_score: 2,
+  presubmit_vetted: true,
+  mergeable: true,
+  submittable: true,
+  gerrit_submittable: true,
+  is_submittable: true,
+  human_cr2_count: 1,
+  submit_requirements: [
+    { name: "Code-Review", status: "SATISFIED" },
+    { name: "Presubmit-Verified", status: "NOT_APPLICABLE" },
+  ],
+  reviewers_detail: [{ name: "Joshua Duong", email: "joshuaduong@google.com", cr_vote: 2 }],
+};
+const stObj = {
+  stack_id: "stack-memo-测试_🚀_é",
+  branch: "emu-main-next",
+  commits: [cl1, cl2],
+};
+state.viewer = "joshuaduong@google.com";
+state.changes = [cl1, cl2];
+state.stacks = [stObj];
+state.selectedStackId = stObj.stack_id;
+state.selectedClNumber = 43899101;
+
+// 1. computeCommitSubmitTarget caches per-CL _stSub hash and returns cached target
+const sub1 = computeCommitSubmitTarget(cl1);
+assert.ok(cl1._stSub && typeof cl1._stSub.hash === "number");
+assert.ok(cl2._stSub && typeof cl2._stSub.hash === "number");
+const sub2 = computeCommitSubmitTarget(cl1);
+assert.strictEqual(sub1, sub2);
+assert.equal(sub1.canSubmit, true);
+
+// 2. computePgSubmitRequirementsSummary & computePgHeaderStatusInfo memoization
+const sr1 = computePgSubmitRequirementsSummary(cl1);
+const sr2 = computePgSubmitRequirementsSummary(cl1);
+assert.strictEqual(sr1, sr2);
+assert.equal(sr1.status, "submittable");
+const hdr1 = computePgHeaderStatusInfo(cl1);
+const hdr2 = computePgHeaderStatusInfo(cl2);
+assert.strictEqual(hdr1, hdr2);
+assert.equal(hdr1.cls, "status-ready");
+
+// 3. getCommitMessageTotalLines caches and counts lines without regex split
+const msg = "feat: Subject 测试_🚀_é\n\nBody line 1\nBody line 2\n\nBug: N/A\nTest: unit\n";
+assert.equal(getCommitMessageTotalLines(msg), 7);
+assert.equal(getCommitMessageTotalLines(msg), 7);
+
+// 4. ensureStagedVoteContextSynced returns resolved targets and applyStageButtonAttrs memoizes mask
+const resolved = ensureStagedVoteContextSynced([cl1]);
+assert.equal(resolved.isBatch, false);
+assert.strictEqual(resolved.primaryCl, cl1);
+const crZeroBtn = document.getElementById("stageCrZero");
+applyStageButtonAttrs(crZeroBtn, false, true);
+assert.equal(crZeroBtn._lastStageAttrMask, 1);
+assert.equal(crZeroBtn.getAttribute("aria-pressed"), "true");
+
+// 5. applyPgDiffPreferences caches _prefSub
+applyPgDiffPreferences();
+const prefs = getPgDiffPreferences();
+assert.ok(prefs && prefs._prefSub);
+
+console.log("SUBMIT_TARGET_AND_STAGE_VOTE_MEMO_OK");
+""",
+        )
+        if out:
+            self.assertIn("SUBMIT_TARGET_AND_STAGE_VOTE_MEMO_OK", out)
+
+    def test_polygerrit_header_relation_and_nav_subcache_memoization(self) -> None:
+        html = render_static_gerrit_ui_html(
+            {"items": [], "stacks": [], "total_open": 0},
+            variant="polygerrit",
+        )
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl1 = {
+  number: 43899201,
+  subject: "perf(gerrit): Header & relation subcache 1 测试_🚀_é",
+  status: "NEW",
+  patch_set: 2,
+  topic: "topic-subcache-测试_🚀_é",
+  owner_email: "dev@google.com",
+  author: "dev",
+  project: "platform/hardware/generic/goldfish",
+  branch: "emu-main-next",
+  current_revision: "rev_a_测试_🚀_é",
+  parent_revision: "rev_0",
+  presubmit_status: "passed",
+  presubmit_score: 2,
+  presubmit_vetted: true,
+  mergeable: true,
+  submittable: true,
+  gerrit_submittable: true,
+  is_submittable: true,
+  human_cr2_count: 1,
+  submit_requirements: [
+    { name: "Code-Review", status: "SATISFIED" },
+  ],
+  reviewers_detail: [{ name: "Joshua Duong", email: "joshuaduong@google.com", cr_vote: 2 }],
+};
+const cl2 = {
+  number: 43899202,
+  subject: "perf(gerrit): Header & relation subcache 2 测试_🚀_é",
+  status: "NEW",
+  patch_set: 1,
+  topic: "topic-subcache-测试_🚀_é",
+  owner_email: "dev@google.com",
+  author: "dev",
+  project: "platform/hardware/generic/goldfish",
+  branch: "emu-main-next",
+  current_revision: "rev_b_测试_🚀_é",
+  parent_revision: "rev_a_测试_🚀_é",
+  parent_patch_set: 2,
+  presubmit_status: "passed",
+  presubmit_score: 2,
+  presubmit_vetted: true,
+  mergeable: true,
+  submittable: true,
+  gerrit_submittable: true,
+  is_submittable: true,
+  human_cr2_count: 1,
+  submit_requirements: [
+    { name: "Code-Review", status: "SATISFIED" },
+  ],
+  reviewers_detail: [{ name: "Joshua Duong", email: "joshuaduong@google.com", cr_vote: 2 }],
+};
+const bundle1 = {
+  patch_set: 2,
+  commit_sha: "rev_a_测试_🚀_é",
+  parent_sha: "rev_0",
+  files: [
+    { file: "src/测试_🚀_é/alpha.cc", status: "M", additions: 10, deletions: 2 },
+    { file: "src/测试_🚀_é/beta.cc", status: "A", additions: 25, deletions: 0 },
+  ],
+  unresolved_threads: [],
+};
+const stObj = {
+  stack_id: "stack-subcache-测试_🚀_é",
+  branch: "emu-main-next",
+  commits: [cl1, cl2],
+};
+state.viewer = "joshuaduong@google.com";
+state.changes = [cl1, cl2];
+state.stacks = [stObj];
+state.diffsByCl[43899201] = bundle1;
+state.selectedStackId = stObj.stack_id;
+state.selectedClNumber = 43899201;
+
+// 1. findPgStackForClOrId & canNavigateVisibleCls memoize stack/navigation lookups
+const foundSt1 = findPgStackForClOrId(43899201, stObj.stack_id);
+const foundSt2 = findPgStackForClOrId(43899201, stObj.stack_id);
+assert.strictEqual(foundSt1, stObj);
+assert.strictEqual(foundSt2, stObj);
+assert.equal(stObj._lastVerifiedClNum, 43899201);
+assert.equal(canNavigateVisibleCls(), true);
+assert.equal(canNavigateVisibleCls(), true);
+
+// 2. getPgChangeReferenceInfo & renderPgChangeHeaderHtml populate _refSub and _hdrSub
+const ref1 = getPgChangeReferenceInfo(cl1, bundle1);
+const ref2 = getPgChangeReferenceInfo(cl1, bundle1);
+assert.strictEqual(ref1, ref2);
+assert.ok(cl1._refSub && cl1._refSub.num === 43899201);
+const hHtml1 = renderPgChangeHeaderHtml(cl1, bundle1);
+const hHtml2 = renderPgChangeHeaderHtml(cl1, bundle1);
+assert.strictEqual(hHtml1, hHtml2);
+assert.ok(cl1._hdrSub && cl1._hdrSub.clNum === 43899201);
+
+// 3. computePgStackRelationSignature & getPgChangeRebaseStatus populate _relSub and _rebSub hashes
+const relSig1 = computePgStackRelationSignature(stObj, stObj.commits);
+const relSig2 = computePgStackRelationSignature(stObj, stObj.commits);
+assert.equal(relSig1, relSig2);
+assert.ok(cl1._relSub && typeof cl1._relSub.hash === "number");
+assert.ok(cl2._relSub && typeof cl2._relSub.hash === "number");
+const reb1 = getPgChangeRebaseStatus(cl2, null);
+const reb2 = getPgChangeRebaseStatus(cl2, null);
+assert.strictEqual(reb1, reb2);
+assert.ok(cl1._rebSub && typeof cl1._rebSub.hash === "number");
+
+// 4. renderPgFileJumpMenuHtml & isPgMergeCommit cache on bundle/rawFileList
+const jump1 = renderPgFileJumpMenuHtml(cl1, bundle1);
+const jump2 = renderPgFileJumpMenuHtml(cl1, bundle1);
+assert.strictEqual(jump1, jump2);
+assert.ok(bundle1.files._jumpSub && typeof bundle1.files._jumpSub.sig === "string");
+assert.strictEqual(bundle1._cachedJumpMenuHtml, jump1);
+assert.equal(isPgMergeCommit(cl1, bundle1), false);
+assert.equal(bundle1._cachedHasMergeListFile, false);
+
+console.log("HEADER_RELATION_AND_NAV_SUBCACHE_MEMO_OK");
+""",
+        )
+        if out:
+            self.assertIn("HEADER_RELATION_AND_NAV_SUBCACHE_MEMO_OK", out)
+
+    def test_polygerrit_submit_target_file_list_modes_and_panel_subcaches(self) -> None:
+        """Verify scalar sub-caches for submit targets, dual flat/tree file lists, and panels."""
+        html = render_static_gerrit_ui_html(
+            {"items": [], "stacks": [], "total_open": 0},
+            variant="polygerrit",
+        )
+        self.assertIn("function areSubmittableSampleFlagsUnchanged(", html)
+        self.assertIn("function computeSingleCommitDiffRenderSig(", html)
+        self.assertIn("function resolveBundleChangeObj(", html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl1 = {
+  number: 43899301,
+  subject: "feat: Optimize submit & panel subcaches 测试_🚀_é",
+  commit_message: "feat: Optimize submit & panel subcaches 测试_🚀_é\n\nBody.\n\nBug: N/A\nTest: unit\nChange-Id: I1111111111111111111111111111111111111301",
+  change_id: "I1111111111111111111111111111111111111301",
+  current_revision: "deadbeef301",
+  parent_revision: "00000000000",
+  patch_set: 2,
+  status: "NEW",
+  branch: "emu-main-next",
+  project: "platform/hardware/generic/goldfish",
+  topic: "perf-subcache-测试_🚀_é",
+  owner_email: "author@google.com",
+  owner_name: "Author 测试_🚀_é",
+  reviewers_detail: [{ email: "rev@google.com", name: "Rev", cr_vote: 2 }],
+  human_cr2: [{ email: "rev@google.com", value: 2 }],
+  human_cr2_count: 2,
+  required_cr2_count: 1,
+  presubmit_status: "passed",
+  presubmit_score: 2,
+  presubmit_vetted: true,
+  submittable: true,
+  is_submittable: true,
+  mergeable: true,
+};
+const extraCls = [];
+for (let i = 0; i < 12; i++) {
+  extraCls.push({
+    number: 43899310 + i,
+    subject: `chore: Peer ${i}`,
+    patch_set: 1,
+    status: "NEW",
+    submittable: i % 2 === 0,
+    is_submittable: i % 2 === 0,
+    mergeable: true,
+  });
+}
+const bundle1 = {
+  patch_set: 2,
+  files: [
+    {
+      file: "src/perf_测试_🚀_é.cc",
+      status: "R",
+      old_path: "src/old_perf_测试_🚀_é.cc",
+      similarity: 95,
+      additions: 12,
+      deletions: 3,
+      lines: [{ type: "add", new: 1, text: "+int x = 1;" }],
+    },
+  ],
+};
+const stObj = { stack_id: "st-301", commits: [cl1] };
+state.changes = [cl1, ...extraCls];
+state.stacks = [stObj];
+state.selectedStackId = "st-301";
+state.selectedClNumber = 43899301;
+state.diffsByCl = { 43899301: bundle1 };
+
+// 1. Submit target & submittable queue signature scalar sub-caches
+const t1 = computeCommitSubmitTarget(cl1);
+const t2 = computeCommitSubmitTarget(cl1);
+assert.strictEqual(t1, t2);
+assert.ok(cl1._peersSub && cl1._peersSub.num === 43899301);
+assert.ok(cl1._targetSub && cl1._targetSub.num === 43899301);
+
+const qSig1 = computeSubmittableQueueSig(state.changes, [cl1]);
+const qSig2 = computeSubmittableQueueSig(state.changes, [extraCls[0]]);
+assert.equal(qSig1, qSig2);
+assert.equal(typeof cl1._subFlags, "number");
+
+// 2. Dual flat/tree file list scalar sub-caches
+setPgFileTreeMode(43899301, false);
+const flat1 = renderPgFileListHtml(cl1, bundle1);
+setPgFileTreeMode(43899301, true);
+const tree1 = renderPgFileListHtml(cl1, bundle1);
+setPgFileTreeMode(43899301, false);
+const flat2 = renderPgFileListHtml(cl1, bundle1);
+setPgFileTreeMode(43899301, true);
+const tree2 = renderPgFileListHtml(cl1, bundle1);
+assert.strictEqual(flat1, flat2);
+assert.strictEqual(tree1, tree2);
+assert.ok(bundle1._flSubFlat && bundle1._flSubFlat.html === flat1);
+assert.ok(bundle1._flSubTree && bundle1._flSubTree.html === tree1);
+
+// 3. Diff signature, AEMU map, SR summary, relation chain, patchset selector, commit msg, reviewers panel
+const dSig1 = computeDiffRenderSignature([cl1]);
+const dSig2 = computeDiffRenderSignature([cl1]);
+assert.equal(dSig1, dSig2);
+assert.ok(cl1._diffSigSub && cl1._diffSigSub.sig);
+
+const map1 = buildAemuMapCommitUrl(cl1, bundle1);
+const map2 = buildAemuMapCommitUrl(cl1, bundle1);
+assert.equal(map1, map2);
+assert.ok(cl1._mapSub && cl1._mapSub.num === 43899301);
+
+const sr1 = computePgSubmitRequirementsSummary(cl1);
+const sr2 = computePgSubmitRequirementsSummary(cl1);
+assert.strictEqual(sr1, sr2);
+assert.ok(cl1._srSub && cl1._srSub.num === 43899301);
+
+const rc1 = renderPgRelationChainHtml(cl1);
+const rc2 = renderPgRelationChainHtml(cl1);
+assert.strictEqual(rc1, rc2);
+assert.ok(cl1._relChainSub && cl1._relChainSub.clNum === 43899301);
+
+const ps1 = renderPgPatchsetSelectorHtml(cl1, bundle1);
+const ps2 = renderPgPatchsetSelectorHtml(cl1, bundle1);
+assert.strictEqual(ps1, ps2);
+assert.ok(cl1._psSelSub && cl1._psSelSub.clNum === 43899301);
+
+const cm1 = renderCommitMessagePanelHtml(cl1, bundle1);
+const cm2 = renderCommitMessagePanelHtml(cl1, bundle1);
+assert.strictEqual(cm1, cm2);
+assert.ok(cl1._cmPanSub && cl1._cmPanSub.num === 43899301);
+
+const rp1 = renderCommitReviewersPanelHtml(cl1, false);
+const rp2 = renderCommitReviewersPanelHtml(cl1, false);
+assert.strictEqual(rp1, rp2);
+assert.ok(cl1._revPanSub && cl1._revPanSub.clNum === 43899301);
+
+// 4. renderFileDiffBlock cached file metadata & resolveBundleChangeObj
+const fb1 = renderFileDiffBlock(bundle1.files[0], 43899301, 2);
+const fb2 = renderFileDiffBlock(bundle1.files[0], 43899301, 2);
+assert.strictEqual(fb1, fb2);
+assert.equal(bundle1.files[0]._cachedStatus, "R");
+assert.equal(bundle1.files[0]._cachedOldPath, "src/old_perf_测试_🚀_é.cc");
+assert.equal(bundle1.files[0]._cachedSim, 95);
+assert.strictEqual(resolveBundleChangeObj(bundle1, 43899301), cl1);
+
+console.log("SUBMIT_FILELIST_PANEL_SUBCACHES_OK");
+""",
+        )
+        if out:
+            self.assertIn("SUBMIT_FILELIST_PANEL_SUBCACHES_OK", out)
+
+    def test_polygerrit_inline_comments_overview_changelog_subcaches(self):
+        """Verifies Cycle 29 inline comments, overview bar, jump menu, changelog, and presubmit subcaches."""
+        html = render_static_gerrit_ui_html({"generated_at": "test", "stacks": []})
+        self.assertIn("_inlineByFileSub", html)
+        self.assertIn("_csigSub", html)
+        self.assertIn("_ovBarSub", html)
+        self.assertIn("_fjSub", html)
+        self.assertIn("_clLogSub", html)
+        self.assertIn("_prRowSub", html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl1 = {
+  number: 43899401,
+  subject: "perf(gerrit-ui): Cycle 29 subcaches 测试_🚀_é",
+  status: "NEW",
+  patch_set: 2,
+  unresolved_comment_count: 1,
+  needs_rebase: true,
+  has_conflict: true,
+  mergeable: false,
+  messages: [
+    { id: "m1", patch_set: 2, author_name: "Alice 测试_🚀_é", is_bot: false, date: "2026-11-16", message: "Patch Set 2: LGTM 测试_🚀_é" },
+  ],
+};
+const bundle1 = {
+  patch_set: 2,
+  files: [
+    {
+      file: "src/inline_perf_测试_🚀_é.cc",
+      status: "M",
+      added: 4,
+      removed: 1,
+      lines: [
+        { type: "ctx", old_ln: 1, new_ln: 1, text: "int x = 1;" },
+        { type: "add", old_ln: null, new_ln: 2, text: "int y = 2; // 测试_🚀_é" },
+      ],
+    },
+  ],
+  unresolved_threads: [
+    {
+      id: "t-401",
+      root_id: "t-401",
+      file_path: "src/inline_perf_测试_🚀_é.cc",
+      line: 2,
+      patch_set: 2,
+      unresolved: true,
+      author_name: "Bob 测试_🚀_é",
+      latest_message: "Please check 测试_🚀_é",
+      messages: [{ message: "Please check 测试_🚀_é", author_name: "Bob 测试_🚀_é" }],
+    },
+  ],
+};
+state.changes = [cl1];
+state.stacks = [{ id: "st-c29", label: "c29", commits: [cl1] }];
+state.selectedStackId = "st-c29";
+state.selectedClNumber = 43899401;
+state.checkedClNumbers = new Set([43899401]);
+state.diffsByCl[43899401] = bundle1;
+
+// 1. getInlineCommentsForFile & computePgFileCommentsCacheSig sub-caches
+const ic1 = getInlineCommentsForFile(43899401, "src/inline_perf_测试_🚀_é.cc");
+const ic2 = getInlineCommentsForFile(43899401, "src/inline_perf_测试_🚀_é.cc");
+assert.strictEqual(ic1, ic2);
+assert.equal(ic1.length, 1);
+assert.ok(state._inlineByFileSub && state._inlineByFileSub.num === 43899401);
+
+const cs1 = computePgFileCommentsCacheSig(43899401, ic1);
+const cs2 = computePgFileCommentsCacheSig(43899401, ic1);
+assert.strictEqual(cs1, cs2);
+assert.ok(ic1._csigSub && ic1._csigSub.sig === cs1);
+
+// 2. renderPgDiffOverviewBarHtml & renderPgFileJumpMenuHtml sub-caches
+const ov1 = renderPgDiffOverviewBarHtml(bundle1.files[0], 43899401, "src/inline_perf_测试_🚀_é.cc", ic1);
+const ov2 = renderPgDiffOverviewBarHtml(bundle1.files[0], 43899401, "src/inline_perf_测试_🚀_é.cc", ic1);
+assert.strictEqual(ov1, ov2);
+assert.ok(bundle1.files[0]._ovBarSub && bundle1.files[0]._ovBarSub.cl === 43899401);
+
+const fj1 = renderPgFileJumpMenuHtml(cl1, bundle1);
+const fj2 = renderPgFileJumpMenuHtml(cl1, bundle1);
+assert.strictEqual(fj1, fj2);
+assert.ok(bundle1._fjSub && bundle1._fjSub.clNum === 43899401);
+
+// 3. getAllPgCommentsForCl, renderPgCommentsViewHtml, renderPgChangeLogSectionHtml, renderCommitPresubmitRowHtml, renderPgRebaseNoticeBannerHtml
+const ac1 = getAllPgCommentsForCl(43899401);
+const ac2 = getAllPgCommentsForCl(43899401);
+assert.strictEqual(ac1, ac2);
+assert.ok(cl1._allCommentsSub && cl1._allCommentsSub.result === ac1);
+
+const cv1 = renderPgCommentsViewHtml(cl1, bundle1);
+const cv2 = renderPgCommentsViewHtml(cl1, bundle1);
+assert.strictEqual(cv1, cv2);
+assert.ok(cl1._cvSub && cl1._cvSub.len === 1);
+
+const clg1 = renderPgChangeLogSectionHtml(cl1, bundle1);
+const clg2 = renderPgChangeLogSectionHtml(cl1, bundle1);
+assert.strictEqual(clg1, clg2);
+assert.ok(cl1._clLogSub && cl1._clLogSub.m0Id === "m1");
+
+const pr1 = renderCommitPresubmitRowHtml(cl1);
+const pr2 = renderCommitPresubmitRowHtml(cl1);
+assert.strictEqual(pr1, pr2);
+assert.ok(cl1._prRowSub && cl1._prRowSub.num === 43899401);
+
+const rb1 = renderPgRebaseNoticeBannerHtml(cl1, bundle1);
+const rb2 = renderPgRebaseNoticeBannerHtml(cl1, bundle1);
+assert.strictEqual(rb1, rb2);
+assert.ok(cl1._rebBannerSub && cl1._rebBannerSub.num === 43899401);
+
+// 4. isPgFileReviewed & isPgFileCollapsed fast-paths + computeStagedVotePayload empty fast-path
+assert.equal(isPgFileReviewed(43899401, 2, "src/inline_perf_测试_🚀_é.cc"), false);
+assert.equal(isPgFileCollapsed(43899401, 2, "src/inline_perf_测试_🚀_é.cc"), false);
+const svp = computeStagedVotePayload([cl1]);
+assert.equal(svp.hasAnyChange, false);
+
+console.log("INLINE_OVERVIEW_CHANGELOG_SUBCACHES_OK");
+""",
+        )
+        if out:
+            self.assertIn("INLINE_OVERVIEW_CHANGELOG_SUBCACHES_OK", out)
+
+    def test_polygerrit_diff_block_and_action_button_fastpaths(self) -> None:
+        html = render_static_gerrit_ui_html({"generated_at": "test", "stacks": []})
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl1 = {
+  number: 43899501,
+  subject: "perf(gerrit-ui): Fastpath diff block & action buttons 测试_🚀_é",
+  status: "NEW",
+  patch_set: 3,
+  author: "joshuaduong@google.com",
+  owner_name: "Joshua Duong",
+  branch: "emu-main-next",
+  project: "platform/hardware/generic/goldfish",
+  url: "https://android-review.googlesource.com/c/platform/hardware/generic/goldfish/+/43899501",
+};
+const file0 = {
+  file: "src/fast_block_测试_🚀_é_0.cc",
+  status: "M",
+  additions: 4,
+  deletions: 1,
+  lines: [
+    { type: "ctx", old: 1, new: 1, text: "int main() {" },
+    { type: "add", old: null, new: 2, text: "  // 测试_🚀_é" },
+  ],
+};
+const file1 = {
+  file: "src/fast_block_测试_🚀_é_1.cc",
+  status: "M",
+  additions: 2,
+  deletions: 0,
+  lines: [
+    { type: "add", old: null, new: 1, text: "void helper_测试_🚀_é() {}" },
+  ],
+};
+const bundle1 = {
+  status: "ready",
+  patch_set: 3,
+  files: [file0, file1],
+  commit_message: cl1.subject + "\\n\\nBug: N/A\\nTest: bazel test //...",
+};
+const stack1 = { stack_id: "st-43899501", branch: "emu-main-next", commits: [cl1] };
+state.changes = [cl1];
+state.stacks = [stack1];
+state.selectedStackId = "st-43899501";
+state.selectedClNumber = 43899501;
+state.diffsByCl[43899501] = bundle1;
+state.inlineCommentsByCl[43899501] = [];
+
+// 1. Empty inline comments sub-cache
+const icEmpty1 = getInlineCommentsForFile(43899501, file0.file);
+const icEmpty2 = getInlineCommentsForFile(43899501, file1.file);
+assert.equal(icEmpty1.length, 0);
+assert.strictEqual(icEmpty1, icEmpty2);
+assert.ok(state._inlineByFileSub && state._inlineByFileSub.isEmpty === true);
+
+// 2. renderFileDiffBlock top-of-function fastFbs fast path
+const b1 = renderFileDiffBlock(file0, 43899501, 3, true, { index: 1, total: 2 });
+const b2 = renderFileDiffBlock(file0, 43899501, 3, true, { index: 1, total: 2 });
+assert.strictEqual(b1, b2);
+assert.ok(file0._fbState && file0._fbState.fastEligible === true);
+assert.equal(file0._fbState.navIdxIn, 1);
+
+// 3. resolveVoteTargets, computeStagedVotePayload, ensureStagedVoteContextSynced fast paths
+const vt1 = resolveVoteTargets();
+const vt2 = resolveVoteTargets();
+assert.strictEqual(vt1, vt2);
+assert.strictEqual(cl1._singleVoteTarget, vt1);
+
+const svp1 = computeStagedVotePayload(vt1);
+const svp2 = computeStagedVotePayload(vt1);
+assert.strictEqual(svp1, svp2);
+assert.strictEqual(cl1._cleanStagedVotePayload, svp1);
+
+ensureStagedVoteContextSynced();
+const prevSvRef = state.stagedVote;
+ensureStagedVoteContextSynced();
+assert.strictEqual(state.stagedVote, prevSvRef);
+
+// 4. Reply draft cache & stack relation signature sub-cache
+savePgReplyDraft(43899501, { comment: "Draft message 测试_🚀_é", hasVotes: false });
+const loadedDraft = loadPgReplyDraft(43899501);
+assert.ok(loadedDraft && loadedDraft.comment === "Draft message 测试_🚀_é");
+deletePgReplyDraft(43899501);
+assert.equal(loadPgReplyDraft(43899501), null);
+
+const relSig1 = computePgStackRelationSignature(stack1, stack1.commits);
+const relSig2 = computePgStackRelationSignature(stack1, stack1.commits);
+assert.strictEqual(relSig1, relSig2);
+assert.ok(stack1._relSigSub && stack1._relSigSub.c0Num === 43899501);
+
+console.log("DIFF_BLOCK_AND_ACTION_FASTPATHS_OK");
+""",
+        )
+        if out:
+            self.assertIn("DIFF_BLOCK_AND_ACTION_FASTPATHS_OK", out)
+
+    def test_polygerrit_submit_target_and_header_tabs_subcaches(self) -> None:
+        html = render_static_gerrit_ui_html({"generated_at": "test", "stacks": []})
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const cl1 = {
+  number: 43899601,
+  subject: "perf(gerrit-ui): Submit target & header tabs sub-caches 测试_🚀_é",
+  status: "NEW",
+  patch_set: 2,
+  author: "joshuaduong@google.com",
+  owner_name: "Joshua Duong",
+  owner_email: "joshuaduong@google.com",
+  branch: "emu-main-next",
+  project: "platform/hardware/generic/goldfish",
+  url: "https://android-review.googlesource.com/c/platform/hardware/generic/goldfish/+/43899601",
+  reviewers_detail: [{ email: "rev_测试_🚀_é@google.com", name: "Rev 测试_🚀_é", cr_vote: 2 }],
+  ccs_detail: [],
+};
+const file0 = {
+  file: "src/header_tabs_测试_🚀_é.cc",
+  status: "M",
+  additions: 3,
+  deletions: 1,
+  owner_status: "approved",
+  owner_approved: true,
+  lines: [{ type: "add", old: null, new: 1, text: "// 测试_🚀_é" }],
+};
+const bundle1 = {
+  status: "ready",
+  patch_set: 2,
+  files: [file0],
+  commit_message: cl1.subject + "\\n\\nBug: N/A\\nTest: bazel test //...",
+};
+const stack1 = { stack_id: "st-43899601", branch: "emu-main-next", commits: [cl1] };
+state.changes = [cl1];
+state.stacks = [stack1];
+state.selectedStackId = "st-43899601";
+state.selectedClNumber = 43899601;
+state.diffsByCl[43899601] = bundle1;
+state.inlineCommentsByCl[43899601] = [];
+
+// 1. computeCommitSubmitTarget single-CL fast path
+const st1 = computeCommitSubmitTarget(cl1);
+const st2 = computeCommitSubmitTarget(cl1);
+assert.strictEqual(st1, st2);
+assert.ok(cl1._targetSub && cl1._targetSub.num === 43899601 && cl1._stSub && cl1._peersSub);
+
+// 2. canNavigateVisibleCls scalar sub-cache
+const nav1 = canNavigateVisibleCls();
+const nav2 = canNavigateVisibleCls();
+assert.equal(nav1, nav2);
+assert.ok(_navVisSub && _navVisSub.c0Num === 43899601);
+
+// 3. renderPgOwnersSummaryHtml & getPgChangeRebaseStatus scalar sub-caches
+const own1 = renderPgOwnersSummaryHtml(cl1, bundle1);
+const own2 = renderPgOwnersSummaryHtml(cl1, bundle1);
+assert.strictEqual(own1, own2);
+assert.ok(bundle1._ownersSumSub && bundle1._ownersSumSub.num === 43899601);
+
+const rebSt1 = getPgChangeRebaseStatus(cl1, bundle1);
+const rebSt2 = getPgChangeRebaseStatus(cl1, bundle1);
+assert.strictEqual(rebSt1, rebSt2);
+assert.ok(cl1._rebaseStatSub && cl1._rebaseStatSub.num === 43899601);
+
+// 4. renderPgReplyDialogHtml & renderCommitReviewersPanelHtml scalar sub-caches
+const rep1 = renderPgReplyDialogHtml(cl1);
+const rep2 = renderPgReplyDialogHtml(cl1);
+assert.strictEqual(rep1, rep2);
+assert.ok(cl1._replyDlgSub && cl1._replyDlgSub.num === 43899601);
+
+const rp1 = renderCommitReviewersPanelHtml(cl1, false);
+const rp2 = renderCommitReviewersPanelHtml(cl1, false);
+assert.strictEqual(rp1, rp2);
+assert.ok(cl1._revPanSub && cl1._revPanSub.rLen === 1);
+
+// 5. Checks tab/controls/view scalar sub-caches
+const ctb1 = renderPgChecksTabButtonHtml(cl1, "files");
+const ctb2 = renderPgChecksTabButtonHtml(cl1, "files");
+assert.strictEqual(ctb1, ctb2);
+assert.ok(cl1._checksTabBtnSub && cl1._checksTabBtnSub.num === 43899601);
+
+const cctrl1 = renderPgChecksControlsHtml(cl1);
+const cctrl2 = renderPgChecksControlsHtml(cl1);
+assert.strictEqual(cctrl1, cctrl2);
+assert.ok(cl1._checksCtrlsSub && cl1._checksCtrlsSub.num === 43899601);
+
+const cview1 = renderPgChecksViewHtml(cl1);
+const cview2 = renderPgChecksViewHtml(cl1);
+assert.strictEqual(cview1, cview2);
+assert.ok(cl1._checksViewSub && cl1._checksViewSub.num === 43899601);
+
+// 6. Single-CL relation chain & related changes tab sub-caches
+const rchain1 = renderPgRelationChainHtml(cl1);
+const rchain2 = renderPgRelationChainHtml(cl1);
+assert.strictEqual(rchain1, rchain2);
+assert.ok(cl1._relChainSub && cl1._relChainSub.singleMode === true);
+assert.ok(cl1._relTabSub && cl1._relTabSub.num === 43899601);
+
+console.log("SUBMIT_TARGET_AND_HEADER_TABS_SUBCACHES_OK");
+""",
+        )
+        if out:
+            self.assertIn("SUBMIT_TARGET_AND_HEADER_TABS_SUBCACHES_OK", out)
+
+    def test_polygerrit_diff_line_object_cache_and_fast_row_builders(self) -> None:
+        """Verifies Cycle 32 identifier bitmask filter, per-line syntax/intraline HTML cache, fast SBS/Unified row builders, and precomputed overview marker fragments."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        self.assertIn("_IDENT_LAST_CHAR_MASK", html)
+        self.assertIn("canFastUniRow", html)
+        self.assertIn("canFastSbsRow", html)
+        self.assertIn("pushChunkMarker", html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+// 1. Identifier bitmask filter preserves keyword/type/func classification with Unicode
+assert.strictEqual(classifyIdentifierToken("const", null, "syntax_intraline", "cpp", "const int x;", 5), "tok-keyword");
+assert.strictEqual(classifyIdentifierToken("uint32_t", null, "syntax_intraline", "cpp", "uint32_t v;", 8), "tok-type");
+assert.strictEqual(classifyIdentifierToken("result_1", null, "syntax_intraline", "cpp", "result_1 = 0;", 8), "");
+const fnIdent = "compute_测试_🚀_é";
+assert.strictEqual(classifyIdentifierToken(fnIdent, null, "syntax_intraline", "cpp", fnIdent + "(x)", fnIdent.length), "tok-func");
+
+// 2. Per-line _hlHtml and _intraHtml caching across Side-by-Side and Unified renders
+const fileObj = {
+  file: "android/emu/fast_row_测试_🚀_é.cpp",
+  status: "M",
+  total_lines: 40,
+  lines: [
+    { type: "ctx", old: 1, new: 1, text: '  const char* label = "测试_🚀_é";' },
+    { type: "del", old: 2, new: "", text: "-  return oldVal_1;" },
+    { type: "add", old: "", new: 2, text: "+  return newVal_2;" },
+  ],
+};
+const intra = computeFileIntralineRanges(fileObj.lines);
+const sbs1 = renderFileDiffSideBySideHtml(
+  fileObj,
+  43899701,
+  1,
+  fileObj.file,
+  [],
+  "polygerrit_native",
+  { id: "cpp" },
+  intra,
+  2
+);
+assert.ok(fileObj.lines[0]._hlHtml && fileObj.lines[0]._hlHtml.includes("测试_🚀_é"));
+assert.ok(fileObj.lines[1]._intraHtml && fileObj.lines[1]._intraHtml.includes("diff-intra-del"));
+assert.ok(fileObj.lines[2]._intraHtml && fileObj.lines[2]._intraHtml.includes("diff-intra-add"));
+
+// Even after clearing _pgHighlightedLineHtmlCache, line objects retain _hlHtml / _intraHtml
+_pgHighlightedLineHtmlCache.clear();
+const sbs2 = renderFileDiffSideBySideHtml(
+  fileObj,
+  43899701,
+  1,
+  fileObj.file,
+  [],
+  "syntax_intraline",
+  { id: "cpp" },
+  intra,
+  2
+);
+assert.strictEqual(sbs1, sbs2);
+
+const uni1 = renderFileDiffUnifiedHtml(
+  fileObj,
+  43899701,
+  1,
+  fileObj.file,
+  [],
+  "polygerrit_native",
+  { id: "cpp" },
+  intra,
+  2
+);
+assert.ok(uni1.includes("测试_🚀_é"));
+assert.ok(uni1.includes("diff-intra-del") && uni1.includes("diff-intra-add"));
+
+// 3. Precomputed overview marker HTML fragments
+const markersInfo = buildPgDiffOverviewMarkers(fileObj.lines, []);
+assert.ok(markersInfo.markers.length >= 2);
+assert.ok(markersInfo.markers[0]._prefixHtml && markersInfo.markers[0]._suffixHtml);
+const ovBar = renderPgDiffOverviewBarHtml(fileObj, 43899701, fileObj.file, []);
+assert.ok(ovBar.includes("pg-diff-ov-marker is-del") && ovBar.includes("pg-diff-ov-marker is-add"));
+
+console.log("DIFF_LINE_OBJECT_CACHE_AND_FAST_ROW_BUILDERS_OK");
+""",
+        )
+        if out:
+            self.assertIn("DIFF_LINE_OBJECT_CACHE_AND_FAST_ROW_BUILDERS_OK", out)
+
+    def test_polygerrit_presubmit_targets_sig_and_fast_sbs_diff_rows(self) -> None:
+        """Verifies Cycle 33 presubmit targets data sig, targeted dashboard row selection, jump menu comment badge guard, and fast SBS diff rows."""
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        self.assertIn("getPgPresubmitTargetsDataSig", html)
+        self.assertIn("resolveFastDiffLineHtml", html)
+        self.assertIn("_cachedDashRowHasPvData", html)
+        self.assertIn("_lastCodeLinesHtml", html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+// 1. getPgPresubmitTargetsDataSig ignores loading-only entries without data
+state.presubmitTargetsByCl = {
+  43899801: { loading: true, data: null },
+  43899802: { loading: true, data: null },
+};
+assert.strictEqual(getPgPresubmitTargetsDataSig(), "");
+
+// 2. Dashboard row & section targeted selection fast path works even when presubmitTargetsByCl has loading entries
+const cl1 = {
+  number: 43899801,
+  subject: "perf(gerrit-ui): Fastpath SBS diff rows 测试_🚀_é",
+  status: "NEW",
+  patch_set: 2,
+  author: "joshuaduong@google.com",
+  owner_name: "Joshua Duong",
+  owner_email: "joshuaduong@google.com",
+  branch: "emu-main-next",
+  project: "platform/hardware/generic/goldfish",
+};
+const cl2 = {
+  number: 43899802,
+  subject: "perf(gerrit-ui): Secondary CL 测试_🚀_é",
+  status: "NEW",
+  patch_set: 1,
+  author: "joshuaduong@google.com",
+  owner_name: "Joshua Duong",
+  owner_email: "joshuaduong@google.com",
+  branch: "emu-main-next",
+  project: "platform/hardware/generic/goldfish",
+};
+const stack1 = { stack_id: "st-43899801", branch: "emu-main-next", commits: [cl1, cl2] };
+state.changes = [cl1, cl2];
+state.stacks = [stack1];
+state.selectedStackId = "st-43899801";
+state.selectedClNumber = 43899801;
+
+const sec = {
+  id: "your-turn",
+  title: "Your Turn",
+  items: [
+    { stack: stack1, commit: cl1 },
+    { stack: stack1, commit: cl2 },
+  ],
+};
+const secHtml1 = renderPgDashboardSectionHtml(sec);
+assert.ok(secHtml1.includes("43899801") && secHtml1.includes("43899802"), "secHtml1 should include both CLs");
+assert.strictEqual(cl1._cachedDashRowHasPvData, false);
+assert.strictEqual(cl2._cachedDashRowHasPvData, false);
+
+// Switch selected CL: cl2 was not selected before, now becomes selected; cl1 becomes unselected
+state.selectedClNumber = 43899802;
+const secHtml2 = renderPgDashboardSectionHtml(sec);
+assert.ok(secHtml2.includes('data-cl-num="43899802"'), "secHtml2 should include data-cl-num=43899802");
+assert.strictEqual(sec._cachedSelectedClNum, 43899802);
+assert.ok(sec._cachedRowHtmls[1].includes("selected") && !sec._cachedRowHtmls[0].includes("cl-card selected"));
+
+// Populate presubmit target data -> getPgPresubmitTargetsDataSig changes
+state.presubmitTargetsByCl[43899801] = {
+  loading: false,
+  data: { run_status: "running", counts: { total: 5, running: 2, queued: 1 } },
+};
+assert.ok(getPgPresubmitTargetsDataSig().includes("43899801:running:5:2:1"), "presubmit sig should include 43899801:running:5:2:1");
+
+// 3. Jump menu skips comment badge scan when openReplyByItemId is {} and caches _jumpOwnerInfo
+state.openReplyByItemId = {};
+state.inlineCommentsByCl[43899801] = [];
+state.draftInlineCommentsByCl = { 43899801: [] };
+const fObj = {
+  file: "android/emu/sbs_fast_测试_🚀_é.cpp",
+  status: "M",
+  additions: 5,
+  deletions: 2,
+  owner_status: "approved",
+  owner_approved: true,
+  total_lines: 20,
+  lines: [
+    { type: "ctx", old: 1, new: 1, text: "int a = 1;" },
+    { type: "del", old: 2, new: "", text: "-int old_测试_🚀_é = 2;" },
+    { type: "add", old: "", new: 2, text: "+int new_测试_🚀_é = 3;" },
+  ],
+};
+const bundle = {
+  status: "ready",
+  patch_set: 2,
+  files: [fObj],
+};
+state.diffsByCl[43899801] = bundle;
+const jumpHtml = renderPgFileJumpMenuHtml(cl1, bundle);
+assert.ok(jumpHtml.includes("sbs_fast_测试_🚀_é.cpp"), "jumpHtml should include filename");
+assert.ok(fObj._jumpOwnerInfo && fObj._cachedStatus === "M", "fObj should cache _jumpOwnerInfo and _cachedStatus");
+
+// 4. resolveFastDiffLineHtml and fast SBS diff row builder
+const intra = computeFileIntralineRanges(fObj.lines);
+const sbsHtml = renderFileDiffSideBySideHtml(
+  fObj,
+  43899801,
+  2,
+  fObj.file,
+  [],
+  "polygerrit_native",
+  { id: "cpp" },
+  intra,
+  2
+);
+assert.ok(sbsHtml.includes("code-side-left side-del") && sbsHtml.includes("code-side-right side-add"), "sbsHtml should include side-del and side-add");
+assert.ok(sbsHtml.includes("diff-intra-del") && sbsHtml.includes("diff-intra-add"), "sbsHtml should include intraline spans");
+assert.ok(fObj.lines[1]._intraHtml && fObj.lines[2]._intraHtml, "lines should cache _intraHtml");
+
+// 5. renderFileDiffBlock caches _cachedCsLinkHtml and _lastCodeLinesHtml
+const blockHtml1 = renderFileDiffBlock(fObj, 43899801, 2);
+const blockHtml2 = renderFileDiffBlock(fObj, 43899801, 2);
+assert.strictEqual(blockHtml1, blockHtml2);
+assert.ok(typeof fObj._cachedCsLinkHtml === "string", "fObj should cache _cachedCsLinkHtml");
+assert.ok(typeof fObj._lastCodeLinesHtml === "string" && fObj._lastCodeLinesHtml.length > 0, "fObj should cache _lastCodeLinesHtml");
+
+console.log("PRESUBMIT_TARGETS_SIG_AND_FAST_SBS_DIFF_ROWS_OK");
+""",
+        )
+        if out:
+            self.assertIn("PRESUBMIT_TARGETS_SIG_AND_FAST_SBS_DIFF_ROWS_OK", out)
+
+    def test_polygerrit_owner_badge_cache_and_peers_lookup_index(self) -> None:
+        html = render_static_gerrit_ui_html({"items": [], "stacks": [], "total_open": 0}, variant="polygerrit")
+        for token in (
+            "_PG_STATUS_LABELS",
+            "_lastStatusBadgeMap",
+            "_ownerStatSub",
+            "_cachedBadgeHtml",
+            "ensurePgPeersLookupIndex",
+            "_cachedRebRevSig",
+        ):
+            self.assertIn(token, html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+// 1. Verify renderPgFileStatusBadgeHtml fast map cache and active filter bypass
+state.fileStatusFilterByCl = {};
+const badgeM1 = renderPgFileStatusBadgeHtml("M", 43899901);
+const badgeM2 = renderPgFileStatusBadgeHtml("M", 43899901);
+assert.strictEqual(badgeM1, badgeM2);
+assert.ok(badgeM1.includes("status-M") && !badgeM1.includes("is-active-filter"));
+state.fileStatusFilterByCl[43899901] = "M";
+const badgeMActive = renderPgFileStatusBadgeHtml("M", 43899901);
+assert.ok(badgeMActive.includes("is-active-filter"));
+state.fileStatusFilterByCl[43899901] = "";
+
+// 2. Verify getPgFileOwnerStatus _ownerStatSub and renderPgFileOwnerBadgeHtml _cachedBadgeHtml
+const clA = {
+  number: 43899901,
+  subject: "feat(aemu): Owner badge cache 测试_🚀_é",
+  status: "NEW",
+  patch_set: 1,
+  current_revision: "rev_a1",
+  topic: "topic-测试_🚀_é",
+  change_id: "I1111222233334444555566667777888899990001",
+  human_cr2: [{ name: "Alice 测试_🚀_é", email: "alice@google.com" }],
+  reviewers_detail: [{ name: "Alice 测试_🚀_é", email: "alice@google.com", cr_vote: 2 }],
+};
+const clB = {
+  number: 43899902,
+  subject: "feat(aemu): Cherry-pick peer 测试_🚀_é",
+  status: "NEW",
+  patch_set: 2,
+  parent_patch_set: 1,
+  current_revision: "rev_b2",
+  parent_revision: "rev_a0_outdated",
+  topic: "topic-测试_🚀_é",
+  change_id: "I1111222233334444555566667777888899990001",
+};
+const fItem = {
+  file: "emulator/net/owner_测试_🚀_é.cpp",
+  status: "M",
+  owner_status: "approved",
+  owner_approved: true,
+};
+const ownerInfo1 = getPgFileOwnerStatus(clA, fItem);
+const ownerInfo2 = getPgFileOwnerStatus(clA, fItem);
+assert.strictEqual(ownerInfo1, ownerInfo2);
+assert.ok(fItem._ownerStatSub && fItem._ownerStatSub.file === fItem.file);
+const ownerBadge1 = renderPgFileOwnerBadgeHtml(ownerInfo1, 43899901, fItem.file, false);
+const ownerBadge2 = renderPgFileOwnerBadgeHtml(ownerInfo1, 43899901, fItem.file, false);
+assert.strictEqual(ownerBadge1, ownerBadge2);
+assert.strictEqual(ownerInfo1._cachedBadgeHtml, ownerBadge1);
+assert.ok(ownerBadge1.includes("Alice 测试_🚀_é"));
+
+// 3. Verify ensurePgPeersLookupIndex for getPgTopicPeers, getPgCherryPickPeers, and getPgCherryPickGroup
+const stack = {
+  stack_id: "st-peers-9901",
+  commits: [clA, clB],
+};
+state.changes = [clA, clB];
+state.stacks = [stack];
+const tPeers = getPgTopicPeers(clA);
+assert.strictEqual(tPeers.length, 2);
+assert.strictEqual(tPeers[0].number, 43899901);
+assert.strictEqual(tPeers[1].number, 43899902);
+
+const cpPeers = getPgCherryPickPeers(clA);
+assert.strictEqual(cpPeers.length, 1);
+assert.strictEqual(cpPeers[0].number, 43899902);
+
+const cpGroup = getPgCherryPickGroup(clA);
+assert.strictEqual(cpGroup.length, 2);
+
+// 4. Verify computeStackRebaseRevisionSig _cachedRebRevSig and getPgChangeRebaseStatus _rebaseStatSub on multi-commit stack
+const reb1 = getPgChangeRebaseStatus(clB);
+const reb2 = getPgChangeRebaseStatus(clB);
+assert.strictEqual(reb1, reb2);
+assert.strictEqual(reb1.isOutdated, true);
+assert.ok(typeof stack.commits._cachedRebRevSig === "string" && stack.commits._cachedRebRevSig.length > 0);
+assert.ok(clB._rebaseStatSub && clB._rebaseStatSub.stRevSig === stack.commits._cachedRebRevSig);
+
+console.log("OWNER_BADGE_CACHE_AND_PEERS_LOOKUP_INDEX_OK");
+""",
+        )
+        if out:
+            self.assertIn("OWNER_BADGE_CACHE_AND_PEERS_LOOKUP_INDEX_OK", out)
+
+    def test_polygerrit_fast_react_ssr_and_section_cons_string(self):
+        html = render_static_gerrit_ui_html(
+            {"items": [], "stacks": [], "total_open": 0}, variant="polygerrit"
+        )
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+// 1. Verify AemuGerritReact fast escapeHtml, escapeJsQuote, and singleton createHostBridge
+const reactBridge = window.AemuGerritReact;
+assert.ok(reactBridge && typeof reactBridge.createHostBridge === "function");
+const b1 = reactBridge.createHostBridge();
+const b2 = reactBridge.createHostBridge();
+assert.strictEqual(b1, b2, "createHostBridge() without overrides should reuse singleton bridge");
+const bCustom = reactBridge.createHostBridge({ isBatchModeActive: () => true });
+assert.notStrictEqual(b1, bCustom);
+assert.strictEqual(bCustom.isBatchModeActive(), true);
+
+assert.strictEqual(reactBridge.escapeHtml("plain_测试_🚀_é_text"), "plain_测试_🚀_é_text");
+assert.strictEqual(reactBridge.escapeHtml(42), "42");
+assert.strictEqual(reactBridge.escapeHtml('a&b<c>"d'), "a&amp;b&lt;c&gt;&quot;d");
+assert.strictEqual(reactBridge.escapeJsQuote("safe_测试_🚀_é"), "safe_测试_🚀_é");
+assert.strictEqual(reactBridge.escapeJsQuote("a'b\"c\\n"), "a\\'b&quot;c\\\\n");
+
+// 2. Verify RelationVoteChip and RelationChainSidebar with Unicode commits
+const cl1 = {
+  number: 43910001,
+  subject: "feat: First commit 测试_🚀_é",
+  status: "NEW",
+  patch_set: 1,
+  reviewers: [
+    { name: "Bot", email: "bot@google.com", cr_vote: -2, is_bot: true },
+    { name: "Alice", email: "alice@google.com", cr_vote: 1, is_bot: false }
+  ]
+};
+const cl2 = {
+  number: 43910002,
+  subject: "feat: Second commit 测试_🚀_é",
+  status: "NEW",
+  patch_set: 3,
+  reviewers: [
+    { name: "Bob", email: "bob@google.com", cr_vote: -1, is_bot: false }
+  ]
+};
+const stack = {
+  stack_id: "stack-fast-ssr",
+  title: "Fast SSR Stack",
+  category: "incoming",
+  commits: [cl1, cl2]
+};
+state.changes = [cl1, cl2];
+state.stacks = [stack];
+state.selectedClNumber = 43910001;
+state.selectedStackId = "stack-fast-ssr";
+
+const chip1 = renderPgRelVoteChip(cl1);
+assert.ok(chip1.includes("+1"), "Bot -2 should be ignored and human +1 rendered");
+const chip2 = renderPgRelVoteChip(cl2);
+assert.ok(chip2.includes("-1"), "Human -1 vote chip should render");
+
+const relHtml = renderPgRelationChainHtml(cl1, stack);
+assert.ok(relHtml.includes("43910001") && relHtml.includes("43910002"));
+assert.ok(relHtml.includes("测试_🚀_é"));
+
+// 3. Verify renderPgDashboardSectionHtml incremental ConsString update on selection change
+const sec = {
+  id: "incoming",
+  title: "Incoming reviews",
+  query: "is:open",
+  items: [
+    { commit: cl1, stack },
+    { commit: cl2, stack }
+  ]
+};
+const secHtml1 = renderPgDashboardSectionHtml(sec);
+assert.ok(secHtml1.includes("43910001") && secHtml1.includes("43910002"));
+state.selectedClNumber = 43910002;
+const secHtml2 = renderPgDashboardSectionHtml(sec);
+assert.notStrictEqual(secHtml1, secHtml2);
+assert.ok(typeof sec._cachedBodyHtml === "string" && sec._cachedBodyHtml.includes("pg-change-row selected"));
+
+// 4. Verify isPgImageFile, isPgBinaryFile, and renderPgFileListHtml caching on file objects
+assert.strictEqual(isPgImageFile("src/测试_🚀_é/icon.png"), true);
+assert.strictEqual(isPgBinaryFile("src/测试_🚀_é/icon.png"), true);
+assert.strictEqual(isPgBinaryFile("src/测试_🚀_é/archive.zip"), true);
+assert.strictEqual(isPgBinaryFile("src/测试_🚀_é/main.cpp"), false);
+assert.strictEqual(getPgImageFormat("src/测试_🚀_é/icon.png"), "PNG");
+
+const fImg = { file: "src/测试_🚀_é/icon.png", status: "A", additions: 0, deletions: 0 };
+const fCpp = { file: "src/测试_🚀_é/main.cpp", status: "M", additions: 12, deletions: 3 };
+const bundle = { patch_set: 1, files: [fImg, fCpp] };
+state.diffsByCl = { 43910001: bundle };
+const flHtml = renderPgFileListHtml(cl1, bundle);
+assert.ok(flHtml.includes("src/测试_🚀_é/icon.png") && flHtml.includes("src/测试_🚀_é/main.cpp"));
+assert.strictEqual(fImg._cachedFilePath, "src/测试_🚀_é/icon.png");
+assert.strictEqual(fImg._cachedIsImg, true);
+assert.strictEqual(fImg._cachedIsBin, true);
+assert.strictEqual(fCpp._cachedFilePath, "src/测试_🚀_é/main.cpp");
+assert.strictEqual(fCpp._cachedIsImg, false);
+assert.strictEqual(fCpp._cachedIsBin, false);
+
+console.log("FAST_REACT_SSR_AND_SECTION_CONS_STRING_OK");
+""",
+        )
+        if out:
+            self.assertIn("FAST_REACT_SSR_AND_SECTION_CONS_STRING_OK", out)
+
+    def test_polygerrit_fast_diff_row_tails_cache(self) -> None:
+        """Verifies Cycle 36 fast row-tail builders and derived row-tail array caching for SBS/Unified diffs."""
+        html = render_static_gerrit_ui_html(
+            {"viewer": "joshuaduong@google.com", "items": [], "stacks": [], "total_open": 0},
+        )
+        self.assertIn("buildFastSbsCtxRowTail", html)
+        self.assertIn("buildFastSbsDiffRowTail", html)
+        self.assertIn("buildFastUnifiedRowTail", html)
+        self.assertIn("_sbsFastTailsEntry", html)
+        self.assertIn("_uniFastTailsEntry", html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const makeLines = () => {
+  const lines = [];
+  for (let i = 1; i <= 12; i++) {
+    if (i === 5) {
+      lines.push({ type: "del", old: i, new: "", text: '-  const oldLabel = "测试_🚀_é_old";' });
+      lines.push({ type: "add", old: "", new: i, text: '+  const newLabel = "测试_🚀_é_new";' });
+    } else {
+      lines.push({ type: "ctx", old: i, new: i, text: `  const v_${i} = compute_测试_🚀_é(${i});` });
+    }
+  }
+  return lines;
+};
+
+const f1 = {
+  file: "android/emu/fast_tails_测试_🚀_é_1.cpp",
+  status: "M",
+  total_lines: 30,
+  lines: makeLines(),
+};
+const f2 = {
+  file: "android/emu/fast_tails_测试_🚀_é_2.cpp",
+  status: "M",
+  total_lines: 30,
+  lines: makeLines(),
+};
+
+const cl1 = { number: 43920001, patch_set: 1, subject: "feat: Fast diff tails 1", files: [f1] };
+const cl2 = { number: 43920002, patch_set: 1, subject: "feat: Fast diff tails 2", files: [f2] };
+state.changes = [cl1, cl2];
+state.diffsByCl = {
+  43920001: { patch_set: 1, files: [f1] },
+  43920002: { patch_set: 1, files: [f2] },
+};
+
+// Prepopulate file list metadata on f1 and verify renderFileDiffBlock reuses it
+renderPgFileListHtml(cl1, state.diffsByCl[43920001]);
+assert.strictEqual(f1._cachedFilePath, f1.file);
+assert.strictEqual(f1._cachedIsImg, false);
+assert.strictEqual(f1._cachedIsBin, false);
+
+const block1 = renderFileDiffBlock(f1, 43920001, 1, true, { index: 1, total: 1 });
+assert.ok(block1.includes("测试_🚀_é") && block1.includes("diff-intra-add"));
+assert.ok(f1._sbsFastTailsEntry && Array.isArray(f1._sbsFastTailsEntry.tails));
+assert.ok(f1._cachedDerivedRef && f1._cachedDerivedRef._sbsTailsByStyle instanceof Map);
+assert.ok(f1.lines[0]._sbsCtxTail && f1.lines[0]._sbsCtxTail.includes("测试_🚀_é"));
+
+// Rendering f2 with identical lines reuses derived _sbsTailsByStyle while using f2's CL number and file path
+const block2 = renderFileDiffBlock(f2, 43920002, 1, true, { index: 1, total: 1 });
+assert.ok(block2.includes('data-cl="43920002"'));
+assert.ok(block2.includes('data-file="android/emu/fast_tails_测试_🚀_é_2.cpp"'));
+assert.strictEqual(f1._cachedDerivedRef, f2._cachedDerivedRef);
+assert.strictEqual(f1._sbsFastTailsEntry.tails, f2._sbsFastTailsEntry.tails);
+
+// Verify unified mode also populates and reuses _uniFastTailsEntry and _uniTailsByStyle
+const intra1 = computeFileIntralineRanges(f1.lines);
+const uni1 = renderFileDiffUnifiedHtml(f1, 43920001, 1, escapeHtml(f1.file), [], "syntax_intraline", { id: "cpp" }, intra1, 2);
+const uni2 = renderFileDiffUnifiedHtml(f2, 43920002, 1, escapeHtml(f2.file), [], "syntax_intraline", { id: "cpp" }, intra1, 2);
+assert.ok(uni1.includes('data-cl="43920001"') && uni1.includes("测试_🚀_é") && uni1.includes("diff-intra-add"));
+assert.ok(uni2.includes('data-cl="43920002"') && uni2.includes("测试_🚀_é") && uni2.includes("diff-intra-add"));
+assert.strictEqual(f1._uniFastTailsEntry.tails, f2._uniFastTailsEntry.tails);
+
+console.log("FAST_DIFF_ROW_TAILS_CACHE_OK");
+""",
+        )
+        if out:
+            self.assertIn("FAST_DIFF_ROW_TAILS_CACHE_OK", out)
+
+    def test_polygerrit_overview_joined_parts_and_relation_dedup(self) -> None:
+        html = render_static_gerrit_ui_html(
+            {"viewer": "dev@google.com", "items": [], "stacks": [], "total_open": 0},
+        )
+        self.assertIn("_DIFF_LANG_BY_EXT", html)
+        self.assertIn("_joinedParts", html)
+        self.assertIn("_cachedResolvedCsBaseUrl", html)
+        self.assertIn("_stPeersSub", html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const lines = [
+  { type: "ctx", old: 1, new: 1, text: "  int a = 1;" },
+  { type: "add", old: null, new: 2, text: "+  const s = '测试_🚀_é';" },
+  { type: "del", old: 2, new: null, text: "-  const s = 'old';" },
+];
+const ovInfo = buildPgDiffOverviewMarkers(lines, []);
+assert.ok(Array.isArray(ovInfo._joinedParts));
+assert.strictEqual(ovInfo._joinedParts.length, 3);
+
+const f = { file: "android/emu/测试_🚀_é.cpp", status: "M", lines };
+const barHtml = renderPgDiffOverviewBarHtml(f, 43930001, escapeHtml(f.file), []);
+assert.ok(barHtml.includes("43930001, 'android/emu/测试_🚀_é.cpp'"));
+assert.ok(f._ovBarSub && f._ovBarSub.cl === 43930001);
+
+const langCpp1 = detectDiffFileLanguage("android/emu/测试_🚀_é.cpp");
+const langCpp2 = detectDiffFileLanguage("android/emu/other.cc");
+assert.strictEqual(langCpp1, langCpp2);
+assert.strictEqual(langCpp1.id, "cpp");
+assert.strictEqual(langCpp1.badge, "C++");
+
+const clObj = {
+  number: 43930001,
+  project: "platform/hardware/generic/goldfish",
+  branch: "emu-main-next",
+  subject: "feat: 测试_🚀_é",
+  status: "NEW",
+  patch_set: 2,
+};
+const csUrl1 = buildCodeSearchFileUrl(clObj, "android/emu/fast_path.cpp", 42);
+assert.ok(csUrl1.includes("android/emu/fast_path.cpp;l=42"));
+assert.ok(typeof clObj._cachedResolvedCsBaseUrl === "string" && clObj._cachedResolvedCsBaseUrl.length > 0);
+const csUrlUnicode = buildCodeSearchFileUrl(clObj, "android/emu/测试_🚀_é.cpp");
+assert.ok(csUrlUnicode.includes(encodeURIComponent("测试_🚀_é.cpp")));
+
+const stPeers1 = getPgSubmittedTogetherPeers(clObj);
+const stPeers2 = getPgSubmittedTogetherPeers(clObj);
+assert.strictEqual(stPeers1, stPeers2);
+assert.ok(clObj._stPeersSub && clObj._stPeersSub.num === 43930001);
+
+console.log("OVERVIEW_JOINED_AND_RELATION_DEDUP_OK");
+""",
+        )
+        if out:
+            self.assertIn("OVERVIEW_JOINED_AND_RELATION_DEDUP_OK", out)
+
+    def test_owner_badge_parts_and_cold_file_dedup(self) -> None:
+        """Verifies directory-shared simple owner status, prebuilt owner badge parts, and cold file metadata reuse."""
+        html = render_static_gerrit_ui_html(
+            {"viewer": "dev@google.com", "items": [], "stacks": [], "total_open": 0},
+        )
+        self.assertIn("_dirSimpleMap", html)
+        self.assertIn("_badgeP0", html)
+        self.assertIn("_cachedOwnerBadgeHtml", html)
+
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+const clObj = {
+  number: 43940001,
+  project: "platform/hardware/generic/goldfish",
+  branch: "emu-main-next",
+  subject: "perf: 测试_🚀_é cold file dedup",
+  status: "NEW",
+  patch_set: 1,
+  is_submittable: true,
+  reviewers_detail: [
+    { email: "owner@google.com", name: "Owner 测试_🚀_é", cr_vote: 2, in_attention_set: true },
+  ],
+};
+const f1 = {
+  file: "android/emu/测试_🚀_é_one.cpp",
+  status: "M",
+  additions: 12,
+  deletions: 3,
+  lines: [{ type: "add", old: null, new: 1, text: "+int x = 1;" }],
+};
+const f2 = {
+  file: "android/emu/测试_🚀_é_two.cpp",
+  status: "M",
+  additions: 5,
+  deletions: 1,
+  lines: [{ type: "add", old: null, new: 1, text: "+int y = 2;" }],
+};
+const bundle = { number: 43940001, patch_set: 1, files: [f1, f2] };
+state.diffsByCl[43940001] = bundle;
+
+const prefix = computePgClOwnerStatusPrefix(clObj);
+const own1 = getPgFileOwnerStatus(clObj, f1, prefix);
+const own2 = getPgFileOwnerStatus(clObj, f2, prefix);
+assert.strictEqual(own1, own2);
+assert.strictEqual(own1.owner_file, "//android/emu/OWNERS");
+
+const badge1 = renderPgFileOwnerBadgeHtml(own1, 43940001, escapeHtml(f1.file), false, "", true);
+const badge2 = renderPgFileOwnerBadgeHtml(own2, 43940001, escapeHtml(f2.file), false, "", true);
+assert.ok(badge1.includes('data-owner-target="android/emu/测试_🚀_é_one.cpp"'));
+assert.ok(badge2.includes('data-owner-target="android/emu/测试_🚀_é_two.cpp"'));
+assert.ok(typeof own1._badgeP0 === "string" && typeof own1._badgeP3 === "string");
+
+const diffHtml = renderFileDiffBlock(f1, 43940001, 1, true);
+assert.strictEqual(f1._cachedExt, ".cpp");
+assert.strictEqual(f1._cachedIsImg, false);
+assert.strictEqual(f1._cachedIsBin, false);
+assert.ok(diffHtml.includes("测试_🚀_é_one.cpp"));
+
+const listHtml = renderPgFileListHtml(clObj, bundle);
+assert.ok(listHtml.includes("测试_🚀_é_one.cpp"));
+assert.strictEqual(f1._cachedOwnerBadgeTarget, "android/emu/测试_🚀_é_one.cpp");
+assert.ok(typeof f1._cachedOwnerBadgeHtml === "string" && f1._cachedOwnerBadgeHtml.length > 0);
+
+const att = getPgAttentionSetParticipants(clObj);
+assert.strictEqual(att.length, 1);
+assert.strictEqual(att[0].short, "owner");
+
+console.log("OWNER_BADGE_PARTS_AND_COLD_FILE_DEDUP_OK");
+""",
+        )
+        if out:
+            self.assertIn("OWNER_BADGE_PARTS_AND_COLD_FILE_DEDUP_OK", out)
+
+    def test_polygerrit_render_diff_pane_pass_dedup_and_overview_sig_reuse(self) -> None:
+        html = render_static_gerrit_ui_html(
+            {"viewer": "dev@google.com", "items": [], "stacks": [], "total_open": 0},
+        )
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+state.viewer = "reviewer@google.com";
+const f1 = {
+  file: "android/emu/测试_🚀_é_pass.cpp",
+  status: "M",
+  additions: 2,
+  deletions: 1,
+  lines: [
+    { type: "hunk", text: "@@ -1,1 +1,2 @@" },
+    { type: "del", old_num: 1, text: "int old_val = 0;" },
+    { type: "add", new_num: 1, text: "int new_val = 1; // 测试_🚀_é" },
+    { type: "add", new_num: 2, text: "return new_val;" }
+  ]
+};
+const clObj = {
+  number: 43950001,
+  patch_set: 2,
+  subject: "feat(ui): deduplicate renderDiffPane pass 测试_🚀_é",
+  author: "owner@google.com",
+  status: "NEW",
+  mergeable: true,
+  submittable: true,
+  reviewers_detail: [{ email: "reviewer@google.com", name: "Reviewer", cr_vote: 2 }],
+  ccs_detail: []
+};
+const bundle = { number: 43950001, patch_set: 2, files: [f1], unresolved_threads: [] };
+state.changes = [clObj];
+state.stacks = [{ stack_id: "st-43950001", project: "aemu", branch: "main", commits: [clObj] }];
+state.selectedStackId = "st-43950001";
+state.selectedClNumber = 43950001;
+state.diffsByCl[43950001] = bundle;
+
+renderDiffPane();
+assert.strictEqual(state._inRenderDiffPane, false);
+assert.strictEqual(state._renderPassCanNav, undefined);
+assert.strictEqual(clObj._renderPassSubmitTarget, null);
+assert.strictEqual(clObj._renderPassDrafts, null);
+assert.strictEqual(clObj._renderPassStack, undefined);
+assert.strictEqual(bundle._renderPassFlCtx, null);
+assert.ok(f1._ovBarSub && f1._ovBarSub.commentsSig === "0");
+
+const barHtml = renderPgDiffOverviewBarHtml(f1, 43950001, escapeHtml(f1.file), [], f1._ovBarSub.linesSig, "0");
+assert.strictEqual(barHtml, f1._cachedOverviewBarHtml);
+
+console.log("RENDER_DIFF_PANE_PASS_DEDUP_AND_OVERVIEW_SIG_OK");
+""",
+        )
+        if out:
+            self.assertIn("RENDER_DIFF_PANE_PASS_DEDUP_AND_OVERVIEW_SIG_OK", out)
+
+    def test_polygerrit_pool_snapshot_stack_order_and_pane_token_fastpaths(self) -> None:
+        html = render_static_gerrit_ui_html(
+            {"viewer": "dev@google.com", "items": [], "stacks": [], "total_open": 0},
+        )
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+state.viewer = "reviewer@google.com";
+const f1 = {
+  file: "android/emu/测试_🚀_é_fast.cpp",
+  status: "M",
+  additions: 1,
+  deletions: 0,
+  lines: [
+    { type: "hunk", text: "@@ -1,0 +1,1 @@" },
+    { type: "add", new_num: 1, text: "int ok = 1; // 测试_🚀_é" }
+  ]
+};
+const cl1 = {
+  number: 43960001,
+  patch_set: 3,
+  subject: "perf(ui): pool & stack cache 测试_🚀_é",
+  author: "owner@google.com",
+  project: "platform/hardware/google/aemu",
+  branch: "main",
+  status: "NEW",
+  mergeable: true,
+  submittable: true,
+  reviewers_detail: [{ email: "reviewer@google.com", name: "Reviewer", cr_vote: 2 }],
+  ccs_detail: []
+};
+const cl2 = {
+  number: 43960002,
+  patch_set: 1,
+  subject: "feat(ui): second commit 测试_🚀_é",
+  author: "owner@google.com",
+  project: "platform/hardware/google/aemu",
+  branch: "main",
+  status: "NEW",
+  mergeable: true,
+  submittable: false,
+  reviewers_detail: [],
+  ccs_detail: []
+};
+const st = { stack_id: "st-43960001", project: "platform/hardware/google/aemu", branch: "main", commits: [cl1, cl2] };
+state.changes = [cl1, cl2];
+state.stacks = [st];
+state.selectedStackId = "st-43960001";
+state.selectedClNumber = 43960001;
+state.diffsByCl[43960001] = { status: "ready", number: 43960001, patch_set: 3, files: [f1], unresolved_threads: [] };
+state.diffsByCl[43960002] = { status: "ready", number: 43960002, patch_set: 1, files: [], unresolved_threads: [] };
+
+const poolSig = computePoolCountsCacheKey();
+const sum1 = getFilteredStacksSummary(poolSig);
+const sum2 = getFilteredStacksSummary(poolSig);
+assert.strictEqual(sum1, sum2);
+assert.strictEqual(sum1.visibleStacks.length, 1);
+
+state.groupMode = "stack";
+const ord1 = getOrderedVisibleCommits(sum1.visibleStacks);
+const ord2 = getOrderedVisibleCommits(sum1.visibleStacks);
+assert.strictEqual(ord1, ord2);
+assert.strictEqual(ord1.length, 2);
+state._renderPassOrderedVisible = ord1;
+prefetchAdjacentVisibleDiff(cl1, 43960001);
+state._renderPassOrderedVisible = null;
+assert.strictEqual(ord1._idxByClMap.get(43960001), 0);
+assert.strictEqual(ord1._idxByClMap.get(43960002), 1);
+
+sum1.visibleStacks[0].commits = [cl2, cl1];
+const ord3 = getOrderedVisibleCommits(sum1.visibleStacks);
+assert.notStrictEqual(ord3, ord1);
+assert.strictEqual(ord3[0].commit, cl2);
+sum1.visibleStacks[0].commits = [cl1, cl2];
+
+const asciiUrl = buildAemuMapCommitUrl(cl2, { files: [{ file: "tools/emu-dev-cli/main.py" }] });
+assert.ok(asciiUrl.includes("tools/emu-dev-cli/main.py"));
+const unicodeUrl = buildAemuMapCommitUrl(cl1, state.diffsByCl[43960001]);
+assert.ok(unicodeUrl.includes(encodeURIComponent("测试_🚀_é_fast.cpp")));
+
+renderDiffPane();
+const diffScroll = document.getElementById("diffScroll");
+const tok1 = diffScroll._lastPaneRenderToken;
+assert.ok(typeof tok1 === "number" && tok1 > 0);
+let innerWrites = 0;
+let curInner = diffScroll.innerHTML;
+Object.defineProperty(diffScroll, "innerHTML", {
+  configurable: true,
+  get() { return curInner; },
+  set(v) { innerWrites++; curInner = String(v); }
+});
+renderDiffPane();
+assert.strictEqual(innerWrites, 0);
+curInner = "";
+renderDiffPane();
+assert.strictEqual(innerWrites, 1);
+
+(async () => {
+  let mergeFetches = 0;
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes("/api/gerrit/mergeable")) mergeFetches++;
+    return { ok: true, status: 200, json: async () => ({ status: "ok", mergeable: true }) };
+  };
+  await loadPgMergeable(43960001, "current");
+  await loadPgMergeable(43960001, "current");
+  assert.strictEqual(mergeFetches, 1);
+  cl1.patch_set = 4;
+  await loadPgMergeable(43960001, "current");
+  assert.strictEqual(mergeFetches, 2);
+  cl1.patch_set = 3;
+  globalThis.fetch = origFetch;
+  console.log("POOL_STACK_ORDER_AND_PANE_TOKEN_FASTPATHS_OK");
+})().catch(e => { setTimeout(() => { throw e; }, 0); });
+""",
+        )
+        if out:
+            self.assertIn("POOL_STACK_ORDER_AND_PANE_TOKEN_FASTPATHS_OK", out)
+
+    def test_polygerrit_commit_code_viewer_directory_tree_mode(self) -> None:
+        html = render_static_gerrit_ui_html(
+            {"viewer": "dev@google.com", "items": [], "stacks": [], "total_open": 0},
+        )
+        self.assertIn('id="codeViewerSidebar"', html)
+        self.assertIn('id="btnToolbarCodeViewer"', html)
+        out = self._run_polygerrit_viewer_vm(
+            html,
+            r"""
+state.viewer = "reviewer@google.com";
+const fileA = "tools/emu-dev-cli/src/ui/测试_🚀_é/alpha.tsx";
+const fileB = "tools/emu-dev-cli/src/ui/测试_🚀_é/beta.tsx";
+const fileRoot = "BUILD.bazel";
+const files = [
+  {
+    file: fileA,
+    status: "A",
+    additions: 48,
+    deletions: 0,
+    lines: [{ type: "add", new_num: 1, text: "export const a = '测试_🚀_é';" }]
+  },
+  {
+    file: fileB,
+    status: "M",
+    additions: 12,
+    deletions: 4,
+    lines: [{ type: "add", new_num: 1, text: "export const b = 2;" }]
+  },
+  {
+    file: fileRoot,
+    status: "M",
+    additions: 2,
+    deletions: 1,
+    lines: [{ type: "add", new_num: 1, text: "# build" }]
+  }
+];
+const cl = {
+  number: 43970001,
+  patch_set: 2,
+  subject: "feat(gerrit-ui): Add commit code viewer mode 测试_🚀_é",
+  author: "owner@google.com",
+  project: "platform/hardware/google/aemu",
+  branch: "studio-main",
+  status: "NEW",
+  mergeable: true,
+  submittable: true,
+  reviewers_detail: [],
+  ccs_detail: []
+};
+state.changes = [cl];
+state.stacks = [{ stack_id: "st-43970001", project: cl.project, branch: cl.branch, commits: [cl] }];
+state.selectedStackId = "st-43970001";
+state.selectedClNumber = 43970001;
+state.diffsByCl[43970001] = { status: "ready", number: 43970001, patch_set: 2, files, unresolved_threads: [] };
+
+renderDiffPane();
+const diffScroll = document.getElementById("diffScroll");
+assert.ok(diffScroll.innerHTML.includes('id="btnCodeViewerMode-43970001"'));
+
+const commitEl = document.getElementById("pgStackCommit-43970001");
+const mockBlocks = files.map(f => {
+  const b = makeMockEl("blk-" + f.file);
+  b.setAttribute("data-file", f.file);
+  return b;
+});
+commitEl.querySelectorAll = (sel) => {
+  if (sel === ".pg-file-diff-block") return mockBlocks;
+  if (sel === ".pg-file-diff-block.cv-hidden-file-block") {
+    return mockBlocks.filter(b => b.classList.contains("cv-hidden-file-block"));
+  }
+  return [];
+};
+
+state.sidebarCollapsed = true;
+togglePgCodeViewerMode(43970001);
+assert.strictEqual(state.codeViewerMode, true);
+assert.strictEqual(state.sidebarCollapsed, false);
+
+const wsEl = document.getElementById("workspaceContainer");
+assert.strictEqual(wsEl.classList.contains("code-viewer-mode"), true);
+
+const sidebarEl = document.getElementById("codeViewerSidebar");
+assert.strictEqual(sidebarEl.style.display, "flex");
+assert.ok(sidebarEl.innerHTML.includes("pg-dashboard-bar"));
+assert.ok(sidebarEl.innerHTML.includes("pg-section-box"));
+assert.ok(sidebarEl.innerHTML.includes("pg-section-header"));
+assert.ok(sidebarEl.innerHTML.includes("pg-file-status-badge"));
+assert.ok(sidebarEl.innerHTML.includes("pg-reviewed-summary-badge"));
+assert.ok(sidebarEl.innerHTML.includes("pg-row-cursor"));
+assert.ok(sidebarEl.innerHTML.includes("tools/emu-dev-cli/src/ui/测试_🚀_é/"));
+assert.ok(sidebarEl.innerHTML.includes("alpha.tsx"));
+assert.ok(sidebarEl.innerHTML.includes("beta.tsx"));
+assert.ok(sidebarEl.innerHTML.includes("BUILD.bazel"));
+
+// Active file from renderDiffPane (fileA) is preserved on entering Code Viewer mode
+assert.strictEqual(state.codeViewerSelectedFileByCl[43970001], fileA);
+assert.strictEqual(commitEl.classList.contains("cv-showing-single-file"), true);
+assert.strictEqual(mockBlocks[0].classList.contains("cv-hidden-file-block"), false);
+assert.strictEqual(mockBlocks[1].classList.contains("cv-hidden-file-block"), true);
+assert.strictEqual(mockBlocks[2].classList.contains("cv-hidden-file-block"), true);
+
+// Cross-referencing: scroll in alpha.tsx, switch to BUILD.bazel, then switch back and verify scroll restored
+diffScroll.scrollTop = 380;
+selectCodeViewerFile(43970001, 2, fileRoot);
+assert.strictEqual(state.codeViewerSelectedFileByCl[43970001], fileRoot);
+assert.strictEqual(diffScroll.scrollTop, 0);
+assert.strictEqual(mockBlocks[2].classList.contains("cv-hidden-file-block"), false);
+assert.strictEqual(mockBlocks[0].classList.contains("cv-hidden-file-block"), true);
+
+diffScroll.scrollTop = 140;
+selectCodeViewerFile(43970001, 2, fileA);
+assert.strictEqual(diffScroll.scrollTop, 380);
+selectCodeViewerFile(43970001, 2, fileRoot);
+assert.strictEqual(diffScroll.scrollTop, 140);
+
+// Commit Overview item shows overview mode
+selectCodeViewerFile(43970001, 2, "/COMMIT_MSG");
+assert.strictEqual(commitEl.classList.contains("cv-showing-overview"), true);
+assert.strictEqual(commitEl.classList.contains("cv-showing-single-file"), false);
+
+// Filter, folder collapse/expand, reviewed toggle, All Files mode, and exit back to Dashboard
+onCodeViewerFilterInput("beta");
+assert.ok(sidebarEl.innerHTML.includes('<mark class="cv-tree-match">beta</mark>.tsx'));
+assert.ok(!sidebarEl.innerHTML.includes("BUILD.bazel"));
+clearCodeViewerFilter();
+assert.ok(sidebarEl.innerHTML.includes("BUILD.bazel"));
+
+collapseAllCodeViewerDirs(43970001);
+assert.ok(!sidebarEl.innerHTML.includes("alpha.tsx"));
+expandAllCodeViewerDirs(43970001);
+assert.ok(sidebarEl.innerHTML.includes("alpha.tsx"));
+
+selectCodeViewerFile(43970001, 2, fileA);
+toggleCodeViewerFileReviewed(null, 43970001, 2, fileA);
+assert.strictEqual(getPgReviewedSet(43970001, 2).has(fileA), true);
+assert.strictEqual(isPgFileCollapsed(43970001, 2, fileA), false);
+
+setCodeViewerDisplayMode("all");
+assert.strictEqual(commitEl.classList.contains("cv-all-files-mode"), true);
+assert.strictEqual(mockBlocks.every(b => !b.classList.contains("cv-hidden-file-block")), true);
+
+togglePgCodeViewerMode(43970001, false);
+assert.strictEqual(state.codeViewerMode, false);
+assert.strictEqual(wsEl.classList.contains("code-viewer-mode"), false);
+assert.strictEqual(sidebarEl.style.display, "none");
+
+// Shift+click batch selection stays in Dashboard sidebar, while normal click switches into File Tree mode
+onClCardBodyClick("st-43970001", 43970001, { shiftKey: true, stopPropagation() {} });
+assert.strictEqual(state.codeViewerMode, false);
+clearCheckedCls({ silent: true });
+
+state.codeViewerDisplayMode = "single";
+delete state.codeViewerSelectedFileByCl[43970001];
+onClCardBodyClick("st-43970001", 43970001, { shiftKey: false });
+assert.strictEqual(state.codeViewerMode, true);
+assert.strictEqual(wsEl.classList.contains("code-viewer-mode"), true);
+assert.strictEqual(sidebarEl.style.display, "flex");
+assert.strictEqual(state.codeViewerSelectedFileByCl[43970001], "/COMMIT_MSG");
+assert.ok(sidebarEl.innerHTML.includes("tools/emu-dev-cli/src/ui/测试_🚀_é"));
+
+selectCodeViewerFile(43970001, 2, fileB);
+assert.strictEqual(commitEl.classList.contains("cv-showing-single-file"), true);
+assert.strictEqual(mockBlocks[1].classList.contains("cv-hidden-file-block"), false);
+assert.strictEqual(mockBlocks[0].classList.contains("cv-hidden-file-block"), true);
+
+// Background renderDiffPane({ preserveScroll: true }) does not clobber active scrollTop
+diffScroll.scrollTop = 512;
+state.lastRenderedDiffSignature = "";
+renderDiffPane({ preserveScroll: true });
+assert.strictEqual(diffScroll.scrollTop, 512);
+
+// Unresolved and draft comment stats from getPgFileCommentStats render pills in file tree
+state.inlineCommentsByCl[43970001] = [
+  { id: "c1", file_path: fileB, line: 4, side: "REVISION", kind: "comment", unresolved: true, message: "Check this" },
+  { id: "d1", file_path: fileB, line: 8, side: "REVISION", kind: "draft", unresolved: true, message: "Draft note" },
+];
+state._inlineByFileSub = null;
+renderCodeViewerSidebarDom({ force: true });
+assert.ok(sidebarEl.innerHTML.includes("⚠1"));
+assert.ok(sidebarEl.innerHTML.includes("📝1"));
+
+console.log("COMMIT_CODE_VIEWER_DIRECTORY_TREE_MODE_OK");
+""",
+        )
+        if out:
+            self.assertIn("COMMIT_CODE_VIEWER_DIRECTORY_TREE_MODE_OK", out)
+
+
+
+
+
+def _iter_test_cases(suite: unittest.TestSuite) -> list[unittest.TestCase]:
+    cases: list[unittest.TestCase] = []
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            cases.extend(_iter_test_cases(item))
+        else:
+            cases.append(item)
+    return cases
+
+
+def _run_sharded_or_main() -> None:
+    import sys
+
+    status_file = os.environ.get("TEST_SHARD_STATUS_FILE")
+    total_shards = int(os.environ.get("TEST_TOTAL_SHARDS", "1") or "1")
+    shard_index = int(os.environ.get("TEST_SHARD_INDEX", "0") or "0")
+    if status_file:
+        Path(status_file).parent.mkdir(parents=True, exist_ok=True)
+        Path(status_file).touch()
+    if total_shards <= 1:
+        unittest.main()
+        return
+    if len(sys.argv) > 1:
+        if shard_index == 0:
+            unittest.main()
+        return
+    full_suite = unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
+    all_cases = sorted(_iter_test_cases(full_suite), key=lambda tc: tc.id())
+    shard_cases = all_cases[shard_index::total_shards]
+    result = unittest.TextTestRunner(verbosity=1).run(unittest.TestSuite(shard_cases))
+    sys.exit(0 if result.wasSuccessful() else 1)
+
 
 if __name__ == "__main__":
-    unittest.main()
+    _run_sharded_or_main()

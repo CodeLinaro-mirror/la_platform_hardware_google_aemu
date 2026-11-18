@@ -33,36 +33,45 @@ def find_adb_binary() -> str:
     if which_adb:
         return which_adb
 
+    exe_names = ("adb.exe", "adb") if os.name == "nt" else ("adb",)
     android_home = os.environ.get("ANDROID_HOME") or os.environ.get(
         "ANDROID_SDK_ROOT"
     )
     if android_home:
-        cand = os.path.join(android_home, "platform-tools", "adb")
-        if os.path.isfile(cand):
-            return cand
+        for exe in exe_names:
+            cand = os.path.join(android_home, "platform-tools", exe)
+            if os.path.isfile(cand):
+                return cand
 
-    user_sdk = os.path.expanduser("~/Android/Sdk/platform-tools/adb")
-    if os.path.isfile(user_sdk):
-        return user_sdk
+    for sdk_rel in ("~/AppData/Local/Android/Sdk", "~/Library/Android/sdk", "~/Android/Sdk"):
+        for exe in exe_names:
+            user_sdk = os.path.expanduser(f"{sdk_rel}/platform-tools/{exe}")
+            if os.path.isfile(user_sdk):
+                return user_sdk
 
     return "adb"
 
 
 def find_netsim_binary(emu_dir: Optional[str] = None) -> Optional[str]:
     """Locates the netsim CLI binary from emu_dir, standard /tmp distributions, or PATH."""
+    exe_names = ("netsim.exe", "netsim") if os.name == "nt" else ("netsim",)
     if emu_dir:
-        cand = os.path.join(os.path.abspath(os.path.expanduser(emu_dir)), "bin", "netsim")
-        if os.path.isfile(cand) and os.access(cand, os.X_OK):
-            return cand
+        base_emu = os.path.abspath(os.path.expanduser(emu_dir))
+        for exe in exe_names:
+            cand = os.path.join(base_emu, "bin", exe)
+            if os.path.isfile(cand) and (os.name == "nt" or os.access(cand, os.X_OK)):
+                return cand
 
-    search_patterns = [
-        "/tmp/emu/emulator/bin/netsim",
-        "/tmp/emulator-*/extracted/emulator/bin/netsim",
-        "/tmp/emulator-*/bin/netsim",
-    ]
+    search_patterns = []
+    for exe in exe_names:
+        search_patterns.extend([
+            f"/tmp/emu/emulator/bin/{exe}",
+            f"/tmp/emulator-*/extracted/emulator/bin/{exe}",
+            f"/tmp/emulator-*/bin/{exe}",
+        ])
     for pattern in search_patterns:
         for p in glob.glob(pattern):
-            if os.path.isfile(p) and os.access(p, os.X_OK):
+            if os.path.isfile(p) and (os.name == "nt" or os.access(p, os.X_OK)):
                 return p
 
     which_netsim = shutil.which("netsim")

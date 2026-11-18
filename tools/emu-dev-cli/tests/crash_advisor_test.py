@@ -73,7 +73,7 @@ class CrashAdvisorTest(unittest.TestCase):
         """Tests resolving CrashAdvisor via precompiled binary executable."""
         mock_find_bin.return_value = Path("/path/to/advisor")
         launch = resolve_advisor_launch()
-        self.assertEqual(launch.command, ("/path/to/advisor",))
+        self.assertEqual(launch.command, (str(Path("/path/to/advisor")),))
         self.assertIsNone(launch.cwd)
 
     @patch("lib.workspace.WorkspacePathResolver.find_tool_binary")
@@ -111,9 +111,9 @@ class CrashAdvisorTest(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(
             calls[0].args,
-            ("fake_advisor", "05d8356e2f800000", "--auto-run", "--work-dir", "/tmp/work", "--token", "tok123"),
+            ("fake_advisor", "05d8356e2f800000", "--auto-run", "--work-dir", str(Path("/tmp/work")), "--token", "tok123"),
         )
-        self.assertEqual(str(calls[0].cwd), "/tmp")
+        self.assertEqual(Path(calls[0].cwd), Path("/tmp"))
 
 
 if __name__ == "__main__":

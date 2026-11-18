@@ -206,8 +206,14 @@ class BazelRunner:
             bazel_binary: Optional explicit bazel command/path override.
         """
         self.source_dir = Path(source_dir) if source_dir else None
+        self._source_dir_str = str(source_dir) if source_dir else None
         self._bazel_binary = bazel_binary
         self._cached_info: Optional[Dict[str, str]] = None
+
+    def _resolve_cwd(self, cwd: Optional[Union[str, Path]]) -> Optional[str]:
+        if cwd is not None:
+            return str(cwd)
+        return self._source_dir_str if self.source_dir is not None else None
 
     @property
     def bazel_binary(self) -> str:
@@ -240,7 +246,7 @@ class BazelRunner:
             cmd.append("--")
             cmd.extend(args)
 
-        run_cwd = str(cwd or self.source_dir) if (cwd or self.source_dir) else None
+        run_cwd = self._resolve_cwd(cwd)
         logger.debug("Executing Bazel command: %s (cwd=%s)", " ".join(cmd), run_cwd)
         return subprocess.run(cmd, cwd=run_cwd, check=check)
 
@@ -270,7 +276,7 @@ class BazelRunner:
         if flags:
             cmd.extend(flags)
         cmd.extend(targets)
-        run_cwd = str(cwd or self.source_dir) if (cwd or self.source_dir) else None
+        run_cwd = self._resolve_cwd(cwd)
         return subprocess.run(
             cmd,
             cwd=run_cwd,
@@ -307,7 +313,7 @@ class BazelRunner:
         if flags:
             cmd.extend(flags)
         cmd.extend(targets)
-        run_cwd = str(cwd or self.source_dir) if (cwd or self.source_dir) else None
+        run_cwd = self._resolve_cwd(cwd)
         return subprocess.run(
             cmd,
             cwd=run_cwd,
@@ -341,7 +347,7 @@ class BazelRunner:
             cmd.extend(invocation_flags)
         cmd.append(query)
 
-        run_cwd = str(cwd or self.source_dir) if (cwd or self.source_dir) else None
+        run_cwd = self._resolve_cwd(cwd)
         return subprocess.run(
             cmd,
             cwd=run_cwd,
@@ -366,7 +372,7 @@ class BazelRunner:
         """
         if self._cached_info is None:
             cmd = [self.bazel_binary, "info"]
-            run_cwd = str(cwd or self.source_dir) if (cwd or self.source_dir) else None
+            run_cwd = self._resolve_cwd(cwd)
             res = subprocess.run(
                 cmd,
                 cwd=run_cwd,

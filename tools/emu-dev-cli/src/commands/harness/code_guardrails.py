@@ -150,6 +150,7 @@ def find_goldfish_repo_root(start_dir: Path) -> Optional[Path]:
 
 def _is_goldfish_path(norm_path: str) -> bool:
     """Returns True if the normalized path belongs to the goldfish (emu-main-next) repo."""
+    norm_path = norm_path.replace("\\", "/")
     if "/tools/emulator/" in norm_path or "/tools/vendor/" in norm_path:
         return False
     return (
@@ -161,6 +162,7 @@ def _is_goldfish_path(norm_path: str) -> bool:
 
 def _is_emulator_cpp_repo_path(norm_path: str) -> bool:
     """Returns True if the normalized path is inside goldfish, external/qemu, or aemu."""
+    norm_path = norm_path.replace("\\", "/")
     if "/emulator/libs/file/" in norm_path:
         # Implementation of the UTF-8 file wrapper library itself is exempt.
         return False
@@ -258,6 +260,7 @@ def _more_suffix(count: int) -> str:
 
 def grpc_utils_advisories(norm_path: str, content: str) -> List[str]:
     """Returns non-blocking `//emulator/libs/grpc_utils` advice for an `emulator/plugin/grpc/` C++ edit."""
+    norm_path = norm_path.replace("\\", "/")
     suffix = Path(norm_path).suffix.lower()
     if suffix not in CPP_EXTENSIONS or not _is_goldfish_grpc_plugin_path(norm_path):
         return []
@@ -322,6 +325,7 @@ def absl_mutex_lock_advisories(norm_path: str, content: str) -> List[str]:
     Skips `external/qemu` and `aemu`, and goldfish checkouts that pin an Abseil older than
     the first LTS with the `Mutex&` constructors, where the reference form does not compile.
     """
+    norm_path = norm_path.replace("\\", "/")
     suffix = Path(norm_path).suffix.lower()
     if (
         suffix not in CPP_EXTENSIONS

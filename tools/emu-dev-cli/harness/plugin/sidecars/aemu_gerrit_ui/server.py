@@ -46,10 +46,10 @@ def _source_dirs_from_config(cfg_file: Path) -> list[Path]:
 
 
 def _has_complete_gerrit_ui_bundle(cand: Path) -> bool:
-    """Returns True when both `ui_server.py` and `templates/gerrit_ui.html` exist in `cand`."""
+    """Returns True when both `ui_server.py` and `templates/gerrit_ui_polygerrit.html` exist in `cand`."""
     return (
         (cand / "commands" / "gerrit" / "ui_server.py").is_file()
-        and (cand / "templates" / "gerrit_ui.html").is_file()
+        and (cand / "templates" / "gerrit_ui_polygerrit.html").is_file()
     )
 
 
@@ -110,6 +110,7 @@ WATCHED_GERRIT_MODULES: tuple[str, ...] = (
     "commands.gerrit.presubmit_targets",
     "commands.gerrit.sidecar_updater",
     "commands.gerrit.services.context",
+    "commands.gerrit.services.ui_assets",
     "commands.gerrit.services.diff_parser",
     "commands.gerrit.services.queue_service",
     "commands.gerrit.services.vote_submit_service",
@@ -124,6 +125,7 @@ WATCHED_GERRIT_MODULES: tuple[str, ...] = (
 def main() -> None:
     _bootstrap_emu_dev_cli_path()
     import commands.gerrit.ui_server as ui_mod
+    from commands.gerrit.services.ui_assets import list_gerrit_ui_watched_paths
     from core.web.server import HotReloadHandlerDispatcher
 
     if not os.environ.get("ANTIGRAVITY_SIDECAR_UI_TOKEN"):
@@ -139,9 +141,8 @@ def main() -> None:
         handler_builder=lambda: ui_mod.make_gerrit_ui_handler(
             ui_mod.GerritUIService(default_viewer=viewer)
         ),
-        extra_paths_fn=lambda: tuple(
-            ui_mod.get_gerrit_ui_template_path(variant)
-            for variant in ("classic", "polygerrit")
+        extra_paths_fn=lambda: list_gerrit_ui_watched_paths(
+            ui_mod.get_gerrit_ui_template_path()
         ),
     )
 

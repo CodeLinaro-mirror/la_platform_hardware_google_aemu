@@ -130,7 +130,7 @@ def register_parser(subparser, default_host):
         "--host",
         type=str,
         default=default_host,
-        choices=["linux-x64", "mac-arm64", "mac-x64"],
+        choices=["linux-x64", "mac-arm64", "mac-x64", "windows-x64"],
         help=f"Target host OS platform (defaults to auto-detected '{default_host}')"
     )
     parser.add_argument(

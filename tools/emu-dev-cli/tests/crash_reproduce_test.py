@@ -166,8 +166,8 @@ class CrashReproduceTest(unittest.TestCase):
 
     @patch("subprocess.Popen")
     @patch("subprocess.run")
-    @patch("os.killpg")
-    @patch("os.getpgid")
+    @patch("os.killpg", create=True)
+    @patch("os.getpgid", create=True)
     def test_run_reproduce_lldb_process_group_cleanup(
         self,
         mock_getpgid,

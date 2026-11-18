@@ -234,7 +234,7 @@ def _parse_single_payload_comment(file_path: str, raw_item: dict[str, Any]) -> d
         "file": file_path,
         "line": int(raw_item.get("line") or 1),
         "category": category,
-        "severity": "blocking",
+        "severity": "blocking" if raw_item.get("unresolved", True) else "warning",
         "message": clean_body,
         "suggested_fix": fix_part.strip(),
     }

@@ -255,7 +255,9 @@ def setup_msg_files(
         if not raw_path:
             continue
         target_path = Path(raw_path).resolve()
-        target_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        target_path.parent.mkdir(
+            parents=True, exist_ok=True, mode=(0o777 if os.name == "nt" else 0o700)
+        )
         target_path.write_text("", encoding="utf-8")
     print("OK")
     return 0
@@ -315,7 +317,11 @@ def verify_proposed_msg(
             )
             if base_hash:
                 b_path = Path(base_commit_file).resolve()
-                b_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                b_path.parent.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                    mode=(0o777 if os.name == "nt" else 0o700),
+                )
                 b_path.write_text(base_hash.strip() + "\n", encoding="utf-8")
 
     errors = validate_commit_message_file(
