@@ -1,0 +1,90 @@
+<header id="pgMainHeader" class="pg-main-header">
+  <div class="pg-main-header-inner">
+    <div class="pg-main-header-left">
+      <span class="pg-brand-logo" title="PolyGerrit UX · Fast Agent Sidecar">
+        <span class="pg-logo-emblem" aria-hidden="true">+/-</span>
+        <span class="pg-brand-title">Gerrit Code Review</span>
+      </span>
+      <span class="pg-host-pill">android-review</span>
+    </div>
+    <div class="pg-header-search-wrap" onclick="event.stopPropagation()">
+      <span class="pg-header-search-icon" aria-hidden="true">🔍</span>
+      <input
+        id="queueSearchInput"
+        class="pg-header-search-input"
+        type="text"
+        placeholder="Search for status:open, author, ag/#, b/#, or file… (/)"
+        onfocus="onQueueSearchFocus(event)"
+        oninput="onQueueSearchInput(this.value)"
+        onkeydown="onQueueSearchKeydown(event)"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button
+        id="queueSearchClearBtn"
+        type="button"
+        class="queue-search-clear"
+        onclick="clearQueueSearchAndAuthor()"
+        title="Clear search &amp; author filter (Esc)"
+      >✕</button>
+      <button
+        id="btnHeaderSearchHelp"
+        type="button"
+        class="pg-btn-search-help-hdr"
+        onclick="openPgSearchHelpDialog()"
+        title="Search operators cheat sheet (Shortcut: Alt+/)"
+        aria-label="Search operators cheat sheet"
+      >?</button>
+      <button
+        id="btnSaveSearchQuery"
+        type="button"
+        class="pg-btn-save-search"
+        onclick="openSaveCurrentSearchDialog()"
+        title="Save query as custom dashboard section or favorite search"
+        style="display:none;"
+      >💾</button>
+      <div id="pgSearchSuggestionsPopover" class="pg-search-suggestions-popover" style="display:none;" onclick="event.stopPropagation()"></div>
+    </div>
+    <div class="pg-main-header-right">
+      <div class="pg-header-account" title="Active Gerrit dashboard viewer identity">
+        <span class="pg-header-account-label">Account:</span>
+        <select id="viewerSelect" class="pg-header-viewer-select" onchange="onViewerChange()" aria-label="Active viewer identity"></select>
+      </div>
+      <button
+        id="btnPgShortcuts"
+        type="button"
+        class="pg-header-btn"
+        onclick="event.stopPropagation(); openShortcutsDialog()"
+        title="Keyboard shortcuts cheatsheet (Shortcut: ?)"
+      ><span class="pg-kbd-btn-icon" aria-hidden="true">⌨️</span><span class="pg-header-btn-text">Shortcuts</span> <kbd class="pg-header-kbd-badge">?</kbd></button>
+      <button
+        id="btnPgThemeToggle"
+        type="button"
+        class="pg-header-btn"
+        onclick="event.stopPropagation(); togglePgTheme()"
+        title="Toggle between PolyGerrit Dark and PolyGerrit Light themes (Shortcut: t)"
+      ><span id="pgThemeToggleLabel">🌙 Dark Theme</span></button>
+      <button
+        id="btnRefreshQueue"
+        type="button"
+        class="pg-header-btn btn-refresh-icon"
+        onclick="event.stopPropagation(); manualRefreshQueue()"
+        title="Refresh Gerrit dashboard"
+        aria-label="Refresh Gerrit dashboard"
+      >
+        <svg class="refresh-icon-svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M13.5 8a5.5 5.5 0 1 1-1.35-3.61"/>
+          <polyline points="13.5 2 13.5 5.2 10.3 5.2"/>
+        </svg>
+        <span class="pg-header-btn-text">Refresh</span>
+      </button>
+      <button
+        id="btnUpdateAvailable"
+        type="button"
+        class="btn-update-available"
+        onclick="event.stopPropagation(); onUpdateAvailableClick()"
+        title="New Gerrit UI / sidecar changes available in hardware/google/aemu"
+      ><span id="btnUpdateAvailableLabel">⬇ Update Available</span></button>
+    </div>
+  </div>
+</header>

@@ -25,6 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 import json
 import logging
+import os
 import re
 import sys
 import tempfile
@@ -42,7 +43,7 @@ logger = logging.getLogger(__name__)
 TokenProvider = Callable[[Optional[str]], Optional[str]]
 
 CRASHADVISOR_CACHE_DIR_NAME = "crashadvisor"
-PRIVATE_DIR_MODE = 0o700
+PRIVATE_DIR_MODE = 0o777 if os.name == "nt" else 0o700
 FALLBACK_WORK_DIR_NAME = "unknown"
 _UNSAFE_DIR_NAME_CHARS = re.compile(r"[^\w.-]")
 

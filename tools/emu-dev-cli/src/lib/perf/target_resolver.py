@@ -145,22 +145,25 @@ def _build_emulator_dir_target(
 
 
 def _try_resolve_json_target(spec: str) -> Optional[ResolvedPerfTarget]:
-    if ".json" not in spec or (not os.path.isfile(spec) and ":" not in spec):
+    if ".json" not in spec:
         return None
-    base_path = spec.split(":", 1)[0]
-    if not os.path.isfile(base_path):
-        return None
-    lbl = (
-        spec.split(":", 1)[1]
-        if ":" in spec
-        else os.path.splitext(os.path.basename(base_path))[0]
-    )
-    return ResolvedPerfTarget(
-        spec=spec,
-        kind="json",
-        label=lbl,
-        json_path=spec,
-    )
+    if os.path.isfile(spec):
+        return ResolvedPerfTarget(
+            spec=spec,
+            kind="json",
+            label=os.path.splitext(os.path.basename(spec))[0],
+            json_path=spec,
+        )
+    if ":" in spec:
+        base_path, lbl = spec.rsplit(":", 1)
+        if os.path.isfile(base_path):
+            return ResolvedPerfTarget(
+                spec=spec,
+                kind="json",
+                label=lbl,
+                json_path=spec,
+            )
+    return None
 
 
 def _find_workspace_root() -> Optional[str]:
@@ -170,7 +173,10 @@ def _find_workspace_root() -> Optional[str]:
             os.path.join(cur, "hardware", "google", "aemu")
         ):
             return cur
-        cur = os.path.dirname(cur)
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
     try:
         from commands.source_directory import get_source_directory
 
@@ -180,7 +186,7 @@ def _find_workspace_root() -> Optional[str]:
 
 
 def _find_built_release_zip(ws_root: str, require_opt: bool = True) -> Optional[str]:
-    candidates = (
+    candidates = [
         os.path.join(
             ws_root,
             "bazel-bin",
@@ -190,6 +196,20 @@ def _find_built_release_zip(ws_root: str, require_opt: bool = True) -> Optional[
             "release.zip",
         ),
         os.path.join(ws_root, "bazel-bin", "emulator-repo-release.zip"),
+    ]
+    candidates.extend(
+        glob.glob(
+            os.path.join(
+                ws_root,
+                "bazel-out",
+                "*-opt*",
+                "bin",
+                "external",
+                "goldfish+",
+                "emulator",
+                "release.zip",
+            )
+        )
     )
     for cand in candidates:
         if not os.path.isfile(cand):
@@ -387,7 +407,7 @@ def _restore_extracted_executable_permissions(emu_subdir: str) -> None:
 def _get_perf_cache_dir() -> str:
     """Returns the user-specific cache directory (`~/.cache/emu-dev-cli/perf`) with 0700 permissions."""
     cache_dir = os.path.expanduser("~/.cache/emu-dev-cli/perf")
-    os.makedirs(cache_dir, mode=0o700, exist_ok=True)
+    os.makedirs(cache_dir, mode=(0o777 if os.name == "nt" else 0o700), exist_ok=True)
     return cache_dir
 
 
@@ -404,7 +424,9 @@ def _resolve_stable_target(
     extracted_dir = os.path.join(dest_root, "extracted")
     emu_subdir = os.path.join(extracted_dir, "emulator")
     if not os.path.isdir(emu_subdir):
-        os.makedirs(extracted_dir, mode=0o700, exist_ok=True)
+        os.makedirs(
+            extracted_dir, mode=(0o777 if os.name == "nt" else 0o700), exist_ok=True
+        )
         zip_path = os.path.join(dest_root, zip_name)
         if not os.path.isfile(zip_path):
             dl_url = f"https://dl.google.com/android/repository/{zip_name}"
@@ -507,7 +529,15 @@ def _resolve_ab_build_target(
         json=True,
     )
     logger.info("Fetching emulator build '%s' from go/ab...", spec)
-    emu_target.run_emulator_fetch(fetch_args, render_output=False)
+    fetch_res = emu_target.run_emulator_fetch(fetch_args, render_output=False)
+    fetch_err_detail = ""
+    if hasattr(fetch_res, "ok") and not fetch_res.ok:
+        res_data = getattr(fetch_res, "data", None) or {}
+        fetch_err_detail = (
+            res_data.get("error_message")
+            or getattr(fetch_res, "error", None)
+            or getattr(fetch_res, "summary", "")
+        )
 
     if build_id:
         search_dirs = [
@@ -522,6 +552,19 @@ def _resolve_ab_build_target(
             key=os.path.getmtime,
             reverse=True,
         )
+
+    if not search_dirs and is_latest_branch and branch == "emu-main-next":
+        repo_release_cand = os.path.join(
+            cache_root, "emulator-repo-release", "extracted", "emulator"
+        )
+        if os.path.isdir(repo_release_cand):
+            logger.warning(
+                "Could not fetch '%s' from go/ab (%s); falling back to cached emu-main-next build at %s",
+                spec,
+                fetch_err_detail or "fetch failed",
+                repo_release_cand,
+            )
+            search_dirs = [repo_release_cand]
 
     for cand in search_dirs:
         if os.path.isdir(cand):
@@ -540,6 +583,10 @@ def _resolve_ab_build_target(
                 pkg_revision=meta.get("pkg_revision"),
                 engine=meta.get("engine"),
             )
+    if fetch_err_detail:
+        raise RuntimeError(
+            f"Failed to fetch emulator build '{spec}' from go/ab: {fetch_err_detail}"
+        )
     return None
 
 

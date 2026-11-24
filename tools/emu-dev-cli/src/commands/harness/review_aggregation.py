@@ -191,7 +191,8 @@ def filter_and_aggregate_findings(
         for path, lines in (changed_lines_by_file or {}).items()
     }
     accepted_findings: List[Dict[str, Any]] = []
-    seen_keys: Set[Tuple[str, int, str]] = set()
+    seen_index_by_key: Dict[Tuple[str, int, str], int] = {}
+    severity_rank = {"blocking": 0, "warning": 1, "nit": 2}
     dropped_out_of_bounds, dropped_duplicates = 0, 0
 
     for candidate in _iter_normalized_findings(specialist_outputs):
@@ -200,13 +201,19 @@ def filter_and_aggregate_findings(
             dropped_out_of_bounds += 1
             continue
         dedupe_key = (norm_file, line_num, candidate["category"].lower())
-        if dedupe_key in seen_keys:
+        if dedupe_key in seen_index_by_key:
             dropped_duplicates += 1
+            existing_idx = seen_index_by_key[dedupe_key]
+            existing_sev = accepted_findings[existing_idx].get("severity", "warning")
+            cand_sev = candidate.get("severity", "warning")
+            if severity_rank.get(cand_sev, 2) < severity_rank.get(existing_sev, 2):
+                accepted_findings[existing_idx] = candidate
             continue
-        seen_keys.add(dedupe_key)
+        seen_index_by_key[dedupe_key] = len(accepted_findings)
         accepted_findings.append(candidate)
 
     accepted_findings.sort(key=lambda item: (item["file"], item["line"], item["category"]))
+    blocking_count = sum(1 for item in accepted_findings if item.get("severity") == "blocking")
     reuse_audit_line, error_audit_line = _summarize_audit_counts(specialist_outputs, accepted_findings)
     markdown_report = render_review_swarm_markdown(
         accepted_findings, reuse_audit_line, error_audit_line,
@@ -214,6 +221,7 @@ def filter_and_aggregate_findings(
     )
     return {
         "findings": accepted_findings, "total_findings": len(accepted_findings),
+        "blocking_count": blocking_count,
         "dropped_out_of_bounds": dropped_out_of_bounds, "dropped_duplicates": dropped_duplicates,
         "reuse_audit_line": reuse_audit_line, "error_audit_line": error_audit_line,
         "markdown_report": markdown_report,
@@ -262,20 +270,24 @@ def build_gerrit_review_payload(
     reuse_audit_line: str,
     error_audit_line: str,
 ) -> Dict[str, Any]:
-    """Builds a Gerrit Revision ReviewInput JSON payload with `notify: OWNER` and `unresolved: true`."""
+    """Builds a Gerrit Revision ReviewInput JSON payload with `notify: OWNER` and severity-gated `unresolved`."""
     comments_by_file: Dict[str, List[Dict[str, Any]]] = {}
+    blocking_count = 0
     for item in findings:
+        is_blocking = str(item.get("severity") or "blocking").strip().lower() == "blocking"
+        if is_blocking:
+            blocking_count += 1
         body = f"[{item['category']}] {item['message']}"
         if item.get("suggested_fix"):
             body += f"\n\nSuggested fix:\n{item['suggested_fix']}"
         comments_by_file.setdefault(item["file"], []).append({
             "line": int(item["line"]),
             "message": body,
-            "unresolved": True,
+            "unresolved": is_blocking,
         })
 
     top_msg_lines = [
-        f"8-Specialist Parallel Code-Review Swarm completed ({len(findings)} finding(s)).",
+        f"8-Specialist Parallel Code-Review Swarm completed ({len(findings)} finding(s), {blocking_count} blocking).",
         "",
         reuse_audit_line,
         error_audit_line,

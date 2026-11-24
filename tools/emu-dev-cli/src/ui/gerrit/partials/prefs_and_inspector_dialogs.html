@@ -1,0 +1,838 @@
+<div
+  id="pgDiffPreferencesBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgDiffPreferencesTitle"
+  aria-hidden="true"
+  onclick="onPgDiffPreferencesBackdropClick(event)"
+>
+  <div class="pg-action-dialog pg-diff-pref-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">⚙️</span>
+        <div>
+          <h2 id="pgDiffPreferencesTitle" class="pg-action-dialog-title">Diff Preferences</h2>
+          <div class="pg-action-dialog-subtitle">Configure inline diff rendering, formatting, and layout</div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgDiffPreferencesDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body pg-diff-pref-body">
+      <div class="pg-pref-section-header">Layout & Dimensions</div>
+      <div class="pg-pref-group">
+        <div class="pg-pref-row">
+          <div>
+            <div class="pg-pref-title">Context lines</div>
+            <div class="pg-pref-desc">Number of context lines to expand between diff hunks (Shortcut: Alt+X)</div>
+          </div>
+          <select id="pgDiffPrefContext" class="pg-pref-select" aria-label="Context lines" onchange="onPgDiffPrefContextChange(this.value)">
+            <option value="10">10 lines (default)</option>
+            <option value="25">25 lines</option>
+            <option value="50">50 lines</option>
+            <option value="100">100 lines</option>
+            <option value="all">Whole file</option>
+          </select>
+        </div>
+        <div class="pg-context-preset-chips" id="pgDiffPrefContextChips">
+          <button type="button" class="pg-context-chip is-active" data-context="10" onclick="applyPgDiffContextPreset(10)" title="10 lines — Compact context (Default)" aria-pressed="true">10 lines (Default)</button>
+          <button type="button" class="pg-context-chip" data-context="25" onclick="applyPgDiffContextPreset(25)" title="25 lines — Standard context">25 lines</button>
+          <button type="button" class="pg-context-chip" data-context="50" onclick="applyPgDiffContextPreset(50)" title="50 lines — Broad context">50 lines</button>
+          <button type="button" class="pg-context-chip" data-context="100" onclick="applyPgDiffContextPreset(100)" title="100 lines — Deep context">100 lines</button>
+          <button type="button" class="pg-context-chip" data-context="all" onclick="applyPgDiffContextPreset('all')" title="Whole file — Entire file context">Whole file</button>
+        </div>
+      </div>
+      <div class="pg-pref-group">
+        <div class="pg-pref-row">
+          <div>
+            <div class="pg-pref-title">Column limit</div>
+            <div class="pg-pref-desc">Vertical column guide line and character boundary (Shortcut: Alt+G)</div>
+          </div>
+          <select id="pgDiffPrefLineLength" class="pg-pref-select" aria-label="Column limit" onchange="onPgDiffPrefLineLengthChange(this.value)">
+            <option value="0">Off (No guide)</option>
+            <option value="80">80 columns (C / Linux)</option>
+            <option value="100" selected>100 columns (AOSP / Google default)</option>
+            <option value="120">120 columns (Widescreen)</option>
+          </select>
+        </div>
+        <div class="pg-line-length-preset-chips" id="pgDiffPrefLineLengthChips">
+          <button type="button" class="pg-line-length-chip" data-line-length="0" onclick="applyPgDiffLineLengthPreset(0)" title="Off — No column guide line">Off</button>
+          <button type="button" class="pg-line-length-chip" data-line-length="80" onclick="applyPgDiffLineLengthPreset(80)" title="80 columns — Linux / Kernel standard">80 cols</button>
+          <button type="button" class="pg-line-length-chip is-active" data-line-length="100" onclick="applyPgDiffLineLengthPreset(100)" title="100 columns — AOSP & Google standard (Default)" aria-pressed="true">100 cols (Default)</button>
+          <button type="button" class="pg-line-length-chip" data-line-length="120" onclick="applyPgDiffLineLengthPreset(120)" title="120 columns — Widescreen display">120 cols</button>
+        </div>
+      </div>
+      <div class="pg-pref-group">
+        <div class="pg-pref-row">
+          <div>
+            <div class="pg-pref-title">Line height / Density</div>
+            <div class="pg-pref-desc">Row line height and vertical density of diff code lines (Shortcuts: Alt+D / Alt+Shift+D / Alt+[ / Alt+])</div>
+          </div>
+          <select id="pgDiffPrefLineHeight" class="pg-pref-select" aria-label="Line height / Density" onchange="onPgDiffPrefLineHeightChange(this.value)">
+            <option value="1.15">1.15 — Compact / Dense</option>
+            <option value="1.3">1.30 — Tight</option>
+            <option value="1.45">1.45 — Standard</option>
+            <option value="1.5">1.50 — Comfortable (Default)</option>
+            <option value="1.65">1.65 — Spacious</option>
+            <option value="1.8">1.80 — Extra Relaxed</option>
+          </select>
+        </div>
+        <div class="pg-line-height-preset-chips" id="pgDiffPrefLineHeightChips">
+          <button type="button" class="pg-line-height-chip" data-line-height="1.15" onclick="applyPgDiffLineHeightPreset(1.15)" title="1.15 — Compact / Dense">1.15 (Dense)</button>
+          <button type="button" class="pg-line-height-chip" data-line-height="1.3" onclick="applyPgDiffLineHeightPreset(1.3)" title="1.30 — Tight">1.30 (Tight)</button>
+          <button type="button" class="pg-line-height-chip" data-line-height="1.45" onclick="applyPgDiffLineHeightPreset(1.45)" title="1.45 — Standard">1.45 (Standard)</button>
+          <button type="button" class="pg-line-height-chip is-active" data-line-height="1.5" onclick="applyPgDiffLineHeightPreset(1.5)" title="1.50 — Comfortable (Default)" aria-pressed="true">1.50 (Default)</button>
+          <button type="button" class="pg-line-height-chip" data-line-height="1.65" onclick="applyPgDiffLineHeightPreset(1.65)" title="1.65 — Spacious">1.65 (Spacious)</button>
+          <button type="button" class="pg-line-height-chip" data-line-height="1.8" onclick="applyPgDiffLineHeightPreset(1.8)" title="1.80 — Extra Relaxed">1.80 (Relaxed)</button>
+        </div>
+      </div>
+      <div class="pg-pref-section-header">Typography & Indentation</div>
+      <div class="pg-pref-group">
+        <div class="pg-pref-row">
+          <div>
+            <div class="pg-pref-title">Font family</div>
+            <div class="pg-pref-desc">Monospace font family used for diff and code tables</div>
+          </div>
+          <select id="pgDiffPrefFontFamily" class="pg-pref-select" aria-label="Font family" onchange="onPgDiffPrefFontFamilyChange(this.value)">
+            <option value="roboto_mono">Roboto Mono (default · Google standard)</option>
+            <option value="system_mono">System Monospace (OS native stack)</option>
+            <option value="consolas">Consolas (Windows / VS Code)</option>
+            <option value="menlo">Menlo / Monaco (macOS)</option>
+            <option value="jetbrains_mono">JetBrains Mono (Android Studio / IntelliJ)</option>
+            <option value="fira_code">Fira Code (Ligatures)</option>
+            <option value="inconsolata">Inconsolata</option>
+            <option value="source_code_pro">Source Code Pro</option>
+            <option value="courier">Courier New</option>
+            <option value="custom">Custom Font...</option>
+          </select>
+        </div>
+        <div class="pg-font-family-preset-chips" id="pgDiffPrefFontFamilyChips">
+          <button type="button" class="pg-font-family-chip is-active" data-font-family="roboto_mono" onclick="applyPgDiffFontFamilyPreset('roboto_mono')" onmouseenter="previewPgDiffFontFamily('roboto_mono')" onmouseleave="resetPgDiffFontFamilyPreview()" title="Roboto Mono · Google standard font (Default)" aria-pressed="true" style="font-family: 'Roboto Mono', monospace;">Roboto Mono (Default)</button>
+          <button type="button" class="pg-font-family-chip" data-font-family="jetbrains_mono" onclick="applyPgDiffFontFamilyPreset('jetbrains_mono')" onmouseenter="previewPgDiffFontFamily('jetbrains_mono')" onmouseleave="resetPgDiffFontFamilyPreview()" title="JetBrains Mono · Android Studio standard font" style="font-family: 'JetBrains Mono', monospace;">JetBrains Mono</button>
+          <button type="button" class="pg-font-family-chip" data-font-family="fira_code" onclick="applyPgDiffFontFamilyPreset('fira_code')" onmouseenter="previewPgDiffFontFamily('fira_code')" onmouseleave="resetPgDiffFontFamilyPreview()" title="Fira Code · Coding ligatures font" style="font-family: 'Fira Code', monospace;">Fira Code</button>
+          <button type="button" class="pg-font-family-chip" data-font-family="consolas" onclick="applyPgDiffFontFamilyPreset('consolas')" onmouseenter="previewPgDiffFontFamily('consolas')" onmouseleave="resetPgDiffFontFamilyPreview()" title="Consolas · Windows / VS Code font" style="font-family: Consolas, monospace;">Consolas</button>
+          <button type="button" class="pg-font-family-chip" data-font-family="menlo" onclick="applyPgDiffFontFamilyPreset('menlo')" onmouseenter="previewPgDiffFontFamily('menlo')" onmouseleave="resetPgDiffFontFamilyPreview()" title="Menlo / Monaco · Apple macOS developer font" style="font-family: Menlo, Monaco, monospace;">Menlo</button>
+          <button type="button" class="pg-font-family-chip" data-font-family="source_code_pro" onclick="applyPgDiffFontFamilyPreset('source_code_pro')" onmouseenter="previewPgDiffFontFamily('source_code_pro')" onmouseleave="resetPgDiffFontFamilyPreview()" title="Source Code Pro · Adobe open-source monospace" style="font-family: 'Source Code Pro', monospace;">Source Code Pro</button>
+          <button type="button" class="pg-font-family-chip" data-font-family="inconsolata" onclick="applyPgDiffFontFamilyPreset('inconsolata')" onmouseenter="previewPgDiffFontFamily('inconsolata')" onmouseleave="resetPgDiffFontFamilyPreview()" title="Inconsolata · Clean humanist monospace" style="font-family: Inconsolata, monospace;">Inconsolata</button>
+          <button type="button" class="pg-font-family-chip" data-font-family="system_mono" onclick="applyPgDiffFontFamilyPreset('system_mono')" onmouseenter="previewPgDiffFontFamily('system_mono')" onmouseleave="resetPgDiffFontFamilyPreview()" title="System Monospace · OS native font stack" style="font-family: ui-monospace, monospace;">System Mono</button>
+        </div>
+        <div id="pgDiffPrefCustomFontWrap" class="pg-pref-row" style="display: none; margin-top: 6px;">
+          <div>
+            <div class="pg-pref-title">Custom font family</div>
+            <div class="pg-pref-desc">CSS font-family string (e.g. 'Fira Code', monospace)</div>
+          </div>
+          <input
+            type="text"
+            id="pgDiffPrefCustomFont"
+            class="pg-pref-input"
+            placeholder="'Cascadia Code', monospace"
+            aria-label="Custom font family"
+            oninput="updatePgThemePreview()"
+          />
+        </div>
+      </div>
+      <div class="pg-pref-group">
+        <div class="pg-pref-row">
+          <div>
+            <div class="pg-pref-title">Font size</div>
+            <div class="pg-pref-desc">Code font size in diff tables (Shortcuts: Alt+= / Alt+- / Alt+0)</div>
+          </div>
+          <select id="pgDiffPrefFontSize" class="pg-pref-select" aria-label="Font size" onchange="onPgDiffPrefFontSizeChange(this.value)">
+            <option value="10">10 px</option>
+            <option value="11">11 px (Compact)</option>
+            <option value="12">12 px (Default)</option>
+            <option value="13">13 px</option>
+            <option value="14">14 px (Large)</option>
+            <option value="15">15 px</option>
+            <option value="16">16 px</option>
+          </select>
+        </div>
+        <div class="pg-font-size-preset-chips" id="pgDiffPrefFontSizeChips">
+          <button type="button" class="pg-font-size-chip" data-font-size="10" onclick="applyPgDiffFontSizePreset(10)" title="10px — Extra Small">10px</button>
+          <button type="button" class="pg-font-size-chip" data-font-size="11" onclick="applyPgDiffFontSizePreset(11)" title="11px — Compact">11px</button>
+          <button type="button" class="pg-font-size-chip is-active" data-font-size="12" onclick="applyPgDiffFontSizePreset(12)" title="12px — Standard (Default)" aria-pressed="true">12px (Default)</button>
+          <button type="button" class="pg-font-size-chip" data-font-size="13" onclick="applyPgDiffFontSizePreset(13)" title="13px — Medium">13px</button>
+          <button type="button" class="pg-font-size-chip" data-font-size="14" onclick="applyPgDiffFontSizePreset(14)" title="14px — Large">14px</button>
+          <button type="button" class="pg-font-size-chip" data-font-size="16" onclick="applyPgDiffFontSizePreset(16)" title="16px — Extra Large">16px</button>
+        </div>
+      </div>
+      <div class="pg-pref-group">
+        <div class="pg-pref-row">
+          <div>
+            <div class="pg-pref-title">Tab width</div>
+            <div class="pg-pref-desc">Number of spaces per indentation tab stop</div>
+          </div>
+          <select id="pgDiffPrefTabWidth" class="pg-pref-select" aria-label="Tab width" onchange="onPgDiffPrefTabWidthChange(this.value)">
+            <option value="2">2 spaces</option>
+            <option value="4">4 spaces (default)</option>
+            <option value="8">8 spaces</option>
+          </select>
+        </div>
+        <div class="pg-tab-width-preset-chips" id="pgDiffPrefTabWidthChips">
+          <button type="button" class="pg-tab-width-chip" data-tab-width="2" onclick="applyPgDiffTabWidthPreset(2)" title="2 spaces — Web, JSON, Bazel, Google C++">2 sp</button>
+          <button type="button" class="pg-tab-width-chip is-active" data-tab-width="4" onclick="applyPgDiffTabWidthPreset(4)" title="4 spaces — AOSP, Android Studio, Java (Default)" aria-pressed="true">4 sp (Default)</button>
+          <button type="button" class="pg-tab-width-chip" data-tab-width="8" onclick="applyPgDiffTabWidthPreset(8)" title="8 spaces — Linux kernel, legacy C">8 sp</button>
+        </div>
+      </div>
+      <div class="pg-pref-section-header">Colors & Syntax</div>
+      <div class="pg-pref-group">
+        <div class="pg-pref-row">
+          <div>
+            <div class="pg-pref-title">Syntax theme / Color scheme</div>
+            <div class="pg-pref-desc">Color palette for syntax highlighting and word diffs (Shortcut: Alt+C)</div>
+          </div>
+          <select id="pgDiffPrefColorScheme" class="pg-pref-select" aria-label="Syntax theme / Color scheme" onchange="onPgDiffPrefColorSchemeChange(this.value)">
+            <option value="polygerrit_native">🏛️ PolyGerrit Authentic (default)</option>
+            <option value="syntax_intraline">🎨 Syntax + Word Diff</option>
+            <option value="monokai">⚡ Monokai Dark</option>
+            <option value="solarized_dark">☀️ Solarized Dark</option>
+            <option value="solarized_light">🌤️ Solarized Light</option>
+            <option value="github_light">💡 GitHub Light</option>
+            <option value="github_high_contrast">🌙 GitHub High-Contrast</option>
+            <option value="intraline_focus">🔍 Word Diff Only</option>
+            <option value="semantic_review">🛡️ Review Focus</option>
+            <option value="classic">🌿 Classic Gerrit Tint</option>
+          </select>
+        </div>
+        <div class="pg-color-scheme-preset-chips" id="pgDiffPrefColorSchemeChips">
+          <button type="button" class="pg-color-scheme-chip is-active" data-scheme="polygerrit_native" onclick="applyPgDiffColorSchemePreset('polygerrit_native')" onmouseenter="previewPgDiffColorScheme('polygerrit_native')" onmouseleave="resetPgDiffColorSchemePreview()" title="PolyGerrit Authentic · Google standard theme (Default)" aria-pressed="true">🏛️ PolyGerrit (Default)</button>
+          <button type="button" class="pg-color-scheme-chip" data-scheme="syntax_intraline" onclick="applyPgDiffColorSchemePreset('syntax_intraline')" onmouseenter="previewPgDiffColorScheme('syntax_intraline')" onmouseleave="resetPgDiffColorSchemePreview()" title="Syntax + Word Diff theme">🎨 Syntax</button>
+          <button type="button" class="pg-color-scheme-chip" data-scheme="monokai" onclick="applyPgDiffColorSchemePreset('monokai')" onmouseenter="previewPgDiffColorScheme('monokai')" onmouseleave="resetPgDiffColorSchemePreview()" title="Monokai Dark theme">⚡ Monokai</button>
+          <button type="button" class="pg-color-scheme-chip" data-scheme="solarized_dark" onclick="applyPgDiffColorSchemePreset('solarized_dark')" onmouseenter="previewPgDiffColorScheme('solarized_dark')" onmouseleave="resetPgDiffColorSchemePreview()" title="Solarized Dark theme">☀️ Solarized</button>
+          <button type="button" class="pg-color-scheme-chip" data-scheme="github_high_contrast" onclick="applyPgDiffColorSchemePreset('github_high_contrast')" onmouseenter="previewPgDiffColorScheme('github_high_contrast')" onmouseleave="resetPgDiffColorSchemePreview()" title="GitHub High-Contrast theme">🌙 GitHub HC</button>
+          <button type="button" class="pg-color-scheme-chip" data-scheme="semantic_review" onclick="applyPgDiffColorSchemePreset('semantic_review')" onmouseenter="previewPgDiffColorScheme('semantic_review')" onmouseleave="resetPgDiffColorSchemePreview()" title="Review Focus · Semantic Review theme">🛡️ Review</button>
+        </div>
+        <div id="pgDiffPrefThemePreview" class="pg-pref-theme-preview scheme-polygerrit_native" data-preview-scheme="polygerrit_native">
+          <div class="pg-pref-preview-header">
+            <span class="pg-pref-preview-meta">Preview · <span id="pgDiffPrefPreviewFontLabel">Roboto Mono</span> · <span id="pgDiffPrefPreviewLhLabel">1.50</span> · <span id="pgDiffPrefPreviewFsLabel">12px</span> · <span id="pgDiffPrefPreviewColLabel">100 cols</span> · <span id="pgDiffPrefPreviewTabLabel">Tab: 4</span> · <span id="pgDiffPrefPreviewContextLabel">Ctx: 10</span> · <span id="pgDiffPrefPreviewIgnoreWsLabel">WS: None</span> · <span id="pgDiffPrefPreviewSyntaxLabel">Syntax: On</span> · <span id="pgDiffPrefPreviewWrapLabel">Wrap: On</span> · <span id="pgDiffPrefPreviewLinesLabel">Lines: On</span> · <span id="pgDiffPrefPreviewIntraLabel">Intra: On</span> · <span id="pgDiffPrefPreviewShowTabsLabel">Tabs: Off</span> · <span id="pgDiffPrefPreviewWsLabel">WS: On</span></span>
+            <div class="pg-pref-preview-chips">
+              <span class="pg-preview-chip chip-kw">keyword</span>
+              <span class="pg-preview-chip chip-type">Type</span>
+              <span class="pg-preview-chip chip-fn">function()</span>
+              <span class="pg-preview-chip chip-str">"string"</span>
+              <span class="pg-preview-chip chip-num">42</span>
+              <span class="pg-preview-chip chip-cmt">// comment</span>
+              <span class="pg-preview-chip chip-add">+added</span>
+              <span class="pg-preview-chip chip-del">-deleted</span>
+            </div>
+          </div>
+          <div class="pg-pref-preview-code">
+            <div class="pg-pref-preview-line"><span class="pg-preview-ln">101</span><span class="pg-preview-code-text"><span class="pg-preview-chip chip-kw">const</span> <span class="pg-preview-chip chip-type">DeviceInfo</span> <span class="pg-preview-chip chip-fn">InitGoldfishDriver</span>(<span class="pg-preview-chip chip-str">"测试_🚀_é"</span>);</span></div>
+            <div class="pg-pref-preview-line line-del"><span class="pg-preview-ln">102</span><span class="pg-preview-code-text"><span class="pg-preview-chip chip-del">-</span> <span class="pg-preview-chip chip-cmt">// Legacy raw pointer <span class="diff-intra-del">allocation</span></span></span></div>
+            <div class="pg-pref-preview-line line-add"><span class="pg-preview-ln">102</span><span class="pg-preview-code-text"><span class="pg-preview-chip chip-add">+</span> <span class="pg-preview-chip chip-kw">auto</span> instance = <span class="pg-preview-chip chip-fn">std::make_unique</span>&lt;<span class="pg-preview-chip chip-type">GoldfishVsync</span>&gt;(<span class="diff-intra-add"><span class="pg-preview-chip chip-num">60</span></span>);</span></div>
+            <div class="pg-pref-preview-line line-add" id="pgDiffPrefPreviewWsLine"><span class="pg-preview-ln">103</span><span class="pg-preview-code-text"><span class="pg-preview-chip chip-add">+</span> <span class="pg-tab-marker" id="pgDiffPreviewTabMarker" style="display: none;"><span class="pg-tab-arrow">→</span>&nbsp;&nbsp;&nbsp;</span><span class="pg-preview-chip chip-fn">InitDevice</span>();<span class="pg-ws-error pg-trailing-ws" id="pgDiffPreviewWsError" title="Trailing whitespace error">&nbsp;&nbsp;</span></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="pg-pref-section-header">Whitespace & Behavior</div>
+      <div class="pg-pref-group">
+        <div class="pg-pref-row">
+          <div>
+            <div class="pg-pref-title">Whitespace changes</div>
+            <div class="pg-pref-desc">How whitespace-only diffs are highlighted</div>
+          </div>
+          <select id="pgDiffPrefIgnoreWhitespace" class="pg-pref-select" aria-label="Whitespace changes" onchange="onPgDiffPrefIgnoreWhitespaceChange(this.value)">
+            <option value="none">Don't ignore whitespace (default)</option>
+            <option value="changes">Ignore whitespace changes</option>
+            <option value="all">Ignore all whitespace</option>
+          </select>
+        </div>
+        <div class="pg-ignore-ws-preset-chips" id="pgDiffPrefIgnoreWsChips">
+          <button type="button" class="pg-ignore-ws-chip is-active" data-ignore-ws="none" onclick="applyPgDiffIgnoreWsPreset('none')" title="Don't ignore whitespace (Default)" aria-pressed="true">None (Default)</button>
+          <button type="button" class="pg-ignore-ws-chip" data-ignore-ws="changes" onclick="applyPgDiffIgnoreWsPreset('changes')" title="Ignore whitespace changes">Ignore Changes</button>
+          <button type="button" class="pg-ignore-ws-chip" data-ignore-ws="all" onclick="applyPgDiffIgnoreWsPreset('all')" title="Ignore all whitespace">Ignore All</button>
+        </div>
+      </div>
+      <div class="pg-pref-section-header">Display & Automation Toggles</div>
+      <div class="pg-pref-toggles-grid">
+        <div class="pg-pref-toggle-card">
+          <label class="pg-pref-toggle-label" for="pgDiffPrefWrapLines">
+            <input type="checkbox" id="pgDiffPrefWrapLines" class="pg-pref-checkbox" checked onchange="updatePgThemePreview()" />
+            <span>Wrap lines</span>
+          </label>
+          <div class="pg-pref-desc">Soft-wrap long lines to fit pane</div>
+        </div>
+        <div class="pg-pref-toggle-card">
+          <label class="pg-pref-toggle-label" for="pgDiffPrefSyntaxHighlight">
+            <input type="checkbox" id="pgDiffPrefSyntaxHighlight" class="pg-pref-checkbox" checked onchange="updatePgThemePreview()" />
+            <span>Syntax highlighting</span>
+          </label>
+          <div class="pg-pref-desc">Token & keyword highlighting</div>
+        </div>
+        <div class="pg-pref-toggle-card">
+          <label class="pg-pref-toggle-label" for="pgDiffPrefShowLineNumbers">
+            <input type="checkbox" id="pgDiffPrefShowLineNumbers" class="pg-pref-checkbox" checked onchange="updatePgThemePreview()" />
+            <span>Line numbers</span>
+          </label>
+          <div class="pg-pref-desc">Display line number gutters</div>
+        </div>
+        <div class="pg-pref-toggle-card">
+          <label class="pg-pref-toggle-label" for="pgDiffPrefIntraline">
+            <input type="checkbox" id="pgDiffPrefIntraline" class="pg-pref-checkbox" checked onchange="updatePgThemePreview()" />
+            <span>Intraline difference</span>
+          </label>
+          <div class="pg-pref-desc">Highlight character changes within modified lines (Shift+Alt+I)</div>
+        </div>
+        <div class="pg-pref-toggle-card">
+          <label class="pg-pref-toggle-label" for="pgDiffPrefShowTabs">
+            <input type="checkbox" id="pgDiffPrefShowTabs" class="pg-pref-checkbox" onchange="updatePgThemePreview()" />
+            <span>Show tabs</span>
+          </label>
+          <div class="pg-pref-desc">Render visible tab markers (→)</div>
+        </div>
+        <div class="pg-pref-toggle-card">
+          <label class="pg-pref-toggle-label" for="pgDiffPrefShowWhitespaceErrors">
+            <input type="checkbox" id="pgDiffPrefShowWhitespaceErrors" class="pg-pref-checkbox" checked onchange="updatePgThemePreview()" />
+            <span>Show whitespace errors</span>
+          </label>
+          <div class="pg-pref-desc">Highlight trailing space & bad tabs</div>
+        </div>
+        <div class="pg-pref-toggle-card">
+          <label class="pg-pref-toggle-label" for="pgDiffPrefAutoMarkViewed">
+            <input type="checkbox" id="pgDiffPrefAutoMarkViewed" class="pg-pref-checkbox" onchange="updatePgThemePreview()" />
+            <span>Auto-mark reviewed</span>
+          </label>
+          <div class="pg-pref-desc">Automatically mark files reviewed</div>
+        </div>
+        <div class="pg-pref-toggle-card">
+          <label class="pg-pref-toggle-label" for="pgDiffPrefHideLeftPane">
+            <input type="checkbox" id="pgDiffPrefHideLeftPane" class="pg-pref-checkbox" onchange="updatePgThemePreview()" />
+            <span>Hide Base side</span>
+          </label>
+          <div class="pg-pref-desc">Hide left pane in side-by-side diff (Shift+A)</div>
+        </div>
+        <div class="pg-pref-toggle-card">
+          <label class="pg-pref-toggle-label" for="pgDiffPrefShowOverviewBar">
+            <input type="checkbox" id="pgDiffPrefShowOverviewBar" class="pg-pref-checkbox" checked onchange="updatePgThemePreview()" />
+            <span>Diff minimap overview</span>
+          </label>
+          <div class="pg-pref-desc">Minimap strip of additions, deletions & comments (Shift+Alt+O)</div>
+        </div>
+      </div>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <button type="button" class="pg-btn-flat" onclick="resetPgDiffPreferencesToDefaults()">Reset to Defaults</button>
+      <div style="flex:1"></div>
+      <button type="button" class="pg-btn-flat" onclick="closePgDiffPreferencesDialog()">Cancel</button>
+      <button type="button" class="pg-btn-primary" id="btnSaveDiffPreferences" onclick="saveAndApplyPgDiffPreferences()">Save</button>
+    </div>
+  </div>
+</div>
+<div
+  id="pgIncludedInBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgIncludedInTitle"
+  aria-hidden="true"
+  onclick="onPgIncludedInBackdropClick(event)"
+>
+  <div class="pg-action-dialog pg-included-in-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">🏷️</span>
+        <div>
+          <h2 id="pgIncludedInTitle" class="pg-action-dialog-title">Included In</h2>
+          <div id="pgIncludedInSubtitle" class="pg-action-dialog-subtitle">Inspect branches and tags containing this commit</div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgIncludedInDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body pg-included-in-body">
+      <div class="pg-included-in-topbar">
+        <div class="pg-included-in-filter-wrap">
+          <span class="pg-filter-icon" aria-hidden="true">🔍</span>
+          <input
+            id="pgIncludedInFilterInput"
+            class="pg-action-input pg-included-in-filter"
+            type="text"
+            placeholder="Filter branches and tags… (Esc to clear)"
+            oninput="onPgIncludedInFilterInput(this.value)"
+          />
+          <button
+            id="btnIncludedInClearFilter"
+            type="button"
+            class="pg-filter-clear-btn"
+            style="display:none;"
+            onclick="clearPgIncludedInFilter()"
+            title="Clear filter"
+          >✕</button>
+        </div>
+        <div id="pgIncludedInStatusBadge" class="pg-included-in-status-badge"></div>
+      </div>
+
+      <div id="pgIncludedInLoading" class="pg-included-in-loading" style="display:none;">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Loading branches and tags from Gerrit…</span>
+      </div>
+
+      <div id="pgIncludedInError" class="pg-included-in-error" style="display:none;">
+        <div id="pgIncludedInErrorMsg"></div>
+        <button type="button" class="btn pg-btn-flat" onclick="refreshPgIncludedIn()">Retry</button>
+      </div>
+
+      <div id="pgIncludedInContent" class="pg-included-in-content">
+        <div id="pgIncludedInBranchesSection" class="pg-included-in-section">
+          <div class="pg-included-in-sec-hdr">
+            <span class="pg-sec-icon" aria-hidden="true">🌿</span>
+            <span class="pg-sec-title">Branches</span>
+            <span id="pgIncludedInBranchesCount" class="pg-sec-count">0</span>
+          </div>
+          <div id="pgIncludedInBranchesList" class="pg-included-items-grid"></div>
+        </div>
+
+        <div id="pgIncludedInTagsSection" class="pg-included-in-section">
+          <div class="pg-included-in-sec-hdr">
+            <span class="pg-sec-icon" aria-hidden="true">🏷️</span>
+            <span class="pg-sec-title">Tags</span>
+            <span id="pgIncludedInTagsCount" class="pg-sec-count">0</span>
+          </div>
+          <div id="pgIncludedInTagsList" class="pg-included-items-grid"></div>
+        </div>
+
+        <div id="pgIncludedInExternalSection" class="pg-included-in-section" style="display:none;">
+          <div class="pg-included-in-sec-hdr">
+            <span class="pg-sec-icon" aria-hidden="true">🌐</span>
+            <span class="pg-sec-title">External</span>
+            <span id="pgIncludedInExternalCount" class="pg-sec-count">0</span>
+          </div>
+          <div id="pgIncludedInExternalList" class="pg-included-items-grid"></div>
+        </div>
+
+        <div id="pgIncludedInEmptyState" class="pg-included-empty" style="display:none;"></div>
+      </div>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <div class="pg-dialog-footer-left">
+        <button
+          id="btnRefreshIncludedIn"
+          type="button"
+          class="btn pg-btn-flat"
+          onclick="refreshPgIncludedIn()"
+          title="Force fresh query from Gerrit"
+        >🔄 Refresh</button>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat"
+        onclick="closePgIncludedInDialog()"
+      >Close</button>
+    </div>
+  </div>
+</div>
+<div
+  id="pgAttentionHistoryBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgAttentionHistoryTitle"
+  aria-hidden="true"
+  onclick="onPgAttentionHistoryBackdropClick(event)"
+>
+  <div class="pg-action-dialog pg-attention-history-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">⚡</span>
+        <div>
+          <h2 id="pgAttentionHistoryTitle" class="pg-action-dialog-title">Attention Set History</h2>
+          <div id="pgAttentionHistorySubtitle" class="pg-action-dialog-subtitle">Chronological audit log of attention transitions</div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgAttentionHistoryDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body pg-attn-hist-body">
+      <div class="pg-attn-hist-topbar">
+        <div class="pg-attn-hist-filter-wrap">
+          <span class="pg-filter-icon" aria-hidden="true">🔍</span>
+          <input
+            id="pgAttnHistSearchInput"
+            type="text"
+            class="pg-input pg-filter-input"
+            placeholder="Filter transitions by user, actor, or reason… (Esc to clear)"
+            oninput="onPgAttentionHistoryFilterInput(event)"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button
+            type="button"
+            id="btnClearAttnHistFilter"
+            class="pg-btn-flat pg-clear-filter-btn"
+            onclick="clearPgAttentionHistoryFilter()"
+            title="Clear filter"
+            style="display:none;"
+          >✕</button>
+        </div>
+        <div class="pg-attn-hist-filter-controls">
+          <select id="pgAttnHistUserSelect" class="pg-select" onchange="onPgAttentionHistoryUserSelect(event)" title="Filter by participant">
+            <option value="">All Participants</option>
+          </select>
+          <div class="pg-segmented-ctrl pg-attn-op-filter">
+            <button type="button" class="pg-segmented-btn is-active" data-op="all" onclick="setPgAttentionHistoryOpFilter('all')">All</button>
+            <button type="button" class="pg-segmented-btn" data-op="add" onclick="setPgAttentionHistoryOpFilter('add')">⚡ Added</button>
+            <button type="button" class="pg-segmented-btn" data-op="remove" onclick="setPgAttentionHistoryOpFilter('remove')">✕ Removed</button>
+          </div>
+        </div>
+      </div>
+      <div id="pgAttnHistStreamContainer" class="pg-attn-hist-stream">
+        <!-- Dynamic stream cards rendered here -->
+      </div>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <div class="pg-action-dialog-footer-left">
+        <span id="pgAttnHistCountPill" class="pg-meta-pill">0 transitions</span>
+      </div>
+      <div class="pg-action-dialog-footer-right">
+        <button
+          type="button"
+          class="pg-btn-flat"
+          onclick="closePgAttentionHistoryDialog()"
+        >Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div
+  id="pgSrAuditBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgSrAuditTitle"
+  aria-hidden="true"
+  onclick="onPgSrAuditBackdropClick(event)"
+>
+  <div class="pg-action-dialog pg-sr-audit-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">📋</span>
+        <div>
+          <h2 id="pgSrAuditTitle" class="pg-action-dialog-title">Submit Requirements Audit</h2>
+          <div id="pgSrAuditSubtitle" class="pg-action-dialog-subtitle">Submittability audit &amp; predicate inspector</div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgSubmitRequirementsAuditDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body pg-sr-audit-body">
+      <div id="pgSrAuditHeroBanner" class="pg-sr-audit-hero">
+        <!-- Rendered dynamically -->
+      </div>
+      <div class="pg-sr-audit-toolbar">
+        <div class="pg-sr-audit-search-wrap">
+          <span class="pg-filter-icon" aria-hidden="true">🔍</span>
+          <input
+            id="pgSrAuditSearchInput"
+            type="text"
+            class="pg-input pg-filter-input"
+            placeholder="Filter requirements by name, description, expression, or atom… (Esc to clear)"
+            oninput="onPgSrAuditFilterInput(event)"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button
+            type="button"
+            id="btnClearSrAuditFilter"
+            class="pg-btn-flat pg-clear-filter-btn"
+            onclick="clearPgSrAuditFilter()"
+            title="Clear filter"
+            style="display:none;"
+          >✕</button>
+        </div>
+        <div class="pg-sr-audit-controls">
+          <div class="pg-segmented-ctrl pg-sr-status-filter" role="group" aria-label="Filter requirements by status">
+            <button type="button" class="pg-segmented-btn is-active" data-sr-filter="all" onclick="setPgSrAuditFilter('all')">All</button>
+            <button type="button" class="pg-segmented-btn" data-sr-filter="unsatisfied" onclick="setPgSrAuditFilter('unsatisfied')">✕ Pending / Blocked</button>
+            <button type="button" class="pg-segmented-btn" data-sr-filter="satisfied" onclick="setPgSrAuditFilter('satisfied')">✓ Satisfied</button>
+          </div>
+          <button
+            type="button"
+            class="pg-btn-subtle pg-btn-copy-sr-report"
+            id="btnCopySrAuditReport"
+            onclick="copyPgSubmitRequirementsAuditReport()"
+            title="Copy formatted markdown audit summary report to clipboard"
+          >
+            <span>📋 Copy Report</span>
+          </button>
+        </div>
+      </div>
+      <div id="pgSrAuditCardsContainer" class="pg-sr-audit-cards">
+        <!-- Dynamic requirement cards rendered here -->
+      </div>
+      <div id="pgSrAuditTriggerContainer" class="pg-sr-audit-trigger-wrap" style="display:none;">
+        <!-- Dynamic non-blocking trigger votes rendered here -->
+      </div>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <div class="pg-action-dialog-footer-left">
+        <span id="pgSrAuditFooterStats" class="pg-meta-pill">0 requirements</span>
+      </div>
+      <div class="pg-action-dialog-footer-right">
+        <button
+          type="button"
+          class="pg-btn-subtle"
+          onclick="copyPgSubmitRequirementsAuditReport()"
+          title="Copy markdown report"
+        >📋 Copy Report</button>
+        <button
+          type="button"
+          class="pg-btn-flat"
+          onclick="closePgSubmitRequirementsAuditDialog()"
+        >Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div
+  id="pgStackSequenceBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgStackSeqTitle"
+  aria-hidden="true"
+  onclick="onPgStackSequenceBackdropClick(event)"
+>
+  <div class="pg-action-dialog pg-stack-sequence-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">📚</span>
+        <div>
+          <h2 id="pgStackSeqTitle" class="pg-action-dialog-title">Stack Submit Sequence &amp; Checkpoints</h2>
+          <div id="pgStackSeqSubtitle" class="pg-action-dialog-subtitle">Topological submission order &amp; review progress</div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgStackSequenceDialog()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body pg-stack-seq-body">
+      <div id="pgStackSeqHeroBanner" class="pg-stack-seq-hero">
+        <!-- Rendered dynamically -->
+      </div>
+      <div id="pgStackSeqCheckpointsBar" class="pg-stack-seq-checkpoints-bar">
+        <!-- Rendered dynamically -->
+      </div>
+      <div id="pgStackSeqTableContainer" class="pg-stack-seq-table-container">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <div class="pg-action-dialog-footer-left">
+        <span id="pgStackSeqFooterStats" class="pg-meta-pill">0 commits in stack</span>
+      </div>
+      <div class="pg-action-dialog-footer-right">
+        <button
+          type="button"
+          class="pg-btn-subtle"
+          onclick="copyPgStackSequenceReport()"
+          title="Copy markdown report of submit sequence and checkpoints"
+        >📋 Copy Report</button>
+        <button
+          type="button"
+          class="pg-btn-flat"
+          onclick="closePgStackSequenceDialog()"
+        >Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div
+  id="pgStackFilesBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgStackFilesTitle"
+  aria-hidden="true"
+  onclick="onPgStackFilesBackdropClick(event)"
+>
+  <div class="pg-action-dialog pg-stack-files-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">📁</span>
+        <div>
+          <h2 id="pgStackFilesTitle" class="pg-action-dialog-title">Cumulative Stack Files</h2>
+          <div id="pgStackFilesSubtitle" class="pg-action-dialog-subtitle">All files touched across the multi-commit stack</div>
+        </div>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat pg-dialog-close-btn"
+        onclick="closePgStackFilesDrawer()"
+        title="Close dialog (Esc)"
+        aria-label="Close dialog"
+      >✕</button>
+    </div>
+    <div class="pg-action-dialog-body pg-stack-files-body">
+      <div class="pg-stack-files-toolbar">
+        <div class="pg-stack-files-search-wrap">
+          <input
+            type="search"
+            id="pgStackFilesSearchInput"
+            class="pg-stack-files-search-input"
+            placeholder="Filter files by path or extension (e.g. .cc, goldfish/, BUILD)..."
+            aria-label="Filter cumulative stack files"
+            oninput="onPgStackFilesSearchInput(this.value)"
+          />
+          <button
+            type="button"
+            id="btnClearStackFilesSearch"
+            class="pg-btn-subtle pg-stack-files-clear-btn"
+            style="display:none;"
+            onclick="clearPgStackFilesSearch()"
+            title="Clear search filter"
+          >✕</button>
+        </div>
+        <div id="pgStackFilesExtChips" class="pg-stack-files-ext-chips">
+          <!-- Dynamically populated extension filter chips -->
+        </div>
+      </div>
+      <div id="pgStackFilesTableContainer" class="pg-stack-files-table-container">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <div class="pg-action-dialog-footer-left">
+        <span id="pgStackFilesFooterStats" class="pg-meta-pill">0 files</span>
+      </div>
+      <div class="pg-action-dialog-footer-right">
+        <button
+          type="button"
+          class="pg-btn-subtle"
+          onclick="copyPgStackFilesList()"
+          title="Copy markdown list of cumulative files to clipboard"
+        >📋 Copy Files List</button>
+        <button
+          type="button"
+          class="pg-btn-flat"
+          onclick="closePgStackFilesDrawer()"
+        >Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div
+  id="pgFileEditorBackdrop"
+  class="pg-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="pgEditorTitle"
+  aria-hidden="true"
+  onclick="onPgFileEditorBackdropClick(event)"
+>
+  <div class="pg-action-dialog pg-file-editor-dialog" onclick="event.stopPropagation()">
+    <div class="pg-action-dialog-header">
+      <div class="pg-action-dialog-title-wrap">
+        <span class="pg-action-icon" aria-hidden="true">✏️</span>
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <h2 id="pgEditorTitle" class="pg-action-dialog-title">Edit File</h2>
+            <span id="pgEditorStatusBadge" class="pg-file-status-badge status-M">M</span>
+            <span id="pgEditorDirtyBadge" class="pg-editor-dirty-badge" style="display:none;">● Unsaved changes</span>
+            <span id="pgEditorSavedBadge" class="pg-editor-saved-badge" style="display:none;">✓ Saved</span>
+          </div>
+          <div id="pgEditorSubtitle" class="pg-action-dialog-subtitle"></div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span id="pgEditorCursorInfo" class="pg-editor-cursor-info">Ln 1, Col 1 · 0 lines</span>
+        <button
+          type="button"
+          id="btnEditorToggleWrap"
+          class="pg-btn-flat pg-btn-editor-opt"
+          onclick="togglePgEditorWrap()"
+          title="Toggle line wrapping"
+        >Wrap: Off</button>
+        <button
+          type="button"
+          id="btnEditorToggleTabSize"
+          class="pg-btn-flat pg-btn-editor-opt"
+          onclick="cyclePgEditorTabSize()"
+          title="Cycle tab size (2 / 4 / 8 spaces)"
+        >Tab: 4</button>
+        <button
+          type="button"
+          class="pg-btn-flat pg-dialog-close-btn"
+          onclick="closePgFileEditorDialog()"
+          title="Close editor (Esc)"
+          aria-label="Close dialog"
+        >✕</button>
+      </div>
+    </div>
+    <div class="pg-editor-body">
+      <div id="pgEditorLoading" class="pg-editor-loading" style="display:none;">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Loading file content from Gerrit…</span>
+      </div>
+      <div id="pgEditorError" class="pg-editor-error" style="display:none;">
+        <div id="pgEditorErrorMsg"></div>
+        <button type="button" class="btn pg-btn-flat" onclick="retryPgEditorLoad()">Retry</button>
+      </div>
+      <div class="pg-editor-split" id="pgEditorSplit">
+        <div id="pgEditorGutter" class="pg-editor-gutter">1</div>
+        <textarea
+          id="pgEditorTextarea"
+          class="pg-editor-textarea"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          placeholder="File content..."
+          oninput="onPgEditorInput(this)"
+          onkeydown="onPgEditorKeyDown(event, this)"
+          onscroll="onPgEditorScroll(this)"
+          onclick="onPgEditorCursorMove(this)"
+          onkeyup="onPgEditorCursorMove(this)"
+        ></textarea>
+      </div>
+    </div>
+    <div class="pg-action-dialog-footer">
+      <div class="pg-dialog-footer-left">
+        <span class="pg-editor-help-hint">Ctrl+S to save · Esc to close · Tab indents · Enter auto-indents</span>
+      </div>
+      <button
+        type="button"
+        class="pg-btn-flat"
+        onclick="closePgFileEditorDialog()"
+      >Cancel</button>
+      <button
+        id="btnSaveFileEdit"
+        type="button"
+        class="btn pg-btn-flat"
+        onclick="saveActiveFileEdit()"
+        title="Save file to change edit (Ctrl+S)"
+      >💾 Save</button>
+      <button
+        id="btnSaveAndPublishFileEdit"
+        type="button"
+        class="btn pg-btn-primary"
+        onclick="saveAndPublishActiveFileEdit()"
+        title="Save file and publish change edit as new patchset"
+      >✓ Save & Publish</button>
+    </div>
+  </div>
+</div>

@@ -62,7 +62,7 @@ class ProcessTest(unittest.TestCase):
         res1 = runner.run(["echo", "hello"], cwd=Path("/tmp/测试_🚀_é"))
         self.assertTrue(res1.ok)
         self.assertEqual(res1.stdout, "queued_output_测试_🚀\n")
-        self.assertEqual(runner.calls[0].cwd, "/tmp/测试_🚀_é")
+        self.assertEqual(runner.calls[0].cwd, os.fspath(Path("/tmp/测试_🚀_é")))
 
         res2 = runner.run(["git", "status", "--short"])
         self.assertTrue(res2.ok)
@@ -81,7 +81,7 @@ class ProcessTest(unittest.TestCase):
 
         invoked = bus.recorded_events(SubprocessInvoked)
         self.assertEqual(len(invoked), 3)
-        self.assertEqual(invoked[0].cwd, "/tmp/测试_🚀_é")
+        self.assertEqual(invoked[0].cwd, os.fspath(Path("/tmp/测试_🚀_é")))
 
     def test_rejects_raw_string_or_empty_command(self) -> None:
         runner = FakeProcessRunner()

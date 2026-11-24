@@ -66,6 +66,10 @@ class LoggingConfigTest(unittest.TestCase):
             self.assertIn("Test log entry to file", content)
             self.assertIn("DEBUG", content)
         finally:
+            root_logger = logging.getLogger()
+            for h in list(root_logger.handlers):
+                root_logger.removeHandler(h)
+                h.close()
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 

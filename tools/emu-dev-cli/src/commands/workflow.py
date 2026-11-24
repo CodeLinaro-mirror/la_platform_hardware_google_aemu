@@ -53,7 +53,10 @@ def discover_workflow_directories() -> List[str]:
         )
         if os.path.isdir(wf_dir) and wf_dir not in candidates:
             candidates.append(wf_dir)
-        cur = os.path.dirname(cur)
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
 
     # 2. Check registered source directories
     for branch in ("emu-main-dev", "emu-main-next", "git_main"):
@@ -97,7 +100,12 @@ def _scan_workflow_directories(
     for base_dir in candidate_dirs:
         if not os.path.isdir(base_dir):
             continue
-        for entry in os.listdir(base_dir):
+        try:
+            entries = os.listdir(base_dir)
+        except OSError as exc:
+            logger.debug("Skipping unreadable workflow directory '%s': %s", base_dir, exc)
+            continue
+        for entry in entries:
             if entry in ("core", "tests", "__pycache__", "ui"):
                 continue
             entry_path = os.path.join(base_dir, entry)

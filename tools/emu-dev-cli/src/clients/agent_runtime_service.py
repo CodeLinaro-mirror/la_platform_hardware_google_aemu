@@ -79,9 +79,20 @@ def resolve_agentapi_binary(explicit_bin: str | None = None) -> str | None:
     found = shutil.which(DEFAULT_AGENTAPI_CMD)
     if found:
         return found
-    jetski_bin = Path.home() / ".gemini" / "jetski" / "bin" / DEFAULT_AGENTAPI_CMD
-    if jetski_bin.is_file() and os.access(jetski_bin, os.X_OK):
-        return str(jetski_bin)
+    try:
+        home_dir = Path.home()
+    except (RuntimeError, KeyError):
+        return None
+    bin_dir = home_dir / ".gemini" / "jetski" / "bin"
+    candidate_names = (
+        (f"{DEFAULT_AGENTAPI_CMD}.exe", f"{DEFAULT_AGENTAPI_CMD}.cmd", DEFAULT_AGENTAPI_CMD)
+        if os.name == "nt"
+        else (DEFAULT_AGENTAPI_CMD,)
+    )
+    for name in candidate_names:
+        jetski_bin = bin_dir / name
+        if jetski_bin.is_file() and (os.name == "nt" or os.access(jetski_bin, os.X_OK)):
+            return str(jetski_bin)
     return None
 
 

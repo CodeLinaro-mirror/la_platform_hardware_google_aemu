@@ -55,6 +55,7 @@ _CORE_DIR = Path(__file__).resolve().parent
 _WORKFLOWS_DIR = _CORE_DIR.parent
 _EMU_DEV_CLI_DIR = _WORKFLOWS_DIR.parent
 _SRC_DIR = _EMU_DEV_CLI_DIR / "src"
+_PRIVATE_DIR_MODE = 0o777 if os.name == "nt" else 0o700
 
 
 def _build_subprocess_env(base_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
@@ -62,7 +63,12 @@ def _build_subprocess_env(base_env: Optional[Dict[str, str]] = None) -> Dict[str
     env = dict(base_env if base_env is not None else os.environ)
     extra_paths = [
         p
-        for p in (str(_SRC_DIR), str(_EMU_DEV_CLI_DIR), str(_WORKFLOWS_DIR))
+        for p in (
+            str(_SRC_DIR),
+            str(_EMU_DEV_CLI_DIR / "core" / "src"),
+            str(_EMU_DEV_CLI_DIR),
+            str(_WORKFLOWS_DIR),
+        )
         if os.path.isdir(p)
     ]
     existing = env.get("PYTHONPATH", "")
@@ -194,7 +200,7 @@ def get_workflow_cache_root() -> Path:
 def get_workflow_cache_dir(workflow_name: str) -> Path:
     """Returns the isolated, generic cache directory for a given workflow name."""
     base = get_workflow_cache_root() / workflow_name
-    base.mkdir(parents=True, exist_ok=True, mode=0o700)
+    base.mkdir(parents=True, exist_ok=True, mode=_PRIVATE_DIR_MODE)
     return base
 
 
@@ -366,6 +372,33 @@ def _format_human_verify_prompt(prompt: str, active_continuation: str, state_id:
     )
 
 
+def _translate_grep_to_python(tokens: List[str]) -> List[str]:
+    """Translates simple grep invocations to Python when grep is absent on Windows."""
+    ignore_case = False
+    quiet = False
+    positional: List[str] = []
+    for tok in tokens[1:]:
+        if tok.startswith("-") and tok != "-":
+            if "i" in tok:
+                ignore_case = True
+            if "q" in tok:
+                quiet = True
+        else:
+            positional.append(tok)
+    if len(positional) < 2:
+        return tokens
+    pattern_str = positional[0]
+    files = positional[1:]
+    py_code = (
+        "import re, sys; "
+        f"pat = re.compile({pattern_str!r}, re.MULTILINE | ({int(ignore_case)} and re.IGNORECASE)); "
+        f"files = {files!r}; "
+        "matched = any(pat.search(open(f, encoding='utf-8', errors='replace').read()) for f in files); "
+        "sys.exit(0 if matched else 1)"
+    )
+    return [sys.executable, "-c", py_code]
+
+
 def build_cmd_args(cmd_spec: Union[str, List[str]], context: Dict[str, Any]) -> List[str]:
     """Constructs a parameterized list of command arguments for safe shell=False execution."""
     if isinstance(cmd_spec, list):
@@ -373,16 +406,28 @@ def build_cmd_args(cmd_spec: Union[str, List[str]], context: Dict[str, Any]) -> 
     else:
         raw_tokens = shlex.split(str(cmd_spec))
 
+    is_python_cmd = bool(raw_tokens and raw_tokens[0] in ("python3", "python"))
     pattern = re.compile(r"\{([a-zA-Z0-9_.-]+)\}")
-    tokens = [
-        pattern.sub(
-            lambda m: str(val) if (val := get_nested_context_val(context, m.group(1))) is not None else m.group(0),
-            tok,
+    tokens: List[str] = []
+    for idx, tok in enumerate(raw_tokens):
+        is_inline_code = is_python_cmd and idx > 0 and raw_tokens[idx - 1] == "-c"
+        tokens.append(
+            pattern.sub(
+                lambda m, inline=is_inline_code: (
+                    str(val).replace("\\", "/") if inline else str(val)
+                )
+                if (val := get_nested_context_val(context, m.group(1))) is not None
+                else m.group(0),
+                tok,
+            )
         )
-        for tok in raw_tokens
-    ]
-    if tokens and tokens[0] in ("python3", "python"):
+    if is_python_cmd:
         tokens[0] = sys.executable
+    elif os.name == "nt" and tokens and tokens[0] == "grep":
+        import shutil
+
+        if shutil.which("grep") is None:
+            tokens = _translate_grep_to_python(tokens)
     return tokens
 
 
@@ -409,10 +454,18 @@ def execute_init(init_spec: Dict[str, Any], init_context: Optional[Dict[str, Any
                 raise RuntimeError(
                     f"Init command for '{key}' failed with exit code {e.returncode}."
                 ) from None
+            if os.name == "nt" and re.match(r"^[A-Za-z]:[\\/]", output) and "\n" not in output:
+                output = os.path.normpath(output)
             metadata[key] = output
             ctx[key] = output
         elif isinstance(val, str):
             interpolated_val = interpolate(val, ctx)
+            if (
+                os.name == "nt"
+                and re.match(r"^[A-Za-z]:[\\/]", interpolated_val)
+                and "\n" not in interpolated_val
+            ):
+                interpolated_val = os.path.normpath(interpolated_val)
             metadata[key] = interpolated_val
             ctx[key] = interpolated_val
         else:
@@ -556,7 +609,7 @@ def init_workflow_session(
 
     unique_id = state_id_override or uuid.uuid4().hex[:8]
     workflow_cache_dir = get_workflow_cache_dir(wf_name)
-    workflow_cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    workflow_cache_dir.mkdir(parents=True, exist_ok=True, mode=_PRIVATE_DIR_MODE)
 
     init_ctx: Dict[str, Any] = {
         "workflow_name": wf_name,
@@ -665,7 +718,7 @@ def init_workflow_session(
     }
     base_dir = resolve_default_state_base_dir(state_base_dir)
     state_dir = base_dir / wf_name
-    state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    state_dir.mkdir(parents=True, exist_ok=True, mode=_PRIVATE_DIR_MODE)
     state_file = state_dir / f"STATE-{unique_id}.yaml"
     save_state_yaml(state_file, initial_state)
     return unique_id

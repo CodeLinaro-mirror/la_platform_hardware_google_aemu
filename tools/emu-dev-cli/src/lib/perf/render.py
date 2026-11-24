@@ -79,6 +79,14 @@ def _format_single_primary_and_sub_metrics(
         sub_parts = [
             f"{t.get('duration_ms_mean', t['duration_ms_p50']):.2f} ± {t.get('duration_ms_stdev', 0.0):.2f}"
         ]
+        if "host_pre_kernel_ms_p50" in t:
+            sub_parts.append(
+                f"pre={t['host_pre_kernel_ms_p50']:.0f}ms "
+                f"k2i={t.get('kernel_to_init_ms_p50', 0):.0f}ms "
+                f"i2z={t.get('init_to_zygote_ms_p50', 0):.0f}ms "
+                f"z2c={t.get('zygote_to_complete_ms_p50', 0):.0f}ms "
+                f"(pms={t.get('pms_scan_ms_p50', 0):.0f}ms)"
+            )
         if "kernel_to_app_ms_p50" in t:
             sub_parts.append(f"k2a={t['kernel_to_app_ms_p50']:.2f}ms")
         if "delivery_pct" in t:

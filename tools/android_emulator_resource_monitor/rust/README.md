@@ -68,3 +68,5 @@ Run the test suite using Cargo from this directory:
 ```bash
 cargo test
 ```
+
+Unit tests live in `tests/`, mirroring `src/` (`tests/<module>_test.rs`, `tests/main_test.rs` for `src/main.rs`, `tests/host/host_test.rs` for `src/host/mod.rs`, and shared Unix test helpers in `tests/test_support.rs`). To run a single module's tests, filter by its module path, for example `cargo test netsim::pcap::tests`.

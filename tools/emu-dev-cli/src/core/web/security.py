@@ -102,6 +102,12 @@ def read_json_body(
     """
     content_type = (headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
     if content_type != JSON_CONTENT_TYPE:
+        try:
+            discard_len = int(headers.get("Content-Length") or 0)
+            if 0 < discard_len <= min(max_bytes, 65536):
+                rfile.read(discard_len)
+        except (OSError, ValueError):
+            pass
         raise RequestRejected(
             HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
             f"Unsupported Content-Type '{content_type or 'none'}'. "

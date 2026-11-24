@@ -1,0 +1,115 @@
+# Copyright 2026 The Android Open Source Project
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: qualify-stability
+description: Run user-experience stability qualification (dev-loop, snapshot-stress, ui-control) against an emulator build, verify SLA health & forensic artifacts, and produce an actionable qualification report with optional Buganizer triage.
+
+args:
+  - name: target
+    help: "Candidate emulator target: 'latest:emu-main-next' (default), 'stable', 'tree', build ID, or directory"
+    required: false
+    default: "latest:emu-main-next"
+  - name: tier
+    help: "Stability duration tier: 'smoke' (~5m, default), 'standard' (~30m), or 'soak' (4h)"
+    required: false
+    default: "smoke"
+  - name: scenario
+    help: "Comma-separated scenarios: 'all' (default), 'dev-loop', 'snapshot-stress', 'ui-control'"
+    required: false
+    default: "all"
+  - name: avd
+    help: "Template AVD name for clean isolated provisioning (default: 'auto')"
+    required: false
+    default: "auto"
+  - name: gpu
+    help: "Emulator GPU mode (default: 'auto' matching Android Studio)"
+    required: false
+    default: "auto"
+  - name: triage-bugs
+    help: "Whether to inspect/file Buganizer issues if FAIL/DEGRADED findings occur ('true' or 'false', default: 'false')"
+    required: false
+    default: "false"
+
+init:
+  stability-json: "{cache-dir}/stability-report-{state_id}.json"
+  scorecard-md: "{cache-dir}/stability-scorecard-{state_id}.md"
+  final-report-md: "{cache-dir}/stability-qualification-{state_id}.md"
+
+steps:
+  - step: 0
+    title: Execute User-Experience Stability Run & Collect Telemetry
+    description: Provision an isolated AVD clone, run the requested stability scenarios, and generate the JSON & Markdown scorecard artifacts
+    prompt: |
+      Emulator Stability Qualification initialized:
+      - Target: `{target}`
+      - Tier: `{tier}` | Scenario(s): `{scenario}` | GPU: `{gpu}` | AVD Template: `{avd}`
+      - Output JSON: `{stability-json}`
+      - Output Scorecard: `{scorecard-md}`
+
+      1. Execute the stability run and write both artifacts:
+           emu-dev-cli stability run --target {target} --tier {tier} --scenario {scenario} --avd {avd} --gpu {gpu} --output {stability-json} --report {scorecard-md}
+         *(Note: `emu-dev-cli stability run` exits with code 1 when the verdict is `FAIL`, while still writing `{stability-json}` and `{scorecard-md}` plus a forensic bundle—that is expected when catching a real regression!)*
+      2. Once `{stability-json}` and `{scorecard-md}` exist on disk, run the continuation command below to verify the artifacts.
+    verifier_cmd: "python3 {workflow_dir}/../../src/__main__.py stability verify --report-json {stability-json} --report-md {scorecard-md}"
+    max_retries: 3
+    error_prompt: |
+      Stability run artifact verification failed (attempt {retries} of {max_retries}):
+      {verifier_error}
+
+      Ensure `{stability-json}` and `{scorecard-md}` were produced by `emu-dev-cli stability run`.
+    stuck_prompt: |
+      Workflow is STUCK after {retries} attempts verifying `{stability-json}`:
+      {verifier_error}
+    stuck_reason: "Stability JSON report at {stability-json} failed verification after {retries} attempts."
+
+  - step: 1
+    title: Analyze Telemetry, Inspect Forensics & Author Qualification Report
+    description: Review per-cycle telemetry, forensic bundles (if FAIL/DEGRADED), and optionally triage Buganizer issues
+    prompt: |
+      The stability run artifacts have been verified:
+      - Raw Stability JSON: `{stability-json}`
+      - Rendered Scorecard: `{scorecard-md}`
+      - Target Qualification Report: `{final-report-md}`
+      - Optional Buganizer Triage Enabled: `{triage-bugs}`
+
+      1. Read `{scorecard-md}` and `{stability-json}`.
+      2. If the verdict is `DEGRADED` or `FAIL`:
+         - Inspect the `forensics.bundle_dir` artifacts (`emulator_host.log`, `logcat_crash.txt`, `dropbox_summary.txt`, `minidumps/`).
+         - If `--triage-bugs` is `true` and a crash minidump or reproducible defect was captured, search existing issues via `emu-dev-cli crash find-bug` / Buganizer and include the linked or newly filed Buganizer ID.
+      3. Author `{final-report-md}` containing:
+         - `# Emulator Stability Qualification Report`
+         - Overall Verdict (`PASS` / `DEGRADED` / `FAIL`) & Environment summary
+         - Full Health & SLA Summary and Per-Cycle Time-Series tables from `{scorecard-md}`
+         - Root-Cause Analysis & Actionable Next Steps (or confirmation of clean stability)
+    verifier_cmd: "python3 {workflow_dir}/../../src/__main__.py stability verify --report-json {stability-json} --report-md {final-report-md}"
+    max_retries: 3
+    error_prompt: |
+      Qualification report verification failed (attempt {retries} of {max_retries}):
+      {verifier_error}
+
+      Ensure `{final-report-md}` exists and includes the `Verdict` summary and SLA tables.
+    stuck_prompt: |
+      Workflow is STUCK after {retries} attempts verifying `{final-report-md}`:
+      {verifier_error}
+    stuck_reason: "Qualification report at {final-report-md} failed verification after {retries} attempts."
+
+  - step: 2
+    title: Completion
+    prompt: |
+      Emulator Stability Qualification completed!
+      - Final Qualification Report: `{final-report-md}`
+      - Raw Telemetry JSON: `{stability-json}`
+
+      Present `{final-report-md}` to the user.
+    verifier_cmd: null

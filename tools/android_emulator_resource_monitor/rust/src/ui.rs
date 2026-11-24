@@ -1,6 +1,116 @@
 use crate::host::HostStats;
-// Deleted unused import
+use crate::netsim::NetsimDashboardSnapshot;
+use crate::provider::GuestStats;
 use regex::Regex;
+use std::collections::HashMap;
+use tokio::time::Instant;
+
+const MIN_DASHBOARD_WIDTH: u16 = 76;
+const MAX_DASHBOARD_WIDTH: u16 = 120;
+const BAR_WIDTH: usize = 20;
+const LABEL_COLUMN_WIDTH: usize = 30;
+const LEFT_BORDER_SEGMENT_WIDTH: usize = 32;
+const RIGHT_BORDER_OFFSET: usize = 35;
+const BAR_ROW_OVERHEAD: usize = 60;
+const FULL_ROW_OVERHEAD: usize = 37;
+const TREND_THRESHOLD: f32 = 0.5;
+const MAX_UNMAPPED_PIDS_SHOWN: usize = 4;
+const ALERT_RED_BOLD: &str = "\x1b[91m\x1b[1m";
+const BORDER_STYLE: &str = "\x1b[94m\x1b[1m";
+
+/// Per-device display state rendered in a guest section of the terminal dashboard.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GuestUiStats {
+    pub model: String,
+    pub avd_name: Option<String>,
+    pub cpu_total: String,
+    pub cpu_adjusted: String,
+    pub ram: String,
+    pub data_space: Option<String>,
+    pub swap: Option<String>,
+    pub err_count: u32,
+    pub is_disconnected: bool,
+    pub recording_boot_stats: bool,
+}
+
+impl GuestUiStats {
+    pub fn from_guest_stats(stats: &GuestStats, recording_boot_stats: bool) -> Self {
+        Self {
+            model: stats.model.clone(),
+            avd_name: None,
+            cpu_total: stats.cpu_total.clone(),
+            cpu_adjusted: stats.cpu_adjusted.clone(),
+            ram: stats.ram.clone(),
+            data_space: stats.data_space.clone(),
+            swap: stats.swap.clone(),
+            err_count: stats.err_count,
+            is_disconnected: false,
+            recording_boot_stats,
+        }
+    }
+
+    pub fn with_avd_name(mut self, avd_name: Option<String>) -> Self {
+        self.avd_name = avd_name;
+        self
+    }
+
+    pub fn calculating(
+        model: String,
+        avd_name: Option<String>,
+        recording_boot_stats: bool,
+    ) -> Self {
+        Self {
+            model,
+            avd_name,
+            cpu_total: "Calculating...".to_string(),
+            cpu_adjusted: "Calculating...".to_string(),
+            ram: "Calculating...".to_string(),
+            data_space: None,
+            swap: Some("Calculating...".to_string()),
+            err_count: 0,
+            is_disconnected: false,
+            recording_boot_stats,
+        }
+    }
+
+    /// Marks a result shown again because this tick's query is still running.
+    pub fn mark_timed_out(&mut self) {
+        if !self.cpu_adjusted.contains("Timeout") {
+            self.cpu_adjusted.push_str(" (Timeout)");
+        }
+    }
+
+    pub fn disconnected(model: String, avd_name: Option<String>) -> Self {
+        Self {
+            model,
+            avd_name,
+            cpu_total: "N/A".to_string(),
+            cpu_adjusted: "N/A".to_string(),
+            ram: "N/A".to_string(),
+            data_space: None,
+            swap: None,
+            err_count: 0,
+            is_disconnected: true,
+            recording_boot_stats: false,
+        }
+    }
+}
+
+/// Inputs required to render one frame of the terminal dashboard.
+pub struct DashboardInput<'a> {
+    pub host_stats: &'a HostStats,
+    pub guest_results: &'a HashMap<String, GuestUiStats>,
+    pub prev_stats: &'a mut HashMap<String, f32>,
+    pub iter_count: u64,
+    pub term_width: u16,
+    pub is_once: bool,
+    pub hardware_specs: &'a str,
+    pub force_clear: bool,
+    pub online_indicator_until: &'a HashMap<String, Instant>,
+    pub netsim_snapshot: Option<&'a NetsimDashboardSnapshot>,
+    /// The host sample did not finish this tick; its last values are shown again.
+    pub host_timed_out: bool,
+}
 
 pub struct Colors;
 impl Colors {
@@ -15,736 +125,684 @@ impl Colors {
     pub const DIM: &'static str = "\x1b[2m";
 }
 
+pub(crate) fn ansi_regex() -> &'static Regex {
+    static RE_ANSI: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    RE_ANSI.get_or_init(|| Regex::new(r"(?i)\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])").unwrap())
+}
+
+fn model_clean_regex() -> &'static Regex {
+    static RE_MODEL_CLEAN: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    RE_MODEL_CLEAN
+        .get_or_init(|| Regex::new(r" \| Android [^|]+ \(API ([^|]+)\) \| Build: ([^|]+)").unwrap())
+}
+
 /// Terminal columns taken by `s`: ANSI escapes take none, and each char one
 /// (unlike `str::len`, which counts UTF-8 bytes, e.g. 3 for '…').
 fn visible_width(re_ansi: &Regex, s: &str) -> usize {
     re_ansi.replace_all(s, "").chars().count()
 }
 
-pub fn build_dashboard(
-    host_stats: &HostStats,
-    guest_results: &std::collections::HashMap<String, (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>, bool, bool)>,
-    prev_stats: &mut std::collections::HashMap<String, f32>,
-    iter_count: u64,
-    term_width: u16,
-    is_once: bool,
-    hardware_specs: &str,
-    _force_clear: bool,
-    online_indicator_until: &std::collections::HashMap<String, tokio::time::Instant>,
-    netsim_snapshot: Option<&crate::netsim::NetsimDashboardSnapshot>,
-) -> String {
-
-    let mut buf = Vec::new();
-
-    let width = term_width.saturating_sub(1).clamp(76, 120) as usize;
-    let bar_width: usize = 20;
-    let val_width = width - 60;
-
-    let c1 = format!("{}{}", Colors::BLUE, Colors::BOLD);
-    let c2 = Colors::RESET;
-
-    static RE_ANSI: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let re_ansi = RE_ANSI.get_or_init(|| Regex::new(r"(?i)\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])").unwrap());
-
-    if !is_once {
-        let esc = if _force_clear { "\x1b[2J\x1b[H" } else { "\x1b[H\x1b[J" };
-        buf.push(format!("{}\n", esc));
+fn truncate_or_pad(s: &str, target_width: usize) -> String {
+    let char_len = s.chars().count();
+    if char_len > target_width {
+        let mut truncated: String = s.chars().take(target_width.saturating_sub(1)).collect();
+        truncated.push('…');
+        truncated
+    } else {
+        let spaces = " ".repeat(target_width - char_len);
+        format!("{s}{spaces}")
     }
-    buf.push(format!("{}┌{}┐{}", c1, "─".repeat(width - 2), c2));
+}
 
-    let logo = format!("{}G{}o{}o{}g{}l{}e{}", Colors::BLUE, Colors::RED, Colors::YELLOW, Colors::BLUE, Colors::GREEN, Colors::RED, Colors::RESET);
-    let title_text = "Android Emulator & Device Resource Monitor";
-    let line_content = format!(" {}   {}", logo, title_text);
-
-    let visible_len = visible_width(re_ansi, &line_content);
-    let padding = (width - 2).saturating_sub(visible_len);
-    buf.push(format!("{}│{}{}{}{}{}{}│{}", c1, c2, Colors::BOLD, line_content, " ".repeat(padding), c2, c1, c2));
-    buf.push(format!("{}├{}┤{}", c1, "─".repeat(width - 2), c2));
-
-    let specs_text = format!(" Host Specs: {}", hardware_specs);
-    let visible_specs_len = visible_width(re_ansi, &specs_text);
-    let padding_specs = (width - 2).saturating_sub(visible_specs_len);
-    buf.push(format!("{}│{}{}{}{}{}│{}", c1, c2, Colors::DIM, specs_text, " ".repeat(padding_specs), c1, c2));
-    buf.push(format!("{}├{}┤{}", c1, "─".repeat(width - 2), c2));
-
-    // Print Host Section
-    let section_title = format!(" HOST SYSTEM ({})", sysinfo::System::name().unwrap_or_else(|| "Unknown OS".to_string()));
-    let visible_len = visible_width(re_ansi, &section_title);
-    let padding = (width - 2).saturating_sub(visible_len);
-    buf.push(format!("{}│{}{}{}{}{}{}{}│{}", c1, c2, Colors::YELLOW, Colors::BOLD, section_title, " ".repeat(padding), c2, c1, c2));
-    buf.push(format!("{}├{}┬{}┤{}", c1, "─".repeat(32), "─".repeat(width - 35), c2));
-
-    // Helper to get trend arrow
-    let mut get_trend_arrow = |key: &str, current: f32| {
-        let previous = prev_stats.get(key).cloned().unwrap_or(current);
-        prev_stats.insert(key.to_string(), current);
-
-        if current > previous + 0.5 {
-            "↑"
-        } else if current < previous - 0.5 {
-            "↓"
+fn format_row_value(value_str: &str, is_alert: bool, target_width: usize) -> String {
+    let clean = ansi_regex().replace_all(value_str, "");
+    if is_alert {
+        const ALERT_SUFFIX: &str = " [!!]";
+        let max_base_len = target_width.saturating_sub(ALERT_SUFFIX.len());
+        let char_len = clean.chars().count();
+        let with_alert = if char_len > max_base_len {
+            let mut truncated: String =
+                clean.chars().take(max_base_len.saturating_sub(1)).collect();
+            truncated.push('…');
+            format!("{truncated}{ALERT_SUFFIX}")
         } else {
-            "→"
+            format!("{clean}{ALERT_SUFFIX}")
+        };
+        truncate_or_pad(&with_alert, target_width)
+    } else {
+        truncate_or_pad(&clean, target_width)
+    }
+}
+
+fn trend_arrow_for_delta(previous: f32, current: f32) -> &'static str {
+    if current > previous + TREND_THRESHOLD {
+        "↑"
+    } else if current < previous - TREND_THRESHOLD {
+        "↓"
+    } else {
+        "→"
+    }
+}
+
+fn record_trend_arrow(
+    prev_stats: &mut HashMap<String, f32>,
+    key: &str,
+    current: f32,
+) -> &'static str {
+    let previous = prev_stats.get(key).copied().unwrap_or(current);
+    prev_stats.insert(key.to_string(), current);
+    trend_arrow_for_delta(previous, current)
+}
+
+fn is_leading_na_placeholder(value_str: &str) -> bool {
+    let clean = ansi_regex().replace_all(value_str, "");
+    let head = clean.split('(').next().unwrap_or(&clean).trim_start();
+    head.starts_with("N/A")
+}
+
+fn is_placeholder_value(value_str: &str, ts_val: f32) -> bool {
+    is_leading_na_placeholder(value_str)
+        || value_str.contains("Unsupported")
+        || value_str.contains("No ADB")
+        || value_str.contains("Error")
+        || value_str.contains("Timeout")
+        || value_str.contains("Hang")
+        || value_str.contains("Calculating")
+        || value_str.contains("NaN")
+        || ts_val.is_nan()
+}
+
+fn is_row_alert(label: &str, value_str: &str, val_for_alert: f32) -> bool {
+    if label.contains("Battery") {
+        val_for_alert <= 10.0
+    } else if value_str.contains("°C") {
+        val_for_alert > 85.0
+    } else if value_str.contains('%') {
+        let threshold = if is_multi_core_cpu_label(label) { 750.0 } else { 90.0 };
+        val_for_alert > threshold
+    } else {
+        false
+    }
+}
+
+const BATTERY_COLOR_TIERS: &[(f32, &str)] = &[(20.0, Colors::GREEN), (10.0, Colors::YELLOW)];
+const TEMP_COLOR_TIERS: &[(f32, &str)] = &[(85.0, ALERT_RED_BOLD), (70.0, Colors::YELLOW)];
+const PAGING_COLOR_TIERS: &[(f32, &str)] = &[(5000.0, ALERT_RED_BOLD), (1000.0, Colors::YELLOW)];
+const SPECIAL_CPU_COLOR_TIERS: &[(f32, &str)] =
+    &[(750.0, ALERT_RED_BOLD), (350.0, Colors::RED), (150.0, Colors::YELLOW)];
+const PERCENT_COLOR_TIERS: &[(f32, &str)] =
+    &[(90.0, ALERT_RED_BOLD), (70.0, Colors::RED), (40.0, Colors::YELLOW)];
+
+fn threshold_color(val: f32, tiers: &[(f32, &'static str)], default: &'static str) -> &'static str {
+    for &(threshold, color) in tiers {
+        if val > threshold {
+            return color;
         }
+    }
+    default
+}
+
+fn is_multi_core_cpu_label(label: &str) -> bool {
+    label.contains("Total Device CPU")
+        || label.contains("Host QEMU CPU")
+        || label.contains("Unmapped Emulator CPU")
+        || label.contains("Network Simulator")
+}
+
+fn row_value_color(
+    label: &str,
+    value_str: &str,
+    val_for_alert: f32,
+    is_placeholder: bool,
+    is_alert: bool,
+) -> &'static str {
+    if is_alert {
+        return ALERT_RED_BOLD;
+    }
+    let base_color = if is_placeholder {
+        Colors::CYAN
+    } else if label.contains("Battery") {
+        threshold_color(val_for_alert, BATTERY_COLOR_TIERS, ALERT_RED_BOLD)
+    } else if value_str.contains("°C") {
+        threshold_color(val_for_alert, TEMP_COLOR_TIERS, Colors::GREEN)
+    } else if value_str.contains("pages/s")
+        || value_str.contains("Out:")
+        || value_str.contains("KB/s")
+    {
+        threshold_color(val_for_alert, PAGING_COLOR_TIERS, Colors::GREEN)
+    } else if !value_str.contains('%') {
+        Colors::CYAN
+    } else if is_multi_core_cpu_label(label) {
+        threshold_color(val_for_alert, SPECIAL_CPU_COLOR_TIERS, Colors::GREEN)
+    } else {
+        threshold_color(val_for_alert, PERCENT_COLOR_TIERS, Colors::GREEN)
     };
 
-    // Helper to print a row
-    let print_row = |label: &str, value_str: &str, value_pct: f32, buf: &mut Vec<String>| {
-        let raw_val = crate::summary::get_val(value_str, false);
+    if label.contains("Host QEMU")
+        && !is_placeholder
+        && matches!(base_color, Colors::GREEN | Colors::CYAN)
+    {
+        Colors::BLUE
+    } else {
+        base_color
+    }
+}
 
-        let is_placeholder = value_str.contains("Unsupported") ||
-                             value_str.contains("No ADB") ||
-                             value_str.contains("Error") ||
-                             value_str.contains("Timeout") ||
-                             value_str.contains("Hang") ||
-                             value_str.contains("Calculating") ||
-                             raw_val.is_nan();
+fn format_progress_bar(val_to_clamp: f32, bar_width: usize) -> String {
+    let clamped_val = val_to_clamp.clamp(0.0, 100.0);
+    let filled = ((clamped_val / 100.0) * bar_width as f32) as usize;
+    let half = usize::from(((clamped_val / 100.0) * bar_width as f32 - filled as f32) >= 0.5);
+    format!(
+        "[{}{}{}]",
+        "█".repeat(filled),
+        if half == 1 { "▌" } else { "" },
+        " ".repeat(bar_width.saturating_sub(filled + half))
+    )
+}
 
-        let mut is_alert = false;
-        let val_for_alert = if raw_val == 0.0 && value_pct > 0.0 { value_pct } else { raw_val };
+fn push_metric_row(
+    buf: &mut Vec<String>,
+    label: &str,
+    value_str: &str,
+    value_pct: f32,
+    width: usize,
+) {
+    let clean = ansi_regex().replace_all(value_str, "");
+    let head = clean.split('(').next().unwrap_or(&clean).trim_start();
+    let parse_src =
+        if !head.starts_with("N/A") && clean.contains("N/A") { head } else { value_str };
+    let ts_val = crate::summary::get_val(parse_src, true);
+    let raw_val = if ts_val.is_nan() { 0.0 } else { ts_val };
+    let is_placeholder = is_placeholder_value(value_str, ts_val);
+    let val_for_alert = if raw_val == 0.0 && value_pct > 0.0 { value_pct } else { raw_val };
+    let is_alert = !is_placeholder && is_row_alert(label, value_str, val_for_alert);
+    let color = row_value_color(label, value_str, val_for_alert, is_placeholder, is_alert);
 
-        if label.contains("Battery") {
-            if val_for_alert <= 10.0 { is_alert = true; }
-        } else if value_str.contains("°C") {
-            if val_for_alert > 85.0 { is_alert = true; }
-        } else if value_str.contains('%') {
-            let threshold = if label == "Total Device CPU Usage" ||
-                               label == "Host QEMU CPU" ||
-                               label == "Unmapped Emulator CPU" ||
-                               label == "Network Simulator CPU" { 750.0 } else { 90.0 };
-            if val_for_alert > threshold { is_alert = true; }
-        }
+    let has_bar = value_str.contains('%') || value_str.contains("°C");
 
-        let color = if is_placeholder {
-            Colors::CYAN
-        } else if label.contains("Battery") {
-            if val_for_alert > 20.0 {
-                Colors::GREEN
-            } else if val_for_alert > 10.0 {
-                Colors::YELLOW
-            } else {
-                "\x1b[91m\x1b[1m"
-            }
-        } else if value_str.contains("°C") {
-            if val_for_alert > 85.0 {
-                "\x1b[91m\x1b[1m"
-            } else if val_for_alert > 70.0 {
-                Colors::YELLOW
-            } else {
-                Colors::GREEN
-            }
-        } else if value_str.contains("pages/s") || value_str.contains("Out:") || value_str.contains("KB/s") {
-            if val_for_alert > 5000.0 {
-                "\x1b[91m\x1b[1m"
-            } else if val_for_alert > 1000.0 {
-                Colors::YELLOW
-            } else {
-                Colors::GREEN
-            }
-        } else if !value_str.contains('%') {
-            Colors::CYAN
-        } else {
-            let is_special_cpu = label.contains("Total Device CPU") ||
-                                 label.contains("Host QEMU CPU") ||
-                                 label.contains("Unmapped Emulator CPU") ||
-                                 label.contains("Network Simulator");
+    let mut line = String::new();
+    line.push_str(BORDER_STYLE);
+    line.push('│');
+    line.push_str(Colors::RESET);
+    line.push(' ');
+    line.push_str(Colors::BOLD);
+    line.push_str(&format!("{label:<LABEL_COLUMN_WIDTH$}"));
+    line.push_str(Colors::RESET);
+    line.push(' ');
+    line.push_str(BORDER_STYLE);
+    line.push('│');
+    line.push_str(Colors::RESET);
+    line.push(' ');
+    line.push_str(color);
 
-            if is_special_cpu {
-                if val_for_alert > 750.0 {
-                    "\x1b[91m\x1b[1m"
-                } else if val_for_alert > 350.0 {
-                    Colors::RED
-                } else if val_for_alert > 150.0 {
-                    Colors::YELLOW
-                } else {
-                    Colors::GREEN
-                }
-            } else {
-                if val_for_alert > 90.0 {
-                    "\x1b[91m\x1b[1m"
-                } else if val_for_alert > 70.0 {
-                    Colors::RED
-                } else if val_for_alert > 40.0 {
-                    Colors::YELLOW
-                } else {
-                    Colors::GREEN
-                }
-            }
-        };
-
-        let color = if label.contains("Host QEMU") && color == Colors::GREEN {
-            Colors::BLUE
-        } else {
-            color
-        };
-
-        let color = if is_alert { "\x1b[91m\x1b[1m" } else { color };
-
-        let has_bar = value_str.contains('%') || value_str.contains("°C");
-
-        let bar = if has_bar {
-            let val_to_clamp = if is_placeholder { 0.0 } else { if raw_val == 0.0 && value_pct > 0.0 { value_pct } else { raw_val } };
-            let clamped_val = val_to_clamp.clamp(0.0, 100.0);
-            let filled = ((clamped_val / 100.0) * bar_width as f32) as usize;
-            let half = if ((clamped_val / 100.0) * bar_width as f32 - filled as f32) >= 0.5 { 1 } else { 0 };
-            format!("[{}{}{}]", "█".repeat(filled), if half == 1 { "▌" } else { "" }, " ".repeat(bar_width.saturating_sub(filled + half)))
-        } else {
-            "".to_string()
-        };
-
-        let value_str_with_alert = if is_alert {
-            format!("{} [!!]", value_str)
-        } else {
-            value_str.to_string()
-        };
-
-        let visible_val_len = value_str_with_alert.chars().count();
-        let val_display = if visible_val_len > val_width {
-            let mut truncated: String = value_str_with_alert.chars().take(val_width - 1).collect();
-            truncated.push('…');
-            truncated
-        } else {
-            let spaces = " ".repeat(val_width - visible_val_len);
-            format!("{}{}", value_str_with_alert, spaces)
-        };
-
-        let mut line = String::new();
-        line.push_str(&c1);
-        line.push('│');
-        line.push_str(c2);
-        line.push(' ');
-        line.push_str(Colors::BOLD);
-        line.push_str(&format!("{:<30}", label));
-        line.push_str(c2);
-        line.push(' ');
-        line.push_str(&c1);
-        line.push('│');
-        line.push_str(c2);
+    if has_bar {
+        let val_to_clamp = if is_placeholder { 0.0 } else { val_for_alert };
+        let bar = format_progress_bar(val_to_clamp, BAR_WIDTH);
+        let val_display = format_row_value(value_str, is_alert, width - BAR_ROW_OVERHEAD);
+        line.push_str(&bar);
         line.push(' ');
         line.push_str(color);
+        line.push_str(&val_display);
+    } else {
+        let val_display_full = format_row_value(value_str, is_alert, width - FULL_ROW_OVERHEAD);
+        line.push_str(&val_display_full);
+    }
 
-        if has_bar {
-            line.push_str(&bar);
-            line.push(' ');
-            line.push_str(color);
-            line.push_str(&val_display);
-        } else {
-            let full_w = width - 37;
-            let visible_val_len = value_str_with_alert.chars().count();
-            let val_display_full = if visible_val_len > full_w {
-                let mut truncated: String = value_str_with_alert.chars().take(full_w - 1).collect();
-                truncated.push('…');
-                truncated
-            } else {
-                let spaces = " ".repeat(full_w - visible_val_len);
-                format!("{}{}", value_str_with_alert, spaces)
-            };
-            line.push_str(&val_display_full);
-        }
+    line.push(' ');
+    line.push_str(Colors::RESET);
+    line.push_str(BORDER_STYLE);
+    line.push('│');
+    line.push_str(Colors::RESET);
+    buf.push(line);
+}
 
-        line.push(' ');
-        line.push_str(c2);
-        line.push_str(&c1);
-        line.push('│');
-        line.push_str(c2);
-        buf.push(line);
+fn render_header_section(buf: &mut Vec<String>, input: &DashboardInput<'_>, width: usize) {
+    let re_ansi = ansi_regex();
+    let c1 = BORDER_STYLE;
+    let c2 = Colors::RESET;
+
+    if !input.is_once {
+        let esc = if input.force_clear { "\x1b[2J\x1b[H" } else { "\x1b[H\x1b[J" };
+        buf.push(format!("{esc}\n"));
+    }
+    buf.push(format!("{c1}┌{}┐{c2}", "─".repeat(width - 2)));
+
+    let logo = format!(
+        "{}G{}o{}o{}g{}l{}e{}",
+        Colors::BLUE,
+        Colors::RED,
+        Colors::YELLOW,
+        Colors::BLUE,
+        Colors::GREEN,
+        Colors::RED,
+        Colors::RESET
+    );
+    let title_text = "Android Emulator & Device Resource Monitor";
+    let line_content = format!(" {logo}   {title_text}");
+    let visible_len = visible_width(re_ansi, &line_content);
+    let padding = (width - 2).saturating_sub(visible_len);
+    buf.push(format!(
+        "{c1}│{c2}{}{line_content}{}{c2}{c1}│{c2}",
+        Colors::BOLD,
+        " ".repeat(padding)
+    ));
+    buf.push(format!("{c1}├{}┤{c2}", "─".repeat(width - 2)));
+
+    // Long specs are cut two columns short of the border, as in the Python dashboard.
+    let specs_text = truncate_or_pad(&format!(" Host Specs: {}", input.hardware_specs), width - 4);
+    buf.push(format!("{c1}│{c2}{}{specs_text}  {c2}{c1}│{c2}", Colors::DIM));
+    buf.push(format!("{c1}├{}┤{c2}", "─".repeat(width - 2)));
+}
+
+fn push_section_banner(buf: &mut Vec<String>, title: &str, color: &str, width: usize) {
+    let c1 = BORDER_STYLE;
+    let c2 = Colors::RESET;
+    let visible_len = visible_width(ansi_regex(), title);
+    let padding = (width - 2).saturating_sub(visible_len);
+    buf.push(format!(
+        "{c1}│{c2}{color}{}{title}{}{c2}{c1}│{c2}",
+        Colors::BOLD,
+        " ".repeat(padding)
+    ));
+    buf.push(format!(
+        "{c1}├{}┬{}┤{c2}",
+        "─".repeat(LEFT_BORDER_SEGMENT_WIDTH),
+        "─".repeat(width - RIGHT_BORDER_OFFSET)
+    ));
+}
+
+/// Host GPU load when no source reports one. The hint is shown on Linux only,
+/// as in the Python monitor.
+const HOST_GPU_LOAD_UNAVAILABLE: &str =
+    if cfg!(target_os = "linux") { "N/A (Requires sudo or nvidia-smi)" } else { "N/A" };
+
+fn render_host_system_rows(
+    buf: &mut Vec<String>,
+    host_stats: &HostStats,
+    prev_stats: &mut HashMap<String, f32>,
+    host_timed_out: bool,
+    width: usize,
+) {
+    let cpu_str = if host_timed_out {
+        format!("{:.1}% (Timeout)", host_stats.cpu_usage)
+    } else {
+        format!(
+            "{:.1}% {}",
+            host_stats.cpu_usage,
+            record_trend_arrow(prev_stats, "host_cpu", host_stats.cpu_usage)
+        )
     };
+    push_metric_row(buf, "Complete System CPU", &cpu_str, host_stats.cpu_usage, width);
 
-    let cpu_str = format!("{:.1}% {}", host_stats.cpu_usage, get_trend_arrow("host_cpu", host_stats.cpu_usage));
-    print_row("Complete System CPU", &cpu_str, host_stats.cpu_usage, &mut buf);
-    let ram_str = format!("{:.1}% ({:.1}GB/{:.1}GB) {}", host_stats.ram_percent, host_stats.ram_used_gb, host_stats.ram_total_gb, get_trend_arrow("host_ram", host_stats.ram_percent));
-    print_row("Complete System RAM", &ram_str, host_stats.ram_percent, &mut buf);
-    let swap_str = format!("{:.1}% ({:.1}GB/{:.1}GB) {}", host_stats.swap_percent, host_stats.swap_used_gb, host_stats.swap_total_gb, get_trend_arrow("host_swap", host_stats.swap_percent));
-    print_row("Backup Memory (Swap) Usage", &swap_str, host_stats.swap_percent, &mut buf);
-    print_row("Memory Swapping Activity", &host_stats.paging_str, 0.0, &mut buf);
+    let ram_str = format!(
+        "{:.1}% ({:.1}GB/{:.1}GB) {}",
+        host_stats.ram_percent,
+        host_stats.ram_used_gb,
+        host_stats.ram_total_gb,
+        record_trend_arrow(prev_stats, "host_ram", host_stats.ram_percent)
+    );
+    push_metric_row(buf, "Complete System RAM", &ram_str, host_stats.ram_percent, width);
 
-    let gpu_str = host_stats.gpu_percent.map(|g| format!("{:.1}%", g)).unwrap_or_else(|| "N/A (Requires sudo or nvidia-smi)".to_string());
-    print_row("Host GPU Load", &gpu_str, host_stats.gpu_percent.unwrap_or(0.0), &mut buf);
+    let swap_str = format!(
+        "{:.1}% ({:.1}GB/{:.1}GB) {}",
+        host_stats.swap_percent,
+        host_stats.swap_used_gb,
+        host_stats.swap_total_gb,
+        record_trend_arrow(prev_stats, "host_swap", host_stats.swap_percent)
+    );
+    push_metric_row(buf, "Backup Memory (Swap) Usage", &swap_str, host_stats.swap_percent, width);
+    push_metric_row(buf, "Memory Swapping Activity", &host_stats.paging_str, 0.0, width);
 
-    let gpu_mem_str = host_stats.gpu_memory_mb.map(|m| format!("{:.1}MB", m)).unwrap_or_else(|| "N/A".to_string());
-    print_row("Host GPU Memory", &gpu_mem_str, 0.0, &mut buf);
+    let gpu_str = host_stats
+        .gpu_percent
+        .map(|g| format!("{g:.1}%"))
+        .unwrap_or_else(|| HOST_GPU_LOAD_UNAVAILABLE.to_string());
+    push_metric_row(buf, "Host GPU Load", &gpu_str, host_stats.gpu_percent.unwrap_or(0.0), width);
 
-    let temp_str = host_stats.thermal_temp.map(|t| format!("{:.1}°C", t)).unwrap_or_else(|| "N/A".to_string());
-    print_row("Host Thermal Temperature", &temp_str, 0.0, &mut buf);
+    let gpu_mem_str =
+        host_stats.gpu_memory_mb.map(|m| format!("{m:.1}MB")).unwrap_or_else(|| "N/A".to_string());
+    push_metric_row(buf, "Host GPU Memory", &gpu_mem_str, 0.0, width);
 
-    let disk_str = format!("Read: {:.1} MB/s | Write: {:.1} MB/s", host_stats.disk_read_mbs, host_stats.disk_write_mbs);
-    print_row("Host Disk I/O Rate", &disk_str, 0.0, &mut buf);
+    let temp_str = host_stats
+        .thermal_temp
+        .filter(|&t| t > 0.0)
+        .map(|t| format!("{t:.1}°C"))
+        .unwrap_or_else(|| "N/A".to_string());
+    push_metric_row(buf, "Host Thermal Temperature", &temp_str, 0.0, width);
+
+    let disk_str = format!(
+        "Read: {:.1} MB/s | Write: {:.1} MB/s",
+        host_stats.disk_read_mbs, host_stats.disk_write_mbs
+    );
+    push_metric_row(buf, "Host Disk I/O Rate", &disk_str, 0.0, width);
 
     if host_stats.battery_str != "N/A" {
-        print_row("Laptop Battery Status", &host_stats.battery_str, 0.0, &mut buf);
+        push_metric_row(buf, "Laptop Battery Status", &host_stats.battery_str, 0.0, width);
     }
+}
 
-    let unmapped: Vec<&crate::host::EmulatorProcess> = host_stats.emulators.iter().filter(|e| e.port.is_none()).collect();
-    if !unmapped.is_empty() {
-        let sum_cpu: f32 = unmapped.iter().map(|e| e.cpu_usage).sum();
-        let sum_ram: f64 = unmapped.iter().map(|e| e.ram_mb).sum();
-        let pids: Vec<String> = unmapped.iter().map(|e| e.pid.to_string()).collect();
-        let pid_str = if pids.len() > 4 {
-            format!("{} ... (+{} more)", pids[..4].join(", "), pids.len() - 4)
-        } else {
-            pids.join(", ")
-        };
-        print_row("Unmapped Emulator CPU", &format!("{:.1}% (PIDs: {})", sum_cpu, pid_str), sum_cpu, &mut buf);
-        print_row("Unmapped Emulator RAM", &format!("{:.1}MB (PIDs: {})", sum_ram, pid_str), 0.0, &mut buf);
+fn render_unmapped_emulator_rows(
+    buf: &mut Vec<String>,
+    emulators: &[crate::host::EmulatorProcess],
+    width: usize,
+) {
+    let unmapped: Vec<&crate::host::EmulatorProcess> =
+        emulators.iter().filter(|e| e.port.is_none()).collect();
+    if unmapped.is_empty() {
+        return;
     }
-
-    if host_stats.netsim_count > 0 {
-        let netsim_cpu_str = format!("{:.1}% ({} processes) {}", host_stats.netsim_cpu, host_stats.netsim_count, get_trend_arrow("netsim_cpu", host_stats.netsim_cpu));
-        print_row("Network Simulator CPU", &netsim_cpu_str, host_stats.netsim_cpu, &mut buf);
-
-        let netsim_ram_str = format!("{:.1}MB ({} processes)", host_stats.netsim_ram_mb, host_stats.netsim_count);
-        print_row("Network Simulator RAM", &netsim_ram_str, 0.0, &mut buf);
+    let sum_cpu: f32 = unmapped.iter().map(|e| e.cpu_usage).sum();
+    let sum_ram: f64 = unmapped.iter().map(|e| e.ram_mb).sum();
+    let pids: Vec<String> = unmapped.iter().map(|e| e.pid.to_string()).collect();
+    let pid_str = if pids.len() > MAX_UNMAPPED_PIDS_SHOWN {
+        format!(
+            "{} ... (+{} more)",
+            pids[..MAX_UNMAPPED_PIDS_SHOWN].join(", "),
+            pids.len() - MAX_UNMAPPED_PIDS_SHOWN
+        )
     } else {
-        print_row("Network Simulator CPU", "N/A", 0.0, &mut buf);
-        print_row("Network Simulator RAM", "N/A", 0.0, &mut buf);
+        pids.join(", ")
+    };
+    push_metric_row(
+        buf,
+        "Unmapped Emulator CPU",
+        &format!("{sum_cpu:.1}% (PIDs: {pid_str})"),
+        sum_cpu,
+        width,
+    );
+    push_metric_row(
+        buf,
+        "Unmapped Emulator RAM",
+        &format!("{sum_ram:.1}MB (PIDs: {pid_str})"),
+        0.0,
+        width,
+    );
+}
+
+fn render_host_netsim_rows(
+    buf: &mut Vec<String>,
+    host_stats: &HostStats,
+    prev_stats: &mut HashMap<String, f32>,
+    netsim_snapshot: Option<&NetsimDashboardSnapshot>,
+    width: usize,
+) {
+    if host_stats.netsim_count > 0 {
+        let netsim_cpu_str = format!(
+            "{:.1}% ({} processes) {}",
+            host_stats.netsim_cpu,
+            host_stats.netsim_count,
+            record_trend_arrow(prev_stats, "netsim_cpu", host_stats.netsim_cpu)
+        );
+        push_metric_row(
+            buf,
+            "Network Simulator CPU",
+            &netsim_cpu_str,
+            host_stats.netsim_cpu,
+            width,
+        );
+
+        let netsim_ram_str =
+            format!("{:.1}MB ({} processes)", host_stats.netsim_ram_mb, host_stats.netsim_count);
+        push_metric_row(buf, "Network Simulator RAM", &netsim_ram_str, 0.0, width);
+    } else {
+        push_metric_row(buf, "Network Simulator CPU", "N/A", 0.0, width);
+        push_metric_row(buf, "Network Simulator RAM", "N/A", 0.0, width);
     }
 
     if let Some(snap) = netsim_snapshot {
         if !snap.daemon_rows.is_empty() {
             for (lbl, val) in &snap.daemon_rows {
-                print_row(lbl, val, 0.0, &mut buf);
+                push_metric_row(buf, lbl, val, 0.0, width);
             }
         } else if let Some(ref status_str) = snap.daemon_status_row {
-            print_row("Netsim Daemon", status_str, 0.0, &mut buf);
+            push_metric_row(buf, "Netsim Daemon", status_str, 0.0, width);
         }
     }
+}
 
-    // Print Guest Section
-    if guest_results.is_empty() {
-        buf.push(format!("{}├{}┴{}┤{}", c1, "─".repeat(32), "─".repeat(width - 35), c2));
-        let section_title = " GUEST SYSTEM (ADB)";
-        let visible_len = visible_width(re_ansi, &section_title);
-        let padding = (width - 2).saturating_sub(visible_len);
-        buf.push(format!("{}│{}{}{}{}{}{}{}│{}", c1, c2, Colors::HEADER, Colors::BOLD, section_title, " ".repeat(padding), c2, c1, c2));
-        buf.push(format!("{}├{}┬{}┤{}", c1, "─".repeat(32), "─".repeat(width - 35), c2));
-        print_row("Guest CPU", "N/A (No devices connected)", 0.0, &mut buf);
-        print_row("Guest RAM Usage", "N/A", 0.0, &mut buf);
-        print_row("Guest Swap Memory", "N/A", 0.0, &mut buf);
+/// The OS name to display. Darwin reads `macOS`, as in the Python monitor.
+pub(crate) fn display_os_name(name: &str) -> &str {
+    if name == "Darwin" { "macOS" } else { name }
+}
+
+fn render_host_section(buf: &mut Vec<String>, input: &mut DashboardInput<'_>, width: usize) {
+    let host_stats = input.host_stats;
+    let prev_stats = &mut *input.prev_stats;
+    let netsim_snapshot = input.netsim_snapshot;
+    let section_title = format!(
+        " HOST SYSTEM ({})",
+        sysinfo::System::name().as_deref().map_or("Unknown OS", display_os_name)
+    );
+    push_section_banner(buf, &section_title, Colors::YELLOW, width);
+    render_host_system_rows(buf, host_stats, prev_stats, input.host_timed_out, width);
+    render_unmapped_emulator_rows(buf, &host_stats.emulators, width);
+    render_host_netsim_rows(buf, host_stats, prev_stats, netsim_snapshot, width);
+}
+
+fn render_empty_guest_section(buf: &mut Vec<String>, width: usize) {
+    let c1 = BORDER_STYLE;
+    let c2 = Colors::RESET;
+
+    buf.push(format!(
+        "{c1}├{}┴{}┤{c2}",
+        "─".repeat(LEFT_BORDER_SEGMENT_WIDTH),
+        "─".repeat(width - RIGHT_BORDER_OFFSET)
+    ));
+    push_section_banner(buf, " GUEST SYSTEM (ADB)", Colors::HEADER, width);
+    push_metric_row(buf, "Guest CPU", "N/A (No devices connected)", 0.0, width);
+    push_metric_row(buf, "Guest RAM Usage", "N/A", 0.0, width);
+    push_metric_row(buf, "Guest Swap Memory", "N/A", 0.0, width);
+}
+
+fn format_guest_status_badge(guest: &GuestUiStats, is_online_flash: bool) -> (String, usize) {
+    let status_tag = if guest.is_disconnected {
+        "[DISCONNECTED]"
+    } else if guest.recording_boot_stats {
+        "[RECORDING BOOT STATS]"
+    } else if is_online_flash {
+        "[ONLINE]"
     } else {
-        static RE_MODEL_CLEAN: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-        let re_model_clean = RE_MODEL_CLEAN.get_or_init(|| Regex::new(r" \| Android [^|]+ \(API ([^|]+)\) \| Build: ([^|]+)").unwrap());
+        return (String::new(), 0);
+    };
+    let badge_color = if guest.is_disconnected {
+        Colors::RED
+    } else if guest.recording_boot_stats {
+        Colors::YELLOW
+    } else {
+        Colors::GREEN
+    };
+    (format!(" {badge_color}{status_tag}{}", Colors::RESET), status_tag.len() + 1)
+}
 
-        let mut guest_keys: Vec<&String> = guest_results.keys().collect();
-        guest_keys.sort();
+fn render_guest_header(
+    buf: &mut Vec<String>,
+    serial: &str,
+    guest: &GuestUiStats,
+    matched_emu: Option<&crate::host::EmulatorProcess>,
+    online_indicator_until: &HashMap<String, Instant>,
+    width: usize,
+) {
+    let re_ansi = ansi_regex();
+    let re_model_clean = model_clean_regex();
+    let c1 = BORDER_STYLE;
+    let c2 = Colors::RESET;
 
-        for serial in guest_keys {
-            let (model, _is_booting, guest_diff, guest_real, guest_ram, data_space, guest_swap, err_count, _data_pct, is_disconnected, recording_boot_stats) = &guest_results[serial];
-            buf.push(format!("{}├{}┴{}┤{}", c1, "─".repeat(32), "─".repeat(width - 35), c2));
+    buf.push(format!(
+        "{c1}├{}┴{}┤{c2}",
+        "─".repeat(LEFT_BORDER_SEGMENT_WIDTH),
+        "─".repeat(width - RIGHT_BORDER_OFFSET)
+    ));
 
-            let clean_model = re_model_clean.replace(model, " | API $1 | $2");
+    let clean_model = re_model_clean.replace(&guest.model, " | API $1 | $2");
+    let avd_name_str = matched_emu
+        .and_then(|emu| emu.avd_name.as_deref())
+        .or(guest.avd_name.as_deref())
+        .unwrap_or(serial);
+    let display_name = if clean_model.is_empty() {
+        avd_name_str.to_string()
+    } else {
+        format!("{avd_name_str} | {clean_model}")
+    };
 
-            let mut avd_name_str = serial.clone();
-            let port = serial.split('-').nth(1).and_then(|s| s.parse::<u16>().ok());
-            for emu in &host_stats.emulators {
-                if port == emu.port {
-                    if let Some(ref avd) = emu.avd_name {
-                        avd_name_str = avd.clone();
-                    }
-                    break;
-                }
-            }
+    let is_online_flash =
+        online_indicator_until.get(serial).map(|&t| Instant::now() < t).unwrap_or(false);
+    let (badge_formatted, v_badge_len) = format_guest_status_badge(guest, is_online_flash);
 
-            let display_name = if clean_model.is_empty() { avd_name_str } else { format!("{} | {}", avd_name_str, clean_model) };
-
-            let is_online_flash = online_indicator_until.get(serial)
-                .map(|&t| tokio::time::Instant::now() < t)
-                .unwrap_or(false);
-
-            let status_tag = if *is_disconnected {
-                format!("[DISCONNECTED]")
-            } else if *recording_boot_stats {
-                format!("[RECORDING BOOT STATS]")
-            } else if is_online_flash {
-                format!("[ONLINE]")
-            } else {
-                "".to_string()
-            };
-
-            let badge_color = if *is_disconnected {
-                Colors::RED
-            } else if *recording_boot_stats {
-                Colors::YELLOW
-            } else {
-                Colors::GREEN
-            };
-
-            let mut inside_text = format!(" GUEST SYSTEM ({})", display_name);
-            let v_title_len = visible_width(re_ansi, &inside_text);
-
-            let (badge_formatted, v_badge_len) = if status_tag.is_empty() {
-                ("".to_string(), 0)
-            } else {
-                (format!(" {}{}{}", badge_color, status_tag, Colors::RESET), status_tag.len() + 1)
-            };
-
-            let mut v_title_len_final = v_title_len;
-            if v_title_len + v_badge_len > width - 4 {
-                let max_title_len = (width - 4).saturating_sub(v_badge_len + 1);
-                inside_text = inside_text.chars().take(max_title_len).collect::<String>();
-                inside_text.push('…');
-                v_title_len_final = visible_width(re_ansi, &inside_text);
-            }
-
-            let padding = (width - 2).saturating_sub(v_title_len_final + v_badge_len);
-
-            buf.push(format!("{}│{}{}{}{}{}{}{}│{}", c1, c2, Colors::GREEN, Colors::BOLD, inside_text, badge_formatted, " ".repeat(padding), c1, c2));
-            buf.push(format!("{}├{}┬{}┤{}", c1, "─".repeat(32), "─".repeat(width - 35), c2));
-
-            print_row("Total Device CPU Usage", guest_diff, 0.0, &mut buf);
-
-            // Apply trend to guest adjusted CPU if it's a percentage
-            let guest_real_trend = if guest_real.contains("%") {
-                if let Ok(val) = guest_real.split('%').next().unwrap_or("").parse::<f32>() {
-                    format!("{} {}", guest_real, if val > prev_stats.get(&format!("{}_real", serial)).cloned().unwrap_or(val) + 0.5 { "↑" } else if val < prev_stats.get(&format!("{}_real", serial)).cloned().unwrap_or(val) - 0.5 { "↓" } else { "→" })
-                } else {
-                    guest_real.clone()
-                }
-            } else {
-                guest_real.clone()
-            };
-
-            print_row("Adjusted CPU Load", &guest_real_trend, 0.0, &mut buf);
-            print_row("Guest RAM Usage", guest_ram, 0.0, &mut buf);
-
-            let disk_str = data_space.as_deref().unwrap_or("N/A");
-            print_row("Guest Disk Space", disk_str, 0.0, &mut buf);
-
-            let mut qemu_cpu = 0.0;
-            let mut qemu_ram = 0.0;
-            let mut qemu_threads = 0;
-            let mut qemu_cs = 0;
-            let mut qemu_gpu: Option<f32> = None;
-            let mut found_qemu = false;
-
-            let port = serial.split('-').nth(1).and_then(|s| s.parse::<u16>().ok());
-            for emu in &host_stats.emulators {
-                if port == emu.port {
-                    qemu_cpu = emu.cpu_usage;
-                    qemu_ram = emu.ram_mb;
-                    qemu_threads = emu.threads;
-                    qemu_cs = emu.context_switches;
-                    qemu_gpu = emu.gpu_load;
-                    found_qemu = true;
-                    break;
-                }
-            }
-
-            let qemu_cpu_str = if found_qemu { format!("{:.1}%", qemu_cpu) } else { "N/A".to_string() };
-            let qemu_ram_str = if found_qemu { format!("{:.1} MB ({} thr, {} cs)", qemu_ram, qemu_threads, qemu_cs) } else { "N/A".to_string() };
-            print_row("Host QEMU CPU", &qemu_cpu_str, if found_qemu { qemu_cpu } else { 0.0 }, &mut buf);
-            print_row("Host QEMU RAM", &qemu_ram_str, 0.0, &mut buf);
-
-            let swap_str = guest_swap.as_deref().unwrap_or("N/A");
-            print_row("Guest Swap Memory", swap_str, 0.0, &mut buf);
-
-            if found_qemu {
-                if let Some(gpu) = qemu_gpu {
-                    print_row("Host QEMU GPU Load", &format!("{:.1}%", gpu), gpu, &mut buf);
-                }
-            }
-
-            print_row("Guest Logcat Errors", &format!("{} errs", err_count), 0.0, &mut buf);
-            if let Some(ns_row) =
-                netsim_snapshot.and_then(|snap| snap.emulator_rows.get(serial))
-            {
-                print_row("Netsim Status", ns_row, 0.0, &mut buf);
-            }
-        }
+    let mut inside_text = format!(" GUEST SYSTEM ({display_name})");
+    let mut v_title_len_final = visible_width(re_ansi, &inside_text);
+    if v_title_len_final + v_badge_len > width - 4 {
+        let max_title_len = (width - 4).saturating_sub(v_badge_len + 1);
+        inside_text = inside_text.chars().take(max_title_len).collect::<String>();
+        inside_text.push('…');
+        v_title_len_final = visible_width(re_ansi, &inside_text);
     }
 
-    buf.push(format!("{}└{}┴{}┘{}", c1, "─".repeat(32), "─".repeat(width - 35), c2));
+    let padding = (width - 2).saturating_sub(v_title_len_final + v_badge_len);
+    buf.push(format!(
+        "{c1}│{c2}{}{}{inside_text}{badge_formatted}{}{c1}│{c2}",
+        Colors::GREEN,
+        Colors::BOLD,
+        " ".repeat(padding)
+    ));
+    buf.push(format!(
+        "{c1}├{}┬{}┤{c2}",
+        "─".repeat(LEFT_BORDER_SEGMENT_WIDTH),
+        "─".repeat(width - RIGHT_BORDER_OFFSET)
+    ));
+}
+
+fn render_single_guest_section(
+    buf: &mut Vec<String>,
+    serial: &str,
+    guest: &GuestUiStats,
+    input: &mut DashboardInput<'_>,
+    width: usize,
+) {
+    let port_emu = input
+        .host_stats
+        .emulators
+        .iter()
+        .find(|emu| crate::serial_matches_emu_port(serial, emu.port));
+    let matched_emu = if guest.is_disconnected { None } else { port_emu };
+    render_guest_header(buf, serial, guest, matched_emu, input.online_indicator_until, width);
+
+    push_metric_row(buf, "Total Device CPU Usage", &guest.cpu_total, 0.0, width);
+
+    let guest_real_trend = if guest.cpu_adjusted.contains('%')
+        && !guest.cpu_adjusted.contains("Timeout")
+    {
+        match guest.cpu_adjusted.split('%').next().unwrap_or("").parse::<f32>() {
+            Ok(val) if val.is_finite() => {
+                let arrow = record_trend_arrow(input.prev_stats, &format!("{serial}_real"), val);
+                format!("{} {arrow}", guest.cpu_adjusted)
+            }
+            _ => guest.cpu_adjusted.clone(),
+        }
+    } else {
+        guest.cpu_adjusted.clone()
+    };
+
+    push_metric_row(buf, "Adjusted CPU Load", &guest_real_trend, 0.0, width);
+    push_metric_row(buf, "Guest RAM Usage", &guest.ram, 0.0, width);
+
+    let disk_str = guest.data_space.as_deref().unwrap_or("N/A");
+    push_metric_row(buf, "Guest Disk Space", disk_str, 0.0, width);
+
+    if let Some(emu) = matched_emu {
+        let qemu_ram_str =
+            format!("{:.1} MB ({} thr, {} cs)", emu.ram_mb, emu.threads, emu.context_switches);
+        push_metric_row(
+            buf,
+            "Host QEMU CPU",
+            &format!("{:.1}%", emu.cpu_usage),
+            emu.cpu_usage,
+            width,
+        );
+        push_metric_row(buf, "Host QEMU RAM", &qemu_ram_str, 0.0, width);
+    }
+
+    let swap_str = guest.swap.as_deref().unwrap_or("N/A");
+    push_metric_row(buf, "Guest Swap Memory", swap_str, 0.0, width);
+
+    if let Some(gpu) = matched_emu.and_then(|emu| emu.gpu_load) {
+        push_metric_row(buf, "Host QEMU GPU Load", &format!("{gpu:.1}%"), gpu, width);
+    }
+
+    let errs_str = if guest.is_disconnected
+        || guest.ram.starts_with("N/A")
+        || guest.ram.starts_with("Calculating")
+    {
+        "N/A".to_string()
+    } else {
+        format!("{} errs", guest.err_count)
+    };
+    push_metric_row(buf, "Guest Logcat Errors", &errs_str, 0.0, width);
+    if !guest.is_disconnected || port_emu.is_none() {
+        if let Some(ns_row) = input
+            .netsim_snapshot
+            .and_then(|snap| snap.emulator_rows.get(serial))
+            .filter(|row| !guest.is_disconnected || !row.starts_with("netsim: CONNECT"))
+        {
+            push_metric_row(buf, "Netsim Status", ns_row, 0.0, width);
+        }
+    }
+}
+
+fn render_guests_section(buf: &mut Vec<String>, input: &mut DashboardInput<'_>, width: usize) {
+    if input.guest_results.is_empty() {
+        render_empty_guest_section(buf, width);
+        return;
+    }
+
+    let mut guest_keys: Vec<&String> = input.guest_results.keys().collect();
+    guest_keys.sort();
+
+    for serial in guest_keys {
+        let guest = &input.guest_results[serial];
+        render_single_guest_section(buf, serial, guest, input, width);
+    }
+}
+
+fn render_footer_section(buf: &mut Vec<String>, iter_count: u64, is_once: bool, width: usize) {
+    let c1 = BORDER_STYLE;
+    let c2 = Colors::RESET;
+
+    buf.push(format!(
+        "{c1}└{}┴{}┘{c2}",
+        "─".repeat(LEFT_BORDER_SEGMENT_WIDTH),
+        "─".repeat(width - RIGHT_BORDER_OFFSET)
+    ));
 
     let dots = ".".repeat((iter_count % 4) as usize);
     let msg = if is_once {
         format!("Last Updated: {}", chrono::Local::now().format("%H:%M:%S"))
     } else {
-        format!("Press Ctrl+C to exit. Last Updated: {} | Refreshing{:<3}", chrono::Local::now().format("%H:%M:%S"), dots)
+        format!(
+            "Press Ctrl+C to exit. Last Updated: {} | Refreshing{dots:<3}",
+            chrono::Local::now().format("%H:%M:%S"),
+        )
     };
-    buf.push(format!("\n{}{}{}", Colors::YELLOW, msg, Colors::RESET));
+    buf.push(format!("\n{}{msg}{}", Colors::YELLOW, Colors::RESET));
+}
+
+pub fn build_dashboard(mut input: DashboardInput<'_>) -> String {
+    let mut buf = Vec::new();
+    let width =
+        input.term_width.saturating_sub(1).clamp(MIN_DASHBOARD_WIDTH, MAX_DASHBOARD_WIDTH) as usize;
+
+    render_header_section(&mut buf, &input, width);
+    render_host_section(&mut buf, &mut input, width);
+    render_guests_section(&mut buf, &mut input, width);
+    render_footer_section(&mut buf, input.iter_count, input.is_once, width);
 
     buf.join("\n")
 }
 
-pub fn print_dashboard(
-    host_stats: &HostStats,
-    guest_results: &std::collections::HashMap<String, (String, bool, String, String, String, Option<String>, Option<String>, u32, Option<f32>, bool, bool)>,
-    prev_stats: &mut std::collections::HashMap<String, f32>,
-    iter_count: u64,
-    term_width: u16,
-    is_once: bool,
-    hardware_specs: &str,
-    force_clear: bool,
-    online_indicator_until: &std::collections::HashMap<String, tokio::time::Instant>,
-    netsim_snapshot: Option<&crate::netsim::NetsimDashboardSnapshot>,
-) {
-    let s = build_dashboard(host_stats, guest_results, prev_stats, iter_count, term_width, is_once, hardware_specs, force_clear, online_indicator_until, netsim_snapshot);
+pub fn print_dashboard(input: DashboardInput<'_>) {
+    let s = build_dashboard(input);
     println!("{}", s);
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::host::{HostStats, EmulatorProcess};
-    use std::collections::HashMap;
-
-    #[test]
-    fn test_unmapped_emulators_ui() {
-        let mut emulators = Vec::new();
-        emulators.push(EmulatorProcess {
-            pid: 1234,
-            port: None,
-            avd_name: None,
-            cpu_usage: 10.0,
-            ram_mb: 100.0,
-            threads: 4,
-            context_switches: 100,
-            gpu_load: None,
-        });
-
-        let stats = HostStats {
-            cpu_usage: 10.0,
-            ram_used_gb: 1.0,
-            ram_total_gb: 4.0,
-            ram_percent: 25.0,
-            swap_used_gb: 0.0,
-            swap_total_gb: 0.0,
-            swap_percent: 0.0,
-            disk_read_mbs: 0.0,
-            disk_write_mbs: 0.0,
-            emulators,
-            netsim_cpu: 0.0,
-            netsim_ram_mb: 0.0,
-            netsim_count: 0,
-            netsim_daemons: vec![],
-            emu_groups: HashMap::new(),
-            gpu_percent: None,
-            gpu_memory_mb: None,
-            thermal_temp: None,
-            paging_str: "N/A".to_string(),
-            paging_in: 0.0,
-            paging_out: 0.0,
-            battery_str: "N/A".to_string(),
-            battery_percent: None,
-        };
-
-        let guest_results = HashMap::new();
-        let mut prev_stats = HashMap::new();
-        let online_indicator_until = HashMap::new();
-
-        let dashboard = build_dashboard(&stats, &guest_results, &mut prev_stats, 1, 80, true, "Specs", true, &online_indicator_until, None);
-
-        assert!(dashboard.contains("Unmapped Emulator CPU"));
-        assert!(dashboard.contains("10.0% (PIDs: 1234)"));
-    }
-    #[test]
-    fn test_unmapped_emulators_clamping() {
-        let mut emulators = Vec::new();
-        for i in 0..5 {
-            emulators.push(EmulatorProcess {
-                pid: 1000 + i,
-                port: None,
-                avd_name: None,
-                cpu_usage: 2.0,
-                ram_mb: 20.0,
-                threads: 1,
-                context_switches: 10,
-                gpu_load: None,
-            });
-        }
-
-        let stats = HostStats {
-            cpu_usage: 10.0,
-            ram_used_gb: 1.0,
-            ram_total_gb: 4.0,
-            ram_percent: 25.0,
-            swap_used_gb: 0.0,
-            swap_total_gb: 0.0,
-            swap_percent: 0.0,
-            disk_read_mbs: 0.0,
-            disk_write_mbs: 0.0,
-            emulators,
-            netsim_cpu: 0.0,
-            netsim_ram_mb: 0.0,
-            netsim_count: 0,
-            netsim_daemons: vec![],
-            emu_groups: HashMap::new(),
-            gpu_percent: None,
-            gpu_memory_mb: None,
-            thermal_temp: None,
-            paging_str: "N/A".to_string(),
-            paging_in: 0.0,
-            paging_out: 0.0,
-            battery_str: "N/A".to_string(),
-            battery_percent: None,
-        };
-
-        let guest_results = HashMap::new();
-        let mut prev_stats = HashMap::new();
-        let online_indicator_until = HashMap::new();
-
-        let dashboard = build_dashboard(&stats, &guest_results, &mut prev_stats, 1, 120, true, "Specs", true, &online_indicator_until, None);
-
-        assert!(dashboard.contains("Unmapped Emulator CPU"));
-        assert!(dashboard.contains("1000, 1001, 1002, 1003 ... (+1 more)"));
-    }
-
-    #[test]
-    fn test_print_row_nan_placeholder() {
-        let stats = HostStats {
-            cpu_usage: 10.0,
-            ram_used_gb: 1.0,
-            ram_total_gb: 4.0,
-            ram_percent: 25.0,
-            swap_used_gb: 0.0,
-            swap_total_gb: 0.0,
-            swap_percent: 0.0,
-            disk_read_mbs: 0.0,
-            disk_write_mbs: 0.0,
-            emulators: vec![],
-            netsim_cpu: 0.0,
-            netsim_ram_mb: 0.0,
-            netsim_count: 0,
-            netsim_daemons: vec![],
-            emu_groups: HashMap::new(),
-            gpu_percent: None,
-            gpu_memory_mb: None,
-            thermal_temp: None,
-            paging_str: "N/A".to_string(),
-            paging_in: 0.0,
-            paging_out: 0.0,
-            battery_str: "N/A".to_string(),
-            battery_percent: None,
-        };
-
-        let mut guest_results = HashMap::new();
-        guest_results.insert(
-            "emulator-5554".to_string(),
-            ("Mock Device".to_string(), false, "NaN%".to_string(), "NaN%".to_string(), "NaN%".to_string(), None, None, 0, None, false, false)
-        );
-        let mut prev_stats = HashMap::new();
-        let online_indicator_until = HashMap::new();
-
-        let dashboard = build_dashboard(&stats, &guest_results, &mut prev_stats, 1, 80, true, "Specs", true, &online_indicator_until, None);
-
-        assert!(dashboard.contains("Total Device CPU Usage"));
-    }
-
-    #[test]
-    fn test_ansi_stripping_truncation() {
-        let stats = HostStats {
-            cpu_usage: 10.0,
-            ram_used_gb: 1.0,
-            ram_total_gb: 4.0,
-            ram_percent: 25.0,
-            swap_used_gb: 0.0,
-            swap_total_gb: 0.0,
-            swap_percent: 0.0,
-            disk_read_mbs: 0.0,
-            disk_write_mbs: 0.0,
-            emulators: vec![],
-            netsim_cpu: 0.0,
-            netsim_ram_mb: 0.0,
-            netsim_count: 0,
-            netsim_daemons: vec![],
-            emu_groups: HashMap::new(),
-            gpu_percent: None,
-            gpu_memory_mb: None,
-            thermal_temp: None,
-            paging_str: "N/A".to_string(),
-            paging_in: 0.0,
-            paging_out: 0.0,
-            battery_str: "N/A".to_string(),
-            battery_percent: None,
-        };
-
-        let mut guest_results = HashMap::new();
-        let long_val = "\x1b[91mVery Long String That Will Be Truncated\x1b[0m";
-        guest_results.insert(
-            "emulator-5554".to_string(),
-            ("Mock Device".to_string(), false, "10%".to_string(), "5%".to_string(), long_val.to_string(), None, None, 0, None, false, false)
-        );
-        let mut prev_stats = HashMap::new();
-        let online_indicator_until = HashMap::new();
-
-        let dashboard = build_dashboard(&stats, &guest_results, &mut prev_stats, 1, 80, true, "Specs", true, &online_indicator_until, None);
-
-        assert!(dashboard.contains("Very Long"));
-    }
-
-    #[test]
-    fn test_truncated_guest_title_keeps_border_aligned() {
-        let stats = HostStats {
-            cpu_usage: 10.0,
-            ram_used_gb: 1.0,
-            ram_total_gb: 4.0,
-            ram_percent: 25.0,
-            swap_used_gb: 0.0,
-            swap_total_gb: 0.0,
-            swap_percent: 0.0,
-            disk_read_mbs: 0.0,
-            disk_write_mbs: 0.0,
-            emulators: vec![],
-            netsim_cpu: 0.0,
-            netsim_ram_mb: 0.0,
-            netsim_count: 0,
-            netsim_daemons: vec![],
-            emu_groups: HashMap::new(),
-            gpu_percent: None,
-            gpu_memory_mb: None,
-            thermal_temp: None,
-            paging_str: "N/A".to_string(),
-            paging_in: 0.0,
-            paging_out: 0.0,
-            battery_str: "N/A".to_string(),
-            battery_percent: None,
-        };
-        // Long enough that the title is cut and ends in '…' (3 UTF-8 bytes,
-        // one column) ahead of the badge.
-        let model = "x86_64 glasses emulator | Android 16 (API 36) | Build: BGQ1.260312.001.A2 | Res: 480x480";
-        let mut guest_results = HashMap::new();
-        guest_results.insert(
-            "emulator-5554".to_string(),
-            (
-                model.to_string(),
-                true,
-                "10%".to_string(),
-                "5%".to_string(),
-                "26%".to_string(),
-                None,
-                None,
-                0,
-                None,
-                false,
-                true,
-            ),
-        );
-        let mut prev_stats = HashMap::new();
-        let online_indicator_until = HashMap::new();
-        let re_ansi = Regex::new(r"(?i)\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])").unwrap();
-
-        for term_width in [80u16, 121] {
-            let dashboard = build_dashboard(
-                &stats,
-                &guest_results,
-                &mut prev_stats,
-                1,
-                term_width,
-                true,
-                "Specs",
-                true,
-                &online_indicator_until,
-                None,
-            );
-            let top = dashboard.lines().find(|l| l.contains('┌')).unwrap();
-            let header = dashboard.lines().find(|l| l.contains("[RECORDING BOOT STATS]")).unwrap();
-            let header_plain = re_ansi.replace_all(header, "");
-            assert!(header_plain.contains('…'), "{header_plain}");
-            assert!(header_plain.ends_with('│'), "{header_plain}");
-            assert_eq!(
-                visible_width(&re_ansi, header),
-                visible_width(&re_ansi, top),
-                "{header_plain}"
-            );
-        }
-    }
-}
+#[path = "../tests/ui_test.rs"]
+mod tests;

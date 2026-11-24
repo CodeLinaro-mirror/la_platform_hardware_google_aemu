@@ -543,11 +543,18 @@ def is_nested_virtualization(proc_root: str = "/proc") -> bool:
 
 def _cmdline_matches_port(cmd_joined: str, port_str: str) -> bool:
     """Returns True when a `qemu-system` command line targets console/adb `port_str`."""
-    return (
+    if (
         f"-port {port_str}" in cmd_joined
         or f"-ports {port_str}," in cmd_joined
         or f"tcp:{port_str}" in cmd_joined
-    )
+        or f"host_port={port_str}" in cmd_joined
+    ):
+        return True
+    if port_str.isdigit():
+        adb_port = int(port_str) + 1
+        if f"host_port={adb_port}" in cmd_joined:
+            return True
+    return False
 
 
 def find_emulator_pid(

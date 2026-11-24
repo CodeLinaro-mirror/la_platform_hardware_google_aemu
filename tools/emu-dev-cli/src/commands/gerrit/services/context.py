@@ -16,12 +16,37 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import sys
 import threading
 from typing import Any
 
 from commands.gerrit.sidecar_updater import GerritSidecarUpdater
 from lib.gerrit_api import DEFAULT_GERRIT_HOST, GerritClient
+
+DEFAULT_SHARED_GERRIT_RW_DIR = Path(
+    "/google/data/rw/teams/android-devtools-emulator/gerrit-ui-shared"
+)
+DEFAULT_SHARED_GERRIT_RO_DIR = Path(
+    "/google/data/ro/teams/android-devtools-emulator/gerrit-ui-shared"
+)
+ENV_GERRIT_SHARED_DIR = "AEMU_GERRIT_SHARED_DIR"
+
+
+def resolve_default_shared_gerrit_dir() -> Path | None:
+    """Resolves the shared x20 team directory for multi-human Gerrit UI collaboration."""
+    env_dir = (os.environ.get(ENV_GERRIT_SHARED_DIR) or "").strip()
+    if env_dir:
+        return Path(env_dir)
+    if "unittest" in sys.modules:
+        return None
+    if DEFAULT_SHARED_GERRIT_RW_DIR.is_dir() or DEFAULT_SHARED_GERRIT_RW_DIR.parent.is_dir():
+        return DEFAULT_SHARED_GERRIT_RW_DIR
+    if DEFAULT_SHARED_GERRIT_RO_DIR.is_dir():
+        return DEFAULT_SHARED_GERRIT_RO_DIR
+    return None
+
 
 CONTEXT_SHARED_ATTRS: frozenset[str] = frozenset({
     "host",
@@ -50,6 +75,8 @@ CONTEXT_SHARED_ATTRS: frozenset[str] = frozenset({
     "_ignored_steps_by_conv",
     "_cached_project_id",
     "_next_qa_seq",
+    "_qa_cache_dir",
+    "_shared_gerrit_dir",
     "_ai_analysis_lock",
     "_ai_analysis_state",
     "_ai_analysis_gen",
@@ -100,15 +127,15 @@ class GerritWorkspaceContext:
         self._ignored_steps_by_conv: dict[str, set[int]] = {}
         self._cached_project_id: str = ""
         self._next_qa_seq: int = 1
+        cache_base = Path.home() / ".cache" / "emu-dev-cli" / "gerrit-ui"
+        in_test = "unittest" in sys.modules and not os.environ.get(ENV_GERRIT_SHARED_DIR)
+        self._qa_cache_dir: Path | None = None if in_test else (cache_base / "code_questions")
+        self._shared_gerrit_dir: Path | None = resolve_default_shared_gerrit_dir()
         self._ai_analysis_lock = threading.Lock()
         self._ai_analysis_state: dict[tuple[str, int], dict[str, Any]] = {}
         self._ai_analysis_gen: dict[tuple[str, int], int] = {}
-        self._ai_analysis_cache_dir = (
-            Path.home() / ".cache" / "emu-dev-cli" / "gerrit-ui" / "ai_analysis"
-        )
-        self._bug_cache_path = (
-            Path.home() / ".cache" / "emu-dev-cli" / "gerrit-ui" / "bug_metadata_cache.json"
-        )
+        self._ai_analysis_cache_dir = cache_base / "ai_analysis"
+        self._bug_cache_path = cache_base / "bug_metadata_cache.json"
         self._bug_cache: dict[str, dict[str, str]] = {}
         self.auth_email = auth_email.strip().lower()
         self.default_viewer = default_viewer.strip().lower()

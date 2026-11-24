@@ -46,9 +46,13 @@ def setup_logging(
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
 
-    # Clear existing handlers to prevent duplicate logs
+    # Clear existing handlers to prevent duplicate logs and release file locks on Windows
     for h in list(root_logger.handlers):
         root_logger.removeHandler(h)
+        try:
+            h.close()
+        except Exception:
+            pass
 
     # Console StreamHandler sending logs to sys.stderr
     console_handler = logging.StreamHandler(sys.stderr)

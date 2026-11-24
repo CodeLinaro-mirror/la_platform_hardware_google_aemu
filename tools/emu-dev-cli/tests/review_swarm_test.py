@@ -529,6 +529,221 @@ class ReviewSwarmTest(unittest.TestCase):
             self.assertIsNotNone(safe_verdict, msg=safe_cmd)
             self.assertTrue(safe_verdict[0], msg=f"{safe_cmd}: {safe_verdict[1]}")  # type: ignore[index]
 
+    def test_gate_v2_warning_only_payload_allows_upload_while_blocking_denies(self) -> None:
+        from commands.harness.review_swarm import (
+            apply_verifier_to_specialist_outputs,
+            build_enclosing_file_context,
+            normalize_stage1_outputs,
+            run_deterministic_stage0,
+        )
+
+        _, repo_dir = self._create_multi_project_repo_fixture()
+        cache_root = self.base_path / "gate_v2_severity_cache"
+        first_verdict = evaluate_upload_command(
+            f'cd "{repo_dir}" && repo upload --cbr -y .',
+            review_swarm_cache_root=cache_root,
+        )
+        self.assertIsNotNone(first_verdict)
+        self.assertFalse(first_verdict[0])  # type: ignore[index]
+        head_out_dir = next(cache_root.iterdir())
+
+        # Warning/nit findings (unresolved=False) must NOT block Gerrit upload
+        agg_warn = filter_and_aggregate_findings(
+            [
+                {
+                    "specialist": "constants-auditor",
+                    "checked_count": 2,
+                    "duplicate_count": 0,
+                    "finding_count": 1,
+                    "findings": [
+                        {
+                            "file": "DeviceHub_测试_🚀_é.kt",
+                            "line": 1,
+                            "category": "constants",
+                            "severity": "warning",
+                            "message": "Extract magic timeout constant 测试_🚀_é.",
+                            "suggested_fix": "private const val TIMEOUT_MS = 5000L",
+                        }
+                    ],
+                }
+            ],
+            {"DeviceHub_测试_🚀_é.kt": [1]},
+        )
+        self.assertEqual(agg_warn["blocking_count"], 0)
+        self.assertEqual(agg_warn["total_findings"], 1)
+        self.assertFalse(
+            agg_warn["gerrit_review_payload"]["comments"]["DeviceHub_测试_🚀_é.kt"][0]["unresolved"]
+        )
+        (head_out_dir / "gerrit_review_payload.json").write_text(
+            json.dumps(agg_warn["gerrit_review_payload"]),
+            encoding="utf-8",
+        )
+        warn_verdict = evaluate_upload_command(
+            f'cd "{repo_dir}" && repo upload --cbr -y .',
+            review_swarm_cache_root=cache_root,
+        )
+        self.assertIsNotNone(warn_verdict)
+        self.assertTrue(warn_verdict[0], msg=warn_verdict[1])  # type: ignore[index]
+
+        # Stage 0 deterministic checks + Stage 1 normalization + Stage 2 verifier
+        src_dir = self.base_path / "stage0_repo_测试_🚀_é"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        (src_dir / "BUILD.bazel").write_text(
+            'cc_library(\n    name = "widget",\n    srcs = ["widget.cc"],\n    hdrs = ["missing_header.h"],\n)\n',
+            encoding="utf-8",
+        )
+        (src_dir / "widget.h").write_text("class Widget { int x_ = 0; };\n", encoding="utf-8")
+        (src_dir / "widget.cc").write_text(
+            '#include "widget.h"\n#include <fstream>\nvoid Load() {\n  std::ifstream f("测试_🚀_é.bin");\n}\n',
+            encoding="utf-8",
+        )
+        stage0_manifest = {
+            "repo_dir": str(src_dir),
+            "commit_message": "fix: Test\n\nBody.\n\nCONV=12345\nBug: 123\nTest: unit\n",
+            "diff_text": (
+                "--- a/BUILD.bazel\n+++ b/BUILD.bazel\n@@ -1,4 +1,5 @@\n"
+                ' cc_library(\n     name = "widget",\n     srcs = ["widget.cc"],\n'
+                '+    hdrs = ["missing_header.h"],\n )\n'
+                "--- a/widget.cc\n+++ b/widget.cc\n@@ -1,3 +1,5 @@\n"
+                ' #include "widget.h"\n+#include <fstream>\n void Load() {\n'
+                '+  std::ifstream f("测试_🚀_é.bin");\n }\n'
+            ),
+        }
+        stage0_res = run_deterministic_stage0(stage0_manifest, repo_dir=str(src_dir))
+        stage0_findings = stage0_res[0]["findings"]
+        categories = {f["category"] for f in stage0_findings}
+        self.assertIn("commit", categories)
+        self.assertIn("build", categories)
+        self.assertIn("unicode", categories)
+
+        enclosing = build_enclosing_file_context(stage0_manifest, repo_dir=str(src_dir))
+        self.assertIn("Paired Header `widget.h`", enclosing)
+        self.assertIn("std::ifstream", enclosing)
+
+        normalized = normalize_stage1_outputs(
+            [
+                {
+                    "specialist": "constants-auditor",
+                    "findings": [
+                        {
+                            "file": "widget.cc",
+                            "line": 3,
+                            "category": "constants",
+                            "severity": "blocking",
+                            "message": "Capped to warning and snapped to line 4.",
+                            "suggested_fix": "Use constant.",
+                        }
+                    ],
+                },
+                {
+                    "specialist": "concurrency-and-safety-auditor",
+                    "findings": [
+                        {
+                            "file": "widget.cc",
+                            "line": 4,
+                            "category": "concurrency",
+                            "severity": "blocking",
+                            "message": "Candidate race.",
+                            "suggested_fix": "Lock mutex.",
+                        }
+                    ],
+                },
+            ],
+            {"widget.cc": {2, 4}},
+        )
+        self.assertEqual(normalized[0]["findings"][0]["severity"], "warning")
+        self.assertEqual(normalized[0]["findings"][0]["line"], 2)
+        verified = apply_verifier_to_specialist_outputs(
+            normalized,
+            {"decisions": [{"candidate_index": 0, "action": "downgrade_warning", "reason": "Advisory"}]},
+        )
+        self.assertEqual(verified[1]["findings"][0]["severity"], "warning")
+
+    def test_option_b_risk_tiered_triggering(self) -> None:
+        _, repo_dir = self._create_multi_project_repo_fixture()
+
+        # 1. Lite tier (1..30 modified code lines): 8 specialists all pinned to 'flash'
+        lite_bundle = prepare_review_swarm_bundle(
+            commit="HEAD",
+            repo_dir=repo_dir,
+            cache_root=self.base_path / "tier_lite_cache",
+        )
+        self.assertEqual(lite_bundle["risk_tier"], "lite")
+        self.assertEqual(lite_bundle["code_lines_changed"], 1)
+        self.assertEqual(lite_bundle["specialist_count"], 8)
+        self.assertTrue(all(s["model"] == "flash" for s in lite_bundle["specialists"]))
+
+        # 2. Full tier (>30 modified code lines): uses full reasoning models ('inherit')
+        full_bundle = prepare_review_swarm_bundle(
+            output_dir=self.base_path / "tier_full_out",
+            preloaded_target={
+                "target_type": "gerrit_cl",
+                "target_id": "43999999",
+                "project": "platform/hardware/generic/goldfish",
+                "branch": "emu-main-next",
+                "subject": "feat(display): Add frame pump",
+                "current_revision": "rev1",
+                "commit_message": "feat(display): Add frame pump\n\nBody.\n\nBug: 123\nTest: unit\n",
+                "bug_ids": ["123"],
+                "files": ["emulator/display/frame_pump.cc"],
+                "diff_text": "",
+                "changed_lines_by_file": {"emulator/display/frame_pump.cc": list(range(1, 45))},
+            },
+        )
+        self.assertEqual(full_bundle["risk_tier"], "full")
+        self.assertEqual(full_bundle["code_lines_changed"], 44)
+        self.assertEqual(full_bundle["specialist_count"], 8)
+        self.assertTrue(any(s["model"] == "inherit" for s in full_bundle["specialists"]))
+
+        # 3. Stage0-only tier (docs/config/clean BUILD.bazel commit, 0 code lines):
+        #    0 LLM agents launched and upload gate passes immediately in <0.1s!
+        (repo_dir / "README.md").write_text("# Updated Docs 测试_🚀_é\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md"], cwd=str(repo_dir), check=True, capture_output=True)
+        subprocess.run(
+            [
+                "git",
+                "commit",
+                "-m",
+                "docs(readme): Document DeviceHub usage\n\nExplain setup.\n\nBug: 574245946\nTest: docs\nChange-Id: I9999999999abcdef1234567890abcdef12345678",
+            ],
+            cwd=str(repo_dir),
+            env=GIT_TEST_ENV,
+            check=True,
+            capture_output=True,
+        )
+        docs_cache = self.base_path / "tier_docs_cache"
+        docs_verdict = evaluate_upload_command(
+            f'cd "{repo_dir}" && repo upload --cbr -y .',
+            review_swarm_cache_root=docs_cache,
+        )
+        self.assertIsNotNone(docs_verdict)
+        self.assertTrue(docs_verdict[0], msg=docs_verdict[1])  # type: ignore[index]
+
+        # 4. Stage0-blocked tier (docs/BUILD commit with deterministic Stage 0 error):
+        #    0 LLM agents launched and upload gate blocks immediately with Stage 0 report!
+        (repo_dir / "README.md").write_text("# Broken commit tag\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md"], cwd=str(repo_dir), check=True, capture_output=True)
+        subprocess.run(
+            [
+                "git",
+                "commit",
+                "-m",
+                "docs(readme): Bad tag\n\nBody.\n\nCONV=bad\nBug: 574245946\nTest: docs\nChange-Id: I8888888888abcdef1234567890abcdef12345678",
+            ],
+            cwd=str(repo_dir),
+            env=GIT_TEST_ENV,
+            check=True,
+            capture_output=True,
+        )
+        blocked_cache = self.base_path / "tier_blocked_cache"
+        blocked_verdict = evaluate_upload_command(
+            f'cd "{repo_dir}" && repo upload --cbr -y .',
+            review_swarm_cache_root=blocked_cache,
+        )
+        self.assertIsNotNone(blocked_verdict)
+        self.assertFalse(blocked_verdict[0])  # type: ignore[index]
+        self.assertIn("has 1 unresolved review-swarm finding(s)", blocked_verdict[1])  # type: ignore[index]
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -519,6 +519,11 @@ def bad_helper(label: str = "测试_🚀_é") -> None:
 
     def test_all_cli_subcommands_inherit_from_command_or_command_group(self) -> None:
         import argparse
+        import os
+        import tempfile
+
+        os.environ.setdefault("HOME", tempfile.gettempdir())
+        os.environ.setdefault("USERPROFILE", tempfile.gettempdir())
         from commands import (
             build_times,
             crash,
@@ -537,6 +542,7 @@ def bad_helper(label: str = "测试_🚀_é") -> None:
             sbom,
             screencast,
             source_directory,
+            stability,
             tidy,
             update_cmd,
             update_prebuilt,
@@ -587,6 +593,7 @@ def bad_helper(label: str = "测试_🚀_é") -> None:
             sbom,
             screencast,
             source_directory,
+            stability,
             tidy,
             update_cmd,
             workflow,

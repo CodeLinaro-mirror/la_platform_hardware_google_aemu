@@ -1188,7 +1188,9 @@ class PerfStrategiesAndSessionsTest(unittest.TestCase):
             os.makedirs(os.path.join(emu_dir, "lib", "qemu"), exist_ok=True)
             with open(os.path.join(emu_dir, "source.properties"), "w", encoding="utf-8") as f:
                 f.write("Pkg.Revision=36.2.1\n")
-            emu_bin_path = os.path.join(emu_dir, "emulator")
+            emu_bin_path = os.path.join(
+                emu_dir, "emulator.exe" if os.name == "nt" else "emulator"
+            )
             with open(emu_bin_path, "w", encoding="utf-8") as f:
                 f.write("#!/bin/sh\n")
             os.chmod(emu_bin_path, 0o755)
@@ -1405,7 +1407,9 @@ class PerfStrategiesAndSessionsTest(unittest.TestCase):
                     os.unlink(fp)
 
         with tempfile.TemporaryDirectory() as fake_home:
-            with patch.dict(os.environ, {"HOME": fake_home}):
+            with patch.dict(
+                os.environ, {"HOME": fake_home, "USERPROFILE": fake_home}
+            ):
                 cache_dir = _get_perf_cache_dir()
                 self.assertTrue(cache_dir.startswith(fake_home))
                 self.assertTrue(os.path.isdir(cache_dir))
@@ -1436,6 +1440,123 @@ class PerfStrategiesAndSessionsTest(unittest.TestCase):
         fake_runner = FakeProcessRunner()
         _cleanup_stale_netsim(force=True, process_runner=fake_runner)
         self.assertEqual(fake_runner.calls, [])
+
+    def test_boot_suite_stage_breakdown_and_warm_disk_reboot(self):
+        """Verifies `--suite boot` resolves both `cold_boot` and `cold_boot_warm_disk`,
+        computes additive 4-stage boot breakdowns + `pms_scan_ms`, and compares all stage rows.
+        """
+        from core.process import FakeProcessRunner, ProcessResult
+        from lib.perf import (
+            AdbDevice,
+            BenchmarkPlan,
+            ColdBootWorkloadStrategy,
+            EmulatorLaunchConfig,
+            ManagedBenchmarkConfig,
+            ManagedEmulatorBenchmarkSession,
+            ResolvedPerfTarget,
+            WorkloadContext,
+            compare_perf_reports,
+            resolve_suites,
+        )
+
+        suites, workloads = resolve_suites("boot")
+        self.assertEqual(suites, ["boot"])
+        self.assertEqual(workloads, ["cold_boot", "cold_boot_warm_disk"])
+
+        runner = FakeProcessRunner(
+            default_result=ProcessResult(
+                args=(), returncode=0, stdout="1\n", stderr=""
+            )
+        )
+        runner.register_prefix(
+            ["adb", "-s", "emulator-5560", "shell", "getprop", "ro.boottime.init"],
+            ProcessResult(args=(), returncode=0, stdout="3200000000\n", stderr=""),
+        )
+        runner.register_prefix(
+            ["adb", "-s", "emulator-5560", "shell", "getprop", "ro.boottime.zygote"],
+            ProcessResult(args=(), returncode=0, stdout="8500000000\n", stderr=""),
+        )
+        runner.register_prefix(
+            [
+                "adb",
+                "-s",
+                "emulator-5560",
+                "shell",
+                "logcat -b events -d 2>/dev/null || true",
+            ],
+            ProcessResult(
+                args=(),
+                returncode=0,
+                stdout=(
+                    "11-11 18:00:10.000  500  500 I boot_progress_pms_start: 14000\n"
+                    "11-11 18:00:13.450  500  500 I boot_progress_pms_ready: 17450\n"
+                ),
+                stderr="",
+            ),
+        )
+        runner.register_prefix(
+            [
+                "adb",
+                "-s",
+                "emulator-5560",
+                "shell",
+                "cat /proc/cpuinfo 2>/dev/null || true",
+            ],
+            ProcessResult(
+                args=(),
+                returncode=0,
+                stdout=(
+                    "model name : Intel(R) Xeon(R)\n"
+                    "flags : fpu sse4_2 avx avx2 bmi1 bmi2 fma aes\n"
+                ),
+                stderr="",
+            ),
+        )
+
+        adb = AdbDevice("emulator-5560", process_runner=runner)
+        ctx = WorkloadContext(
+            adb=adb,
+            emu_pid=None,
+            boot_metrics={
+                "n": 1,
+                "duration_ms_p50": 85000.0,
+                "duration_ms_mean": 85000.0,
+                "host_wall_boot_ms": 85000.0,
+                "guest_uptime_ms": 72000.0,
+                "samples": [{"duration_ms": 85000.0, "host_wall_boot_ms": 85000.0}],
+            },
+        )
+        res = ColdBootWorkloadStrategy().execute("cold_boot", ctx)
+        self.assertAlmostEqual(res["host_pre_kernel_ms_p50"], 13000.0)
+        self.assertAlmostEqual(res["kernel_to_init_ms_p50"], 3200.0)
+        self.assertAlmostEqual(res["init_to_zygote_ms_p50"], 5300.0)
+        self.assertAlmostEqual(res["zygote_to_complete_ms_p50"], 63500.0)
+        self.assertAlmostEqual(
+            res["host_pre_kernel_ms_p50"]
+            + res["kernel_to_init_ms_p50"]
+            + res["init_to_zygote_ms_p50"]
+            + res["zygote_to_complete_ms_p50"],
+            85000.0,
+        )
+        self.assertAlmostEqual(res["pms_scan_ms_p50"], 3450.0)
+        self.assertIn("avx2", res["guest_cpu_info"]["key_flags"])
+
+        comp = compare_perf_reports(
+            {"label": "base", "tests": {"cold_boot": res}},
+            {"label": "cand", "tests": {"cold_boot": res}},
+        )
+        comp_rows = [r["workload"] for r in comp["comparisons"]]
+        self.assertEqual(
+            comp_rows,
+            [
+                "cold_boot",
+                "cold_boot_host_pre_kernel",
+                "cold_boot_kernel_to_init",
+                "cold_boot_init_to_zygote",
+                "cold_boot_zygote_to_complete",
+                "cold_boot_pms_scan",
+            ],
+        )
 
 
 if __name__ == "__main__":

@@ -238,7 +238,10 @@ class SbomCommandTest(unittest.TestCase):
     def test_abspath_handles_deleted_cwd(self):
         with mock.patch.object(sbom.os, "getcwd", side_effect=FileNotFoundError("cwd was deleted")):
             self.assertIsNone(sbom._abspath("relative.spdx.json"))
-            self.assertEqual(sbom._abspath("/abs/file.spdx.json"), "/abs/file.spdx.json")
+            self.assertEqual(
+                sbom._abspath("/abs/file.spdx.json"),
+                os.path.abspath("/abs/file.spdx.json"),
+            )
 
     def test_missing_sbom_message_names_invalid_source_dir_and_checked_paths(self):
         with tempfile.TemporaryDirectory() as tmpdir:

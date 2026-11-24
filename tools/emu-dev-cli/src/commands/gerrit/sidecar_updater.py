@@ -45,8 +45,11 @@ AEMU_CLI_INSTALL_BAZEL_TARGET: str = "@aemu//tools/emu-dev-cli:emu-dev-cli"
 GERRIT_REPO_WATCH_PATHS: tuple[str, ...] = (
     "tools/emu-dev-cli/src/commands/gerrit",
     "tools/emu-dev-cli/src/core/web",
-    "tools/emu-dev-cli/src/templates/gerrit_ui.html",
     "tools/emu-dev-cli/src/templates/gerrit_ui_polygerrit.html",
+    "tools/emu-dev-cli/src/templates/gerrit_ui_react.bundle.js",
+    "tools/emu-dev-cli/src/ui/gerrit/styles",
+    "tools/emu-dev-cli/src/ui/gerrit/scripts",
+    "tools/emu-dev-cli/src/ui/gerrit/partials",
     "tools/emu-dev-cli/src/lib/gerrit_api.py",
     "tools/emu-dev-cli/src/lib/web_security.py",
     "tools/emu-dev-cli/harness/plugin/sidecars/aemu_gerrit_ui",
@@ -109,15 +112,33 @@ def collect_installed_gerrit_blobs(lib_dir: Path) -> dict[str, str]:
         blobs,
     )
     _collect_dir_blobs(
+        lib_dir / "ui" / "gerrit" / "styles",
+        "tools/emu-dev-cli/src/ui/gerrit/styles",
+        blobs,
+    )
+    _collect_dir_blobs(
+        lib_dir / "ui" / "gerrit" / "scripts",
+        "tools/emu-dev-cli/src/ui/gerrit/scripts",
+        blobs,
+    )
+    _collect_dir_blobs(
+        lib_dir / "ui" / "gerrit" / "partials",
+        "tools/emu-dev-cli/src/ui/gerrit/partials",
+        blobs,
+    )
+    _collect_dir_blobs(
         _resolve_installed_sidecar_dir(lib_dir),
         "tools/emu-dev-cli/harness/plugin/sidecars/aemu_gerrit_ui",
         blobs,
     )
     single_files = (
-        (lib_dir / "templates" / "gerrit_ui.html", "tools/emu-dev-cli/src/templates/gerrit_ui.html"),
         (
             lib_dir / "templates" / "gerrit_ui_polygerrit.html",
             "tools/emu-dev-cli/src/templates/gerrit_ui_polygerrit.html",
+        ),
+        (
+            lib_dir / "templates" / "gerrit_ui_react.bundle.js",
+            "tools/emu-dev-cli/src/templates/gerrit_ui_react.bundle.js",
         ),
         (lib_dir / "lib" / "gerrit_api.py", "tools/emu-dev-cli/src/lib/gerrit_api.py"),
         (lib_dir / "lib" / "web_security.py", "tools/emu-dev-cli/src/lib/web_security.py"),

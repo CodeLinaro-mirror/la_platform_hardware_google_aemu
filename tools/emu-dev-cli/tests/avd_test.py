@@ -96,8 +96,8 @@ class AvdLibTest(unittest.TestCase):
 
     def test_get_avd_paths(self):
         ini_p, avd_p = get_avd_paths("test-phone", avd_root="/tmp/avds")
-        self.assertEqual(ini_p, "/tmp/avds/test-phone.ini")
-        self.assertEqual(avd_p, "/tmp/avds/test-phone.avd")
+        self.assertEqual(ini_p, os.path.join("/tmp/avds", "test-phone.ini"))
+        self.assertEqual(avd_p, os.path.join("/tmp/avds", "test-phone.avd"))
 
     def test_create_single_avd(self):
         res = create_single_avd(

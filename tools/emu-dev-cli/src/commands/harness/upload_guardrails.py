@@ -207,7 +207,19 @@ def _read_review_payload_finding_count(
             f"(expected a JSON object mapping file paths to comment lists, got {bad_comments}). "
             f"Execute `run_workflow(ScriptPath=\"{script_path}\")` to regenerate a valid payload.",
         )
-    return sum(len(items) for items in comments_map.values()), None
+    blocking_count = 0
+    for items in comments_map.values():
+        for item in items:
+            if not isinstance(item, dict):
+                blocking_count += 1
+                continue
+            raw_sev = str(
+                item.get("severity")
+                or ("blocking" if item.get("unresolved", True) else "warning")
+            ).strip().lower()
+            if raw_sev == "blocking":
+                blocking_count += 1
+    return blocking_count, None
 
 
 def _verify_cached_review_payload(bundle: Dict[str, Any], repo_dir: Path) -> Tuple[bool, str]:

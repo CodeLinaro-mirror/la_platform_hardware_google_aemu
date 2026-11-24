@@ -581,7 +581,9 @@ def extract_artifacts_from_metadata(
         elif isinstance(data, (list, tuple)):
             for idx, item in enumerate(data):
                 _walk(item, f"{prefix}[{idx}]", current_source)
-        elif isinstance(data, str) and (data.startswith("/") or data.startswith("~")):
+        elif isinstance(data, str) and (
+            data.startswith("/") or data.startswith("~") or os.path.isabs(data)
+        ):
             p = Path(os.path.expanduser(data))
             if p.is_file():
                 canonical_path = str(p.resolve())
@@ -828,7 +830,9 @@ def create_composed_session(
     state_id = uuid.uuid4().hex[:8]
 
     wf_state_dir = base_dir / workflow_name
-    wf_state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    wf_state_dir.mkdir(
+        parents=True, exist_ok=True, mode=(0o777 if os.name == "nt" else 0o700)
+    )
 
     step_names = [
         s.get("title") or s.get("name") or s.get("workflow_name") or f"Step {i}"
@@ -1562,7 +1566,9 @@ def poke_conversation(
             effective_cwd = str(Path(ws).resolve())
 
     log_dir = get_jetski_brain_dir() / cid / ".system_generated" / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    log_dir.mkdir(
+        parents=True, exist_ok=True, mode=(0o777 if os.name == "nt" else 0o700)
+    )
     log_path = log_dir / "ui_poke.log"
 
     cmd = [
@@ -1712,7 +1718,9 @@ def launch_jetski_for_session(
         cwd = str(Path(str(repo_val)).resolve())
 
     cache_dir = Path(metadata.get("cache-dir") or (base_dir / workflow_name))
-    cache_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    cache_dir.mkdir(
+        parents=True, exist_ok=True, mode=(0o777 if os.name == "nt" else 0o700)
+    )
     log_path = cache_dir / f"jetski_agent_{state_id}.log"
 
     # Always attach to existing_conv_id if this session already has a conversation

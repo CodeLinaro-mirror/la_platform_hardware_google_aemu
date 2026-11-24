@@ -229,73 +229,36 @@ platforms.
 
 #### Authentication Protocol & macOS Workstation Handling (`--token`)
 Android Test Hub and Android Build internal endpoints require an OAuth2 token with
-`https://www.googleapis.com/auth/androidbuild.internal`.
-
-On **macOS workstations**, standard `oauth2l fetch` grants public cloud-platform credentials which
-return `HTTP 403 Forbidden` (`ACCESS_TOKEN_SCOPE_INSUFFICIENT`).
-
-**Agent Execution Protocol when running on macOS (`sys.platform == 'darwin'`):**
-
-1. **Environment Check**: Check if `ANDROID_BUILD_TOKEN` environment variable or `--token <token>`
-   argument is set.
-2. **Automated Remote SSH Fetch**: If an SSH connection to a GLinux machine (`$GLINUX_HOST` or
-   `$USER.c.googlers.com`) is available, `OAuthTokenManager` automatically fetches the token via
-   SSH.
-3. **Interactive Escalation**: If an auth failure (`HTTP 403`) occurs, the agent MUST interactively
-   ask the user to run:
-   ```bash
-   oauth2l fetch --sso $USER@google.com androidbuild.internal
-   ```
-   and either set `export ANDROID_BUILD_TOKEN="<token>"` or supply `--token "<token>"`.
+`https://www.googleapis.com/auth/androidbuild.internal`. On **macOS workstations** (`sys.platform == 'darwin'`), standard `oauth2l fetch` returns `HTTP 403 Forbidden` (`ACCESS_TOKEN_SCOPE_INSUFFICIENT`):
+1. Check `ANDROID_BUILD_TOKEN` or `--token <token>`.
+2. `OAuthTokenManager` auto-fetches via SSH to `$GLINUX_HOST` or `$USER.c.googlers.com` when available.
+3. On `HTTP 403`, ask the user to run `oauth2l fetch --sso $USER@google.com androidbuild.internal` and set `export ANDROID_BUILD_TOKEN="<token>"` or pass `--token "<token>"`.
 
 #### 10.1 List Flaky Tests (`flakiness list`)
-Scans Android Test Hub (ATH) / AnTS invocations over a time window and aggregates test failure rates
-into an aligned Markdown table (or JSON with `--json`).
+Scans Android Test Hub (ATH) / AnTS invocations over a time window and aggregates test failure rates (`--json` for JSON):
 ```bash
-# List flaky tests on TSAN with failure rate >= 10% across the last 7 days
 emu-dev-cli flakiness list --target emulator_linux_x64_tsan --mode all --min-flake-rate 10.0 --days 7
-
-# List all flaky tests across all 5 target platforms combined
 emu-dev-cli flakiness list --target all --mode all --min-flake-rate 5.0
-
-# Machine-readable output for programmatic agent parsing
 emu-dev-cli --json flakiness list --target emulator_linux_x64_tsan
 ```
 #### 10.2 Inspect Individual Test History (`flakiness history`)
-Retrieves chronological execution records for a specific test target, showing pass/fail status,
-timestamps, build IDs, invocation IDs, target platforms, and direct clickable Fusion2 links.
+Retrieves chronological execution records (status, timestamps, build/invocation IDs, platforms, Fusion2 links):
 ```bash
-# Query execution history for hal_plug_adapter_unittests on TSAN
 emu-dev-cli flakiness history --test @@goldfish+//emulator/plugin/hal/plug:hal_plug_adapter_unittests --target emulator_linux_x64_tsan --days 7 --limit 25
-
-# Query history across all platforms to compare Linux vs Windows vs Mac
 emu-dev-cli flakiness history --test @@goldfish+//emulator/libs/async:loop_handoff_test --target all --days 3
 ```
 #### 10.3 Inspect Sponge & ResultStore Logs (`flakiness sponge`)
-Queries ResultStore via Stubby RPC to inspect build/test actions, failure exit codes, error
-messages, process execution durations, and diagnostic file URIs (`test.log`, `test.xml`) for any
-Sponge / Fusion2 invocation UUID or URL:
+Queries ResultStore via Stubby RPC to inspect build/test actions, exit codes, errors, durations, and file URIs (`test.log`, `test.xml`) for any Sponge / Fusion2 invocation UUID or URL:
 ```bash
-# 1. Inspect a specific invocation by UUID or Fusion2 URL
 emu-dev-cli flakiness sponge --invocation 82bbf192-5d6f-418c-bef7-fdecb58fba26
-
-# 2. Inspect invocation and filter for a specific test target
 emu-dev-cli flakiness sponge --invocation 82bbf192-5d6f-418c-bef7-fdecb58fba26 --test @@goldfish+//emulator/launcher:can_boot_with_minigbm
-
-# 3. Automatically inspect the latest 3 failed invocations for a flaky test on macOS
 emu-dev-cli flakiness sponge --test @@goldfish+//emulator/launcher:can_boot_with_minigbm --target emulator_mac_aarch64 --latest-failures 3
-
-# 4. Output machine-readable JSON for automated agent triage
 emu-dev-cli --json flakiness sponge --invocation 82bbf192-5d6f-418c-bef7-fdecb58fba26
 ```
 #### 10.4 Fetch Diagnostic Artifacts (`flakiness fetch-logs`)
-Downloads logcat files, host stdout/stderr logs, thread dumps, Perfetto traces, and ResultStore /
-Sponge summaries for any invocation ID (`I...` or UUID).
+Downloads logcat, host stdout/stderr, thread dumps, Perfetto traces, and ResultStore/Sponge summaries for any invocation ID (`I...` or UUID):
 ```bash
-# Fetch host log for an invocation
 emu-dev-cli flakiness fetch-logs --invocation-id I99100010599127182 --artifact-type HOST_LOG
-
-# Fetch all logs, ResultStore action summaries, and traces to a custom directory
 emu-dev-cli flakiness fetch-logs --invocation-id I99100010599127182 --artifact-type ALL --out-dir /tmp/test_logs/
 ```
 #### 10.5 Reproduce Flakes Locally (`flakiness reproduce`)
@@ -432,6 +395,16 @@ emu-dev-cli sbom diff /tmp/old.spdx.json /tmp/new.spdx.json
 Uploads `.mp4`, `.webm`, or `.mov` videos to `screencast.googleplex.com` (gLinux/gMac/gWindows via `gosso`):
 ```bash
 emu-dev-cli screencast /tmp/demo.mp4 [--title "Title" --description "Notes" --dry-run]
+```
+
+### 12.8 Emulator User-Experience Stability & Soak Suite (`stability`)
+Runs continuous developer-session soaks (`dev-loop`), Quickboot snapshot torture (`snapshot-stress`), and Studio gRPC/streaming stress (`ui-control`) across tiers (`smoke`, `standard`, `soak`) with Real-Studio defaults (`-gpu auto`, audio on, `-no-window`). Computes 3-state verdicts (`PASS`/`DEGRADED`/`FAIL`) over RSS slope, FD/handle growth, `system_server` restarts, DropBox ANRs/tombstones, frame freshness, and input latency, archiving forensic bundles on failure:
+```bash
+emu-dev-cli stability list
+emu-dev-cli stability run --target latest:emu-main-next --tier smoke
+emu-dev-cli stability compare stable latest:emu-main-next --tier smoke -o /tmp/stability_ab.json
+emu-dev-cli stability history --limit 20
+emu-dev-cli workflow qualify-stability init [--target latest:emu-main-next --tier smoke]
 ```
 
 ### 13. Common Natural Language Requests & Agent Action Mapping
